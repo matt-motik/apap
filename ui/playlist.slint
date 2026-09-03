@@ -1,0 +1,36 @@
+import { StandardTableView } from "std-widgets.slint";
+
+export component Playlist inherits Rectangle {
+    in property <[[StandardListViewItem]]> rows: [
+        [{ text: "No tracks" }]
+    ];
+    in property <[TableColumn]> cols: [{ title: "Title", width: 200px }];
+    in property <int> current-row: -1;
+
+    callback play-track(int);
+    callback sort-ascending(int);
+    callback sort-descending(int);
+
+    background: #161420;
+    border-radius: 4px;
+    border-width: 1px;
+    border-color: #252332;
+
+    StandardTableView {
+        rows: root.rows;
+        columns: root.cols;
+        current-row: root.current-row;
+
+        sort-ascending(col) => {
+            root.sort-ascending(col);
+        }
+        sort-descending(col) => {
+            root.sort-descending(col);
+        }
+        row-pointer-event(row, event) => {
+            if (event.kind == PointerEventKind.up) {
+                root.play-track(row);
+            }
+        }
+    }
+}

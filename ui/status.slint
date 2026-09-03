@@ -1,0 +1,42 @@
+export component StatusBar inherits Rectangle {
+    in property <string> status-text: "Stopped";
+    in property <string> track-info: "";
+    in property <string> track-count: "0 tracks";
+
+    background: #161420;
+    border-width: 1px;
+    border-color: #252332;
+
+    HorizontalLayout {
+        padding-left: 12px;
+        padding-right: 16px;
+        spacing: 8px;
+        alignment: center;
+
+        Text {
+            text: root.status-text;
+            color: #a5a2b8;
+            font-size: 12px;
+            overflow: elide;
+            vertical-alignment: center;
+        }
+
+        Rectangle { } // stretch spacer
+
+        Text {
+            text: root.track-info;
+            color: #635f75;
+            font-size: 12px;
+            overflow: elide;
+            vertical-alignment: center;
+            horizontal-alignment: right;
+        }
+        Text {
+            text: root.track-count;
+            color: #635f75;
+            font-size: 12px;
+            vertical-alignment: center;
+            horizontal-alignment: right;
+        }
+    }
+}

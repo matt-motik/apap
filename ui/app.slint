@@ -1,155 +1,242 @@
-import { Button, Slider } from "std-widgets.slint";
+import { TopPanel } from "top_panel.slint";
+import { Playlist } from "playlist.slint";
+import { StatusBar } from "status.slint";
+import { Settings, ColumnSetting } from "settings.slint";
+
+component MenuButton inherits Rectangle {
+    in property <string> text: "";
+    callback clicked;
+
+    width: 72px;
+    height: 26px;
+    border-radius: 4px;
+    background: touch.pressed ? #2d2a3e : (touch.has-hover ? #252332 : transparent);
+
+    Text {
+        text: root.text;
+        color: #c9c6da;
+        font-size: 12px;
+        horizontal-alignment: center;
+        vertical-alignment: center;
+    }
+
+    touch := TouchArea {
+        clicked => { root.clicked(); }
+    }
+}
+
+component AppMenuBar inherits Rectangle {
+    callback add-files();
+    callback add-folder();
+    callback save-playlist();
+    callback load-playlist();
+    callback open-settings();
+    callback show-about();
+
+    height: 34px;
+    background: #1c1a26;
+
+    HorizontalLayout {
+        spacing: 4px;
+        padding-left: 8px;
+        padding-right: 8px;
+        alignment: center;
+
+        MenuButton { text: "Add Files"; clicked => { root.add-files(); } }
+        MenuButton { text: "Add Folder"; clicked => { root.add-folder(); } }
+        MenuButton { text: "Save"; clicked => { root.save-playlist(); } }
+        MenuButton { text: "Open"; clicked => { root.load-playlist(); } }
+        Rectangle { }
+        MenuButton { text: "About"; clicked => { root.show-about(); } }
+        MenuButton { text: "Settings"; clicked => { root.open-settings(); } }
+    }
+}
 
 export component AppWindow inherits Window {
     title: "Music Player";
-    min-width: 1000px;
-    min-height: 600px;
-    background: #111019;
+    preferred-width: 1200px;
+    preferred-height: 760px;
+    background: #14121d;
 
-    in property <float> volume: 1.0;
-    in-out property <bool> muted: false;
-    in-out property <bool> repeat: false;
-    in-out property <bool> shuffle: false;
-    in-out property <bool> playing: false;
-    in-out property <int> current-row: -1;
-    in-out property <string> pos: "0:00";
-    in-out property <string> dur: "0:00";
-    in-out property <string> status: "";
+    in property <float> cover-size: 200;
+    in property <float> col-info-w: 240;
+    in property <float> col-gap: 12;
+
+    in property <bool> playing: false;
+    in property <bool> repeat: false;
+    in property <bool> repeat-one: false;
+    in property <bool> shuffle: false;
+    in property <bool> muted: false;
+    in property <float> volume: 0.8;
+    in property <float> seek-fraction: 0.0;
+    in property <string> pos: "0:00";
+    in property <string> dur: "0:00";
+
+    in property <string> status-text: "Stopped";
+    in property <string> track-info: "";
+    in property <string> track-count: "0 tracks";
+
+    in property <string> info-artist: "—";
+    in property <string> info-track: "—";
+    in property <string> info-title: "—";
+    in property <string> info-duration: "—";
+    in property <string> info-year: "—";
+    in property <string> info-album: "—";
+    in property <string> info-disc: "—";
+    in property <string> info-genre: "—";
+    in property <string> info-format: "—";
+    in property <string> info-bitrate: "—";
+    in property <string> info-bit-depth: "—";
+    in property <string> info-sample-rate: "—";
+    in property <string> info-channels: "—";
+
+    in property <[[StandardListViewItem]]> playlist-rows: [
+        [{ text: "No tracks" }]
+    ];
+    in property <[TableColumn]> playlist-cols: [{ title: "Title", width: 200px }];
+    in property <int> current-row: -1;
+
+    in property <bool> settings-open: false;
+    in property <int> settings-theme: 0;
+    in property <bool> settings-minimize: false;
+    in property <[string]> settings-devices: [];
+    in property <int> settings-device-idx: -1;
+    in property <string> settings-active-device: "";
+    in property <string> settings-codec-info: "";
+    in property <string> settings-active-error: "";
+    in property <[ColumnSetting]> settings-cols: [];
+    in property <int> settings-selected-col: -1;
 
     callback play-pause();
     callback stop();
+    callback prev-track();
+    callback next-track();
+    callback toggle-repeat();
+    callback toggle-shuffle();
     callback seek(float);
     callback volume-changed(float);
     callback toggle-mute();
     callback play-track(int);
     callback sort-ascending(int);
     callback sort-descending(int);
-    callback prev-track();
-    callback next-track();
-    callback toggle-repeat();
-    callback toggle-shuffle();
+    callback open-settings();
+    callback add-files();
+    callback add-folder();
+    callback save-playlist();
+    callback load-playlist();
+    callback settings-close();
+    callback settings-theme-changed(int);
+    callback settings-cover-size(float);
+    callback settings-col-info-w(float);
+    callback settings-col-gap(float);
+    callback settings-toggle-minimize(bool);
+    callback settings-device(string);
+    callback settings-refresh-devices();
+    callback settings-toggle-col(int);
+    callback settings-reset-cols();
+    callback settings-move-col-up(int);
+    callback settings-move-col-down(int);
+    callback settings-clear-playlist();
+    callback settings-remove-current();
+    callback show-about();
 
     VerticalLayout {
-        padding: 10px;
-        spacing: 15px;
+        spacing: 0;
 
-        // Верхнее меню
-        HorizontalLayout {
-            alignment: start;
-            spacing: 15px;
-            Text { text: "File"; color: #a5a2b8; font-size: 13px; }
-            Text { text: "Playback"; color: #a5a2b8; font-size: 13px; }
-            Text { text: "Visualization"; color: #a5a2b8; font-size: 13px; }
-            Text { text: "Settings"; color: #a5a2b8; font-size: 13px; }
+        TopPanel {
+            horizontal-stretch: 1;
+            cover-size: root.cover-size;
+            col-info-w: root.col-info-w;
+            col-gap: root.col-gap;
+            playing: root.playing;
+            repeat: false;
+            repeat-one: root.repeat-one;
+            shuffle: root.shuffle;
+            muted: root.muted;
+            volume: root.volume;
+            seek-fraction: root.seek-fraction;
+            pos: root.pos;
+            dur: root.dur;
+            info-artist: root.info-artist;
+            info-track: root.info-track;
+            info-title: root.info-title;
+            info-duration: root.info-duration;
+            info-year: root.info-year;
+            info-album: root.info-album;
+            info-disc: root.info-disc;
+            info-genre: root.info-genre;
+            info-format: root.info-format;
+            info-bitrate: root.info-bitrate;
+            info-bit-depth: root.info-bit-depth;
+            info-sample-rate: root.info-sample-rate;
+            info-channels: root.info-channels;
+            play-pause => { root.play-pause(); }
+            stop => { root.stop(); }
+            prev-track => { root.prev-track(); }
+            next-track => { root.next-track(); }
+            toggle-repeat => { root.toggle-repeat(); }
+            toggle-shuffle => { root.toggle-shuffle(); }
+            seek(v) => { root.seek(v); }
+            volume-changed(v) => { root.volume-changed(v); }
+            toggle-mute => { root.toggle-mute(); }
         }
 
-        // Верхняя рабочая панель
-        HorizontalLayout {
-            spacing: 20px;
-            height: 180px;
-
-            // Обложка + кнопки
-            VerticalLayout {
-                width: 150px;
-                spacing: 10px;
-
-                Rectangle {
-                    width: 130px;
-                    height: 130px;
-                    background: #252332;
-                    border-radius: 4px;
-                    Text {
-                        text: "Album Art";
-                        color: #e67e22;
-                        font-size: 16px;
-                        font-weight: 700;
-                        horizontal-alignment: center;
-                        vertical-alignment: center;
-                    }
-                }
-
-                HorizontalLayout {
-                    alignment: space-around;
-                    Rectangle {
-                        width: 30px;
-                        height: 30px;
-                        TouchArea { clicked => { root.prev-track(); } }
-                        Text { text: "⏮"; color: #fff; font-size: 16px; horizontal-alignment: center; vertical-alignment: center; }
-                    }
-                    Rectangle {
-                        width: 30px;
-                        height: 30px;
-                        TouchArea { clicked => { root.play-pause(); } }
-                        Text { text: root.playing ? "⏸" : "▶"; color: #fff; font-size: 16px; horizontal-alignment: center; vertical-alignment: center; }
-                    }
-                    Rectangle {
-                        width: 30px;
-                        height: 30px;
-                        TouchArea { clicked => { root.stop(); } }
-                        Text { text: "⏹"; color: #fff; font-size: 16px; horizontal-alignment: center; vertical-alignment: center; }
-                    }
-                    Rectangle {
-                        width: 30px;
-                        height: 30px;
-                        TouchArea { clicked => { root.next-track(); } }
-                        Text { text: "⏭"; color: #fff; font-size: 16px; horizontal-alignment: center; vertical-alignment: center; }
-                    }
-                }
-            }
-
-            // Инфо о треке
-            VerticalLayout {
-                width: 200px;
-                spacing: 5px;
-                alignment: start;
-                Text { text: "Track Info"; color: #8e8a9f; font-size: 14px; }
-                Text { text: root.status; color: #fff; font-size: 12px; }
-            }
-
-            // Визуализатор + seek
-            VerticalLayout {
-                spacing: 5px;
-
-                Rectangle {
-                    background: #181622;
-                    border-width: 1px;
-                    border-color: #2d2a3e;
-
-                    VerticalLayout {
-                        alignment: start;
-                        Rectangle {
-                            height: 70%;
-                            width: 100%;
-                            background: @linear-gradient(90deg, #d35400 0%, #f1c40f 50%, #e74c3c 100%);
-                            opacity: 0.7;
-                        }
-                    }
-                }
-
-                HorizontalLayout {
-                    spacing: 10px;
-                    Text { text: root.pos; color: #8e8a9f; font-size: 11px; vertical-alignment: center; }
-                    Slider {
-                        minimum: 0;
-                        maximum: 100;
-                        value: 5;
-                        changed(v) => { root.seek(v / 100.0); }
-                    }
-                    Text { text: root.dur; color: #8e8a9f; font-size: 11px; vertical-alignment: center; }
-                }
-            }
+        AppMenuBar {
+            add-files => { root.add-files(); }
+            add-folder => { root.add-folder(); }
+            save-playlist => { root.save-playlist(); }
+            load-playlist => { root.load-playlist(); }
+            open-settings => { root.open-settings(); }
+            show-about => { root.show-about(); }
         }
 
-        // Статус-бар
-        HorizontalLayout {
-            height: 25px;
-            padding: 5px;
-            Text {
-                text: root.status;
-                color: #8e8a9f;
-                font-size: 12px;
-                width: 100%;
-            }
+        Playlist {
+            horizontal-stretch: 1;
+            vertical-stretch: 1;
+            rows: root.playlist-rows;
+            cols: root.playlist-cols;
+            current-row: root.current-row;
+            play-track(i) => { root.play-track(i); }
+            sort-ascending(c) => { root.sort-ascending(c); }
+            sort-descending(c) => { root.sort-descending(c); }
         }
+
+        StatusBar {
+            status-text: root.status-text;
+            track-info: root.track-info;
+            track-count: root.track-count;
+        }
+    }
+
+    Settings {
+        width: 100%;
+        height: 100%;
+        open: root.settings-open;
+        theme: root.settings-theme;
+        cover-size: root.cover-size;
+        col-info-w: root.col-info-w;
+        col-gap: root.col-gap;
+        minimize-to-tray: root.settings-minimize;
+        audio-devices: root.settings-devices;
+        audio-device-idx: root.settings-device-idx;
+        active-device: root.settings-active-device;
+        codec-info: root.settings-codec-info;
+        active-error: root.settings-active-error;
+        columns-cfg: root.settings-cols;
+        selected-col: root.settings-selected-col;
+        close => { root.settings-close(); }
+        set-theme(i) => { root.settings-theme-changed(i); }
+        set-cover-size(v) => { root.settings-cover-size(v); }
+        set-col-info-w(v) => { root.settings-col-info-w(v); }
+        set-col-gap(v) => { root.settings-col-gap(v); }
+        set-minimize-to-tray(b) => { root.settings-toggle-minimize(b); }
+        set-audio-device(s) => { root.settings-device(s); }
+        refresh-devices => { root.settings-refresh-devices(); }
+        toggle-column(i) => { root.settings-toggle-col(i); }
+        reset-columns => { root.settings-reset-cols(); }
+        move-col-up(i) => { root.settings-move-col-up(i); }
+        move-col-down(i) => { root.settings-move-col-down(i); }
+        clear-playlist => { root.settings-clear-playlist(); }
+        remove-current => { root.settings-remove-current(); }
     }
 }

@@ -1,0 +1,212 @@
+import { TabWidget, ComboBox, Slider, Switch, Button, ListView } from "std-widgets.slint";
+
+export struct ColumnSetting {
+    index: int,
+    label: string,
+    visible: bool,
+}
+
+component RowLabel inherits Text {
+    in property <color> text-color: #a5a2b8;
+    color: root.text-color;
+    font-size: 12px;
+    vertical-alignment: center;
+}
+
+export component Settings inherits Rectangle {
+    in property <bool> open: false;
+    in property <int> theme: 0;
+    in property <float> cover-size: 200;
+    in property <float> col-info-w: 240;
+    in property <float> col-gap: 12;
+    in property <bool> minimize-to-tray: false;
+    in property <[string]> audio-devices: [];
+    in property <int> audio-device-idx: -1;
+    in property <string> active-device: "";
+    in property <string> codec-info: "";
+    in property <string> active-error: "";
+    in property <[ColumnSetting]> columns-cfg: [];
+    in-out property <int> selected-col: -1;
+
+    callback close();
+    callback set-theme(int);
+    callback set-cover-size(float);
+    callback set-col-info-w(float);
+    callback set-col-gap(float);
+    callback set-minimize-to-tray(bool);
+    callback set-audio-device(string);
+    callback refresh-devices();
+    callback toggle-column(int);
+    callback reset-columns();
+    callback move-col-up(int);
+    callback move-col-down(int);
+    callback clear-playlist();
+    callback remove-current();
+
+    visible: root.open;
+    background: #00000088;
+
+    Rectangle {
+        width: 640px;
+        height: 480px;
+        x: (parent.width - self.width) / 2;
+        y: (parent.height - self.height) / 2;
+        background: #161420;
+        border-radius: 8px;
+        border-width: 1px;
+        border-color: #2d2a3e;
+
+        VerticalLayout {
+            padding: 12px;
+
+            HorizontalLayout {
+                Rectangle { }
+                Button {
+                    text: "✕";
+                    clicked => { root.close(); }
+                }
+            }
+
+            TabWidget {
+                Tab {
+                    title: "General";
+                    VerticalLayout {
+                        spacing: 10px;
+                        RowLabel { text: "Theme"; }
+                        ComboBox {
+                            model: ["Dark", "Light"];
+                            current-index: root.theme;
+                            selected(s) => { root.set-theme(s == "Light" ? 1 : 0); }
+                        }
+                        RowLabel { text: "Cover size"; }
+                        Slider {
+                            minimum: 100;
+                            maximum: 400;
+                            value: root.cover-size;
+                            changed(v) => { root.set-cover-size(v); }
+                        }
+                        RowLabel { text: "Info column width"; }
+                        Slider {
+                            minimum: 200;
+                            maximum: 400;
+                            value: root.col-info-w;
+                            changed(v) => { root.set-col-info-w(v); }
+                        }
+                        RowLabel { text: "Column gap"; }
+                        Slider {
+                            minimum: 0;
+                            maximum: 20;
+                            value: root.col-gap;
+                            changed(v) => { root.set-col-gap(v); }
+                        }
+                        Switch {
+                            text: "Minimize to tray on close";
+                            checked: root.minimize-to-tray;
+                            toggled => { root.set-minimize-to-tray(self.checked); }
+                        }
+                    }
+                }
+
+                Tab {
+                    title: "Audio";
+                    VerticalLayout {
+                        spacing: 10px;
+                        RowLabel { text: "Audio device"; }
+                        ComboBox {
+                            model: root.audio-devices;
+                            current-index: root.audio-device-idx;
+                            selected(s) => { root.set-audio-device(s); }
+                        }
+                        Button {
+                            text: "Refresh devices";
+                            clicked => { root.refresh-devices(); }
+                        }
+                        RowLabel { text: "Active: " + root.active-device; }
+                        RowLabel { text: root.codec-info; }
+                        RowLabel {
+                            color: #dc5046;
+                            text: root.active-error;
+                            visible: root.active-error != "";
+                        }
+                    }
+                }
+
+                Tab {
+                    title: "Columns";
+                    VerticalLayout {
+                        spacing: 6px;
+                        RowLabel { text: "Visibility"; }
+                        VerticalLayout {
+                            for col in root.columns-cfg : HorizontalLayout {
+                                spacing: 8px;
+                                Switch {
+                                    text: col.label;
+                                    checked: col.visible;
+                                    toggled => { root.toggle-column(col.index); }
+                                }
+                            }
+                        }
+                        RowLabel { text: "Order (select a column, then move)"; }
+                        HorizontalLayout {
+                            spacing: 8px;
+                            ListView {
+                                horizontal-stretch: 1;
+                                vertical-stretch: 1;
+                                for col in root.columns-cfg : Rectangle {
+                                    height: 28px;
+                                    background: root.selected-col == col.index ? #2d2a3e : transparent;
+                                    touch := TouchArea {
+                                        clicked => { root.selected-col = col.index; }
+                                    }
+                                    HorizontalLayout {
+                                        padding-left: 8px;
+                                        padding-right: 8px;
+                                        alignment: center;
+                                        Text {
+                                            text: col.label;
+                                            color: #c9c6da;
+                                            font-size: 12px;
+                                            vertical-alignment: center;
+                                        }
+                                    }
+                                }
+                            }
+                            VerticalLayout {
+                                spacing: 6px;
+                                Button {
+                                    text: "▲ Up";
+                                    enabled: root.selected-col > 0;
+                                    clicked => { root.move-col-up(root.selected-col); }
+                                }
+                                Button {
+                                    text: "▼ Down";
+                                    enabled: root.selected-col >= 0 && root.selected-col < root.columns-cfg.length - 1;
+                                    clicked => { root.move-col-down(root.selected-col); }
+                                }
+                            }
+                        }
+                        Button {
+                            text: "Reset column widths";
+                            clicked => { root.reset-columns(); }
+                        }
+                    }
+                }
+
+                Tab {
+                    title: "Playlist";
+                    VerticalLayout {
+                        spacing: 10px;
+                        Button {
+                            text: "Remove current track";
+                            clicked => { root.remove-current(); }
+                        }
+                        Button {
+                            text: "Clear playlist";
+                            clicked => { root.clear-playlist(); }
+                        }
+                    }
+                }
+            }
+        }
+    }
+}

@@ -1,0 +1,264 @@
+import { Slider, ScrollView } from "std-widgets.slint";
+
+component VerticalSeparator inherits Rectangle {
+    in property <float> gap: 12;
+    width: root.gap * 2px + 1px;
+    background: transparent;
+
+    Rectangle {
+        width: 1px;
+        height: 100%;
+        x: root.width / 2;
+        background: #2d2a3e;
+    }
+}
+
+component InfoRow inherits Rectangle {
+    in property <string> label: "";
+    in property <string> value: "—";
+
+    HorizontalLayout {
+        spacing: 8px;
+        Text {
+            text: root.label;
+            color: #8e8a9f;
+            font-size: 12px;
+        }
+        Text {
+            text: root.value;
+            color: #ffffff;
+            font-size: 12px;
+            overflow: elide;
+            horizontal-stretch: 1;
+        }
+    }
+}
+
+component IconButton inherits Rectangle {
+    in property <image> icon: @image-url("icons/play.svg");
+    in property <bool> active: false;
+    in property <brush> active-bg: #3a2f1f;
+    callback clicked;
+
+    width: 34px;
+    height: 34px;
+    border-radius: 6px;
+    background: touch.pressed ? #2d2a3e : (root.active ? root.active-bg : #1c1a26);
+
+    Image {
+        source: root.icon;
+        width: 20px;
+        height: 20px;
+        x: (parent.width - self.width) / 2;
+        y: (parent.height - self.height) / 2;
+    }
+
+    touch := TouchArea {
+        clicked => { root.clicked(); }
+    }
+}
+
+export component TopPanel inherits Rectangle {
+    in property <float> cover-size: 200;
+    in property <float> col-info-w: 240;
+    in property <float> col-gap: 12;
+
+    in property <bool> playing: false;
+    in property <bool> repeat: false;
+    in property <bool> repeat-one: false;
+    in property <bool> shuffle: false;
+    in property <bool> muted: false;
+    in property <float> volume: 0.8;
+    in property <float> seek-fraction: 0.0;
+    in property <string> pos: "0:00";
+    in property <string> dur: "0:00";
+
+    in property <string> info-artist: "—";
+    in property <string> info-track: "—";
+    in property <string> info-title: "—";
+    in property <string> info-duration: "—";
+    in property <string> info-year: "—";
+    in property <string> info-album: "—";
+    in property <string> info-disc: "—";
+    in property <string> info-genre: "—";
+    in property <string> info-format: "—";
+    in property <string> info-bitrate: "—";
+    in property <string> info-bit-depth: "—";
+    in property <string> info-sample-rate: "—";
+    in property <string> info-channels: "—";
+
+    callback play-pause();
+    callback stop();
+    callback prev-track();
+    callback next-track();
+    callback toggle-repeat();
+    callback toggle-shuffle();
+    callback seek(float);
+    callback volume-changed(float);
+    callback toggle-mute();
+
+    background: transparent;
+
+    HorizontalLayout {
+        spacing: 0;
+
+        // ---------- Col 0: cover + transport ----------
+        VerticalLayout {
+            alignment: center;
+            spacing: 12px;
+
+            Rectangle {
+                width: root.cover-size * 1px;
+                height: root.cover-size * 1px;
+                border-radius: 6px;
+                background: #252332;
+
+                VerticalLayout {
+                    padding: 8px;
+                    Text {
+                        text: "Album Art";
+                        color: #8e8a9f;
+                        font-size: 14px;
+                        horizontal-alignment: center;
+                        vertical-alignment: center;
+                        wrap: word-wrap;
+                    }
+                }
+            }
+
+            HorizontalLayout {
+                spacing: 6px;
+                IconButton { icon: @image-url("icons/prev.svg"); clicked => { root.prev-track(); } }
+                IconButton {
+                    icon: root.playing ? @image-url("icons/pause.svg") : @image-url("icons/play.svg");
+                    active: root.playing;
+                    clicked => { root.play-pause(); }
+                }
+                IconButton { icon: @image-url("icons/stop.svg"); clicked => { root.stop(); } }
+                IconButton { icon: @image-url("icons/next.svg"); clicked => { root.next-track(); } }
+                IconButton {
+                    icon: @image-url("icons/repeat.svg");
+                    active: root.repeat;
+                    clicked => { root.toggle-repeat(); }
+                }
+                IconButton {
+                    icon: @image-url("icons/shuffle.svg");
+                    active: root.shuffle;
+                    clicked => { root.toggle-shuffle(); }
+                }
+            }
+        }
+
+        // vertical separator
+        VerticalSeparator { gap: root.col-gap; }
+
+        // ---------- Col 1: track info (13 fields) ----------
+        Rectangle {
+            width: root.col-info-w * 1px;
+
+            ScrollView {
+                VerticalLayout {
+                    padding: 8px;
+                    spacing: 6px;
+                    InfoRow { label: "Artist"; value: root.info-artist; }
+                    InfoRow { label: "Track"; value: root.info-track; }
+                    InfoRow { label: "Title"; value: root.info-title; }
+                    InfoRow { label: "Duration"; value: root.info-duration; }
+                    InfoRow { label: "Year"; value: root.info-year; }
+                    InfoRow { label: "Album"; value: root.info-album; }
+                    InfoRow { label: "Disc"; value: root.info-disc; }
+                    InfoRow { label: "Genre"; value: root.info-genre; }
+                    InfoRow { label: "Format"; value: root.info-format; }
+                    InfoRow { label: "Bitrate"; value: root.info-bitrate; }
+                    InfoRow { label: "Bit depth"; value: root.info-bit-depth; }
+                    InfoRow { label: "Sample rate"; value: root.info-sample-rate; }
+                    InfoRow { label: "Channels"; value: root.info-channels; }
+                }
+            }
+        }
+
+        VerticalSeparator { gap: root.col-gap; }
+
+        // ---------- Col 2: visualizer + seek ----------
+        VerticalLayout {
+            spacing: 6px;
+            horizontal-stretch: 1;
+
+            Rectangle {
+                background: #181622;
+                border-radius: 4px;
+                border-width: 1px;
+                border-color: #2d2a3e;
+
+                VerticalLayout {
+                    alignment: start;
+                    Rectangle {
+                        height: 70%;
+                        width: 100%;
+                        background: @linear-gradient(90deg, #d35400 0%, #f1c40f 50%, #e74c3c 100%);
+                        opacity: 0.6;
+                    }
+                }
+            }
+
+            HorizontalLayout {
+                spacing: 10px;
+                alignment: center;
+                Text {
+                    text: root.pos;
+                    color: #8e8a9f;
+                    font-size: 11px;
+                    vertical-alignment: center;
+                }
+                Slider {
+                    horizontal-stretch: 1;
+                    minimum: 0;
+                    maximum: 1;
+                    value: root.seek-fraction;
+                    width: 100px;
+                    changed(v) => { root.seek(v); }
+                }
+                Text {
+                    text: root.dur;
+                    color: #8e8a9f;
+                    font-size: 11px;
+                    vertical-alignment: center;
+                }
+            }
+        }
+
+        VerticalSeparator { gap: root.col-gap; }
+
+        // ---------- Col 3: volume + mute ----------
+        VerticalLayout {
+            alignment: center;
+            spacing: 8px;
+
+            Rectangle {
+                width: 40px;
+                height: root.cover-size * 1px + 60px;
+
+                VerticalLayout {
+                    alignment: center;
+                    spacing: 6px;
+
+                    IconButton {
+                        icon: root.muted ? @image-url("icons/muted.svg") : @image-url("icons/volume.svg");
+                        active: root.muted;
+                        clicked => { root.toggle-mute(); }
+                    }
+
+                    Slider {
+                        height: root.cover-size * 1px;
+                        width: 24px;
+                        value: root.volume;
+                        minimum: 0;
+                        maximum: 1;
+                        orientation: vertical;
+                        changed(v) => { root.volume-changed(v); }
+                    }
+                }
+            }
+        }
+    }
+}
