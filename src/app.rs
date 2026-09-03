@@ -240,12 +240,14 @@ impl MusicApp {
             .filter(|c| self.settings.settings.column_visible(*c))
             .collect();
 
+        let view_w = self.ui.get_playlist_view_width().max(100.0) as f32;
+
         let table_cols: Vec<TableColumn> = visible_cols
             .iter()
             .map(|c| {
                 let mut tc = TableColumn::default();
                 tc.title = c.label().into();
-                tc.width = (self.settings.settings.column_width(*c) * 1.0).into();
+                tc.width = (self.settings.settings.column_width_pct(*c) / 100.0 * view_w).into();
                 tc
             })
             .collect();
@@ -1061,6 +1063,7 @@ impl MusicApp {
             .settings
             .column_visibility
             .insert(id.key().to_string(), visible);
+        self.settings.settings.normalize_visible_pct();
         self.settings.save();
         self.sync_settings_to_ui();
         self.sync_playlist_to_ui();
@@ -1069,6 +1072,7 @@ impl MusicApp {
     fn reset_columns(&mut self) {
         self.settings.settings.column_widths.clear();
         self.settings.settings.column_visibility.clear();
+        self.settings.settings.normalize_visible_pct();
         self.settings.save();
         self.sync_settings_to_ui();
         self.sync_playlist_to_ui();

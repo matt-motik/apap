@@ -99,6 +99,7 @@ export component AppWindow inherits Window {
     ];
     in property <[TableColumn]> playlist-cols: [{ title: "Title", width: 200px }];
     in property <int> current-row: -1;
+    out property <length> playlist-view-width: playlist_view_width.width;
 
     in property <bool> settings-open: false;
     in property <int> settings-theme: 0;
@@ -194,7 +195,7 @@ export component AppWindow inherits Window {
             show-about => { root.show-about(); }
         }
 
-        Playlist {
+        playlist_view_width := Playlist {
             horizontal-stretch: 1;
             vertical-stretch: 1;
             rows: root.playlist-rows;

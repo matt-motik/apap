@@ -122,25 +122,33 @@ impl ColumnId {
     }
 }
 
-/// Duration column is the only numeric with a fixed-ish width among the
-/// defaults; widths below are the initial values applied at first run.
+/// Default relative widths as percentages (0..100). The percent values sum to
+/// 100 across the canonical (all-visible) column set; they are renormalised at
+/// runtime to sum to 100 over whichever columns are currently visible.
 pub fn default_column_width(id: ColumnId) -> f32 {
     match id {
-        ColumnId::Index => 30.0,
-        ColumnId::TrackNumber => 55.0,
-        ColumnId::Title => 220.0,
-        ColumnId::Artist => 150.0,
-        ColumnId::Album => 150.0,
-        ColumnId::Genre => 90.0,
-        ColumnId::Year => 60.0,
-        ColumnId::Format => 70.0,
-        ColumnId::Bitrate => 70.0,
-        ColumnId::BitDepth => 80.0,
-        ColumnId::SampleRate => 90.0,
-        ColumnId::Duration => 70.0,
-        ColumnId::FileName => 200.0,
-        ColumnId::FilePath => 300.0,
+        ColumnId::Index => 5.0,
+        ColumnId::TrackNumber => 8.0,
+        ColumnId::Title => 22.0,
+        ColumnId::Artist => 15.0,
+        ColumnId::Album => 15.0,
+        ColumnId::Genre => 5.0,
+        ColumnId::Year => 4.0,
+        ColumnId::Format => 4.0,
+        ColumnId::Bitrate => 4.0,
+        ColumnId::BitDepth => 4.0,
+        ColumnId::SampleRate => 5.0,
+        ColumnId::Duration => 5.0,
+        ColumnId::FileName => 8.0,
+        ColumnId::FilePath => 4.0,
     }
+}
+
+/// Returns `true` when the stored width values look like absolute pixel widths
+/// (sum way above 100) instead of percentages. Used for one-time migration.
+fn widths_are_pixels(widths: &std::collections::HashMap<String, f32>) -> bool {
+    let sum: f32 = widths.values().copied().filter(|w| *w > 0.0).sum();
+    sum > 100.0
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -212,21 +220,87 @@ impl Default for Settings {
 }
 
 impl Settings {
-    /// Resolved column width for a given id, falling back to the default.
-    pub fn column_width(&self, id: ColumnId) -> f32 {
-        self.column_widths
-            .get(id.key())
-            .copied()
-            .filter(|w| *w > 0.0)
-            .unwrap_or_else(|| default_column_width(id))
-    }
-
     /// Resolved visibility for a given id (default: visible).
     pub fn column_visible(&self, id: ColumnId) -> bool {
         self.column_visibility
             .get(id.key())
             .copied()
             .unwrap_or(true)
+    }
+
+    /// Visible columns in display order.
+    pub fn visible_columns(&self) -> Vec<ColumnId> {
+        self.ordered_columns()
+            .into_iter()
+            .filter(|c| self.column_visible(*c))
+            .collect()
+    }
+
+    /// Resolved relative width (percent, 0..100) for a column, falling back to
+    /// the default. Percent values are normalised to sum to 100 across the
+    /// currently visible columns; call [`Settings::normalize_visible_pct`]
+    /// whenever visibility changes before applying.
+    pub fn column_width_pct(&self, id: ColumnId) -> f32 {
+        self.column_widths
+            .get(id.key())
+            .copied()
+            .filter(|w| w.is_finite() && *w > 0.0)
+            .unwrap_or_else(|| default_column_width(id))
+    }
+
+    /// Renormalise stored percentages so that the currently visible columns sum
+    /// to 100. Hidden/unknown columns are skipped; if no stored widths are
+    /// present, defaults (of the visible columns) are written instead.
+    pub fn normalize_visible_pct(&mut self) {
+        let visible = self.visible_columns();
+        if visible.is_empty() {
+            return;
+        }
+        let has_stored = visible.iter().any(|c| {
+            self.column_widths
+                .get(c.key())
+                .is_some_and(|w| w.is_finite() && *w > 0.0)
+        });
+        let values: Vec<f32> = visible
+            .iter()
+            .map(|c| {
+                if has_stored {
+                    self.column_widths
+                        .get(c.key())
+                        .copied()
+                        .filter(|w| w.is_finite() && *w > 0.0)
+                        .unwrap_or_else(|| default_column_width(*c))
+                } else {
+                    default_column_width(*c)
+                }
+            })
+            .collect();
+        let sum: f32 = values.iter().sum();
+        for (c, v) in visible.iter().zip(values) {
+            let pct = if sum > 0.0 { (v / sum) * 100.0 } else { 100.0 / visible.len() as f32 };
+            self.column_widths.insert(c.key().to_string(), pct);
+        }
+        // Drop widths for columns that are no longer visible.
+        let visible_keys: Vec<&str> = visible.iter().map(|c| c.key()).collect();
+        self.column_widths.retain(|k, _| visible_keys.contains(&k.as_str()));
+    }
+
+    /// One-time migration: convert stored pixel widths to percentages.
+    /// No-op when widths are already percentages or absent.
+    pub fn migrate_widths_to_pct(&mut self) {
+        if self.column_widths.is_empty() || !widths_are_pixels(&self.column_widths) {
+            return;
+        }
+        let sum: f32 = self.column_widths.values().copied().filter(|w| *w > 0.0).sum();
+        if sum <= 0.0 {
+            return;
+        }
+        for (_, w) in self.column_widths.iter_mut() {
+            if *w > 0.0 {
+                *w = (*w / sum) * 100.0;
+            }
+        }
+        self.normalize_visible_pct();
     }
 
     /// All columns in the user's left-to-right order (falls back to canonical).
@@ -275,11 +349,16 @@ impl SettingsStore {
     pub fn load() -> Self {
         let dir = config_dir();
         let path = dir.join("settings.toml");
-        let settings = match fs::read_to_string(&path) {
+        let mut settings = match fs::read_to_string(&path) {
             Ok(contents) => toml::from_str(&contents).unwrap_or_default(),
             Err(_) => Settings::default(),
         };
-        Self { settings, path }
+        settings.migrate_widths_to_pct();
+        let store = Self { settings, path };
+        // Persist migration results back to disk.
+        let mut s = store;
+        s.save();
+        s
     }
 
     pub fn save(&mut self) {

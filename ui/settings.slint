@@ -28,6 +28,8 @@ export component Settings inherits Rectangle {
     in property <string> active-error: "";
     in property <[ColumnSetting]> columns-cfg: [];
     in-out property <int> selected-col: -1;
+    in-out property <float> resize-dw: 0;
+    in-out property <float> resize-dh: 0;
 
     callback close();
     callback set-theme(int);
@@ -47,11 +49,17 @@ export component Settings inherits Rectangle {
     visible: root.open;
     background: Colors.bg-overlay;
 
-    Rectangle {
-        width: 640px;
-        height: 480px;
+    // Окно настроек с возможностью ресайза
+    dialog := Rectangle {
+        min-width: 540px;
+        min-height: 420px;
+        width: 640px + root.resize-dw * 1px;
+        height: 480px + root.resize-dh * 1px;
+
+        // Центрирование относительно родителя
         x: (parent.width - self.width) / 2;
         y: (parent.height - self.height) / 2;
+
         background: Colors.bg-surface;
         border-radius: 8px;
         border-width: 1px;
@@ -59,85 +67,118 @@ export component Settings inherits Rectangle {
 
         VerticalLayout {
             padding: 12px;
+            spacing: 8px;
 
+            // Верхняя строка с кнопкой закрытия
             HorizontalLayout {
-                Rectangle { }
+                spacing: 0;
+                Rectangle { horizontal-stretch: 1; }
                 Button {
                     text: "✕";
+                    preferred-height: 24px;
+                    preferred-width: 24px;
+                    padding: 0;
                     clicked => { root.close(); }
                 }
             }
 
+            // Основной таб-виджет
             TabWidget {
+                vertical-stretch: 1;
+
+                // ===== Вкладка General =====
                 Tab {
                     title: "General";
                     VerticalLayout {
                         spacing: 10px;
-                        RowLabel { text: "Theme"; }
-                        ComboBox {
-                            model: ["Dark", "Light"];
-                            current-index: root.theme;
-                            selected(s) => { root.set-theme(s == "Light" ? 1 : 0); }
-                        }
-                        RowLabel { text: "Cover size"; }
-                        Slider {
-                            minimum: 100;
-                            maximum: 400;
-                            value: root.cover-size;
-                            changed(v) => { root.set-cover-size(v); }
-                        }
-                        RowLabel { text: "Info column width"; }
-                        Slider {
-                            minimum: 200;
-                            maximum: 400;
-                            value: root.col-info-w;
-                            changed(v) => { root.set-col-info-w(v); }
-                        }
-                        RowLabel { text: "Column gap"; }
-                        Slider {
-                            minimum: 0;
-                            maximum: 20;
-                            value: root.col-gap;
-                            changed(v) => { root.set-col-gap(v); }
-                        }
-                        Switch {
-                            text: "Minimize to tray on close";
-                            checked: root.minimize-to-tray;
-                            toggled => { root.set-minimize-to-tray(self.checked); }
+                        padding-top: 4px;
+                        GridLayout {
+                            spacing: 6px;
+                            RowLabel { text: "Theme"; }
+                            ComboBox {
+                                model: ["Dark", "Light"];
+                                current-index: root.theme;
+                                selected(s) => { root.set-theme(s == "Light" ? 1 : 0); }
+                            }
+                            RowLabel { text: "Cover size"; }
+                            Slider {
+                                minimum: 100;
+                                maximum: 400;
+                                value: root.cover-size;
+                                preferred-height: 24px;
+                                changed(v) => { root.set-cover-size(v); }
+                            }
+                            RowLabel { text: "Info column width"; }
+                            Slider {
+                                minimum: 200;
+                                maximum: 400;
+                                value: root.col-info-w;
+                                preferred-height: 24px;
+                                changed(v) => { root.set-col-info-w(v); }
+                            }
+                            RowLabel { text: "Column gap"; }
+                            Slider {
+                                minimum: 0;
+                                maximum: 20;
+                                value: root.col-gap;
+                                preferred-height: 24px;
+                                changed(v) => { root.set-col-gap(v); }
+                            }
+                            RowLabel { text: "Minimize to tray"; }
+                            Switch {
+                                checked: root.minimize-to-tray;
+                                toggled => { root.set-minimize-to-tray(self.checked); }
+                            }
                         }
                     }
                 }
 
+                // ===== Вкладка Audio =====
                 Tab {
                     title: "Audio";
                     VerticalLayout {
                         spacing: 10px;
-                        RowLabel { text: "Audio device"; }
-                        ComboBox {
-                            model: root.audio-devices;
-                            current-index: root.audio-device-idx;
-                            selected(s) => { root.set-audio-device(s); }
-                        }
-                        Button {
-                            text: "Refresh devices";
-                            clicked => { root.refresh-devices(); }
-                        }
-                        RowLabel { text: "Active: " + root.active-device; }
-                        RowLabel { text: root.codec-info; }
-                        RowLabel {
-                            color: Colors.text-error;
-                            text: root.active-error;
-                            visible: root.active-error != "";
+                        padding-top: 4px;
+                        GridLayout {
+                            spacing: 6px;
+                            RowLabel { text: "Audio device"; }
+                            ComboBox {
+                                model: root.audio-devices;
+                                current-index: root.audio-device-idx;
+                                selected(s) => { root.set-audio-device(s); }
+                            }
+                            RowLabel { text: ""; }
+                            Button {
+                                text: "Refresh devices";
+                                preferred-height: 28px;
+                                clicked => { root.refresh-devices(); }
+                            }
+                            RowLabel { text: "Active:"; }
+                            RowLabel {
+                                text: root.active-device;
+                                text-color: Colors.text-primary;
+                            }
+                            RowLabel { text: root.codec-info; col: 0; }
+                            RowLabel {
+                                color: Colors.text-error;
+                                text: root.active-error;
+                                visible: root.active-error != "";
+                                col: 0;
+                            }
                         }
                     }
                 }
 
+                // ===== Вкладка Columns =====
                 Tab {
                     title: "Columns";
                     VerticalLayout {
-                        spacing: 6px;
+                        spacing: 8px;
+                        padding-top: 4px;
+
                         RowLabel { text: "Visibility"; }
                         VerticalLayout {
+                            spacing: 4px;
                             for col in root.columns-cfg : HorizontalLayout {
                                 spacing: 8px;
                                 Switch {
@@ -147,6 +188,7 @@ export component Settings inherits Rectangle {
                                 }
                             }
                         }
+
                         RowLabel { text: "Order (select a column, then move)"; }
                         HorizontalLayout {
                             spacing: 8px;
@@ -174,13 +216,18 @@ export component Settings inherits Rectangle {
                             }
                             VerticalLayout {
                                 spacing: 6px;
+                                alignment: center;
                                 Button {
-                                    text: "▲ Up";
+                                    text: "▲";
+                                    preferred-height: 28px;
+                                    preferred-width: 40px;
                                     enabled: root.selected-col > 0;
                                     clicked => { root.move-col-up(root.selected-col); }
                                 }
                                 Button {
-                                    text: "▼ Down";
+                                    text: "▼";
+                                    preferred-height: 28px;
+                                    preferred-width: 40px;
                                     enabled: root.selected-col >= 0 && root.selected-col < root.columns-cfg.length - 1;
                                     clicked => { root.move-col-down(root.selected-col); }
                                 }
@@ -188,23 +235,60 @@ export component Settings inherits Rectangle {
                         }
                         Button {
                             text: "Reset column widths";
+                            preferred-height: 28px;
                             clicked => { root.reset-columns(); }
                         }
                     }
                 }
 
+                // ===== Вкладка Playlist =====
                 Tab {
                     title: "Playlist";
                     VerticalLayout {
                         spacing: 10px;
+                        padding-top: 4px;
                         Button {
                             text: "Remove current track";
+                            preferred-height: 28px;
                             clicked => { root.remove-current(); }
                         }
                         Button {
                             text: "Clear playlist";
+                            preferred-height: 28px;
                             clicked => { root.clear-playlist(); }
                         }
+                        Rectangle { vertical-stretch: 1; }
+                    }
+                }
+            }
+        }
+
+        // ====== Ресайз-хэндл в правом нижнем углу ======
+        Rectangle {
+            x: dialog.width - 16px;
+            y: dialog.height - 16px;
+            width: 16px;
+            height: 16px;
+            background: Colors.border-default;
+
+            private property <float> start-dw: 0;
+            private property <float> start-dh: 0;
+
+            TouchArea {
+                vertical-stretch: 1;
+                horizontal-stretch: 1;
+                mouse-cursor: se-resize;
+
+                pointer-event(event) => {
+                    if (event.kind == PointerEventKind.down) {
+                        parent.start-dw = root.resize-dw;
+                        parent.start-dh = root.resize-dh;
+                    }
+                    if (event.kind == PointerEventKind.move && self.pressed) {
+                        let dx = (self.mouse-x - self.pressed-x) / 1px;
+                        let dy = (self.mouse-y - self.pressed-y) / 1px;
+                        root.resize-dw = (parent.start-dw + dx).max(0);
+                        root.resize-dh = (parent.start-dh + dy).max(0);
                     }
                 }
             }
