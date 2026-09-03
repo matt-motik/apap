@@ -1,94 +1,155 @@
-// Музыкальный плеер — интерфейс на Material Design (пересобран по мануалам).
-// Окно: компактная верхняя панель, плейлист (занимает основную высоту), статус-бар.
-
-import { Palette } from "std-widgets.slint";
-export { Palette }
-
-import { TopPanel } from "top_panel.slint";
-import { StatusBar } from "status.slint";
-import { Playlist } from "playlist.slint";
+import { Button, Slider } from "std-widgets.slint";
 
 export component AppWindow inherits Window {
     title: "Music Player";
-    width: 1100px;
-    height: 700px;
-    background: Palette.background;
-    default-font-size: 14px;
+    min-width: 1000px;
+    min-height: 600px;
+    background: #111019;
 
-    in property <length> cover-size: 200px;
-    in property <length> info-width: 240px;
-    in property <length> col-gap: 12px;
-    in property <[float]> spectrum-data: [];
-    in property <string> track-title: "—";
-    in property <string> track-artist: "—";
-    in property <string> track-album: "—";
-    in property <string> pos: "0:00";
-    in property <string> dur: "0:00";
-    in property <float> volume: 0.8;
-    in property <bool> muted: false;
-    in property <bool> playing: false;
-    in property <bool> repeat: false;
-    in property <bool> shuffle: false;
-    in property <string> status: "";
-    in property <[[StandardListViewItem]]> playlist-rows: [];
-    in property <[TableColumn]> playlist-columns: [];
-    in property <int> current-row: -1;
+    in property <float> volume: 1.0;
+    in-out property <bool> muted: false;
+    in-out property <bool> repeat: false;
+    in-out property <bool> shuffle: false;
+    in-out property <bool> playing: false;
+    in-out property <int> current-row: -1;
+    in-out property <string> pos: "0:00";
+    in-out property <string> dur: "0:00";
+    in-out property <string> status: "";
 
     callback play-pause();
     callback stop();
+    callback seek(float);
+    callback volume-changed(float);
+    callback toggle-mute();
+    callback play-track(int);
+    callback sort-ascending(int);
+    callback sort-descending(int);
     callback prev-track();
     callback next-track();
     callback toggle-repeat();
     callback toggle-shuffle();
-    callback toggle-mute();
-    callback seek(float);
-    callback volume-changed(float);
-    callback sort-ascending(int);
-    callback sort-descending(int);
-    callback play-track(int);
 
     VerticalLayout {
-        spacing: 0;
+        padding: 10px;
+        spacing: 15px;
 
-        TopPanel {
-            cover-size: root.cover-size;
-            info-width: root.info-width;
-            col-gap: root.col-gap;
-            spectrum-data: root.spectrum-data;
-            track-title: root.track-title;
-            track-artist: root.track-artist;
-            track-album: root.track-album;
-            pos: root.pos;
-            dur: root.dur;
-            volume: root.volume;
-            muted: root.muted;
-            playing: root.playing;
-            repeat: root.repeat;
-            shuffle: root.shuffle;
-            play-pause() => { root.play-pause(); }
-            stop() => { root.stop(); }
-            prev-track() => { root.prev-track(); }
-            next-track() => { root.next-track(); }
-            toggle-repeat() => { root.toggle-repeat(); }
-            toggle-shuffle() => { root.toggle-shuffle(); }
-            toggle-mute() => { root.toggle-mute(); }
-            seek(f) => { root.seek(f); }
-            volume-changed(v) => { root.volume-changed(v); }
+        // Верхнее меню
+        HorizontalLayout {
+            alignment: start;
+            spacing: 15px;
+            Text { text: "File"; color: #a5a2b8; font-size: 13px; }
+            Text { text: "Playback"; color: #a5a2b8; font-size: 13px; }
+            Text { text: "Visualization"; color: #a5a2b8; font-size: 13px; }
+            Text { text: "Settings"; color: #a5a2b8; font-size: 13px; }
         }
 
-        Playlist {
-            horizontal-stretch: 1;
-            vertical-stretch: 1;
-            rows: root.playlist-rows;
-            columns: root.playlist-columns;
-            current-row: root.current-row;
-            sort-ascending(index) => { root.sort-ascending(index); }
-            sort-descending(index) => { root.sort-descending(index); }
-            play-track(row) => { root.play-track(row); }
+        // Верхняя рабочая панель
+        HorizontalLayout {
+            spacing: 20px;
+            height: 180px;
+
+            // Обложка + кнопки
+            VerticalLayout {
+                width: 150px;
+                spacing: 10px;
+
+                Rectangle {
+                    width: 130px;
+                    height: 130px;
+                    background: #252332;
+                    border-radius: 4px;
+                    Text {
+                        text: "Album Art";
+                        color: #e67e22;
+                        font-size: 16px;
+                        font-weight: 700;
+                        horizontal-alignment: center;
+                        vertical-alignment: center;
+                    }
+                }
+
+                HorizontalLayout {
+                    alignment: space-around;
+                    Rectangle {
+                        width: 30px;
+                        height: 30px;
+                        TouchArea { clicked => { root.prev-track(); } }
+                        Text { text: "⏮"; color: #fff; font-size: 16px; horizontal-alignment: center; vertical-alignment: center; }
+                    }
+                    Rectangle {
+                        width: 30px;
+                        height: 30px;
+                        TouchArea { clicked => { root.play-pause(); } }
+                        Text { text: root.playing ? "⏸" : "▶"; color: #fff; font-size: 16px; horizontal-alignment: center; vertical-alignment: center; }
+                    }
+                    Rectangle {
+                        width: 30px;
+                        height: 30px;
+                        TouchArea { clicked => { root.stop(); } }
+                        Text { text: "⏹"; color: #fff; font-size: 16px; horizontal-alignment: center; vertical-alignment: center; }
+                    }
+                    Rectangle {
+                        width: 30px;
+                        height: 30px;
+                        TouchArea { clicked => { root.next-track(); } }
+                        Text { text: "⏭"; color: #fff; font-size: 16px; horizontal-alignment: center; vertical-alignment: center; }
+                    }
+                }
+            }
+
+            // Инфо о треке
+            VerticalLayout {
+                width: 200px;
+                spacing: 5px;
+                alignment: start;
+                Text { text: "Track Info"; color: #8e8a9f; font-size: 14px; }
+                Text { text: root.status; color: #fff; font-size: 12px; }
+            }
+
+            // Визуализатор + seek
+            VerticalLayout {
+                spacing: 5px;
+
+                Rectangle {
+                    background: #181622;
+                    border-width: 1px;
+                    border-color: #2d2a3e;
+
+                    VerticalLayout {
+                        alignment: start;
+                        Rectangle {
+                            height: 70%;
+                            width: 100%;
+                            background: @linear-gradient(90deg, #d35400 0%, #f1c40f 50%, #e74c3c 100%);
+                            opacity: 0.7;
+                        }
+                    }
+                }
+
+                HorizontalLayout {
+                    spacing: 10px;
+                    Text { text: root.pos; color: #8e8a9f; font-size: 11px; vertical-alignment: center; }
+                    Slider {
+                        minimum: 0;
+                        maximum: 100;
+                        value: 5;
+                        changed(v) => { root.seek(v / 100.0); }
+                    }
+                    Text { text: root.dur; color: #8e8a9f; font-size: 11px; vertical-alignment: center; }
+                }
+            }
         }
 
-        StatusBar {
-            status: root.status;
+        // Статус-бар
+        HorizontalLayout {
+            height: 25px;
+            padding: 5px;
+            Text {
+                text: root.status;
+                color: #8e8a9f;
+                font-size: 12px;
+                width: 100%;
+            }
         }
     }
 }
