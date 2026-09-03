@@ -1,0 +1,130 @@
+use num_complex::Complex;
+use rustfft::FftPlanner;
+use slint::{ComponentHandle, ModelRc, VecModel};
+use std::cell::RefCell;
+
+// ============================================================================
+// 1. ОПИСАНИЕ ИНТЕРФЕЙСА (SLINT UI)
+// ============================================================================
+slint::slint! {
+    import { VerticalBox, HorizontalBox } from "std-widgets.slint";
+
+    export component AppWindow inherits Window {
+        title: "Slint Smooth FFT Spectrum Analyzer";
+        width: 600px;
+        height: 300px;
+        background: #111116; // Чуть темнее для контраста
+
+        in property <[float]> spectrum-data;
+
+        VerticalBox {
+            padding: 20px;
+            spacing: 15px;
+
+            Text {
+                text: "Smooth FFT Spectrum (Decay Effect)";
+                color: #ffffff;
+                font-size: 16px;
+                horizontal-alignment: center;
+            }
+
+            HorizontalBox {
+                alignment: space-around;
+                spacing: 3px; // Чуть больше отступ между столбцами
+                
+                for magnitude in root.spectrum-data : Rectangle {
+                    // Красивый градиент от зеленого/синего к красному пику
+                    background: @linear-gradient(180deg, #ff3366 0%, #ff9933 40%, #33cc66 100%);
+                    border-radius: 1px;
+                    
+                    height: magnitude * parent.height;
+                    y: parent.height - self.height;
+                    
+                    // Добавим плавное изменение цвета/непрозрачности в зависимости от высоты
+                    opacity: 0.3 + (magnitude * 0.7);
+                }
+            }
+        }
+    }
+}
+
+// ============================================================================
+// 2. ЛОГИКА НА RUST
+// ============================================================================
+fn main() -> Result<(), slint::PlatformError> {
+    let ui = AppWindow::new()?;
+    let ui_handle = ui.as_weak();
+
+    const FFT_SIZE: usize = 64;
+    const SPECTRUM_LEN: usize = FFT_SIZE / 2; // 32 столбца
+    
+    let mut planner = FftPlanner::new();
+    let fft = planner.plan_fft_forward(FFT_SIZE);
+
+    let mut tick = 0.0f32;
+
+    // Хранилище для предыдущего кадра, чтобы вычислять падение частот.
+    // Инициализируем массив нулями.
+    let previous_spectrum = RefCell::new(vec![0.0f32; SPECTRUM_LEN]);
+
+    // Коэффициент затухания (скорость падения столбиков). 
+    // Чем меньше значение, тем медленнее и плавнее падают столбики (0.05 - 0.15 — оптимально)
+    const DECAY_RATE: f32 = 0.08;
+
+    let timer = slint::Timer::default();
+    timer.start(slint::TimerMode::Repeated, std::time::Duration::from_millis(16), move || {
+        let ui = match ui_handle.upgrade() {
+            Some(u) => u,
+            None => return,
+        };
+
+        // ШАГ A: Симуляция аудиосигнала (с небольшим хаосом для реалистичности)
+        let mut buffer: Vec<Complex<f32>> = (0..FFT_SIZE)
+            .map(|i| {
+                let t = i as f32 / FFT_SIZE as f32;
+                let f1 = (t * 2.0 * std::f32::consts::PI * 3.0 + tick).sin();
+                let f2 = (t * 2.0 * std::f32::consts::PI * 10.0 + tick * 1.8).sin() * 0.4;
+                // Добавим легкий случайный шум, как в настоящей музыке
+                let noise = (tick * (i as f32)).cos() * 0.15; 
+                Complex::new(f1 + f2 + noise, 0.0)
+            })
+            .collect();
+
+        // ШАГ B: Выполнение FFT
+        fft.process(&mut buffer);
+
+        // Получаем доступ к предыдущему кадру
+        let mut prev = previous_spectrum.borrow_mut();
+
+        // ШАГ C: Расчет амплитуды со сглаживанием
+        let smoothed_data: Vec<f32> = buffer[0..SPECTRUM_LEN]
+            .iter()
+            .enumerate()
+            .map(|(i, c)| {
+                let raw_magnitude = c.norm() / (FFT_SIZE as f32).sqrt();
+                let target = raw_magnitude.clamp(0.0, 1.0);
+                
+                // Мягкий пиковый фильтр (Attack & Decay)
+                let current = if target > prev[i] {
+                    // Если новая частота выше — мгновенно прыгаем вверх (эффект удара)
+                    target
+                } else {
+                    // Если новая частота ниже — плавно опускаемся вниз
+                    (prev[i] - DECAY_RATE).max(0.0)
+                };
+
+                // Сохраняем текущее значение для следующего кадра
+                prev[i] = current;
+                current
+            })
+            .collect();
+
+        // ШАГ D: Передача сглаженных данных в UI
+        let model = VecModel::from(smoothed_data);
+        ui.set_spectrum_data(ModelRc::new(model));
+
+        tick += 0.08; 
+    });
+
+    ui.run()
+}

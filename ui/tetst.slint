@@ -1,0 +1,176 @@
+import { Button, Slider, ListView } from "std-widgets.slint";
+
+// Структура для элемента плейлиста
+struct TrackInfo {
+    id: string,
+    title: string,
+    artist: string,
+    album: string,
+    year: string,
+    duration: string,
+}
+
+export component AppWindow extends Window {
+    title: "Music Player";
+    min-width: 1000px;
+    min-height: 600px;
+    background: #111019; // Темный фон плеера
+
+    // Свойства для передачи данных из Rust
+    in property <[TrackInfo]> playlist-tracks: [
+        { id: "1", title: "Concerto in G Minor", artist: "La Festa Musicale", album: "ANTONIO", year: "2023", duration: "1:45" },
+        { id: "2", title: "Symphony No. 33", artist: "Akademie für Alte Musik", album: "Mozart", year: "2026", duration: "4:21" },
+    ];
+    
+    in-out property <string> current-track-title: "Concerto in G Minor, RV 157: I. Allegro";
+    in-out property <string> current-artist: "La Festa Musicale";
+
+    VerticalLayout {
+        padding: 10px;
+        spacing: 15px;
+
+        // 1. Верхнее меню (File, Playback, Visualization, Settings)
+        HorizontalLayout {
+            alignment: start;
+            spacing: 15px;
+            Text { text: "File"; color: #a5a2b8; font-size: 13px; }
+            Text { text: "Playback"; color: #a5a2b8; font-size: 13px; }
+            Text { text: "Visualization"; color: #a5a2b8; font-size: 13px; }
+            Text { text: "Settings"; color: #a5a2b8; font-size: 13px; }
+        }
+
+        // 2. Верхняя рабочая панель (Обложка, Инфо, Спектрограмма)
+        HorizontalLayout {
+            spacing: 20px;
+            height: 180px;
+
+            // Левая часть: Обложка и кнопки управления
+            VerticalLayout {
+                width: 150px;
+                spacing: 10px;
+                
+                // Заглушка для обложки альбома
+                Rectangle {
+                    width: 130px;
+                    height: 130px;
+                    background: #252332;
+                    border-radius: 4px;
+                    Text { text: "ANTONIO"; color: #e67e22; font-size: 16px; font-weight: bold; vertical-alignment: center; horizontal-alignment: center; }
+                }
+
+                // Кнопки управления треком
+                HorizontalLayout {
+                    alignment: space-around;
+                    Text { text: "⏮"; color: #fff; font-size: 16px; }
+                    Text { text: "▶"; color: #fff; font-size: 16px; }
+                    Text { text: "⏸"; color: #fff; font-size: 16px; }
+                    Text { text: "⏭"; color: #fff; font-size: 16px; }
+                }
+            }
+
+            // Средняя часть: Информация о текущем треке
+            VerticalLayout {
+                width: 200px;
+                spacing: 5px;
+                alignment: start;
+                Text { text: "Track Info"; color: #8e8a9f; font-weight: bold; font-size: 14px; }
+                Text { text: "Artist: " + root.current-artist; color: #fff; font-size: 12px; }
+                Text { text: "Title: " + root.current-track-title; color: #fff; font-size: 12px; wrap: word-wrap; }
+            }
+
+            // Правая часть: Визуализатор (Спектрограмма)
+            VerticalLayout {
+                spacing: 5px;
+                
+                // Область спектрограммы
+                Rectangle {
+                    background: #181622;
+                    border-width: 1px;
+                    border-color: #2d2a3e;
+                    
+                    // Имитация спектрограммы градиентом
+                    Rectangle {
+                        background: @linear-gradient(90deg, #d35400 0%, #f1c40f 50%, #e74c3c 100%);
+                        opacity: 0.7;
+                        height: 70%;
+                        vertical-alignment: center;
+                    }
+                }
+
+                // Таймлайн (Ползунок трека)
+                HorizontalLayout {
+                    spacing: 10px;
+                    Text { text: "0:03"; color: #8e8a9f; font-size: 11px; vertical-alignment: center; }
+                    Slider {
+                        minimum: 0;
+                        maximum: 100;
+                        value: 5;
+                    }
+                    Text { text: "1:45"; color: #8e8a9f; font-size: 11px; vertical-alignment: center; }
+                }
+            }
+        }
+
+        // 3. Таблица / Список треков (Playlist)
+        VerticalLayout {
+            spacing: 5px;
+            
+            // Заголовки колонок таблицы
+            HorizontalLayout {
+                padding-left: 10px;
+                padding-right: 10px;
+                height: 25px;
+                Text { text: "Title"; color: #8e8a9f; font-size: 12px; width: 40%; }
+                Text { text: "Artist"; color: #8e8a9f; font-size: 12px; width: 25%; }
+                Text { text: "Album"; color: #8e8a9f; font-size: 12px; width: 25%; }
+                Text { text: "Duration"; color: #8e8a9f; font-size: 12px; width: 10%; }
+            }
+
+            // Сама таблица записей
+            Rectangle {
+                background: #161420;
+                border-width: 1px;
+                border-color: #252332;
+
+                ListView {
+                    for track in root.playlist-tracks : Rectangle {
+                        height: 30px;
+                        background: track.id == "1" ? #2c283c : transparent; // Подсветка активного трека
+
+                        HorizontalLayout {
+                            padding-left: 10px;
+                            padding-right: 10px;
+                            vertical-alignment: center;
+
+                            Text { text: track.title; color: #fff; font-size: 12px; width: 40%; vertical-alignment: center; }
+                            Text { text: track.artist; color: #a5a2b8; font-size: 12px; width: 25%; vertical-alignment: center; }
+                            Text { text: track.album; color: #a5a2b8; font-size: 12px; width: 25%; vertical-alignment: center; }
+                            Text { text: track.duration; color: #a5a2b8; font-size: 12px; width: 10%; vertical-alignment: center; }
+                        }
+                    }
+                }
+            }
+        }
+
+        // 4. Нижний статус-бар (Нижняя панель)
+        HorizontalLayout {
+            height: 25px;
+            padding: 5px;
+            
+            Text { 
+                text: root.current-track-title; 
+                color: #8e8a9f; 
+                font-size: 12px; 
+                width: 50%;
+            }
+            Text { 
+                text: "FLAC | 32 bit | 96.0 kHz | 2949 kbps"; 
+                color: #635f75; 
+                font-size: 12px; 
+                horizontal-alignment: right;
+                width: 50%;
+            }
+        }
+    }
+}
+

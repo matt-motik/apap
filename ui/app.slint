@@ -1,0 +1,94 @@
+// Музыкальный плеер — интерфейс на Material Design (пересобран по мануалам).
+// Окно: компактная верхняя панель, плейлист (занимает основную высоту), статус-бар.
+
+import { Palette } from "std-widgets.slint";
+export { Palette }
+
+import { TopPanel } from "top_panel.slint";
+import { StatusBar } from "status.slint";
+import { Playlist } from "playlist.slint";
+
+export component AppWindow inherits Window {
+    title: "Music Player";
+    width: 1100px;
+    height: 700px;
+    background: Palette.background;
+    default-font-size: 14px;
+
+    in property <length> cover-size: 200px;
+    in property <length> info-width: 240px;
+    in property <length> col-gap: 12px;
+    in property <[float]> spectrum-data: [];
+    in property <string> track-title: "—";
+    in property <string> track-artist: "—";
+    in property <string> track-album: "—";
+    in property <string> pos: "0:00";
+    in property <string> dur: "0:00";
+    in property <float> volume: 0.8;
+    in property <bool> muted: false;
+    in property <bool> playing: false;
+    in property <bool> repeat: false;
+    in property <bool> shuffle: false;
+    in property <string> status: "";
+    in property <[[StandardListViewItem]]> playlist-rows: [];
+    in property <[TableColumn]> playlist-columns: [];
+    in property <int> current-row: -1;
+
+    callback play-pause();
+    callback stop();
+    callback prev-track();
+    callback next-track();
+    callback toggle-repeat();
+    callback toggle-shuffle();
+    callback toggle-mute();
+    callback seek(float);
+    callback volume-changed(float);
+    callback sort-ascending(int);
+    callback sort-descending(int);
+    callback play-track(int);
+
+    VerticalLayout {
+        spacing: 0;
+
+        TopPanel {
+            cover-size: root.cover-size;
+            info-width: root.info-width;
+            col-gap: root.col-gap;
+            spectrum-data: root.spectrum-data;
+            track-title: root.track-title;
+            track-artist: root.track-artist;
+            track-album: root.track-album;
+            pos: root.pos;
+            dur: root.dur;
+            volume: root.volume;
+            muted: root.muted;
+            playing: root.playing;
+            repeat: root.repeat;
+            shuffle: root.shuffle;
+            play-pause() => { root.play-pause(); }
+            stop() => { root.stop(); }
+            prev-track() => { root.prev-track(); }
+            next-track() => { root.next-track(); }
+            toggle-repeat() => { root.toggle-repeat(); }
+            toggle-shuffle() => { root.toggle-shuffle(); }
+            toggle-mute() => { root.toggle-mute(); }
+            seek(f) => { root.seek(f); }
+            volume-changed(v) => { root.volume-changed(v); }
+        }
+
+        Playlist {
+            horizontal-stretch: 1;
+            vertical-stretch: 1;
+            rows: root.playlist-rows;
+            columns: root.playlist-columns;
+            current-row: root.current-row;
+            sort-ascending(index) => { root.sort-ascending(index); }
+            sort-descending(index) => { root.sort-descending(index); }
+            play-track(row) => { root.play-track(row); }
+        }
+
+        StatusBar {
+            status: root.status;
+        }
+    }
+}
