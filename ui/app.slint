@@ -1,3 +1,5 @@
+import { Colors } from "theme.slint";
+export { Colors }
 import { TopPanel } from "top_panel.slint";
 import { Playlist } from "playlist.slint";
 import { StatusBar } from "status.slint";
@@ -10,11 +12,11 @@ component MenuButton inherits Rectangle {
     width: 72px;
     height: 26px;
     border-radius: 4px;
-    background: touch.pressed ? #2d2a3e : (touch.has-hover ? #252332 : transparent);
+    background: touch.pressed ? Colors.surface-hover : (touch.has-hover ? Colors.surface-hover : transparent);
 
     Text {
         text: root.text;
-        color: #c9c6da;
+        color: Colors.text-primary;
         font-size: 12px;
         horizontal-alignment: center;
         vertical-alignment: center;
@@ -34,7 +36,7 @@ component AppMenuBar inherits Rectangle {
     callback show-about();
 
     height: 34px;
-    background: #1c1a26;
+    background: Colors.bg-toolbar;
 
     HorizontalLayout {
         spacing: 4px;
@@ -56,7 +58,7 @@ export component AppWindow inherits Window {
     title: "Music Player";
     preferred-width: 1200px;
     preferred-height: 760px;
-    background: #14121d;
+    background: Colors.bg-window;
 
     in property <float> cover-size: 200;
     in property <float> col-info-w: 240;
@@ -149,7 +151,7 @@ export component AppWindow inherits Window {
             col-info-w: root.col-info-w;
             col-gap: root.col-gap;
             playing: root.playing;
-            repeat: false;
+            repeat: root.repeat;
             repeat-one: root.repeat-one;
             shuffle: root.shuffle;
             muted: root.muted;

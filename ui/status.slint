@@ -1,11 +1,13 @@
+import { Colors } from "theme.slint";
+
 export component StatusBar inherits Rectangle {
     in property <string> status-text: "Stopped";
     in property <string> track-info: "";
     in property <string> track-count: "0 tracks";
 
-    background: #161420;
+    background: Colors.bg-surface;
     border-width: 1px;
-    border-color: #252332;
+    border-color: Colors.border-subtle;
 
     HorizontalLayout {
         padding-left: 12px;
@@ -15,7 +17,7 @@ export component StatusBar inherits Rectangle {
 
         Text {
             text: root.status-text;
-            color: #a5a2b8;
+            color: Colors.text-secondary;
             font-size: 12px;
             overflow: elide;
             vertical-alignment: center;
@@ -25,7 +27,7 @@ export component StatusBar inherits Rectangle {
 
         Text {
             text: root.track-info;
-            color: #635f75;
+            color: Colors.text-dim;
             font-size: 12px;
             overflow: elide;
             vertical-alignment: center;
@@ -33,7 +35,7 @@ export component StatusBar inherits Rectangle {
         }
         Text {
             text: root.track-count;
-            color: #635f75;
+            color: Colors.text-dim;
             font-size: 12px;
             vertical-alignment: center;
             horizontal-alignment: right;

@@ -1,3 +1,4 @@
+import { Colors } from "theme.slint";
 import { Slider, ScrollView } from "std-widgets.slint";
 
 component VerticalSeparator inherits Rectangle {
@@ -9,7 +10,7 @@ component VerticalSeparator inherits Rectangle {
         width: 1px;
         height: 100%;
         x: root.width / 2;
-        background: #2d2a3e;
+        background: Colors.border-default;
     }
 }
 
@@ -21,12 +22,12 @@ component InfoRow inherits Rectangle {
         spacing: 8px;
         Text {
             text: root.label;
-            color: #8e8a9f;
+            color: Colors.text-tertiary;
             font-size: 12px;
         }
         Text {
             text: root.value;
-            color: #ffffff;
+            color: Colors.text-primary;
             font-size: 12px;
             overflow: elide;
             horizontal-stretch: 1;
@@ -37,13 +38,13 @@ component InfoRow inherits Rectangle {
 component IconButton inherits Rectangle {
     in property <image> icon: @image-url("icons/play.svg");
     in property <bool> active: false;
-    in property <brush> active-bg: #3a2f1f;
+    in property <brush> active-bg: Colors.accent-container;
     callback clicked;
 
     width: 34px;
     height: 34px;
     border-radius: 6px;
-    background: touch.pressed ? #2d2a3e : (root.active ? root.active-bg : #1c1a26);
+    background: touch.pressed ? Colors.surface-hover : (root.active ? root.active-bg : Colors.bg-toolbar);
 
     Image {
         source: root.icon;
@@ -111,13 +112,13 @@ export component TopPanel inherits Rectangle {
                 width: root.cover-size * 1px;
                 height: root.cover-size * 1px;
                 border-radius: 6px;
-                background: #252332;
+                background: Colors.bg-elevated;
 
                 VerticalLayout {
                     padding: 8px;
                     Text {
                         text: "Album Art";
-                        color: #8e8a9f;
+                        color: Colors.text-tertiary;
                         font-size: 14px;
                         horizontal-alignment: center;
                         vertical-alignment: center;
@@ -185,17 +186,17 @@ export component TopPanel inherits Rectangle {
             horizontal-stretch: 1;
 
             Rectangle {
-                background: #181622;
+                background: Colors.bg-elevated;
                 border-radius: 4px;
                 border-width: 1px;
-                border-color: #2d2a3e;
+                border-color: Colors.border-default;
 
                 VerticalLayout {
                     alignment: start;
                     Rectangle {
                         height: 70%;
                         width: 100%;
-                        background: @linear-gradient(90deg, #d35400 0%, #f1c40f 50%, #e74c3c 100%);
+                        background: @linear-gradient(90deg, Colors.viz-1 0%, Colors.viz-2 50%, Colors.viz-3 100%);
                         opacity: 0.6;
                     }
                 }
@@ -206,7 +207,7 @@ export component TopPanel inherits Rectangle {
                 alignment: center;
                 Text {
                     text: root.pos;
-                    color: #8e8a9f;
+                    color: Colors.text-tertiary;
                     font-size: 11px;
                     vertical-alignment: center;
                 }
@@ -215,12 +216,11 @@ export component TopPanel inherits Rectangle {
                     minimum: 0;
                     maximum: 1;
                     value: root.seek-fraction;
-                    width: 100px;
                     changed(v) => { root.seek(v); }
                 }
                 Text {
                     text: root.dur;
-                    color: #8e8a9f;
+                    color: Colors.text-tertiary;
                     font-size: 11px;
                     vertical-alignment: center;
                 }

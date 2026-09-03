@@ -1,3 +1,4 @@
+import { Colors } from "theme.slint";
 import { TabWidget, ComboBox, Slider, Switch, Button, ListView } from "std-widgets.slint";
 
 export struct ColumnSetting {
@@ -7,7 +8,7 @@ export struct ColumnSetting {
 }
 
 component RowLabel inherits Text {
-    in property <color> text-color: #a5a2b8;
+    in property <color> text-color: Colors.text-secondary;
     color: root.text-color;
     font-size: 12px;
     vertical-alignment: center;
@@ -44,17 +45,17 @@ export component Settings inherits Rectangle {
     callback remove-current();
 
     visible: root.open;
-    background: #00000088;
+    background: Colors.bg-overlay;
 
     Rectangle {
         width: 640px;
         height: 480px;
         x: (parent.width - self.width) / 2;
         y: (parent.height - self.height) / 2;
-        background: #161420;
+        background: Colors.bg-surface;
         border-radius: 8px;
         border-width: 1px;
-        border-color: #2d2a3e;
+        border-color: Colors.border-default;
 
         VerticalLayout {
             padding: 12px;
@@ -124,7 +125,7 @@ export component Settings inherits Rectangle {
                         RowLabel { text: "Active: " + root.active-device; }
                         RowLabel { text: root.codec-info; }
                         RowLabel {
-                            color: #dc5046;
+                            color: Colors.text-error;
                             text: root.active-error;
                             visible: root.active-error != "";
                         }
@@ -154,7 +155,7 @@ export component Settings inherits Rectangle {
                                 vertical-stretch: 1;
                                 for col in root.columns-cfg : Rectangle {
                                     height: 28px;
-                                    background: root.selected-col == col.index ? #2d2a3e : transparent;
+                                    background: root.selected-col == col.index ? Colors.surface-selected : transparent;
                                     touch := TouchArea {
                                         clicked => { root.selected-col = col.index; }
                                     }
@@ -164,7 +165,7 @@ export component Settings inherits Rectangle {
                                         alignment: center;
                                         Text {
                                             text: col.label;
-                                            color: #c9c6da;
+                                            color: Colors.text-primary;
                                             font-size: 12px;
                                             vertical-alignment: center;
                                         }

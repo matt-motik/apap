@@ -44,6 +44,27 @@ fn empty_dash(s: &str) -> SharedString {
     if s.is_empty() { "—".into() } else { s.into() }
 }
 
+fn hex_color(hex: &str) -> slint::Color {
+    let hex = hex.trim_start_matches('#');
+    let bytes = hex.as_bytes();
+    match bytes.len() {
+        6 => {
+            let r = u8::from_str_radix(&std::str::from_utf8(&bytes[0..2]).unwrap(), 16).unwrap();
+            let g = u8::from_str_radix(&std::str::from_utf8(&bytes[2..4]).unwrap(), 16).unwrap();
+            let b = u8::from_str_radix(&std::str::from_utf8(&bytes[4..6]).unwrap(), 16).unwrap();
+            slint::Color::from_rgb_u8(r, g, b)
+        }
+        8 => {
+            let a = u8::from_str_radix(&std::str::from_utf8(&bytes[0..2]).unwrap(), 16).unwrap();
+            let r = u8::from_str_radix(&std::str::from_utf8(&bytes[2..4]).unwrap(), 16).unwrap();
+            let g = u8::from_str_radix(&std::str::from_utf8(&bytes[4..6]).unwrap(), 16).unwrap();
+            let b = u8::from_str_radix(&std::str::from_utf8(&bytes[6..8]).unwrap(), 16).unwrap();
+            slint::Color::from_argb_u8(a, r, g, b)
+        }
+        _ => panic!("Invalid hex color length"),
+    }
+}
+
 fn num_str(v: u32, suffix: &str) -> SharedString {
     if v > 0 { format!("{v}{suffix}").into() } else { "—".into() }
 }
@@ -118,6 +139,7 @@ impl MusicApp {
     pub fn init(this: &Rc<RefCell<Self>>) {
         {
             let mut app = this.borrow_mut();
+            app.apply_theme();
             app.sync_settings_to_ui();
             app.sync_playlist_to_ui();
         }
@@ -150,6 +172,59 @@ impl MusicApp {
             })
             .collect();
         self.ui.set_settings_cols(ModelRc::from(cols.as_slice()));
+    }
+
+    fn apply_theme(&self) {
+        let c = self.ui.global::<Colors>();
+        let dark = self.settings.settings.theme == Theme::Dark;
+
+        if dark {
+            c.set_bg_window(hex_color("#121018"));
+            c.set_bg_surface(hex_color("#1a1720"));
+            c.set_bg_toolbar(hex_color("#211e28"));
+            c.set_bg_elevated(hex_color("#252230"));
+            c.set_bg_overlay(hex_color("#00000088"));
+            c.set_border_subtle(hex_color("#2d2a38"));
+            c.set_border_default(hex_color("#3a3645"));
+            c.set_text_primary(hex_color("#e6e1ec"));
+            c.set_text_secondary(hex_color("#a9a3b8"));
+            c.set_text_tertiary(hex_color("#7c7690"));
+            c.set_text_dim(hex_color("#5c5670"));
+            c.set_text_on_accent(hex_color("#ffffff"));
+            c.set_text_error(hex_color("#f2b8b5"));
+            c.set_accent(hex_color("#d0bcff"));
+            c.set_accent_container(hex_color("#4f378b"));
+            c.set_accent_on(hex_color("#eaddff"));
+            c.set_surface_hover(hex_color("#322e3c"));
+            c.set_surface_active(hex_color("#3a2f1f"));
+            c.set_surface_selected(hex_color("#2d2a38"));
+            c.set_viz_1(hex_color("#d35400"));
+            c.set_viz_2(hex_color("#f1c40f"));
+            c.set_viz_3(hex_color("#e74c3c"));
+        } else {
+            c.set_bg_window(hex_color("#f8f5fa"));
+            c.set_bg_surface(hex_color("#ffffff"));
+            c.set_bg_toolbar(hex_color("#f3edf7"));
+            c.set_bg_elevated(hex_color("#ffffff"));
+            c.set_bg_overlay(hex_color("#00000044"));
+            c.set_border_subtle(hex_color("#e4dde8"));
+            c.set_border_default(hex_color("#cac4d0"));
+            c.set_text_primary(hex_color("#1d1b20"));
+            c.set_text_secondary(hex_color("#49454f"));
+            c.set_text_tertiary(hex_color("#79747e"));
+            c.set_text_dim(hex_color("#938f99"));
+            c.set_text_on_accent(hex_color("#ffffff"));
+            c.set_text_error(hex_color("#b3261e"));
+            c.set_accent(hex_color("#6750a4"));
+            c.set_accent_container(hex_color("#eaddff"));
+            c.set_accent_on(hex_color("#21005d"));
+            c.set_surface_hover(hex_color("#e8e0ec"));
+            c.set_surface_active(hex_color("#d0c4db"));
+            c.set_surface_selected(hex_color("#e4dde8"));
+            c.set_viz_1(hex_color("#b14a00"));
+            c.set_viz_2(hex_color("#c4a00a"));
+            c.set_viz_3(hex_color("#c0392b"));
+        }
     }
 
     fn sync_playlist_to_ui(&mut self) {
@@ -422,6 +497,7 @@ impl MusicApp {
                     Theme::Dark
                 };
                 a.settings.save();
+                a.apply_theme();
                 a.sync_settings_to_ui();
             });
         }
