@@ -97,7 +97,7 @@ export component AppWindow inherits Window {
     in property <[[StandardListViewItem]]> playlist-rows: [
         [{ text: "No tracks" }]
     ];
-    in property <[TableColumn]> playlist-cols: [{ title: "Title", width: 200px }];
+    in-out property <[TableColumn]> playlist-cols: [{ title: "Title", width: 200px }];
     in property <int> current-row: -1;
     out property <length> playlist-view-width: playlist_view_width.width;
 

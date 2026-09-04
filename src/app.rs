@@ -8,7 +8,7 @@ use std::time::Instant;
 
 use rfd::FileDialog;
 use cpal::traits::{DeviceTrait, HostTrait};
-use slint::{ComponentHandle, ModelRc, SharedString, StandardListViewItem};
+use slint::{ComponentHandle, Model, ModelRc, SharedString, StandardListViewItem};
 use slint::language::TableColumn;
 
 use music_player_rs::audio::player::Player;
@@ -89,6 +89,8 @@ pub struct MusicApp {
     tray_rx: Option<std::sync::mpsc::Receiver<TrayCmd>>,
     tray_up_tx: Option<tokio::sync::mpsc::UnboundedSender<tray::TrayState>>,
     last_tray_update: Instant,
+    last_view_width: f32,
+    col_model_sig: u64,
 }
 
 impl MusicApp {
@@ -127,6 +129,8 @@ impl MusicApp {
             tray_rx: Some(tray_rx),
             tray_up_tx: Some(tray_up_tx),
             last_tray_update: Instant::now(),
+            last_view_width: 0.0,
+            col_model_sig: 0,
         };
         app.rebuild_shuffle();
         if let Some(col) = app.settings.settings.sorted_col {
@@ -311,6 +315,47 @@ impl MusicApp {
         self.ui.set_current_row(
             self.current.map(|i| i as i32).unwrap_or(-1),
         );
+        self.col_model_sig = self.compute_col_sig();
+    }
+
+    fn compute_col_sig(&self) -> u64 {
+        let cols = self.ui.get_playlist_cols();
+        let mut sig: u64 = 0;
+        let len = cols.row_count();
+        for i in 0..len {
+            if let Some(tc) = cols.row_data(i) {
+                let bits: u32 = tc.width.to_bits();
+                sig = sig.wrapping_mul(31).wrapping_add(bits as u64);
+            }
+        }
+        sig
+    }
+
+    fn save_column_widths_from_ui(&mut self) {
+        let cols = self.ui.get_playlist_cols();
+        let len = cols.row_count();
+        if len == 0 {
+            return;
+        }
+        let total_px: f32 = (0..len)
+            .filter_map(|i| cols.row_data(i).map(|tc| tc.width))
+            .sum();
+        if total_px <= 0.0 {
+            return;
+        }
+        let ordered = self.settings.settings.ordered_columns();
+        let visible_cols: Vec<ColumnId> = ordered
+            .iter()
+            .copied()
+            .filter(|c| self.settings.settings.column_visible(*c))
+            .collect();
+        for (i, col_id) in visible_cols.iter().enumerate() {
+            if let Some(tc) = cols.row_data(i) {
+                let pct = (tc.width / total_px) * 100.0;
+                self.settings.settings.column_widths.insert(col_id.key().to_string(), pct);
+            }
+        }
+        self.settings.save();
     }
 
     fn bind_callbacks(this: &Rc<RefCell<Self>>) {
@@ -662,6 +707,18 @@ impl MusicApp {
         self.sync_player_state_to_ui();
         self.push_tray_status();
         self.save_if_dirty();
+
+        let w = self.ui.get_playlist_view_width() as f32;
+        if (w - self.last_view_width).abs() > 1.0 && w > 100.0 {
+            self.sync_playlist_to_ui();
+            self.last_view_width = w;
+        }
+
+        let sig = self.compute_col_sig();
+        if sig != 0 && sig != self.col_model_sig {
+            self.save_column_widths_from_ui();
+            self.col_model_sig = sig;
+        }
     }
 
     fn sync_player_state_to_ui(&mut self) {
