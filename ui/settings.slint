@@ -1,5 +1,5 @@
 import { Colors } from "theme.slint";
-import { TabWidget, ComboBox, Slider, Switch, Button, ListView } from "std-widgets.slint";
+import { TabWidget, ComboBox, Slider, Switch, Button, ListView, CheckBox } from "std-widgets.slint";
 
 export struct ColumnSetting {
     index: int,
@@ -79,15 +79,22 @@ export component Settings inherits Rectangle {
                     title: "General";
                     VerticalLayout {
                         spacing: 10px;
-                        padding-top: 4px;
-                        GridLayout {
-                            spacing: 6px;
+                        padding-top: 10px;
+                        HorizontalLayout {
+                            padding-left: 8px;
+                            padding-right: 8px;
+                            spacing: 4px;
                             RowLabel { text: "Theme"; }
                             ComboBox {
                                 model: ["Dark", "Light"];
                                 current-index: root.theme;
                                 selected(s) => { root.set-theme(s == "Light" ? 1 : 0); }
                             }
+                        }
+                        HorizontalLayout {
+                            padding-left: 8px;
+                            padding-right: 8px;
+                            spacing: 4px;
                             RowLabel { text: "Cover size"; }
                             Slider {
                                 minimum: 100;
@@ -96,6 +103,12 @@ export component Settings inherits Rectangle {
                                 preferred-height: 24px;
                                 changed(v) => { root.set-cover-size(v); }
                             }
+                        }
+
+                        HorizontalLayout {
+                            padding-left: 8px;
+                            padding-right: 8px;
+                            spacing: 4px;
                             RowLabel { text: "Info column width"; }
                             Slider {
                                 minimum: 200;
@@ -104,6 +117,11 @@ export component Settings inherits Rectangle {
                                 preferred-height: 24px;
                                 changed(v) => { root.set-col-info-w(v); }
                             }
+                        }
+                        HorizontalLayout {
+                            padding-left: 8px;
+                            padding-right: 8px;
+                            spacing: 4px;
                             RowLabel { text: "Column gap"; }
                             Slider {
                                 minimum: 0;
@@ -112,6 +130,11 @@ export component Settings inherits Rectangle {
                                 preferred-height: 24px;
                                 changed(v) => { root.set-col-gap(v); }
                             }
+                        }
+                        HorizontalLayout {
+                            padding-left: 8px;
+                            padding-right: 8px;
+                            spacing: 4px;
                             RowLabel { text: "Minimize to tray"; }
                             Switch {
                                 checked: root.minimize-to-tray;
@@ -127,31 +150,53 @@ export component Settings inherits Rectangle {
                     VerticalLayout {
                         spacing: 10px;
                         padding-top: 4px;
-                        GridLayout {
-                            spacing: 6px;
+                        HorizontalLayout {
+                            padding-left: 8px;
+                            padding-right: 8px;
+                            spacing: 4px;
                             RowLabel { text: "Audio device"; }
                             ComboBox {
                                 model: root.audio-devices;
                                 current-index: root.audio-device-idx;
                                 selected(s) => { root.set-audio-device(s); }
                             }
+                        }
+                        HorizontalLayout {
+                            padding-left: 8px;
+                            padding-right: 8px;
+                            spacing: 4px;
                             RowLabel { text: ""; }
                             Button {
                                 text: "Refresh devices";
                                 preferred-height: 28px;
                                 clicked => { root.refresh-devices(); }
                             }
+                        }
+                        HorizontalLayout {
+                            padding-left: 8px;
+                            padding-right: 8px;
+                            spacing: 4px;                        
                             RowLabel { text: "Active:"; }
                             RowLabel {
                                 text: root.active-device;
                                 text-color: Colors.text-primary;
                             }
-                            RowLabel { text: root.codec-info; col: 0; }
+                        }
+                        HorizontalLayout {
+                            padding-left: 8px;
+                            padding-right: 8px;
+                            spacing: 4px;
+                            RowLabel { text: root.codec-info;  }
+                        }
+                        HorizontalLayout {
+                            padding-left: 8px;
+                            padding-right: 8px;
+                            spacing: 4px;
                             RowLabel {
                                 color: Colors.text-error;
                                 text: root.active-error;
                                 visible: root.active-error != "";
-                                col: 0;
+
                             }
                         }
                     }
@@ -178,28 +223,28 @@ export component Settings inherits Rectangle {
                                 HorizontalLayout {
                                     padding-left: 8px;
                                     padding-right: 8px;
-                                    spacing: 12px;
+                                    spacing: 4px;
+
+                                    // Видимость
+                                    CheckBox {
+                                        checked: col.visible;
+                                        toggled => { root.toggle-column(col.index); }
+                                    }
 
                                     // Название колонки
                                     Text {
                                         text: col.label;
                                         color: Colors.text-primary;
-                                        font-size: 12px;
+                                        font-size: 14px;
                                         vertical-alignment: center;
-                                        horizontal-stretch: 1;
                                     }
-
-                                    // Видимость
-                                    Switch {
-                                        checked: col.visible;
-                                        toggled => { root.toggle-column(col.index); }
-                                    }
+                                    Rectangle { horizontal-stretch: 1; }
 
                                     // Размер в процентах
                                     Text {
                                         text: col.visible ? Math.round(col.width-pct) + "%" : "0%";
                                         color: col.visible ? Colors.text-primary : Colors.text-dim;
-                                        font-size: 12px;
+                                        font-size: 14px;
                                         vertical-alignment: center;
                                         horizontal-alignment: right;
                                         min-width: 40px;

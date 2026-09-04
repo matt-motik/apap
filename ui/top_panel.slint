@@ -25,6 +25,7 @@ component InfoRow inherits Rectangle {
             color: Colors.text-tertiary;
             font-size: 12px;
         }
+
         Text {
             text: root.value;
             color: Colors.text-primary;
@@ -102,7 +103,7 @@ export component TopPanel inherits Rectangle {
 
     HorizontalLayout {
         spacing: 0;
-
+        max-height: root.cover-size *1px + 50px;
         // ---------- Col 0: cover + transport ----------
         VerticalLayout {
             alignment: center;
@@ -129,19 +130,33 @@ export component TopPanel inherits Rectangle {
 
             HorizontalLayout {
                 spacing: 6px;
-                IconButton { icon: @image-url("icons/prev.svg"); clicked => { root.prev-track(); } }
+                IconButton {
+                    icon: @image-url("icons/prev.svg");
+                    clicked => { root.prev-track(); }
+                }
+
                 IconButton {
                     icon: root.playing ? @image-url("icons/pause.svg") : @image-url("icons/play.svg");
                     active: root.playing;
                     clicked => { root.play-pause(); }
                 }
-                IconButton { icon: @image-url("icons/stop.svg"); clicked => { root.stop(); } }
-                IconButton { icon: @image-url("icons/next.svg"); clicked => { root.next-track(); } }
+
+                IconButton {
+                    icon: @image-url("icons/stop.svg");
+                    clicked => { root.stop(); }
+                }
+
+                IconButton {
+                    icon: @image-url("icons/next.svg");
+                    clicked => { root.next-track(); }
+                }
+
                 IconButton {
                     icon: @image-url("icons/repeat.svg");
                     active: root.repeat;
                     clicked => { root.toggle-repeat(); }
                 }
+
                 IconButton {
                     icon: @image-url("icons/shuffle.svg");
                     active: root.shuffle;
@@ -151,7 +166,9 @@ export component TopPanel inherits Rectangle {
         }
 
         // vertical separator
-        VerticalSeparator { gap: root.col-gap; }
+        VerticalSeparator {
+            gap: root.col-gap;
+        }
 
         // ---------- Col 1: track info (13 fields) ----------
         Rectangle {
@@ -159,30 +176,83 @@ export component TopPanel inherits Rectangle {
 
             ScrollView {
                 VerticalLayout {
-                    padding: 8px;
-                    spacing: 6px;
-                    InfoRow { label: "Artist"; value: root.info-artist; }
-                    InfoRow { label: "Track"; value: root.info-track; }
-                    InfoRow { label: "Title"; value: root.info-title; }
-                    InfoRow { label: "Duration"; value: root.info-duration; }
-                    InfoRow { label: "Year"; value: root.info-year; }
-                    InfoRow { label: "Album"; value: root.info-album; }
-                    InfoRow { label: "Disc"; value: root.info-disc; }
-                    InfoRow { label: "Genre"; value: root.info-genre; }
-                    InfoRow { label: "Format"; value: root.info-format; }
-                    InfoRow { label: "Bitrate"; value: root.info-bitrate; }
-                    InfoRow { label: "Bit depth"; value: root.info-bit-depth; }
-                    InfoRow { label: "Sample rate"; value: root.info-sample-rate; }
-                    InfoRow { label: "Channels"; value: root.info-channels; }
+                    padding: 0px;
+                    spacing: 0px;
+                    InfoRow {
+                        label: "Artist";
+                        value: root.info-artist;
+                    }
+
+                    InfoRow {
+                        label: "Track";
+                        value: root.info-track;
+                    }
+
+                    InfoRow {
+                        label: "Title";
+                        value: root.info-title;
+                    }
+
+                    InfoRow {
+                        label: "Duration";
+                        value: root.info-duration;
+                    }
+
+                    InfoRow {
+                        label: "Year";
+                        value: root.info-year;
+                    }
+
+                    InfoRow {
+                        label: "Album";
+                        value: root.info-album;
+                    }
+
+                    InfoRow {
+                        label: "Disc";
+                        value: root.info-disc;
+                    }
+
+                    InfoRow {
+                        label: "Genre";
+                        value: root.info-genre;
+                    }
+
+                    InfoRow {
+                        label: "Format";
+                        value: root.info-format;
+                    }
+
+                    InfoRow {
+                        label: "Bitrate";
+                        value: root.info-bitrate;
+                    }
+
+                    InfoRow {
+                        label: "Bit depth";
+                        value: root.info-bit-depth;
+                    }
+
+                    InfoRow {
+                        label: "Sample rate";
+                        value: root.info-sample-rate;
+                    }
+
+                    InfoRow {
+                        label: "Channels";
+                        value: root.info-channels;
+                    }
                 }
             }
         }
 
-        VerticalSeparator { gap: root.col-gap; }
+        VerticalSeparator {
+            gap: root.col-gap;
+        }
 
         // ---------- Col 2: visualizer + seek ----------
         VerticalLayout {
-            spacing: 6px;
+            spacing: 0px;
             horizontal-stretch: 1;
 
             Rectangle {
@@ -190,11 +260,12 @@ export component TopPanel inherits Rectangle {
                 border-radius: 4px;
                 border-width: 1px;
                 border-color: Colors.border-default;
-
+                vertical-stretch: 1;
+                width: 100%;
                 VerticalLayout {
                     alignment: start;
                     Rectangle {
-                        height: 70%;
+                        height: 100%;
                         width: 100%;
                         background: @linear-gradient(90deg, Colors.viz-1 0%, Colors.viz-2 50%, Colors.viz-3 100%);
                         opacity: 0.6;
@@ -202,15 +273,11 @@ export component TopPanel inherits Rectangle {
                 }
             }
 
-            HorizontalLayout {
-                spacing: 10px;
+            VerticalLayout {
+                spacing: 0px;
                 alignment: center;
-                Text {
-                    text: root.pos;
-                    color: Colors.text-tertiary;
-                    font-size: 11px;
-                    vertical-alignment: center;
-                }
+                horizontal-stretch: 1;
+                max-height: 50px;
                 Slider {
                     horizontal-stretch: 1;
                     minimum: 0;
@@ -218,47 +285,71 @@ export component TopPanel inherits Rectangle {
                     value: root.seek-fraction;
                     changed(v) => { root.seek(v); }
                 }
-                Text {
-                    text: root.dur;
-                    color: Colors.text-tertiary;
-                    font-size: 11px;
-                    vertical-alignment: center;
+
+                HorizontalLayout {
+                    horizontal-stretch: 1;
+                    padding-top: 6px;
+                    padding-left: 6px;
+                    padding-right: 6px;
+                    Text {
+                        text: root.pos;
+                        color: Colors.text-tertiary;
+                        font-size: 11px;
+                        vertical-alignment: center;
+                        horizontal-alignment: left;
+                    }
+
+                    Text {
+                        text: root.dur;
+                        color: Colors.text-tertiary;
+                        font-size: 11px;
+                        horizontal-alignment: right;
+                        vertical-alignment: center;
+                    }
                 }
             }
         }
 
-        VerticalSeparator { gap: root.col-gap; }
+        VerticalSeparator {
+            gap: root.col-gap;
+        }
 
         // ---------- Col 3: volume + mute ----------
         VerticalLayout {
-            alignment: center;
-            spacing: 8px;
+            spacing: 0px;
+            width: 40px;
+            vertical-stretch: 1;
 
+            // Верхняя часть: слайдер громкости, растягивается на всю доступную высоту
             Rectangle {
-                width: 40px;
-                height: root.cover-size * 1px + 60px;
-
-                VerticalLayout {
-                    alignment: center;
-                    spacing: 6px;
-
-                    IconButton {
-                        icon: root.muted ? @image-url("icons/muted.svg") : @image-url("icons/volume.svg");
-                        active: root.muted;
-                        clicked => { root.toggle-mute(); }
+                        vertical-stretch: 1;
+                        HorizontalLayout {
+                            alignment: center;
+                            vertical-stretch: 1;
+                            Slider {
+                                vertical-stretch: 1;
+                                width: 24px;
+                                value: root.volume;
+                                minimum: 0;
+                                maximum: 1;
+                                orientation: vertical;
+                                changed(v) => { root.volume-changed(v); }
+                            }
+                        }
                     }
 
-                    Slider {
-                        height: root.cover-size * 1px;
-                        width: 24px;
-                        value: root.volume;
-                        minimum: 0;
-                        maximum: 1;
-                        orientation: vertical;
-                        changed(v) => { root.volume-changed(v); }
+                    // Нижняя часть: кнопка mute такой же высоты, как панель с ползунком позиции
+            Rectangle {
+                        max-height: 50px;
+                        HorizontalLayout {
+                            alignment: center;
+                            IconButton {
+                                icon: root.muted ? @image-url("icons/muted.svg") : @image-url("icons/volume.svg");
+                                active: root.muted;
+                                clicked => { root.toggle-mute(); }
+                            }
+                        }
                     }
-                }
-            }
         }
     }
 }
