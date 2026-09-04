@@ -51,6 +51,8 @@ export component Settings inherits Rectangle {
     visible: root.open;
     background: Colors.bg-overlay;
 
+    TouchArea { clicked => { } }
+
     dialog := Rectangle {
         min-width: 540px;
         min-height: 420px;

@@ -84,8 +84,6 @@ pub struct MusicApp {
     shuffle_order: Vec<usize>,
     shuffle_pos: usize,
     devices: Vec<(String, String)>,
-    last_playlist_save: Instant,
-    last_col_save: Instant,
     playlist_dirty: bool,
     tray_rx: Option<std::sync::mpsc::Receiver<TrayCmd>>,
     tray_up_tx: Option<tokio::sync::mpsc::UnboundedSender<tray::TrayState>>,
@@ -126,8 +124,6 @@ impl MusicApp {
             shuffle_order: Vec::new(),
             shuffle_pos: 0,
             devices: Vec::new(),
-            last_playlist_save: Instant::now(),
-            last_col_save: Instant::now(),
             playlist_dirty: false,
             tray_rx: Some(tray_rx),
             tray_up_tx: Some(tray_up_tx),
@@ -339,6 +335,41 @@ impl MusicApp {
         self.ui.set_current_row(
             self.current.map(|i| i as i32).unwrap_or(-1),
         );
+        self.col_model_sig = self.compute_col_sig();
+    }
+
+    fn update_column_widths(&mut self) {
+        let ordered = self.settings.settings.ordered_columns();
+        let visible_cols: Vec<ColumnId> = ordered
+            .iter()
+            .copied()
+            .filter(|c| self.settings.settings.column_visible(*c))
+            .collect();
+
+        let view_w = self.ui.get_playlist_view_width().max(100.0) as f32;
+
+        let mut widths: Vec<f32> = visible_cols
+            .iter()
+            .map(|c| self.settings.settings.column_width_pct(*c) / 100.0 * view_w)
+            .collect();
+        let sum: f32 = widths.iter().sum();
+        if let Some(last) = widths.last_mut() {
+            *last += view_w - sum;
+        }
+
+        let table_cols: Vec<TableColumn> = visible_cols
+            .iter()
+            .enumerate()
+            .map(|(i, c)| {
+                let mut tc = TableColumn::default();
+                tc.title = c.label().into();
+                tc.width = widths[i].into();
+                tc
+            })
+            .collect();
+
+        let cols_rc = ModelRc::from(table_cols.as_slice());
+        self.ui.set_playlist_cols(cols_rc);
         self.col_model_sig = self.compute_col_sig();
     }
 
@@ -760,13 +791,12 @@ impl MusicApp {
         self.poll_tray();
         self.drain_scan();
         self.handle_auto_advance();
-        self.sync_player_state_to_ui();
+        self.sync_playback_state_to_ui();
         self.push_tray_status();
-        self.save_if_dirty();
 
         let w = self.ui.get_playlist_view_width() as f32;
         if (w - self.last_view_width).abs() > 1.0 && w > 100.0 {
-            self.sync_playlist_to_ui();
+            self.update_column_widths();
             self.last_view_width = w;
         }
 
@@ -779,11 +809,12 @@ impl MusicApp {
             self.col_sig_stable_ticks = self.col_sig_stable_ticks.saturating_add(1);
         }
         if self.col_sig_stable_ticks == 3 {
-            self.sync_playlist_to_ui();
+            self.save_column_widths_from_ui();
+            self.update_column_widths();
         }
     }
 
-    fn sync_player_state_to_ui(&mut self) {
+    fn sync_playback_state_to_ui(&mut self) {
         let (playing, pos, dur) = self.player.snapshot();
         self.ui.set_playing(playing);
         self.ui.set_muted(self.player.muted());
@@ -799,7 +830,9 @@ impl MusicApp {
         });
 
         self.ui.set_status_text(self.status.clone());
+    }
 
+    fn sync_track_info_to_ui(&mut self) {
         if let Some(i) = self.current {
             if let Some(t) = self.tracks.get(i) {
                 self.ui.set_info_artist(opt_str(&t.artist));
@@ -892,6 +925,7 @@ impl MusicApp {
             self.rebuild_shuffle();
             self.mark_playlist_dirty();
             self.sync_playlist_to_ui();
+            self.save_playlist();
         }
         added
     }
@@ -953,6 +987,7 @@ impl MusicApp {
         if finished {
             self.scan_rx = None;
             self.sync_playlist_to_ui();
+            self.save_playlist();
         }
     }
 
@@ -1007,6 +1042,7 @@ impl MusicApp {
                 ).into();
                 self.player.play();
                 self.sync_playlist_to_ui();
+                self.sync_track_info_to_ui();
             }
             Err(e) => {
                 self.status = format!("Cannot play {title}: {e}").into();
@@ -1104,6 +1140,7 @@ impl MusicApp {
         self.rebuild_shuffle();
         self.mark_playlist_dirty();
         self.sync_playlist_to_ui();
+        self.save_playlist();
         self.status = "Track removed".into();
     }
 
@@ -1115,6 +1152,7 @@ impl MusicApp {
         self.rebuild_shuffle();
         self.mark_playlist_dirty();
         self.sync_playlist_to_ui();
+        self.save_playlist();
         self.status = "Playlist cleared".into();
     }
 
@@ -1151,6 +1189,7 @@ impl MusicApp {
         self.apply_sort(col, desc);
         self.settings.save();
         self.sync_playlist_to_ui();
+        self.save_playlist();
     }
 
     fn apply_sort(&mut self, col: ColumnId, desc: bool) {
@@ -1175,15 +1214,6 @@ impl MusicApp {
         self.tracks = new_tracks;
         self.settings.settings.sorted_col = Some(col);
         self.settings.settings.sort_desc = desc;
-    }
-
-    fn save_if_dirty(&mut self) {
-        if self.playlist_dirty
-            && self.last_playlist_save.elapsed() >= std::time::Duration::from_secs(2)
-        {
-            self.save_playlist();
-            self.last_playlist_save = Instant::now();
-        }
     }
 
     fn poll_tray(&mut self) {
