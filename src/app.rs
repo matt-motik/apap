@@ -726,8 +726,16 @@ impl MusicApp {
             ui.on_settings_move_col_up(move |idx| {
                 let idx = idx as usize;
                 let mut a = app.borrow_mut();
-                a.settings_mut().move_column(idx, idx.saturating_sub(1));
+                let ordered = a.settings_ref().ordered_columns();
+                if idx == 0 || idx >= ordered.len() {
+                    return;
+                }
+                let col_id = ordered[idx];
+                a.settings_mut().move_column(idx, idx - 1);
                 a.sync_settings_to_ui();
+                let new_ordered = a.settings_ref().ordered_columns();
+                let new_idx = new_ordered.iter().position(|&c| c == col_id).unwrap_or(idx - 1);
+                a.ui.set_settings_selected_col(new_idx as i32);
             });
         }
 
@@ -736,12 +744,17 @@ impl MusicApp {
             let app = this.clone();
             ui.on_settings_move_col_down(move |idx| {
                 let idx = idx as usize;
-                let n = app.borrow().settings_ref().ordered_columns().len();
-                if idx + 1 < n {
-                    let mut a = app.borrow_mut();
-                    a.settings_mut().move_column(idx, idx + 1);
-                    a.sync_settings_to_ui();
+                let mut a = app.borrow_mut();
+                let ordered = a.settings_ref().ordered_columns();
+                if idx + 1 >= ordered.len() {
+                    return;
                 }
+                let col_id = ordered[idx];
+                a.settings_mut().move_column(idx, idx + 1);
+                a.sync_settings_to_ui();
+                let new_ordered = a.settings_ref().ordered_columns();
+                let new_idx = new_ordered.iter().position(|&c| c == col_id).unwrap_or(idx + 1);
+                a.ui.set_settings_selected_col(new_idx as i32);
             });
         }
 

@@ -110,7 +110,7 @@ export component AppWindow inherits Window {
     in property <string> settings-codec-info: "";
     in property <string> settings-active-error: "";
     in property <[ColumnSetting]> settings-cols: [];
-    in property <int> settings-selected-col: -1;
+    in-out property <int> settings-selected-col: -1;
 
     callback play-pause();
     callback stop();
@@ -229,7 +229,7 @@ export component AppWindow inherits Window {
         codec-info: root.settings-codec-info;
         active-error: root.settings-active-error;
         columns-cfg: root.settings-cols;
-        selected-col: root.settings-selected-col;
+        selected-col <=> root.settings-selected-col;
         close => { root.settings-close(); }
         set-theme(i) => { root.settings-theme-changed(i); }
         set-cover-size(v) => { root.settings-cover-size(v); }
