@@ -7,7 +7,7 @@ export component Playlist inherits Rectangle {
     ];
     in property <[TableColumn]> cols: [{ title: "Title", width: 200px }];
     in property <int> current-row: -1;
-    out property <length> view-width: self.width;
+    out property <length> view-width <=> view.visible-width;
 
     callback play-track(int);
     callback sort-ascending(int);
@@ -23,7 +23,7 @@ export component Playlist inherits Rectangle {
     // Layout, который заполняет весь родительский Rectangle
     VerticalLayout {
         spacing: 0;
-        StandardTableView {
+        view := StandardTableView {
             rows: root.rows;
             columns: root.cols;
             current-row: root.current-row;

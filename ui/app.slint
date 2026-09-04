@@ -99,7 +99,7 @@ export component AppWindow inherits Window {
     ];
     in-out property <[TableColumn]> playlist-cols: [{ title: "Title", width: 200px }];
     in property <int> current-row: -1;
-    out property <length> playlist-view-width: playlist_view_width.width;
+    out property <length> playlist-view-width: playlist_view_width.view-width;
 
     in property <bool> settings-open: false;
     in property <int> settings-theme: 0;
@@ -143,6 +143,7 @@ export component AppWindow inherits Window {
     callback settings-move-col-down(int);
     callback settings-clear-playlist();
     callback settings-remove-current();
+    callback settings-save();
     callback show-about();
 
     VerticalLayout {
@@ -243,5 +244,6 @@ export component AppWindow inherits Window {
         move-col-down(i) => { root.settings-move-col-down(i); }
         clear-playlist => { root.settings-clear-playlist(); }
         remove-current => { root.settings-remove-current(); }
+        save-settings => { root.settings-save(); }
     }
 }

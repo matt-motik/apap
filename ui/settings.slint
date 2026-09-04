@@ -5,6 +5,7 @@ export struct ColumnSetting {
     index: int,
     label: string,
     visible: bool,
+    width-pct: float,
 }
 
 component RowLabel inherits Text {
@@ -32,6 +33,7 @@ export component Settings inherits Rectangle {
     in-out property <float> resize-dh: 0;
 
     callback close();
+    callback save-settings();
     callback set-theme(int);
     callback set-cover-size(float);
     callback set-col-info-w(float);
@@ -49,14 +51,12 @@ export component Settings inherits Rectangle {
     visible: root.open;
     background: Colors.bg-overlay;
 
-    // Окно настроек с возможностью ресайза
     dialog := Rectangle {
         min-width: 540px;
         min-height: 420px;
         width: 640px + root.resize-dw * 1px;
         height: 480px + root.resize-dh * 1px;
 
-        // Центрирование относительно родителя
         x: (parent.width - self.width) / 2;
         y: (parent.height - self.height) / 2;
 
@@ -69,24 +69,10 @@ export component Settings inherits Rectangle {
             padding: 12px;
             spacing: 8px;
 
-            // Верхняя строка с кнопкой закрытия
-            HorizontalLayout {
-                spacing: 0;
-                Rectangle { horizontal-stretch: 1; }
-                Button {
-                    text: "✕";
-                    preferred-height: 24px;
-                    preferred-width: 24px;
-                    padding: 0;
-                    clicked => { root.close(); }
-                }
-            }
-
-            // Основной таб-виджет
             TabWidget {
                 vertical-stretch: 1;
 
-                // ===== Вкладка General =====
+                // ===== General =====
                 Tab {
                     title: "General";
                     VerticalLayout {
@@ -133,7 +119,7 @@ export component Settings inherits Rectangle {
                     }
                 }
 
-                // ===== Вкладка Audio =====
+                // ===== Audio =====
                 Tab {
                     title: "Audio";
                     VerticalLayout {
@@ -169,79 +155,85 @@ export component Settings inherits Rectangle {
                     }
                 }
 
-                // ===== Вкладка Columns =====
+                // ===== Columns =====
                 Tab {
                     title: "Columns";
                     VerticalLayout {
                         spacing: 8px;
                         padding-top: 4px;
 
-                        RowLabel { text: "Visibility"; }
-                        VerticalLayout {
-                            spacing: 4px;
-                            for col in root.columns-cfg : HorizontalLayout {
-                                spacing: 8px;
-                                Switch {
-                                    text: col.label;
-                                    checked: col.visible;
-                                    toggled => { root.toggle-column(col.index); }
+                        // Прокручиваемая таблица колонок
+                        ListView {
+                            vertical-stretch: 1;
+                            for col in root.columns-cfg : Rectangle {
+                                height: 32px;
+                                background: root.selected-col == col.index ? Colors.surface-selected : transparent;
+
+                                touch := TouchArea {
+                                    clicked => { root.selected-col = col.index; }
+                                }
+
+                                HorizontalLayout {
+                                    padding-left: 8px;
+                                    padding-right: 8px;
+                                    spacing: 12px;
+
+                                    // Название колонки
+                                    Text {
+                                        text: col.label;
+                                        color: Colors.text-primary;
+                                        font-size: 12px;
+                                        vertical-alignment: center;
+                                        horizontal-stretch: 1;
+                                    }
+
+                                    // Видимость
+                                    Switch {
+                                        checked: col.visible;
+                                        toggled => { root.toggle-column(col.index); }
+                                    }
+
+                                    // Размер в процентах
+                                    Text {
+                                        text: col.visible ? Math.round(col.width-pct) + "%" : "0%";
+                                        color: col.visible ? Colors.text-primary : Colors.text-dim;
+                                        font-size: 12px;
+                                        vertical-alignment: center;
+                                        horizontal-alignment: right;
+                                        min-width: 40px;
+                                    }
                                 }
                             }
                         }
 
-                        RowLabel { text: "Order (select a column, then move)"; }
+                        // Кнопки перемещения и сброса
                         HorizontalLayout {
                             spacing: 8px;
-                            ListView {
-                                horizontal-stretch: 1;
-                                vertical-stretch: 1;
-                                for col in root.columns-cfg : Rectangle {
-                                    height: 28px;
-                                    background: root.selected-col == col.index ? Colors.surface-selected : transparent;
-                                    touch := TouchArea {
-                                        clicked => { root.selected-col = col.index; }
-                                    }
-                                    HorizontalLayout {
-                                        padding-left: 8px;
-                                        padding-right: 8px;
-                                        alignment: center;
-                                        Text {
-                                            text: col.label;
-                                            color: Colors.text-primary;
-                                            font-size: 12px;
-                                            vertical-alignment: center;
-                                        }
-                                    }
-                                }
+                            Button {
+                                text: "\u{25B2}";
+                                preferred-height: 28px;
+                                preferred-width: 40px;
+                                enabled: root.selected-col > 0;
+                                clicked => { root.move-col-up(root.selected-col); }
                             }
-                            VerticalLayout {
-                                spacing: 6px;
-                                alignment: center;
-                                Button {
-                                    text: "▲";
-                                    preferred-height: 28px;
-                                    preferred-width: 40px;
-                                    enabled: root.selected-col > 0;
-                                    clicked => { root.move-col-up(root.selected-col); }
-                                }
-                                Button {
-                                    text: "▼";
-                                    preferred-height: 28px;
-                                    preferred-width: 40px;
-                                    enabled: root.selected-col >= 0 && root.selected-col < root.columns-cfg.length - 1;
-                                    clicked => { root.move-col-down(root.selected-col); }
-                                }
+                            Button {
+                                text: "\u{25BC}";
+                                preferred-height: 28px;
+                                preferred-width: 40px;
+                                enabled: root.selected-col >= 0 && root.selected-col < root.columns-cfg.length - 1;
+                                clicked => { root.move-col-down(root.selected-col); }
                             }
-                        }
-                        Button {
-                            text: "Reset column widths";
-                            preferred-height: 28px;
-                            clicked => { root.reset-columns(); }
+                            Rectangle { horizontal-stretch: 1; }
+                            Button {
+                                text: "Reset";
+                                preferred-height: 28px;
+                                clicked => { root.reset-columns(); }
+                            }
                         }
                     }
                 }
 
-                // ===== Вкладка Playlist =====
+                // ===== Playlist =====
                 Tab {
                     title: "Playlist";
                     VerticalLayout {
@@ -261,9 +253,37 @@ export component Settings inherits Rectangle {
                     }
                 }
             }
+
+            // Кнопки Save / Cancel внизу диалога
+            HorizontalLayout {
+                spacing: 8px;
+                alignment: end;
+                Rectangle { horizontal-stretch: 1; }
+                Button {
+                    text: "Cancel";
+                    preferred-height: 28px;
+                    clicked => { root.close(); }
+                }
+                Button {
+                    text: "Save";
+                    preferred-height: 28px;
+                    clicked => { root.save-settings(); }
+                }
+            }
         }
 
-        // ====== Ресайз-хэндл в правом нижнем углу ======
+        // Escape — отмена
+        FocusScope {
+            key-pressed(event) => {
+                if (event.text == Key.Escape) {
+                    root.close();
+                    accept;
+                }
+                reject;
+            }
+        }
+
+        // Ресайз-хэндл
         Rectangle {
             x: dialog.width - 16px;
             y: dialog.height - 16px;

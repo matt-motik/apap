@@ -251,6 +251,7 @@ impl Settings {
     /// Renormalise stored percentages so that the currently visible columns sum
     /// to 100. Hidden/unknown columns are skipped; if no stored widths are
     /// present, defaults (of the visible columns) are written instead.
+    /// Widths of hidden columns are preserved (e.g. 0%) and NOT dropped.
     pub fn normalize_visible_pct(&mut self) {
         let visible = self.visible_columns();
         if visible.is_empty() {
@@ -280,9 +281,24 @@ impl Settings {
             let pct = if sum > 0.0 { (v / sum) * 100.0 } else { 100.0 / visible.len() as f32 };
             self.column_widths.insert(c.key().to_string(), pct);
         }
-        // Drop widths for columns that are no longer visible.
-        let visible_keys: Vec<&str> = visible.iter().map(|c| c.key()).collect();
-        self.column_widths.retain(|k, _| visible_keys.contains(&k.as_str()));
+    }
+
+    /// Enable a column: give it the average of the current visible set,
+    /// then renormalise all visible columns to 100%.
+    pub fn enable_column(&mut self, id: ColumnId) {
+        let old_n = self.visible_columns().len() as f32;
+        self.column_visibility.insert(id.key().to_string(), true);
+        let avg = if old_n > 0.0 { 100.0 / old_n } else { 100.0 };
+        self.column_widths.insert(id.key().to_string(), avg);
+        self.normalize_visible_pct();
+    }
+
+    /// Disable a column: set its width to 0%, hide it, then renormalise
+    /// the remaining visible columns to 100%.
+    pub fn disable_column(&mut self, id: ColumnId) {
+        self.column_widths.insert(id.key().to_string(), 0.0);
+        self.column_visibility.insert(id.key().to_string(), false);
+        self.normalize_visible_pct();
     }
 
     /// One-time migration: convert stored pixel widths to percentages.

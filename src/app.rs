@@ -13,6 +13,7 @@ use slint::language::TableColumn;
 
 use music_player_rs::audio::player::Player;
 use music_player_rs::playlist::{self, ScanMsg, Track};
+use music_player_rs::settings::Settings;
 use music_player_rs::settings::{ColumnId, RepeatMode, SettingsStore, Theme};
 use music_player_rs::tray::{self, TrayCmd};
 
@@ -91,6 +92,8 @@ pub struct MusicApp {
     last_tray_update: Instant,
     last_view_width: f32,
     col_model_sig: u64,
+    col_sig_stable_ticks: u32,
+    settings_draft: Option<Settings>,
 }
 
 impl MusicApp {
@@ -131,6 +134,8 @@ impl MusicApp {
             last_tray_update: Instant::now(),
             last_view_width: 0.0,
             col_model_sig: 0,
+            col_sig_stable_ticks: 0,
+            settings_draft: None,
         };
         app.rebuild_shuffle();
         if let Some(col) = app.settings.settings.sorted_col {
@@ -150,28 +155,37 @@ impl MusicApp {
         Self::bind_callbacks(this);
     }
 
+    fn settings_ref(&self) -> &Settings {
+        self.settings_draft.as_ref().unwrap_or(&self.settings.settings)
+    }
+
+    fn settings_mut(&mut self) -> &mut Settings {
+        self.settings_draft.as_mut().unwrap_or(&mut self.settings.settings)
+    }
+
     fn sync_settings_to_ui(&self) {
-        self.ui.set_settings_open(false);
-        self.ui.set_settings_theme(match self.settings.settings.theme {
+        let s = self.settings_ref();
+        self.ui.set_settings_theme(match s.theme {
             Theme::Dark => 0,
             Theme::Light => 1,
         });
         self.ui
-            .set_settings_minimize(self.settings.settings.minimize_to_tray);
+            .set_settings_minimize(s.minimize_to_tray);
         self.ui
-            .set_cover_size(self.settings.settings.cover_size);
+            .set_cover_size(s.cover_size);
         self.ui
-            .set_col_info_w(self.settings.settings.col_info_w);
-        self.ui.set_col_gap(self.settings.settings.col_gap);
+            .set_col_info_w(s.col_info_w);
+        self.ui.set_col_gap(s.col_gap);
 
-        let ordered = self.settings.settings.ordered_columns();
+        let ordered = s.ordered_columns();
         let cols: Vec<ColumnSetting> = ordered
             .iter()
             .map(|c| {
                 let mut cs = ColumnSetting::default();
                 cs.index = ordered.iter().position(|x| x == c).unwrap_or(0) as i32;
                 cs.label = c.label().into();
-                cs.visible = self.settings.settings.column_visible(*c);
+                cs.visible = s.column_visible(*c);
+                cs.width_pct = s.column_width_pct(*c);
                 cs
             })
             .collect();
@@ -246,12 +260,22 @@ impl MusicApp {
 
         let view_w = self.ui.get_playlist_view_width().max(100.0) as f32;
 
+        let mut widths: Vec<f32> = visible_cols
+            .iter()
+            .map(|c| self.settings.settings.column_width_pct(*c) / 100.0 * view_w)
+            .collect();
+        let sum: f32 = widths.iter().sum();
+        if let Some(last) = widths.last_mut() {
+            *last += view_w - sum;
+        }
+
         let table_cols: Vec<TableColumn> = visible_cols
             .iter()
-            .map(|c| {
+            .enumerate()
+            .map(|(i, c)| {
                 let mut tc = TableColumn::default();
                 tc.title = c.label().into();
-                tc.width = (self.settings.settings.column_width_pct(*c) / 100.0 * view_w).into();
+                tc.width = widths[i].into();
                 tc
             })
             .collect();
@@ -454,7 +478,11 @@ impl MusicApp {
         {
             let app = this.clone();
             ui.on_sort_ascending(move |col_idx| {
-                if let Some(col) = visible_col_at_index(&app.borrow().settings.settings, col_idx) {
+                let col = {
+                    let a = app.borrow();
+                    visible_col_at_index(&a.settings.settings, col_idx)
+                };
+                if let Some(col) = col {
                     app.borrow_mut().sort_tracks(col);
                 }
             });
@@ -462,7 +490,11 @@ impl MusicApp {
         {
             let app = this.clone();
             ui.on_sort_descending(move |col_idx| {
-                if let Some(col) = visible_col_at_index(&app.borrow().settings.settings, col_idx) {
+                let col = {
+                    let a = app.borrow();
+                    visible_col_at_index(&a.settings.settings, col_idx)
+                };
+                if let Some(col) = col {
                     app.borrow_mut().sort_tracks(col);
                 }
             });
@@ -472,7 +504,9 @@ impl MusicApp {
         {
             let app = this.clone();
             ui.on_open_settings(move || {
-                app.borrow_mut().ui.set_settings_open(true);
+                let mut a = app.borrow_mut();
+                a.settings_draft = Some(a.settings.settings.clone());
+                a.ui.set_settings_open(true);
             });
         }
 
@@ -530,11 +564,14 @@ impl MusicApp {
             });
         }
 
-        // 18. settings-close
+        // 18. settings-close (cancel: discard draft, restore original)
         {
             let app = this.clone();
             ui.on_settings_close(move || {
-                app.borrow_mut().ui.set_settings_open(false);
+                let mut a = app.borrow_mut();
+                a.settings_draft = None;
+                a.sync_settings_to_ui();
+                a.ui.set_settings_open(false);
             });
         }
 
@@ -543,13 +580,11 @@ impl MusicApp {
             let app = this.clone();
             ui.on_settings_theme_changed(move |value| {
                 let mut a = app.borrow_mut();
-                a.settings.settings.theme = if value == 1 {
+                a.settings_mut().theme = if value == 1 {
                     Theme::Light
                 } else {
                     Theme::Dark
                 };
-                a.settings.save();
-                a.apply_theme();
                 a.sync_settings_to_ui();
             });
         }
@@ -559,9 +594,7 @@ impl MusicApp {
             let app = this.clone();
             ui.on_settings_cover_size(move |size| {
                 let mut a = app.borrow_mut();
-                a.settings.settings.cover_size = size;
-                a.settings.save();
-                a.ui.set_cover_size(size);
+                a.settings_mut().cover_size = size;
             });
         }
 
@@ -570,9 +603,7 @@ impl MusicApp {
             let app = this.clone();
             ui.on_settings_col_info_w(move |width| {
                 let mut a = app.borrow_mut();
-                a.settings.settings.col_info_w = width;
-                a.settings.save();
-                a.ui.set_col_info_w(width);
+                a.settings_mut().col_info_w = width;
             });
         }
 
@@ -581,9 +612,7 @@ impl MusicApp {
             let app = this.clone();
             ui.on_settings_col_gap(move |gap| {
                 let mut a = app.borrow_mut();
-                a.settings.settings.col_gap = gap;
-                a.settings.save();
-                a.ui.set_col_gap(gap);
+                a.settings_mut().col_gap = gap;
             });
         }
 
@@ -592,8 +621,7 @@ impl MusicApp {
             let app = this.clone();
             ui.on_settings_toggle_minimize(move |enabled| {
                 let mut a = app.borrow_mut();
-                a.settings.settings.minimize_to_tray = enabled;
-                a.settings.save();
+                a.settings_mut().minimize_to_tray = enabled;
             });
         }
 
@@ -631,12 +659,20 @@ impl MusicApp {
             let app = this.clone();
             ui.on_settings_toggle_col(move |idx| {
                 let idx = idx as usize;
-                let ordered = app.borrow().settings.settings.ordered_columns();
-                if let Some(&col) = ordered.get(idx) {
-                    let visible = app.borrow().settings.settings.column_visible(col);
-                    app.borrow_mut()
-                        .set_column_visible(col, !visible);
+                let (col, visible) = {
+                    let a = app.borrow();
+                    let ordered = a.settings_ref().ordered_columns();
+                    let Some(&col) = ordered.get(idx) else { return };
+                    let visible = a.settings_ref().column_visible(col);
+                    (col, visible)
+                };
+                let mut a = app.borrow_mut();
+                if visible {
+                    a.settings_mut().disable_column(col);
+                } else {
+                    a.settings_mut().enable_column(col);
                 }
+                a.sync_settings_to_ui();
             });
         }
 
@@ -644,7 +680,12 @@ impl MusicApp {
         {
             let app = this.clone();
             ui.on_settings_reset_cols(move || {
-                app.borrow_mut().reset_columns();
+                let mut a = app.borrow_mut();
+                let s = a.settings_mut();
+                s.column_widths.clear();
+                s.column_visibility.clear();
+                s.normalize_visible_pct();
+                a.sync_settings_to_ui();
             });
         }
 
@@ -654,8 +695,7 @@ impl MusicApp {
             ui.on_settings_move_col_up(move |idx| {
                 let idx = idx as usize;
                 let mut a = app.borrow_mut();
-                a.settings.settings.move_column(idx, idx.saturating_sub(1));
-                a.settings.save();
+                a.settings_mut().move_column(idx, idx.saturating_sub(1));
                 a.sync_settings_to_ui();
             });
         }
@@ -665,13 +705,29 @@ impl MusicApp {
             let app = this.clone();
             ui.on_settings_move_col_down(move |idx| {
                 let idx = idx as usize;
-                let n = app.borrow().settings.settings.ordered_columns().len();
+                let n = app.borrow().settings_ref().ordered_columns().len();
                 if idx + 1 < n {
                     let mut a = app.borrow_mut();
-                    a.settings.settings.move_column(idx, idx + 1);
-                    a.settings.save();
+                    a.settings_mut().move_column(idx, idx + 1);
                     a.sync_settings_to_ui();
                 }
+            });
+        }
+
+        // 29b. settings-save (apply draft)
+        {
+            let app = this.clone();
+            ui.on_settings_save(move || {
+                let mut a = app.borrow_mut();
+                let Some(draft) = a.settings_draft.take() else { return };
+                a.settings.settings = draft;
+                a.settings.save();
+                a.apply_theme();
+                a.ui.set_cover_size(a.settings.settings.cover_size);
+                a.ui.set_col_info_w(a.settings.settings.col_info_w);
+                a.ui.set_col_gap(a.settings.settings.col_gap);
+                a.sync_playlist_to_ui();
+                a.ui.set_settings_open(false);
             });
         }
 
@@ -718,6 +774,12 @@ impl MusicApp {
         if sig != 0 && sig != self.col_model_sig {
             self.save_column_widths_from_ui();
             self.col_model_sig = sig;
+            self.col_sig_stable_ticks = 0;
+        } else {
+            self.col_sig_stable_ticks = self.col_sig_stable_ticks.saturating_add(1);
+        }
+        if self.col_sig_stable_ticks == 3 {
+            self.sync_playlist_to_ui();
         }
     }
 
@@ -1113,26 +1175,6 @@ impl MusicApp {
         self.tracks = new_tracks;
         self.settings.settings.sorted_col = Some(col);
         self.settings.settings.sort_desc = desc;
-    }
-
-    fn set_column_visible(&mut self, id: ColumnId, visible: bool) {
-        self.settings
-            .settings
-            .column_visibility
-            .insert(id.key().to_string(), visible);
-        self.settings.settings.normalize_visible_pct();
-        self.settings.save();
-        self.sync_settings_to_ui();
-        self.sync_playlist_to_ui();
-    }
-
-    fn reset_columns(&mut self) {
-        self.settings.settings.column_widths.clear();
-        self.settings.settings.column_visibility.clear();
-        self.settings.settings.normalize_visible_pct();
-        self.settings.save();
-        self.sync_settings_to_ui();
-        self.sync_playlist_to_ui();
     }
 
     fn save_if_dirty(&mut self) {
