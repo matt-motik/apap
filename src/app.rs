@@ -92,6 +92,7 @@ pub struct MusicApp {
     col_model_sig: u64,
     col_sig_stable_ticks: u32,
     settings_draft: Option<Settings>,
+    tick_count: u64,
 }
 
 impl MusicApp {
@@ -132,6 +133,7 @@ impl MusicApp {
             col_model_sig: 0,
             col_sig_stable_ticks: 0,
             settings_draft: None,
+            tick_count: 0,
         };
         app.rebuild_shuffle();
         if let Some(col) = app.settings.settings.sorted_col {
@@ -420,6 +422,7 @@ impl MusicApp {
         {
             let app = this.clone();
             ui.on_play_pause(move || {
+                eprintln!("[gui] play_pause");
                 app.borrow_mut().player.toggle();
             });
         }
@@ -428,6 +431,7 @@ impl MusicApp {
         {
             let app = this.clone();
             ui.on_stop(move || {
+                eprintln!("[gui] stop");
                 app.borrow_mut().player.stop();
             });
         }
@@ -436,6 +440,7 @@ impl MusicApp {
         {
             let app = this.clone();
             ui.on_prev_track(move || {
+                eprintln!("[gui] prev_track");
                 app.borrow_mut().play_prev();
             });
         }
@@ -444,6 +449,7 @@ impl MusicApp {
         {
             let app = this.clone();
             ui.on_next_track(move || {
+                eprintln!("[gui] next_track");
                 app.borrow_mut().play_next(1);
             });
         }
@@ -452,6 +458,7 @@ impl MusicApp {
         {
             let app = this.clone();
             ui.on_toggle_repeat(move || {
+                eprintln!("[gui] toggle_repeat");
                 app.borrow_mut().cycle_repeat();
             });
         }
@@ -460,6 +467,7 @@ impl MusicApp {
         {
             let app = this.clone();
             ui.on_toggle_shuffle(move || {
+                eprintln!("[gui] toggle_shuffle");
                 let mut a = app.borrow_mut();
                 a.shuffle = !a.shuffle;
                 a.settings.settings.shuffle = a.shuffle;
@@ -473,6 +481,7 @@ impl MusicApp {
         {
             let app = this.clone();
             ui.on_seek(move |fraction| {
+                eprintln!("[gui] seek fraction={fraction:.3}");
                 let duration = app.borrow().player.snapshot().2.unwrap_or(0.0);
                 app.borrow_mut().player.seek(fraction as f64 * duration);
             });
@@ -482,6 +491,7 @@ impl MusicApp {
         {
             let app = this.clone();
             ui.on_volume_changed(move |volume| {
+                eprintln!("[gui] volume_changed volume={volume:.3}");
                 let mut a = app.borrow_mut();
                 a.player.set_volume(volume);
                 a.settings.settings.volume = volume;
@@ -493,6 +503,7 @@ impl MusicApp {
         {
             let app = this.clone();
             ui.on_toggle_mute(move || {
+                eprintln!("[gui] toggle_mute");
                 app.borrow_mut().player.toggle_mute();
             });
         }
@@ -501,6 +512,7 @@ impl MusicApp {
         {
             let app = this.clone();
             ui.on_play_track(move |index| {
+                eprintln!("[gui] play_track index={index}");
                 app.borrow_mut().play_track(index as usize);
             });
         }
@@ -509,6 +521,7 @@ impl MusicApp {
         {
             let app = this.clone();
             ui.on_sort_ascending(move |col_idx| {
+                eprintln!("[gui] sort_ascending col={col_idx}");
                 let col = {
                     let a = app.borrow();
                     visible_col_at_index(&a.settings.settings, col_idx)
@@ -521,6 +534,7 @@ impl MusicApp {
         {
             let app = this.clone();
             ui.on_sort_descending(move |col_idx| {
+                eprintln!("[gui] sort_descending col={col_idx}");
                 let col = {
                     let a = app.borrow();
                     visible_col_at_index(&a.settings.settings, col_idx)
@@ -535,6 +549,7 @@ impl MusicApp {
         {
             let app = this.clone();
             ui.on_open_settings(move || {
+                eprintln!("[gui] open_settings");
                 let mut a = app.borrow_mut();
                 a.settings_draft = Some(a.settings.settings.clone());
                 a.ui.set_settings_open(true);
@@ -545,6 +560,7 @@ impl MusicApp {
         {
             let app = this.clone();
             ui.on_add_files(move || {
+                eprintln!("[gui] add_files");
                 let dialog = FileDialog::new()
                     .add_filter(
                         "Audio",
@@ -561,6 +577,7 @@ impl MusicApp {
         {
             let app = this.clone();
             ui.on_add_folder(move || {
+                eprintln!("[gui] add_folder");
                 if let Some(folder) = FileDialog::new().pick_folder() {
                     app.borrow_mut().start_folder_scan(folder);
                 }
@@ -571,6 +588,7 @@ impl MusicApp {
         {
             let app = this.clone();
             ui.on_save_playlist(move || {
+                eprintln!("[gui] save_playlist");
                 app.borrow_mut().save_playlist();
             });
         }
@@ -579,6 +597,7 @@ impl MusicApp {
         {
             let app = this.clone();
             ui.on_load_playlist(move || {
+                eprintln!("[gui] load_playlist");
                 if let Some(path) = FileDialog::new()
                     .add_filter("Playlist", &["m3u", "m3u8"])
                     .pick_file()
@@ -599,6 +618,7 @@ impl MusicApp {
         {
             let app = this.clone();
             ui.on_settings_close(move || {
+                eprintln!("[gui] settings_close (Cancel)");
                 let mut a = app.borrow_mut();
                 a.settings_draft = None;
                 a.sync_settings_to_ui();
@@ -610,6 +630,7 @@ impl MusicApp {
         {
             let app = this.clone();
             ui.on_settings_theme_changed(move |value| {
+                eprintln!("[gui] settings_theme_changed value={value}");
                 let mut a = app.borrow_mut();
                 a.settings_mut().theme = if value == 1 {
                     Theme::Light
@@ -624,6 +645,7 @@ impl MusicApp {
         {
             let app = this.clone();
             ui.on_settings_cover_size(move |size| {
+                eprintln!("[gui] settings_cover_size size={size:.1}");
                 let mut a = app.borrow_mut();
                 a.settings_mut().cover_size = size;
             });
@@ -633,6 +655,7 @@ impl MusicApp {
         {
             let app = this.clone();
             ui.on_settings_col_info_w(move |width| {
+                eprintln!("[gui] settings_col_info_w width={width:.1}");
                 let mut a = app.borrow_mut();
                 a.settings_mut().col_info_w = width;
             });
@@ -642,6 +665,7 @@ impl MusicApp {
         {
             let app = this.clone();
             ui.on_settings_col_gap(move |gap| {
+                eprintln!("[gui] settings_col_gap gap={gap:.1}");
                 let mut a = app.borrow_mut();
                 a.settings_mut().col_gap = gap;
             });
@@ -651,6 +675,7 @@ impl MusicApp {
         {
             let app = this.clone();
             ui.on_settings_toggle_minimize(move |enabled| {
+                eprintln!("[gui] settings_toggle_minimize enabled={enabled}");
                 let mut a = app.borrow_mut();
                 a.settings_mut().minimize_to_tray = enabled;
             });
@@ -660,6 +685,7 @@ impl MusicApp {
         {
             let app = this.clone();
             ui.on_settings_device(move |name| {
+                eprintln!("[gui] settings_device name={name:?}");
                 app.borrow_mut().set_output_device(name.to_string());
             });
         }
@@ -668,6 +694,7 @@ impl MusicApp {
         {
             let app = this.clone();
             ui.on_settings_refresh_devices(move || {
+                eprintln!("[gui] settings_refresh_devices");
                 let host = cpal::default_host();
                 let devices: Vec<SharedString> = host
                     .output_devices()
@@ -689,6 +716,7 @@ impl MusicApp {
         {
             let app = this.clone();
             ui.on_settings_toggle_col(move |idx| {
+                eprintln!("[gui] settings_toggle_col idx={idx}");
                 let idx = idx as usize;
                 let (col, visible) = {
                     let a = app.borrow();
@@ -711,6 +739,7 @@ impl MusicApp {
         {
             let app = this.clone();
             ui.on_settings_reset_cols(move || {
+                eprintln!("[gui] settings_reset_cols");
                 let mut a = app.borrow_mut();
                 let s = a.settings_mut();
                 s.column_widths.clear();
@@ -724,6 +753,7 @@ impl MusicApp {
         {
             let app = this.clone();
             ui.on_settings_move_col_up(move |idx| {
+                eprintln!("[gui] settings_move_col_up idx={idx}");
                 let idx = idx as usize;
                 let mut a = app.borrow_mut();
                 let ordered = a.settings_ref().ordered_columns();
@@ -743,6 +773,7 @@ impl MusicApp {
         {
             let app = this.clone();
             ui.on_settings_move_col_down(move |idx| {
+                eprintln!("[gui] settings_move_col_down idx={idx}");
                 let idx = idx as usize;
                 let mut a = app.borrow_mut();
                 let ordered = a.settings_ref().ordered_columns();
@@ -762,6 +793,7 @@ impl MusicApp {
         {
             let app = this.clone();
             ui.on_settings_save(move || {
+                eprintln!("[gui] settings_save (Save) draft_present={}", app.borrow().settings_draft.is_some());
                 let mut a = app.borrow_mut();
                 let Some(draft) = a.settings_draft.take() else { return };
                 a.settings.settings = draft;
@@ -772,6 +804,7 @@ impl MusicApp {
                 a.ui.set_col_gap(a.settings.settings.col_gap);
                 a.sync_playlist_to_ui();
                 a.ui.set_settings_open(false);
+                eprintln!("[gui] settings_save: applied and closed");
             });
         }
 
@@ -779,6 +812,7 @@ impl MusicApp {
         {
             let app = this.clone();
             ui.on_settings_clear_playlist(move || {
+                eprintln!("[gui] settings_clear_playlist");
                 app.borrow_mut().clear_playlist();
             });
         }
@@ -787,6 +821,7 @@ impl MusicApp {
         {
             let app = this.clone();
             ui.on_settings_remove_current(move || {
+                eprintln!("[gui] settings_remove_current");
                 let current = app.borrow().current;
                 if let Some(idx) = current {
                     app.borrow_mut().remove_track(idx);
@@ -796,13 +831,16 @@ impl MusicApp {
 
         // 32. show-about (stub)
         {
-            ui.on_show_about(move || {});
+            ui.on_show_about(move || {
+                eprintln!("[gui] show_about");
+            });
         }
 
         // 33. window close -> minimize to tray (if enabled), otherwise quit
         {
             let app = this.clone();
             ui.window().on_close_requested(move || {
+                eprintln!("[gui] close_requested minimize={}", app.borrow().settings.settings.minimize_to_tray);
                 let minimize = app.borrow().settings.settings.minimize_to_tray;
                 if minimize {
                     let _ = app.borrow_mut().ui.hide();
@@ -816,6 +854,16 @@ impl MusicApp {
     }
 
     pub fn tick(&mut self) {
+        self.tick_count = self.tick_count.wrapping_add(1);
+        if self.tick_count % 10 == 0 {
+            let draft = self.settings_draft.is_some();
+            let open = self.ui.get_settings_open();
+            eprintln!(
+                "[hb] tick={} settings_open={open} draft={draft} window_visible={}",
+                self.tick_count,
+                self.ui.window().is_visible()
+            );
+        }
         self.poll_tray();
         self.drain_scan();
         self.handle_auto_advance();
@@ -1253,6 +1301,7 @@ impl MusicApp {
                 Ok(cmd) => cmd,
                 Err(_) => break,
             };
+            eprintln!("[tray] cmd={cmd:?}");
             match cmd {
                 TrayCmd::TogglePlay => {
                     self.player.toggle();

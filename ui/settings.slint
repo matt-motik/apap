@@ -51,7 +51,7 @@ export component Settings inherits Rectangle {
     visible: root.open;
     background: Colors.bg-overlay;
 
-    TouchArea { clicked => { } }
+    TouchArea { clicked => { debug("settings: backdrop click (outside dialog)"); } }
 
     dialog := Rectangle {
         min-width: 540px;
@@ -88,7 +88,7 @@ export component Settings inherits Rectangle {
                             ComboBox {
                                 model: ["Dark", "Light"];
                                 current-index: root.theme;
-                                selected(s) => { root.set-theme(s == "Light" ? 1 : 0); }
+                                selected(s) => { debug("settings: theme combo selected"); root.set-theme(s == "Light" ? 1 : 0); }
                             }
                         }
                         HorizontalLayout {
@@ -158,7 +158,7 @@ export component Settings inherits Rectangle {
                             ComboBox {
                                 model: root.audio-devices;
                                 current-index: root.audio-device-idx;
-                                selected(s) => { root.set-audio-device(s); }
+                                selected(s) => { debug("settings: audio combo selected"); root.set-audio-device(s); }
                             }
                         }
                         HorizontalLayout {
@@ -309,12 +309,12 @@ export component Settings inherits Rectangle {
                 Button {
                     text: "Cancel";
                     preferred-height: 28px;
-                    clicked => { root.close(); }
+                    clicked => { debug("settings: Cancel button clicked"); root.close(); }
                 }
                 Button {
                     text: "Save";
                     preferred-height: 28px;
-                    clicked => { root.save-settings(); }
+                    clicked => { debug("settings: Save button clicked"); root.save-settings(); }
                 }
             }
         }
