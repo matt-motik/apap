@@ -122,6 +122,82 @@ impl ColumnId {
     }
 }
 
+/// Источники обложек альбома. Порядок объявления = порядок по умолчанию.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize, Default)]
+pub enum CoverSource {
+    /// Файл обложки в папке с альбомом (cover.jpg, folder.png, ...).
+    #[default]
+    Folder,
+    /// Встроенная обложка (APIC/covr/pictures) внутри самого файла.
+    Embedded,
+    /// Поиск по iTunes Search API в интернете.
+    Internet,
+}
+
+impl CoverSource {
+    pub const ALL: [CoverSource; 3] = [
+        CoverSource::Folder,
+        CoverSource::Embedded,
+        CoverSource::Internet,
+    ];
+
+    pub fn key(self) -> &'static str {
+        match self {
+            CoverSource::Folder => "folder",
+            CoverSource::Embedded => "embedded",
+            CoverSource::Internet => "internet",
+        }
+    }
+
+    pub fn label(self) -> &'static str {
+        match self {
+            CoverSource::Folder => "From folder (cover.jpg, ...)",
+            CoverSource::Embedded => "Embedded in file (APIC)",
+            CoverSource::Internet => "From internet (iTunes)",
+        }
+    }
+
+    pub fn from_key(key: &str) -> Option<CoverSource> {
+        CoverSource::ALL.iter().copied().find(|c| c.key() == key)
+    }
+}
+
+/// Порядок источников обложек по умолчанию: диск → встроенная → интернет.
+pub fn default_cover_priority() -> Vec<String> {
+    CoverSource::ALL.iter().map(|c| c.key().to_string()).collect()
+}
+
+/// Имена файлов обложек, искомых в папке с альбомом (по умолчанию).
+pub fn default_cover_folder_names() -> Vec<String> {
+    [
+        "cover.jpg",
+        "cover.png",
+        "cover.jpeg",
+        "folder.jpg",
+        "folder.png",
+        "folder.jpeg",
+        "album.jpg",
+        "album.png",
+        "album.jpeg",
+        "front.jpg",
+        "front.png",
+        "front.jpeg",
+        "art.jpg",
+        "art.png",
+        "art.jpeg",
+        "scan.jpg",
+        "scan.png",
+    ]
+    .iter()
+    .map(|s| s.to_string())
+    .collect()
+}
+
+/// Значение по умолчанию для `Settings::cover_online`.
+fn default_cover_online() -> bool {
+    true
+}
+
 /// Default relative widths as percentages (0..100). The percent values sum to
 /// 100 across the canonical (all-visible) column set; they are renormalised at
 /// runtime to sum to 100 over whichever columns are currently visible.
@@ -205,6 +281,16 @@ pub struct Settings {
     pub win_w: Option<u32>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub win_h: Option<u32>,
+    /// Источники обложек в порядке приоритета (ключи `CoverSource::key`).
+    /// Пусто — дефолтный порядок (диск → встроенная → интернет).
+    #[serde(default)]
+    pub cover_priority: Vec<String>,
+    /// Имена файлов обложек, которые ищем в папке с альбомом.
+    #[serde(default)]
+    pub cover_folder_names: Vec<String>,
+    /// Искать обложки в интернете (iTunes Search API).
+    #[serde(default = "default_cover_online")]
+    pub cover_online: bool,
 }
 
 impl Default for Settings {
@@ -230,6 +316,9 @@ impl Default for Settings {
             win_y: None,
             win_w: None,
             win_h: None,
+            cover_priority: default_cover_priority(),
+            cover_folder_names: default_cover_folder_names(),
+            cover_online: true,
         }
     }
 }
@@ -369,6 +458,58 @@ impl Settings {
         order.insert(to, col);
         self.column_order = order.iter().map(|c| c.key().to_string()).collect();
     }
+
+    /// Cover sources in the user's priority order (falls back to the default:
+    /// folder → embedded → internet). Unknown stored keys are dropped, missing
+    /// canonical sources are appended.
+    pub fn cover_priority_ordered(&self) -> Vec<CoverSource> {
+        if self.cover_priority.is_empty() {
+            return CoverSource::ALL.to_vec();
+        }
+        let mut out: Vec<CoverSource> = self
+            .cover_priority
+            .iter()
+            .filter_map(|k| CoverSource::from_key(k))
+            .collect();
+        for c in CoverSource::ALL {
+            if !out.contains(&c) {
+                out.push(c);
+            }
+        }
+        out
+    }
+
+    /// Folder cover file names to look for, falling back to the default list
+    /// when none are stored. Empty/whitespace entries are dropped.
+    pub fn cover_folder_names_list(&self) -> Vec<String> {
+        let names: Vec<String> = self
+            .cover_folder_names
+            .iter()
+            .map(|n| n.trim().to_string())
+            .filter(|n| !n.is_empty())
+            .collect();
+        if names.is_empty() {
+            default_cover_folder_names()
+        } else {
+            names
+        }
+    }
+
+    /// Move a cover source within the stored priority order.
+    pub fn move_cover(&mut self, from: usize, to: usize) {
+        let mut order: Vec<String> = self
+            .cover_priority_ordered()
+            .iter()
+            .map(|c| c.key().to_string())
+            .collect();
+        if from >= order.len() {
+            return;
+        }
+        let item = order.remove(from);
+        let to = to.min(order.len());
+        order.insert(to, item);
+        self.cover_priority = order;
+    }
 }
 
 pub struct SettingsStore {
@@ -468,5 +609,53 @@ mod tests {
             assert_eq!(ColumnId::from_key(c.key()), Some(c));
         }
         assert_eq!(ColumnId::from_key("nope"), None);
+    }
+
+    #[test]
+    fn cover_priority_default_order() {
+        let s = Settings::default();
+        assert_eq!(
+            s.cover_priority_ordered(),
+            vec![CoverSource::Folder, CoverSource::Embedded, CoverSource::Internet]
+        );
+    }
+
+    #[test]
+    fn cover_priority_filters_unknown_and_appends_missing() {
+        let mut s = Settings::default();
+        s.cover_priority = vec!["internet".into(), "bogus".into()];
+        let ord = s.cover_priority_ordered();
+        assert_eq!(ord[0], CoverSource::Internet);
+        // Missing canonical sources appended in canonical order.
+        assert_eq!(ord[1], CoverSource::Folder);
+        assert_eq!(ord[2], CoverSource::Embedded);
+        assert_eq!(ord.len(), CoverSource::ALL.len());
+    }
+
+    #[test]
+    fn cover_move_reorders_stored_keys() {
+        let mut s = Settings::default();
+        s.move_cover(0, 2); // folder -> last
+        let ord = s.cover_priority_ordered();
+        assert_eq!(
+            ord,
+            vec![CoverSource::Embedded, CoverSource::Internet, CoverSource::Folder]
+        );
+    }
+
+    #[test]
+    fn cover_folder_names_fallback_and_trim() {
+        let s = Settings::default();
+        assert_eq!(s.cover_folder_names_list(), default_cover_folder_names());
+        assert_eq!(default_cover_folder_names().len(), 17);
+
+        let mut s = Settings::default();
+        s.cover_folder_names = vec!["front.jpg".into(), "   ".into(), "art.png".into()];
+        assert_eq!(s.cover_folder_names_list(), vec!["front.jpg", "art.png"]);
+
+        // All-blank stored names fall back to the default list.
+        let mut s = Settings::default();
+        s.cover_folder_names = vec![" ".into()];
+        assert_eq!(s.cover_folder_names_list(), default_cover_folder_names());
     }
 }

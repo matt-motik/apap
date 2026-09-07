@@ -5,7 +5,7 @@ export { MaterialPalette }
 import { TopPanel } from "top_panel.slint";
 import { Playlist } from "playlist.slint";
 import { StatusBar } from "status.slint";
-import { Settings, ColumnSetting } from "settings.slint";
+import { Settings, ColumnSetting, CoverSetting } from "settings.slint";
 
 component MenuButton inherits Rectangle {
     in property <string> text: "";
@@ -65,6 +65,7 @@ export component AppWindow inherits Window {
     in property <float> cover-size: 200;
     in property <float> col-info-w: 240;
     in property <float> col-gap: 12;
+    in property <image> cover-art;
 
     in property <bool> playing: false;
     in property <bool> repeat: false;
@@ -111,6 +112,9 @@ export component AppWindow inherits Window {
     in property <string> settings-active-error: "";
     in property <[ColumnSetting]> settings-cols: [];
     in-out property <int> settings-selected-col: -1;
+    in property <[CoverSetting]> settings-covers: [];
+    in property <string> settings-cover-names: "";
+    in property <bool> settings-cover-online: true;
 
     callback play-pause();
     callback stop();
@@ -144,6 +148,10 @@ export component AppWindow inherits Window {
     callback settings-clear-playlist();
     callback settings-remove-current();
     callback settings-save();
+    callback settings-cover-move-up(int);
+    callback settings-cover-move-down(int);
+    callback settings-cover-names-edited(string);
+    callback settings-toggle-cover-online(bool);
     callback show-about();
 
     VerticalLayout {
@@ -155,6 +163,7 @@ export component AppWindow inherits Window {
             cover-size: root.cover-size;
             col-info-w: root.col-info-w;
             col-gap: root.col-gap;
+            cover-art: root.cover-art;
             playing: root.playing;
             repeat: root.repeat;
             repeat-one: root.repeat-one;
@@ -231,6 +240,9 @@ export component AppWindow inherits Window {
         active-error: root.settings-active-error;
         columns-cfg: root.settings-cols;
         selected-col <=> root.settings-selected-col;
+        covers: root.settings-covers;
+        cover-names: root.settings-cover-names;
+        cover-online: root.settings-cover-online;
         close => { root.settings-close(); }
         set-theme(i) => { root.settings-theme-changed(i); }
         set-cover-size(v) => { root.settings-cover-size(v); }
@@ -246,5 +258,9 @@ export component AppWindow inherits Window {
         clear-playlist => { root.settings-clear-playlist(); }
         remove-current => { root.settings-remove-current(); }
         save-settings => { root.settings-save(); }
+        cover-move-up(i) => { root.settings-cover-move-up(i); }
+        cover-move-down(i) => { root.settings-cover-move-down(i); }
+        cover-names-edited(t) => { root.settings-cover-names-edited(t); }
+        toggle-cover-online(b) => { root.settings-toggle-cover-online(b); }
     }
 }

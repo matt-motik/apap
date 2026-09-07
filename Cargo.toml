@@ -6,6 +6,8 @@ edition = "2021"
 [dependencies]
 rfd = "0.17"
 symphonia = { version = "0.6", features = ["flac", "wav", "aiff", "pcm", "mp3", "ogg", "aac", "alac", "isomp4", "vorbis", "adpcm"] }
+ureq = { version = "2", features = ["tls"] }
+serde_json = "1"
 cpal = "0.18"
 serde = { version = "1", features = ["derive"] }
 toml = "1"

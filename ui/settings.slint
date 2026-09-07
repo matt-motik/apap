@@ -1,11 +1,16 @@
 import { Colors } from "theme.slint";
-import { TabWidget, ComboBox, Slider, Switch, Button, ListView, CheckBox } from "std-widgets.slint";
+import { TabWidget, ComboBox, Slider, Switch, Button, ListView, CheckBox, LineEdit } from "std-widgets.slint";
 
 export struct ColumnSetting {
     index: int,
     label: string,
     visible: bool,
     width-pct: float,
+}
+
+export struct CoverSetting {
+    label: string,
+    pos: int,
 }
 
 component RowLabel inherits Text {
@@ -29,6 +34,9 @@ export component Settings inherits Rectangle {
     in property <string> active-error: "";
     in property <[ColumnSetting]> columns-cfg: [];
     in-out property <int> selected-col: -1;
+    in property <[CoverSetting]> covers: [];
+    in property <string> cover-names: "";
+    in property <bool> cover-online: true;
     in-out property <float> resize-dw: 0;
     in-out property <float> resize-dh: 0;
 
@@ -47,6 +55,10 @@ export component Settings inherits Rectangle {
     callback move-col-down(int);
     callback clear-playlist();
     callback remove-current();
+    callback cover-move-up(int);
+    callback cover-move-down(int);
+    callback cover-names-edited(string);
+    callback toggle-cover-online(bool);
 
     visible: root.open;
     background: Colors.bg-overlay;
@@ -280,6 +292,78 @@ export component Settings inherits Rectangle {
                                 preferred-height: 28px;
                                 clicked => { root.reset-columns(); }
                             }
+                        }
+                    }
+                }
+
+                // ===== Covers =====
+                Tab {
+                    title: "Covers";
+                    VerticalLayout {
+                        spacing: 8px;
+                        padding-top: 4px;
+
+                        RowLabel { text: "Cover source priority"; }
+
+                        ListView {
+                            vertical-stretch: 1;
+                            for cover-row in root.covers : Rectangle {
+                                height: 32px;
+
+                                HorizontalLayout {
+                                    padding-left: 8px;
+                                    padding-right: 8px;
+                                    spacing: 4px;
+
+                                    Text {
+                                        text: cover-row.label;
+                                        color: Colors.text-primary;
+                                        font-size: 14px;
+                                        vertical-alignment: center;
+                                        horizontal-stretch: 1;
+                                        overflow: elide;
+                                    }
+
+                                    Button {
+                                        text: "\u{25B2}";
+                                        preferred-height: 28px;
+                                        preferred-width: 32px;
+                                        enabled: cover-row.pos > 0;
+                                        clicked => { root.cover-move-up(cover-row.pos); }
+                                    }
+                                    Button {
+                                        text: "\u{25BC}";
+                                        preferred-height: 28px;
+                                        preferred-width: 32px;
+                                        enabled: cover-row.pos < root.covers.length - 1;
+                                        clicked => { root.cover-move-down(cover-row.pos); }
+                                    }
+                                }
+                            }
+                        }
+
+                        HorizontalLayout {
+                            padding-left: 8px;
+                            spacing: 4px;
+                            RowLabel { text: "Folder cover filenames (comma-separated)"; }
+                            Rectangle { horizontal-stretch: 1; }
+                        }
+
+                        LineEdit {
+                            preferred-height: 32px;
+                            text: root.cover-names;
+                            edited(t) => { root.cover-names-edited(t); }
+                        }
+
+                        HorizontalLayout {
+                            padding-left: 8px;
+                            spacing: 4px;
+                            RowLabel { text: "Search the internet (iTunes)"; }
+                            CheckBox {
+                                checked: root.cover-online;
+                                toggled => { root.toggle-cover-online(self.checked); }
+                            }
+                            Rectangle { horizontal-stretch: 1; }
                         }
                     }
                 }

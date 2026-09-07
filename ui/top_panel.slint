@@ -64,6 +64,7 @@ export component TopPanel inherits Rectangle {
     in property <float> cover-size: 200;
     in property <float> col-info-w: 240;
     in property <float> col-gap: 12;
+    in property <image> cover-art;
 
     in property <bool> playing: false;
     in property <bool> repeat: false;
@@ -112,18 +113,25 @@ export component TopPanel inherits Rectangle {
                 width: root.cover-size * 1px;
                 height: root.cover-size * 1px;
                 border-radius: 6px;
+                clip: true;
                 background: Colors.bg-elevated;
 
-                VerticalLayout {
-                    padding: 8px;
-                    Text {
-                        text: "Album Art";
-                        color: Colors.text-tertiary;
-                        font-size: 14px;
-                        horizontal-alignment: center;
-                        vertical-alignment: center;
-                        wrap: word-wrap;
-                    }
+                Image {
+                    source: root.cover-art;
+                    image-fit: cover;
+                    width: 100%;
+                    height: 100%;
+                }
+
+                // Placeholder, shown while no cover is available.
+                Text {
+                    text: "Album Art";
+                    color: Colors.text-tertiary;
+                    font-size: 14px;
+                    horizontal-alignment: center;
+                    vertical-alignment: center;
+                    wrap: word-wrap;
+                    visible: root.cover-art.width == 0;
                 }
             }
 

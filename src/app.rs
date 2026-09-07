@@ -12,6 +12,7 @@ use slint::{ComponentHandle, Model, ModelRc, SharedString, StandardListViewItem}
 use slint::language::TableColumn;
 
 use music_player_rs::audio::player::Player;
+use music_player_rs::cover::{self, CoverDone, CoverJob};
 use music_player_rs::playlist::{self, ScanMsg, Track};
 use music_player_rs::settings::Settings;
 use music_player_rs::settings::{ColumnId, RepeatMode, SettingsStore, Theme};
@@ -92,6 +93,9 @@ pub struct MusicApp {
     col_model_sig: u64,
     col_sig_stable_ticks: u32,
     settings_draft: Option<Settings>,
+    cover_tx: Option<std::sync::mpsc::Sender<CoverJob>>,
+    cover_rx: Option<Receiver<CoverDone>>,
+    cover_gen: u64,
 }
 
 impl MusicApp {
@@ -107,6 +111,10 @@ impl MusicApp {
         let tracks = playlist::load_track_list(&music_player_rs::settings::playlist_path());
         let known_paths: HashSet<PathBuf> = tracks.iter().map(|t| t.path.clone()).collect();
         let (tray_rx, tray_up_tx) = tray::start();
+
+        let (cover_tx, cover_job_rx) = channel::<CoverJob>();
+        let (cover_done_tx, cover_done_rx) = channel::<CoverDone>();
+        cover::start_worker(cover_job_rx, cover_done_tx);
 
         let repeat = settings.settings.repeat;
         let shuffle = settings.settings.shuffle;
@@ -132,6 +140,9 @@ impl MusicApp {
             col_model_sig: 0,
             col_sig_stable_ticks: 0,
             settings_draft: None,
+            cover_tx: Some(cover_tx),
+            cover_rx: Some(cover_done_rx),
+            cover_gen: 0,
         };
         app.rebuild_shuffle();
         if let Some(col) = app.settings.settings.sorted_col {
@@ -214,6 +225,25 @@ impl MusicApp {
             })
             .collect();
         self.ui.set_settings_cols(ModelRc::from(cols.as_slice()));
+    }
+
+    fn sync_cover_settings_to_ui(&self) {
+        let s = self.settings_ref();
+        let covers: Vec<CoverSetting> = s
+            .cover_priority_ordered()
+            .iter()
+            .enumerate()
+            .map(|(i, c)| {
+                let mut cs = CoverSetting::default();
+                cs.label = c.label().into();
+                cs.pos = i as i32;
+                cs
+            })
+            .collect();
+        self.ui.set_settings_covers(ModelRc::from(covers.as_slice()));
+        let names = s.cover_folder_names_list().join(", ");
+        self.ui.set_settings_cover_names(names.into());
+        self.ui.set_settings_cover_online(s.cover_online);
     }
 
     fn apply_theme(&self) {
@@ -578,6 +608,7 @@ impl MusicApp {
                 eprintln!("[gui] open_settings");
                 let mut a = app.borrow_mut();
                 a.settings_draft = Some(a.settings.settings.clone());
+                a.sync_cover_settings_to_ui();
                 a.ui.set_settings_open(true);
             });
         }
@@ -828,6 +859,7 @@ impl MusicApp {
                 a.ui.set_cover_size(a.settings.settings.cover_size);
                 a.ui.set_col_info_w(a.settings.settings.col_info_w);
                 a.ui.set_col_gap(a.settings.settings.col_gap);
+                a.sync_cover_settings_to_ui();
                 a.sync_playlist_to_ui();
                 a.ui.set_settings_open(false);
                 eprintln!("[gui] settings_save: applied and closed");
@@ -852,6 +884,61 @@ impl MusicApp {
                 if let Some(idx) = current {
                     app.borrow_mut().remove_track(idx);
                 }
+            });
+        }
+
+        // 31b. settings-cover-move-up
+        {
+            let app = this.clone();
+            ui.on_settings_cover_move_up(move |idx| {
+                eprintln!("[gui] settings_cover_move_up idx={idx}");
+                let idx = idx as usize;
+                let mut a = app.borrow_mut();
+                let ordered = a.settings_ref().cover_priority_ordered();
+                if idx == 0 || idx >= ordered.len() {
+                    return;
+                }
+                a.settings_mut().move_cover(idx, idx - 1);
+                a.sync_cover_settings_to_ui();
+            });
+        }
+
+        // 31c. settings-cover-move-down
+        {
+            let app = this.clone();
+            ui.on_settings_cover_move_down(move |idx| {
+                eprintln!("[gui] settings_cover_move_down idx={idx}");
+                let idx = idx as usize;
+                let mut a = app.borrow_mut();
+                let ordered = a.settings_ref().cover_priority_ordered();
+                if idx + 1 >= ordered.len() {
+                    return;
+                }
+                a.settings_mut().move_cover(idx, idx + 1);
+                a.sync_cover_settings_to_ui();
+            });
+        }
+
+        // 31d. settings-cover-names-edited
+        {
+            let app = this.clone();
+            ui.on_settings_cover_names_edited(move |text| {
+                eprintln!("[gui] settings_cover_names_edited text='{text}'");
+                let names: Vec<String> = text
+                    .split(',')
+                    .map(|s| s.trim().to_string())
+                    .filter(|s| !s.is_empty())
+                    .collect();
+                app.borrow_mut().settings_mut().cover_folder_names = names;
+            });
+        }
+
+        // 31e. settings-toggle-cover-online
+        {
+            let app = this.clone();
+            ui.on_settings_toggle_cover_online(move |on| {
+                eprintln!("[gui] settings_toggle_cover_online on={on}");
+                app.borrow_mut().settings_mut().cover_online = on;
             });
         }
 
@@ -883,6 +970,7 @@ impl MusicApp {
     pub fn tick(&mut self) {
         self.poll_tray();
         self.drain_scan();
+        self.drain_cover();
         self.handle_auto_advance();
         self.sync_playback_state_to_ui();
         self.push_tray_status();
@@ -950,6 +1038,7 @@ impl MusicApp {
                 let track_count = format!("{} tracks", self.tracks.len());
                 self.ui.set_track_info(parts.join(" \u{2022} ").into());
                 self.ui.set_track_count(track_count.into());
+                self.request_cover(i);
                 return;
             }
         }
@@ -969,6 +1058,7 @@ impl MusicApp {
         let track_count = format!("{} tracks", self.tracks.len());
         self.ui.set_track_info("".into());
         self.ui.set_track_count(track_count.into());
+        self.reset_cover();
     }
 
     fn handle_auto_advance(&mut self) {
@@ -1082,6 +1172,60 @@ impl MusicApp {
             self.sync_playlist_to_ui();
             self.save_playlist();
         }
+    }
+
+    /// Request a cover for the track; bumps `cover_gen` so stale results are
+    /// discarded when `drain_cover` applies them.
+    fn request_cover(&mut self, index: usize) {
+        let Some(track) = self.tracks.get(index) else { return };
+        self.cover_gen = self.cover_gen.wrapping_add(1);
+        if let Some(tx) = &self.cover_tx {
+            let cfg = cover::CoverConfig::from_settings(&self.settings.settings);
+            let _ = tx.send(CoverJob {
+                id: self.cover_gen,
+                track: track.clone(),
+                cfg,
+            });
+        }
+    }
+
+    /// Clear the displayed cover and invalidate any in-flight request.
+    fn reset_cover(&mut self) {
+        self.cover_gen = self.cover_gen.wrapping_add(1);
+        self.ui.set_cover_art(slint::Image::default());
+    }
+
+    /// Apply cover results from the worker, keeping only the most recent one
+    /// (and only if it is newer than the last requested id).
+    fn drain_cover(&mut self) {
+        if self.cover_rx.is_none() {
+            return;
+        }
+        let mut latest: Option<Option<std::path::PathBuf>> = None;
+        let mut latest_id = 0u64;
+        loop {
+            let msg = match &self.cover_rx {
+                Some(rx) => rx.try_recv(),
+                None => break,
+            };
+            match msg {
+                Ok(done) => {
+                    latest_id = done.id;
+                    latest = Some(done.image);
+                }
+                Err(TryRecvError::Empty) => break,
+                Err(TryRecvError::Disconnected) => break,
+            }
+        }
+        let Some(image) = latest else { return };
+        if latest_id != self.cover_gen {
+            return;
+        }
+        let img = match &image {
+            Some(p) => slint::Image::load_from_path(p).unwrap_or_default(),
+            None => slint::Image::default(),
+        };
+        self.ui.set_cover_art(img);
     }
 
     pub fn play_track(&mut self, index: usize) {
@@ -1223,6 +1367,7 @@ impl MusicApp {
             if cur == index {
                 self.player.stop();
                 self.current = None;
+                self.reset_cover();
             } else if cur > index {
                 self.current = Some(cur - 1);
             }
@@ -1240,6 +1385,7 @@ impl MusicApp {
     fn clear_playlist(&mut self) {
         self.player.stop();
         self.current = None;
+        self.reset_cover();
         self.tracks.clear();
         self.known_paths.clear();
         self.rebuild_shuffle();
