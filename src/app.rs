@@ -92,7 +92,6 @@ pub struct MusicApp {
     col_model_sig: u64,
     col_sig_stable_ticks: u32,
     settings_draft: Option<Settings>,
-    tick_count: u64,
 }
 
 impl MusicApp {
@@ -133,13 +132,13 @@ impl MusicApp {
             col_model_sig: 0,
             col_sig_stable_ticks: 0,
             settings_draft: None,
-            tick_count: 0,
         };
         app.rebuild_shuffle();
         if let Some(col) = app.settings.settings.sorted_col {
             let desc = app.settings.settings.sort_desc;
             app.apply_sort(col, desc);
         }
+        app.apply_window_geometry();
         app
     }
 
@@ -159,6 +158,33 @@ impl MusicApp {
 
     fn settings_mut(&mut self) -> &mut Settings {
         self.settings_draft.as_mut().unwrap_or(&mut self.settings.settings)
+    }
+
+    /// Restore the saved window size/position (if any) before the window is shown.
+    fn apply_window_geometry(&self) {
+        let s = &self.settings.settings;
+        if let (Some(w), Some(h)) = (s.win_w, s.win_h) {
+            if (200..=8000).contains(&w) && (200..=8000).contains(&h) {
+                self.ui.window().set_size(slint::WindowSize::Physical(slint::PhysicalSize::new(w, h)));
+            }
+        }
+        if let (Some(x), Some(y)) = (s.win_x, s.win_y) {
+            self.ui
+                .window()
+                .set_position(slint::WindowPosition::Physical(slint::PhysicalPosition::new(x, y)));
+        }
+    }
+
+    /// Persist the current window size/position for the next run.
+    fn save_window_geometry(&mut self) {
+        let size = self.ui.window().size();
+        let pos = self.ui.window().position();
+        let s = &mut self.settings.settings;
+        s.win_w = Some(size.width);
+        s.win_h = Some(size.height);
+        s.win_x = Some(pos.x);
+        s.win_y = Some(pos.y);
+        self.settings.save();
     }
 
     fn sync_settings_to_ui(&self) {
@@ -846,6 +872,7 @@ impl MusicApp {
                     let _ = app.borrow_mut().ui.hide();
                     slint::CloseRequestResponse::KeepWindowShown
                 } else {
+                    app.borrow_mut().save_window_geometry();
                     let _ = slint::quit_event_loop();
                     slint::CloseRequestResponse::KeepWindowShown
                 }
@@ -854,16 +881,6 @@ impl MusicApp {
     }
 
     pub fn tick(&mut self) {
-        self.tick_count = self.tick_count.wrapping_add(1);
-        if self.tick_count % 10 == 0 {
-            let draft = self.settings_draft.is_some();
-            let open = self.ui.get_settings_open();
-            eprintln!(
-                "[hb] tick={} settings_open={open} draft={draft} window_visible={}",
-                self.tick_count,
-                self.ui.window().is_visible()
-            );
-        }
         self.poll_tray();
         self.drain_scan();
         self.handle_auto_advance();
@@ -1325,7 +1342,7 @@ impl MusicApp {
                     }
                 }
                 TrayCmd::Quit => {
-                    self.settings.save();
+                    self.save_window_geometry();
                     self.save_playlist();
                     let _ = slint::quit_event_loop();
                 }

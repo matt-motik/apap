@@ -194,6 +194,17 @@ pub struct Settings {
     /// Диапазон 0..=20, по умолчанию 12.
     #[serde(default)]
     pub col_gap: f32,
+    /// Позиция окна на экране (физические пиксели, включая рамку). `None` —
+    /// не сохранено, окну позицию выбирает оконный менеджер.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub win_x: Option<i32>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub win_y: Option<i32>,
+    /// Размер окна в физических пикселях (без рамки). `None` — размер по умолчанию.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub win_w: Option<u32>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub win_h: Option<u32>,
 }
 
 impl Default for Settings {
@@ -215,6 +226,10 @@ impl Default for Settings {
             cover_size: 200.0,
             col_info_w: 240.0,
             col_gap: 12.0,
+            win_x: None,
+            win_y: None,
+            win_w: None,
+            win_h: None,
         }
     }
 }
