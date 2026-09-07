@@ -136,11 +136,13 @@ export component Settings inherits Rectangle {
                             padding-right: 8px;
                             spacing: 4px;
                             RowLabel { text: "Minimize to tray"; }
-                            Switch {
+                            CheckBox {
                                 checked: root.minimize-to-tray;
                                 toggled => { root.set-minimize-to-tray(self.checked); }
                             }
+                            Rectangle { horizontal-stretch: 1; }
                         }
+                        Rectangle { vertical-stretch: 1; }
                     }
                 }
 
@@ -199,7 +201,9 @@ export component Settings inherits Rectangle {
 
                             }
                         }
+                        Rectangle { vertical-stretch: 1; }
                     }
+                    
                 }
 
                 // ===== Columns =====
