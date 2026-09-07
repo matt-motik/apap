@@ -798,6 +798,21 @@ impl MusicApp {
         {
             ui.on_show_about(move || {});
         }
+
+        // 33. window close -> minimize to tray (if enabled), otherwise quit
+        {
+            let app = this.clone();
+            ui.window().on_close_requested(move || {
+                let minimize = app.borrow().settings.settings.minimize_to_tray;
+                if minimize {
+                    let _ = app.borrow_mut().ui.hide();
+                    slint::CloseRequestResponse::KeepWindowShown
+                } else {
+                    let _ = slint::quit_event_loop();
+                    slint::CloseRequestResponse::KeepWindowShown
+                }
+            });
+        }
     }
 
     pub fn tick(&mut self) {
@@ -1251,16 +1266,19 @@ impl MusicApp {
                 TrayCmd::Next => self.play_next(1),
                 TrayCmd::ShowHide => {
                     let visible = self.ui.window().is_visible();
-                    if visible {
-                        self.ui.hide().unwrap();
+                    let res = if visible {
+                        self.ui.hide()
                     } else {
-                        self.ui.show().unwrap();
+                        self.ui.show()
+                    };
+                    if let Err(e) = res {
+                        eprintln!("tray show/hide failed: {e}");
                     }
                 }
                 TrayCmd::Quit => {
                     self.settings.save();
                     self.save_playlist();
-                    self.ui.hide().unwrap();
+                    let _ = slint::quit_event_loop();
                 }
                 TrayCmd::Wheel(delta) => {
                     let v = (self.player.volume() - delta as f32 * 0.02).clamp(0.0, 1.0);

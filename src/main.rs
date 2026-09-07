@@ -26,6 +26,6 @@ fn main() {
         },
     );
 
-    ui.run().unwrap();
+    slint::run_event_loop_until_quit().unwrap();
     drop(timer);
 }
