@@ -24,6 +24,7 @@ export component Playlist inherits Rectangle {
     VerticalLayout {
         spacing: 0;
         view := StandardTableView {
+            visible: root.cols.length > 0;
             rows: root.rows;
             columns: root.cols;
             current-row: root.current-row;
@@ -42,6 +43,17 @@ export component Playlist inherits Rectangle {
                 if (event.kind == PointerEventKind.up) {
                     root.play-track(row);
                 }
+            }
+        }
+
+        if root.cols.length == 0 : HorizontalLayout {
+            horizontal-stretch: 1;
+            vertical-stretch: 1;
+            alignment: center;
+            Text {
+                text: "Нет активных колонок";
+                color: Colors.text-dim;
+                font-size: 16px;
             }
         }
     }

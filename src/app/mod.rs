@@ -648,8 +648,13 @@ impl MusicApp {
                 eprintln!("[gui] settings_reset_cols");
                 let mut a = app.borrow_mut();
                 let s = a.settings_mut();
-                s.column_widths.clear();
-                s.column_visibility.clear();
+                // Reset only the width proportions to their defaults; the
+                // current visibility and column order are kept.
+                let visible = s.visible_columns();
+                for c in visible {
+                    let w = music_player_rs::settings::default_column_width(c);
+                    s.column_widths.insert(c.key().to_string(), w);
+                }
                 s.normalize_visible_pct();
                 a.sync_dialog_cols();
             });

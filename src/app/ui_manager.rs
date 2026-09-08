@@ -334,23 +334,19 @@ impl MusicApp {
     fn build_table_columns(&self) -> Vec<TableColumn> {
         let view_w = self.ui.get_playlist_view_width().max(100.0) as f32;
 
-        let mut widths: Vec<f32> = self
-            .visible_col_ids()
+        let ids = self.visible_col_ids();
+        let ratios: Vec<f32> = ids
             .iter()
-            .map(|c| self.settings.settings.column_width_pct(*c) / 100.0 * view_w)
+            .map(|c| self.settings.settings.column_width_pct(*c))
             .collect();
-        let sum: f32 = widths.iter().sum();
-        if let Some(last) = widths.last_mut() {
-            *last += view_w - sum;
-        }
+        let widths = music_player_rs::playlist_layout::resolve_widths(view_w, &ids, &ratios);
 
-        self.visible_col_ids()
-            .iter()
-            .enumerate()
-            .map(|(i, c)| {
+        ids.iter()
+            .zip(widths)
+            .map(|(c, w)| {
                 let mut tc = TableColumn::default();
                 tc.title = c.label().into();
-                tc.width = widths[i].into();
+                tc.width = w.into();
                 tc
             })
             .collect()
@@ -381,23 +377,36 @@ impl MusicApp {
         if len == 0 {
             return;
         }
-        let total_px: f32 = (0..len)
-            .filter_map(|i| cols.row_data(i).map(|tc| tc.width))
-            .sum();
-        if total_px <= 0.0 {
-            return;
-        }
         let ordered = self.settings.settings.ordered_columns();
         let visible_cols: Vec<ColumnId> = ordered
             .iter()
             .copied()
             .filter(|c| self.settings.settings.column_visible(*c))
             .collect();
+        if visible_cols.len() != len {
+            return;
+        }
+        // Clamp the dragged pixel widths to the per-column bounds before
+        // converting them to percentages, so the post-debounce rebuild snaps
+        // to the same clamped layout and the column signature stays stable
+        // (no save/rebuild ping-pong).
+        let view_w = self.ui.get_playlist_view_width().max(100.0);
+        let mut px: Vec<f32> = Vec::with_capacity(len);
         for (i, col_id) in visible_cols.iter().enumerate() {
             if let Some(tc) = cols.row_data(i) {
-                let pct = (tc.width / total_px) * 100.0;
-                self.settings.settings.column_widths.insert(col_id.key().to_string(), pct);
+                let lim = music_player_rs::playlist_layout::column_limit(*col_id);
+                let max_eff = lim.effective_max(view_w);
+                let min_eff = lim.min_px.min(max_eff);
+                px.push(tc.width.clamp(min_eff, max_eff));
             }
+        }
+        let total_px: f32 = px.iter().sum();
+        if total_px <= 0.0 {
+            return;
+        }
+        for (col_id, w) in visible_cols.iter().zip(px) {
+            let pct = (w / total_px) * 100.0;
+            self.settings.settings.column_widths.insert(col_id.key().to_string(), pct);
         }
         // Persisted at exit (save-at-exit).
     }

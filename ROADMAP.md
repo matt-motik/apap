@@ -319,6 +319,26 @@ fn drain_startup_tracks(&mut self) {
 
 ---
 
+### 4.9. Rework размеров колонок плейлиста (robust-распределитель с лимитами)
+
+**Статус:** ✅ сделано — по спецe `_TODO_/COLUMN_WIDTH_IMPLEMENTATION.md` (переведена на реальную архитектуру; реальное ядро уже было: pct-модель, fit-to-window без h-scroll, драг в `StandardTableView` + debounce 2с, Reset, save-at-exit, валидация загрузки). Сделано заново то, чего не хватало:
+
+- **Новый модуль `src/playlist_layout.rs`**: `ColumnLimit { min_px, max_px, max_pct }`, таблица `column_limit(id)` для всех 14 колонок (абсолютные `max_px` для коротких/числовых, относительные `max_pct` для текстовых; значения под ~900px view, «на глаз», тюнятся там же). Чистая функция `resolve_widths(container_w, ids, ratios)`:
+  - идеал `ratio·W` (ratios нормируются, сумма не обязана быть 1) → клэмп `[min, min(max_px, W·max_pct)]`;
+  - коррекция ≤7 итераций: `delta>0` — рост `∝(max−w)`, `delta<0` — сжатие `∝(w−min)`; всё зажато → равномерный спред (fallback по спеке);
+  - дегенеративное окно (`W < Σmin`) — пропорциональное сжатие БЕЗ учёта min (интерфейс не ломается, warn в лог);
+  - округление: вниз всё кроме последней, последняя поглощает остаток → сумма == W точно;
+  - `round_fill` — отдельный helper; **+6 юнит-тестов** (узкое окно / caps / re-enable ребаланс / pinned-fallback / точность суммы / ratios≠1).
+- **Интеграция** (`src/app/ui_manager.rs`): `build_table_columns` → `resolve_widths`; `save_column_widths_from_ui` перед px→pct клэмпит px-ширины драга границами `column_limit` → «резинка» при драге за грань, стабильный col-sig без пинг-понга debounce. Запись на диск — по-прежнему только при выходе (4.4, решение пользователя).
+- **Заглушка** (`ui/playlist.slint`): при 0 видимых колонок — центрированный текст «Нет активных колонок». 
+- **Reset** (`src/app/mod.rs` `on_settings_reset_cols`): сбрасывает **только ширины** к `default_column_width` (видимость/порядок сохраняются) — по решению пользователя (не «полный сброс», как было).
+
+**Решения пользователя по дельтам спеки:** дефолты колонок — Rust-const (не в `config.toml`: нет UI для правки, при апдейте приложения значения в конфиге устареют); Reset widths-only; save-at-exit (не на драг-релиз); зажим после отпускания драга (встроенный виджет Slint не даёт жёстких границ во время драга; транзиентный h-scrollbar при овердраге возможен — возврат на debounce).
+
+**Верификация:** build ок; clippy baseline 16 lib / 10 bin (не вырос); тесты 55 lib (49+6) + 6 bin зелёные. Осталась ручная проверка с дисплеем (драг, ресайз, скрыть все колонки) и тюнинг значений `column_limit()`.
+
+---
+
 ### 4.2. Trait `AudioSource` с частичной реализацией (ISP)
 
 **Статус:** ✅ сделано — `duration_secs` и `seek` стали default-методами (`src/audio/decoder.rs:25`): длительность выводится из `info().num_frames`, seek по умолчанию возвращает `Err("Seek is not supported…")`. Дублирующие impl убраны в Decoder/DsdDecoder/MockSource; +тест `optional_methods_have_safe_defaults`. Итого 49 lib + 6 bin.
