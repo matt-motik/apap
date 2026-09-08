@@ -103,10 +103,14 @@ impl MusicApp {
                 .collect();
             let _ = tx.send(names);
         });
-        // Show a placeholder until the enumeration lands.
-        self.ui
-            .set_settings_devices(ModelRc::from([SharedString::from("(loading\u{2026})")].as_slice()));
-        self.ui.set_settings_device_idx(-1);
+        // Show a placeholder on the very first enumeration; on reopen keep the
+        // previous list visible until the fresh one lands (no "first item"
+        // flash while the active device index is unknown).
+        if self.ui.get_settings_devices().row_count() == 0 {
+            self.ui
+                .set_settings_devices(ModelRc::from([SharedString::from("(loading\u{2026})")].as_slice()));
+            self.ui.set_settings_device_idx(-1);
+        }
     }
 
     /// Finish `sync_audio_devices`: apply the device list once the worker
@@ -127,12 +131,16 @@ impl MusicApp {
 
         let saved = self.settings_ref().audio_device.clone();
 
-        // The device we want to highlight: the configured one, else the host
-        // default (so a fresh install lands on the active device).
-        let want = if saved.is_empty() {
-            default_device_name().map(|n| n.into())
-        } else {
+        // Highlight the device actually in use right now; fall back to the
+        // configured preference; finally defer to the host default so a fresh
+        // install lands on the active device.
+        let active = self.active_device.clone();
+        let want = if !active.is_empty() {
+            Some(active)
+        } else if !saved.is_empty() {
             Some(saved.clone())
+        } else {
+            default_device_name().map(|n| n.into())
         };
 
         let mut model: Vec<SharedString> = Vec::with_capacity(names.len() + 1);

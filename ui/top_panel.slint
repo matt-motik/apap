@@ -382,14 +382,32 @@ export component TopPanel inherits Rectangle {
                         HorizontalLayout {
                             alignment: center;
                             vertical-stretch: 1;
-                            Slider {
+                            wheel-vol := TouchArea {
                                 vertical-stretch: 1;
-                                width: 24px;
-                                value: root.volume;
-                                minimum: 0;
-                                maximum: 1;
-                                orientation: vertical;
-                                changed(v) => { root.volume-changed(v); }
+                                width: 34px;
+                                // Wheel over the slider = one volume notch (same
+                                // step as the tray); drag keeps working via the
+                                // Slider's own TouchArea (scroll bubbles up here).
+                                scroll-event(event) => {
+                                    if (event.delta-y != 0) {
+                                        root.volume-changed(Math.clamp(root.volume + (event.delta-y > 0 ? 0.02 : -0.02), 0, 1));
+                                        return accept;
+                                    }
+                                    reject
+                                }
+                                HorizontalLayout {
+                                    alignment: center;
+                                    vertical-stretch: 1;
+                                    Slider {
+                                        vertical-stretch: 1;
+                                        width: 24px;
+                                        value: root.volume;
+                                        minimum: 0;
+                                        maximum: 1;
+                                        orientation: vertical;
+                                        changed(v) => { root.volume-changed(v); }
+                                    }
+                                }
                             }
                         }
                     }

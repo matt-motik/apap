@@ -455,6 +455,9 @@ impl MusicApp {
                 eprintln!("[gui] open_settings");
                 let mut a = app.borrow_mut();
                 a.settings_draft = Some(a.settings.settings.clone());
+                // Re-push every dialog field from the real settings: a reopened
+                // dialog must show current values, never a stale un-applied draft.
+                a.sync_settings_to_ui();
                 a.sync_audio_devices();
                 a.sync_cover_settings_to_ui();
                 a.ui.set_settings_open(true);
@@ -528,6 +531,8 @@ impl MusicApp {
                 let mut a = app.borrow_mut();
                 a.settings_draft = None;
                 a.sync_settings_to_ui();
+                // Leave the Covers tab at the real (unchanged) state too.
+                a.sync_cover_settings_to_ui();
                 // Reset the Audio tab to the real (unchanged) state.
                 a.sync_audio_devices();
                 a.ui.set_settings_open(false);
@@ -967,11 +972,17 @@ impl MusicApp {
                 }
                 TrayCmd::Wheel(delta) => {
                     const WHEEL_VOLUME_STEP: f32 = 0.02;
-                    let v = (self.player.volume() - delta as f32 * WHEEL_VOLUME_STEP).clamp(0.0, 1.0);
-                    self.player.set_volume(v);
-                    self.settings.settings.volume = v;
-                    // Persisted at exit (save-at-exit).
-                    self.emit(AppEvent::VolumeChanged(v));
+                    // Hosts differ in the raw magnitude per event (Ubuntu: ±1,
+                    // KDE/4k: ±120); only the sign matters — each scroll notch
+                    // is a single step. Negative delta = louder.
+                    if delta != 0 {
+                        let dir = if delta < 0 { 1.0 } else { -1.0 };
+                        let v = (self.player.volume() + dir * WHEEL_VOLUME_STEP).clamp(0.0, 1.0);
+                        self.player.set_volume(v);
+                        self.settings.settings.volume = v;
+                        // Persisted at exit (save-at-exit).
+                        self.emit(AppEvent::VolumeChanged(v));
+                    }
                 }
             }
         }

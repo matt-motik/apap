@@ -5,34 +5,38 @@
 
 ## Статус
 
-- **Состояние:** `done` — цикл ROADMAP 4.4–4.7 завершён (все шаги [x], тесты зелёные).
+- **Состояние:** `done` — баг-раунд закрыт (4 фикса + 1 аудио), тесты зелёные.
 
 ## Активная задача
 
-- Нет активной задачи. Следующий эпизод: future-блок ROADMAP (F1–F4) или новый план.
+- Нет активной задачи. Далее: future-блок ROADMAP (F1–F4) или новый план/инбокс.
 
 ## Выполнено в этой сессии
 
-- 4.1 `src/app/events.rs`: направленный event-feed (AppEvent + mpsc), `drain_events` в tick; дельта-синк UI (`last_ui: UiState`) — тик пишет только изменившееся, на паузе/стопе сикбар не дёргается.
-- 4.5 Сикбар: TouchArea(grab) поверх Slider (`top_panel.slint`), `seek-dragging`/`pending-seek`, callback `seek-commit` → единый seek при отпускании; тик при драге не трогает seek-fraction/pos/dur.
-- 4.6 Трей-громкость → UI-ползунок (пассивно, через дельта-синк тика ≤100 мс).
-- 4.7 `disk_tracks: Vec<Track>`: порядок диска (load + scan) ≠ view-порядок; `save_playlist()` пишет disk_tracks; сохранение плейлиста — только при выходе (`playlist_dirty`), eager-save убраны из scan/remove/clear/sort.
-- 4.4 Семантика настроек: eager-`settings.save()` убраны (volume GUI+wheel, shuffle, repeat, sort prefs, column widths); save — при выходе через `save_window_geometry()` (оба выхода); `on_settings_save` — diff-apply с переживанием live-полей (volume/muted/last_dir/repeat/shuffle/sorted_col/sort_desc/win_*).
+- Баг-раунд из замечаний пользователя:
+  - Трей-колесо: квантование до одного «щелчка» (`TrayCmd::Wheel`, `delta.signum()` → шаг 0.02; KDE шлёт ±120, Ubuntu ±1).
+  - Колесо над слайдером громкости в окне: `scroll-event` на обёртке-TouchArea вокруг Slider (`top_panel.slint`), шаг 0.02, драг не ломается; sign: delta-y>0 = громче (winit LineDelta: вверх = положительный).
+  - Диалог настроек: `on_open_settings` теперь вызывает `sync_settings_to_ui()` → диалог всегда открывается с реальными настройками; `on_settings_close` (Cancel) дополнительно сбрасывает вкладку Covers (`sync_cover_settings_to_ui`).
+  - Аудио ComboBox: подсветка идёт по `active_device` (реально используемый), затем сохранённая настройка, затем хостовый дефолт; placeholder «(loading…)»/idx=-1 — только при первой загрузке модели (без мигания «первым элементом» при повторном открытии).
 
 ## Шаги (итог)
 
-- [x] 1.1–1.3, 2.2, 2.3, 3.2, 3.3, 4.1–4.7 (все закрыты; коммиты в git log)
+- [x] 1.1–1.3, 2.2, 2.3, 3.2, 3.3, 4.1–4.7 (прежние циклы)
+- [x] Баг-раунд: tray-wheel notch, window wheel-volume, settings open/cancel resync, audio device highlight
 
 ## Следующий ход
 
-- Свериться: `git status --porcelain` чистый (кроме незакоммиченного ROADMAP/_STATE_ этой записи).
-- Будущие задачи: F1 визуализация (после папки с Python-примером), F2 хоткеи, F3 wheel-громкость в окне, F4 тесты менеджеров `app/`.
+- Свериться: `git status --porcelain` чистый после коммита этого шага.
+- Будущие задачи: F1 визуализация, F2 хоткеи, F3 (✓ реализован), F4 тесты менеджеров `app/`.
 
 ## Изменяемые файлы (текущий шаг)
 
-- `src/app/mod.rs` (on_settings_save diff-apply), `src/app/playlist_manager.rs`, `src/app/playback_manager.rs`, `src/app/ui_manager.rs`, `src/app/events.rs`, `ui/top_panel.slint`, `ui/app.slint`
+- `src/app/mod.rs` (TrayCmd::Wheel, on_open_settings, on_settings_close)
+- `src/app/ui_manager.rs` (drain_audio_devices want=active_device, sync_audio_devices placeholder)
+- `ui/top_panel.slint` (scroll-event громкости)
 
 ## Риск / стоп-условие
 
-- Сохранение настроек завязано на `save_window_geometry()` на выходе: если добавится новый выход из приложения — не забыть его.
-- `remove_track` синхронизирует disk_tracks по пути; при добавлении «одинаковых» путей возможна потеря записи при удалении одной из них — следить.
+- Сохранение настроек завязано на `save_window_geometry()` на выходе: при новом выходе из приложения — не забыть.
+- `remove_track` синхронизирует disk_tracks по пути: при «одинаковых» путях возможна потеря записи при удалении одной из них.
+- Знак `delta-y` колеса проверен по winit-конвенции (вверх = +); если на конкретном хосте инвертируется — поменять в `top_panel.slint` (scroll-event громкости).
