@@ -118,6 +118,8 @@ pub struct MusicApp {
     cover_tx: Option<std::sync::mpsc::Sender<CoverJob>>,
     cover_rx: Option<Receiver<CoverDone>>,
     cover_gen: u64,
+    /// In-flight async enumeration of output devices for the Settings dialog.
+    audio_devices_rx: Option<Receiver<Vec<SharedString>>>,
 }
 
 impl MusicApp {
@@ -207,6 +209,7 @@ impl MusicApp {
             cover_tx: Some(cover_tx),
             cover_rx: Some(cover_done_rx),
             cover_gen: 0,
+            audio_devices_rx: None,
         };
         app.rebuild_shuffle();
         if let Some(col) = app.settings.settings.sorted_col {
@@ -444,6 +447,8 @@ impl MusicApp {
                 let mut a = app.borrow_mut();
                 a.settings_draft = None;
                 a.sync_settings_to_ui();
+                // Reset the Audio tab to the real (unchanged) state.
+                a.sync_audio_devices();
                 a.ui.set_settings_open(false);
             });
         }
@@ -508,7 +513,11 @@ impl MusicApp {
             let app = this.clone();
             ui.on_settings_device(move |name| {
                 eprintln!("[gui] settings_device name={name:?}");
-                app.borrow_mut().set_output_device(name.to_string());
+                // Edit-Commit: store the choice in the dialog draft; the real
+                // device switch (stream restart, probe, save) happens only when
+                // the draft is applied on "Save".
+                let mut a = app.borrow_mut();
+                a.settings_mut().audio_device = name.to_string();
             });
         }
 
@@ -605,6 +614,15 @@ impl MusicApp {
                 eprintln!("[gui] settings_save (Save) draft_present={}", app.borrow().settings_draft.is_some());
                 let mut a = app.borrow_mut();
                 let Some(draft) = a.settings_draft.take() else { return };
+
+                let device_changed =
+                    draft.audio_device != a.settings.settings.audio_device;
+                if device_changed {
+                    // Apply the device first: its early-return guard compares
+                    // against the *live* setting, which still has the old value.
+                    a.set_output_device(draft.audio_device.clone());
+                }
+
                 a.settings.settings = draft;
                 a.settings.save();
                 a.apply_theme();
@@ -613,6 +631,7 @@ impl MusicApp {
                 a.ui.set_col_gap(a.settings.settings.col_gap);
                 a.sync_cover_settings_to_ui();
                 a.sync_playlist_to_ui();
+                a.sync_audio_devices();
                 a.ui.set_settings_open(false);
                 eprintln!("[gui] settings_save: applied and closed");
             });
@@ -723,6 +742,7 @@ impl MusicApp {
         self.poll_tray();
         self.drain_scan();
         self.drain_cover();
+        self.drain_audio_devices();
         self.handle_auto_advance();
         self.sync_playback_state_to_ui();
         self.push_tray_status();

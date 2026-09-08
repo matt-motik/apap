@@ -79,13 +79,52 @@ impl MusicApp {
         self.ui.set_settings_cover_online(s.cover_online);
     }
 
-    /// Populate the Audio tab device list and highlight the configured device
-    /// (or a placeholder row when it is absent).
+    /// Kick off an asynchronous enumeration of output devices for the Audio tab.
+    ///
+    /// The active device / error fields are updated immediately (they do not
+    /// depend on the listing); the combo-box model is filled once the worker
+    /// thread hands back the device names (see [`drain_audio_devices`]) so
+    /// opening the dialog never blocks the UI thread.
     pub(super) fn sync_audio_devices(&mut self) {
-        let names: Vec<SharedString> = music_player_rs::audio::output::output_devices()
-            .into_iter()
-            .map(|(n, _)| n.into())
-            .collect();
+        let active = self.active_device.clone();
+        self.ui.set_settings_active_device(active.into());
+        let err = self.audio_error.clone().unwrap_or_default();
+        self.ui.set_settings_active_error(err.into());
+
+        if self.audio_devices_rx.is_some() {
+            return;
+        }
+        let (tx, rx): (std::sync::mpsc::Sender<Vec<SharedString>>, _) = channel();
+        self.audio_devices_rx = Some(rx);
+        thread::spawn(move || {
+            let names: Vec<SharedString> = music_player_rs::audio::output::output_devices()
+                .into_iter()
+                .map(|(n, _)| n.into())
+                .collect();
+            let _ = tx.send(names);
+        });
+        // Show a placeholder until the enumeration lands.
+        self.ui
+            .set_settings_devices(ModelRc::from([SharedString::from("(loading\u{2026})")].as_slice()));
+        self.ui.set_settings_device_idx(-1);
+    }
+
+    /// Finish `sync_audio_devices`: apply the device list once the worker
+    /// thread has produced it. Polled from the UI tick loop.
+    pub(super) fn drain_audio_devices(&mut self) {
+        let names = {
+            let Some(rx) = &self.audio_devices_rx else { return };
+            match rx.try_recv() {
+                Ok(names) => names,
+                Err(TryRecvError::Empty) => return,
+                Err(TryRecvError::Disconnected) => {
+                    self.audio_devices_rx = None;
+                    return;
+                }
+            }
+        };
+        self.audio_devices_rx = None;
+
         let saved = self.settings_ref().audio_device.clone();
 
         // The device we want to highlight: the configured one, else the host
@@ -114,10 +153,6 @@ impl MusicApp {
 
         self.ui.set_settings_devices(ModelRc::from(model.as_slice()));
         self.ui.set_settings_device_idx(sel);
-        let active = self.active_device.clone();
-        self.ui.set_settings_active_device(active.into());
-        let err = self.audio_error.clone().unwrap_or_default();
-        self.ui.set_settings_active_error(err.into());
     }
 
     pub(super) fn apply_theme(&self) {
