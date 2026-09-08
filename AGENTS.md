@@ -66,7 +66,7 @@ src/
 
 Зависимости подключают свои features:
 - `symphonia` — кодеки: `flac, wav, aiff, pcm, mp3, ogg, aac, alac, isomp4, vorbis, adpcm`.
-- `slint` — `std, compat-1-2, backend-winit-x11, renderer-winit-software` (X11-бэкенд, программный рендер).
+- `slint` — `std, compat-1-2, backend-winit-x11, renderer-winit-skia` (X11-бэкенд, Skia GPU-рендер; требует g++ и libstdc++-dev в системе).
 - `tokio` — `rt, macros, sync` (только для `mpsc` в tray).
 
 ## Запуск с разными конфигурациями
