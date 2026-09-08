@@ -10,8 +10,8 @@
 
 ## Активная задача
 
-- **ROADMAP 4.2:** decoder.rs — default-методы для необязательных операций AudioSource (ISP). 4.3 (тесты player.rs) закрыта.
-- Далее по плану: 4.2 (ISP) → 4.1 (event bus) → 5.x.
+- **ROADMAP 4.1:** mod.rs — шина событий (event-driven связь компонентов UI ↔ audio). 4.2 (ISP для AudioSource) закрыта.
+- Далее по плану: 4.1 (event bus) → 5.x.
 
 ## Шаги
 
@@ -23,20 +23,20 @@
 - [x] 3.2 cover.rs: hash-субдиректории кэша (O(1), legacy-fallback)
 - [x] 3.3 mod.rs: асинхронная загрузка плейлиста при старте (drain_startup_tracks)
 - [x] 4.3 тесты: player.rs (13 тестов: переходы, volume/mute, EOF, lock-конфликт, snapshot) — mock AudioSource, test_new() без cpal
-- [ ] 4.2 decoder.rs: default-методы для необязательных операций AudioSource
+- [x] 4.2 decoder.rs: ISP — default-методы `seek` (Err «not supported») и `duration_secs` (из `info().num_frames`); дублирующие impl убраны из Decoder/DsdDecoder/MockSource; +тест на defaults
 - [ ] 4.1 mod.rs: шина событий
 
 ## Следующий ход
 
-1. Прочитать decoder.rs: trait AudioSource + все реализации (symphonia, dsd), существующие тесты.
-2. Определить, какие методы обязательны для всех реализаций, какие — необязательные опции (есть ли импортёры, поддерживающие весь набор?).
-3. Ввести default-методы для необязательных операций (например `info()` без тегов? нет — оценить реально), чтобы трэйт можно было расширять без ломки реализации.
+1. Прочитать mod.rs (MusicApp, tick 100ms), playback_manager, ROADMAP §4.1.
+2. Определить форму шины: enum событий (TrackChanged, PlaybackStateChanged, QueueChanged, CoverChanged, SettingsChanged), подписчики UI.
+3. Решить минимальный объём: полная шина или выборочно убрать прямой проброс колбэков между менеджерами.
 4. cargo build + clippy + test, коммит, обновить _STATE_.
 
 ## Изменяемые файлы (текущий шаг)
 
-- `src/audio/decoder.rs` (4.2)
-- (4.3 закрыта: `src/audio/player.rs` — mock AudioSource + 13 тестов)
+- `src/app/mod.rs`, `src/app/playback_manager.rs`, `src/app/playlist_manager.rs`, `src/app/ui_manager.rs` (4.1)
+- (4.2 закрыта: `src/audio/decoder.rs`, `src/audio/dsd.rs`, `src/audio/player.rs` — trait AudioSource + defaults)
 
 ## Риск / стоп-условие
 

@@ -265,23 +265,16 @@ pub struct EventBus {
 
 ### 4.2. Trait `AudioSource` с частичной реализацией (ISP)
 
-**Статус:** 🔶 частично — `AudioSource` есть (`src/audio/decoder.rs:25`), но все методы обязательные (`next_frames/seek/duration_secs/info/eof`), default-методов для необязательных операций нет.
+**Статус:** ✅ сделано — `duration_secs` и `seek` стали default-методами (`src/audio/decoder.rs:25`): длительность выводится из `info().num_frames`, seek по умолчанию возвращает `Err("Seek is not supported…")`. Дублирующие impl убраны в Decoder/DsdDecoder/MockSource; +тест `optional_methods_have_safe_defaults`. Итого 49 lib + 6 bin.
 
 **Файл:** `src/audio/decoder.rs`  
-**Проблема:** Нарушение **Interface Segregation Principle** — все декодеры должны реализовывать все методы, даже если не поддерживаются.
+**Проблема (исходная):** все декодеры должны реализовывать все методы, даже если не поддерживаются.
 
-**Задача:**
-```rust
-pub trait AudioSource {
-    fn info(&self) -> &AudioInfo;
-    fn read_samples(&mut self, buffer: &mut [f32]) -> Result<usize>;
-    
-    // Опциональные методы через trait extension
-    fn seek(&mut self, pos: f64) -> Result<()> {
-        Err(Error::NotSupported)
-    }
-}
-```
+**Сделано:**
+- `seek() -> Result<(), String>` — default `Err("Seek is not supported by this audio source")`
+- `duration_secs() -> Option<f64>` — default из `info().num_frames / info().sample_rate`
+- Обязательные: `next_frames`, `info`, `eof` (+ `Send`)
+- Реализации Decoder/DsdDecoder/MockSource сохранены (реальный seek), без дублей
 
 ---
 
@@ -350,7 +343,7 @@ let config = AppConfig::builder()
 | 3.2 | Хэш-субдиректории кэша | 🟢 Средний | ✅ сделано | 1ч | Низкий |
 | 3.3 | Асинхронная загрузка плейлиста | 🟢 Средний | ✅ сделано | 2ч | Средний |
 | 4.1 | Event-driven архитектура | 🔵 Низкий | ⬜ | 6ч | Высокий |
-| 4.2 | ISP для AudioSource | 🔵 Низкий | 🔶 частично | 3ч | Средний |
+| 4.2 | ISP для AudioSource | 🔵 Низкий | ✅ | 3ч | Средний |
 | 4.3 | Расширение тестов | 🔵 Низкий | ✅ | 8ч | Низкий |
 | 5.1 | tracing вместо eprintln! | ⬜ желательно | ⬜ | — | Низкий |
 | 5.2 | builder для AppConfig | ⬜ желательно | ⬜ | — | Низкий |

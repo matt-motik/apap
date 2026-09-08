@@ -803,12 +803,6 @@ impl AudioSource for DsdDecoder {
         Ok(())
     }
 
-    fn duration_secs(&self) -> Option<f64> {
-        self.info
-            .num_frames
-            .map(|n| n as f64 / self.pcm_rate as f64)
-    }
-
     fn info(&self) -> &TrackInfo {
         &self.info
     }

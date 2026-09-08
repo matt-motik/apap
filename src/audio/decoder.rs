@@ -22,12 +22,32 @@ pub struct TrackInfo {
 
 /// Unified source interface shared by the symphonia decoder and the DSD
 /// decoder, so the playback pipeline is driven identically for both.
+///
+/// Core operations: `next_frames`, `info`, `eof`. `duration_secs` and `seek`
+/// are optional and ship with safe defaults (duration derived from
+/// `info().num_frames`, seek unsupported), so a source that cannot know its
+/// length or is non-seekable implements only the core three methods.
 pub trait AudioSource: Send {
     /// Next interleaved f32 block, or `None` at end of stream / on error.
     fn next_frames(&mut self) -> Option<&[f32]>;
-    fn seek(&mut self, secs: f64) -> Result<(), String>;
-    fn duration_secs(&self) -> Option<f64>;
+
+    /// Seek the source to `secs` (0.0 = start). Default: unsupported.
+    fn seek(&mut self, _secs: f64) -> Result<(), String> {
+        Err("Seek is not supported by this audio source".into())
+    }
+
+    /// Track duration in seconds when knowable. Default derives it from
+    /// `info().num_frames`; override when decoding spoils the rate reported
+    /// through `info` (none of the built-in sources need to).
+    fn duration_secs(&self) -> Option<f64> {
+        let info = self.info();
+        info.num_frames.map(|n| n as f64 / info.sample_rate as f64)
+    }
+
+    /// Static track metadata.
     fn info(&self) -> &TrackInfo;
+
+    /// True once the source has delivered its last frame (natural end).
     fn eof(&self) -> bool;
 }
 
@@ -288,12 +308,6 @@ impl Decoder {
         })
     }
 
-    fn duration_secs(&self) -> Option<f64> {
-        self.info
-            .num_frames
-            .map(|n| n as f64 / self.info.sample_rate as f64)
-    }
-
     pub fn info(&self) -> &TrackInfo {
         &self.info
     }
@@ -383,10 +397,6 @@ impl AudioSource for Decoder {
         Decoder::seek(self, secs)
     }
 
-    fn duration_secs(&self) -> Option<f64> {
-        Decoder::duration_secs(self)
-    }
-
     fn info(&self) -> &TrackInfo {
         Decoder::info(self)
     }
@@ -447,5 +457,39 @@ mod tests {
             }
         }
         assert!(saw, "no audio after seek");
+    }
+
+    #[test]
+    fn optional_methods_have_safe_defaults() {
+        struct NoSeek {
+            info: TrackInfo,
+        }
+        impl AudioSource for NoSeek {
+            fn next_frames(&mut self) -> Option<&[f32]> {
+                None
+            }
+            fn info(&self) -> &TrackInfo {
+                &self.info
+            }
+            fn eof(&self) -> bool {
+                false
+            }
+        }
+        let src = NoSeek {
+            info: TrackInfo {
+                sample_rate: 44100,
+                channels: 2,
+                num_frames: Some(44_100),
+                format_name: "none".into(),
+                bitrate: 0,
+                bits: None,
+                tags: Tags::default(),
+            },
+        };
+        // `duration_secs` derived from `info().num_frames` by default.
+        assert_eq!(src.duration_secs(), Some(1.0));
+        // `seek` fails cleanly instead of being unimplementable.
+        let mut src = src;
+        assert!(src.seek(10.0).is_err());
     }
 }
