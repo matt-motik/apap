@@ -1,5 +1,44 @@
 # AGENTS.md
 
+Шаг 0: Инициализация и Блокировки
+
+    Проверить наличие .agent-session.lock. Если есть и процесс мертв → предупредить о возможном краше предыдущей сессии.
+    Проверить наличие plan-*.md. Если есть → Режим "Продолжение". Иначе → Режим "Новая задача".
+
+Шаг 1: Аудит Репозитория (Безопасность)
+
+    git status --porcelain.
+    Если грязно:
+        Запустить git diff --stat для отчета.
+        Если режим "Новая задача": Предложить стратегии (WIP Commit / Stash / Reset).
+        Если режим "Продолжение": Сверить измененные файлы с теми, что указаны в плане. Если не совпадают → Стоп, запрос ручной резолюции.
+    Проверка компиляции: cargo check --quiet. Если ошибки → Стоп. Сообщить, что код в нерабочем состоянии.
+
+Шаг 2: Планирование (Structured)
+
+    Создать .current-plan.json (метаданные, текущий шаг, контекст) и plan-<date>.md (человекочитаемое описание).
+    Записать в JSON: {"status": "in_progress", "current_step": 1, "total_steps": N, "branch": "..."}.
+
+Шаг 3: Цикл Выполнения
+
+    Прочитать текущий шаг из JSON.
+    Сделать снапшот (опционально git stash push -m "pre-step-X").
+    Выполнить изменения.
+    Верификация: Запустить тесты/линтер.
+        Успех: Пометить шаг [x] в JSON и MD. Перейти к следующему.
+        Провал: Откатить снапшот. Пометить шаг [FAILED]. Остановиться и ждать инструкций.
+
+Шаг 4: Завершение
+
+    Если все шаги [x] и тесты зелены:
+        Удалить .current-plan.json 
+        Переименовать plan-*.md. в competed-plan-*.md 
+        Удалить .agent-session.lock.
+        Показать пользователю итоговый git diff --stat.
+    Если прервано: Сохранить состояние в JSON для следующего запуска.
+
+
+
 Музыкальный плеер на Rust + Slint. Классическое ядро-библиотека (`music_player_rs`) + бинарник (`music-player-rs`) на Slint-интерфейсе, системный трей через StatusNotifier (ksni).
 
 ## Команды
@@ -8,7 +47,7 @@
 cargo build          # dev-сборка
 cargo build --release # релиз (opt-level=3, lto)
 cargo run            # запустить плеер
-cargo test           # юнит-тесты (пока только в src/cover.rs)
+cargo test           # юнит-тесты: 23 lib (cover, settings, playlist, audio/dsd, audio/decoder) + 6 bin (app/mod.rs)
 cargo clippy         # линт
 ```
 
@@ -49,7 +88,7 @@ src/
 
 ### Как связывается Slint
 
-- `build.rs` компилирует `ui/app.slint` → генерирует структуру `AppWindow` в Rust (`slint::include_modules!()` в `app.rs`).
+- `build.rs` компилирует `ui/app.slint` → генерирует структуру `AppWindow` в Rust (`slint::include_modules!()` в `src/app/mod.rs`).
 - `AppWindow` содержит `in-property`, `callback` и т.д.; Rust подписывается через `ui.on_<callback>(...)` и читает/пишет через `ui.set_<prop>(...)` / `ui.get_<prop>()`.
 - Slint-файлы импортируют друг друга через `import { Name } from "file.slint";`. `app.slint` — точка входа, остальные — компоненты.
 - Стиль UI задан в `build.rs` (`material`).
@@ -77,6 +116,6 @@ src/
 
 ## Тесты
 
-- Модульные тесты есть только в `src/cover.rs` (`percent_encode`, `sniff_ext`, `folder_cover`, `write_cover`, `cover_priority_keys_roundtrip`).
+- Модульные тесты: `src/cover.rs` (`percent_encode`, `sniff_ext`, `folder_cover`, `write_cover`, `cover_priority_keys_roundtrip`), `src/settings.rs`, `src/playlist.rs`, `src/audio/dsd.rs`, `src/audio/decoder.rs`; bin-тесты — в `src/app/mod.rs`.
 - Каталогов `tests/` (интеграционных) нет.
-- `cargo test` запустит только эти тесты.
+- `cargo test`: 23 lib + 6 bin.
