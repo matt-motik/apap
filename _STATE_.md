@@ -5,47 +5,34 @@
 
 ## Статус
 
-- **Состояние:** `in_progress`.
-- **Задача:** выполнение ROADMAP 4.4–4.7 (семантика настроек, сикбар, tray-volume, порядок на диске) после закрытых 4.1, 4.5, 4.6.
+- **Состояние:** `done` — цикл ROADMAP 4.4–4.7 завершён (все шаги [x], тесты зелёные).
 
 ## Активная задача
 
-- **ROADMAP 4.4:** семантика настроек — diff-apply в `on_settings_save` (только изменившиеся theme/device/columns/cover-size), убрать eager-`settings.save()` из хендлеров (shuffle, volume GUI+wheel), единый save-at-exit (окно + tray Quit). 4.7 закрыта (disk_tracks + save только при выходе если dirty).
+- Нет активной задачи. Следующий эпизод: future-блок ROADMAP (F1–F4) или новый план.
 
-## Шаги
+## Выполнено в этой сессии
 
-- [x] 1.1 player.rs: `core.lock().unwrap()` → graceful
-- [x] 1.2 cover.rs: убрать агрессивную очистку очереди; playlist.rs: graceful при разрыве канала
-- [x] 1.3 output.rs: неблокирующий probe вместо sleep
-- [x] 2.2 settings.rs: убрать глобальный CONFIG (удалён целиком — был мёртвым code, DI уже явный)
-- [x] 2.3 output.rs: trait AudioHost (+MockHost, choose_output, 9 тестов)
-- [x] 3.2 cover.rs: hash-субдиректории кэша (O(1), legacy-fallback)
-- [x] 3.3 mod.rs: асинхронная загрузка плейлиста при старте (drain_startup_tracks)
-- [x] 4.2 decoder.rs: ISP — default-методы `seek`/`duration_secs`; дубли убраны; +тест на defaults
-- [x] 4.3 тесты: player.rs (13 тестов), output.rs (9), MockSource/MockHost
-- [x] 4.1 event-feed + дельта-синк (`src/app/events.rs`)
-- [x] 4.5 сикбар: TouchArea(grab) поверх Slider, seek-commit при отпускании; тик не трогает сикбар/pos/dur при драге
-- [x] 4.6 Трей-громкость → UI-ползунок (пассивно через дельта-синк тика)
-- [x] 4.7 disk_tracks: порядок диска ≠ порядок просмотра; save_playlist пишет disk_tracks; eager-save убраны (scan/remove/clear/sort); сохранение только при выходе если playlist_dirty (трей Quit + close окна)
-- [ ] 4.4 Семантика настроек: diff-apply + save-at-exit
+- 4.1 `src/app/events.rs`: направленный event-feed (AppEvent + mpsc), `drain_events` в tick; дельта-синк UI (`last_ui: UiState`) — тик пишет только изменившееся, на паузе/стопе сикбар не дёргается.
+- 4.5 Сикбар: TouchArea(grab) поверх Slider (`top_panel.slint`), `seek-dragging`/`pending-seek`, callback `seek-commit` → единый seek при отпускании; тик при драге не трогает seek-fraction/pos/dur.
+- 4.6 Трей-громкость → UI-ползунок (пассивно, через дельта-синк тика ≤100 мс).
+- 4.7 `disk_tracks: Vec<Track>`: порядок диска (load + scan) ≠ view-порядок; `save_playlist()` пишет disk_tracks; сохранение плейлиста — только при выходе (`playlist_dirty`), eager-save убраны из scan/remove/clear/sort.
+- 4.4 Семантика настроек: eager-`settings.save()` убраны (volume GUI+wheel, shuffle, repeat, sort prefs, column widths); save — при выходе через `save_window_geometry()` (оба выхода); `on_settings_save` — diff-apply с переживанием live-полей (volume/muted/last_dir/repeat/shuffle/sorted_col/sort_desc/win_*).
+
+## Шаги (итог)
+
+- [x] 1.1–1.3, 2.2, 2.3, 3.2, 3.3, 4.1–4.7 (все закрыты; коммиты в git log)
 
 ## Следующий ход
 
-1. **4.4:** прочитать `on_settings_save` (mod.rs), eager-save точки (mod.rs: shuffle, volume GUI+wheel; ui_manager.rs: column widths; playlist_manager.rs: sort preferences) и `SettingsStore`.
-2. Сделать diff-apply (только изменившиеся theme/device/columns/cover-size) в `on_settings_save`.
-3. Убрать eager-`settings.save()` из хендлеров; единый save-at-exit (окно close + tray Quit), сохраняя явный Save в Settings-диалоге.
-4. cargo build + clippy + test, коммит, обновить _STATE_.
+- Свериться: `git status --porcelain` чистый (кроме незакоммиченного ROADMAP/_STATE_ этой записи).
+- Будущие задачи: F1 визуализация (после папки с Python-примером), F2 хоткеи, F3 wheel-громкость в окне, F4 тесты менеджеров `app/`.
 
 ## Изменяемые файлы (текущий шаг)
 
-- `src/app/mod.rs` (on_settings_save, shuffle/volume/close-quit хендлеры)
-- `src/app/playback_manager.rs` (volume wheel eager-save)
-- `src/app/playlist_manager.rs` (sort preferences eager-save)
-- `src/app/ui_manager.rs` (save_column_widths_from_ui)
-- `src/settings.rs` (SettingsStore.apply/diff)
+- `src/app/mod.rs` (on_settings_save diff-apply), `src/app/playlist_manager.rs`, `src/app/playback_manager.rs`, `src/app/ui_manager.rs`, `src/app/events.rs`, `ui/top_panel.slint`, `ui/app.slint`
 
 ## Риск / стоп-условие
 
-- Не потерять сохранение настроек: save-at-exit обязан покрывать оба выхода (window close без minimize + tray Quit); явный Save-кнопок (Settings, Save playlist) не должен пострадать.
-- diff-apply не должен размазать изменение device: apply плавно, не сбрасывая другие поля.
-- Если diff-apply тянет переделки SettingsStore API — остановиться, пересмотреть.
+- Сохранение настроек завязано на `save_window_geometry()` на выходе: если добавится новый выход из приложения — не забыть его.
+- `remove_track` синхронизирует disk_tracks по пути; при добавлении «одинаковых» путей возможна потеря записи при удалении одной из них — следить.

@@ -364,7 +364,6 @@ impl MusicApp {
                 let mut a = app.borrow_mut();
                 a.shuffle = !a.shuffle;
                 a.settings.settings.shuffle = a.shuffle;
-                a.settings.save();
                 a.rebuild_shuffle();
                 a.ui.set_shuffle(a.shuffle);
             });
@@ -398,7 +397,7 @@ impl MusicApp {
                 let mut a = app.borrow_mut();
                 a.player.set_volume(volume);
                 a.settings.settings.volume = volume;
-                a.settings.save();
+                // Persisted at exit (save-at-exit); no per-slider-move disk I/O.
                 a.emit(AppEvent::VolumeChanged(volume));
             });
         }
@@ -705,7 +704,39 @@ impl MusicApp {
                     a.set_output_device(draft.audio_device.clone());
                 }
 
+                // Diff-apply: the settings dialog does not manage the fields
+                // below (they change live from the top panel / playlist header),
+                // so preserve them across the draft replacement instead of
+                // letting the stale clone overwrite fresh values.
+                let live = {
+                    let l = &a.settings.settings;
+                    (
+                        l.volume,
+                        l.muted,
+                        l.last_dir.clone(),
+                        l.repeat,
+                        l.shuffle,
+                        l.sorted_col,
+                        l.sort_desc,
+                        l.win_x,
+                        l.win_y,
+                        l.win_w,
+                        l.win_h,
+                    )
+                };
                 a.settings.settings = draft;
+                let s = &mut a.settings.settings;
+                s.volume = live.0;
+                s.muted = live.1;
+                s.last_dir = live.2;
+                s.repeat = live.3;
+                s.shuffle = live.4;
+                s.sorted_col = live.5;
+                s.sort_desc = live.6;
+                s.win_x = live.7;
+                s.win_y = live.8;
+                s.win_w = live.9;
+                s.win_h = live.10;
                 a.settings.save();
                 a.apply_theme();
                 a.ui.set_cover_size(a.settings.settings.cover_size);
@@ -939,7 +970,7 @@ impl MusicApp {
                     let v = (self.player.volume() - delta as f32 * WHEEL_VOLUME_STEP).clamp(0.0, 1.0);
                     self.player.set_volume(v);
                     self.settings.settings.volume = v;
-                    self.settings.save();
+                    // Persisted at exit (save-at-exit).
                     self.emit(AppEvent::VolumeChanged(v));
                 }
             }

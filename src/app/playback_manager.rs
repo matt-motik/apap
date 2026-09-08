@@ -292,7 +292,7 @@ match next {
     pub fn cycle_repeat(&mut self) {
         self.repeat = self.repeat.next();
         self.settings.settings.repeat = self.repeat;
-        self.settings.save();
+        // Persisted at exit (save-at-exit).
         self.ui.set_repeat(self.repeat == RepeatMode::All);
         self.ui.set_repeat_one(self.repeat == RepeatMode::One);
     }

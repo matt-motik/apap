@@ -154,7 +154,7 @@ impl MusicApp {
             false
         };
         self.apply_sort(col, desc);
-        self.settings.save();
+        // Sort prefs persisted at exit (save-at-exit).
         self.sync_playlist_to_ui();
         self.emit(AppEvent::QueueChanged);
     }

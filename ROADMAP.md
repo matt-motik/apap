@@ -255,7 +255,7 @@ fn drain_startup_tracks(&mut self) {
 
 ### 4.4. Семантика настроек: diff-apply и save-at-exit
 
-**Статус:** ⬜ не сделано.
+**Статус:** ✅ сделано — eager-`settings.save()` убраны из volume (GUI, tray wheel), shuffle (заодно убран дубль `rebuild_shuffle`), repeat, sort prefs, save_column_widths. Сохранение `Settings` теперь происходит при выходе: оба выхода (tray Quit и close окна без minimize) вызывают `save_window_geometry()` → `settings.save()` (флашит всё). `on_settings_save` (Save в диалоге) — diff-apply: после `settings.settings = draft` переживает поля, не управляемые диалогом (volume/muted/last_dir/repeat/shuffle/sorted_col/sort_desc/win_*), чтобы не затереть live-изменения свежим значением из клона-драфта. Диалог настроек остаётся draft+cancel (закрытие без изменений).
 
 **Проблема:** eager-save в каждом GUI/трей-хендлере: `settings.save()` в shuffle (mod.rs), volume (mod.rs GUI+wheel), column widths (ui_manager.rs), sort (playlist_manager.rs). Каждое движение слайдера/колеса = запись на диск.
 
@@ -407,7 +407,7 @@ let config = AppConfig::builder()
 | 4.1 | Event-driven архитектура | 🔵 Низкий | ✅ 4.1 | 6ч | Высокий |
 | 4.2 | ISP для AudioSource | 🔵 Низкий | ✅ | 3ч | Средний |
 | 4.3 | Расширение тестов | 🔵 Низкий | ✅ | 8ч | Низкий |
-| 4.4 | Семантика настроек: diff-apply + save-at-exit | 🔵 Низкий | ⬜ | 4ч | Средний |
+| 4.4 | Семантика настроек: diff-apply + save-at-exit | 🔵 Низкий | ✅ | 4ч | Средний |
 | 4.5 | Сикбар: драг + seek при отпускании | 🔵 Низкий | ✅ | 3ч | Средний |
 | 4.6 | Трей-громкость → UI-ползунок | 🔵 Низкий | ✅ | 1ч | Низкий |
 | 4.7 | Порядок на диске ≠ порядок просмотра | 🔵 Низкий | ✅ | 2ч | Средний |

@@ -367,6 +367,6 @@ impl MusicApp {
                 self.settings.settings.column_widths.insert(col_id.key().to_string(), pct);
             }
         }
-        self.settings.save();
+        // Persisted at exit (save-at-exit).
     }
 }
