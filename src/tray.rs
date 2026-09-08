@@ -2,6 +2,9 @@ use std::sync::mpsc;
 
 use ksni::menu::{MenuItem, StandardItem};
 
+/// Minimum interval between tray tooltip pushes from the tick loop (ms).
+pub const TRAY_UPDATE_INTERVAL_MS: u128 = 300;
+
 /// Commands sent by the tray menu to the application.
 #[derive(Debug, Clone, Copy)]
 pub enum TrayCmd {

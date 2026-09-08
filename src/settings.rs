@@ -512,6 +512,8 @@ impl Settings {
     }
 }
 
+/// Loaded settings plus the canonical on-disk path they were read from /
+/// written back to.
 pub struct SettingsStore {
     pub settings: Settings,
     pub path: PathBuf,
@@ -561,6 +563,8 @@ impl AppConfig {
 }
 
 impl SettingsStore {
+    /// Read settings from `config_dir()/settings.toml` (or defaults if
+    /// missing/corrupt), migrate legacy fields and write the result back.
     pub fn load() -> Self {
         let dir = config_dir();
         let path = dir.join("settings.toml");
@@ -576,6 +580,8 @@ impl SettingsStore {
         s
     }
 
+    /// Persist the current settings to disk and refresh the process-wide
+    /// [`AppConfig`] snapshot so other modules see up-to-date values.
     pub fn save(&mut self) {
         if let Ok(contents) = toml::to_string(&self.settings) {
             if fs::create_dir_all(self.path.parent().unwrap_or(&self.path)).is_ok() {
@@ -587,6 +593,8 @@ impl SettingsStore {
     }
 }
 
+/// Resolve (and cache) the per-user config directory: `$XDG_CONFIG_HOME/
+/// music_player` (or `./music_player` when no config dir exists).
 pub fn config_dir() -> PathBuf {
     static DIR: std::sync::OnceLock<PathBuf> = std::sync::OnceLock::new();
     DIR.get_or_init(|| {

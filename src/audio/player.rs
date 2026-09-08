@@ -62,11 +62,10 @@ impl PlaybackCore {
                     let mut guard = 0;
                     while res.buffered_frames() < 2 && !eof && guard < 1024 {
                         guard += 1;
-                        if let Some(s) = self.decoder.as_mut().unwrap().next_frames() {
-                            res.push(s);
-                        } else {
+                        let Some(s) = self.decoder.as_mut().and_then(|d| d.next_frames()) else {
                             break;
-                        }
+                        };
+                        res.push(s);
                     }
                     let produced_frames =
                         res.pull(&mut out[written_samples..], remaining_frames, eof);
@@ -99,6 +98,10 @@ impl PlaybackCore {
     }
 }
 
+/// Owns audio playback: the shared [`PlaybackCore`] (decoder + resampler +
+/// transport state, also read by the cpal callback) and the running output
+/// stream. All control happens on the caller's thread; only the cpal
+/// callback touches the core concurrently.
 pub struct Player {
     pub core: Arc<Mutex<PlaybackCore>>,
     pub stream: Option<cpal::Stream>,
@@ -150,6 +153,10 @@ impl Player {
         Ok(())
     }
 
+    /// Open `path` for playback: pick an output device/format via
+    /// [`select_output`](crate::audio::output::select_output), build the stream
+    /// and reset transport state. Returns the track's format info.
+    /// Errors (unsupported file, no device) are returned as strings.
     pub fn open(&mut self, path: &Path) -> Result<TrackInfo, String> {
         // Open and probe outside the audio-thread lock so the callback never
         // blocks on slow I/O.
@@ -192,6 +199,7 @@ impl Player {
         Ok(info)
     }
 
+    /// Start/resume playback. A finished track is rewound and replayed.
     pub fn play(&mut self) {
         let mut core = self.core.lock().unwrap();
         if core.decoder.is_none() {
@@ -211,6 +219,7 @@ impl Player {
         core.playing = true;
     }
 
+    /// Pause/resume the current track (rewinds if it had finished).
     pub fn toggle(&mut self) {
         let mut core = self.core.lock().unwrap();
         if core.decoder.is_none() {
@@ -234,6 +243,7 @@ impl Player {
         }
     }
 
+    /// Stop playback, mark the track as finished and rewind to the start.
     pub fn stop(&mut self) {
         let mut core = self.core.lock().unwrap();
         core.playing = false;
@@ -248,6 +258,8 @@ impl Player {
         }
     }
 
+    /// Seek to `secs` (clamped to >= 0). Resets the resampler so the new
+    /// position is played from the decoder, not computed from stale buffers.
     pub fn seek(&mut self, secs: f64) {
         let mut core = self.core.lock().unwrap();
         if let Some(dec) = &mut core.decoder {
@@ -262,32 +274,38 @@ impl Player {
         }
     }
 
+    /// Set volume, clamped to [0, 1]. Applied inside the audio callback.
     pub fn set_volume(&mut self, v: f32) {
         if let Ok(mut core) = self.core.lock() {
             core.volume = v.clamp(0.0, 1.0);
         }
     }
 
+    /// Current volume in [0, 1] (fallback 0.8 while the core is busy).
     pub fn volume(&self) -> f32 {
         self.core.lock().map(|c| c.volume).unwrap_or(0.8)
     }
 
+    /// Mute/unmute without changing the volume.
     pub fn set_muted(&mut self, m: bool) {
         if let Ok(mut core) = self.core.lock() {
             core.muted = m;
         }
     }
 
+    /// Mute state.
     pub fn muted(&self) -> bool {
         self.core.lock().map(|c| c.muted).unwrap_or(false)
     }
 
+    /// Toggle mute.
     pub fn toggle_mute(&mut self) {
         if let Ok(mut core) = self.core.lock() {
             core.muted = !core.muted;
         }
     }
 
+    /// Whether the core is actively decoding (not paused/stopped).
     pub fn is_playing(&self) -> bool {
         self.core.lock().map(|c| c.playing).unwrap_or(false)
     }
@@ -320,9 +338,18 @@ fn effective_volume(core: &PlaybackCore) -> f32 {
 }
 
 // ---- Audio callback entry points (called from the cpal audio thread). ----
+//
+// These run on the real-time audio thread and must never block. They use
+// `try_lock()`; if the UI thread holds the lock (e.g. during a seek or track
+// open), the callback emits silence for that buffer instead of blocking.
 
+/// cpal callback for f32 output: pulls up to `data.len()` frames from the
+/// decoder/resampler, applies volume, returns silence on lock contention.
 pub fn audio_callback_f32(core: &Arc<Mutex<PlaybackCore>>, data: &mut [f32]) {
-    let mut c = core.lock().unwrap();
+    let Ok(mut c) = core.try_lock() else {
+        data.fill(0.0);
+        return;
+    };
     if !c.playing {
         data.fill(0.0);
         return;
@@ -343,8 +370,12 @@ pub fn audio_callback_f32(core: &Arc<Mutex<PlaybackCore>>, data: &mut [f32]) {
     }
 }
 
+/// cpal callback for i16 output (see [`audio_callback_f32`]).
 pub fn audio_callback_i16(core: &Arc<Mutex<PlaybackCore>>, data: &mut [i16]) {
-    let mut c = core.lock().unwrap();
+    let Ok(mut c) = core.try_lock() else {
+        data.fill(0);
+        return;
+    };
     if !c.playing {
         data.fill(0);
         return;
@@ -369,8 +400,12 @@ pub fn audio_callback_i16(core: &Arc<Mutex<PlaybackCore>>, data: &mut [i16]) {
     c.scratch_release(tmp);
 }
 
+/// cpal callback for u8 output (silence = 128, samples centered at 0.5).
 pub fn audio_callback_u8(core: &Arc<Mutex<PlaybackCore>>, data: &mut [u8]) {
-    let mut c = core.lock().unwrap();
+    let Ok(mut c) = core.try_lock() else {
+        data.fill(128);
+        return;
+    };
     if !c.playing {
         data.fill(128);
         return;
@@ -403,4 +438,6 @@ impl Default for Player {
 
 // Keep stream alive (no-op guard used by the main loop).
 #[allow(dead_code)]
+/// Keep the stream object alive for its intended lifetime (used by the
+/// startup probe, which must hold the stream until the device is checked).
 pub fn keep_alive(_s: &cpal::Stream) {}

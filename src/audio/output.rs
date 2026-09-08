@@ -5,6 +5,10 @@ use cpal::{BufferSize, SampleFormat, StreamConfig, SupportedBufferSize};
 
 use crate::audio::player::PlaybackCore;
 
+/// How long the startup device probe holds the stream open (ms). Long enough
+/// for the backend to surface early ALSA errors, short enough to not delay UI.
+pub const PROBE_OPEN_MS: u64 = 50;
+
 /// Target output latency (~40 ms) — enough headroom to smooth single-decode
 /// stalls that would otherwise cause ALSA/PipeWire buffer underruns.
 fn target_buffer_frames(rate: u32, min: u32, max: u32) -> u32 {
@@ -287,7 +291,7 @@ pub fn probe_output(preferred: Option<&str>) -> Result<String, String> {
         .map_err(|e| format!("Cannot start audio stream: {e}"))?;
     // Give the backend a moment to actually open the device; starting ALSA
     // usually fails promptly when the slave cannot be opened.
-    std::thread::sleep(std::time::Duration::from_millis(50));
+    std::thread::sleep(std::time::Duration::from_millis(PROBE_OPEN_MS));
     drop(stream);
     Ok(spec.device_name)
 }

@@ -7,6 +7,10 @@ use slint::ComponentHandle;
 use std::cell::RefCell;
 use std::rc::Rc;
 
+/// UI update period: pulls tray commands, scan/cover results and playback
+/// state into the window. Also bounds responsiveness of transport controls.
+const TICK_INTERVAL_MS: u64 = 100;
+
 fn main() {
     let ui = app::create_ui().expect("Failed to create Slint UI");
     let app = Rc::new(RefCell::new(MusicApp::new(ui.clone_strong())));
@@ -17,7 +21,7 @@ fn main() {
     let timer = slint::Timer::default();
     timer.start(
         slint::TimerMode::Repeated,
-        std::time::Duration::from_millis(100),
+        std::time::Duration::from_millis(TICK_INTERVAL_MS),
         move || {
             if weak.upgrade().is_none() {
                 return;

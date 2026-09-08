@@ -52,6 +52,10 @@ pub enum ScanMsg {
     Done(usize),
 }
 
+/// Number of tracks sent per `ScanMsg::Batch` while scanning a folder. Larger
+/// batches reduce channel overhead; smaller ones keep the UI responsive.
+pub const SCAN_BATCH_SIZE: usize = 200;
+
 pub fn scan_audio_dir(root: &Path, tx: Sender<ScanMsg>) {
     let mut batch: Vec<Track> = Vec::new();
     let mut total = 0usize;
@@ -59,7 +63,7 @@ pub fn scan_audio_dir(root: &Path, tx: Sender<ScanMsg>) {
         if entry.file_type().is_file() && is_supported_audio(entry.path()) {
             batch.push(track_for_path(entry.path()));
             total += 1;
-            if batch.len() >= 200 {
+            if batch.len() >= SCAN_BATCH_SIZE {
                 let _ = tx.send(ScanMsg::Batch(std::mem::take(&mut batch)));
             }
         }

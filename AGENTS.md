@@ -27,7 +27,11 @@ ui/                  # Slint UI (.slint)
 src/
   lib.rs             # корневая библиотека: audio, cover, meta, playlist, settings, tray
   main.rs            # бинарник — создаёт AppWindow, MusicApp, таймер tick (100 мс), run_event_loop_until_quit
-  app.rs             # MusicApp: логика приложения, связывание колбэков, трей, tick
+  app/               # MusicApp разбит на модули (God Object → 3 менеджера)
+    mod.rs           # struct, new/init/tick, bind_callbacks, трей, helpers, тесты
+    ui_manager.rs        # UI-синхронизация, колонки плейлиста, темы (impl MusicApp)
+    playback_manager.rs  # воспроизведение/транспорт, shuffle, обложки (impl MusicApp)
+    playlist_manager.rs  # трек-лист, сканирование папок, сортировка (impl MusicApp)
   cover.rs           # обложки альбомов: папка/embedded/internet, фоновый воркер, кэш на диск
   meta.rs            # метаданные треков (symphonia probe)
   playlist.rs        # загрузка/сохранение M3U, сканирование папок, Track, сортировка
@@ -40,6 +44,8 @@ src/
     dsd.rs           # DSD-декодер (DSF/DFF, CIC)
     output.rs        # устройство вывода (cpal), выбор устройства, bit-perfect
 ```
+
+- `app/*` — «Ромб-декомпозиция»: методы `MusicApp` разнесены по `impl`-блокам в подмодулях. Все поля остаются в `mod.rs`, подмодули вызывают методы друг друга через `pub(super)`.
 
 ### Как связывается Slint
 
