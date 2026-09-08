@@ -240,20 +240,39 @@ fn cache_prefix(hash: u64) -> String {
     format!("{hash:016x}")
 }
 
-fn find_cached(dir: &Path, hash: u64) -> Option<PathBuf> {
-    let prefix = cache_prefix(hash);
+/// Хэш-поддиректория для `hash`: `dir/<hex[0..2]>`. Держит число файлов на
+/// каталог ограниченным (≤256), поиск становится O(1).
+fn cache_subdir(dir: &Path, hash: u64) -> PathBuf {
+    let hex = cache_prefix(hash);
+    dir.join(&hex[0..2])
+}
+
+/// Вернуть первый файл в `dir`, чьё имя начинается с `prefix`.
+fn prefix_match(dir: &Path, prefix: &str) -> Option<PathBuf> {
     for e in std::fs::read_dir(dir).ok()?.flatten() {
         let name = e.file_name().to_string_lossy().into_owned();
-        if name.starts_with(&prefix) {
+        if name.starts_with(prefix) {
             return Some(e.path());
         }
     }
     None
 }
 
+fn find_cached(dir: &Path, hash: u64) -> Option<PathBuf> {
+    let prefix = cache_prefix(hash);
+    // Основной путь — hash-поддиректория (≤1 файл с этим префиксом).
+    if let Some(p) = prefix_match(&cache_subdir(dir, hash), &prefix) {
+        return Some(p);
+    }
+    // Fallback для кэшей, записанных до введения поддиректорий (файлы в корне).
+    prefix_match(dir, &prefix)
+}
+
 fn write_cover(dir: &Path, hash: u64, data: &[u8], ext: &str) -> Option<PathBuf> {
     std::fs::create_dir_all(dir).ok()?;
-    let p = dir.join(format!("{}.{ext}", cache_prefix(hash)));
+    let subdir = cache_subdir(dir, hash);
+    std::fs::create_dir_all(&subdir).ok()?;
+    let p = subdir.join(format!("{}.{ext}", cache_prefix(hash)));
     std::fs::write(&p, data).ok()?;
     Some(p)
 }
@@ -319,9 +338,52 @@ mod tests {
     #[test]
     fn write_cover_returns_existing_cache() {
         let dir = std::env::temp_dir().join(format!("music_player_cover_write_{}", hash_str("write")));
+        let _ = std::fs::remove_dir_all(&dir);
         let hash = hash_str("fixture");
         write_cover(&dir, hash, b"xyz", "png");
-        assert_eq!(find_cached(&dir, hash), Some(dir.join(format!("{}.png", cache_prefix(hash)))));
+        assert_eq!(
+            find_cached(&dir, hash),
+            Some(cache_subdir(&dir, hash).join(format!("{}.png", cache_prefix(hash))))
+        );
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn cache_subdir_splits_by_hash_prefix() {
+        let dir = std::path::PathBuf::from("/tmp/covers");
+        let hash = hash_str("a");
+        let sub = cache_subdir(&dir, hash);
+        // First two hex chars become the subdirectory.
+        assert_eq!(sub.file_name().unwrap().len(), 2);
+        assert!(cache_prefix(hash).starts_with(sub.file_name().unwrap().to_str().unwrap()));
+        // Same hash → same subdirectory; different hash → different bucket in most cases.
+        assert_eq!(cache_subdir(&dir, hash_str("a")), sub);
+    }
+
+    #[test]
+    fn find_cached_falls_back_to_legacy_flat_cache() {
+        // Кэш, записанный старой версией (файл прямо в корне кэша), должен
+        // по-прежнему находиться.
+        let dir = std::env::temp_dir().join(format!("music_player_cover_legacy_{}", hash_str("legacy")));
+        let _ = std::fs::remove_dir_all(&dir);
+        let _ = std::fs::create_dir_all(&dir);
+        let hash = hash_str("legacy-track");
+        let legacy = dir.join(format!("{}.jpg", cache_prefix(hash)));
+        std::fs::write(&legacy, b"jpeg").unwrap();
+        assert_eq!(find_cached(&dir, hash), Some(legacy));
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn find_cached_misses_are_fast_and_clean() {
+        let dir = std::env::temp_dir().join(format!("music_player_cover_miss_{}", hash_str("miss")));
+        let _ = std::fs::remove_dir_all(&dir);
+        let _ = std::fs::create_dir_all(&dir);
+        assert_eq!(find_cached(&dir, hash_str("nothing")), None);
+        // Existing other-key cache does not leak into the lookup.
+        let other = hash_str("other");
+        write_cover(&dir, other, b"data", "jpg");
+        assert_eq!(find_cached(&dir, hash_str("nothing")), None);
         let _ = std::fs::remove_dir_all(&dir);
     }
 
