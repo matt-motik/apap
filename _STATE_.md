@@ -10,8 +10,8 @@
 
 ## Активная задача
 
-- **ROADMAP 2.3:** output.rs — trait AudioHost.
-- Далее по плану: 3.2 → 3.3.
+- **ROADMAP 3.2:** cover.rs — hash-субдиректории кэша.
+- Далее по плану: 3.3.
 
 ## Шаги
 
@@ -19,15 +19,15 @@
 - [x] 1.2 cover.rs: убрать агрессивную очистку очереди; playlist.rs: graceful при разрыве канала
 - [x] 1.3 output.rs: неблокирующий probe вместо sleep
 - [x] 2.2 settings.rs: убрать глобальный CONFIG (удалён целиком — был мёртвым code, DI уже явный)
-- [ ] 2.3 output.rs: trait AudioHost
+- [x] 2.3 output.rs: trait AudioHost (+MockHost, choose_output, 9 тестов)
 - [ ] 3.2 cover.rs: hash-субдиректории кэша
 - [ ] 3.3 mod.rs: асинхронная загрузка плейлиста при старте
 
 ## Следующий ход
 
-1. Прочитать output.rs — прямые вызовы `cpal::default_host()`, `host.output_devices()`.
-2. Ввести trait `AudioHost` (default_output_device, devices, host default) + реализацию `CpalHost` и `MockHost` для тестов.
-3. Прогнать сценарий select_output/probe через AudioHost (тесты без аудио-девайса).
+1. Прочитать cover.rs — `find_cached`/`write_cover` (линейный поиск в одной директории).
+2. Ввести subdir по первым 2 hex хэша: `dir/<hash[0..2]>/<hash>` при записи и поиске.
+3. Проверить миграцию: старые файлы в корне кэша продолжат читаться (fallback на корень).
 4. cargo build + clippy + test, коммит, обновить _STATE_.
 
 ## Изменяемые файлы (текущий шаг)

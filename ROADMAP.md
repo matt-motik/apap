@@ -153,7 +153,7 @@ AppConfig::init(settings.settings.clone());
 
 ### 2.3. Абстракция над `cpal` через trait `AudioHost`
 
-**Статус:** ⬜ не сделано — trait-абстракции над хостом нет, код напрямую работает с `cpal::Host`.
+**Статус:** ✅ сделано — коммит `72607fd`. Введены `DeviceInfo`/`RateRange`/`ChosenOutput` (бэкенд-агностичные снимки возможностей устройства), `trait AudioHost` (`devices()`, `default_name()`) с реализацией `CpalHost`; выделена чистая функция `choose_output(...)`; `select_output` делегирует в `choose_output` + `CpalHost::device_by_name()` (контракт `OutputSpec` не изменился). `output_devices()`/`default_device_name()` используют `CpalHost`. Добавлены 9 unit-тестов с `MockHost` (выбор по предпочтению/дефолту, матчинг rate/channels, fallback). Новых clippy-warning'ов нет, 38 тестов зелёные.
 
 **Файл:** `src/audio/output.rs`  
 **Проблема:** Прямая зависимость от `cpal::default_host()` затрудняет тестирование и портирование.
@@ -161,15 +161,12 @@ AppConfig::init(settings.settings.clone());
 **Задача:**
 ```rust
 pub trait AudioHost {
-    fn default_output_device(&self) -> Option<AudioDevice>;
-    fn devices(&self) -> Vec<AudioDevice>;
+    fn devices(&self) -> Vec<DeviceInfo>;
+    fn default_name(&self) -> Option<String>;
 }
 
-pub struct CpalHost(cpal::Host);
-
-impl AudioHost for CpalHost {
-    // реализация
-}
+pub struct CpalHost;
+impl AudioHost for CpalHost { ... }
 
 // В тестах использовать MockHost
 ```
@@ -357,7 +354,7 @@ let config = AppConfig::builder()
 | 1.3 | Неблокирующий probe устройства | 🟡 Высокий | ⬜ | 2ч | Средний |
 | 2.1 | Разделение MusicApp на сервисы | 🟡 Высокий | ✅ сделано | 8ч | Высокий |
 | 2.2 | Dependency Injection | 🟡 Высокий | ✅ сделано | 4ч | Средний |
-| 2.3 | Trait AudioHost | 🟢 Средний | ⬜ | 3ч | Средний |
+| 2.3 | Trait AudioHost | 🟢 Средний | ✅ сделано | 3ч | Средний |
 | 3.1 | Оптимизация сортировки | 🟢 Средний | ✅ сделано | 2ч | Низкий |
 | 3.2 | Хэш-субдиректории кэша | 🟢 Средний | ⬜ | 1ч | Низкий |
 | 3.3 | Асинхронная загрузка плейлиста | 🟢 Средний | ⬜ | 2ч | Средний |
