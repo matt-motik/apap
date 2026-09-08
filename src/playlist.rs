@@ -56,12 +56,26 @@ pub enum ScanMsg {
 /// batches reduce channel overhead; smaller ones keep the UI responsive.
 pub const SCAN_BATCH_SIZE: usize = 200;
 
-pub fn scan_audio_dir(root: &Path, tx: Sender<ScanMsg>) {
+/// Probe a mixed list of files/directories (from "Add Files"/"Add Folder") off
+/// the UI thread. Directories are walked recursively. Results are streamed as
+/// [`ScanMsg::Batch`]es (so the UI can show progress) and finished with
+/// [`ScanMsg::Done`].
+pub fn probe_paths(paths: Vec<PathBuf>, tx: Sender<ScanMsg>) {
     let mut batch: Vec<Track> = Vec::new();
     let mut total = 0usize;
-    for entry in WalkDir::new(root).follow_links(true).into_iter().flatten() {
-        if entry.file_type().is_file() && is_supported_audio(entry.path()) {
-            batch.push(track_for_path(entry.path()));
+    for p in paths {
+        if p.is_dir() {
+            for entry in WalkDir::new(&p).follow_links(true).into_iter().flatten() {
+                if entry.file_type().is_file() && is_supported_audio(entry.path()) {
+                    batch.push(track_for_path(entry.path()));
+                    total += 1;
+                    if batch.len() >= SCAN_BATCH_SIZE {
+                        let _ = tx.send(ScanMsg::Batch(std::mem::take(&mut batch)));
+                    }
+                }
+            }
+        } else if is_supported_audio(&p) {
+            batch.push(track_for_path(&p));
             total += 1;
             if batch.len() >= SCAN_BATCH_SIZE {
                 let _ = tx.send(ScanMsg::Batch(std::mem::take(&mut batch)));

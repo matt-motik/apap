@@ -286,20 +286,6 @@ impl MusicApp {
         self.col_model_sig = self.compute_col_sig();
     }
 
-    /// Incrementally append the last `count` tracks as new table rows. The
-    /// caller must have just pushed exactly those tracks onto `self.tracks`,
-    /// preserving all earlier indices.
-    pub(super) fn append_playlist_rows(&mut self, count: usize) {
-        let n = self.tracks.len();
-        if count == 0 || count > n {
-            return;
-        }
-        for i in n - count..n {
-            let row = self.build_row(i, &self.tracks[i]);
-            self.playlist_rows.push(row);
-        }
-    }
-
     /// Refresh a single row in place (metadata updates and the `>` marker of
     /// the current track).
     pub(super) fn refresh_playlist_rows_at(&mut self, index: Option<usize>) {

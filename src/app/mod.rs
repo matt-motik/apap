@@ -22,6 +22,10 @@ pub mod playback_manager;
 pub mod playlist_manager;
 pub mod ui_manager;
 
+/// Throttle for persisting user-dragged column widths: ticks (100 ms each)
+/// with a stable column signature before a write. ~2 s.
+const COL_SAVE_DEBOUNCE_TICKS: u32 = 20;
+
 slint::include_modules!();
 
 pub fn create_ui() -> Result<AppWindow, slint::PlatformError> {
@@ -95,6 +99,9 @@ pub struct MusicApp {
     playlist_rows: Rc<VecModel<ModelRc<StandardListViewItem>>>,
     current: Option<usize>,
     scan_rx: Option<Receiver<ScanMsg>>,
+    /// Tracks buffered by `drain_scan` while a background scan runs; committed
+    /// to `tracks` atomically when `ScanMsg::Done` arrives.
+    scan_pending: Vec<Track>,
     known_paths: HashSet<PathBuf>,
     status: SharedString,
     repeat: RepeatMode,
@@ -189,6 +196,7 @@ impl MusicApp {
             playlist_rows,
             current: None,
             scan_rx: None,
+            scan_pending: Vec::new(),
             known_paths,
             status: startup_status.into(),
             repeat,
@@ -393,7 +401,7 @@ impl MusicApp {
                     )
                     .pick_files();
                 if let Some(paths) = dialog {
-                    app.borrow_mut().add_paths(paths);
+                    app.borrow_mut().start_scan(paths);
                 }
             });
         }
@@ -404,7 +412,7 @@ impl MusicApp {
             ui.on_add_folder(move || {
                 eprintln!("[gui] add_folder");
                 if let Some(folder) = FileDialog::new().pick_folder() {
-                    app.borrow_mut().start_folder_scan(folder);
+                    app.borrow_mut().start_scan(vec![folder]);
                 }
             });
         }
@@ -755,15 +763,17 @@ impl MusicApp {
 
         let sig = self.compute_col_sig();
         if sig != 0 && sig != self.col_model_sig {
-            self.save_column_widths_from_ui();
+            // Column layout changed from the UI (user dragging a border): adopt
+            // it as the new baseline and start a debounce timer. Nothing is
+            // written to disk until the layout has been stable.
             self.col_model_sig = sig;
             self.col_sig_stable_ticks = 0;
-        } else {
+        } else if self.col_sig_stable_ticks < COL_SAVE_DEBOUNCE_TICKS {
             self.col_sig_stable_ticks = self.col_sig_stable_ticks.saturating_add(1);
-        }
-        if self.col_sig_stable_ticks == 3 {
-            self.save_column_widths_from_ui();
-            self.update_column_widths();
+            if self.col_sig_stable_ticks == COL_SAVE_DEBOUNCE_TICKS {
+                self.save_column_widths_from_ui();
+                self.update_column_widths();
+            }
         }
     }
 

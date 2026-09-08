@@ -4,43 +4,24 @@
 use super::*;
 
 impl MusicApp {
-    pub(super) fn add_paths(&mut self, paths: Vec<PathBuf>) -> usize {
-        let mut added = 0;
-        for p in paths {
-            if playlist::is_supported_audio(&p) {
-                if self.known_paths.insert(p.clone()) {
-                    self.tracks.push(playlist::track_for_path(&p));
-                    added += 1;
-                }
-            }
+    /// Start a background scan/import of files and/or folders ("Add Files",
+    /// "Add Folder"). The scanner streamed `ScanMsg` batches from a worker
+    /// thread; results are buffered and committed atomically in `drain_scan`.
+    pub(super) fn start_scan(&mut self, paths: Vec<PathBuf>) {
+        if paths.is_empty() {
+            return;
         }
-        if added > 0 {
-            self.rebuild_shuffle();
-            self.mark_playlist_dirty();
-            self.append_playlist_rows(added);
-            self.save_playlist();
+        if self.scan_rx.is_some() {
+            eprintln!("[app] scan already running; ignoring new request");
+            return;
         }
-        added
-    }
-
-    pub(super) fn mark_playlist_dirty(&mut self) {
-        self.playlist_dirty = true;
-    }
-
-    pub(super) fn save_playlist(&mut self) {
-        if playlist::save_track_list(&music_player_rs::settings::playlist_path(), &self.tracks) {
-            self.playlist_dirty = false;
-        }
-    }
-
-    pub(super) fn start_folder_scan(&mut self, root: PathBuf) {
         let (tx, rx): (std::sync::mpsc::Sender<ScanMsg>, Receiver<ScanMsg>) = channel();
         self.scan_rx = Some(rx);
-        let status_root = root.display().to_string();
+        self.status = format!("Adding tracks\u{2026} {} item(s)", paths.len()).into();
+        self.ui.set_busy(true);
         thread::spawn(move || {
-            playlist::scan_audio_dir(&root, tx);
+            playlist::probe_paths(paths, tx);
         });
-        self.status = format!("Scanning folder: {status_root}").into();
     }
 
     pub(super) fn drain_scan(&mut self) {
@@ -56,20 +37,28 @@ impl MusicApp {
                         let mut added = 0;
                         for t in tracks {
                             if self.known_paths.insert(t.path.clone()) {
-                                self.tracks.push(t);
+                                self.scan_pending.push(t);
                                 added += 1;
                             }
                         }
                         if added > 0 {
-                            self.mark_playlist_dirty();
-                            // Rows appear progressively, batch by batch, while
-                            // the scan thread keeps producing tracks.
-                            self.append_playlist_rows(added);
-                            self.status = format!("...{added} tracks added").into();
+                            // User-visible progress only; the model stays
+                            // untouched until the whole batch has been scanned.
+                            self.status =
+                                format!("Scanning\u{2026} {} tracks", self.scan_pending.len()).into();
                         }
                     }
                     Ok(ScanMsg::Done(total)) => {
-                        self.status = format!("Folder scan finished: {total} tracks found").into();
+                        let n = self.scan_pending.len();
+                        if n > 0 {
+                            self.tracks.extend(std::mem::take(&mut self.scan_pending));
+                            self.mark_playlist_dirty();
+                            self.rebuild_shuffle();
+                            self.save_playlist();
+                            self.status = format!("Added {n} tracks ({total} found)").into();
+                        } else {
+                            self.status = format!("Scan finished: nothing new ({total} found)").into();
+                        }
                         finished = true;
                     }
                     Err(TryRecvError::Empty) => break,
@@ -82,7 +71,28 @@ impl MusicApp {
         }
         if finished {
             self.scan_rx = None;
-            self.save_playlist();
+            self.ui.set_busy(false);
+            // Flush leftovers if the stream ended without a final Done message.
+            if !self.scan_pending.is_empty() {
+                let n = self.scan_pending.len();
+                self.tracks.extend(std::mem::take(&mut self.scan_pending));
+                self.mark_playlist_dirty();
+                self.rebuild_shuffle();
+                self.save_playlist();
+                self.status = format!("Added {n} tracks").into();
+            }
+            // Single atomic UI update for the entire scanned batch.
+            self.sync_playlist_to_ui();
+        }
+    }
+
+    pub(super) fn mark_playlist_dirty(&mut self) {
+        self.playlist_dirty = true;
+    }
+
+    pub(super) fn save_playlist(&mut self) {
+        if playlist::save_track_list(&music_player_rs::settings::playlist_path(), &self.tracks) {
+            self.playlist_dirty = false;
         }
     }
 
@@ -103,8 +113,15 @@ impl MusicApp {
         self.known_paths.remove(&t.path);
         self.tracks.remove(index);
         self.rebuild_shuffle();
+        // Incremental: drop the row, then refresh the shifted tail (indices and
+        // the `>` marker) instead of rebuilding the whole model.
+        if self.playlist_rows.row_count() > index {
+            self.playlist_rows.remove(index);
+            for i in index..self.tracks.len() {
+                self.refresh_playlist_rows_at(Some(i));
+            }
+        }
         self.mark_playlist_dirty();
-        self.sync_playlist_to_ui();
         self.save_playlist();
         self.status = "Track removed".into();
     }

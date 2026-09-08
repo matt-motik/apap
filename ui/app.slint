@@ -9,6 +9,7 @@ import { Settings, ColumnSetting, CoverSetting } from "settings.slint";
 
 component MenuButton inherits Rectangle {
     in property <string> text: "";
+    in property <bool> enabled: true;
     callback clicked;
 
     width: 72px;
@@ -18,14 +19,18 @@ component MenuButton inherits Rectangle {
 
     Text {
         text: root.text;
-        color: Colors.text-primary;
+        color: root.enabled ? Colors.text-primary : Colors.text-dim;
         font-size: 12px;
         horizontal-alignment: center;
         vertical-alignment: center;
     }
 
     touch := TouchArea {
-        clicked => { root.clicked(); }
+        clicked => {
+            if (root.enabled) {
+                root.clicked();
+            }
+        }
     }
 }
 
@@ -37,6 +42,8 @@ component AppMenuBar inherits Rectangle {
     callback open-settings();
     callback show-about();
 
+    in property <bool> busy: false;
+
     height: 34px;
     background: Colors.bg-toolbar;
 
@@ -46,8 +53,16 @@ component AppMenuBar inherits Rectangle {
         padding-right: 8px;
         alignment: center;
 
-        MenuButton { text: "Add Files"; clicked => { root.add-files(); } }
-        MenuButton { text: "Add Folder"; clicked => { root.add-folder(); } }
+        MenuButton {
+            text: "Add Files";
+            enabled: !root.busy;
+            clicked => { root.add-files(); }
+        }
+        MenuButton {
+            text: "Add Folder";
+            enabled: !root.busy;
+            clicked => { root.add-folder(); }
+        }
         MenuButton { text: "Save"; clicked => { root.save-playlist(); } }
         MenuButton { text: "Open"; clicked => { root.load-playlist(); } }
         Rectangle { }
@@ -80,6 +95,7 @@ export component AppWindow inherits Window {
     in property <string> status-text: "Stopped";
     in property <string> track-info: "";
     in property <string> track-count: "0 tracks";
+    in property <bool> busy: false;
 
     in property <string> info-artist: "—";
     in property <string> info-track: "—";
@@ -198,6 +214,7 @@ export component AppWindow inherits Window {
         }
 
         AppMenuBar {
+            busy: root.busy;
             add-files => { root.add-files(); }
             add-folder => { root.add-folder(); }
             save-playlist => { root.save-playlist(); }
@@ -221,6 +238,7 @@ export component AppWindow inherits Window {
             status-text: root.status-text;
             track-info: root.track-info;
             track-count: root.track-count;
+            busy: root.busy;
         }
     }
 

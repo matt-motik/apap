@@ -4,10 +4,20 @@ export component StatusBar inherits Rectangle {
     in property <string> status-text: "Stopped";
     in property <string> track-info: "";
     in property <string> track-count: "0 tracks";
+    in property <bool> busy: false;
 
     background: Colors.bg-surface;
     border-width: 1px;
     border-color: Colors.border-subtle;
+
+    // Thin accent strip: visible while a background task (folder scan /
+    // file import) is running.
+    Rectangle {
+        y: 0;
+        height: 3px;
+        width: root.busy ? parent.width : 0px;
+        background: Colors.accent;
+    }
 
     HorizontalLayout {
         padding-left: 12px;
