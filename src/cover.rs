@@ -74,12 +74,15 @@ pub fn covers_cache_dir() -> PathBuf {
 /// джобы, оставляя самый свежий (быстрое переключение треков).
 pub fn start_worker(rx: mpsc::Receiver<CoverJob>, done: mpsc::Sender<CoverDone>) {
     std::thread::spawn(move || loop {
-        // Отбрасываем всё, что поставили в очередь, пока мы заняты.
-        while rx.try_recv().is_ok() {}
-        let job = match rx.recv() {
+        let mut job = match rx.recv() {
             Ok(j) => j,
             Err(_) => return,
         };
+        // Пока накопились более свежие запросы (быстрое переключение треков) —
+        // берём самый последний и пропускаем устаревшие.
+        while let Ok(newer) = rx.try_recv() {
+            job = newer;
+        }
         let image = resolve_cover(&job.track, &job.cfg);
         let _ = done.send(CoverDone { id: job.id, image });
     });

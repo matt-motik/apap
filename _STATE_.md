@@ -10,13 +10,13 @@
 
 ## Активная задача
 
-- **ROADMAP 1.2:** cover.rs — убрать агрессивную очистку очереди; playlist.rs — проверка `is_disconnected`.
-- Далее по плану: 1.3 → 2.2 → 2.3 → 3.2 → 3.3.
+- **ROADMAP 1.3:** output.rs — неблокирующий probe вместо sleep.
+- Далее по плану: 2.2 → 2.3 → 3.2 → 3.3.
 
 ## Шаги
 
 - [x] 1.1 player.rs: `core.lock().unwrap()` → graceful
-- [ ] 1.2 cover.rs: убрать агрессивную очистку очереди; playlist.rs: is_disconnected
+- [x] 1.2 cover.rs: убрать агрессивную очистку очереди; playlist.rs: graceful при разрыве канала
 - [ ] 1.3 output.rs: неблокирующий probe вместо sleep
 - [ ] 2.2 settings.rs: убрать глобальный CONFIG (DI или минимум)
 - [ ] 2.3 output.rs: trait AudioHost
@@ -25,14 +25,13 @@
 
 ## Следующий ход
 
-1. Прочитать cover.rs (очистка очереди в воркере) и playlist.rs (tx.send).
-2. Заменить агрессивную `while rx.try_recv().is_ok() {}` на graceful-обработку; добавить `is_disconnected()` перед отправкой.
+1. Прочитать output.rs (probe устройства, `std::thread::sleep(PROBE_OPEN_MS)`).
+2. Заменить блокирующий sleep на неблокирующую проверку готовности потока.
 3. cargo build + clippy + test, коммит, обновить _STATE_.
 
 ## Изменяемые файлы (текущий шаг)
 
-- `src/cover.rs`
-- `src/playlist.rs`
+- `src/audio/output.rs`
 
 ## Риск / стоп-условие
 

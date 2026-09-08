@@ -69,21 +69,25 @@ pub fn probe_paths(paths: Vec<PathBuf>, tx: Sender<ScanMsg>) {
                 if entry.file_type().is_file() && is_supported_audio(entry.path()) {
                     batch.push(track_for_path(entry.path()));
                     total += 1;
-                    if batch.len() >= SCAN_BATCH_SIZE {
-                        let _ = tx.send(ScanMsg::Batch(std::mem::take(&mut batch)));
+                    if batch.len() >= SCAN_BATCH_SIZE
+                        && tx.send(ScanMsg::Batch(std::mem::take(&mut batch))).is_err()
+                    {
+                        return;
                     }
                 }
             }
         } else if is_supported_audio(&p) {
             batch.push(track_for_path(&p));
             total += 1;
-            if batch.len() >= SCAN_BATCH_SIZE {
-                let _ = tx.send(ScanMsg::Batch(std::mem::take(&mut batch)));
+            if batch.len() >= SCAN_BATCH_SIZE
+                && tx.send(ScanMsg::Batch(std::mem::take(&mut batch))).is_err()
+            {
+                return;
             }
         }
     }
-    if !batch.is_empty() {
-        let _ = tx.send(ScanMsg::Batch(batch));
+    if !batch.is_empty() && tx.send(ScanMsg::Batch(batch)).is_err() {
+        return;
     }
     let _ = tx.send(ScanMsg::Done(total));
 }

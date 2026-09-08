@@ -42,7 +42,7 @@ let mut core = match self.core.lock() {
 
 ### 1.2. Обработка ошибок канала в `cover.rs` и `playlist.rs`
 
-**Статус:** 🔶 частично — в `cover.rs` осталась агрессивная очистка `while rx.try_recv().is_ok() {}` (строка 78); в `playlist.rs` отправки `let _ = tx.send(...)` без проверки `is_disconnected()` (строки 73–88).
+**Статус:** ✅ сделано — `cover.rs`: `start_worker` теперь сначала `recv()`, затем подбирает самый свежий джоб через `while let Ok(newer) = rx.try_recv()` (устранена гонка между очисткой и основным `recv()`). `playlist.rs`: `probe_paths` при `send(...).is_err()` (разрыв канала) останавливает сканирование. Примечание: `Sender::is_disconnected()` — unstable в rustc 1.98, поэтому реализовано через проверку результата `send`.
 
 **Файлы:** 
 - `src/cover.rs` (строки 78-79)
