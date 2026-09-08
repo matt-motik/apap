@@ -18,6 +18,9 @@ impl MusicApp {
 
         // Delta: only re-write properties that actually changed, so a paused
         // or stopped player does not churn the seekbar/status every tick.
+        // While the user drags the seekbar, the position/seekbar are driven by
+        // the grab (top_panel.slint); restore only after seek-commit lands.
+        let seeking = self.ui.get_seekbar_dragging();
         let cur = &self.last_ui;
         if playing != cur.playing {
             self.ui.set_playing(playing);
@@ -28,12 +31,12 @@ impl MusicApp {
         if v != cur.volume {
             self.ui.set_volume(v);
         }
-        if pos_s != cur.pos || seek_f != cur.seek_fraction {
+        if !seeking && (pos_s != cur.pos || seek_f != cur.seek_fraction) {
             self.ui.set_pos(pos_s.clone().into());
             self.ui.set_seek_fraction(seek_f);
         }
         let dur_s = playlist::format_duration(dur_f);
-        if dur_s != cur.dur {
+        if !seeking && dur_s != cur.dur {
             self.ui.set_dur(dur_s.clone().into());
         }
         let status_s = self.status.to_string();

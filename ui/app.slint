@@ -89,6 +89,7 @@ export component AppWindow inherits Window {
     in property <bool> muted: false;
     in property <float> volume: 0.8;
     in property <float> seek-fraction: 0.0;
+    out property <bool> seekbar-dragging: main-top.seekbar-dragging;
     in property <string> pos: "0:00";
     in property <string> dur: "0:00";
 
@@ -139,6 +140,7 @@ export component AppWindow inherits Window {
     callback toggle-repeat();
     callback toggle-shuffle();
     callback seek(float);
+    callback seek-commit(float);
     callback volume-changed(float);
     callback toggle-mute();
     callback play-track(int);
@@ -173,7 +175,7 @@ export component AppWindow inherits Window {
     VerticalLayout {
         spacing: 0;
 
-        TopPanel {
+        main-top := TopPanel {
             horizontal-stretch: 1;
             max-height: root.cover-size *1px + 50px;
             cover-size: root.cover-size;
@@ -209,6 +211,7 @@ export component AppWindow inherits Window {
             toggle-repeat => { root.toggle-repeat(); }
             toggle-shuffle => { root.toggle-shuffle(); }
             seek(v) => { root.seek(v); }
+            seek-commit(v) => { root.seek-commit(v); }
             volume-changed(v) => { root.volume-changed(v); }
             toggle-mute => { root.toggle-mute(); }
         }

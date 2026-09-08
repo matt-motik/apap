@@ -73,8 +73,12 @@ export component TopPanel inherits Rectangle {
     in property <bool> muted: false;
     in property <float> volume: 0.8;
     in property <float> seek-fraction: 0.0;
+    out property <bool> seekbar-dragging: false;
     in property <string> pos: "0:00";
     in property <string> dur: "0:00";
+
+    private property <bool> seek-dragging: false;
+    private property <float> pending-seek: -1;
 
     in property <string> info-artist: "—";
     in property <string> info-track: "—";
@@ -97,6 +101,7 @@ export component TopPanel inherits Rectangle {
     callback toggle-repeat();
     callback toggle-shuffle();
     callback seek(float);
+    callback seek-commit(float);
     callback volume-changed(float);
     callback toggle-mute();
 
@@ -285,12 +290,56 @@ export component TopPanel inherits Rectangle {
                 alignment: center;
                 horizontal-stretch: 1;
                 max-height: 50px;
-                Slider {
+
+                seekbar := Rectangle {
                     horizontal-stretch: 1;
-                    minimum: 0;
-                    maximum: 1;
-                    value: root.seek-fraction;
-                    changed(v) => { root.seek(v); }
+                    height: 28px;
+
+                    Slider {
+                        width: 100%;
+                        height: 100%;
+                        minimum: 0;
+                        maximum: 1;
+                        value: root.seek-dragging && root.pending-seek >= 0 ? root.pending-seek : root.seek-fraction;
+                        changed(v) => {
+                            // Программные обновления из тика (seek-fraction) идут в `seek`.
+                            // Во время драга ползунком управляет touch-grab, seek — при отпускании.
+                            if (!root.seek-dragging) {
+                                root.seek(v);
+                            }
+                        }
+                    }
+
+                    // Полностью забирает управление слайдером: клик/драг позиционирует
+                    // «на лету», а seek выполняется один раз при отпускании (seek-commit).
+                    seekgrab := TouchArea {
+                        width: 100%;
+                        height: 100%;
+                        mouse-cursor: MouseCursor.pointer;
+
+                        pointer-event(event) => {
+                            if (event.kind == PointerEventKind.down) {
+                                root.seek-dragging = true;
+                                root.pending-seek = Math.clamp(self.mouse-x / self.width, 0, 1);
+                                root.seekbar-dragging = true;
+                            } else if (event.kind == PointerEventKind.up) {
+                                if (root.seek-dragging) {
+                                    if (root.pending-seek >= 0) {
+                                        root.seek-commit(root.pending-seek);
+                                    }
+                                    root.pending-seek = -1;
+                                }
+                                root.seek-dragging = false;
+                                root.seekbar-dragging = false;
+                            }
+                        }
+
+                        moved => {
+                            if (root.seek-dragging) {
+                                root.pending-seek = Math.clamp(self.mouse-x / self.width, 0, 1);
+                            }
+                        }
+                    }
                 }
 
                 HorizontalLayout {

@@ -375,6 +375,16 @@ impl MusicApp {
             });
         }
 
+        // 7b. seek-commit — сикбар отпущен (конец драга): один seek в точку.
+        {
+            let app = this.clone();
+            ui.on_seek_commit(move |fraction| {
+                eprintln!("[gui] seek_commit fraction={fraction:.3}");
+                let duration = app.borrow().player.snapshot().2.unwrap_or(0.0);
+                app.borrow_mut().player.seek(fraction as f64 * duration);
+            });
+        }
+
         // 8. volume-changed
         {
             let app = this.clone();
