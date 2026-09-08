@@ -211,7 +211,7 @@ fn cache_subdir(dir: &Path, hash: u64) -> PathBuf {
 
 ### 3.3. Асинхронная загрузка плейлиста при старте
 
-**Статус:** ⬜ не сделано — стартовая загрузка `playlist::load_track_list(...)` синхронная (`src/app/mod.rs:145`). Async-сканирование сделано только для Add Files/Folder.
+**Статус:** ✅ сделано — коммит `6ecebab`. `MusicApp::new` больше не блокируется на чтении `playlist.m3u`: загрузка уходит в фоновый поток (`channel<Vec<Track>>`), а `tick()` через `drain_startup_tracks()` применяет треки по прибытии — пересобирает shuffle-порядок, заново применяет сохранённую сортировку, синкает UI и показывает «Loaded N tracks». То самое чтение было `src/app/mod.rs:141`; async-загрузка теперь единственный путь и для старта, и для Add Files/Folder.
 
 **Файл:** `src/app/mod.rs` (строки 138-139)  
 **Проблема:** Синхронная загрузка плейлиста блокирует инициализацию приложения.
@@ -219,16 +219,16 @@ fn cache_subdir(dir: &Path, hash: u64) -> PathBuf {
 **Задача:**
 ```rust
 // Запускать в фоне при старте:
-let (tx, rx) = channel();
-std::thread::spawn(move || {
-    let tracks = playlist::load_track_list(&path);
-    let _ = tx.send(tracks);
+let (startup_tx, startup_tracks_rx) = channel::<Vec<Track>>();
+let startup_path = playlist_path();
+thread::spawn(move || {
+    let tracks = playlist::load_track_list(&startup_path);
+    let _ = startup_tx.send(tracks);
 });
 
 // В tick() проверять результат
-if let Ok(tracks) = rx.try_recv() {
-    app.tracks = tracks;
-    app.sync_playlist_to_ui();
+fn drain_startup_tracks(&mut self) {
+    // apply tracks: rebuild_shuffle + apply_sort + sync_playlist_to_ui
 }
 ```
 
@@ -348,7 +348,7 @@ let config = AppConfig::builder()
 | 2.3 | Trait AudioHost | 🟢 Средний | ✅ сделано | 3ч | Средний |
 | 3.1 | Оптимизация сортировки | 🟢 Средний | ✅ сделано | 2ч | Низкий |
 | 3.2 | Хэш-субдиректории кэша | 🟢 Средний | ✅ сделано | 1ч | Низкий |
-| 3.3 | Асинхронная загрузка плейлиста | 🟢 Средний | ⬜ | 2ч | Средний |
+| 3.3 | Асинхронная загрузка плейлиста | 🟢 Средний | ✅ сделано | 2ч | Средний |
 | 4.1 | Event-driven архитектура | 🔵 Низкий | ⬜ | 6ч | Высокий |
 | 4.2 | ISP для AudioSource | 🔵 Низкий | 🔶 частично | 3ч | Средний |
 | 4.3 | Расширение тестов | 🔵 Низкий | 🔶 частично | 8ч | Низкий |
