@@ -148,119 +148,212 @@ pub struct OutputSpec {
     pub device_name: String,
 }
 
-/// Pick an output device and a stream config close to the track's native parameters.
-pub fn select_output(
+/// Backend-agnostic snapshot of an output device's capabilities, enough for
+/// the stream-selection logic to run without a live audio backend (and thus
+/// to be unit-tested with a mock).
+#[derive(Debug, Clone)]
+pub struct DeviceInfo {
+    pub name: String,
+    pub channels: u16,
+    pub sample_rate: u32,
+    pub sample_format: SampleFormat,
+    pub buffer_size: SupportedBufferSize,
+    pub supported: Vec<RateRange>,
+}
+
+/// One entry from a device's supported-configuration list.
+#[derive(Debug, Clone)]
+pub struct RateRange {
+    pub channels: u16,
+    pub min: u32,
+    pub max: u32,
+    pub buffer_size: SupportedBufferSize,
+}
+
+/// The result of device selection, independent of the concrete backend.
+#[derive(Debug, Clone)]
+pub struct ChosenOutput {
+    pub device_name: String,
+    pub config: StreamConfig,
+    pub sample_format: SampleFormat,
+}
+
+/// Abstraction over the audio backend (cpal in production, a mock in tests).
+pub trait AudioHost {
+    /// Usable output devices (only those with a resolvable default config).
+    fn devices(&self) -> Vec<DeviceInfo>;
+    /// Name of the host's default output device, if any.
+    fn default_name(&self) -> Option<String>;
+}
+
+/// Live cpal backend.
+pub struct CpalHost;
+
+impl AudioHost for CpalHost {
+    fn devices(&self) -> Vec<DeviceInfo> {
+        let host = cpal::default_host();
+        let mut out = Vec::new();
+        if let Ok(devices) = host.output_devices() {
+            for dev in devices {
+                if let Ok(default) = dev.default_output_config() {
+                    let name = dev
+                        .description()
+                        .map(|d| d.name().to_string())
+                        .unwrap_or_else(|_| "default".to_string());
+                    let mut supported = Vec::new();
+                    if let Ok(configs) = dev.supported_output_configs() {
+                        for cfg in configs {
+                            supported.push(RateRange {
+                                channels: cfg.channels(),
+                                min: cfg.min_sample_rate(),
+                                max: cfg.max_sample_rate(),
+                                buffer_size: *cfg.buffer_size(),
+                            });
+                        }
+                    }
+                    out.push(DeviceInfo {
+                        name,
+                        channels: default.channels(),
+                        sample_rate: default.sample_rate(),
+                        sample_format: default.sample_format(),
+                        buffer_size: *default.buffer_size(),
+                        supported,
+                    });
+                }
+            }
+        }
+        out
+    }
+
+    fn default_name(&self) -> Option<String> {
+        let host = cpal::default_host();
+        host.default_output_device()
+            .and_then(|d| d.description().ok())
+            .map(|d| d.name().to_string())
+    }
+}
+
+impl CpalHost {
+    /// Recover the concrete cpal device handle for stream building.
+    fn device_by_name(&self, name: &str) -> Result<cpal::Device, String> {
+        let host = cpal::default_host();
+        if let Ok(devices) = host.output_devices() {
+            for dev in devices {
+                if let Ok(desc) = dev.description() {
+                    if desc.name().to_string() == name {
+                        return Ok(dev);
+                    }
+                }
+            }
+        }
+        Err(format!("Audio device '{name}' no longer available"))
+    }
+}
+
+/// Decide which device/config to use for the given track parameters.
+///
+/// Pure selection: no audio backend is touched, so it can be tested with a
+/// mock. Picks the requested device (or the host default), then a config
+/// close to the track's native sample rate/channels.
+pub fn choose_output(
+    devices: &[DeviceInfo],
+    default_name: Option<&str>,
     track_rate: u32,
     track_channels: usize,
     preferred_name: Option<&str>,
-) -> Result<OutputSpec, String> {
-    let host = cpal::default_host();
-    let devices: Vec<cpal::Device> = match host.output_devices() {
-        Ok(list) => list.filter(|d| d.default_output_config().is_ok()).collect(),
-        Err(_) => Vec::new(),
-    };
+) -> Result<ChosenOutput, String> {
+    if devices.is_empty() {
+        return Err(String::from("No audio output device found"));
+    }
 
     // Resolve the requested device, falling back to the host default.
-    let device: cpal::Device = match preferred_name {
-        Some(name) if !name.is_empty() => devices
-            .iter()
-            .find(|d| {
-                d.description()
-                    .map(|desc| desc.name().to_string() == name)
-                    .unwrap_or(false)
-            })
-            .cloned(),
-        _ => None,
-    }
-    .or_else(|| {
-        devices
-            .iter()
-            .find(|d| Some(d.id()) == host.default_output_device().map(|d| d.id()))
-            .cloned()
-    })
-    .or_else(|| host.default_output_device())
-    .ok_or_else(|| String::from("No audio output device found"))?;
-
-    let device_name = device
-        .description()
-        .map(|d| d.name().to_string())
-        .unwrap_or_else(|_| "default".to_string());
-
-    let default = device
-        .default_output_config()
-        .map_err(|e| format!("Cannot query default output config: {e}"))?;
+    let preferred = preferred_name.filter(|n| !n.is_empty());
+    let device = preferred
+        .and_then(|name| devices.iter().find(|d| d.name == name))
+        .or_else(|| default_name.and_then(|d| devices.iter().find(|dev| dev.name == d)))
+        .ok_or_else(|| String::from("No audio output device found"))?;
 
     // Prefer a config matching the source channels when the device supports it,
     // otherwise fall back to the device default (usually 2ch).
-    let mut channels = track_channels.min(default.channels() as usize) as u16;
+    let mut channels = track_channels.min(device.channels as usize) as u16;
     if channels == 0 {
         channels = 2;
     }
 
     // Prefer matching the source sample rate when supported.
     let mut supported_rate: Option<u32> = None;
-    let mut chosen_buf = match default.buffer_size() {
+    let mut chosen_buf = match device.buffer_size {
         SupportedBufferSize::Range { min, max } => {
-            BufferSize::Fixed(target_buffer_frames(default.sample_rate(), *min, *max))
+            BufferSize::Fixed(target_buffer_frames(device.sample_rate, min, max))
         }
         _ => BufferSize::Default,
     };
-    if let Ok(configs) = device.supported_output_configs() {
-        for cfg in configs {
-            if cfg.channels() != channels {
-                continue;
-            }
-            let (lo, hi) = (cfg.min_sample_rate(), cfg.max_sample_rate());
-            if supported_rate.is_none() && track_rate >= lo && track_rate <= hi {
-                supported_rate = Some(track_rate);
-            }
-            if let SupportedBufferSize::Range { min, max } = cfg.buffer_size() {
-                chosen_buf = BufferSize::Fixed(target_buffer_frames(hi, *min, *max));
-            }
+    for cfg in &device.supported {
+        if cfg.channels != channels {
+            continue;
+        }
+        if supported_rate.is_none() && track_rate >= cfg.min && track_rate <= cfg.max {
+            supported_rate = Some(track_rate);
+        }
+        if let SupportedBufferSize::Range { min, max } = cfg.buffer_size {
+            chosen_buf = BufferSize::Fixed(target_buffer_frames(cfg.max, min, max));
         }
     }
 
     let (out_rate, sample_format) = match supported_rate {
-        Some(r) => (r, default.sample_format()),
-        None => (default.sample_rate(), default.sample_format()),
+        Some(r) => (r, device.sample_format),
+        None => (device.sample_rate, device.sample_format),
     };
 
-    let config = StreamConfig {
-        channels,
-        sample_rate: out_rate,
-        buffer_size: chosen_buf,
-    };
+    Ok(ChosenOutput {
+        device_name: device.name.clone(),
+        config: StreamConfig {
+            channels,
+            sample_rate: out_rate,
+            buffer_size: chosen_buf,
+        },
+        sample_format,
+    })
+}
 
+/// Pick an output device and a stream config close to the track's native
+/// parameters. Resolves the config against the live cpal backend.
+pub fn select_output(
+    track_rate: u32,
+    track_channels: usize,
+    preferred_name: Option<&str>,
+) -> Result<OutputSpec, String> {
+    let host = CpalHost;
+    let default = host.default_name();
+    let chosen = choose_output(
+        &host.devices(),
+        default.as_deref(),
+        track_rate,
+        track_channels,
+        preferred_name,
+    )?;
+    let device = host.device_by_name(&chosen.device_name)?;
     Ok(OutputSpec {
         device,
-        config,
-        sample_format,
-        device_name,
+        config: chosen.config,
+        sample_format: chosen.sample_format,
+        device_name: chosen.device_name,
     })
 }
 
 /// Enumerate usable output devices as `(name, description)` pairs. The `name`
 /// is the stable key persisted in settings and passed back to `select_output`.
 pub fn output_devices() -> Vec<(String, String)> {
-    let host = cpal::default_host();
-    let mut out = Vec::new();
-    if let Ok(devices) = host.output_devices() {
-        for dev in devices {
-            if let Ok(desc) = dev.description() {
-                let name = desc.name().to_string();
-                out.push((name.clone(), name));
-            }
-        }
-    }
-    out
+    CpalHost
+        .devices()
+        .into_iter()
+        .map(|d| (d.name.clone(), d.name))
+        .collect()
 }
 
 /// Name of the host's default output device, if any.
 pub fn default_device_name() -> Option<String> {
-    let host = cpal::default_host();
-    host.default_output_device()
-        .and_then(|d| d.description().ok())
-        .map(|d| d.name().to_string())
+    CpalHost.default_name()
 }
 
 /// Probe the configured output device (or the host default when `preferred` is
@@ -387,5 +480,146 @@ pub fn build_stream(
             build(cfg, core, error_flag).map_err(|e| format!("Cannot build output stream: {e}"))
         }
         Err(e) => Err(format!("Cannot build output stream: {e}")),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// Test double for [`AudioHost`]: serves canned device info.
+    struct MockHost {
+        devices: Vec<DeviceInfo>,
+        default_name: Option<String>,
+    }
+
+    impl AudioHost for MockHost {
+        fn devices(&self) -> Vec<DeviceInfo> {
+            self.devices.clone()
+        }
+        fn default_name(&self) -> Option<String> {
+            self.default_name.clone()
+        }
+    }
+
+    fn select_from_host(
+        host: &dyn AudioHost,
+        track_rate: u32,
+        track_channels: usize,
+        preferred: Option<&str>,
+    ) -> Result<ChosenOutput, String> {
+        choose_output(
+            &host.devices(),
+            host.default_name().as_deref(),
+            track_rate,
+            track_channels,
+            preferred,
+        )
+    }
+
+    fn mock_device(
+        name: &str,
+        channels: u16,
+        sample_rate: u32,
+        supported: &[(u16, u32, u32)],
+    ) -> DeviceInfo {
+        DeviceInfo {
+            name: name.to_string(),
+            channels,
+            sample_rate,
+            sample_format: SampleFormat::F32,
+            buffer_size: SupportedBufferSize::Range { min: 64, max: 4096 },
+            supported: supported
+                .iter()
+                .map(|&(c, lo, hi)| RateRange {
+                    channels: c,
+                    min: lo,
+                    max: hi,
+                    buffer_size: SupportedBufferSize::Range { min: 64, max: 4096 },
+                })
+                .collect(),
+        }
+    }
+
+    #[test]
+    fn choose_output_no_devices_errors() {
+        let r = choose_output(&[], None, 44100, 2, None);
+        assert_eq!(r.unwrap_err(), "No audio output device found");
+    }
+
+    #[test]
+    fn choose_output_prefers_requested_device() {
+        let host = MockHost {
+            devices: vec![
+                mock_device("Speakers", 2, 48000, &[(2, 44100, 48000)]),
+                mock_device("HDMI", 2, 192000, &[(2, 44100, 192000)]),
+            ],
+            default_name: Some("Speakers".into()),
+        };
+        let chosen = select_from_host(&host, 44100, 2, Some("HDMI")).unwrap();
+        assert_eq!(chosen.device_name, "HDMI");
+        assert_eq!(chosen.config.sample_rate, 44100);
+        assert_eq!(chosen.config.channels, 2);
+    }
+
+    #[test]
+    fn choose_output_falls_back_to_default_device() {
+        let host = MockHost {
+            devices: vec![mock_device("Speakers", 2, 48000, &[(2, 44100, 48000)])],
+            default_name: Some("Speakers".into()),
+        };
+        let chosen = select_from_host(&host, 48000, 2, None).unwrap();
+        assert_eq!(chosen.device_name, "Speakers");
+        assert_eq!(chosen.config.sample_rate, 48000);
+    }
+
+    #[test]
+    fn choose_output_unknown_preferred_errors() {
+        let device = mock_device("Speakers", 2, 48000, &[(2, 44100, 48000)]);
+        let r = choose_output(&[device], None, 44100, 2, Some("Missing"));
+        assert!(r.is_err());
+    }
+
+    #[test]
+    fn choose_output_preferred_drops_to_default_when_missing() {
+        let device = mock_device("Speakers", 2, 48000, &[(2, 44100, 48000)]);
+        let chosen =
+            choose_output(&[device], Some("Speakers"), 48000, 2, Some("Missing")).unwrap();
+        assert_eq!(chosen.device_name, "Speakers");
+    }
+
+    #[test]
+    fn choose_output_matches_track_rate_when_supported() {
+        let device = mock_device("DAC", 2, 44100, &[(2, 44100, 48000), (2, 88200, 192000)]);
+        let chosen = choose_output(&[device], Some("DAC"), 96000, 2, None).unwrap();
+        assert_eq!(chosen.config.sample_rate, 96000);
+        // The matching supported range sets the buffer from its own max rate.
+        assert_eq!(
+            chosen.config.buffer_size,
+            BufferSize::Fixed(target_buffer_frames(192000, 64, 4096))
+        );
+    }
+
+    #[test]
+    fn choose_output_falls_back_to_device_rate_when_unsupported() {
+        let device = mock_device("DAC", 2, 44100, &[(2, 44100, 48000)]);
+        let chosen = choose_output(&[device], Some("DAC"), 384000, 1, None).unwrap();
+        assert_eq!(chosen.config.sample_rate, 44100);
+        assert_eq!(chosen.config.channels, 1);
+    }
+
+    #[test]
+    fn choose_output_clamps_channels_to_device() {
+        let mono = mock_device("Mono", 1, 44100, &[(1, 44100, 44100)]);
+        let chosen = choose_output(&[mono], Some("Mono"), 44100, 6, None).unwrap();
+        assert_eq!(chosen.config.channels, 1);
+        assert_eq!(chosen.config.sample_rate, 44100);
+    }
+
+    #[test]
+    fn choose_output_unknown_default_errors() {
+        let device = mock_device("Speakers", 2, 48000, &[(2, 44100, 48000)]);
+        let r = choose_output(&[device], Some("Ghost"), 48000, 2, None);
+        assert!(r.is_err());
     }
 }
