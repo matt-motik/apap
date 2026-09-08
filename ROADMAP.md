@@ -311,6 +311,12 @@ fn drain_startup_tracks(&mut self) {
 - **ComboBox устройств показывал не активный девайс.** `changed model` переприсваивает `current-index` (рвёт binding), а `drain_audio_devices` ставил модель раньше индекса → `set_settings_device_idx(sel)` не доходил. Фикс: `ui_manager.rs` — индекс выставляется ДО модели (clamp сохранит корректное значение); энумерация pre-warmed в `MusicApp::init`, чтобы к первому открытию модель уже была.
 - **Полярность/шаг** (`src/tray.rs:64` `Wheel(0 - delta)`, шаг окна 0.04): заданы пользователем (коммит `d570755`), менять нельзя.
 
+**Round 3 (Edit-Commit hardening):** аудит нашёл реальные live-утечки draft → интерфейс:
+- `on_settings_toggle_col` / `reset_cols` / `move_col_up` / `move_col_down` вызывали `sync_settings_to_ui()`, который писал **live**-пропы `cover-size`/`col-info-w`/`col-gap` (в `app.slint` они привязаны к TopPanel для верхней панели/альбома) из `settings_ref()` = **draft**. Сценарий: подвинуть ползунок обложки (draft), затем нажать кнопку колонок → плеер менялся вживую, Cancel всё не откатывал.
+- `on_settings_theme_changed` вызывал ту же `sync_settings_to_ui()` (та же утечка).
+- Фикс: выделен `sync_dialog_cols()` в `ui_manager.rs` (пересобирает только модель списка колонок диалога `settings-cols`); колончатые хендлеры переведены на него, theme-хендлер пишет только draft. `sync_settings_to_ui` теперь вызывается лишь в `init` (стартовые live-пропы из реальности) и `on_open_settings` (живые пропы = реальные значения, нетто-бездействие). live-пропы `cover-size`/`col-info-w`/`col-gap` меняются только в `on_settings_save`.
+- Итог: при любых операциях в диалоге нет ни одного пути «draft → live»; Save применяет, Cancel теряет draft, пересоздание диалога (`if root.open`, round 2) показывает реальность.
+
 ---
 
 ### 4.2. Trait `AudioSource` с частичной реализацией (ISP)

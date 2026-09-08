@@ -31,6 +31,28 @@ impl MusicApp {
         self.settings.save();
     }
 
+    /// Build the dialog's column-list model (visibility/order/width display)
+    /// from the current settings view (draft while the dialog is open).
+    fn dialog_cols_model(&self) -> Vec<ColumnSetting> {
+        let s = self.settings_ref();
+        let ordered = s.ordered_columns();
+        ordered
+            .iter()
+            .map(|c| {
+                let mut cs = ColumnSetting::default();
+                cs.index = ordered.iter().position(|x| x == c).unwrap_or(0) as i32;
+                cs.label = c.label().into();
+                cs.visible = s.column_visible(*c);
+                cs.width_pct = s.column_width_pct(*c);
+                cs
+            })
+            .collect()
+    }
+
+    /// Full UI sync from the current settings. Used at startup (and harmless
+    /// on open, where the draft equals the real settings). Also writes the
+    /// live properties `cover-size`/`col-info-w`/`col-gap` — only call this
+    /// when those really should change.
     pub(super) fn sync_settings_to_ui(&self) {
         let s = self.settings_ref();
         self.ui.set_settings_theme(match s.theme {
@@ -44,20 +66,17 @@ impl MusicApp {
         self.ui
             .set_col_info_w(s.col_info_w);
         self.ui.set_col_gap(s.col_gap);
+        self.ui
+            .set_settings_cols(ModelRc::from(self.dialog_cols_model().as_slice()));
+    }
 
-        let ordered = s.ordered_columns();
-        let cols: Vec<ColumnSetting> = ordered
-            .iter()
-            .map(|c| {
-                let mut cs = ColumnSetting::default();
-                cs.index = ordered.iter().position(|x| x == c).unwrap_or(0) as i32;
-                cs.label = c.label().into();
-                cs.visible = s.column_visible(*c);
-                cs.width_pct = s.column_width_pct(*c);
-                cs
-            })
-            .collect();
-        self.ui.set_settings_cols(ModelRc::from(cols.as_slice()));
+    /// Refresh only the dialog's Columns list after a draft-only reorder /
+    /// visibility toggle. Deliberately does NOT touch the live UI properties
+    /// (`cover_size`, `col_info_w`, `col_gap`): those are Edit-Commit and must
+    /// change only on Save.
+    pub(super) fn sync_dialog_cols(&self) {
+        self.ui
+            .set_settings_cols(ModelRc::from(self.dialog_cols_model().as_slice()));
     }
 
     pub(super) fn sync_cover_settings_to_ui(&self) {

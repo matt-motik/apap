@@ -551,7 +551,6 @@ impl MusicApp {
                 } else {
                     Theme::Dark
                 };
-                a.sync_settings_to_ui();
             });
         }
 
@@ -636,7 +635,9 @@ impl MusicApp {
                 } else {
                     a.settings_mut().enable_column(col);
                 }
-                a.sync_settings_to_ui();
+                // Draft-only: refresh just the dialog list; live columns change
+                // only when the draft is applied on Save.
+                a.sync_dialog_cols();
             });
         }
 
@@ -650,7 +651,7 @@ impl MusicApp {
                 s.column_widths.clear();
                 s.column_visibility.clear();
                 s.normalize_visible_pct();
-                a.sync_settings_to_ui();
+                a.sync_dialog_cols();
             });
         }
 
@@ -667,7 +668,7 @@ impl MusicApp {
                 }
                 let col_id = ordered[idx];
                 a.settings_mut().move_column(idx, idx - 1);
-                a.sync_settings_to_ui();
+                a.sync_dialog_cols();
                 let new_ordered = a.settings_ref().ordered_columns();
                 let new_idx = new_ordered.iter().position(|&c| c == col_id).unwrap_or(idx - 1);
                 a.ui.set_settings_selected_col(new_idx as i32);
@@ -687,7 +688,7 @@ impl MusicApp {
                 }
                 let col_id = ordered[idx];
                 a.settings_mut().move_column(idx, idx + 1);
-                a.sync_settings_to_ui();
+                a.sync_dialog_cols();
                 let new_ordered = a.settings_ref().ordered_columns();
                 let new_idx = new_ordered.iter().position(|&c| c == col_id).unwrap_or(idx + 1);
                 a.ui.set_settings_selected_col(new_idx as i32);
