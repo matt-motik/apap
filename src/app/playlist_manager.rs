@@ -51,11 +51,11 @@ impl MusicApp {
                     Ok(ScanMsg::Done(total)) => {
                         let n = self.scan_pending.len();
                         if n > 0 {
-                            self.tracks.extend(std::mem::take(&mut self.scan_pending));
-                            self.mark_playlist_dirty();
-                            self.rebuild_shuffle();
-                            self.save_playlist();
-                            self.status = format!("Added {n} tracks ({total} found)").into();
+self.tracks.extend(std::mem::take(&mut self.scan_pending));
+                self.mark_playlist_dirty();
+                self.rebuild_shuffle();
+                self.save_playlist();
+                self.status = format!("Added {n} tracks").into();
                         } else {
                             self.status = format!("Scan finished: nothing new ({total} found)").into();
                         }
@@ -75,11 +75,12 @@ impl MusicApp {
             // Flush leftovers if the stream ended without a final Done message.
             if !self.scan_pending.is_empty() {
                 let n = self.scan_pending.len();
-                self.tracks.extend(std::mem::take(&mut self.scan_pending));
+self.tracks.extend(std::mem::take(&mut self.scan_pending));
                 self.mark_playlist_dirty();
                 self.rebuild_shuffle();
                 self.save_playlist();
                 self.status = format!("Added {n} tracks").into();
+                self.emit(AppEvent::QueueChanged);
             }
             // Single atomic UI update for the entire scanned batch.
             self.sync_playlist_to_ui();
@@ -124,6 +125,7 @@ impl MusicApp {
         self.mark_playlist_dirty();
         self.save_playlist();
         self.status = "Track removed".into();
+        self.emit(AppEvent::QueueChanged);
     }
 
     pub(super) fn clear_playlist(&mut self) {
@@ -137,6 +139,7 @@ impl MusicApp {
         self.sync_playlist_to_ui();
         self.save_playlist();
         self.status = "Playlist cleared".into();
+        self.emit(AppEvent::QueueChanged);
     }
 
     pub(super) fn sort_tracks(&mut self, col: ColumnId) {
@@ -149,6 +152,7 @@ impl MusicApp {
         self.settings.save();
         self.sync_playlist_to_ui();
         self.save_playlist();
+        self.emit(AppEvent::QueueChanged);
     }
 
     pub(super) fn apply_sort(&mut self, col: ColumnId, desc: bool) {

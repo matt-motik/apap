@@ -6,20 +6,49 @@ use super::*;
 impl MusicApp {
     pub(super) fn sync_playback_state_to_ui(&mut self) {
         let (playing, pos, dur) = self.player.snapshot();
-        self.ui.set_playing(playing);
-        self.ui.set_muted(self.player.muted());
-        self.ui.set_volume(self.player.volume());
-        self.ui.set_pos(playlist::format_duration(pos).into());
-
+        let muted = self.player.muted();
+        let v = self.player.volume();
         let dur_f = dur.unwrap_or(0.0);
-        self.ui.set_dur(playlist::format_duration(dur_f).into());
-        self.ui.set_seek_fraction(if dur_f > 0.0 {
+        let seek_f = if dur_f > 0.0 {
             (pos / dur_f).clamp(0.0, 1.0) as f32
         } else {
             0.0
-        });
+        };
+        let pos_s = playlist::format_duration(pos);
 
-        self.ui.set_status_text(self.status.clone());
+        // Delta: only re-write properties that actually changed, so a paused
+        // or stopped player does not churn the seekbar/status every tick.
+        let cur = &self.last_ui;
+        if playing != cur.playing {
+            self.ui.set_playing(playing);
+        }
+        if muted != cur.muted {
+            self.ui.set_muted(muted);
+        }
+        if v != cur.volume {
+            self.ui.set_volume(v);
+        }
+        if pos_s != cur.pos || seek_f != cur.seek_fraction {
+            self.ui.set_pos(pos_s.clone().into());
+            self.ui.set_seek_fraction(seek_f);
+        }
+        let dur_s = playlist::format_duration(dur_f);
+        if dur_s != cur.dur {
+            self.ui.set_dur(dur_s.clone().into());
+        }
+        let status_s = self.status.to_string();
+        if status_s != cur.status {
+            self.ui.set_status_text(self.status.clone());
+        }
+        self.last_ui = UiState {
+            playing,
+            muted,
+            volume: v,
+            pos: pos_s,
+            dur: dur_s,
+            seek_fraction: seek_f,
+            status: status_s,
+        };
     }
 
     fn sync_track_info_to_ui(&mut self) {
@@ -76,6 +105,7 @@ impl MusicApp {
                 RepeatMode::One => {
                     self.player.clear_end();
                     self.player.play();
+                    self.emit(AppEvent::PlaybackStarted);
                 }
                 _ => {
                     let next = if self.shuffle && !self.shuffle_order.is_empty() {
@@ -94,10 +124,13 @@ impl MusicApp {
                     } else {
                         playlist::advance_index(self.current, 1, self.tracks.len(), self.repeat)
                     };
-                    match next {
-                        Some(idx) => self.play_track(idx),
-                        None => self.player.clear_end(),
+match next {
+                    Some(idx) => self.play_track(idx),
+                    None => {
+                        self.player.clear_end();
+                        self.emit(AppEvent::PlaybackStopped);
                     }
+                }
                 }
             }
         }
@@ -155,6 +188,7 @@ impl MusicApp {
             None => slint::Image::default(),
         };
         self.ui.set_cover_art(img);
+        self.emit(AppEvent::CoverChanged);
     }
 
     pub fn play_track(&mut self, index: usize) {
@@ -213,6 +247,8 @@ impl MusicApp {
                 self.refresh_playlist_rows_at(prev_current);
                 self.refresh_playlist_rows_at(self.current);
                 self.sync_track_info_to_ui();
+                self.emit(AppEvent::TrackChanged(self.current));
+                self.emit(AppEvent::PlaybackStarted);
             }
             Err(e) => {
                 self.status = format!("Cannot play {title}: {e}").into();
@@ -333,6 +369,7 @@ impl MusicApp {
                 self.ui.set_settings_active_device(name.into());
             }
         }
+        self.emit(AppEvent::DeviceChanged);
         self.push_tray_now();
     }
 }

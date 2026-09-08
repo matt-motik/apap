@@ -17,9 +17,41 @@ use music_player_rs::playlist::{self, ScanMsg, Track};
 use music_player_rs::settings::{ColumnId, RepeatMode, Settings, SettingsStore, Theme};
 use music_player_rs::tray::{self, TrayCmd};
 
+pub mod events;
 pub mod playback_manager;
 pub mod playlist_manager;
 pub mod ui_manager;
+
+use events::AppEvent;
+
+/// Last values pushed to the UI by the delta playback sync. Kept so the
+/// 100 ms tick only re-writes properties that actually changed (e.g. no
+/// seekbar churn while paused/stopped, no volume re-write unless it moved).
+#[derive(Clone, PartialEq)]
+struct UiState {
+    playing: bool,
+    muted: bool,
+    volume: f32,
+    pos: String,
+    dur: String,
+    seek_fraction: f32,
+    status: String,
+}
+
+impl Default for UiState {
+    fn default() -> Self {
+        Self {
+            playing: false,
+            muted: false,
+            // Sentinel: forces the first tick to push the real volume.
+            volume: -1.0,
+            pos: String::new(),
+            dur: String::new(),
+            seek_fraction: -1.0,
+            status: String::new(),
+        }
+    }
+}
 
 /// Throttle for persisting user-dragged column widths: ticks (100 ms each)
 /// with a stable column signature before a write. ~2 s.
@@ -129,6 +161,10 @@ pub struct MusicApp {
     /// Async startup playlist load: yields the persisted track list once it
     /// has been read off disk (avoids blocking UI init on large playlists).
     startup_tracks_rx: Option<Receiver<Vec<Track>>>,
+    events_tx: std::sync::mpsc::Sender<AppEvent>,
+    events_rx: std::sync::mpsc::Receiver<AppEvent>,
+    /// Delta-synced playback values last pushed to the UI.
+    last_ui: UiState,
 }
 
 impl MusicApp {
@@ -156,6 +192,8 @@ impl MusicApp {
         let (cover_tx, cover_job_rx) = channel::<CoverJob>();
         let (cover_done_tx, cover_done_rx) = channel::<CoverDone>();
         cover::start_worker(cover_job_rx, cover_done_tx);
+
+        let (events_tx, events_rx) = channel::<AppEvent>();
 
         // Wire the persistent playlist row model to the table once; later
         // mutations flow through it without re-creating ModelRc objects.
@@ -226,6 +264,9 @@ impl MusicApp {
             cover_gen: 0,
             audio_devices_rx: None,
             startup_tracks_rx: Some(startup_tracks_rx),
+            events_tx,
+            events_rx,
+            last_ui: UiState::default(),
         };
         app.rebuild_shuffle();
         if let Some(col) = app.settings.settings.sorted_col {
@@ -262,7 +303,13 @@ impl MusicApp {
             let app = this.clone();
             ui.on_play_pause(move || {
                 eprintln!("[gui] play_pause");
-                app.borrow_mut().player.toggle();
+                let mut a = app.borrow_mut();
+                a.player.toggle();
+                if a.player.is_playing() {
+                    a.emit(AppEvent::PlaybackStarted);
+                } else {
+                    a.emit(AppEvent::PlaybackPaused);
+                }
             });
         }
 
@@ -271,7 +318,9 @@ impl MusicApp {
             let app = this.clone();
             ui.on_stop(move || {
                 eprintln!("[gui] stop");
-                app.borrow_mut().player.stop();
+                let mut a = app.borrow_mut();
+                a.player.stop();
+                a.emit(AppEvent::PlaybackStopped);
             });
         }
 
@@ -335,6 +384,7 @@ impl MusicApp {
                 a.player.set_volume(volume);
                 a.settings.settings.volume = volume;
                 a.settings.save();
+                a.emit(AppEvent::VolumeChanged(volume));
             });
         }
 
@@ -451,6 +501,7 @@ impl MusicApp {
                     a.rebuild_shuffle();
                     a.mark_playlist_dirty();
                     a.sync_playlist_to_ui();
+                    a.emit(AppEvent::QueueChanged);
                 }
             });
         }
@@ -756,6 +807,7 @@ impl MusicApp {
 
     pub fn tick(&mut self) {
         self.poll_tray();
+        self.drain_events();
         self.drain_startup_tracks();
         self.drain_scan();
         self.drain_cover();
@@ -832,11 +884,15 @@ impl MusicApp {
             match cmd {
                 TrayCmd::TogglePlay => {
                     self.player.toggle();
-                    self.push_tray_now();
+                    if self.player.is_playing() {
+                        self.emit(AppEvent::PlaybackStarted);
+                    } else {
+                        self.emit(AppEvent::PlaybackPaused);
+                    }
                 }
                 TrayCmd::Stop => {
                     self.player.stop();
-                    self.push_tray_now();
+                    self.emit(AppEvent::PlaybackStopped);
                 }
                 TrayCmd::Prev => self.play_prev(),
                 TrayCmd::Next => self.play_next(1),
@@ -862,6 +918,7 @@ impl MusicApp {
                     self.player.set_volume(v);
                     self.settings.settings.volume = v;
                     self.settings.save();
+                    self.emit(AppEvent::VolumeChanged(v));
                 }
             }
         }
@@ -872,6 +929,30 @@ impl MusicApp {
         if let Some(tx) = &self.tray_up_tx {
             let state = self.tray_state();
             let _ = tx.send(state);
+        }
+    }
+
+    /// Emit a state-change event for the direction-feed (surfaces react in
+    /// `drain_events`, which runs every tick before the UI sync).
+    fn emit(&mut self, event: AppEvent) {
+        let _ = self.events_tx.send(event);
+    }
+
+    /// Drain the event feed. Discrete transitions that matter to the tray
+    /// (track switch, play/pause/stop, device change) push a fresh tray state
+    /// immediately instead of waiting for the throttled status interval.
+    fn drain_events(&mut self) {
+        while let Ok(event) = self.events_rx.try_recv() {
+            match event {
+                AppEvent::TrackChanged(_)
+                | AppEvent::PlaybackStarted
+                | AppEvent::PlaybackPaused
+                | AppEvent::PlaybackStopped
+                | AppEvent::DeviceChanged => self.push_tray_now(),
+                AppEvent::QueueChanged
+                | AppEvent::VolumeChanged(_)
+                | AppEvent::CoverChanged => {}
+            }
         }
     }
 

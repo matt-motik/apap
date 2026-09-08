@@ -65,7 +65,7 @@
 cargo build          # dev-сборка
 cargo build --release # релиз (opt-level=3, lto)
 cargo run            # запустить плеер
-cargo test           # юнит-тесты: 35 lib (cover, settings, playlist, output, audio/dsd, audio/decoder) + 6 bin (app/mod.rs)
+cargo test           # юнит-тесты: 49 lib (cover, settings, playlist, output, audio/dsd, audio/decoder, audio/player) + 6 bin (app/mod.rs)
 cargo test <name>    # один тест по фильтру
 cargo clippy         # линт
 ```
@@ -139,4 +139,4 @@ src/
 
 - Модульные тесты: `src/cover.rs` (`percent_encode`, `sniff_ext`, `folder_cover`, `write_cover`, `cover_priority_keys_roundtrip`), `src/settings.rs`, `src/playlist.rs`, `src/audio/dsd.rs`, `src/audio/decoder.rs`; bin-тесты — в `src/app/mod.rs`.
 - Каталогов `tests/` (интеграционных) нет.
-- `cargo test`: 35 lib + 6 bin.
+- `cargo test`: 49 lib + 6 bin.
