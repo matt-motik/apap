@@ -25,7 +25,7 @@ pub struct PlaybackCore {
 }
 
 impl PlaybackCore {
-    fn new() -> Self {
+    pub(crate) fn new() -> Self {
         Self {
             decoder: None,
             resampler: None,

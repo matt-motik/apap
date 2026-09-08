@@ -1,6 +1,6 @@
 # AGENTS.md
 
-Музыкальный плеер на Rust + Slint. Классическое ядро-библиотека + бинарник на Slint-интерфейсе, системный трей через StatusNotifier (ksni).
+Музыкальный плеер на Rust + Slint. Классическое ядро-библиотека (`music_player_rs`) + бинарник (`music-player-rs`) на Slint-интерфейсе, системный трей через StatusNotifier (ksni).
 
 ## Команды
 
@@ -8,11 +8,9 @@
 cargo build          # dev-сборка
 cargo build --release # релиз (opt-level=3, lto)
 cargo run            # запустить плеер
-cargo test           # запустить юнит-тесты
+cargo test           # юнит-тесты (пока только в src/cover.rs)
 cargo clippy         # линт
 ```
-
-Тестов пока нет (каталоги `**/tests` и `#[cfg(test)]` отсутствуют).
 
 ## Структура исходников
 
@@ -27,19 +25,20 @@ ui/                  # Slint UI (.slint)
   theme.slint        # палитра цветов (тёмная/светлая)
   icons/             # SVG-иконки
 src/
-  lib.rs             # корневая библиотека: audio, meta, playlist, settings, tray
+  lib.rs             # корневая библиотека: audio, cover, meta, playlist, settings, tray
   main.rs            # бинарник — создаёт AppWindow, MusicApp, таймер tick (100 мс), run_event_loop_until_quit
   app.rs             # MusicApp: логика приложения, связывание колбэков, трей, tick
-  meta.rs            # метаданные треков
-  playlist.rs        # загрузка/сохранение M3U, сканирование папок
-  settings.rs        # настройки (toml), репозиторий SettingsStore
+  cover.rs           # обложки альбомов: папка/embedded/internet, фоновый воркер, кэш на диск
+  meta.rs            # метаданные треков (symphonia probe)
+  playlist.rs        # загрузка/сохранение M3U, сканирование папок, Track, сортировка
+  settings.rs        # настройки (toml), SettingsStore, ColumnId, RepeatMode, AppConfig
   tray.rs            # трей (ksni): PlayerTray, TrayCmd, TrayState, start()
   audio/             # аудио-подсистема
+    mod.rs
     player.rs        # Player (управление воспроизведением)
     decoder.rs       # декодер (symphonia)
-    dsd.rs           # DSD-декодер
-    output.rs        # устройство вывода (cpal)
-    mod.rs
+    dsd.rs           # DSD-декодер (DSF/DFF, CIC)
+    output.rs        # устройство вывода (cpal), выбор устройства, bit-perfect
 ```
 
 ### Как связывается Slint
@@ -49,6 +48,12 @@ src/
 - Slint-файлы импортируют друг друга через `import { Name } from "file.slint";`. `app.slint` — точка входа, остальные — компоненты.
 - Стиль UI задан в `build.rs` (`material`).
 
+### Единый экземпляр конфига (AppConfig)
+
+- `MusicApp` — единственный мутирующий владелец `SettingsStore`; читает с диска один раз при старте (`SettingsStore::load()`).
+- `AppConfig::init()` публикует read-only снапшот в процессный `OnceLock` для остальных модулей (tray, cover, output) — без повторного чтения диска.
+- Снапшот автоматически обновляется в `SettingsStore::save()`, поэтому читатели не видят устаревших значений.
+
 ## Features
 
 Собственных Cargo features нет (в Cargo.toml `[features]` отсутствует).
@@ -56,9 +61,16 @@ src/
 Зависимости подключают свои features:
 - `symphonia` — кодеки: `flac, wav, aiff, pcm, mp3, ogg, aac, alac, isomp4, vorbis, adpcm`.
 - `slint` — `std, compat-1-2, backend-winit-x11, renderer-winit-software` (X11-бэкенд, программный рендер).
+- `tokio` — `rt, macros, sync` (только для `mpsc` в tray).
 
 ## Запуск с разными конфигурациями
 
 - Обычный запуск: `cargo run`.
 - Трей требует StatusNotifier-хост (KDE/GNOME AppIndicator). Если хоста нет, трей молча не появляется — приложение продолжает работать.
 - Эмуляции бэкенда/winit в коде нет. Для headless-тестирования Slint предоставляет тестовый бэкенд, но в проекте он не настроен.
+
+## Тесты
+
+- Модульные тесты есть только в `src/cover.rs` (`percent_encode`, `sniff_ext`, `folder_cover`, `write_cover`, `cover_priority_keys_roundtrip`).
+- Каталогов `tests/` (интеграционных) нет.
+- `cargo test` запустит только эти тесты.

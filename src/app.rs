@@ -7,14 +7,14 @@ use std::thread;
 use std::time::Instant;
 
 use rfd::FileDialog;
-use cpal::traits::{DeviceTrait, HostTrait};
 use slint::{ComponentHandle, Model, ModelRc, SharedString, StandardListViewItem};
 use slint::language::TableColumn;
 
+use music_player_rs::audio::output::{default_device_name, probe_output};
 use music_player_rs::audio::player::Player;
 use music_player_rs::cover::{self, CoverDone, CoverJob};
 use music_player_rs::playlist::{self, ScanMsg, Track};
-use music_player_rs::settings::Settings;
+use music_player_rs::settings::{AppConfig, Settings};
 use music_player_rs::settings::{ColumnId, RepeatMode, SettingsStore, Theme};
 use music_player_rs::tray::{self, TrayCmd};
 
@@ -84,7 +84,12 @@ pub struct MusicApp {
     shuffle: bool,
     shuffle_order: Vec<usize>,
     shuffle_pos: usize,
-    devices: Vec<(String, String)>,
+    /// True when the output device probe succeeded at startup.
+    audio_ready: bool,
+    /// Startup probe error (unavailable configured/default device).
+    audio_error: Option<String>,
+    /// Effective output device name (from the probe or last successful switch).
+    active_device: String,
     playlist_dirty: bool,
     tray_rx: Option<std::sync::mpsc::Receiver<TrayCmd>>,
     tray_up_tx: Option<tokio::sync::mpsc::UnboundedSender<tray::TrayState>>,
@@ -101,6 +106,9 @@ pub struct MusicApp {
 impl MusicApp {
     pub fn new(ui: AppWindow) -> Self {
         let settings = SettingsStore::load();
+        // Publish the process-wide read-only config snapshot for other modules
+        // (tray, cover, output) before anything reads it.
+        AppConfig::init(settings.settings.clone());
         let mut player = Player::new();
         player.set_volume(settings.settings.volume);
         player.set_muted(settings.settings.muted);
@@ -118,6 +126,36 @@ impl MusicApp {
 
         let repeat = settings.settings.repeat;
         let shuffle = settings.settings.shuffle;
+
+        // Probe the configured (or default) output device so availability is
+        // known before the UI is shown.
+        let saved_device = settings.settings.audio_device.clone();
+        let preferred = if saved_device.is_empty() {
+            None
+        } else {
+            Some(saved_device.as_str())
+        };
+        eprintln!("[init] probing audio device: {:?}", preferred.unwrap_or("(default)"));
+        let probe = probe_output(preferred);
+        let (audio_ready, audio_error, active_device) = match probe {
+            Ok(name) => (true, None, name),
+            Err(e) => {
+                eprintln!("[init] audio probe failed: {e}");
+                let active = if saved_device.is_empty() {
+                    String::from("none")
+                } else {
+                    saved_device.clone()
+                };
+                (false, Some(e), active)
+            }
+        };
+        let startup_status = match &audio_error {
+            Some(e) => format!(
+                "Audio device unavailable \u{2014} playback will not start: {e}"
+            ),
+            None => format!("Audio: {active_device} ready"),
+        };
+
         let mut app = Self {
             ui: ui.clone_strong(),
             settings,
@@ -126,12 +164,14 @@ impl MusicApp {
             current: None,
             scan_rx: None,
             known_paths,
-            status: String::new().into(),
+            status: startup_status.into(),
             repeat,
             shuffle,
             shuffle_order: Vec::new(),
             shuffle_pos: 0,
-            devices: Vec::new(),
+            audio_ready,
+            audio_error,
+            active_device,
             playlist_dirty: false,
             tray_rx: Some(tray_rx),
             tray_up_tx: Some(tray_up_tx),
@@ -244,6 +284,47 @@ impl MusicApp {
         let names = s.cover_folder_names_list().join(", ");
         self.ui.set_settings_cover_names(names.into());
         self.ui.set_settings_cover_online(s.cover_online);
+    }
+
+    /// Populate the Audio tab device list and highlight the configured device
+    /// (or a placeholder row when it is absent).
+    fn sync_audio_devices(&mut self) {
+        let names: Vec<SharedString> = music_player_rs::audio::output::output_devices()
+            .into_iter()
+            .map(|(n, _)| n.into())
+            .collect();
+        let saved = self.settings_ref().audio_device.clone();
+
+        // The device we want to highlight: the configured one, else the host
+        // default (so a fresh install lands on the active device).
+        let want = if saved.is_empty() {
+            default_device_name().map(|n| n.into())
+        } else {
+            Some(saved.clone())
+        };
+
+        let mut model: Vec<SharedString> = Vec::with_capacity(names.len() + 1);
+        let sel: i32 = if let Some(w) = want {
+            if let Some(i) = names.iter().position(|n| *n == w) {
+                model.extend_from_slice(&names);
+                i as i32
+            } else {
+                model.push("(select device)".into());
+                model.extend_from_slice(&names);
+                0
+            }
+        } else {
+            model.push("(select device)".into());
+            model.extend_from_slice(&names);
+            0
+        };
+
+        self.ui.set_settings_devices(ModelRc::from(model.as_slice()));
+        self.ui.set_settings_device_idx(sel);
+        let active = self.active_device.clone();
+        self.ui.set_settings_active_device(active.into());
+        let err = self.audio_error.clone().unwrap_or_default();
+        self.ui.set_settings_active_error(err.into());
     }
 
     fn apply_theme(&self) {
@@ -608,6 +689,7 @@ impl MusicApp {
                 eprintln!("[gui] open_settings");
                 let mut a = app.borrow_mut();
                 a.settings_draft = Some(a.settings.settings.clone());
+                a.sync_audio_devices();
                 a.sync_cover_settings_to_ui();
                 a.ui.set_settings_open(true);
             });
@@ -752,20 +834,7 @@ impl MusicApp {
             let app = this.clone();
             ui.on_settings_refresh_devices(move || {
                 eprintln!("[gui] settings_refresh_devices");
-                let host = cpal::default_host();
-                let devices: Vec<SharedString> = host
-                    .output_devices()
-                    .map(|ds| {
-                        ds.filter_map(|d| {
-                            d.description()
-                                .ok()
-                                .map(|desc| SharedString::from(desc.name()))
-                        })
-                        .collect()
-                    })
-                    .unwrap_or_default();
-                let model: ModelRc<SharedString> = ModelRc::from(devices.as_slice());
-                app.borrow_mut().ui.set_settings_devices(model);
+                app.borrow_mut().sync_audio_devices();
             });
         }
 
@@ -1396,7 +1465,10 @@ impl MusicApp {
     }
 
     fn set_output_device(&mut self, name: String) {
-        if name == self.settings.settings.audio_device && !name.is_empty() {
+        if name.is_empty() || name == "(select device)" {
+            return;
+        }
+        if name == self.settings.settings.audio_device {
             return;
         }
         self.settings.settings.audio_device = name.clone();
@@ -1409,14 +1481,29 @@ impl MusicApp {
         let (_playing, pos, _) = self.player.snapshot();
         match path {
             Some(path) => {
-                if let Err(e) = self.player.set_device(name, Some(&path), pos) {
+                if let Err(e) = self.player.set_device(name.clone(), Some(&path), pos) {
                     self.status = format!("Cannot switch audio device: {e}").into();
+                    self.audio_error = Some(e);
+                    self.ui.set_settings_active_error(
+                        self.audio_error.clone().unwrap_or_default().into(),
+                    );
+                } else {
+                    self.status = format!("Audio device: {name}").into();
+                    self.audio_ready = true;
+                    self.audio_error = None;
+                    self.active_device = name.clone();
+                    self.ui.set_settings_active_device(name.into());
+                    self.ui.set_settings_active_error(String::new().into());
                 }
             }
             None => {
-                self.player.set_preferred_device(name);
+                self.player.set_preferred_device(name.clone());
+                self.status = format!("Audio device: {name}").into();
+                self.active_device = name.clone();
+                self.ui.set_settings_active_device(name.into());
             }
         }
+        self.push_tray_now();
     }
 
     fn sort_tracks(&mut self, col: ColumnId) {
@@ -1531,6 +1618,7 @@ impl MusicApp {
         tray::TrayState {
             now_playing,
             playing: self.player.is_playing(),
+            error: self.audio_error.clone(),
         }
     }
 }

@@ -19,6 +19,8 @@ pub enum TrayCmd {
 pub struct TrayState {
     pub now_playing: String,
     pub playing: bool,
+    /// Non-empty when audio is unavailable (e.g. device missing at startup).
+    pub error: Option<String>,
 }
 
 #[derive(Debug)]
@@ -72,6 +74,11 @@ impl ksni::Tray for PlayerTray {
     }
 
     fn tool_tip(&self) -> ksni::ToolTip {
+        let description = match &self.state.error {
+            Some(e) => format!("Playback unavailable: {e}"),
+            None if self.state.playing => "Playing".into(),
+            None => "Paused".into(),
+        };
         ksni::ToolTip {
             icon_name: "multimedia-player".into(),
             icon_pixmap: Vec::new(),
@@ -80,11 +87,7 @@ impl ksni::Tray for PlayerTray {
             } else {
                 self.state.now_playing.clone()
             },
-            description: if self.state.playing {
-                "Playing".into()
-            } else {
-                "Paused".into()
-            },
+            description,
         }
     }
 

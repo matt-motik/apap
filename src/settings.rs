@@ -517,6 +517,49 @@ pub struct SettingsStore {
     pub path: PathBuf,
 }
 
+/// Process-wide configuration store, initialized once at startup.
+///
+/// `MusicApp` is the single mutable owner of the configuration: it reads it
+/// into memory at boot (`SettingsStore::load()`), applies it during
+/// initialization, and writes through [`AppConfig`] as settings change. The
+/// global accessor gives every other module (tray, cover, output, ...) read
+/// access without re-reading the file from disk. The snapshot is refreshed
+/// automatically by [`SettingsStore::save`], so readers never observe stale
+/// values.
+static CONFIG: std::sync::OnceLock<std::sync::Mutex<Settings>> = std::sync::OnceLock::new();
+
+pub struct AppConfig;
+
+impl AppConfig {
+    /// Seed the process-wide config. Call exactly once at startup with the
+    /// loaded settings (before the UI is built).
+    pub fn init(settings: Settings) {
+        let _ = CONFIG.set(std::sync::Mutex::new(settings));
+    }
+
+    /// Panics if [`AppConfig::init`] was not called at startup.
+    pub fn is_initialized() -> bool {
+        CONFIG.get().is_some()
+    }
+
+    /// Borrow the process-wide settings. Panics if [`AppConfig::init`] was
+    /// not called at startup.
+    pub fn settings() -> std::sync::MutexGuard<'static, Settings> {
+        CONFIG
+            .get()
+            .expect("AppConfig::init() was not called at startup")
+            .lock()
+            .unwrap_or_else(|p| p.into_inner())
+    }
+
+    /// Replace the snapshot held in the process-wide store.
+    fn update(settings: Settings) {
+        if let Some(guard) = CONFIG.get() {
+            *guard.lock().unwrap_or_else(|p| p.into_inner()) = settings;
+        }
+    }
+}
+
 impl SettingsStore {
     pub fn load() -> Self {
         let dir = config_dir();
@@ -539,13 +582,19 @@ impl SettingsStore {
                 let _ = fs::write(&self.path, contents);
             }
         }
+        // Keep the process-wide read-only snapshot in sync with the owner.
+        AppConfig::update(self.settings.clone());
     }
 }
 
 pub fn config_dir() -> PathBuf {
-    dirs::config_dir()
-        .unwrap_or_else(|| PathBuf::from("."))
-        .join("music_player")
+    static DIR: std::sync::OnceLock<PathBuf> = std::sync::OnceLock::new();
+    DIR.get_or_init(|| {
+        dirs::config_dir()
+            .unwrap_or_else(|| PathBuf::from("."))
+            .join("music_player")
+    })
+    .clone()
 }
 
 /// Playlist file lives next to `settings.toml`.

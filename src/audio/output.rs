@@ -1,6 +1,6 @@
 use std::sync::{Arc, Mutex};
 
-use cpal::traits::{DeviceTrait, HostTrait};
+use cpal::traits::{DeviceTrait, HostTrait, StreamTrait};
 use cpal::{BufferSize, SampleFormat, StreamConfig, SupportedBufferSize};
 
 use crate::audio::player::PlaybackCore;
@@ -248,6 +248,48 @@ pub fn output_devices() -> Vec<(String, String)> {
         }
     }
     out
+}
+
+/// Name of the host's default output device, if any.
+pub fn default_device_name() -> Option<String> {
+    let host = cpal::default_host();
+    host.default_output_device()
+        .and_then(|d| d.description().ok())
+        .map(|d| d.name().to_string())
+}
+
+/// Probe the configured output device (or the host default when `preferred` is
+/// empty/`None`).
+///
+/// The probe opens a real (silent) output stream for a short moment so that
+/// runtime failures — e.g. ALSA `snd_pcm_dmix_open: unable to open slave` —
+/// surface at startup instead of on the first Play. Returns the name of the
+/// effective device.
+pub fn probe_output(preferred: Option<&str>) -> Result<String, String> {
+    let names = output_devices();
+    let preferred = preferred.filter(|n| !n.is_empty());
+
+    // A configured device that is not enumerable counts as unavailable.
+    if let Some(name) = preferred {
+        if !names.iter().any(|(n, _)| n == name) {
+            return Err(format!("Configured audio device '{name}' not found"));
+        }
+    }
+    if names.is_empty() {
+        return Err(String::from("No audio output device found"));
+    }
+
+    let spec = select_output(44100, 2, preferred)?;
+    let core = Arc::new(Mutex::new(PlaybackCore::new()));
+    let stream = build_stream(&spec, core)?;
+    stream
+        .play()
+        .map_err(|e| format!("Cannot start audio stream: {e}"))?;
+    // Give the backend a moment to actually open the device; starting ALSA
+    // usually fails promptly when the slave cannot be opened.
+    std::thread::sleep(std::time::Duration::from_millis(50));
+    drop(stream);
+    Ok(spec.device_name)
 }
 
 /// Build the output stream. `sample_format` decides the callback sample type.
