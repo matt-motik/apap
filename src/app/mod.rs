@@ -126,6 +126,9 @@ pub struct MusicApp {
     cover_gen: u64,
     /// In-flight async enumeration of output devices for the Settings dialog.
     audio_devices_rx: Option<Receiver<Vec<SharedString>>>,
+    /// Async startup playlist load: yields the persisted track list once it
+    /// has been read off disk (avoids blocking UI init on large playlists).
+    startup_tracks_rx: Option<Receiver<Vec<Track>>>,
 }
 
 impl MusicApp {
@@ -138,8 +141,16 @@ impl MusicApp {
             player.set_preferred_device(settings.settings.audio_device.clone());
         }
 
-        let tracks = playlist::load_track_list(&music_player_rs::settings::playlist_path());
-        let known_paths: HashSet<PathBuf> = tracks.iter().map(|t| t.path.clone()).collect();
+        // Load the persisted playlist in the background so a large library
+        // doesn't block window construction; `tick()` applies it on arrival.
+        let (startup_tx, startup_tracks_rx) = channel::<Vec<Track>>();
+        let startup_path = music_player_rs::settings::playlist_path();
+        thread::spawn(move || {
+            let tracks = playlist::load_track_list(&startup_path);
+            let _ = startup_tx.send(tracks);
+        });
+        let tracks = Vec::new();
+        let known_paths: HashSet<PathBuf> = HashSet::new();
         let (tray_rx, tray_up_tx) = tray::start();
 
         let (cover_tx, cover_job_rx) = channel::<CoverJob>();
@@ -214,6 +225,7 @@ impl MusicApp {
             cover_rx: Some(cover_done_rx),
             cover_gen: 0,
             audio_devices_rx: None,
+            startup_tracks_rx: Some(startup_tracks_rx),
         };
         app.rebuild_shuffle();
         if let Some(col) = app.settings.settings.sorted_col {
@@ -744,6 +756,7 @@ impl MusicApp {
 
     pub fn tick(&mut self) {
         self.poll_tray();
+        self.drain_startup_tracks();
         self.drain_scan();
         self.drain_cover();
         self.drain_audio_devices();
@@ -773,6 +786,38 @@ impl MusicApp {
         }
     }
 
+
+    /// Apply the async-loaded startup playlist once it arrives from the
+    /// background thread. No-op while the load is still in flight.
+    fn drain_startup_tracks(&mut self) {
+        let Some(rx) = self.startup_tracks_rx.take() else {
+            return;
+        };
+        let tracks = match rx.try_recv() {
+            Ok(loaded) => loaded,
+            Err(_) => {
+                self.startup_tracks_rx = Some(rx);
+                return;
+            }
+        };
+        let n = tracks.len();
+        self.tracks = tracks;
+        self.known_paths = self.tracks.iter().map(|t| t.path.clone()).collect();
+        self.rebuild_shuffle();
+        if let Some(col) = self.settings.settings.sorted_col {
+            let desc = self.settings.settings.sort_desc;
+            self.apply_sort(col, desc);
+        }
+        self.sync_playlist_to_ui();
+        if n > 0 {
+            let audio = if self.audio_ready {
+                format!("Audio: {} ready; ", self.active_device)
+            } else {
+                String::new()
+            };
+            self.status = format!("{audio}Loaded {n} tracks").into();
+        }
+    }
 
     fn poll_tray(&mut self) {
         let Some(rx) = self.tray_rx.take() else {

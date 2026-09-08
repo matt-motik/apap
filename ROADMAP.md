@@ -82,7 +82,7 @@ if !tx.is_disconnected() {
 
 ### 1.3. Неблокирующая проверка устройства в `output.rs`
 
-**Статус:** ⬜ не сделано — блокирующий `std::thread::sleep(Duration::from_millis(PROBE_OPEN_MS))` на строке 294 остался.
+**Статус:** ✅ сделано — `build_stream` принимает `Option<Arc<AtomicBool>>`; error-callback выставляет флаг при сбое ALSA/PipeWire. `probe_output` вместо блокирующего `sleep(PROBE_OPEN_MS)` поллит флаг через `yield_now()` с дедлайном (не блокирует UI-поток). `player.rs` передаёт `None`.
 
 **Файл:** `src/audio/output.rs`  
 **Проблема:** Блокирующий `sleep(PROBE_OPEN_MS)` при probe устройства (строка 294).  
@@ -91,12 +91,8 @@ if !tx.is_disconnected() {
 **Задача:**
 ```rust
 // Заменить sleep на проверку флага готовности
-let timeout = std::time::Duration::from_millis(PROBE_OPEN_MS);
-let start = std::time::Instant::now();
-while start.elapsed() < timeout {
-    if stream.is_ready() { // псевдокод, нужна проверка cpal
-        break;
-    }
+let deadline = std::time::Instant::now() + std::time::Duration::from_millis(PROBE_OPEN_MS);
+while !error_flag.load(Ordering::Relaxed) && std::time::Instant::now() < deadline {
     std::thread::yield_now();
 }
 ```
@@ -197,7 +193,7 @@ indices.sort_by(|&i, &j| sort_rows_compare(&tracks[i], &tracks[j], col));
 
 ### 3.2. Хэш-субдиректории для кэша обложек
 
-**Статус:** ⬜ не сделано — `find_cached` (`src/cover.rs:240`) линейно сканирует одну директорию; поддиректории по префиксу хэша не используются.
+**Статус:** ✅ сделано — коммит `628aa2d`. Запись идёт в `dir/<hex[0..2]>/<hex>.<ext>` (поддиректория создаётся при записи), поиск `find_cached` сначала проверяет поддиректорию (≤1 файл, т.е. O(1)), при промахе — fallback на корень кэша (старые flat-кэши продолжают читаться). +3 теста.
 
 **Файл:** `src/cover.rs`  
 **Проблема:** Линейный поиск O(n) в `find_cached()` (строка 240-248).
@@ -205,16 +201,11 @@ indices.sort_by(|&i, &j| sort_rows_compare(&tracks[i], &tracks[j], col));
 **Задача:**
 ```rust
 // Использовать первые 2 символа хэша как поддиректорию:
-fn cache_path(dir: &Path, hash: u64) -> PathBuf {
+fn cache_subdir(dir: &Path, hash: u64) -> PathBuf {
     let hex = format!("{hash:016x}");
-    dir.join(&hex[0..2]).join(hex)
+    dir.join(&hex[0..2])
 }
-
-// При записи создавать поддиректорию
-std::fs::create_dir_all(parent_dir).ok()?;
 ```
-
-**Преимущество:** O(1) доступ вместо O(n), уменьшение количества файлов в одной директории.
 
 ---
 
@@ -351,12 +342,12 @@ let config = AppConfig::builder()
 |---|--------|-----------|---------|----------------|----------------|
 | 1.1 | Безопасная обработка lock() в player.rs | 🔴 Критический | ✅ сделано | 2ч | Низкий |
 | 1.2 | Исправление гонок в cover.rs/playlist.rs | 🔴 Критический | 🔶 частично | 1ч | Низкий |
-| 1.3 | Неблокирующий probe устройства | 🟡 Высокий | ⬜ | 2ч | Средний |
+| 1.3 | Неблокирующий probe устройства | 🟡 Высокий | ✅ сделано | 2ч | Средний |
 | 2.1 | Разделение MusicApp на сервисы | 🟡 Высокий | ✅ сделано | 8ч | Высокий |
 | 2.2 | Dependency Injection | 🟡 Высокий | ✅ сделано | 4ч | Средний |
 | 2.3 | Trait AudioHost | 🟢 Средний | ✅ сделано | 3ч | Средний |
 | 3.1 | Оптимизация сортировки | 🟢 Средний | ✅ сделано | 2ч | Низкий |
-| 3.2 | Хэш-субдиректории кэша | 🟢 Средний | ⬜ | 1ч | Низкий |
+| 3.2 | Хэш-субдиректории кэша | 🟢 Средний | ✅ сделано | 1ч | Низкий |
 | 3.3 | Асинхронная загрузка плейлиста | 🟢 Средний | ⬜ | 2ч | Средний |
 | 4.1 | Event-driven архитектура | 🔵 Низкий | ⬜ | 6ч | Высокий |
 | 4.2 | ISP для AudioSource | 🔵 Низкий | 🔶 частично | 3ч | Средний |
