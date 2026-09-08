@@ -1,3 +1,4 @@
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
 
 use cpal::traits::{DeviceTrait, HostTrait, StreamTrait};
@@ -285,21 +286,32 @@ pub fn probe_output(preferred: Option<&str>) -> Result<String, String> {
 
     let spec = select_output(44100, 2, preferred)?;
     let core = Arc::new(Mutex::new(PlaybackCore::new()));
-    let stream = build_stream(&spec, core)?;
+    let error_flag = Arc::new(AtomicBool::new(false));
+    let stream = build_stream(&spec, core, Some(error_flag.clone()))?;
     stream
         .play()
         .map_err(|e| format!("Cannot start audio stream: {e}"))?;
-    // Give the backend a moment to actually open the device; starting ALSA
-    // usually fails promptly when the slave cannot be opened.
-    std::thread::sleep(std::time::Duration::from_millis(PROBE_OPEN_MS));
+    // Non-blocking probe: poll the error flag with a short timeout instead
+    // of blocking the UI thread with a sleep. The error callback sets the
+    // flag when ALSA/PipeWire surfaces a runtime failure.
+    let deadline = std::time::Instant::now()
+        + std::time::Duration::from_millis(PROBE_OPEN_MS);
+    while !error_flag.load(Ordering::Relaxed) && std::time::Instant::now() < deadline {
+        std::thread::yield_now();
+    }
     drop(stream);
+    if error_flag.load(Ordering::Relaxed) {
+        return Err(String::from("Audio device rejected the stream"));
+    }
     Ok(spec.device_name)
 }
 
 /// Build the output stream. `sample_format` decides the callback sample type.
+/// When `error_flag` is provided, the error callback will set it on failure.
 pub fn build_stream(
     spec: &OutputSpec,
     core: Arc<Mutex<PlaybackCore>>,
+    error_flag: Option<Arc<AtomicBool>>,
 ) -> Result<cpal::Stream, String> {
     match spec.sample_format {
         SampleFormat::F32 | SampleFormat::I16 | SampleFormat::U8 => {}
@@ -309,10 +321,11 @@ pub fn build_stream(
     }
 
     let build =
-        |cfg: StreamConfig, core: Arc<Mutex<PlaybackCore>>| -> Result<cpal::Stream, cpal::Error> {
+        |cfg: StreamConfig, core: Arc<Mutex<PlaybackCore>>, ef: Option<Arc<AtomicBool>>| -> Result<cpal::Stream, cpal::Error> {
             match spec.sample_format {
                 SampleFormat::F32 => {
                     let core = core.clone();
+                    let ef = ef.clone();
                     spec.device.build_output_stream(
                         cfg,
                         move |data: &mut [f32], _| {
@@ -320,12 +333,16 @@ pub fn build_stream(
                         },
                         move |e| {
                             eprintln!("Audio stream error: {e}");
+                            if let Some(f) = ef.as_ref() {
+                                f.store(true, Ordering::Relaxed);
+                            }
                         },
                         None,
                     )
                 }
                 SampleFormat::I16 => {
                     let core = core.clone();
+                    let ef = ef.clone();
                     spec.device.build_output_stream(
                         cfg,
                         move |data: &mut [i16], _| {
@@ -333,12 +350,16 @@ pub fn build_stream(
                         },
                         move |e| {
                             eprintln!("Audio stream error: {e}");
+                            if let Some(f) = ef.as_ref() {
+                                f.store(true, Ordering::Relaxed);
+                            }
                         },
                         None,
                     )
                 }
                 SampleFormat::U8 => {
                     let core = core.clone();
+                    let ef = ef.clone();
                     spec.device.build_output_stream(
                         cfg,
                         move |data: &mut [u8], _| {
@@ -346,6 +367,9 @@ pub fn build_stream(
                         },
                         move |e| {
                             eprintln!("Audio stream error: {e}");
+                            if let Some(f) = ef.as_ref() {
+                                f.store(true, Ordering::Relaxed);
+                            }
                         },
                         None,
                     )
@@ -354,13 +378,13 @@ pub fn build_stream(
             }
         };
 
-    match build(spec.config.clone(), core.clone()) {
+    match build(spec.config.clone(), core.clone(), error_flag.clone()) {
         Ok(stream) => Ok(stream),
         Err(_e) if matches!(spec.config.buffer_size, BufferSize::Fixed(_)) => {
             // Some devices reject an explicit buffer size; retry with the default.
             let mut cfg = spec.config.clone();
             cfg.buffer_size = BufferSize::Default;
-            build(cfg, core).map_err(|e| format!("Cannot build output stream: {e}"))
+            build(cfg, core, error_flag).map_err(|e| format!("Cannot build output stream: {e}"))
         }
         Err(e) => Err(format!("Cannot build output stream: {e}")),
     }

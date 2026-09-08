@@ -192,7 +192,7 @@ impl Player {
             core.scratch.clear();
         }
 
-        let stream = build_stream(&spec, self.core.clone())?;
+        let stream = build_stream(&spec, self.core.clone(), None)?;
         if let Err(e) = stream.play() {
             self.last_error = Some(format!("Cannot start stream: {e}"));
         }

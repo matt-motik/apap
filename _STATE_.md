@@ -10,14 +10,14 @@
 
 ## Активная задача
 
-- **ROADMAP 1.3:** output.rs — неблокирующий probe вместо sleep.
-- Далее по плану: 2.2 → 2.3 → 3.2 → 3.3.
+- **ROADMAP 2.2:** settings.rs — убрать глобальный CONFIG (DI или минимум).
+- Далее по плану: 2.3 → 3.2 → 3.3.
 
 ## Шаги
 
 - [x] 1.1 player.rs: `core.lock().unwrap()` → graceful
 - [x] 1.2 cover.rs: убрать агрессивную очистку очереди; playlist.rs: graceful при разрыве канала
-- [ ] 1.3 output.rs: неблокирующий probe вместо sleep
+- [x] 1.3 output.rs: неблокирующий probe вместо sleep
 - [ ] 2.2 settings.rs: убрать глобальный CONFIG (DI или минимум)
 - [ ] 2.3 output.rs: trait AudioHost
 - [ ] 3.2 cover.rs: hash-субдиректории кэша
@@ -25,9 +25,10 @@
 
 ## Следующий ход
 
-1. Прочитать output.rs (probe устройства, `std::thread::sleep(PROBE_OPEN_MS)`).
-2. Заменить блокирующий sleep на неблокирующую проверку готовности потока.
-3. cargo build + clippy + test, коммит, обновить _STATE_.
+1. Прочитать settings.rs — понять структуру CONFIG и `AppConfig::init()`.
+2. Определить, какие чтения конфига идут через `AppConfig::snapshot()` и где нужен DI.
+3. Начать рефакторинг: убрать глобальный `OnceLock`, передавать конфиг явно.
+4. cargo build + clippy + test, коммит, обновить _STATE_.
 
 ## Изменяемые файлы (текущий шаг)
 
