@@ -135,26 +135,18 @@ MusicApp (координатор)
 
 ### 2.2. Dependency Injection вместо глобального `CONFIG`
 
-**Статус:** ⬜ не сделано — глобальный снапшот `static CONFIG: OnceLock<Mutex<Settings>>` в `settings.rs:531` никуда не делся; `AppConfig::init()` публикует в него процессный снапшот.
+**Статус:** ✅ сделано — глобальный `CONFIG`/`AppConfig` **полностью удалён** (коммит `8a4d....`): у всех модулей уже был явный DI (`CoverConfig::from_settings(&Settings)`, `preferred_name`, `self.settings.settings`), а `AppConfig::settings()`/`is_initialized()` оказались мёртвым кодом — снапшот был write-only. Убраны `static CONFIG`, `AppConfig::init/update`, вызов в `MusicApp::new` и `AppConfig::update` из `SettingsStore::save()`.
 
 **Файл:** `src/settings.rs`  
 **Проблема:** Глобальное состояние `AppConfig::init()` усложняет тестирование и нарушает **Dependency Inversion Principle**.
 
 **Задача:**
 ```rust
-// Было:
+// Было (глобальный write-only снапшот): CONFIG: OnceLock<Mutex<Settings>>
 AppConfig::init(settings.settings.clone());
 
-// Стало:
-pub struct App {
-    config: Arc<RwLock<AppConfig>>,
-    // ...
-}
-
-// Передавать зависимости явно через конструкторы
-impl Player {
-    pub fn new(config: Arc<RwLock<AppConfig>>) -> Self { ... }
-}
+// Стало: глобального состояния нет вообще; Settings передаются по ссылке
+// (&Settings → CoverConfig::from_settings, MusicApp::settings_ref(), ...)
 ```
 
 ---
@@ -364,7 +356,7 @@ let config = AppConfig::builder()
 | 1.2 | Исправление гонок в cover.rs/playlist.rs | 🔴 Критический | 🔶 частично | 1ч | Низкий |
 | 1.3 | Неблокирующий probe устройства | 🟡 Высокий | ⬜ | 2ч | Средний |
 | 2.1 | Разделение MusicApp на сервисы | 🟡 Высокий | ✅ сделано | 8ч | Высокий |
-| 2.2 | Dependency Injection | 🟡 Высокий | ⬜ | 4ч | Средний |
+| 2.2 | Dependency Injection | 🟡 Высокий | ✅ сделано | 4ч | Средний |
 | 2.3 | Trait AudioHost | 🟢 Средний | ⬜ | 3ч | Средний |
 | 3.1 | Оптимизация сортировки | 🟢 Средний | ✅ сделано | 2ч | Низкий |
 | 3.2 | Хэш-субдиректории кэша | 🟢 Средний | ⬜ | 1ч | Низкий |

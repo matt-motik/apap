@@ -115,11 +115,10 @@ src/
 - Slint-файлы импортируют друг друга через `import { Name } from "file.slint";`. `app.slint` — точка входа, остальные — компоненты.
 - Стиль UI задан в `build.rs` (`material`).
 
-### Единый экземпляр конфига (AppConfig)
+### Единый экземпляр настроек (SettingsStore)
 
 - `MusicApp` — единственный мутирующий владелец `SettingsStore`; читает с диска один раз при старте (`SettingsStore::load()`).
-- `AppConfig::init()` публикует read-only снапшот в процессный `OnceLock` для остальных модулей (tray, cover, output) — без повторного чтения диска.
-- Снапшот автоматически обновляется в `SettingsStore::save()`, поэтому читатели не видят устаревших значений.
+- Остальные модули (cover, output) получают `Settings` явно по ссылке через параметры (`CoverConfig::from_settings(&Settings)`); глобального снапшота конфига нет.
 
 ## Features
 

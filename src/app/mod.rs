@@ -14,8 +14,7 @@ use music_player_rs::audio::output::{default_device_name, probe_output};
 use music_player_rs::audio::player::Player;
 use music_player_rs::cover::{self, CoverDone, CoverJob};
 use music_player_rs::playlist::{self, ScanMsg, Track};
-use music_player_rs::settings::{AppConfig, Settings};
-use music_player_rs::settings::{ColumnId, RepeatMode, SettingsStore, Theme};
+use music_player_rs::settings::{ColumnId, RepeatMode, Settings, SettingsStore, Theme};
 use music_player_rs::tray::{self, TrayCmd};
 
 pub mod playback_manager;
@@ -132,9 +131,6 @@ pub struct MusicApp {
 impl MusicApp {
     pub fn new(ui: AppWindow) -> Self {
         let settings = SettingsStore::load();
-        // Publish the process-wide read-only config snapshot for other modules
-        // (tray, cover, output) before anything reads it.
-        AppConfig::init(settings.settings.clone());
         let mut player = Player::new();
         player.set_volume(settings.settings.volume);
         player.set_muted(settings.settings.muted);
