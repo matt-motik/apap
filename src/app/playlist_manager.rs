@@ -51,11 +51,12 @@ impl MusicApp {
                     Ok(ScanMsg::Done(total)) => {
                         let n = self.scan_pending.len();
                         if n > 0 {
-self.tracks.extend(std::mem::take(&mut self.scan_pending));
-                self.mark_playlist_dirty();
-                self.rebuild_shuffle();
-                self.save_playlist();
-                self.status = format!("Added {n} tracks").into();
+                            let added: Vec<Track> = std::mem::take(&mut self.scan_pending);
+                            self.disk_tracks.extend(added.iter().cloned());
+                            self.tracks.extend(added);
+                            self.mark_playlist_dirty();
+                            self.rebuild_shuffle();
+                            self.status = format!("Added {n} tracks").into();
                         } else {
                             self.status = format!("Scan finished: nothing new ({total} found)").into();
                         }
@@ -75,10 +76,11 @@ self.tracks.extend(std::mem::take(&mut self.scan_pending));
             // Flush leftovers if the stream ended without a final Done message.
             if !self.scan_pending.is_empty() {
                 let n = self.scan_pending.len();
-self.tracks.extend(std::mem::take(&mut self.scan_pending));
+                let added: Vec<Track> = std::mem::take(&mut self.scan_pending);
+                self.disk_tracks.extend(added.iter().cloned());
+                self.tracks.extend(added);
                 self.mark_playlist_dirty();
                 self.rebuild_shuffle();
-                self.save_playlist();
                 self.status = format!("Added {n} tracks").into();
                 self.emit(AppEvent::QueueChanged);
             }
@@ -92,7 +94,9 @@ self.tracks.extend(std::mem::take(&mut self.scan_pending));
     }
 
     pub(super) fn save_playlist(&mut self) {
-        if playlist::save_track_list(&music_player_rs::settings::playlist_path(), &self.tracks) {
+        // The on-disk playlist always reflects `disk_tracks` (original load +
+        // scanned additions), never the on-screen sort order.
+        if playlist::save_track_list(&music_player_rs::settings::playlist_path(), &self.disk_tracks) {
             self.playlist_dirty = false;
         }
     }
@@ -111,8 +115,10 @@ self.tracks.extend(std::mem::take(&mut self.scan_pending));
             }
         }
         let t = &self.tracks[index];
-        self.known_paths.remove(&t.path);
+        let path = t.path.clone();
+        self.known_paths.remove(&path);
         self.tracks.remove(index);
+        self.disk_tracks.retain(|d| d.path != path);
         self.rebuild_shuffle();
         // Incremental: drop the row, then refresh the shifted tail (indices and
         // the `>` marker) instead of rebuilding the whole model.
@@ -123,7 +129,6 @@ self.tracks.extend(std::mem::take(&mut self.scan_pending));
             }
         }
         self.mark_playlist_dirty();
-        self.save_playlist();
         self.status = "Track removed".into();
         self.emit(AppEvent::QueueChanged);
     }
@@ -133,11 +138,11 @@ self.tracks.extend(std::mem::take(&mut self.scan_pending));
         self.current = None;
         self.reset_cover();
         self.tracks.clear();
+        self.disk_tracks.clear();
         self.known_paths.clear();
         self.rebuild_shuffle();
         self.mark_playlist_dirty();
         self.sync_playlist_to_ui();
-        self.save_playlist();
         self.status = "Playlist cleared".into();
         self.emit(AppEvent::QueueChanged);
     }
@@ -151,7 +156,6 @@ self.tracks.extend(std::mem::take(&mut self.scan_pending));
         self.apply_sort(col, desc);
         self.settings.save();
         self.sync_playlist_to_ui();
-        self.save_playlist();
         self.emit(AppEvent::QueueChanged);
     }
 

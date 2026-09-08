@@ -124,6 +124,10 @@ pub struct MusicApp {
     settings: SettingsStore,
     player: Player,
     tracks: Vec<Track>,
+    /// On-disk playlist order (original load + scanned additions), kept
+    /// separate from the on-screen `tracks` order so sorting never rewrites
+    /// the file. Persisted only at exit when `queue_dirty`.
+    disk_tracks: Vec<Track>,
     /// Persistent row model for the playlist table. Mutated incrementally
     /// (push/set_row_data) instead of rebuilding the whole list on every
     /// append, so folder scans stay cheap.
@@ -251,6 +255,7 @@ impl MusicApp {
             audio_ready,
             audio_error,
             active_device,
+            disk_tracks: Vec::new(),
             playlist_dirty: false,
             tray_rx: Some(tray_rx),
             tray_up_tx: Some(tray_up_tx),
@@ -505,11 +510,11 @@ impl MusicApp {
                 {
                     let tracks = playlist::load_track_list(&path);
                     let mut a = app.borrow_mut();
+                    a.disk_tracks = tracks.clone();
                     a.tracks = tracks;
                     a.known_paths = a.tracks.iter().map(|t| t.path.clone()).collect();
                     a.current = None;
                     a.rebuild_shuffle();
-                    a.mark_playlist_dirty();
                     a.sync_playlist_to_ui();
                     a.emit(AppEvent::QueueChanged);
                 }
@@ -807,7 +812,11 @@ impl MusicApp {
                     let _ = app.borrow_mut().ui.hide();
                     slint::CloseRequestResponse::KeepWindowShown
                 } else {
-                    app.borrow_mut().save_window_geometry();
+                    let mut a = app.borrow_mut();
+                    a.save_window_geometry();
+                    if a.playlist_dirty {
+                        a.save_playlist();
+                    }
                     let _ = slint::quit_event_loop();
                     slint::CloseRequestResponse::KeepWindowShown
                 }
@@ -863,6 +872,7 @@ impl MusicApp {
             }
         };
         let n = tracks.len();
+        self.disk_tracks = tracks.clone();
         self.tracks = tracks;
         self.known_paths = self.tracks.iter().map(|t| t.path.clone()).collect();
         self.rebuild_shuffle();
@@ -919,7 +929,9 @@ impl MusicApp {
                 }
                 TrayCmd::Quit => {
                     self.save_window_geometry();
-                    self.save_playlist();
+                    if self.playlist_dirty {
+                        self.save_playlist();
+                    }
                     let _ = slint::quit_event_loop();
                 }
                 TrayCmd::Wheel(delta) => {
