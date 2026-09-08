@@ -177,7 +177,10 @@ impl Player {
         self.device_desc = spec.device_name.clone();
 
         {
-            let mut core = self.core.lock().unwrap();
+            let mut core = match self.core.lock() {
+                Ok(c) => c,
+                Err(_) => return Err("audio core poisoned; cannot open track".into()),
+            };
             core.resampler = Some(Resampler::new(src_rate, out_rate, src_ch, out_ch));
             core.out_rate = out_rate;
             core.out_ch = out_ch;
@@ -201,7 +204,10 @@ impl Player {
 
     /// Start/resume playback. A finished track is rewound and replayed.
     pub fn play(&mut self) {
-        let mut core = self.core.lock().unwrap();
+        let Ok(mut core) = self.core.lock() else {
+            self.last_error = Some("audio core busy/poisoned".into());
+            return;
+        };
         if core.decoder.is_none() {
             return;
         }
@@ -221,7 +227,10 @@ impl Player {
 
     /// Pause/resume the current track (rewinds if it had finished).
     pub fn toggle(&mut self) {
-        let mut core = self.core.lock().unwrap();
+        let Ok(mut core) = self.core.lock() else {
+            self.last_error = Some("audio core busy/poisoned".into());
+            return;
+        };
         if core.decoder.is_none() {
             return;
         }
@@ -245,7 +254,7 @@ impl Player {
 
     /// Stop playback, mark the track as finished and rewind to the start.
     pub fn stop(&mut self) {
-        let mut core = self.core.lock().unwrap();
+        let Ok(mut core) = self.core.lock() else { return };
         core.playing = false;
         core.finished = true;
         core.natural_end = false;
@@ -261,7 +270,7 @@ impl Player {
     /// Seek to `secs` (clamped to >= 0). Resets the resampler so the new
     /// position is played from the decoder, not computed from stale buffers.
     pub fn seek(&mut self, secs: f64) {
-        let mut core = self.core.lock().unwrap();
+        let Ok(mut core) = self.core.lock() else { return };
         if let Some(dec) = &mut core.decoder {
             if dec.seek(secs).is_ok() {
                 if let Some(res) = &mut core.resampler {
@@ -324,7 +333,10 @@ impl Player {
 
     /// Return a snapshot for the UI: (playing, pos, duration).
     pub fn snapshot(&self) -> (bool, f64, Option<f64>) {
-        let core = self.core.lock().unwrap();
+        let core = match self.core.lock() {
+            Ok(c) => c,
+            Err(_) => return (false, 0.0, None),
+        };
         (core.playing, core.pos_secs, core.duration_secs())
     }
 }
