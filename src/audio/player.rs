@@ -448,8 +448,262 @@ impl Default for Player {
     }
 }
 
+#[cfg(test)]
+impl Player {
+    /// Test-only: build a `Player` without touching the audio backend.
+    fn test_new() -> Self {
+        Self {
+            core: Arc::new(Mutex::new(PlaybackCore::new())),
+            stream: None,
+            device_desc: String::from("test"),
+            last_error: None,
+            preferred_device: None,
+        }
+    }
+}
+
 // Keep stream alive (no-op guard used by the main loop).
 #[allow(dead_code)]
 /// Keep the stream object alive for its intended lifetime (used by the
 /// startup probe, which must hold the stream until the device is checked).
 pub fn keep_alive(_s: &cpal::Stream) {}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::audio::decoder::TrackInfo;
+
+    /// Deterministic test source: mono PCM at 44100 Hz, constant amplitude.
+    struct MockSource {
+        info: TrackInfo,
+        data: Vec<f32>,
+        offset: usize,
+        scratch: Vec<f32>,
+        eof: bool,
+    }
+
+    impl MockSource {
+        fn new(frames: usize) -> Self {
+            let rate = 44100;
+            Self {
+                info: TrackInfo {
+                    sample_rate: rate,
+                    channels: 1,
+                    num_frames: Some(frames as u64),
+                    format_name: "mock".into(),
+                    bitrate: 0,
+                    bits: Some(16),
+                    tags: Default::default(),
+                },
+                data: vec![0.25; frames],
+                offset: 0,
+                scratch: vec![0.0; 512],
+                eof: false,
+            }
+        }
+    }
+
+    impl AudioSource for MockSource {
+        fn next_frames(&mut self) -> Option<&[f32]> {
+            if self.eof || self.offset >= self.data.len() {
+                self.eof = true;
+                return None;
+            }
+            let n = self.scratch.len().min(self.data.len() - self.offset);
+            self.scratch[..n].copy_from_slice(&self.data[self.offset..self.offset + n]);
+            self.offset += n;
+            Some(&self.scratch[..n])
+        }
+        fn seek(&mut self, _secs: f64) -> Result<(), String> {
+            self.offset = 0;
+            self.eof = false;
+            Ok(())
+        }
+        fn duration_secs(&self) -> Option<f64> {
+            self.info
+                .num_frames
+                .map(|n| n as f64 / self.info.sample_rate as f64)
+        }
+        fn info(&self) -> &TrackInfo {
+            &self.info
+        }
+        fn eof(&self) -> bool {
+            self.eof
+        }
+    }
+
+    /// Core with a mono 1:1 resampler so callbacks can actually produce
+    /// frames from `MockSource`.
+    fn core_with_source(frames: usize) -> Arc<Mutex<PlaybackCore>> {
+        let core = Arc::new(Mutex::new(PlaybackCore::new()));
+        seed_core(&core, frames);
+        core
+    }
+
+    fn seed_core(core: &Arc<Mutex<PlaybackCore>>, frames: usize) {
+        let mut c = core.lock().unwrap();
+        c.decoder = Some(Box::new(MockSource::new(frames)));
+        c.resampler = Some(Resampler::new(44100, 44100, 1, 1));
+        c.out_rate = 44100;
+        c.out_ch = 1;
+        c.playing = false;
+        c.finished = false;
+        c.natural_end = false;
+        c.pos_secs = 0.0;
+    }
+
+    fn player_with_source(frames: usize) -> Player {
+        let p = Player::test_new();
+        seed_core(&p.core, frames);
+        p
+    }
+
+    #[test]
+    fn play_without_decoder_is_noop() {
+        let mut p = Player::test_new();
+        p.play();
+        assert!(!p.is_playing());
+    }
+
+    #[test]
+    fn toggle_pauses_and_resumes() {
+        let mut p = player_with_source(1000);
+        p.toggle();
+        assert!(p.is_playing(), "toggle should start playback");
+        p.toggle();
+        assert!(!p.is_playing(), "toggle should pause");
+    }
+
+    #[test]
+    fn stop_rewinds_and_confirms_manual_end() {
+        let mut p = player_with_source(1000);
+        p.play();
+        p.stop();
+        assert!(!p.is_playing());
+        assert_eq!(p.snapshot().1, 0.0, "stop must rewind to start");
+        let c = p.core.lock().unwrap();
+        assert!(c.finished);
+        assert!(!c.natural_end, "manual stop is not a natural end");
+    }
+
+    #[test]
+    fn play_after_stop_replays_from_start() {
+        let mut p = player_with_source(1000);
+        p.play();
+        p.stop();
+        p.play();
+        assert!(p.is_playing());
+        let c = p.core.lock().unwrap();
+        assert!(!c.finished);
+        assert_eq!(c.pos_secs, 0.0);
+    }
+
+    #[test]
+    fn seek_moves_position() {
+        let mut p = player_with_source(100_000);
+        p.seek(10.0);
+        let (_, pos, _) = p.snapshot();
+        assert!((pos - 10.0).abs() < 1e-6, "pos = {pos}");
+    }
+
+    #[test]
+    fn volume_clamped_to_0_1() {
+        let mut p = Player::test_new();
+        p.set_volume(2.0);
+        assert_eq!(p.volume(), 1.0);
+        p.set_volume(-0.5);
+        assert_eq!(p.volume(), 0.0);
+        p.set_volume(0.6);
+        assert_eq!(p.volume(), 0.6);
+    }
+
+    #[test]
+    fn mute_flags_follow_toggles() {
+        let mut p = Player::test_new();
+        p.set_muted(true);
+        assert!(p.muted());
+        p.set_muted(false);
+        assert!(!p.muted());
+        p.toggle_mute();
+        assert!(p.muted());
+    }
+
+    #[test]
+    fn snapshot_reports_duration() {
+        let p = player_with_source(4_410_000);
+        let (_, _, dur) = p.snapshot();
+        assert_eq!(dur, Some(100.0));
+    }
+
+    #[test]
+    fn callback_applies_volume() {
+        let core = core_with_source(10_000);
+        {
+            let mut c = core.lock().unwrap();
+            c.playing = true;
+            c.volume = 0.5;
+        }
+        let mut buf = vec![0.0; 256];
+        audio_callback_f32(&core, &mut buf);
+        let filled = buf.len() - buf.iter().rev().take_while(|s| **s == 0.0).count();
+        assert!(filled > 0, "expected audio output");
+        // Constant 0.25 input scaled by 0.5 volume.
+        assert!(
+            buf[..filled].iter().all(|s| (*s - 0.125).abs() < 1e-6),
+            "volume scaling"
+        );
+    }
+
+    #[test]
+    fn callback_advances_position_while_playing() {
+        let core = core_with_source(4_410_000);
+        {
+            let mut c = core.lock().unwrap();
+            c.playing = true;
+        }
+        let mut buf = vec![0.0; 256];
+        audio_callback_f32(&core, &mut buf);
+        let pos = core.lock().unwrap().pos_secs;
+        assert_eq!(pos, 256.0 / 44100.0);
+    }
+
+    #[test]
+    fn callback_silences_when_muted() {
+        let core = core_with_source(10_000);
+        {
+            let mut c = core.lock().unwrap();
+            c.playing = true;
+            c.muted = true;
+        }
+        let mut buf = vec![0.3; 256];
+        audio_callback_f32(&core, &mut buf);
+        assert!(buf.iter().all(|s| *s == 0.0));
+    }
+
+    #[test]
+    fn callback_marks_natural_end_at_eof() {
+        let core = core_with_source(1000);
+        {
+            let mut c = core.lock().unwrap();
+            c.playing = true;
+        }
+        let mut buf = vec![0.0; 4096];
+        audio_callback_f32(&core, &mut buf);
+
+        let ended = core.lock().unwrap();
+        assert!(!ended.playing, "EOF must stop playback");
+        assert!(ended.finished);
+        assert!(ended.natural_end);
+    }
+
+    #[test]
+    fn callback_emits_silence_when_lock_held() {
+        let core = Arc::new(Mutex::new(PlaybackCore::new()));
+        // std Mutex is not reentrant: holding the guard here simulates the
+        // UI thread owning the lock while the audio thread tries to write.
+        let _guard = core.lock().unwrap();
+        let mut buf = vec![0.3; 8];
+        audio_callback_f32(&core, &mut buf);
+        assert!(buf.iter().all(|s| *s == 0.0), "callback must not block");
+    }
+}
