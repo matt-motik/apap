@@ -6,12 +6,12 @@
 ## Статус
 
 - **Состояние:** `in_progress`.
-- **Задача:** выполнение ROADMAP 4.4–4.7 (семантика настроек, сикбар, tray-volume, порядок на диске) после закрытой 4.1 (event-feed + дельта-синк).
+- **Задача:** выполнение ROADMAP 4.4–4.7 (семантика настроек, сикбар, tray-volume, порядок на диске) после закрытых 4.1, 4.5, 4.6.
 
 ## Активная задача
 
-- **ROADMAP 4.6:** tray-volume → UI-ползунок: событие `VolumeChanged` уже эмитится; обеспечить, чтобы дельта-синк обновлял слайдер громкости; убрать eager-save из wheel (доедет на 4.4 save-at-exit). 4.1 и 4.5 закрыты (коммиты текущей сессии).
-- Далее: 4.6 → 4.7 → 4.4 → финальные правки _STATE_/ROADMAP.
+- **ROADMAP 4.7:** `playlist_manager.rs` — ввести `disk_tracks: Vec<Track>` (порядок загрузки + скана). `save_playlist()` пишет `disk_tracks` (не view-порядок). `save_playlist()` вызывать только при выходе и только если `queue_dirty`. Ассеты: remove/all, clear, drain_scan, sort, exit-пути. 4.6 закрыта (пассивно: дельта-синк обновляет UI-ползунок через 100 мс тик).
+- Далее: 4.7 → 4.4 → финальные правки _STATE_/ROADMAP.
 
 ## Шаги
 
@@ -25,23 +25,25 @@
 - [x] 4.2 decoder.rs: ISP — default-методы `seek`/`duration_secs`; дубли убраны; +тест на defaults
 - [x] 4.3 тесты: player.rs (13 тестов), output.rs (9), MockSource/MockHost
 - [x] 4.1 event-feed + дельта-синк (`src/app/events.rs`)
-- [x] 4.5 сикбар: TouchArea(grab) поверх Slider, seek-dragging/pending-seek, seek-commit при отпускании; тик не трогает сикбар/pos/dur при драге (top_panel.slint app.slint, on_seek_commit в mod.rs)
-- [ ] 4.6 Трей-громкость → UI-ползунок (VolumeChanged уже в feed)
+- [x] 4.5 сикбар: TouchArea(grab) поверх Slider, seek-commit при отпускании; тик не трогает сикбар/pos/dur при драге
+- [x] 4.6 Трей-громкость → UI-ползунок (пассивно через дельта-синк тика)
 - [ ] 4.7 disk_tracks: порядок диска ≠ порядок просмотра
 - [ ] 4.4 Семантика настроек: diff-apply + save-at-exit
 
 ## Следующий ход
 
-1. **4.6:** проверить, долетает ли `VolumeChanged` до слайдера; в `sync_playback_state_to_ui` слайдер громкости пишется из `volume` (уже). При запуске окна `set_volume(v)` из settings.
-2. Убрать eager-`settings.save()` из wheel трея (доедет на выходе, вместе с 4.4).
-3. cargo build + clippy + test, коммит, обновить _STATE_.
+1. **4.7:** прочитать `playlist_manager.rs` (drain_scan, load_playlist, sort_tracks, remove_track, clear_playlist, save_playlist) и `mod.rs` (exit paths: TrayCmd::Quit, on-close).
+2. Ввести поле `disk_tracks: Vec<Track>` и заполнять при `drain_startup_tracks`, `load_playlist`, `drain_scan` (append к disk_tracks, и к tracks).
+3. `save_playlist()` → брать из `disk_tracks`, не `self.tracks`. Убрать eager-вызовы `save_playlist()` из drain_scan/remove/clear/sort.
+4. Флаг `queue_dirty`: выставлять при добавлении/удалении треков (drain_scan по завершении, remove_track, clear_playlist), НЕ при sort/load/startup.
+5. Exit-пути: в TrayCmd::Quit и on-close-колбэке вызывать `save_playlist()` если `queue_dirty`.
+6. cargo build + clippy + test, коммит, обновить _STATE_.
 
 ## Изменяемые файлы (текущий шаг)
 
-- `src/app/mod.rs` (wheel tray eager-save)
-- `src/app/playback_manager.rs` (set_output_device/volume-эмиты)
-- `src/app/ui_manager.rs` (sync громкости)
-- далее 4.7: `src/app/playlist_manager.rs`, 4.4: settings
+- `src/app/playlist_manager.rs` (disk_tracks, queue_dirty, save_playlist)
+- `src/app/mod.rs` (exit paths, drain_startup_tracks/load_playlist заполнение disk_tracks)
+- далее 4.4: `src/app/ui_manager.rs`, `src/settings.rs`
 
 ## Риск / стоп-условие
 
