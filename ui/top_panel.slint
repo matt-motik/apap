@@ -378,52 +378,52 @@ export component TopPanel inherits Rectangle {
 
             // Верхняя часть: слайдер громкости, растягивается на всю доступную высоту
             Rectangle {
+                vertical-stretch: 1;
+                HorizontalLayout {
+                    alignment: center;
+                    vertical-stretch: 1;
+                    wheel-vol := TouchArea {
                         vertical-stretch: 1;
-                        HorizontalLayout {
-                            alignment: center;
-                            vertical-stretch: 1;
-                            wheel-vol := TouchArea {
-                                vertical-stretch: 1;
-                                width: 34px;
+                        width: 34px;
                                 // Wheel over the slider = one volume notch (same
                                 // step as the tray); drag keeps working via the
                                 // Slider's own TouchArea (scroll bubbles up here).
                                 scroll-event(event) => {
-                                    if (event.delta-y != 0) {
-                                        root.volume-changed(Math.clamp(root.volume + (event.delta-y > 0 ? 0.02 : -0.02), 0, 1));
-                                        return accept;
-                                    }
-                                    reject
-                                }
-                                HorizontalLayout {
-                                    alignment: center;
-                                    vertical-stretch: 1;
-                                    Slider {
-                                        vertical-stretch: 1;
-                                        width: 24px;
-                                        value: root.volume;
-                                        minimum: 0;
-                                        maximum: 1;
-                                        orientation: vertical;
-                                        changed(v) => { root.volume-changed(v); }
-                                    }
-                                }
+                            if (event.delta-y != 0) {
+                                root.volume-changed(Math.clamp(root.volume + (event.delta-y > 0 ? 0.04 : -0.04), 0, 1));
+                                return accept;
                             }
+                            reject
                         }
-                    }
-
-                    // Нижняя часть: кнопка mute такой же высоты, как панель с ползунком позиции
-            Rectangle {
-                        max-height: 50px;
                         HorizontalLayout {
                             alignment: center;
-                            IconButton {
-                                icon: root.muted ? @image-url("icons/muted.svg") : @image-url("icons/volume.svg");
-                                active: root.muted;
-                                clicked => { root.toggle-mute(); }
+                            vertical-stretch: 1;
+                            Slider {
+                                vertical-stretch: 1;
+                                width: 24px;
+                                value: root.volume;
+                                minimum: 0;
+                                maximum: 1;
+                                orientation: vertical;
+                                changed(v) => { root.volume-changed(v); }
                             }
                         }
                     }
+                }
+            }
+
+            // Нижняя часть: кнопка mute такой же высоты, как панель с ползунком позиции
+            Rectangle {
+                max-height: 50px;
+                HorizontalLayout {
+                    alignment: center;
+                    IconButton {
+                        icon: root.muted ? @image-url("icons/muted.svg") : @image-url("icons/volume.svg");
+                        active: root.muted;
+                        clicked => { root.toggle-mute(); }
+                    }
+                }
+            }
         }
     }
 }

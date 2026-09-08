@@ -61,7 +61,7 @@ impl ksni::Tray for PlayerTray {
     }
 
     fn scroll(&mut self, delta: i32, _orientation: ksni::Orientation) {
-        let _ = self.notifier.send(TrayCmd::Wheel(delta));
+        let _ = self.notifier.send(TrayCmd::Wheel(0 - delta));
     }
 
     fn icon_name(&self) -> String {
