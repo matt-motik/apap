@@ -135,7 +135,7 @@ MusicApp (координатор)
 
 ### 2.2. Dependency Injection вместо глобального `CONFIG`
 
-**Статус:** ✅ сделано — глобальный `CONFIG`/`AppConfig` **полностью удалён** (коммит `8a4d....`): у всех модулей уже был явный DI (`CoverConfig::from_settings(&Settings)`, `preferred_name`, `self.settings.settings`), а `AppConfig::settings()`/`is_initialized()` оказались мёртвым кодом — снапшот был write-only. Убраны `static CONFIG`, `AppConfig::init/update`, вызов в `MusicApp::new` и `AppConfig::update` из `SettingsStore::save()`.
+**Статус:** ✅ сделано — глобальный `CONFIG`/`AppConfig` **полностью удалён** (коммит `350a47a`): у всех модулей уже был явный DI (`CoverConfig::from_settings(&Settings)`, `preferred_name`, `self.settings.settings`), а `AppConfig::settings()`/`is_initialized()` оказались мёртвым кодом — снапшот был write-only. Убраны `static CONFIG`, `AppConfig::init/update`, вызов в `MusicApp::new` и `AppConfig::update` из `SettingsStore::save()`.
 
 **Файл:** `src/settings.rs`  
 **Проблема:** Глобальное состояние `AppConfig::init()` усложняет тестирование и нарушает **Dependency Inversion Principle**.

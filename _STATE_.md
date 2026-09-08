@@ -10,24 +10,24 @@
 
 ## Активная задача
 
-- **ROADMAP 2.2:** settings.rs — убрать глобальный CONFIG (DI или минимум).
-- Далее по плану: 2.3 → 3.2 → 3.3.
+- **ROADMAP 2.3:** output.rs — trait AudioHost.
+- Далее по плану: 3.2 → 3.3.
 
 ## Шаги
 
 - [x] 1.1 player.rs: `core.lock().unwrap()` → graceful
 - [x] 1.2 cover.rs: убрать агрессивную очистку очереди; playlist.rs: graceful при разрыве канала
 - [x] 1.3 output.rs: неблокирующий probe вместо sleep
-- [ ] 2.2 settings.rs: убрать глобальный CONFIG (DI или минимум)
+- [x] 2.2 settings.rs: убрать глобальный CONFIG (удалён целиком — был мёртвым code, DI уже явный)
 - [ ] 2.3 output.rs: trait AudioHost
 - [ ] 3.2 cover.rs: hash-субдиректории кэша
 - [ ] 3.3 mod.rs: асинхронная загрузка плейлиста при старте
 
 ## Следующий ход
 
-1. Прочитать settings.rs — понять структуру CONFIG и `AppConfig::init()`.
-2. Определить, какие чтения конфига идут через `AppConfig::snapshot()` и где нужен DI.
-3. Начать рефакторинг: убрать глобальный `OnceLock`, передавать конфиг явно.
+1. Прочитать output.rs — прямые вызовы `cpal::default_host()`, `host.output_devices()`.
+2. Ввести trait `AudioHost` (default_output_device, devices, host default) + реализацию `CpalHost` и `MockHost` для тестов.
+3. Прогнать сценарий select_output/probe через AudioHost (тесты без аудио-девайса).
 4. cargo build + clippy + test, коммит, обновить _STATE_.
 
 ## Изменяемые файлы (текущий шаг)
