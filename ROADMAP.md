@@ -306,6 +306,11 @@ fn drain_startup_tracks(&mut self) {
 
 **Верификация:** `cargo build` ок; clippy baseline без изменений (16 lib + 10 bin); тесты 49 lib + 6 bin зелёные.
 
+**Повторный раунд (замечания пользователя, повторное открытие):**
+- **Диалог настроек помнил отменённые значения.** Причина: `Settings` в `app.slint` — один экземпляр, `open` лишь переключает `visible`; stateful-виджеты (ComboBox/Slider/CheckBox/LineEdit) держат внутреннее состояние и при взаимодействии перезаписывают one-way binding из корня (`changed model => reset-current()` в `combobox-base`, аналогично для value/checked), так что повторный Rust-resync их не сбрасывает. Фикс: содержимое диалога обёрнуто в `if root.open : VerticalLayout { ... }` (`ui/settings.slint`) — пересоздаётся на каждый open и читает свежие корневые пропы (Rust выставляет реальность до `set_settings_open(true)`). Cancel = `draft=None` + close.
+- **ComboBox устройств показывал не активный девайс.** `changed model` переприсваивает `current-index` (рвёт binding), а `drain_audio_devices` ставил модель раньше индекса → `set_settings_device_idx(sel)` не доходил. Фикс: `ui_manager.rs` — индекс выставляется ДО модели (clamp сохранит корректное значение); энумерация pre-warmed в `MusicApp::init`, чтобы к первому открытию модель уже была.
+- **Полярность/шаг** (`src/tray.rs:64` `Wheel(0 - delta)`, шаг окна 0.04): заданы пользователем (коммит `d570755`), менять нельзя.
+
 ---
 
 ### 4.2. Trait `AudioSource` с частичной реализацией (ISP)

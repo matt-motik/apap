@@ -79,7 +79,11 @@ export component Settings inherits Rectangle {
         border-width: 1px;
         border-color: Colors.border-default;
 
-        VerticalLayout {
+        // Content is re-created on every open (`if root.open`): stateful
+        // widgets (ComboBox/Slider/CheckBox/LineEdit) keep their internal
+        // value otherwise and even break their one-way bindings after a user
+        // interaction, so a reused dialog would show stale, un-applied values.
+        if root.open : VerticalLayout {
             padding: 12px;
             spacing: 8px;
 

@@ -5,7 +5,7 @@
 
 ## Статус
 
-- **Состояние:** `done` — баг-раунд закрыт (4 фикса + 1 аудио), тесты зелёные.
+- **Состояние:** `done` — баг-раунд 2 закрыт (диалог пересоздаётся; ComboBox-девайс), тесты зелёные.
 
 ## Активная задача
 
@@ -13,16 +13,17 @@
 
 ## Выполнено в этой сессии
 
-- Баг-раунд из замечаний пользователя:
-  - Трей-колесо: квантование до одного «щелчка» (`TrayCmd::Wheel`, `delta.signum()` → шаг 0.02; KDE шлёт ±120, Ubuntu ±1).
-  - Колесо над слайдером громкости в окне: `scroll-event` на обёртке-TouchArea вокруг Slider (`top_panel.slint`), шаг 0.02, драг не ломается; sign: delta-y>0 = громче (winit LineDelta: вверх = положительный).
-  - Диалог настроек: `on_open_settings` теперь вызывает `sync_settings_to_ui()` → диалог всегда открывается с реальными настройками; `on_settings_close` (Cancel) дополнительно сбрасывает вкладку Covers (`sync_cover_settings_to_ui`).
-  - Аудио ComboBox: подсветка идёт по `active_device` (реально используемый), затем сохранённая настройка, затем хостовый дефолт; placeholder «(loading…)»/idx=-1 — только при первой загрузке модели (без мигания «первым элементом» при повторном открытии).
+- Баг-раунд 1 (коммит `432136b`): tray-wheel щелчок, wheel над слайдером громкости, resync диалога, active_device в ComboBox.
+- Комит пользователя `d570755`: полярность колеса трея перевёрнута (`tray.rs` `Wheel(0 - delta)`), шаг в приложении 0.04 — НЕ трогать.
+- Баг-раунд 2 (повторные замечания):
+  - **Диалог настроек помнил отменённые значения**: `Settings` в app.slint создаётся один раз, `open` лишь скрывает; stateful-виджеты держат внутреннее состояние и рвут one-way binding при взаимодействии. Фикс — `if root.open : VerticalLayout { ... }` в `settings.slint`: содержимое диалога пересоздаётся на каждый open, читая корневые пропы (реальность выставляется до `set_settings_open(true)`). Cancel теперь просто `draft=None` + close (resync не нужен).
+  - **ComboBox устройств не показывал активный девайс**: в material `combobox-base` на `changed model` выполняется `reset-current()` → присваивание `current-index` рвёт binding. Фикс — `drain_audio_devices` ставит `set_settings_device_idx(sel)` ДО `set_settings_devices(model)`; плюс pre-warm энумерации в `init()` (модель готова к первому открытию).
 
 ## Шаги (итог)
 
 - [x] 1.1–1.3, 2.2, 2.3, 3.2, 3.3, 4.1–4.7 (прежние циклы)
-- [x] Баг-раунд: tray-wheel notch, window wheel-volume, settings open/cancel resync, audio device highlight
+- [x] Баг-раунд 1: tray-wheel notch, window wheel-volume, settings open/cancel resync, audio device highlight
+- [x] Баг-раунд 2: диалог пересоздаётся (`if root.open`), ComboBox idx→model, pre-warm энумерации
 
 ## Следующий ход
 
@@ -31,12 +32,14 @@
 
 ## Изменяемые файлы (текущий шаг)
 
-- `src/app/mod.rs` (TrayCmd::Wheel, on_open_settings, on_settings_close)
-- `src/app/ui_manager.rs` (drain_audio_devices want=active_device, sync_audio_devices placeholder)
-- `ui/top_panel.slint` (scroll-event громкости)
+- `src/app/mod.rs` (init pre-warm, on_settings_close упрощён)
+- `src/app/ui_manager.rs` (drain_audio_devices: idx до model)
+- `ui/settings.slint` (содержимое диалога в `if root.open`)
+- (не трогали: `src/tray.rs` полярность и шаг 0.04 — коммит пользователя `d570755`)
 
 ## Риск / стоп-условие
 
 - Сохранение настроек завязано на `save_window_geometry()` на выходе: при новом выходе из приложения — не забыть.
 - `remove_track` синхронизирует disk_tracks по пути: при «одинаковых» путях возможна потеря записи при удалении одной из них.
-- Знак `delta-y` колеса проверен по winit-конвенции (вверх = +); если на конкретном хосте инвертируется — поменять в `top_panel.slint` (scroll-event громкости).
+- Пересоздание диалога сбрасывает вкладку TabWidget на «General» при каждом открытии (приемлемо).
+- ComboBox-девайс: если сеть устройств меняется во время открытого диалога, новое значение появится после переоткрытия.

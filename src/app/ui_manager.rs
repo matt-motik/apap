@@ -159,8 +159,13 @@ impl MusicApp {
             0
         };
 
-        self.ui.set_settings_devices(ModelRc::from(model.as_slice()));
+        // Order matters: the material ComboBox re-assigns `current-index` on a
+        // model change (`changed model => reset-current()`), which breaks the
+        // `current-index: root.audio-device-idx` binding. Setting the index
+        // *before* the model makes `reset-current` clamp the already-correct
+        // value, so the combo ends up highlighting the active device.
         self.ui.set_settings_device_idx(sel);
+        self.ui.set_settings_devices(ModelRc::from(model.as_slice()));
     }
 
     pub(super) fn apply_theme(&self) {

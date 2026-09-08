@@ -288,6 +288,10 @@ impl MusicApp {
             app.apply_theme();
             app.sync_settings_to_ui();
             app.sync_playlist_to_ui();
+            // Pre-warm the output-device enumeration so the settings dialog's
+            // ComboBox is already populated (with the active device selected)
+            // by the time it is first opened.
+            app.sync_audio_devices();
         }
         Self::bind_callbacks(this);
     }
@@ -529,12 +533,9 @@ impl MusicApp {
             ui.on_settings_close(move || {
                 eprintln!("[gui] settings_close (Cancel)");
                 let mut a = app.borrow_mut();
+                // Discard the draft; the dialog itself is recreated from the
+                // real settings on the next open, so no field resync is needed.
                 a.settings_draft = None;
-                a.sync_settings_to_ui();
-                // Leave the Covers tab at the real (unchanged) state too.
-                a.sync_cover_settings_to_ui();
-                // Reset the Audio tab to the real (unchanged) state.
-                a.sync_audio_devices();
                 a.ui.set_settings_open(false);
             });
         }
