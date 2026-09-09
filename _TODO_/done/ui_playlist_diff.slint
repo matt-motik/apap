@@ -1,0 +1,128 @@
+--- ui/playlist.slint (原始)
+import { Colors } from "theme.slint";
+import { StandardTableView } from "std-widgets.slint";
+
+export component Playlist inherits Rectangle {
+    in property <[[StandardListViewItem]]> rows: [
+        [{ text: "No tracks" }]
+    ];
+    in property <[TableColumn]> cols: [{ title: "Title", width: 200px }];
+    in property <int> current-row: -1;
+    out property <length> view-width <=> view.visible-width;
+
+    callback play-track(int);
+    callback sort-ascending(int);
+    callback sort-descending(int);
+
+    background: Colors.bg-surface;
+    border-radius: 4px;
+    border-width: 1px;
+    border-color: Colors.border-subtle;
+    // Добавим небольшой внутренний отступ, если нужно (опционально)
+    padding: 0px;
+
+    // Layout, который заполняет весь родительский Rectangle
+    VerticalLayout {
+        spacing: 0;
+        view := StandardTableView {
+            visible: root.cols.length > 0;
+            rows: root.rows;
+            columns: root.cols;
+            current-row: root.current-row;
+
+            // Растягиваем таблицу на всё доступное место в Layout
+            horizontal-stretch: 1;
+            vertical-stretch: 1;
+
+            sort-ascending(col) => {
+                root.sort-ascending(col);
+            }
+            sort-descending(col) => {
+                root.sort-descending(col);
+            }
+            row-pointer-event(row, event) => {
+                if (event.kind == PointerEventKind.up) {
+                    root.play-track(row);
+                }
+            }
+        }
+
+        if root.cols.length == 0 : HorizontalLayout {
+            horizontal-stretch: 1;
+            vertical-stretch: 1;
+            alignment: center;
+            Text {
+                text: "Нет активных колонок";
+                color: Colors.text-dim;
+                font-size: 16px;
+            }
+        }
+    }
+}
+
++++ ui/playlist.slint (修改后)
+import { Colors } from "theme.slint";
+import { StandardTableView } from "std-widgets.slint";
+
+export component Playlist inherits Rectangle {
+    in property <[[StandardListViewItem]]> rows: [
+        [{ text: "No tracks" }]
+    ];
+    in property <[TableColumn]> cols: [{ title: "Title", width: 200px }];
+    in property <int> current-row: -1;
+    out property <length> view-width <=> view.visible-width;
+
+    callback play-track(int);
+    callback sort-ascending(int);
+    callback sort-descending(int);
+    callback columns-changed([TableColumn]);
+
+    background: Colors.bg-surface;
+    border-radius: 4px;
+    border-width: 1px;
+    border-color: Colors.border-subtle;
+    // Добавим небольшой внутренний отступ, если нужно (опционально)
+    padding: 0px;
+
+    // Layout, который заполняет весь родительский Rectangle
+    VerticalLayout {
+        spacing: 0;
+        view := StandardTableView {
+            visible: root.cols.length > 0;
+            rows: root.rows;
+            columns: root.cols;
+            current-row: root.current-row;
+
+            // Растягиваем таблицу на всё доступное место в Layout
+            horizontal-stretch: 1;
+            vertical-stretch: 1;
+
+            sort-ascending(col) => {
+                root.sort-ascending(col);
+            }
+            sort-descending(col) => {
+                root.sort-descending(col);
+            }
+            row-pointer-event(row, event) => {
+                if (event.kind == PointerEventKind.up) {
+                    root.play-track(row);
+                }
+            }
+            // Обработка изменения ширины колонок пользователем
+            columns-changed(new-cols) => {
+                root.columns-changed(new-cols);
+            }
+        }
+
+        if root.cols.length == 0 : HorizontalLayout {
+            horizontal-stretch: 1;
+            vertical-stretch: 1;
+            alignment: center;
+            Text {
+                text: "Нет активных колонок";
+                color: Colors.text-dim;
+                font-size: 16px;
+            }
+        }
+    }
+}

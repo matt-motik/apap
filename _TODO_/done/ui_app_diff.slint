@@ -1,0 +1,580 @@
+--- ui/app.slint (原始)
+import { Colors } from "theme.slint";
+export { Colors }
+import { MaterialPalette } from "builtin:/material/styling.slint";
+export { MaterialPalette }
+import { TopPanel } from "top_panel.slint";
+import { Playlist } from "playlist.slint";
+import { StatusBar } from "status.slint";
+import { Settings, ColumnSetting, CoverSetting } from "settings.slint";
+
+component MenuButton inherits Rectangle {
+    in property <string> text: "";
+    in property <bool> enabled: true;
+    callback clicked;
+
+    width: 72px;
+    height: 26px;
+    border-radius: 4px;
+    background: touch.pressed ? Colors.surface-hover : (touch.has-hover ? Colors.surface-hover : transparent);
+
+    Text {
+        text: root.text;
+        color: root.enabled ? Colors.text-primary : Colors.text-dim;
+        font-size: 12px;
+        horizontal-alignment: center;
+        vertical-alignment: center;
+    }
+
+    touch := TouchArea {
+        clicked => {
+            if (root.enabled) {
+                root.clicked();
+            }
+        }
+    }
+}
+
+component AppMenuBar inherits Rectangle {
+    callback add-files();
+    callback add-folder();
+    callback save-playlist();
+    callback load-playlist();
+    callback open-settings();
+    callback show-about();
+
+    in property <bool> busy: false;
+
+    height: 34px;
+    background: Colors.bg-toolbar;
+
+    HorizontalLayout {
+        spacing: 4px;
+        padding-left: 8px;
+        padding-right: 8px;
+        alignment: center;
+
+        MenuButton {
+            text: "Add Files";
+            enabled: !root.busy;
+            clicked => { root.add-files(); }
+        }
+        MenuButton {
+            text: "Add Folder";
+            enabled: !root.busy;
+            clicked => { root.add-folder(); }
+        }
+        MenuButton { text: "Save"; clicked => { root.save-playlist(); } }
+        MenuButton { text: "Open"; clicked => { root.load-playlist(); } }
+        Rectangle { }
+        MenuButton { text: "About"; clicked => { root.show-about(); } }
+        MenuButton { text: "Settings"; clicked => { root.open-settings(); } }
+    }
+}
+
+export component AppWindow inherits Window {
+    title: "Music Player";
+    preferred-width: 1200px;
+    preferred-height: 760px;
+    background: Colors.bg-window;
+
+    in property <float> cover-size: 200;
+    in property <float> col-info-w: 240;
+    in property <float> col-gap: 12;
+    in property <image> cover-art;
+
+    in property <bool> playing: false;
+    in property <bool> repeat: false;
+    in property <bool> repeat-one: false;
+    in property <bool> shuffle: false;
+    in property <bool> muted: false;
+    in property <float> volume: 0.8;
+    in property <float> seek-fraction: 0.0;
+    out property <bool> seekbar-dragging: main-top.seekbar-dragging;
+    in property <string> pos: "0:00";
+    in property <string> dur: "0:00";
+
+    in property <string> status-text: "Stopped";
+    in property <string> track-info: "";
+    in property <string> track-count: "0 tracks";
+    in property <bool> busy: false;
+
+    in property <string> info-artist: "—";
+    in property <string> info-track: "—";
+    in property <string> info-title: "—";
+    in property <string> info-duration: "—";
+    in property <string> info-year: "—";
+    in property <string> info-album: "—";
+    in property <string> info-disc: "—";
+    in property <string> info-genre: "—";
+    in property <string> info-format: "—";
+    in property <string> info-bitrate: "—";
+    in property <string> info-bit-depth: "—";
+    in property <string> info-sample-rate: "—";
+    in property <string> info-channels: "—";
+
+    in property <[[StandardListViewItem]]> playlist-rows: [
+        [{ text: "No tracks" }]
+    ];
+    in-out property <[TableColumn]> playlist-cols: [{ title: "Title", width: 200px }];
+    in property <int> current-row: -1;
+    out property <length> playlist-view-width: playlist_view_width.view-width;
+
+    in property <bool> settings-open: false;
+    in property <int> settings-theme: 0;
+    in property <bool> settings-minimize: false;
+    in property <[string]> settings-devices: [];
+    in property <int> settings-device-idx: -1;
+    in property <string> settings-active-device: "";
+    in property <string> settings-codec-info: "";
+    in property <string> settings-active-error: "";
+    in property <[ColumnSetting]> settings-cols: [];
+    in-out property <int> settings-selected-col: -1;
+    in property <[CoverSetting]> settings-covers: [];
+    in property <string> settings-cover-names: "";
+    in property <bool> settings-cover-online: true;
+
+    callback play-pause();
+    callback stop();
+    callback prev-track();
+    callback next-track();
+    callback toggle-repeat();
+    callback toggle-shuffle();
+    callback seek(float);
+    callback seek-commit(float);
+    callback volume-changed(float);
+    callback toggle-mute();
+    callback play-track(int);
+    callback sort-ascending(int);
+    callback sort-descending(int);
+    callback open-settings();
+    callback add-files();
+    callback add-folder();
+    callback save-playlist();
+    callback load-playlist();
+    callback settings-close();
+    callback settings-theme-changed(int);
+    callback settings-cover-size(float);
+    callback settings-col-info-w(float);
+    callback settings-col-gap(float);
+    callback settings-toggle-minimize(bool);
+    callback settings-device(string);
+    callback settings-refresh-devices();
+    callback settings-toggle-col(int);
+    callback settings-reset-cols();
+    callback settings-move-col-up(int);
+    callback settings-move-col-down(int);
+    callback settings-clear-playlist();
+    callback settings-remove-current();
+    callback settings-save();
+    callback settings-cover-move-up(int);
+    callback settings-cover-move-down(int);
+    callback settings-cover-names-edited(string);
+    callback settings-toggle-cover-online(bool);
+    callback show-about();
+
+    VerticalLayout {
+        spacing: 0;
+
+        main-top := TopPanel {
+            horizontal-stretch: 1;
+            max-height: root.cover-size *1px + 50px;
+            cover-size: root.cover-size;
+            col-info-w: root.col-info-w;
+            col-gap: root.col-gap;
+            cover-art: root.cover-art;
+            playing: root.playing;
+            repeat: root.repeat;
+            repeat-one: root.repeat-one;
+            shuffle: root.shuffle;
+            muted: root.muted;
+            volume: root.volume;
+            seek-fraction: root.seek-fraction;
+            pos: root.pos;
+            dur: root.dur;
+            info-artist: root.info-artist;
+            info-track: root.info-track;
+            info-title: root.info-title;
+            info-duration: root.info-duration;
+            info-year: root.info-year;
+            info-album: root.info-album;
+            info-disc: root.info-disc;
+            info-genre: root.info-genre;
+            info-format: root.info-format;
+            info-bitrate: root.info-bitrate;
+            info-bit-depth: root.info-bit-depth;
+            info-sample-rate: root.info-sample-rate;
+            info-channels: root.info-channels;
+            play-pause => { root.play-pause(); }
+            stop => { root.stop(); }
+            prev-track => { root.prev-track(); }
+            next-track => { root.next-track(); }
+            toggle-repeat => { root.toggle-repeat(); }
+            toggle-shuffle => { root.toggle-shuffle(); }
+            seek(v) => { root.seek(v); }
+            seek-commit(v) => { root.seek-commit(v); }
+            volume-changed(v) => { root.volume-changed(v); }
+            toggle-mute => { root.toggle-mute(); }
+        }
+
+        AppMenuBar {
+            busy: root.busy;
+            add-files => { root.add-files(); }
+            add-folder => { root.add-folder(); }
+            save-playlist => { root.save-playlist(); }
+            load-playlist => { root.load-playlist(); }
+            open-settings => { root.open-settings(); }
+            show-about => { root.show-about(); }
+        }
+
+        playlist_view_width := Playlist {
+            horizontal-stretch: 1;
+            vertical-stretch: 1;
+            rows: root.playlist-rows;
+            cols: root.playlist-cols;
+            current-row: root.current-row;
+            play-track(i) => { root.play-track(i); }
+            sort-ascending(c) => { root.sort-ascending(c); }
+            sort-descending(c) => { root.sort-descending(c); }
+        }
+
+        StatusBar {
+            status-text: root.status-text;
+            track-info: root.track-info;
+            track-count: root.track-count;
+            busy: root.busy;
+        }
+    }
+
+    Settings {
+        width: 100%;
+        height: 100%;
+        open: root.settings-open;
+        theme: root.settings-theme;
+        cover-size: root.cover-size;
+        col-info-w: root.col-info-w;
+        col-gap: root.col-gap;
+        minimize-to-tray: root.settings-minimize;
+        audio-devices: root.settings-devices;
+        audio-device-idx: root.settings-device-idx;
+        active-device: root.settings-active-device;
+        codec-info: root.settings-codec-info;
+        active-error: root.settings-active-error;
+        columns-cfg: root.settings-cols;
+        selected-col <=> root.settings-selected-col;
+        covers: root.settings-covers;
+        cover-names: root.settings-cover-names;
+        cover-online: root.settings-cover-online;
+        close => { root.settings-close(); }
+        set-theme(i) => { root.settings-theme-changed(i); }
+        set-cover-size(v) => { root.settings-cover-size(v); }
+        set-col-info-w(v) => { root.settings-col-info-w(v); }
+        set-col-gap(v) => { root.settings-col-gap(v); }
+        set-minimize-to-tray(b) => { root.settings-toggle-minimize(b); }
+        set-audio-device(s) => { root.settings-device(s); }
+        refresh-devices => { root.settings-refresh-devices(); }
+        toggle-column(i) => { root.settings-toggle-col(i); }
+        reset-columns => { root.settings-reset-cols(); }
+        move-col-up(i) => { root.settings-move-col-up(i); }
+        move-col-down(i) => { root.settings-move-col-down(i); }
+        clear-playlist => { root.settings-clear-playlist(); }
+        remove-current => { root.settings-remove-current(); }
+        save-settings => { root.settings-save(); }
+        cover-move-up(i) => { root.settings-cover-move-up(i); }
+        cover-move-down(i) => { root.settings-cover-move-down(i); }
+        cover-names-edited(t) => { root.settings-cover-names-edited(t); }
+        toggle-cover-online(b) => { root.settings-toggle-cover-online(b); }
+    }
+}
+
+
++++ ui/app.slint (修改后)
+import { Colors } from "theme.slint";
+export { Colors }
+import { MaterialPalette } from "builtin:/material/styling.slint";
+export { MaterialPalette }
+import { TopPanel } from "top_panel.slint";
+import { Playlist } from "playlist.slint";
+import { StatusBar } from "status.slint";
+import { Settings, ColumnSetting, CoverSetting } from "settings.slint";
+
+component MenuButton inherits Rectangle {
+    in property <string> text: "";
+    in property <bool> enabled: true;
+    callback clicked;
+
+    width: 72px;
+    height: 26px;
+    border-radius: 4px;
+    background: touch.pressed ? Colors.surface-hover : (touch.has-hover ? Colors.surface-hover : transparent);
+
+    Text {
+        text: root.text;
+        color: root.enabled ? Colors.text-primary : Colors.text-dim;
+        font-size: 12px;
+        horizontal-alignment: center;
+        vertical-alignment: center;
+    }
+
+    touch := TouchArea {
+        clicked => {
+            if (root.enabled) {
+                root.clicked();
+            }
+        }
+    }
+}
+
+component AppMenuBar inherits Rectangle {
+    callback add-files();
+    callback add-folder();
+    callback save-playlist();
+    callback load-playlist();
+    callback open-settings();
+    callback show-about();
+
+    in property <bool> busy: false;
+
+    height: 34px;
+    background: Colors.bg-toolbar;
+
+    HorizontalLayout {
+        spacing: 4px;
+        padding-left: 8px;
+        padding-right: 8px;
+        alignment: center;
+
+        MenuButton {
+            text: "Add Files";
+            enabled: !root.busy;
+            clicked => { root.add-files(); }
+        }
+        MenuButton {
+            text: "Add Folder";
+            enabled: !root.busy;
+            clicked => { root.add-folder(); }
+        }
+        MenuButton { text: "Save"; clicked => { root.save-playlist(); } }
+        MenuButton { text: "Open"; clicked => { root.load-playlist(); } }
+        Rectangle { }
+        MenuButton { text: "About"; clicked => { root.show-about(); } }
+        MenuButton { text: "Settings"; clicked => { root.open-settings(); } }
+    }
+}
+
+export component AppWindow inherits Window {
+    title: "Music Player";
+    preferred-width: 1200px;
+    preferred-height: 760px;
+    background: Colors.bg-window;
+
+    in property <float> cover-size: 200;
+    in property <float> col-info-w: 240;
+    in property <float> col-gap: 12;
+    in property <image> cover-art;
+
+    in property <bool> playing: false;
+    in property <bool> repeat: false;
+    in property <bool> repeat-one: false;
+    in property <bool> shuffle: false;
+    in property <bool> muted: false;
+    in property <float> volume: 0.8;
+    in property <float> seek-fraction: 0.0;
+    out property <bool> seekbar-dragging: main-top.seekbar-dragging;
+    in property <string> pos: "0:00";
+    in property <string> dur: "0:00";
+
+    in property <string> status-text: "Stopped";
+    in property <string> track-info: "";
+    in property <string> track-count: "0 tracks";
+    in property <bool> busy: false;
+
+    in property <string> info-artist: "—";
+    in property <string> info-track: "—";
+    in property <string> info-title: "—";
+    in property <string> info-duration: "—";
+    in property <string> info-year: "—";
+    in property <string> info-album: "—";
+    in property <string> info-disc: "—";
+    in property <string> info-genre: "—";
+    in property <string> info-format: "—";
+    in property <string> info-bitrate: "—";
+    in property <string> info-bit-depth: "—";
+    in property <string> info-sample-rate: "—";
+    in property <string> info-channels: "—";
+
+    in property <[[StandardListViewItem]]> playlist-rows: [
+        [{ text: "No tracks" }]
+    ];
+    in-out property <[TableColumn]> playlist-cols: [{ title: "Title", width: 200px }];
+    in property <int> current-row: -1;
+    out property <length> playlist-view-width: playlist_view_width.view-width;
+
+    in property <bool> settings-open: false;
+    in property <int> settings-theme: 0;
+    in property <bool> settings-minimize: false;
+    in property <[string]> settings-devices: [];
+    in property <int> settings-device-idx: -1;
+    in property <string> settings-active-device: "";
+    in property <string> settings-codec-info: "";
+    in property <string> settings-active-error: "";
+    in property <[ColumnSetting]> settings-cols: [];
+    in-out property <int> settings-selected-col: -1;
+    in property <[CoverSetting]> settings-covers: [];
+    in property <string> settings-cover-names: "";
+    in property <bool> settings-cover-online: true;
+
+    callback play-pause();
+    callback stop();
+    callback prev-track();
+    callback next-track();
+    callback toggle-repeat();
+    callback toggle-shuffle();
+    callback seek(float);
+    callback seek-commit(float);
+    callback volume-changed(float);
+    callback toggle-mute();
+    callback play-track(int);
+    callback sort-ascending(int);
+    callback sort-descending(int);
+    callback playlist-columns-changed([TableColumn]);
+    callback open-settings();
+    callback add-files();
+    callback add-folder();
+    callback save-playlist();
+    callback load-playlist();
+    callback settings-close();
+    callback settings-theme-changed(int);
+    callback settings-cover-size(float);
+    callback settings-col-info-w(float);
+    callback settings-col-gap(float);
+    callback settings-toggle-minimize(bool);
+    callback settings-device(string);
+    callback settings-refresh-devices();
+    callback settings-toggle-col(int);
+    callback settings-reset-cols();
+    callback settings-move-col-up(int);
+    callback settings-move-col-down(int);
+    callback settings-clear-playlist();
+    callback settings-remove-current();
+    callback settings-save();
+    callback settings-cover-move-up(int);
+    callback settings-cover-move-down(int);
+    callback settings-cover-names-edited(string);
+    callback settings-toggle-cover-online(bool);
+    callback show-about();
+
+    VerticalLayout {
+        spacing: 0;
+
+        main-top := TopPanel {
+            horizontal-stretch: 1;
+            max-height: root.cover-size *1px + 50px;
+            cover-size: root.cover-size;
+            col-info-w: root.col-info-w;
+            col-gap: root.col-gap;
+            cover-art: root.cover-art;
+            playing: root.playing;
+            repeat: root.repeat;
+            repeat-one: root.repeat-one;
+            shuffle: root.shuffle;
+            muted: root.muted;
+            volume: root.volume;
+            seek-fraction: root.seek-fraction;
+            pos: root.pos;
+            dur: root.dur;
+            info-artist: root.info-artist;
+            info-track: root.info-track;
+            info-title: root.info-title;
+            info-duration: root.info-duration;
+            info-year: root.info-year;
+            info-album: root.info-album;
+            info-disc: root.info-disc;
+            info-genre: root.info-genre;
+            info-format: root.info-format;
+            info-bitrate: root.info-bitrate;
+            info-bit-depth: root.info-bit-depth;
+            info-sample-rate: root.info-sample-rate;
+            info-channels: root.info-channels;
+            play-pause => { root.play-pause(); }
+            stop => { root.stop(); }
+            prev-track => { root.prev-track(); }
+            next-track => { root.next-track(); }
+            toggle-repeat => { root.toggle-repeat(); }
+            toggle-shuffle => { root.toggle-shuffle(); }
+            seek(v) => { root.seek(v); }
+            seek-commit(v) => { root.seek-commit(v); }
+            volume-changed(v) => { root.volume-changed(v); }
+            toggle-mute => { root.toggle-mute(); }
+        }
+
+        AppMenuBar {
+            busy: root.busy;
+            add-files => { root.add-files(); }
+            add-folder => { root.add-folder(); }
+            save-playlist => { root.save-playlist(); }
+            load-playlist => { root.load-playlist(); }
+            open-settings => { root.open-settings(); }
+            show-about => { root.show-about(); }
+        }
+
+        playlist_view_width := Playlist {
+            horizontal-stretch: 1;
+            vertical-stretch: 1;
+            rows: root.playlist-rows;
+            cols: root.playlist-cols;
+            current-row: root.current-row;
+            play-track(i) => { root.play-track(i); }
+            sort-ascending(c) => { root.sort-ascending(c); }
+            sort-descending(c) => { root.sort-descending(c); }
+            columns-changed(cols) => { root.playlist-columns-changed(cols); }
+        }
+
+        StatusBar {
+            status-text: root.status-text;
+            track-info: root.track-info;
+            track-count: root.track-count;
+            busy: root.busy;
+        }
+    }
+
+    Settings {
+        width: 100%;
+        height: 100%;
+        open: root.settings-open;
+        theme: root.settings-theme;
+        cover-size: root.cover-size;
+        col-info-w: root.col-info-w;
+        col-gap: root.col-gap;
+        minimize-to-tray: root.settings-minimize;
+        audio-devices: root.settings-devices;
+        audio-device-idx: root.settings-device-idx;
+        active-device: root.settings-active-device;
+        codec-info: root.settings-codec-info;
+        active-error: root.settings-active-error;
+        columns-cfg: root.settings-cols;
+        selected-col <=> root.settings-selected-col;
+        covers: root.settings-covers;
+        cover-names: root.settings-cover-names;
+        cover-online: root.settings-cover-online;
+        close => { root.settings-close(); }
+        set-theme(i) => { root.settings-theme-changed(i); }
+        set-cover-size(v) => { root.settings-cover-size(v); }
+        set-col-info-w(v) => { root.settings-col-info-w(v); }
+        set-col-gap(v) => { root.settings-col-gap(v); }
+        set-minimize-to-tray(b) => { root.settings-toggle-minimize(b); }
+        set-audio-device(s) => { root.settings-device(s); }
+        refresh-devices => { root.settings-refresh-devices(); }
+        toggle-column(i) => { root.settings-toggle-col(i); }
+        reset-columns => { root.settings-reset-cols(); }
+        move-col-up(i) => { root.settings-move-col-up(i); }
+        move-col-down(i) => { root.settings-move-col-down(i); }
+        clear-playlist => { root.settings-clear-playlist(); }
+        remove-current => { root.settings-remove-current(); }
+        save-settings => { root.settings-save(); }
+        cover-move-up(i) => { root.settings-cover-move-up(i); }
+        cover-move-down(i) => { root.settings-cover-move-down(i); }
+        cover-names-edited(t) => { root.settings-cover-names-edited(t); }
+        toggle-cover-online(b) => { root.settings-toggle-cover-online(b); }
+    }
+}
