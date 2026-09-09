@@ -355,7 +355,16 @@ fn drain_startup_tracks(&mut self) {
 - Обработчик изменения размера окна (resize)→ пересчёт колонок на релиз мыши, не на тик.
 - Разобраться с проблемой ухватывания правого края окна мышью.
 
-**Прил. (диффы от внешнего ИИ, `_TODO_/ui_playlist_diff.slint` и `_TODO_/ui_app_diff.slint`):** предлагается callback `columns-changed([TableColumn])` в `ui/playlist.slint`, проброшенный в `ui/app.slint` как `playlist-columns-changed` (подписаться в Rust для пересчёта ширин). Диффы — референс, применять с учётом реальной архитектуры (дельта-синк, debounce).
+**Прил. (диффы от внешнего ИИ, `_TODO_/ui_playlist_diff.slint` и `_TODO_/ui_app_diff.slint`):** предлагается callback `columns-changed([TableColumn])` в `ui/playlist.slint`, проброшенный в `ui/app.slint` как `playlist-columns-changed` (подписаться в Rust для пересчёта ширин). **Важно:** такой callback **не существует** в Slint 1.17.1 (проверено в `i-slint-compiler/widgets/*/tableview.slint` — нет `columns-changed`; ширина меняется во внутреннем `adjust_size`, сигнала на отпускание нет). Диффы неприменимы напрямую — используются как референс желаемого поведения.
+
+**Сделано (решение пользователя — «Плавный пересчёт только ширин»):**
+- `MusicApp.playlist_cols: Rc<VecModel<TableColumn>>` — постоянная модель колонок, подключается к UI один раз (`src/app/mod.rs`).
+- `update_column_widths` (`src/app/ui_manager.rs`) → точечные `set_row_data(i, col)` только при изменении `.width`; `set_vec` — только при смене состава/порядка/видимости. Ресайз окна больше не пере-создаёт `ModelRc` (плавно, без рывков; ширины колонок не зажимают окно).
+- `sync_playlist_to_ui` → `playlist_cols.set_vec(cols)`.
+
+**Осталось (живая проверка, нужен дисплей):**
+- Ресайз окна мышью на Ubuntu GNOME FHD — проверить плавность.
+- Развёртывание/ресайз на Manjaro KDE 4K («упирается в границу») — подтвердить, что ушло; если нет — диагностика slint-window resize limits / scale geometry.
 
 ---
 

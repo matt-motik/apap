@@ -132,6 +132,12 @@ pub struct MusicApp {
     /// (push/set_row_data) instead of rebuilding the whole list on every
     /// append, so folder scans stay cheap.
     playlist_rows: Rc<VecModel<ModelRc<StandardListViewItem>>>,
+    /// Persistent column model for the playlist table. Stored across window
+    /// resizes so that proportional reflow only touches each column's `width`
+    /// (set_row_data) instead of re-creating a fresh ModelRc on every tick —
+    /// keeps resizing smooth and never lets the column widths constrain the
+    /// window size.
+    playlist_cols: Rc<VecModel<TableColumn>>,
     current: Option<usize>,
     scan_rx: Option<Receiver<ScanMsg>>,
     /// Tracks buffered by `drain_scan` while a background scan runs; committed
@@ -205,6 +211,9 @@ impl MusicApp {
             Rc::new(slint::VecModel::default());
         ui.set_playlist_rows(ModelRc::from(playlist_rows.clone()));
 
+        let playlist_cols: Rc<VecModel<TableColumn>> = Rc::new(slint::VecModel::default());
+        ui.set_playlist_cols(ModelRc::from(playlist_cols.clone()));
+
         let repeat = settings.settings.repeat;
         let shuffle = settings.settings.shuffle;
 
@@ -243,6 +252,7 @@ impl MusicApp {
             player,
             tracks,
             playlist_rows,
+            playlist_cols,
             current: None,
             scan_rx: None,
             scan_pending: Vec::new(),

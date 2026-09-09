@@ -311,7 +311,7 @@ impl MusicApp {
             .collect();
 
         self.playlist_rows.set_vec(rows);
-        self.ui.set_playlist_cols(ModelRc::from(cols.as_slice()));
+        self.playlist_cols.set_vec(cols);
         self.ui.set_current_row(
             self.current.map(|i| i as i32).unwrap_or(-1),
         );
@@ -354,7 +354,21 @@ impl MusicApp {
 
     pub(super) fn update_column_widths(&mut self) {
         let cols = self.build_table_columns();
-        self.ui.set_playlist_cols(ModelRc::from(cols.as_slice()));
+        // Reflow only changes the pixel widths; keep the same ModelRc and touch
+        // each column on the fly so window resizing never re-creates the model
+        // (no flicker, and the widths never constrain the window size). If the
+        // column set/order/visibility differs, fall back to a full replacement.
+        if self.playlist_cols.row_count() == cols.len() {
+            for (i, c) in cols.iter().enumerate() {
+                if let Some(old) = self.playlist_cols.row_data(i) {
+                    if old.width != c.width {
+                        self.playlist_cols.set_row_data(i, c.clone());
+                    }
+                }
+            }
+        } else {
+            self.playlist_cols.set_vec(cols);
+        }
         self.col_model_sig = self.compute_col_sig();
     }
 
