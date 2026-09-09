@@ -890,19 +890,6 @@ impl MusicApp {
         self.sync_playback_state_to_ui();
         self.push_tray_status();
 
-        let w = self.ui.get_playlist_view_width() as f32;
-        // Keep the columns in lock-step with the window width. If we let the
-        // columns lag (deferring the reflow), the material StandardTableView is
-        // hard-fixed to the sum of column.width: it neither shrinks nor grows
-        // while the window moves past it, so the window looks frozen/resized
-        // only after a debounce and grows slowly. Updating the (now-cheap)
-        // `.width` point-wise on every significant width change keeps the table
-        // == the viewport, so the window never fights a fixed-width table.
-        if w > 100.0 && (w - self.last_view_width).abs() > 1.0 {
-            self.last_view_width = w;
-            self.update_column_widths();
-        }
-
         let sig = self.compute_col_sig();
         if sig != 0 && sig != self.col_model_sig {
             // Column layout changed from the UI (user dragging a border): adopt
@@ -916,6 +903,21 @@ impl MusicApp {
                 self.save_column_widths_from_ui();
                 self.update_column_widths();
             }
+        }
+    }
+
+    /// High-frequency column reflow, driven by its own fast timer (see
+    /// `REF_INTERVAL_MS` in main.rs) that runs independently of the 100 ms
+    /// `tick()`. Keeps the columns in lock-step with the window width while the
+    /// window is being resized: the material StandardTableView is hard-fixed to
+    /// the sum of column.width, so if the columns lag the window, the window
+    /// grows past a fixed-width table and "fights" it (slow/jumpy growth). The
+    /// `.width` update is a cheap point-wise `set_row_data`.
+    pub fn reflow(&mut self) {
+        let w = self.ui.get_playlist_view_width();
+        if w > 100.0 && (w - self.last_view_width).abs() > 1.0 {
+            self.last_view_width = w;
+            self.update_column_widths();
         }
     }
 

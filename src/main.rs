@@ -11,6 +11,11 @@ use std::rc::Rc;
 /// state into the window. Also bounds responsiveness of transport controls.
 const TICK_INTERVAL_MS: u64 = 100;
 
+/// High-frequency column reflow period. Reads the playlist width and updates
+/// column `.width`s nearly at display rate so the table tracks the window
+/// during a resize instead of lagging behind on the slow 100 ms tick.
+const REF_INTERVAL_MS: u64 = 16;
+
 fn main() {
     let ui = app::create_ui().expect("Failed to create Slint UI");
     let app = Rc::new(RefCell::new(MusicApp::new(ui.clone_strong())));
@@ -30,7 +35,22 @@ fn main() {
         },
     );
 
+    let weak = ui.as_weak();
+    let app_for_ref = app.clone();
+    let ref_timer = slint::Timer::default();
+    ref_timer.start(
+        slint::TimerMode::Repeated,
+        std::time::Duration::from_millis(REF_INTERVAL_MS),
+        move || {
+            if weak.upgrade().is_none() {
+                return;
+            }
+            app_for_ref.borrow_mut().reflow();
+        },
+    );
+
     ui.show().unwrap();
     slint::run_event_loop_until_quit().unwrap();
+    drop(ref_timer);
     drop(timer);
 }
