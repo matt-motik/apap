@@ -32,6 +32,15 @@ export component Playlist inherits Rectangle {
             // Растягиваем таблицу на всё доступное место в Layout
             horizontal-stretch: 1;
             vertical-stretch: 1;
+            // CRITICAL: without a generous max-width, the winit backend derives
+            // the window's max-size from the root layout's max-size, and this
+            // table is hard-fixed to sum(column.width) (each column is clamped
+            // min=max=max=column.width in the material widget). That made the
+            // window unable to grow beyond the playback columns and made it
+            // SHRINK when a column was narrowed. A large max-width breaks the
+            // window↔columns coupling: the window resizes freely and the
+            // columns are reflown once, after the resize finishes.
+            max-width: 10000px;
 
             sort-ascending(col) => {
                 root.sort-ascending(col);

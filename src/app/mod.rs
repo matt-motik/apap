@@ -59,6 +59,11 @@ impl Default for UiState {
 /// while still long enough to absorb one tick's worth of drag jitter.
 const COL_SAVE_DEBOUNCE_TICKS: u32 = 6;
 
+/// Consecutive stable reflow ticks (16 ms each) before the columns are snapped
+/// to the (settled) window width ≈ the moment the user releases the mouse after
+/// a window resize. ~64 ms.
+const REFLOW_SETTLE_TICKS: u32 = 4;
+
 slint::include_modules!();
 
 pub fn create_ui() -> Result<AppWindow, slint::PlatformError> {
@@ -162,6 +167,7 @@ pub struct MusicApp {
     tray_up_tx: Option<tokio::sync::mpsc::UnboundedSender<tray::TrayState>>,
     last_tray_update: Instant,
     last_view_width: f32,
+    view_w_stable_ticks: u32,
     col_model_sig: u64,
     col_sig_stable_ticks: u32,
     settings_draft: Option<Settings>,
@@ -273,6 +279,7 @@ impl MusicApp {
             tray_up_tx: Some(tray_up_tx),
             last_tray_update: Instant::now(),
             last_view_width: 0.0,
+            view_w_stable_ticks: 0,
             col_model_sig: 0,
             col_sig_stable_ticks: 0,
             settings_draft: None,
@@ -908,16 +915,26 @@ impl MusicApp {
 
     /// High-frequency column reflow, driven by its own fast timer (see
     /// `REF_INTERVAL_MS` in main.rs) that runs independently of the 100 ms
-    /// `tick()`. Keeps the columns in lock-step with the window width while the
-    /// window is being resized: the material StandardTableView is hard-fixed to
-    /// the sum of column.width, so if the columns lag the window, the window
-    /// grows past a fixed-width table and "fights" it (slow/jumpy growth). The
-    /// `.width` update is a cheap point-wise `set_row_data`.
+    /// `tick()`. With the table's `max-width` decoupled in playlist.slint, the
+    /// window itself resizes freely — we only need to snap the columns to the
+    /// new width once the resize *finishes*. While the width keeps changing we
+    /// freeze the columns (no live rewriting, no fighting); once it has been
+    /// stable for `REFLOW_SETTLE_TICKS` (~64 ms ≈ mouse release), we reflow.
     pub fn reflow(&mut self) {
         let w = self.ui.get_playlist_view_width();
-        if w > 100.0 && (w - self.last_view_width).abs() > 1.0 {
+        if w <= 100.0 {
+            return;
+        }
+        if (w - self.last_view_width).abs() > 1.0 {
+            // Window is being resized: just track the new width, leave columns
+            // alone. The column snap happens when the width settles.
             self.last_view_width = w;
-            self.update_column_widths();
+            self.view_w_stable_ticks = 0;
+        } else if self.view_w_stable_ticks < REFLOW_SETTLE_TICKS {
+            self.view_w_stable_ticks += 1;
+            if self.view_w_stable_ticks == REFLOW_SETTLE_TICKS {
+                self.update_column_widths();
+            }
         }
     }
 
