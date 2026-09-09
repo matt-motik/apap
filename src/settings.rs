@@ -80,7 +80,7 @@ impl ColumnId {
     pub fn label(self) -> &'static str {
         match self {
             ColumnId::Index => "#",
-            ColumnId::TrackNumber => "Track #",
+            ColumnId::TrackNumber => "Track#",
             ColumnId::Title => "Title",
             ColumnId::Artist => "Artist",
             ColumnId::Album => "Album",

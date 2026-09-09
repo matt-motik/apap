@@ -5,22 +5,29 @@
 
 ## Статус
 
-- **Состояние:** `in_progress` — задача «Маркер сортировки на колонке» (встроенные стрелки StandardTableView через `TableColumn.sort_order`).
+- **Состояние:** `in_progress` — задача «Уменьшение шрифта заголовков колонок» (форк StandardTableView, 11px).
 
 ## Активная задача
 
-- **Маркер сортировки на колонке** (запрос пользователя): при клике на заголовок показывать ▲/▼ на отсортированной колонке. Реализовано через встроенный механизм material `StandardTableView`: у `TableColumn` есть поле `sort_order` (`slint::language::SortOrder: Unsorted/Ascending/Descending`), виджет сам рисует стрелку (`material/tableview.slint:30-40`), сам переключает её при клике (`sort()` на строках 157-171, сбрасывает старую колонку) и сам зовёт `sort-ascending`/`sort-descending`. Ручного добавления «▲» в title НЕ требуется — это дублировало бы встроенный рендер.
-- Связка: клик → `sort()` виджета (меняет `sort_order` в модели) → наш `on_sort_ascending/descending` (mod.rs:449-472) → `sort_tracks` (playlist_manager.rs:150, обновляет `sorted_col`/`sort_desc` в настройках) → `sync_playlist_to_ui` → `build_table_columns` выставляет `tc.sort_order` из настроек → `set_vec` возвращает стрелку в согласованное состояние.
-- Реализация: в `build_table_columns` (ui_manager.rs:359-367) `tc.sort_order` выставляется по `self.settings.settings.sorted_col`/`sort_desc`. Импорт `SortOrder` (`slint::language`) добавлен в mod.rs.
+- **Уменьшить шрифт названий колонок до 11px** (сейчас дефолт material ~14px). Решение: форк `material/tableview.slint` в проект. `TableColumn.sort_order`/стрелки сортировки (4.11) сохранены.
+- Причина форка: прямого свойства для шрифта заголовка у `StandardTableView` нет, а из файла проекта импортируются **только** `std-widgets.slint`; внутренности material (`components.slint`/StateLayer, `styling.slint`/MaterialPalette/Icons, `common/listview.slint`) из проекта недоступны (`typeloader.rs:1703-1707`). Информация из внешнего источника (my-style.slint через `inherits` + переопределение `header-area`) **проверена и неверна**: `inherits`-компонент не может переопределять/добавлять дочерние элементы базы (эмпирический тест: `error: 'BaseInherits' cannot have children. Only components with @children...`).
+- Параметры пользователя: font-size **11px**; StateLayer/ripple — **копировать целиком** (не упрощать до TouchArea).
 
 ## Выполнено в этой сессии
 
-- **Маркер сортировки на колонке (новая задача):**
-  - Выяснено: ручное добавление «▲/▼» в title не нужно — material `StandardTableView` сам рисует стрелку по `TableColumn.sort_order` и сам переключает её при клике на заголовок (сброс прежней колонки встроен).
-  - `build_table_columns` (ui_manager.rs:353-370): `tc.sort_order` выставляется из `settings.sorted_col` (Ascending/Descending/Unsorted). Импорт `slint::language::SortOrder` в mod.rs.
-  - build ok; тесты 55 lib + 6 bin зелёные; clippy без новых предупреждений от этого кода.
-  - Ещё не закоммичено (код + _STATE_ + ROADMAP в одном коммите).
-- Задача 4.10 (прошлый шаг, уже закоммичено): см. ниже.
+- **Задача «Уменьшение шрифта заголовков» (новая):**
+  - `ui/fork_components.slint` (новый): Ripple + StateLayer из `material/components.slint`, **без ListItem** (он ссылается на недоступные MaterialPalette/MaterialSizeSettings). Ripple/StateLayer потребляют ввод через параметры — стиль не нужен.
+  - `ui/tableview_fork.slint` (новый): полная копия `material/tableview.slint` (+SPDX) с диффами:
+    - `import { ListView, Palette } from "std-widgets.slint";` вместо `../common/listview.slint` + `MaterialPalette` (`ListView`/`Palette` экспортируются наружу; `accent-ripple` → `control-foreground`).
+    - `import { StateLayer } from "fork_components.slint";` вместо `"components.slint"`.
+    - Стрелка сортировки: `Text` «▲/▼» (9px) вместо material `Icons.arrow-upward/downward` (не тащить SVG-иконки).
+    - **Заголовок: `font-size: 11px`** у `Text` в `TableViewColumn` (строки ~198-203). Ячейки строк (`Text` в `TableViewCell`) не тронуты — только заголовок.
+    - Вся механика (`sort()`, `set-current-row`, `row-pointer-event`, listview, min/max-width колонок, фикс `max-width` — на инстансе в playlist.slint) идентична апстриму.
+  - `ui/playlist.slint`: `import { StandardTableView } from "./tableview_fork.slint";` вместо `"std-widgets.slint"`.
+  - build ok; тесты 55 lib + 6 bin зелёные; clippy без новых предупреждений от форка.
+  - Ещё не закоммичено.
+- **Маркер сортировки (4.11, закоммичено `a3da46b`):** стрелки работают — подтвердил пользователь.
+- **Задача 4.10 (прошлый шаг, закоммичено):** см. ниже.
 
 ## Выполнено в прошлой сессии (задача 4.10, закоммичено)
 
@@ -63,15 +70,24 @@
   - Решения пользователя: дефолты — Rust-const (не в config.toml: нет UI для правки + устаревание при обновлениях); Reset widths-only; save-at-exit; зажим после отпускания драга.
 - Верификация: build ok, clippy baseline 16 lib / 10 bin (не вырос), тесты 55 lib (49+6 новых) + 6 bin зелёные.
 
-## Шаги (текущая сессия: маркер сортировки)
+## Шаги (текущая сессия: шрифт заголовков — форк таблицы)
+
+- [x] Проверить информацию про my-style.slint (`inherits` + переопределение header-area) — **неверна** (эмпирический тест).
+- [x] `ui/fork_components.slint`: Ripple + StateLayer (без ListItem, без MaterialPalette-зависимостей).
+- [x] `ui/tableview_fork.slint`: копия material/tableview.slint; `font-size: 11px` заголовку; `ListView`/`Palette` из std-widgets; `StateLayer` из форка; стрелки ▲/▼ текстом.
+- [x] `ui/playlist.slint`: импорт `StandardTableView` из `./tableview_fork.slint`.
+- [x] build / clippy / test.
+- [ ] Руководство: ROADMAP + _STATE_ + коммит (код + _STATE_ + ROADMAP).
+- [ ] Ручная проверка пользователем: заголовки колонок стали 11px (меньше дефолта), ячейки без изменений; сортировка (стрелка ▲/▼), драг разделителя, скролл, выделение строки, ресайз окна — работают как раньше.
+
+## Шаги (задача 4.11 «маркер сортировки» — закоммичено `a3da46b`)
 
 - [x] Исследовать нативный механизм сортировки material `StandardTableView` (`sort_order`, `sort()`, стрелки).
 - [x] `build_table_columns`: выставлять `tc.sort_order` из `settings.sorted_col`/`sort_desc`.
 - [x] Импорт `SortOrder` (`slint::language`).
 - [x] build / clippy / test.
-- [ ] Руководство: ROADMAP + _STATE_ + коммит (код + _STATE_ + ROADMAP).
-- [ ] Ручная проверка пользователем: стрелка показывает сохранённую сортировку при старте; клик по заголовку — стрелка переключается ⟷ порядок треков; клик по другой колонке — стрелка переезжает; повторный клик — порядок разворачивается.
-- [ ] (+ спросить/уточнить «по поводу шрифта» — отложенная задача про уменьшение шрифта заголовков колонок).
+- [x] ROADMAP + _STATE_ + коммит.
+- [x] Ручная проверка пользователем — стрелки работают (подтверждено).
 
 ## Шаги (задача 4.10 — закоммичено)
 
@@ -91,14 +107,15 @@
 
 ## Следующий ход
 
-- Обновить ROADMAP.md (новая задача «маркер сортировки», отметить сделано в этом коммите).
-- Закоммитить: `src/app/mod.rs` (импорт `SortOrder`), `src/app/ui_manager.rs` (`tc.sort_order`), `_STATE_.md`, `ROADMAP.md`.
-- Попросить пользователя проверить на живой системе: стрелки сортировки + спросить про шрифт заголовков колонок.
+- Обновить ROADMAP.md (новая задача «шрифт заголовков: форк StandardTableView», 4.12).
+- Закоммитить: `ui/tableview_fork.slint` (новый), `ui/fork_components.slint` (новый), `ui/playlist.slint` (импорт), `_STATE_.md`, `ROADMAP.md`.
+- Попросить пользователя проверить на живой системе: шрифт заголовков 11px, ячейки без изменений, вся интеракция таблицы (сортировка/драг/скролл/выделение/ресайз) работает как раньше.
 
 ## Изменяемые файлы (текущий шаг)
 
-- `src/app/ui_manager.rs` (`build_table_columns` — `tc.sort_order` из настроек; строки 353-370)
-- `src/app/mod.rs` (импорт `slint::language::SortOrder`)
+- `ui/tableview_fork.slint` (новый — форк material/tableview.slint, заголовок 11px)
+- `ui/fork_components.slint` (новый — Ripple + StateLayer без ListItem)
+- `ui/playlist.slint` (импорт `StandardTableView` из `./tableview_fork.slint`)
 - `_STATE_.md`, `ROADMAP.md`
 
 ## Риск / стоп-условие
