@@ -11,6 +11,15 @@ impl MusicApp {
             if (200..=8000).contains(&w) && (200..=8000).contains(&h) {
                 self.ui.window().set_size(slint::WindowSize::Physical(slint::PhysicalSize::new(w, h)));
             }
+        } else {
+            // No persisted geometry yet (first run): give the window a sensible
+            // logical size. The Window no longer carries a fixed
+            // `preferred-width/height`, so it can be resized freely and fast;
+            // without this the first-run window would collapse to its content
+            // minimum.
+            self.ui
+                .window()
+                .set_size(slint::WindowSize::Logical(slint::LogicalSize::new(1200.0, 760.0)));
         }
         if let (Some(x), Some(y)) = (s.win_x, s.win_y) {
             self.ui
