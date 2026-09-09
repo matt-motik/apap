@@ -54,8 +54,16 @@ impl Default for UiState {
 }
 
 /// Throttle for persisting user-dragged column widths: ticks (100 ms each)
-/// with a stable column signature before a write. ~2 s.
-const COL_SAVE_DEBOUNCE_TICKS: u32 = 20;
+/// with a stable column signature before a write and re-snap. Kept short
+/// (~600 ms) so the min/max correction feels like it fires on mouse release,
+/// while still long enough to absorb one tick's worth of drag jitter.
+const COL_SAVE_DEBOUNCE_TICKS: u32 = 6;
+
+/// Ticks (100 ms each) with a stable playlist width before the columns are
+/// reflown to the new window width. Deferring until the width settles lets the
+/// window resize freely (fixes the slow grow) while still snapping the columns
+/// to the new width shortly after the user stops resizing. ~300 ms.
+const VIEW_W_SETTLE_TICKS: u32 = 3;
 
 slint::include_modules!();
 
@@ -160,6 +168,7 @@ pub struct MusicApp {
     tray_up_tx: Option<tokio::sync::mpsc::UnboundedSender<tray::TrayState>>,
     last_tray_update: Instant,
     last_view_width: f32,
+    view_w_settle_ticks: u32,
     col_model_sig: u64,
     col_sig_stable_ticks: u32,
     settings_draft: Option<Settings>,
@@ -271,6 +280,7 @@ impl MusicApp {
             tray_up_tx: Some(tray_up_tx),
             last_tray_update: Instant::now(),
             last_view_width: 0.0,
+            view_w_settle_ticks: 0,
             col_model_sig: 0,
             col_sig_stable_ticks: 0,
             settings_draft: None,
@@ -889,9 +899,19 @@ impl MusicApp {
         self.push_tray_status();
 
         let w = self.ui.get_playlist_view_width() as f32;
-        if (w - self.last_view_width).abs() > 1.0 && w > 100.0 {
-            self.update_column_widths();
+        // Reflow the columns only after the playlist width has settled, not on
+        // every tick while the window is being resized. Rewriting column widths
+        // live during a window grow fights the resize and makes it crawl; by
+        // deferring until the width is stable (~few ticks) the window resizes
+        // freely and fast, and the columns re-snap once the user lets go.
+        if w > 100.0 && (w - self.last_view_width).abs() > 1.0 {
             self.last_view_width = w;
+            self.view_w_settle_ticks = 0;
+        } else if w > 100.0 {
+            self.view_w_settle_ticks = self.view_w_settle_ticks.saturating_add(1);
+            if self.view_w_settle_ticks == VIEW_W_SETTLE_TICKS {
+                self.update_column_widths();
+            }
         }
 
         let sig = self.compute_col_sig();
