@@ -8,7 +8,7 @@ use std::time::Instant;
 
 use rfd::FileDialog;
 use slint::{ComponentHandle, Model, ModelRc, SharedString, StandardListViewItem, VecModel};
-use slint::language::TableColumn;
+use slint::language::{SortOrder, TableColumn};
 
 use music_player_rs::audio::output::{default_device_name, probe_output};
 use music_player_rs::audio::player::Player;

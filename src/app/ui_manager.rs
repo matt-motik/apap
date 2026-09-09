@@ -356,6 +356,15 @@ impl MusicApp {
                 let mut tc = TableColumn::default();
                 tc.title = c.label().into();
                 tc.width = w.into();
+                tc.sort_order = if Some(*c) == self.settings.settings.sorted_col {
+                    if self.settings.settings.sort_desc {
+                        SortOrder::Descending
+                    } else {
+                        SortOrder::Ascending
+                    }
+                } else {
+                    SortOrder::Unsorted
+                };
                 tc
             })
             .collect()
