@@ -142,6 +142,8 @@ export component AppWindow inherits Window {
     callback volume-changed(float);
     callback toggle-mute();
     callback play-track(int);
+    callback scroll-to-row(int);
+    scroll-to-row(idx) => { playlist_view_width.do-scroll-to-row(idx); }
     callback sort-ascending(int);
     callback sort-descending(int);
     callback open-settings();

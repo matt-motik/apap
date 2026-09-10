@@ -2,8 +2,8 @@
 //!
 //! The table must always fill the container width exactly (no horizontal
 //! scrollbar) while respecting per-column minimum/maximum constraints. The
-//! user's preferred proportions live in `Settings::column_widths` as
-//! percentages; this module resolves them into pixel widths.
+//! user's preferred proportions live in `Settings::columns[key].width`
+//! (or `priority` as fallback); this module resolves them into pixel widths.
 //!
 //! The distributor is a pure function ([`resolve_widths`]) so all the
 //! degenerate cases of the spec are unit-tested: too-narrow window, columns
@@ -40,29 +40,6 @@ impl ColumnLimit {
     }
 }
 
-/// Static per-column defaults. Absolute pixel caps for short/numeric columns,
-/// relative (fraction-of-container) caps for wide text columns. Values are
-/// tuned for a roughly 900px playlist view; leave a couple of columns with a
-/// generous `max_pct` so extra space has somewhere to go.
-pub fn column_limit(id: ColumnId) -> ColumnLimit {
-    match id {
-        ColumnId::Index => ColumnLimit { min_px: 24.0, max_px: Some(48.0), max_pct: None },
-        ColumnId::TrackNumber => ColumnLimit { min_px: 44.0, max_px: Some(84.0), max_pct: None },
-        ColumnId::Title => ColumnLimit { min_px: 120.0, max_px: None, max_pct: Some(0.60) },
-        ColumnId::Artist => ColumnLimit { min_px: 90.0, max_px: None, max_pct: Some(0.45) },
-        ColumnId::Album => ColumnLimit { min_px: 90.0, max_px: None, max_pct: Some(0.45) },
-        ColumnId::Genre => ColumnLimit { min_px: 80.0, max_px: None, max_pct: Some(0.30) },
-        ColumnId::Year => ColumnLimit { min_px: 44.0, max_px: Some(72.0), max_pct: None },
-        ColumnId::Format => ColumnLimit { min_px: 52.0, max_px: Some(96.0), max_pct: None },
-        ColumnId::Bitrate => ColumnLimit { min_px: 70.0, max_px: Some(130.0), max_pct: None },
-        ColumnId::BitDepth => ColumnLimit { min_px: 64.0, max_px: Some(110.0), max_pct: None },
-        ColumnId::SampleRate => ColumnLimit { min_px: 90.0, max_px: Some(140.0), max_pct: None },
-        ColumnId::Duration => ColumnLimit { min_px: 56.0, max_px: Some(100.0), max_pct: None },
-        ColumnId::FileName => ColumnLimit { min_px: 110.0, max_px: None, max_pct: Some(0.60) },
-        ColumnId::FilePath => ColumnLimit { min_px: 130.0, max_px: None, max_pct: Some(0.70) },
-    }
-}
-
 /// Resolve the pixel widths of the visible columns so they fill `container_w`
 /// exactly while respecting per-column minima/maxima.
 ///
@@ -73,6 +50,9 @@ pub fn column_limit(id: ColumnId) -> ColumnLimit {
 /// their headroom (growable `max - w`, shrinkable `w - min`). If everything is
 /// pinned, the delta is spread evenly as a last-resort fallback.
 ///
+/// `limits[i]` provides the width constraints for column `i`. Build this
+/// slice from `Settings::columns` via [`crate::settings::ColumnCfg::to_limit`].
+///
 /// Degenerate window: when `container_w` is narrower than the sum of minima,
 /// the minima are ignored and every column is scaled down proportionally so
 /// the UI does not collapse.
@@ -80,11 +60,21 @@ pub fn column_limit(id: ColumnId) -> ColumnLimit {
 /// Rounding: every column except the last is rounded down; the last one
 /// absorbs the fractional remainder so the returned widths sum to exactly
 /// `container_w`.
-pub fn resolve_widths(container_w: f32, ids: &[ColumnId], ratios: &[f32]) -> Vec<f32> {
+pub fn resolve_widths(
+    container_w: f32,
+    ids: &[ColumnId],
+    ratios: &[f32],
+    limits: &[ColumnLimit],
+) -> Vec<f32> {
     assert_eq!(
         ids.len(),
         ratios.len(),
         "resolve_widths: ids/ratios length mismatch"
+    );
+    assert_eq!(
+        ids.len(),
+        limits.len(),
+        "resolve_widths: ids/limits length mismatch"
     );
     let n = ids.len();
     if n == 0 {
@@ -108,28 +98,22 @@ pub fn resolve_widths(container_w: f32, ids: &[ColumnId], ratios: &[f32]) -> Vec
         })
         .collect();
 
-    let min_sum: f32 = ids.iter().map(|id| column_limit(*id).min_px).sum();
+    let min_sum: f32 = limits.iter().map(|l| l.min_px).sum();
     if container_w < min_sum {
-        // Degenerate window: narrower than the sum of minima. Shrink every
-        // column proportionally to its ratio, ignoring the minima entirely so
-        // the UI cannot collapse. No correction loop — it would only fight the
-        // too-narrow container.
         let widths: Vec<f32> = norm.iter().map(|r| r * container_w).collect();
         return round_fill(widths, container_w);
     }
 
-    // Ideal width per column, clamped to [min, effective_max].
     let mut widths: Vec<f32> = (0..n)
         .map(|i| {
             let raw = norm[i] * container_w;
-            let lim = column_limit(ids[i]);
+            let lim = &limits[i];
             let max_eff = lim.effective_max(container_w);
             let min_eff = lim.min_px.min(max_eff);
             raw.clamp(min_eff, max_eff)
         })
         .collect();
 
-    // Iterative correction: rebalance delta against column headroom.
     for _ in 0..7 {
         let total: f32 = widths.iter().sum();
         let delta = container_w - total;
@@ -138,8 +122,8 @@ pub fn resolve_widths(container_w: f32, ids: &[ColumnId], ratios: &[f32]) -> Vec
         }
         let mut weight_sum = 0.0;
         let mut weights = Vec::with_capacity(n);
-        for (i, id) in ids.iter().enumerate() {
-            let lim = column_limit(*id);
+        for (i, _id) in ids.iter().enumerate() {
+            let lim = &limits[i];
             let weight = if delta > 0.0 {
                 (lim.effective_max(container_w) - widths[i]).max(0.0)
             } else {
@@ -149,7 +133,6 @@ pub fn resolve_widths(container_w: f32, ids: &[ColumnId], ratios: &[f32]) -> Vec
             weight_sum += weight;
         }
         if weight_sum <= 0.0 {
-            // Everything is pinned (e.g. all at their maxima) — spread evenly.
             let share = delta / n as f32;
             for w in widths.iter_mut() {
                 *w = (*w + share).max(0.0);
@@ -164,8 +147,6 @@ pub fn resolve_widths(container_w: f32, ids: &[ColumnId], ratios: &[f32]) -> Vec
     round_fill(widths, container_w)
 }
 
-/// Round down all but the last width; the last column absorbs the fractional
-/// remainder so the sum is exactly `container_w`.
 fn round_fill(widths: Vec<f32>, container_w: f32) -> Vec<f32> {
     let n = widths.len();
     if n < 2 {
@@ -181,6 +162,10 @@ fn round_fill(widths: Vec<f32>, container_w: f32) -> Vec<f32> {
 mod tests {
     use super::*;
 
+    fn lim(min: f32, max_px: Option<f32>, max_pct: Option<f32>) -> ColumnLimit {
+        ColumnLimit { min_px: min, max_px, max_pct }
+    }
+
     fn sum_close(actual: &[f32], expected: f32) {
         let total: f32 = actual.iter().sum();
         assert!(
@@ -193,65 +178,90 @@ mod tests {
 
     #[test]
     fn degenerate_narrow_window_ignores_minima() {
-        // Sum of minima = 24 + 120 + 90 = 234 > 50.
-        let ids = [ColumnId::Index, ColumnId::Title, ColumnId::Artist];
-        let out = resolve_widths(50.0, &ids, &[5.0, 22.0, 15.0]);
+        let ids = [ColumnId::NowPlaying, ColumnId::Title, ColumnId::Artist];
+        let limits = [
+            lim(24.0, Some(36.0), None),
+            lim(120.0, None, Some(0.60)),
+            lim(90.0, None, Some(0.45)),
+        ];
+        let out = resolve_widths(50.0, &ids, &[5.0, 22.0, 15.0], &limits);
         sum_close(&out, 50.0);
         assert!(out.iter().all(|w| *w >= 0.0));
-        for (id, w) in ids.iter().zip(&out) {
+        for (lim, w) in limits.iter().zip(&out) {
             assert!(
-                *w <= column_limit(*id).min_px + 1.0,
-                "degenerate shrink violated min (by design) for {id:?}: {w}"
+                *w <= lim.min_px + 1.0,
+                "degenerate shrink violated min (by design): {w}"
             );
         }
     }
 
     #[test]
     fn wide_window_respects_caps_and_fills() {
-        let ids = [ColumnId::Index, ColumnId::Title, ColumnId::Artist];
-        let out = resolve_widths(5000.0, &ids, &[5.0, 22.0, 15.0]);
+        let ids = [ColumnId::NowPlaying, ColumnId::Title, ColumnId::Artist];
+        let limits = [
+            lim(24.0, Some(36.0), None),
+            lim(120.0, None, Some(0.60)),
+            lim(90.0, None, Some(0.45)),
+        ];
+        let out = resolve_widths(5000.0, &ids, &[5.0, 22.0, 15.0], &limits);
         sum_close(&out, 5000.0);
-        assert!(out[0] <= 48.0, "Index capped at 48px: {out:?}");
-        let title_max = column_limit(ColumnId::Title).effective_max(5000.0);
-        let artist_max = column_limit(ColumnId::Artist).effective_max(5000.0);
+        assert!(out[0] <= 36.0, "NowPlaying capped at 36px: {out:?}");
+        let title_max = limits[1].effective_max(5000.0);
+        let artist_max = limits[2].effective_max(5000.0);
         assert!(out[1] <= title_max + 0.01, "Title over cap: {out:?}");
         assert!(out[2] <= artist_max + 0.01, "Artist over cap: {out:?}");
     }
 
     #[test]
     fn reenable_column_rebalances_respecting_minima() {
-        // Even split at 900px: each ideal = 225, all above their minima.
         let ids = [ColumnId::Title, ColumnId::Artist, ColumnId::Album, ColumnId::Genre];
-        let out = resolve_widths(900.0, &ids, &[1.0, 1.0, 1.0, 1.0]);
+        let limits = [
+            lim(120.0, None, Some(0.60)),
+            lim(90.0, None, Some(0.45)),
+            lim(90.0, None, Some(0.45)),
+            lim(80.0, None, Some(0.30)),
+        ];
+        let out = resolve_widths(900.0, &ids, &[1.0, 1.0, 1.0, 1.0], &limits);
         sum_close(&out, 900.0);
-        for (id, w) in ids.iter().zip(&out) {
-            assert!(*w >= column_limit(*id).min_px - 0.01, "{id:?} below min: {w}");
+        for (lim, w) in limits.iter().zip(&out) {
+            assert!(*w >= lim.min_px - 0.01, "column below min: {w}");
         }
     }
 
     #[test]
     fn pinned_columns_get_even_fallback_spread() {
-        // Title max 60% of 300 = 180; Artist max 45% of 300 = 135. A very
-        // lopsided preference leaves headroom only in less-favoured columns.
         let ids = [ColumnId::Title, ColumnId::Artist];
-        let out = resolve_widths(300.0, &ids, &[0.9, 0.1]);
+        let limits = [
+            lim(120.0, None, Some(0.60)),
+            lim(90.0, None, Some(0.45)),
+        ];
+        let out = resolve_widths(300.0, &ids, &[0.9, 0.1], &limits);
         sum_close(&out, 300.0);
         assert!(out[0] <= 180.0 + 0.01, "Title should pin at max: {out:?}");
-        assert!(out[1] >= column_limit(ColumnId::Artist).min_px - 0.01);
+        assert!(out[1] >= limits[1].min_px - 0.01);
     }
 
     #[test]
     fn rounding_sum_matches_container_exactly() {
         let ids = [ColumnId::Artist, ColumnId::Duration, ColumnId::SampleRate];
-        let out = resolve_widths(713.257, &ids, &[15.0, 5.0, 5.0]);
+        let limits = [
+            lim(90.0, None, Some(0.45)),
+            lim(56.0, Some(100.0), None),
+            lim(90.0, Some(140.0), None),
+        ];
+        let out = resolve_widths(713.257, &ids, &[15.0, 5.0, 5.0], &limits);
         sum_close(&out, 713.257);
     }
 
     #[test]
     fn ratios_need_not_sum_to_one() {
         let ids = [ColumnId::Title, ColumnId::Artist];
-        let a = resolve_widths(600.0, &ids, &[30.0, 10.0]);
-        let b = resolve_widths(600.0, &ids, &[0.75, 0.25]);
+        let limits = [
+            lim(120.0, None, Some(0.60)),
+            lim(90.0, None, Some(0.45)),
+        ];
+        let a = resolve_widths(600.0, &ids, &[30.0, 10.0], &limits);
+        let b = resolve_widths(600.0, &ids, &[0.75, 0.25], &limits);
         sum_close(&a, 600.0);
         for (x, y) in a.iter().zip(&b) {
             assert!((x - y).abs() < 0.01, "{x} vs {y}");

@@ -183,6 +183,10 @@ pub struct MusicApp {
     events_rx: std::sync::mpsc::Receiver<AppEvent>,
     /// Delta-synced playback values last pushed to the UI.
     last_ui: UiState,
+    /// Double-click detection: row of the previous single-click.
+    last_click_row: Option<i32>,
+    /// Double-click detection: timestamp of the previous single-click.
+    last_click_time: Instant,
 }
 
 impl MusicApp {
@@ -291,6 +295,8 @@ impl MusicApp {
             events_tx,
             events_rx,
             last_ui: UiState::default(),
+            last_click_row: None,
+            last_click_time: Instant::now(),
         };
         app.rebuild_shuffle();
         if let Some(col) = app.settings.settings.sorted_col {
@@ -332,6 +338,13 @@ impl MusicApp {
             ui.on_play_pause(move || {
                 eprintln!("[gui] play_pause");
                 let mut a = app.borrow_mut();
+                if !a.player.has_decoder() {
+                    let idx = a.current.unwrap_or(0);
+                    if idx < a.tracks.len() {
+                        a.play_track(idx);
+                    }
+                    return;
+                }
                 a.player.toggle();
                 if a.player.is_playing() {
                     a.emit(AppEvent::PlaybackStarted);
@@ -434,12 +447,20 @@ impl MusicApp {
             });
         }
 
-        // 10. play-track
+        // 10. play-track (double-click detection: single click selects, double-click plays)
         {
             let app = this.clone();
             ui.on_play_track(move |index| {
                 eprintln!("[gui] play_track index={index}");
-                app.borrow_mut().play_track(index as usize);
+                let mut a = app.borrow_mut();
+                let now = Instant::now();
+                let is_double = a.last_click_row == Some(index)
+                    && now.duration_since(a.last_click_time).as_millis() < 400;
+                a.last_click_row = Some(index);
+                a.last_click_time = now;
+                if is_double {
+                    a.play_track(index as usize);
+                }
             });
         }
 
@@ -667,12 +688,14 @@ impl MusicApp {
                 eprintln!("[gui] settings_reset_cols");
                 let mut a = app.borrow_mut();
                 let s = a.settings_mut();
-                // Reset only the width proportions to their defaults; the
-                // current visibility and column order are kept.
+                // Reset only the width proportions to their config priorities;
+                // the current visibility and column order are kept.
                 let visible = s.visible_columns();
                 for c in visible {
-                    let w = music_player_rs::settings::default_column_width(c);
-                    s.column_widths.insert(c.key().to_string(), w);
+                    let pri = s.column_width_pct(c);
+                    if let Some(cfg) = s.columns.get_mut(c.key()) {
+                        cfg.width = Some(pri);
+                    }
                 }
                 s.normalize_visible_pct();
                 a.sync_dialog_cols();

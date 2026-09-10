@@ -160,7 +160,7 @@ impl MusicApp {
     }
 
     pub(super) fn apply_sort(&mut self, col: ColumnId, desc: bool) {
-        if col == ColumnId::Index {
+        if col == ColumnId::NowPlaying {
             return;
         }
         let n = self.tracks.len();

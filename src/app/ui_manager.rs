@@ -50,7 +50,7 @@ impl MusicApp {
             .map(|c| {
                 let mut cs = ColumnSetting::default();
                 cs.index = ordered.iter().position(|x| x == c).unwrap_or(0) as i32;
-                cs.label = c.label().into();
+                cs.label = s.column_title(*c).into();
                 cs.visible = s.column_visible(*c);
                 cs.width_pct = s.column_width_pct(*c);
                 cs
@@ -75,6 +75,9 @@ impl MusicApp {
         self.ui
             .set_col_info_w(s.col_info_w);
         self.ui.set_col_gap(s.col_gap);
+        self.ui.set_shuffle(self.shuffle);
+        self.ui.set_repeat(self.repeat == RepeatMode::All);
+        self.ui.set_repeat_one(self.repeat == RepeatMode::One);
         self.ui
             .set_settings_cols(ModelRc::from(self.dialog_cols_model().as_slice()));
     }
@@ -271,11 +274,11 @@ impl MusicApp {
             .iter()
             .map(|c| {
                 let text = match c {
-                    ColumnId::Index => {
+                    ColumnId::NowPlaying => {
                         if self.current == Some(index) {
-                            ">".to_string()
+                            "\u{25B6}".to_string()
                         } else {
-                            format!("{}", index + 1)
+                            String::new()
                         }
                     }
                     ColumnId::TrackNumber => fmt_num(t.track_number, t.track_total).to_string(),
@@ -287,7 +290,7 @@ impl MusicApp {
                     ColumnId::Format => empty_dash(&t.format).to_string(),
                     ColumnId::Bitrate => {
                         if t.bitrate > 0 {
-                            format!("{} kbps", t.bitrate)
+                            t.bitrate.to_string()
                         } else {
                             "—".to_string()
                         }
@@ -348,13 +351,17 @@ impl MusicApp {
             .iter()
             .map(|c| self.settings.settings.column_width_pct(*c))
             .collect();
-        let widths = music_player_rs::playlist_layout::resolve_widths(view_w, &ids, &ratios);
+        let limits: Vec<music_player_rs::playlist_layout::ColumnLimit> = ids
+            .iter()
+            .filter_map(|c| self.settings.settings.column_cfg(*c).map(|cfg| cfg.to_limit()))
+            .collect();
+        let widths = music_player_rs::playlist_layout::resolve_widths(view_w, &ids, &ratios, &limits);
 
         ids.iter()
             .zip(widths)
             .map(|(c, w)| {
                 let mut tc = TableColumn::default();
-                tc.title = c.label().into();
+                tc.title = self.settings.settings.column_title(*c).into();
                 tc.width = w.into();
                 tc.sort_order = if Some(*c) == self.settings.settings.sorted_col {
                     if self.settings.settings.sort_desc {
@@ -418,15 +425,18 @@ impl MusicApp {
         if visible_cols.len() != len {
             return;
         }
-        // Clamp the dragged pixel widths to the per-column bounds before
-        // converting them to percentages, so the post-debounce rebuild snaps
-        // to the same clamped layout and the column signature stays stable
-        // (no save/rebuild ping-pong).
         let view_w = self.ui.get_playlist_view_width().max(100.0);
         let mut px: Vec<f32> = Vec::with_capacity(len);
         for (i, col_id) in visible_cols.iter().enumerate() {
             if let Some(tc) = cols.row_data(i) {
-                let lim = music_player_rs::playlist_layout::column_limit(*col_id);
+                let lim = self.settings.settings
+                    .column_cfg(*col_id)
+                    .map(|cfg| cfg.to_limit())
+                    .unwrap_or(music_player_rs::playlist_layout::ColumnLimit {
+                        min_px: 0.0,
+                        max_px: None,
+                        max_pct: None,
+                    });
                 let max_eff = lim.effective_max(view_w);
                 let min_eff = lim.min_px.min(max_eff);
                 px.push(tc.width.clamp(min_eff, max_eff));
@@ -438,7 +448,9 @@ impl MusicApp {
         }
         for (col_id, w) in visible_cols.iter().zip(px) {
             let pct = (w / total_px) * 100.0;
-            self.settings.settings.column_widths.insert(col_id.key().to_string(), pct);
+            if let Some(cfg) = self.settings.settings.columns.get_mut(col_id.key()) {
+                cfg.width = Some(pct);
+            }
         }
         // Persisted at exit (save-at-exit).
     }

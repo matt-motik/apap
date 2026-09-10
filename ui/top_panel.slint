@@ -164,8 +164,8 @@ export component TopPanel inherits Rectangle {
                 }
 
                 IconButton {
-                    icon: @image-url("icons/repeat.svg");
-                    active: root.repeat;
+                    icon: root.repeat-one ? @image-url("icons/repeat-one.svg") : @image-url("icons/repeat.svg");
+                    active: root.repeat || root.repeat-one;
                     clicked => { root.toggle-repeat(); }
                 }
 

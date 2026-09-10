@@ -1,128 +1,70 @@
 # _STATE_ — рабочее состояние сессии
 
 > Точка входа для любой новой сессии (другая машина, другой агент, обрыв токенов/dead-loop).
-> Обновляется в конце каждого шага и коммитится вместе с изменениями кода.
+> Обновляется в конце каждого шага и коммится вместе с изменениями кода.
 
 ## Статус
 
-- **Состояние:** `in_progress` — задача «Уменьшение шрифта заголовков колонок» (форк StandardTableView, 11px).
+- **Состояние:** `done` — рефакторинг системы колонок плейлиста завершён и подтверждён пользователем вживую.
 
 ## Активная задача
 
-- **Уменьшить шрифт названий колонок до 11px** (сейчас дефолт material ~14px). Решение: форк `material/tableview.slint` в проект. `TableColumn.sort_order`/стрелки сортировки (4.11) сохранены.
-- Причина форка: прямого свойства для шрифта заголовка у `StandardTableView` нет, а из файла проекта импортируются **только** `std-widgets.slint`; внутренности material (`components.slint`/StateLayer, `styling.slint`/MaterialPalette/Icons, `common/listview.slint`) из проекта недоступны (`typeloader.rs:1703-1707`). Информация из внешнего источника (my-style.slint через `inherits` + переопределение `header-area`) **проверена и неверна**: `inherits`-компонент не может переопределять/добавлять дочерние элементы базы (эмпирический тест: `error: 'BaseInherits' cannot have children. Only components with @children...`).
-- Параметры пользователя: font-size **11px**; StateLayer/ripple — **копировать целиком** (не упрощать до TouchArea).
+Нет. Текущая задача (конфиг-driven `[columns]` + now-playing + dbl-click + scroll-to-playing + кнопка repeat) выполнена и проверена. Следующая задача — по решению пользователя (ROADMAP.md / инбокс `_TODO_/`).
 
-## Выполнено в этой сессии
+## Выполнено
 
-- **Задача «Уменьшение шрифта заголовков» (новая):**
-  - `ui/fork_components.slint` (новый): Ripple + StateLayer из `material/components.slint`, **без ListItem** (он ссылается на недоступные MaterialPalette/MaterialSizeSettings). Ripple/StateLayer потребляют ввод через параметры — стиль не нужен.
-  - `ui/tableview_fork.slint` (новый): полная копия `material/tableview.slint` (+SPDX) с диффами:
-    - `import { ListView, Palette } from "std-widgets.slint";` вместо `../common/listview.slint` + `MaterialPalette` (`ListView`/`Palette` экспортируются наружу; `accent-ripple` → `control-foreground`).
-    - `import { StateLayer } from "fork_components.slint";` вместо `"components.slint"`.
-    - Стрелка сортировки: `Text` «▲/▼» (9px) вместо material `Icons.arrow-upward/downward` (не тащить SVG-иконки).
-    - **Заголовок: `font-size: 11px`** у `Text` в `TableViewColumn` (строки ~198-203). Ячейки строк (`Text` в `TableViewCell`) не тронуты — только заголовок.
-    - Вся механика (`sort()`, `set-current-row`, `row-pointer-event`, listview, min/max-width колонок, фикс `max-width` — на инстансе в playlist.slint) идентична апстриму.
-  - `ui/playlist.slint`: `import { StandardTableView } from "./tableview_fork.slint";` вместо `"std-widgets.slint"`.
-  - build ok; тесты 55 lib + 6 bin зелёные; clippy без новых предупреждений от форка.
-  - Ещё не закоммичено.
-- **Маркер сортировки (4.11, закоммичено `a3da46b`):** стрелки работают — подтвердил пользователь.
-- **Задача 4.10 (прошлый шаг, закоммичено):** см. ниже.
+### ColumnCfg и конфиг-driven колонки
+- `ColumnCfg` struct в `src/settings.rs`: title, priority, min_width, max_width, max_width_percent, visible, column_type, width
+- `default_columns()` — 14 колонок с русскими заголовками и tuned limits
+- `Settings`: `columns: HashMap<String, ColumnCfg>`, `scroll_to_playing: bool`, `column_order: Vec<String>`
+- Методы: `column_cfg()`, `column_title()`, `column_visible()`, `column_width_pct()`, `normalize_visible_pct()`, `enable_column()`, `disable_column()`, `ordered_columns()`, `move_column()`
+- `LegacySettings` + `migrate_legacy_columns()` для миграции старого TOML
 
-## Выполнено в прошлой сессии (задача 4.10, закоммичено)
+### NowPlaying колонка
+- `ColumnId::Index` → `ColumnId::NowPlaying` (ключ `"now_playing"`)
+- `build_row()`: показывает `▶` для текущего трека
+- `apply_sort()` и `sort_rows_text/compare` — блокируют/обрабатывают `NowPlaying`
+- Bitrate отображается без «kbps»
 
-- Задача A: создана `_DRAFTS_/`, `визуализация.txt` перенесён (коммит `714034b`).
-- Задача B: инбокс `_TODO_/playlist.txt` + диффы → ROADMAP 4.10, файлы в `_TODO_/done/` (коммит `714034b`).
-- **Задача 4.10 (частично):** «плавный пересчёт только ширин»:
-  - `MusicApp.playlist_cols: Rc<VecModel<TableColumn>>` — постоянная модель колонок, подключена к UI один раз в `new()`.
-  - `update_column_widths` → точечное `set_row_data(i, col)` только при изменении `.width`; пересоздание модели (`set_vec`) — только при смене состава/порядка/видимости. Ресайз окна больше не пересоздаёт `ModelRc`, не дергает и не даёт ширинам колонок зажимать окно.
-  - `sync_playlist_to_ui` → `playlist_cols.set_vec(cols)` (полная переустановка после применения колонок в Settings Save).
-  - **Стабилизационный рефлоу по ширине окна** (`VIEW_W_SETTLE_TICKS=3`, ~300 мс): колонки пересчитываются не каждый тик при ресайзе окна, а после стабилизации `visible-width`. Фикс медленного роста окна (перезапись ширин вживую боролась с растягиванием окна и оно ползло). Окно теперь ресайзится свободно/быстро.
-  - **Сокращён debounce драга колонки** (`COL_SAVE_DEBOUNCE_TICKS` 20→6, ~600 мс): корректировка мин/макс после отпускания срабатывает заметно быстрее (было ~2 с).
-- **Задача 4.10 (шаг 3, фикс медленного роста через preferred-width):**
-  - Наблюдение пользователя: рост по горизонтали медленный, по вертикали быстрый; окно растёт быстро «до размера таблицы», сверх него ползёт; одинаково для любой длины плейлиста → не рендер таблицы.
-  - Причина: `Window { preferred-width: 1200px }` в `ui/app.slint` — окно «притягивается» к preferred-width и сопротивляется горизонтальному росту сверх него (замедление), пока окончательно не превысит.
-  - Фикс: убран `preferred-width/height` у окна (растёт свободно/быстро), добавлен fallback-дефолт `logical 1200x760` в `apply_window_geometry` для первого запуска (без сохранённой геометрии, иначе окно схлопнулось бы к min содержимого).
-  - **НО пользователь перепроверил свежую сборку (с удалённым preferred-width): фикс НЕ помог.** Новое наблюдение: таблица «заморожена на момент клика» (не реагирует на уменьшение/увеличение до превышения её текущего размера), граница окна срезает/показывает последний отрисованный кадр; при превышении окном размера таблицы — срабатывает перерисовка; при медленном ведении — норм; «ощущение что срабатывает дебаунс».
-  - Это и есть стабилизационный дебаунс `VIEW_W_SETTLE_TICKS=3`: пока ширина не стабильна ~300мс, колонки не трогаем → при непрерывном ресайзе таблица выглядит «мёртвой». Причина замедления/«заморозки» — НЕ preferred-width, а НЕсинхронность колонок с окном: material таблица жёстко фиксирована суммой column.width, и окно, растягиваясь за неё, упирается.
-  - **Решение (шаг 3): синхронный рефлоу по ширине — убран стабилизационный дебаунс, колонки пересчитываются при каждом значимом изменении `visible-width` (>1px) лёгким `update_column_widths()` (set_row_data по `.width`).** Окно никогда «не перегоняет» таблицу → нет борьбы с фиксированной шириной. Поле `view_w_settle_ticks` и константа `VIEW_W_SETTLE_TICKS` удалены.
-- **Задача 4.10 (шаг 4, быстрый таймер рефлоу — ОТКАТ):**
-  - Пользователь проверил синхронный рефлоу: сжатие окна синхронно с мышью, но **рост отстаёт**. Гипотеза: рефлоу живёт в общем 100мс тике → при быстром росте колонки догоняют мышь шагами ≤10 раз/с.
-  - Добавлен отдельный быстрый таймер `reflow()` на 16 мс. **СТАЛО ПЛОХО**: уменьшение тоже отстаёт; увеличение отстаёт ещё сильнее; **сужение колонки уменьшает размер окна**.
-- **Задача 4.10 (шаг 5, КОРНЕВОЙ ФИКС):**
-  - **Причина всего найдена в исходниках Slint** (`material/tableview.slint:194,237`): каждая колонка зажата `min-width = preferred-width = max-width = max(column.min-width, column.width)` → **max-ширина таблицы = Σ column.width**.
-  - winit-бэкенд берёт `layout_constraints` корневого VerticalLayout и ставит окну `set_max_inner_size` = Σ колонок (`winitwindowadapter.rs:1422`), плюс принудительно подгоняет текущий размер окна под [min,max] (`adjust_window_size_to_satisfy_constraints`). Отсюда: рост окна упирается в Σ колонок (стена); сужение колонки драгом уменьшает Σ → падает max окна → **окно само сжимается**. preferred-width окна ни при чём — поэтому удаление не помогло; живая перезапись ширин на 60Гц (16мс) только усугубляла «борьбу».
-  - **Фикс:** 1) `max-width: 10000px` у `StandardTableView` в `ui/playlist.slint` — разрывает связь размера окна с Σ колонок (окно ресайзится свободно, не сжимается колонкой); 2) `reflow()` переделана: во время ресайза колонки **заморожены**, а после стабилизации ширины на `REFLOW_SETTLE_TICKS=4` (~64мс ≈ релиз мыши) — один `update_column_widths()`. Ручной пересчёт на каждый тик убран.
-- Верификация (шаг 5): build ok; тесты 55 lib + 6 bin зелёные.
-- Баг-раунды 1–3 (коммиты `432136b`, `d570755` [пользователь], `9e47385`, `ddb9ee3`) — см. прошлые сессии.
-- **Роунд 4 — переработка размеров колонок плейлиста** (задача из `_TODO_/COLUMN_WIDTH_IMPLEMENTATION.md`, спек переведён на реальную архитектуру):
-  - Новый модуль `src/playlist_layout.rs`: `ColumnLimit { min_px, max_px, max_pct }`, `column_limit(id)` для всех 14 колонок, и чистый итеративный распределитель `resolve_widths(container_w, ids, ratios)`:
-    - идеал `ratio·W` с клэмпом `[min, min(max_px, W·max_pct)]`;
-    - коррекция ≤7 итераций: `delta>0` — отдать колонкам с головой роста `∝(max−w)`, `delta<0` — отнять у `∝(w−min)`; всё зажато → равномерный спред;
-    - дегенеративное окно (`W < Σmin`) — пропорциональное сжатие без учёта min (UI не ломается);
-    - округление: всё кроме последней вниз, последняя поглощает остаток → сумма точно == W;
-    - `round_fill` — отдельный helper. 6 юнит-тестов (узкое окно / caps / re-enable / pinned-fallback / точность суммы / ratios ≠ 1).
-  - `src/lib.rs`: `pub mod playlist_layout;`.
-  - `build_table_columns` (ui_manager.rs) → теперь использует `resolve_widths` (вместо наивного `pct/100*W + остаток`).
-  - `save_column_widths_from_ui` → сначала клэмп px-ширин драга границами `column_limit` (по текущему view_w), затем px→pct. Стабильный sig: без пинг-понга debounce, «резинка» при драге за грань. Запись на диск по-прежнему только при выходе.
-  - `ui/playlist.slint`: при `cols.length == 0` — центрированная заглушка «Нет активных колонок» (StandardTableView скрыт через `visible: cols.length > 0`; имя `view` сохранено для `view-width`).
-  - `on_settings_reset_cols` (mod.rs): Reset теперь сбрасывает **только ширины** к `default_column_width` (видимость и порядок сохраняются); `normalize_visible_pct` + `sync_dialog_cols` (draft — Edit-Commit цел).
-  - Решения пользователя: дефолты — Rust-const (не в config.toml: нет UI для правки + устаревание при обновлениях); Reset widths-only; save-at-exit; зажим после отпускания драга.
-- Верификация: build ok, clippy baseline 16 lib / 10 bin (не вырос), тесты 55 lib (49+6 новых) + 6 bin зелёные.
+### Play с первого трека
+- `Player::has_decoder()` в `src/audio/player.rs`
+- `on_play_pause`: если декодера нет — `play_track(current.unwrap_or(0))` (первый трек плейлиста)
 
-## Шаги (текущая сессия: шрифт заголовков — форк таблицы)
+### Double-click
+- Slint: `row-pointer-event` через `PointerEventKind.up` (нет `dbl-click` в enum)
+- Rust: `last_click_row` + `last_click_time` + 400ms threshold — двойной клик = play, одиночный = выделение
 
-- [x] Проверить информацию про my-style.slint (`inherits` + переопределение header-area) — **неверна** (эмпирический тест).
-- [x] `ui/fork_components.slint`: Ripple + StateLayer (без ListItem, без MaterialPalette-зависимостей).
-- [x] `ui/tableview_fork.slint`: копия material/tableview.slint; `font-size: 11px` заголовку; `ListView`/`Palette` из std-widgets; `StateLayer` из форка; стрелки ▲/▼ текстом.
-- [x] `ui/playlist.slint`: импорт `StandardTableView` из `./tableview_fork.slint`.
-- [x] build / clippy / test.
-- [ ] Руководство: ROADMAP + _STATE_ + коммит (код + _STATE_ + ROADMAP).
-- [ ] Ручная проверка пользователем: заголовки колонок стали 11px (меньше дефолта), ячейки без изменений; сортировка (стрелка ▲/▼), драг разделителя, скролл, выделение строки, ресайз окна — работают как раньше.
+### Scroll-to-playing
+- `ui/playlist.slint`: `public function do-scroll-to-row(index)` вызывает `view.set-current-row(index)`
+- `ui/app.slint`: `callback scroll-to-row(int)` → `playlist_view_width.do-scroll-to-row(idx)`
+- `playback_manager.rs`: `play_track()` вызывает `set_current_row` + `invoke_scroll_to_row` (если `scroll_to_playing: true`)
+- Настройка `scroll_to_playing: bool` (default true) в `settings.rs`
 
-## Шаги (задача 4.11 «маркер сортировки» — закоммичено `a3da46b`)
+### Кнопка repeat (Off→All→One)
+- `ui/icons/repeat-one.svg` — новая монохромная иконка 🔂
+- `cycle_repeat()` в `playback_manager.rs`; одна кнопка в top_panel.slint (repeat/repeat-one)
+- Shuffle/repeat синхронизируются из конфига при старте (`sync_settings_to_ui`)
 
-- [x] Исследовать нативный механизм сортировки material `StandardTableView` (`sort_order`, `sort()`, стрелки).
-- [x] `build_table_columns`: выставлять `tc.sort_order` из `settings.sorted_col`/`sort_desc`.
-- [x] Импорт `SortOrder` (`slint::language`).
-- [x] build / clippy / test.
-- [x] ROADMAP + _STATE_ + коммит.
-- [x] Ручная проверка пользователем — стрелки работают (подтверждено).
+### Верификация (вживую пользователем)
+- Play после старта: играет первый отображаемый трек, маркер `▶` ставится корректно
+- Режимы shuffle и repeat — корректны
+- `cargo check` — OK (warning только padding)
+- `cargo test` — 65 тестов (59 lib + 6 bin) зелёные
+- `cargo clippy` — без новых warning
 
-## Шаги (задача 4.10 — закоммичено)
+## Изменяемые файлы (коммит `CONFIG-driven-columns`)
 
-- [x] Решение пользователя: «Плавный пересчёт только ширин».
-- [x] `playlist_cols` — постоянная `VecModel`, подключение в `new()`.
-- [x] `update_column_widths` — точечное `set_row_data` только widths (при смене состава — `set_vec`).
-- [x] `sync_playlist_to_ui` — `set_vec` для полной переустановки.
-- [x] Стабилизационный рефлоу по ширине окна (`VIEW_W_SETTLE_TICKS=3`) — фикс медленного роста окна.
-- [x] Сокращён debounce драга колонки (20→6) — корректировка мин/макс быстрее после отпускания.
-- [x] Убран `preferred-width/height` окна + fallback-геометрия (первый запуск) — фикс медленного горизонтального роста окна (**не помог**, см. наблюдение ниже).
-- [x] **Синхронный рефлоу по ширине**: убран стабилизационный дебаунс; колонки пересчитываются сразу при изменении `visible-width` (>1px) лёгким `update_column_widths()` (set_row_data). Таблица всегда = ширине окна → нет «заморозки»/борьбы.
-- [x] **Быстрый таймер рефлоу** (`reflow()` на 16 мс в `main.rs`): колонки догоняют мышь при росте окна, независимо от 100мс `tick()`. (**откачено в шаге 5** — стало хуже)
-- [x] **Корневой фикс: `max-width: 10000px` у таблицы + рефлоу только после стабилизации (~64мс ≈ релиз)**. Итог для задачи 4.10.
-- [x] build / clippy / test; ROADMAP + _STATE_ обновлены.
-- [ ] Ручная проверка на живой системе (нужен дисплей): **ресайз окна не двигает/не сжимает окно колонками**, рост быстрый, колонки догоняют таблицу после релиза (рефлоу ~64мс), драг разделителя колонки (задержка после отпускания), KDE 4K «упирается в границу».
-- [ ] (Если KDE 4K-кейс не решён) — доп. диагностика ограничения размера окна.
-
-## Следующий ход
-
-- Обновить ROADMAP.md (новая задача «шрифт заголовков: форк StandardTableView», 4.12).
-- Закоммитить: `ui/tableview_fork.slint` (новый), `ui/fork_components.slint` (новый), `ui/playlist.slint` (импорт), `_STATE_.md`, `ROADMAP.md`.
-- Попросить пользователя проверить на живой системе: шрифт заголовков 11px, ячейки без изменений, вся интеракция таблицы (сортировка/драг/скролл/выделение/ресайз) работает как раньше.
-
-## Изменяемые файлы (текущий шаг)
-
-- `ui/tableview_fork.slint` (новый — форк material/tableview.slint, заголовок 11px)
-- `ui/fork_components.slint` (новый — Ripple + StateLayer без ListItem)
-- `ui/playlist.slint` (импорт `StandardTableView` из `./tableview_fork.slint`)
-- `_STATE_.md`, `ROADMAP.md`
-
-## Риск / стоп-условие
-
-- Сохранение настроек завязано на `save_window_geometry()` на выходе: при новом выходе из приложения — не забыть.
-- `remove_track` синхронизирует disk_tracks по пути: при «одинаковых» путях возможна потеря записи при удалении одной из них.
-- Лимиты колонок подобраны «на глаз» — после ручной проверки подстроить `column_limit()`.
-- Встроенный виджет Slint позволяет выходить за границы во время активного драга (до отпускания); возврат — на debounce (0.6с). H-scrollbar возможен транзиентно во время овердрага.
-- **KDE 4K «упирается в границу»**: вероятная причина та же — лимит max-размера окна из корневого layout. `max-width: 10000px` у таблицы должен убрать и его. Нужна живая проверка; если останется — копать slint-window resize limits / geometry scale / другие дочерние элементы с фиксированным max-width (TopPanel/StatusBar).
-- **Рефлоу после релиза**: колонки во время ресайза «висят» (не пересчитываются) до релиза/стабилизации (~64мс) — это осознанный компромисс по дизайну пользователя «пересчёт только на релиз». Если «висящие» колонки визуально раздражают при медленном ресайзе — подобрать `REFLOW_SETTLE_TICKS` (больше = точнее детект конца ресайза, но дольше «висят»).
+- `src/settings.rs` — ColumnCfg, Settings, migration
+- `src/playlist_layout.rs` — resolve_widths с limits параметром
+- `src/app/ui_manager.rs` — build_row (▶), build_table_columns, save_column_widths, dialog_cols_model
+- `src/app/playback_manager.rs` — play_track (set_current_row + invoke_scroll_to_row), cycle_repeat
+- `src/app/playlist_manager.rs` — apply_sort (NowPlaying guard)
+- `src/app/mod.rs` — on_play_pause (has_decoder), double-click detection, reset_columns
+- `src/audio/player.rs` — has_decoder()
+- `src/playlist.rs` — sort_rows_text/compare (NowPlaying)
+- `ui/playlist.slint` — do-scroll-to-row function
+- `ui/app.slint` — scroll-to-row callback
+- `ui/top_panel.slint` — кнопка repeat (repeat/repeat-one)
+- `ui/icons/repeat-one.svg` — новая иконка
+- `ROADMAP.md` — пункт 4.12
+- `_STATE_.md`

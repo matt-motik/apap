@@ -250,6 +250,10 @@ match next {
                 self.refresh_playlist_rows_at(prev_current);
                 self.refresh_playlist_rows_at(self.current);
                 self.sync_track_info_to_ui();
+                self.ui.set_current_row(index as i32);
+                if self.settings.settings.scroll_to_playing {
+                    self.ui.invoke_scroll_to_row(index as i32);
+                }
                 self.emit(AppEvent::TrackChanged(self.current));
                 self.emit(AppEvent::PlaybackStarted);
             }

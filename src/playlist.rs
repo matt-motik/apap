@@ -243,7 +243,7 @@ pub fn save_track_list(path: &Path, tracks: &[Track]) -> bool {
 /// Display text for a track cell in a given column ("", "0", "24 bit", ...).
 pub fn sort_rows_text(track: &Track, col: ColumnId) -> String {
     match col {
-        ColumnId::Index => String::new(),
+        ColumnId::NowPlaying => String::new(),
         ColumnId::TrackNumber => {
             if track.track_number > 0 {
                 track.track_number.to_string()
@@ -318,7 +318,7 @@ pub fn sort_rows_compare(a: &Track, b: &Track, col: ColumnId) -> std::cmp::Order
             fa.cmp(&fb)
         }
         ColumnId::FilePath => a.path.cmp(&b.path),
-        ColumnId::Index => Ordering::Equal,
+        ColumnId::NowPlaying => Ordering::Equal,
     }
 }
 

@@ -225,6 +225,11 @@ impl Player {
         core.playing = true;
     }
 
+    /// Returns `true` if a decoder (track) is currently loaded.
+    pub fn has_decoder(&self) -> bool {
+        self.core.lock().map(|c| c.decoder.is_some()).unwrap_or(false)
+    }
+
     /// Pause/resume the current track (rewinds if it had finished).
     pub fn toggle(&mut self) {
         let Ok(mut core) = self.core.lock() else {

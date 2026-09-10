@@ -368,6 +368,24 @@ fn drain_startup_tracks(&mut self) {
 
 ---
 
+### 4.12. Конфиг-driven колонки плейлиста + now-playing + dbl-click + scroll-to-playing + кнопка repeat
+
+**Статус:** ✅ сделано в коммите `CONFIG-driven-columns`.
+
+**Сделано:**
+- `ColumnCfg` (title/priority/min_width/max_width/max_width_percent/visible/column_type/width) + `default_columns()`; колонки живут в `settings.toml` → `[columns.*]`, миграция со старого TOML через `LegacySettings`/`migrate_legacy_columns`.
+- NowPlaying-колонка (`column_type = "now-playing"`): маркер `▶` у текущего трека в `build_row`; `apply_sort`/`sort_rows_*` блокируют сортировку по ней.
+- Bitrate отображается без «kbps».
+- Play-кнопка при отсутствии декодера играет `current.unwrap_or(0)` (первый трек плейлиста) через новый `Player::has_decoder()`.
+- Double-click = play, single-click = выделение (Rust-детект `last_click_row`+`last_click_time`, 400 мс).
+- Scroll-to-playing: `Playlist.do-scroll-to-row` + `AppWindow.scroll-to-row` + вызов в `play_track` (флаг `scroll_to_playing`, default true).
+- Одна кнопка repeat: цикл Off→All→One (иконки repeat.svg/repeat-one.svg), shuffle/repeat синхронизируются из конфига при старте.
+- Reset колонок сбрасывает только ширины (к конфиг-приоритетам).
+
+**Верификация:** всё проверено пользователем вживую: play → первый отображаемый трек играет, маркер ставится; режимы shuffle и repeat корректны.
+
+---
+
 ### 4.2. Trait `AudioSource` с частичной реализацией (ISP)
 
 **Статус:** ✅ сделано — `duration_secs` и `seek` стали default-методами (`src/audio/decoder.rs:25`): длительность выводится из `info().num_frames`, seek по умолчанию возвращает `Err("Seek is not supported…")`. Дублирующие impl убраны в Decoder/DsdDecoder/MockSource; +тест `optional_methods_have_safe_defaults`. Итого 49 lib + 6 bin.
@@ -488,6 +506,7 @@ let config = AppConfig::builder()
 | 4.8 | Баг-раунд: tray/окно wheel + настройки + ComboBox | 🔵 Низкий | ✅ | 3ч | Низкий |
 | 4.10 | Ресайз колонок/окна: пересчёт по релизу | 🔵 Низкий | ✅ сделано | 3ч | Средний |
 | 4.11 | Маркер сортировки на колонке (▲/▼) | 🔵 Низкий | ✅ сделано | 1ч | Низкий |
+| 4.12 | Конфиг-driven колонки + now-playing + dbl-click + scroll + repeat | 🔵 Низкий | ✅ сделано | 8ч | Средний |
 | 5.1 | tracing вместо eprintln! | ⬜ желательно | ⬜ | — | Низкий |
 | 5.2 | builder для AppConfig | ⬜ желательно | ⬜ | — | Низкий |
 | 5.3 | Горячая перезагрузка конфигов | — отклонено | 🚫 | — | — |

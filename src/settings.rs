@@ -38,12 +38,66 @@ impl RepeatMode {
     }
 }
 
+/// Per-column configuration: display title, default weight, min/max
+/// constraints, visibility and optional column type.
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+pub struct ColumnCfg {
+    /// Display title shown in the playlist header and settings dialog.
+    #[serde(default = "default_cfg_title")]
+    pub title: String,
+    /// Default weight for proportional width distribution (0..100 scale,
+    /// normalised across visible columns). Replaced by user-dragged
+    /// `column_widths` when present.
+    #[serde(default)]
+    pub priority: f32,
+    /// Hard minimum width in physical pixels.
+    #[serde(default)]
+    pub min_width: f32,
+    /// Absolute pixel cap (mutually exclusive with `max_width_percent`).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub max_width: Option<f32>,
+    /// Relative cap as a fraction of the container width (mutually exclusive
+    /// with `max_width`). When both are present the pixel cap wins.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub max_width_percent: Option<f32>,
+    /// Whether the column is visible by default.
+    #[serde(default = "default_true")]
+    pub visible: bool,
+    /// Optional column type override. `None` / `"data"` — normal metadata
+    /// column; `"now-playing"` — narrow marker showing ▶ for the current row.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub column_type: Option<String>,
+    /// User-dragged width as a percentage (0..100). `None` when the user has
+    /// never dragged this column — falls back to `priority` for distribution.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub width: Option<f32>,
+}
+
+fn default_cfg_title() -> String {
+    String::new()
+}
+
+fn default_true() -> bool {
+    true
+}
+
+impl ColumnCfg {
+    /// Convert to the layout constraint used by [`playlist_layout::resolve_widths`].
+    pub fn to_limit(&self) -> crate::playlist_layout::ColumnLimit {
+        crate::playlist_layout::ColumnLimit {
+            min_px: self.min_width,
+            max_px: self.max_width,
+            max_pct: self.max_width_percent,
+        }
+    }
+}
+
 /// Identifiers for the playlist columns (order matches the display order in
 /// the playlist table).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize, Default)]
 pub enum ColumnId {
     #[default]
-    Index,
+    NowPlaying,
     TrackNumber,
     Title,
     Artist,
@@ -61,7 +115,7 @@ pub enum ColumnId {
 
 impl ColumnId {
     pub const ALL: [ColumnId; 14] = [
-        ColumnId::Index,
+        ColumnId::NowPlaying,
         ColumnId::TrackNumber,
         ColumnId::Title,
         ColumnId::Artist,
@@ -77,30 +131,11 @@ impl ColumnId {
         ColumnId::FilePath,
     ];
 
-    pub fn label(self) -> &'static str {
-        match self {
-            ColumnId::Index => "#",
-            ColumnId::TrackNumber => "Track#",
-            ColumnId::Title => "Title",
-            ColumnId::Artist => "Artist",
-            ColumnId::Album => "Album",
-            ColumnId::Genre => "Genre",
-            ColumnId::Year => "Year",
-            ColumnId::Format => "Format",
-            ColumnId::Bitrate => "Bitrate",
-            ColumnId::BitDepth => "Bit Depth",
-            ColumnId::SampleRate => "Sample Rate",
-            ColumnId::Duration => "Duration",
-            ColumnId::FileName => "File Name",
-            ColumnId::FilePath => "File Path",
-        }
-    }
-
     /// Column key used for persistence matching (stable across renames).
     pub fn key(self) -> &'static str {
         match self {
-            ColumnId::Index => "index",
-            ColumnId::TrackNumber => "track_number",
+            ColumnId::NowPlaying => "now_playing",
+            ColumnId::TrackNumber => "track",
             ColumnId::Title => "title",
             ColumnId::Artist => "artist",
             ColumnId::Album => "album",
@@ -203,8 +238,8 @@ fn default_cover_online() -> bool {
 /// runtime to sum to 100 over whichever columns are currently visible.
 pub fn default_column_width(id: ColumnId) -> f32 {
     match id {
-        ColumnId::Index => 5.0,
-        ColumnId::TrackNumber => 8.0,
+        ColumnId::NowPlaying => 1.0,
+        ColumnId::TrackNumber => 3.0,
         ColumnId::Title => 22.0,
         ColumnId::Artist => 15.0,
         ColumnId::Album => 15.0,
@@ -220,11 +255,42 @@ pub fn default_column_width(id: ColumnId) -> f32 {
     }
 }
 
-/// Returns `true` when the stored width values look like absolute pixel widths
-/// (sum way above 100) instead of percentages. Used for one-time migration.
-fn widths_are_pixels(widths: &std::collections::HashMap<String, f32>) -> bool {
-    let sum: f32 = widths.values().copied().filter(|w| *w > 0.0).sum();
-    sum > 100.0
+/// Default column configurations (title, priority, limits, visibility).
+pub fn default_columns() -> std::collections::HashMap<String, ColumnCfg> {
+    let defs: Vec<(ColumnId, &str, f32, f32, Option<f32>, Option<f32>, bool, Option<&str>)> = vec![
+        (ColumnId::NowPlaying,  "\u{25B6}",    0.01,  24.0, Some(36.0),  None,                   true,  Some("now-playing")),
+        (ColumnId::TrackNumber, "\u{2116}",    0.03,  44.0, Some(84.0),  None,                   true,  None),
+        (ColumnId::Title,       "Название",    0.22, 120.0, None,        Some(0.60),             true,  None),
+        (ColumnId::Artist,      "Исполнитель", 0.15,  90.0, None,        Some(0.45),             true,  None),
+        (ColumnId::Album,       "Альбом",      0.15,  90.0, None,        Some(0.45),             true,  None),
+        (ColumnId::Genre,       "Жанр",        0.05,  80.0, None,        Some(0.30),             false, None),
+        (ColumnId::Year,        "Год",         0.04,  44.0, Some(72.0),  None,                   false, None),
+        (ColumnId::Format,      "Формат",      0.04,  52.0, Some(96.0),  None,                   false, None),
+        (ColumnId::Bitrate,     "Битрейт",     0.04,  70.0, Some(130.0), None,                   false, None),
+        (ColumnId::BitDepth,    "Глубина",     0.04,  64.0, Some(110.0), None,                   false, None),
+        (ColumnId::SampleRate,  "Частота",     0.05,  90.0, Some(140.0), None,                   false, None),
+        (ColumnId::Duration,    "Длит.",       0.05,  56.0, Some(100.0), None,                   true,  None),
+        (ColumnId::FileName,    "Имя файла",   0.08, 110.0, None,        Some(0.60),             false, None),
+        (ColumnId::FilePath,    "Путь",        0.04, 130.0, None,        Some(0.70),             false, None),
+    ];
+
+    defs.into_iter()
+        .map(|(id, title, pri, min_w, max_w, max_pct, vis, col_type)| {
+            (
+                id.key().to_string(),
+                ColumnCfg {
+                    title: title.to_string(),
+                    priority: pri,
+                    min_width: min_w,
+                    max_width: max_w,
+                    max_width_percent: max_pct,
+                    visible: vis,
+                    column_type: col_type.map(|s| s.to_string()),
+                    width: None,
+                },
+            )
+        })
+        .collect()
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -245,18 +311,21 @@ pub struct Settings {
     pub shuffle: bool,
     #[serde(default)]
     pub audio_device: String,
+    /// Unified column configuration (per-column title, priority, limits,
+    /// visibility, type). Migrated from the old separate fields on first load.
+    #[serde(default = "default_columns")]
+    pub columns: std::collections::HashMap<String, ColumnCfg>,
+    /// Left-to-right column order as stable keys. Source of truth for ordering;
+    /// empty = canonical order.
     #[serde(default)]
-    pub column_widths: std::collections::HashMap<String, f32>,
-    #[serde(default)]
-    pub column_visibility: std::collections::HashMap<String, bool>,
-    #[serde(default)]
-    /// User-customised left-to-right column order (as stable keys). Empty
-    /// means the canonical [`ColumnId::ALL`] order.
     pub column_order: Vec<String>,
     #[serde(default)]
     pub sorted_col: Option<ColumnId>,
     #[serde(default)]
     pub sort_desc: bool,
+    /// Auto-scroll the playlist to the currently playing track when it changes.
+    #[serde(default = "default_true")]
+    pub scroll_to_playing: bool,
     /// Сторона обложки (пиксели) — задаёт высоту верхней панели и размер
     /// квадратных кнопок управления. Диапазон 100..=400, по умолчанию 200.
     #[serde(default)]
@@ -304,11 +373,11 @@ impl Default for Settings {
             repeat: RepeatMode::Off,
             shuffle: false,
             audio_device: String::new(),
-            column_widths: Default::default(),
-            column_visibility: Default::default(),
+            columns: default_columns(),
             column_order: Vec::new(),
             sorted_col: None,
             sort_desc: false,
+            scroll_to_playing: true,
             cover_size: 200.0,
             col_info_w: 240.0,
             col_gap: 12.0,
@@ -324,11 +393,24 @@ impl Default for Settings {
 }
 
 impl Settings {
+    /// Get the `ColumnCfg` for a given column id.
+    pub fn column_cfg(&self, id: ColumnId) -> Option<&ColumnCfg> {
+        self.columns.get(id.key())
+    }
+
+    /// Get the display title for a column, falling back to the key if not in config.
+    pub fn column_title(&self, id: ColumnId) -> String {
+        self.columns
+            .get(id.key())
+            .map(|c| c.title.clone())
+            .unwrap_or_else(|| id.key().to_string())
+    }
+
     /// Resolved visibility for a given id (default: visible).
     pub fn column_visible(&self, id: ColumnId) -> bool {
-        self.column_visibility
+        self.columns
             .get(id.key())
-            .copied()
+            .map(|c| c.visible)
             .unwrap_or(true)
     }
 
@@ -341,15 +423,24 @@ impl Settings {
     }
 
     /// Resolved relative width (percent, 0..100) for a column, falling back to
-    /// the default. Percent values are normalised to sum to 100 across the
-    /// currently visible columns; call [`Settings::normalize_visible_pct`]
-    /// whenever visibility changes before applying.
+    /// the config `width` → `priority` → legacy `default_column_width`.
+    /// Percent values are normalised to sum to 100 across the currently visible
+    /// columns; call [`Settings::normalize_visible_pct`] whenever visibility
+    /// changes before applying.
     pub fn column_width_pct(&self, id: ColumnId) -> f32 {
-        self.column_widths
-            .get(id.key())
-            .copied()
-            .filter(|w| w.is_finite() && *w > 0.0)
-            .unwrap_or_else(|| default_column_width(id))
+        if let Some(cfg) = self.columns.get(id.key()) {
+            // User-dragged width takes highest priority.
+            if let Some(w) = cfg.width {
+                if w.is_finite() && w > 0.0 {
+                    return w;
+                }
+            }
+            // Config priority (default weight).
+            if cfg.priority > 0.0 && cfg.priority.is_finite() {
+                return cfg.priority;
+            }
+        }
+        default_column_width(id)
     }
 
     /// Renormalise stored percentages so that the currently visible columns sum
@@ -362,28 +453,31 @@ impl Settings {
             return;
         }
         let has_stored = visible.iter().any(|c| {
-            self.column_widths
+            self.columns
                 .get(c.key())
-                .is_some_and(|w| w.is_finite() && *w > 0.0)
+                .and_then(|cfg| cfg.width)
+                .is_some_and(|w| w.is_finite() && w > 0.0)
         });
         let values: Vec<f32> = visible
             .iter()
             .map(|c| {
                 if has_stored {
-                    self.column_widths
+                    self.columns
                         .get(c.key())
-                        .copied()
+                        .and_then(|cfg| cfg.width)
                         .filter(|w| w.is_finite() && *w > 0.0)
-                        .unwrap_or_else(|| default_column_width(*c))
+                        .unwrap_or_else(|| self.column_width_pct(*c))
                 } else {
-                    default_column_width(*c)
+                    self.column_width_pct(*c)
                 }
             })
             .collect();
         let sum: f32 = values.iter().sum();
         for (c, v) in visible.iter().zip(values) {
             let pct = if sum > 0.0 { (v / sum) * 100.0 } else { 100.0 / visible.len() as f32 };
-            self.column_widths.insert(c.key().to_string(), pct);
+            if let Some(cfg) = self.columns.get_mut(c.key()) {
+                cfg.width = Some(pct);
+            }
         }
     }
 
@@ -391,34 +485,22 @@ impl Settings {
     /// then renormalise all visible columns to 100%.
     pub fn enable_column(&mut self, id: ColumnId) {
         let old_n = self.visible_columns().len() as f32;
-        self.column_visibility.insert(id.key().to_string(), true);
+        if let Some(cfg) = self.columns.get_mut(id.key()) {
+            cfg.visible = true;
+        }
         let avg = if old_n > 0.0 { 100.0 / old_n } else { 100.0 };
-        self.column_widths.insert(id.key().to_string(), avg);
+        if let Some(cfg) = self.columns.get_mut(id.key()) {
+            cfg.width = Some(avg);
+        }
         self.normalize_visible_pct();
     }
 
     /// Disable a column: set its width to 0%, hide it, then renormalise
     /// the remaining visible columns to 100%.
     pub fn disable_column(&mut self, id: ColumnId) {
-        self.column_widths.insert(id.key().to_string(), 0.0);
-        self.column_visibility.insert(id.key().to_string(), false);
-        self.normalize_visible_pct();
-    }
-
-    /// One-time migration: convert stored pixel widths to percentages.
-    /// No-op when widths are already percentages or absent.
-    pub fn migrate_widths_to_pct(&mut self) {
-        if self.column_widths.is_empty() || !widths_are_pixels(&self.column_widths) {
-            return;
-        }
-        let sum: f32 = self.column_widths.values().copied().filter(|w| *w > 0.0).sum();
-        if sum <= 0.0 {
-            return;
-        }
-        for (_, w) in self.column_widths.iter_mut() {
-            if *w > 0.0 {
-                *w = (*w / sum) * 100.0;
-            }
+        if let Some(cfg) = self.columns.get_mut(id.key()) {
+            cfg.width = Some(0.0);
+            cfg.visible = false;
         }
         self.normalize_visible_pct();
     }
@@ -431,10 +513,7 @@ impl Settings {
         let mut out: Vec<ColumnId> = self
             .column_order
             .iter()
-            .filter_map(|k| {
-                let c = ColumnId::from_key(k)?;
-                Some(c)
-            })
+            .filter_map(|k| ColumnId::from_key(k))
             .collect();
         // Include any canonical columns not present (e.g. after adding new ones)
         // appended after the stored order.
@@ -519,17 +598,50 @@ pub struct SettingsStore {
     pub path: PathBuf,
 }
 
+/// Legacy settings format (pre-unified-columns) used only for one-time migration.
+#[derive(Debug, Deserialize, Default)]
+struct LegacySettings {
+    #[serde(default)]
+    column_widths: std::collections::HashMap<String, f32>,
+    #[serde(default)]
+    column_visibility: std::collections::HashMap<String, bool>,
+    #[serde(default)]
+    column_order: Vec<String>,
+}
+
 impl SettingsStore {
     /// Read settings from `config_dir()/settings.toml` (or defaults if
     /// missing/corrupt), migrate legacy fields and write the result back.
     pub fn load() -> Self {
         let dir = config_dir();
         let path = dir.join("settings.toml");
-        let mut settings = match fs::read_to_string(&path) {
-            Ok(contents) => toml::from_str(&contents).unwrap_or_default(),
-            Err(_) => Settings::default(),
+        let raw = fs::read_to_string(&path).ok();
+        let mut settings = match &raw {
+            Some(contents) => toml::from_str(contents).unwrap_or_default(),
+            None => Settings::default(),
         };
-        settings.migrate_widths_to_pct();
+        // One-time migration from old format (separate column_widths/visibility/order
+        // fields) to the unified `columns` HashMap.
+        if settings.columns.is_empty() {
+            if let Some(contents) = &raw {
+                if contents.contains("column_widths")
+                    || contents.contains("column_visibility")
+                    || contents.contains("column_order")
+                {
+                    if let Ok(legacy) = toml::from_str::<LegacySettings>(contents) {
+                        migrate_legacy_columns(&mut settings, &legacy);
+                    }
+                }
+            }
+            // Ensure columns exist even without legacy data (fresh install).
+            if settings.columns.is_empty() {
+                settings.columns = default_columns();
+            }
+        }
+        // Ensure `column_order` has entries for all known columns.
+        if settings.column_order.is_empty() {
+            settings.column_order = ColumnId::ALL.iter().map(|c| c.key().to_string()).collect();
+        }
         let store = Self { settings, path };
         // Persist migration results back to disk.
         let mut s = store;
@@ -542,6 +654,45 @@ impl SettingsStore {
         if let Ok(contents) = toml::to_string(&self.settings) {
             if fs::create_dir_all(self.path.parent().unwrap_or(&self.path)).is_ok() {
                 let _ = fs::write(&self.path, contents);
+            }
+        }
+    }
+}
+
+/// Migrate old `column_widths` / `column_visibility` / `column_order` into the
+/// unified `columns` HashMap.
+fn migrate_legacy_columns(settings: &mut Settings, legacy: &LegacySettings) {
+    // Merge old column_order (preserve it, append missing at the end).
+    if !legacy.column_order.is_empty() {
+        settings.column_order = legacy
+            .column_order
+            .iter()
+            .filter(|k| ColumnId::from_key(k).is_some())
+            .cloned()
+            .collect();
+        // Append canonical columns not in legacy order.
+        for c in ColumnId::ALL {
+            if !settings.column_order.contains(&c.key().to_string()) {
+                settings.column_order.push(c.key().to_string());
+            }
+        }
+    }
+
+    // Migrate visibility and width into per-column configs.
+    let defaults = default_columns();
+    for c in ColumnId::ALL {
+        let key = c.key().to_string();
+        let cfg = settings.columns.entry(key.clone()).or_insert_with(|| {
+            defaults.get(&key).cloned().unwrap_or_default()
+        });
+
+        if let Some(&vis) = legacy.column_visibility.get(c.key()) {
+            cfg.visible = vis;
+        }
+
+        if let Some(&w) = legacy.column_widths.get(c.key()) {
+            if w > 0.0 && w.is_finite() {
+                cfg.width = Some(w);
             }
         }
     }
@@ -583,7 +734,7 @@ mod tests {
         assert_eq!(ord[1], ColumnId::Genre);
         assert_eq!(ord[2], ColumnId::Artist);
         // Remaining canonical columns appended in canonical order.
-        assert!(ord.contains(&ColumnId::Index));
+        assert!(ord.contains(&ColumnId::NowPlaying));
         assert!(ord.contains(&ColumnId::SampleRate));
         assert_eq!(ord.len(), ColumnId::ALL.len());
         // No duplicates.
@@ -620,6 +771,32 @@ mod tests {
             assert_eq!(ColumnId::from_key(c.key()), Some(c));
         }
         assert_eq!(ColumnId::from_key("nope"), None);
+    }
+
+    #[test]
+    fn column_cfg_title_applies() {
+        let s = Settings::default();
+        assert_eq!(s.column_title(ColumnId::NowPlaying), "\u{25B6}");
+        assert_eq!(s.column_title(ColumnId::Title), "Название");
+        assert_eq!(s.column_title(ColumnId::Artist), "Исполнитель");
+    }
+
+    #[test]
+    fn column_width_pct_uses_priority() {
+        let s = Settings::default();
+        // Title has priority 0.22 in defaults.
+        let w = s.column_width_pct(ColumnId::Title);
+        assert!((w - 0.22).abs() < 0.001, "expected 0.22, got {w}");
+    }
+
+    #[test]
+    fn column_width_pct_uses_user_width_over_priority() {
+        let mut s = Settings::default();
+        if let Some(cfg) = s.columns.get_mut("title") {
+            cfg.width = Some(33.0);
+        }
+        let w = s.column_width_pct(ColumnId::Title);
+        assert!((w - 33.0).abs() < 0.001, "expected 33.0, got {w}");
     }
 
     #[test]
@@ -668,5 +845,30 @@ mod tests {
         let mut s = Settings::default();
         s.cover_folder_names = vec![" ".into()];
         assert_eq!(s.cover_folder_names_list(), default_cover_folder_names());
+    }
+
+    #[test]
+    fn migrate_legacy_columns_merges_old_fields() {
+        let legacy = LegacySettings {
+            column_widths: [("title".into(), 30.0), ("artist".into(), 20.0)].into(),
+            column_visibility: [("title".into(), true), ("genre".into(), false)].into(),
+            column_order: vec!["title".into(), "artist".into()],
+        };
+        let mut settings = Settings::default();
+        // Clear defaults so migration has something to populate.
+        settings.columns.clear();
+        migrate_legacy_columns(&mut settings, &legacy);
+
+        // Visibility migrated.
+        assert!(settings.column_visible(ColumnId::Title));
+        assert!(!settings.column_visible(ColumnId::Genre));
+        // Width migrated.
+        let title_cfg = settings.columns.get("title").unwrap();
+        assert!((title_cfg.width.unwrap() - 30.0).abs() < 0.001);
+        // Order migrated.
+        assert_eq!(settings.column_order[0], "title");
+        assert_eq!(settings.column_order[1], "artist");
+        // All canonical columns present in order.
+        assert_eq!(settings.column_order.len(), ColumnId::ALL.len());
     }
 }
