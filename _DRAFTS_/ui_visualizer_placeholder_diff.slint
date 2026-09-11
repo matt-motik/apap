@@ -1,0 +1,78 @@
+import { Colors } from "theme.slint";
+
+/**
+ * Компонент-плейсхолдер для визуализации аудио.
+ * Отображается, когда визуализация отключена или недоступна
+ * (например, в режиме Native DSD / DoP).
+ */
+export component VisualizerPlaceholder inherits Rectangle {
+    // Свойства для настройки отображаемой информации
+    in property <string> title: "Artist";
+    in property <string> subtitle: "Album";
+    in property <string> format: "FLAC";
+    in property <bool> show_unavailable_message: false;
+    in property <string> unavailable_reason: "Визуализация недоступна в native DSD / DoP режиме";
+
+    // Свойства для кастомизации внешнего вида
+    in property <color> bg-color: Colors.bg-elevated;
+    in property <color> text-primary: Colors.text-primary;
+    in property <color> text-secondary: Colors.text-tertiary;
+
+    background: root.bg-color;
+    border-radius: 4px;
+    border-width: 1px;
+    border-color: Colors.border-default;
+
+    VerticalLayout {
+        spacing: 8px;
+        padding: 16px;
+        alignment: center;
+
+        // Основной текст: артист и альбом
+        Text {
+            text: root.title;
+            color: root.text-primary;
+            font-size: 18px;
+            font-weight: bold;
+            horizontal-alignment: center;
+            vertical-alignment: center;
+            wrap: word-wrap;
+        }
+
+        Text {
+            text: root.subtitle;
+            color: root.text-primary;
+            font-size: 14px;
+            horizontal-alignment: center;
+            vertical-alignment: center;
+            wrap: word-wrap;
+        }
+
+        // Сообщение о недоступности визуализации (для DSD native/DoP)
+        if root.show_unavailable_message: Rectangle {
+            height: children[0].height + 8px;
+            width: children[0].width + 16px;
+            background: Colors.accent-container;
+            border-radius: 4px;
+
+            Text {
+                text: root.unavailable_reason;
+                color: Colors.text-on-accent;
+                font-size: 11px;
+                horizontal-alignment: center;
+                vertical-alignment: center;
+                wrap: word-wrap;
+                padding: 4px;
+            }
+        }
+
+        // Формат файла
+        Text {
+            text: root.format;
+            color: root.text-secondary;
+            font-size: 11px;
+            horizontal-alignment: center;
+            vertical-alignment: center;
+        }
+    }
+}
