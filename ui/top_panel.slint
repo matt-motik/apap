@@ -65,6 +65,7 @@ export component TopPanel inherits Rectangle {
     in property <float> col-info-w: 240;
     in property <float> col-gap: 12;
     in property <image> cover-art;
+    in property <int> theme: 0;
 
     in property <bool> playing: false;
     in property <bool> repeat: false;
@@ -143,34 +144,38 @@ export component TopPanel inherits Rectangle {
             HorizontalLayout {
                 spacing: 6px;
                 IconButton {
-                    icon: @image-url("icons/prev.svg");
+                    icon: root.theme == 0 ? @image-url("icons/dark/prev.svg") : @image-url("icons/light/prev.svg");
                     clicked => { root.prev-track(); }
                 }
 
                 IconButton {
-                    icon: root.playing ? @image-url("icons/pause.svg") : @image-url("icons/play.svg");
+                    icon: root.theme == 0
+                        ? (root.playing ? @image-url("icons/dark/pause.svg") : @image-url("icons/dark/play.svg"))
+                        : (root.playing ? @image-url("icons/light/pause.svg") : @image-url("icons/light/play.svg"));
                     active: root.playing;
                     clicked => { root.play-pause(); }
                 }
 
                 IconButton {
-                    icon: @image-url("icons/stop.svg");
+                    icon: root.theme == 0 ? @image-url("icons/dark/stop.svg") : @image-url("icons/light/stop.svg");
                     clicked => { root.stop(); }
                 }
 
                 IconButton {
-                    icon: @image-url("icons/next.svg");
+                    icon: root.theme == 0 ? @image-url("icons/dark/next.svg") : @image-url("icons/light/next.svg");
                     clicked => { root.next-track(); }
                 }
 
                 IconButton {
-                    icon: root.repeat-one ? @image-url("icons/repeat-one.svg") : @image-url("icons/repeat.svg");
+                    icon: root.theme == 0
+                        ? (root.repeat-one ? @image-url("icons/dark/repeat-one.svg") : @image-url("icons/dark/repeat.svg"))
+                        : (root.repeat-one ? @image-url("icons/light/repeat-one.svg") : @image-url("icons/light/repeat.svg"));
                     active: root.repeat || root.repeat-one;
                     clicked => { root.toggle-repeat(); }
                 }
 
                 IconButton {
-                    icon: @image-url("icons/shuffle.svg");
+                    icon: root.theme == 0 ? @image-url("icons/dark/shuffle.svg") : @image-url("icons/light/shuffle.svg");
                     active: root.shuffle;
                     clicked => { root.toggle-shuffle(); }
                 }
@@ -418,7 +423,9 @@ export component TopPanel inherits Rectangle {
                 HorizontalLayout {
                     alignment: center;
                     IconButton {
-                        icon: root.muted ? @image-url("icons/muted.svg") : @image-url("icons/volume.svg");
+                        icon: root.theme == 0
+                            ? (root.muted ? @image-url("icons/dark/muted.svg") : @image-url("icons/dark/volume.svg"))
+                            : (root.muted ? @image-url("icons/light/muted.svg") : @image-url("icons/light/volume.svg"));
                         active: root.muted;
                         clicked => { root.toggle-mute(); }
                     }

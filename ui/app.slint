@@ -178,6 +178,7 @@ export component AppWindow inherits Window {
         main-top := TopPanel {
             horizontal-stretch: 1;
             max-height: root.cover-size *1px + 50px;
+            theme: root.settings-theme;
             cover-size: root.cover-size;
             col-info-w: root.col-info-w;
             col-gap: root.col-gap;
