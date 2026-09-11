@@ -793,6 +793,10 @@ impl MusicApp {
                 s.win_h = live.10;
                 a.settings.save();
                 a.apply_theme();
+                a.ui.set_settings_theme(match a.settings.settings.theme {
+                    Theme::Dark => 0,
+                    Theme::Light => 1,
+                });
                 a.ui.set_cover_size(a.settings.settings.cover_size);
                 a.ui.set_col_info_w(a.settings.settings.col_info_w);
                 a.ui.set_col_gap(a.settings.settings.col_gap);
