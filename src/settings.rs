@@ -293,6 +293,46 @@ pub fn default_columns() -> std::collections::HashMap<String, ColumnCfg> {
         .collect()
 }
 
+/// Stable keys of the track-info panel labels (order = display order in UI).
+pub const INFO_LABEL_KEYS: [&str; 13] = [
+    "artist",
+    "track",
+    "title",
+    "duration",
+    "year",
+    "album",
+    "disc",
+    "genre",
+    "format",
+    "bitrate",
+    "bit_depth",
+    "sample_rate",
+    "channels",
+];
+
+/// Default (English) labels for the track-info panel. Editing `info_labels`
+/// in the config file overrides these values.
+fn default_info_labels() -> std::collections::HashMap<String, String> {
+    [
+        ("artist", "Artist"),
+        ("track", "Track"),
+        ("title", "Title"),
+        ("duration", "Duration"),
+        ("year", "Year"),
+        ("album", "Album"),
+        ("disc", "Disc"),
+        ("genre", "Genre"),
+        ("format", "Format"),
+        ("bitrate", "Bitrate"),
+        ("bit_depth", "Bit depth"),
+        ("sample_rate", "Sample rate"),
+        ("channels", "Channels"),
+    ]
+    .into_iter()
+    .map(|(k, v)| (k.to_string(), v.to_string()))
+    .collect()
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Settings {
     #[serde(default)]
@@ -360,6 +400,11 @@ pub struct Settings {
     /// Искать обложки в интернете (iTunes Search API).
     #[serde(default = "default_cover_online")]
     pub cover_online: bool,
+    /// Заголовки полей панели информации о треке (стабильный ключ → строка).
+    /// Редактируются вручную в конфиге (локализация/переименования), UI для
+    /// них нет. Отсутствующие/пустые ключи подставляются дефолтами.
+    #[serde(default = "default_info_labels")]
+    pub info_labels: std::collections::HashMap<String, String>,
 }
 
 impl Default for Settings {
@@ -388,6 +433,7 @@ impl Default for Settings {
             cover_priority: default_cover_priority(),
             cover_folder_names: default_cover_folder_names(),
             cover_online: true,
+            info_labels: default_info_labels(),
         }
     }
 }
@@ -404,6 +450,26 @@ impl Settings {
             .get(id.key())
             .map(|c| c.title.clone())
             .unwrap_or_else(|| id.key().to_string())
+    }
+
+    /// Get the track-info panel label for a stable key, falling back to the
+    /// default (English) label when missing or empty in config.
+    pub fn info_label(&self, key: &str) -> String {
+        self.info_labels
+            .get(key)
+            .filter(|s| !s.is_empty())
+            .cloned()
+            .unwrap_or_else(|| {
+                default_info_labels()
+                    .get(key)
+                    .cloned()
+                    .unwrap_or_else(|| key.to_string())
+            })
+    }
+
+    /// All track-info panel labels in display order (`INFO_LABEL_KEYS` order).
+    pub fn info_labels_ordered(&self) -> Vec<String> {
+        INFO_LABEL_KEYS.iter().map(|k| self.info_label(k)).collect()
     }
 
     /// Resolved visibility for a given id (default: visible).
@@ -870,5 +936,32 @@ mod tests {
         assert_eq!(settings.column_order[1], "artist");
         // All canonical columns present in order.
         assert_eq!(settings.column_order.len(), ColumnId::ALL.len());
+    }
+
+    #[test]
+    fn info_labels_defaults_in_display_order() {
+        let s = Settings::default();
+        let ordered = s.info_labels_ordered();
+        assert_eq!(ordered.len(), INFO_LABEL_KEYS.len());
+        assert_eq!(ordered[0], "Artist");
+        assert_eq!(ordered[2], "Title");
+        assert_eq!(ordered[10], "Bit depth");
+        assert_eq!(ordered[12], "Channels");
+    }
+
+    #[test]
+    fn info_label_overrides_and_falls_back() {
+        let mut s = Settings::default();
+        // Skip non-overridden keys: derive expected from defaults.
+        let expected_artist = "Artist";
+        assert_eq!(s.info_label("artist"), expected_artist);
+
+        s.info_labels.insert("artist".into(), "Исполнитель".into());
+        s.info_labels.insert("channels".into(), String::new());
+        assert_eq!(s.info_label("artist"), "Исполнитель");
+        // Empty string falls back to the default (not blank/raw key).
+        assert_eq!(s.info_label("channels"), "Channels");
+        // Unknown key: raw key as last resort.
+        assert_eq!(s.info_label("bogus"), "bogus");
     }
 }

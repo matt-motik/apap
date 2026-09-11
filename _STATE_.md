@@ -5,7 +5,7 @@
 
 ## Статус
 
-- **Состояние:** `done` — смена иконок по теме (dark/light) реализована и закоммичена.
+- **Состояние:** `done` — названия полей инфо-панели выведены в конфиг (`info_labels`), коммит в процессе.
 
 ## Активная задача
 
@@ -13,17 +13,19 @@
 
 ## Выполнено
 
-### Theme-aware иконки (commit df9c4ca)
-- `TopPanel` получил `in property <int> theme: 0`, пробрасывается из `app.slint` (`settings-theme`)
-- Все 8 мест с `@image-url` в `top_panel.slint` заменены на условные `theme == 0 ? dark/... : light/...`
-- Папки `ui/icons/dark/` и `ui/icons/light/` с набором SVG для обеих тем
-- Иконки переключаются при смене темы (Save в диалоге настроек → `apply_theme()` + `sync_settings_to_ui()`)
-- `AGENTS.md`: добавлено правило интерактивного режима (задачи от пользователя → ROADMAP + STATE)
+### Названия полей инфо-панели в конфиг (`info_labels`)
+- `Settings.info_labels: HashMap<String, String>` + `INFO_LABEL_KEYS` (13 ключей) + `default_info_labels()` (англ. дефолты)
+- Методы `Settings::info_label(key)` (fallback: конфиг → дефолт → ключ) и `info_labels_ordered()`
+- `TopPanel.info-labels: [string]` — модель вместо 13 захардкоженных строк, `InfoRow` берут `root.info-labels[0..12]`
+- `AppWindow.info-labels` проброс; `set_info_labels(...)` в `sync_settings_to_ui()`
+- Локализация — правкой `[info_labels]` в config.toml
+- 2 теста (дефолты в порядке отображения, override/fallback); clippy без новых warning
 
 ## Изменяемые файлы
 
-- `ui/top_panel.slint` — theme property + условные иконки
-- `ui/app.slint` — проброс `theme` в TopPanel
-- `ui/icons/dark/*.svg` — набор иконок для тёмной темы
-- `ui/icons/light/*.svg` — набор иконок для светлой темы
-- `AGENTS.md` — правило интерактивного режима
+- `src/settings.rs` — поле, константы, default-функция, методы, 2 теста
+- `src/app/ui_manager.rs` — `set_info_labels` в sync_settings_to_ui
+- `ui/top_panel.slint` — свойство `info-labels` + индексация вместо литералов
+- `ui/app.slint` — проброс `info-labels`
+- `ROADMAP.md` — пункт 4.13
+- `_STATE_.md`

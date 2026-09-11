@@ -75,6 +75,12 @@ impl MusicApp {
         self.ui
             .set_col_info_w(s.col_info_w);
         self.ui.set_col_gap(s.col_gap);
+        let labels: Vec<SharedString> = s
+            .info_labels_ordered()
+            .into_iter()
+            .map(SharedString::from)
+            .collect();
+        self.ui.set_info_labels(ModelRc::from(labels.as_slice()));
         self.ui.set_shuffle(self.shuffle);
         self.ui.set_repeat(self.repeat == RepeatMode::All);
         self.ui.set_repeat_one(self.repeat == RepeatMode::One);

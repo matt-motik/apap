@@ -110,6 +110,8 @@ export component AppWindow inherits Window {
     in property <string> info-sample-rate: "—";
     in property <string> info-channels: "—";
 
+    in property <[string]> info-labels: ["Artist", "Track", "Title", "Duration", "Year", "Album", "Disc", "Genre", "Format", "Bitrate", "Bit depth", "Sample rate", "Channels"];
+
     in property <[[StandardListViewItem]]> playlist-rows: [
         [{ text: "No tracks" }]
     ];
@@ -205,6 +207,7 @@ export component AppWindow inherits Window {
             info-bit-depth: root.info-bit-depth;
             info-sample-rate: root.info-sample-rate;
             info-channels: root.info-channels;
+            info-labels: root.info-labels;
             play-pause => { root.play-pause(); }
             stop => { root.stop(); }
             prev-track => { root.prev-track(); }

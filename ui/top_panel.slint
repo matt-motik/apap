@@ -94,6 +94,7 @@ export component TopPanel inherits Rectangle {
     in property <string> info-bit-depth: "—";
     in property <string> info-sample-rate: "—";
     in property <string> info-channels: "—";
+    in property <[string]> info-labels: ["Artist", "Track", "Title", "Duration", "Year", "Album", "Disc", "Genre", "Format", "Bitrate", "Bit depth", "Sample rate", "Channels"];
 
     callback play-pause();
     callback stop();
@@ -196,67 +197,67 @@ export component TopPanel inherits Rectangle {
                     padding: 0px;
                     spacing: 0px;
                     InfoRow {
-                        label: "Artist";
+                        label: root.info-labels[0];
                         value: root.info-artist;
                     }
 
                     InfoRow {
-                        label: "Track";
+                        label: root.info-labels[1];
                         value: root.info-track;
                     }
 
                     InfoRow {
-                        label: "Title";
+                        label: root.info-labels[2];
                         value: root.info-title;
                     }
 
                     InfoRow {
-                        label: "Duration";
+                        label: root.info-labels[3];
                         value: root.info-duration;
                     }
 
                     InfoRow {
-                        label: "Year";
+                        label: root.info-labels[4];
                         value: root.info-year;
                     }
 
                     InfoRow {
-                        label: "Album";
+                        label: root.info-labels[5];
                         value: root.info-album;
                     }
 
                     InfoRow {
-                        label: "Disc";
+                        label: root.info-labels[6];
                         value: root.info-disc;
                     }
 
                     InfoRow {
-                        label: "Genre";
+                        label: root.info-labels[7];
                         value: root.info-genre;
                     }
 
                     InfoRow {
-                        label: "Format";
+                        label: root.info-labels[8];
                         value: root.info-format;
                     }
 
                     InfoRow {
-                        label: "Bitrate";
+                        label: root.info-labels[9];
                         value: root.info-bitrate;
                     }
 
                     InfoRow {
-                        label: "Bit depth";
+                        label: root.info-labels[10];
                         value: root.info-bit-depth;
                     }
 
                     InfoRow {
-                        label: "Sample rate";
+                        label: root.info-labels[11];
                         value: root.info-sample-rate;
                     }
 
                     InfoRow {
-                        label: "Channels";
+                        label: root.info-labels[12];
                         value: root.info-channels;
                     }
                 }

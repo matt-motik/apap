@@ -386,6 +386,20 @@ fn drain_startup_tracks(&mut self) {
 
 ---
 
+### 4.13. Названия полей инфо-панели трека — в конфиг
+
+**Статус:** ✅ сделано в коммите `info-panel-labels-in-config`.
+
+**Сделано:**
+- `Settings.info_labels: HashMap<String, String>` (стабильный ключ → строка) с дефолтной английской раскладкой
+- `INFO_LABEL_KEYS` (13 ключей) + `default_info_labels()` + методы `info_label()` / `info_labels_ordered()`
+- `TopPanel.info-labels: [string]` — одно свойство-модель вместо 13 захардкоженных строк; `InfoRow` индексируют её (`label: root.info-labels[0..12]`)
+- `AppWindow.info-labels` проброс + `set_info_labels(...)` в `sync_settings_to_ui()` (init/open)
+- 2 теста: дефолты в порядке отображения, override + fallback на дефолт/ключ
+- Локализация/переименования — правкой `[info_labels]` в config.toml
+
+---
+
 ### 4.2. Trait `AudioSource` с частичной реализацией (ISP)
 
 **Статус:** ✅ сделано — `duration_secs` и `seek` стали default-методами (`src/audio/decoder.rs:25`): длительность выводится из `info().num_frames`, seek по умолчанию возвращает `Err("Seek is not supported…")`. Дублирующие impl убраны в Decoder/DsdDecoder/MockSource; +тест `optional_methods_have_safe_defaults`. Итого 49 lib + 6 bin.
@@ -507,6 +521,7 @@ let config = AppConfig::builder()
 | 4.10 | Ресайз колонок/окна: пересчёт по релизу | 🔵 Низкий | ✅ сделано | 3ч | Средний |
 | 4.11 | Маркер сортировки на колонке (▲/▼) | 🔵 Низкий | ✅ сделано | 1ч | Низкий |
 | 4.12 | Конфиг-driven колонки + now-playing + dbl-click + scroll + repeat | 🔵 Низкий | ✅ сделано | 8ч | Средний |
+| 4.13 | Названия полей инфо-панели в конфиг | 🔵 Низкий | ✅ сделано | 1ч | Низкий |
 | 5.1 | tracing вместо eprintln! | ⬜ желательно | ⬜ | — | Низкий |
 | 5.2 | builder для AppConfig | ⬜ желательно | ⬜ | — | Низкий |
 | 5.3 | Горячая перезагрузка конфигов | — отклонено | 🚫 | — | — |
