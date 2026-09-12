@@ -56,10 +56,27 @@ impl MusicApp {
         let mode = settings.mode;
         let sp = &settings.spectrum;
         let bands = sp.bands.clamp(4, 128) as usize;
-        let channels = if sp.channels == ChannelMode::Mono { 1 } else { 2 };
+        let channels = if sp.channels == ChannelMode::Mono { 1usize } else { 2usize };
         let style = (sp.bar_gap, sp.bar_radius, sp.gradient);
 
-        let sig = Some((mode.index(), bands, channels, style.0, style.1, style.2));
+        // Полная сигнатура DSP-параметров: любое изменение (freq_scale, smoothing,
+        // peak_hold, sensitivity, level_scale, …) должно прокинуть свежий снимок
+        // в `set_cfg`, иначе воркер работает на старом конфиге.
+        let sig = Some(VizSig {
+            mode: mode.index(),
+            bands,
+            channels,
+            bar_gap: style.0,
+            bar_radius: style.1,
+            gradient: style.2,
+            freq_scale: sp.freq_scale,
+            smoothing: sp.smoothing,
+            peak_hold: sp.peak_hold,
+            sensitivity: sp.sensitivity,
+            level_scale: sp.level_scale,
+            peak_decay_ms: sp.peak_decay_ms,
+            dsd_cic_compensation: sp.dsd_cic_compensation,
+        });
         if sig != self.viz_sig {
             self.viz_sig = sig;
             viz.set_cfg(Arc::new(VisualizerConfig::from_settings(self.settings_ref())));
@@ -99,8 +116,8 @@ impl MusicApp {
             return;
         }
         self.viz_bars = bars;
-        let bands = match self.viz_sig {
-            Some(sig) => sig.1,
+        let bands = match &self.viz_sig {
+            Some(sig) => sig.bands,
             None => 0,
         };
         if bands == 0 {

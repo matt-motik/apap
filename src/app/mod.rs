@@ -14,7 +14,9 @@ use slint::language::{SortOrder, TableColumn};
 use music_player_rs::audio::analyzer::TAP_CAPACITY;
 use music_player_rs::audio::output::{default_device_name, probe_output};
 use music_player_rs::audio::player::Player;
-use music_player_rs::audio::visualizer::VisualizerConfig;
+use music_player_rs::audio::visualizer::{
+    FreqScale, LevelScale, VisualizerConfig,
+};
 use music_player_rs::cover::{self, CoverDone, CoverJob};
 use music_player_rs::playlist::{self, ScanMsg, Track};
 use music_player_rs::settings::{ColumnId, RepeatMode, Settings, SettingsStore, Theme};
@@ -70,6 +72,28 @@ const COL_SAVE_DEBOUNCE_TICKS: u32 = 6;
 /// to the (settled) window width ≈ the moment the user releases the mouse after
 /// a window resize. ~64 ms.
 const REFLOW_SETTLE_TICKS: u32 = 4;
+
+/// Лимит RAM-кэша полнотрековых изображений (LRU): ~20 × 4 МБ RGBA (2000×512).
+const FULLTRACK_CACHE_LEN: usize = 20;
+
+/// Полная сигнатура визуализации для детекта изменений DSP-настроек. Кортежи
+/// std реализуют `PartialEq` только до 12 элементов, поэтому — отдельный тип.
+#[derive(Debug, Clone, PartialEq)]
+struct VizSig {
+    mode: i32,
+    bands: usize,
+    channels: usize,
+    bar_gap: u32,
+    bar_radius: u32,
+    gradient: bool,
+    freq_scale: FreqScale,
+    smoothing: f32,
+    peak_hold: bool,
+    sensitivity: f32,
+    level_scale: LevelScale,
+    peak_decay_ms: u32,
+    dsd_cic_compensation: bool,
+}
 
 slint::include_modules!();
 
@@ -197,7 +221,7 @@ pub struct MusicApp {
     /// Live spectrum worker + tap (только для режима spectrum, ТЗ §16.2).
     viz: Option<music_player_rs::audio::analyzer::LiveWorker>,
     /// Сигнатура конфига, применённого к воркеру/UI (delta-применение).
-    viz_sig: Option<(i32, usize, usize, u32, u32, bool)>,
+    viz_sig: Option<VizSig>,
     /// Последний запушенный кадр полос (для распада на паузе и дельты).
     viz_bars: Vec<f32>,
     /// Текущее состояние tap-тумблера в плеере.
@@ -212,7 +236,8 @@ pub struct MusicApp {
     /// Ключ билда, уже показанный на UI (для дропа устаревших Ready).
     fulltrack_key: Option<String>,
     /// RAM-кэш построенных изображений по cache-ключу (режим+параметры).
-    fulltrack_cache: std::collections::HashMap<String, slint::Image>,
+    /// LRU: лимит `FULLTRACK_CACHE_LEN` ~2000×512 RGBA ≈ 20×4 МБ.
+    fulltrack_cache: clru::CLruCache<String, slint::Image>,
     /// Режим, под который построен текущий целевой билд (детект смены типа —
     /// смена режима применяется сразу, а не с debounce).
     fulltrack_mode: Option<music_player_rs::audio::visualizer::VisualizationMode>,
@@ -344,7 +369,7 @@ impl MusicApp {
             fulltrack_id: 0,
             fulltrack_target: None,
             fulltrack_key: None,
-            fulltrack_cache: std::collections::HashMap::new(),
+            fulltrack_cache: clru::CLruCache::new(std::num::NonZeroUsize::new(FULLTRACK_CACHE_LEN).expect("cache len > 0")),
             fulltrack_mode: None,
             viz_debounce: None,
         };

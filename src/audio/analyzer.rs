@@ -76,6 +76,10 @@ pub struct SpectrumEngine {
     hop_fill: usize,
     /// Временный входной кадр (in_ch сэмплов).
     frame_buf: Vec<f32>,
+    /// Сколько сэмплов в `frame_buf` уже собрано (0..in_ch]. Частичное чтение
+    /// кадра сохраняется между вызовами `pull_frame`, чтобы кадр не смешивал
+    /// сэмплы из разных временных интервалов.
+    frame_fill: usize,
     window_fn: Vec<f32>,
     ffts: Vec<Arc<dyn Fft<f32>>>,
     work: Vec<Complex<f32>>,
@@ -118,6 +122,7 @@ impl SpectrumEngine {
             window: vec![0.0; fft_size * proc_ch],
             hop_fill: 0,
             frame_buf: vec![0.0; in_ch.max(1)],
+            frame_fill: 0,
             window_fn: hann(fft_size),
             ffts,
             work: vec![Complex::default(); fft_size],
@@ -162,14 +167,14 @@ impl SpectrumEngine {
 
     /// Вытянуть один входной кадр (in_ch сэмплов), дозвудить до proc_ch и
     /// положить в хвост окна. `None`, если кольцо пусто/разорвано (частичное
-    /// чтение кадра безопасно: следующие вызовы дополняют тот же кадр).
+    /// чтение кадра сохраняется в `frame_fill` и дополняется следующими
+    /// вызовами — сэмплы одного кадра не смешиваются с другими интервалами).
     fn pull_frame(&mut self, consumer: &mut rtrb::Consumer<f32>) -> Option<()> {
-        let mut got = 0usize;
-        while got < self.in_ch {
+        while self.frame_fill < self.in_ch {
             match consumer.pop() {
                 Ok(s) => {
-                    self.frame_buf[got] = s;
-                    got += 1;
+                    self.frame_buf[self.frame_fill] = s;
+                    self.frame_fill += 1;
                 }
                 Err(_) => return None,
             }
@@ -184,6 +189,7 @@ impl SpectrumEngine {
             }
         }
         self.hop_fill += 1;
+        self.frame_fill = 0;
         Some(())
     }
 
@@ -307,7 +313,7 @@ impl LiveWorker {
             let mut consumer = consumer;
             let mut scratch: Vec<f32> = Vec::new();
             let mut engine: Option<SpectrumEngine> = None;
-            let mut last_key: Option<(u32, usize, u32, ChannelMode)> = None;
+            let mut last_key: Option<(u32, usize, u32, ChannelMode, FreqScale, u32)> = None;
             while run.load(Ordering::Relaxed) {
                 let cfg = cfg_by
                     .read()
@@ -322,7 +328,7 @@ impl LiveWorker {
                     continue;
                 }
                 let sp = &cfg.spectrum;
-                let key = (rate_now, ch_now, sp.bands, sp.channels);
+                let key = (rate_now, ch_now, sp.bands, sp.channels, sp.freq_scale, sp.peak_decay_ms);
                 if last_key != Some(key) {
                     engine = Some(SpectrumEngine::new(sp, rate_now, ch_now));
                     last_key = Some(key);

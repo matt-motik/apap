@@ -430,7 +430,7 @@ impl MusicApp {
                 }
             } else {
                 self.viz_debounce = None;
-                self.apply_fulltrack(mode, target, &cfg, &osc);
+                self.apply_fulltrack(mode, target, &cfg);
             }
         } else if let Some((t0, pending)) = &self.viz_debounce {
             if pending.as_ref() != target.as_ref() {
@@ -438,7 +438,7 @@ impl MusicApp {
                 self.viz_debounce = None;
             } else if t0.elapsed() >= FULLTRACK_DEBOUNCE {
                 self.viz_debounce = None;
-                self.apply_fulltrack(mode, target, &cfg, &osc);
+                self.apply_fulltrack(mode, target, &cfg);
             }
         }
 
@@ -453,7 +453,6 @@ impl MusicApp {
         mode: VisualizationMode,
         target: Option<(PathBuf, String)>,
         cfg: &VisualizerConfig,
-        osc: &OscilloscopeCfg,
     ) {
         self.fulltrack_mode = Some(mode);
         if let Some(tx) = self.fulltrack_tx.clone() {
@@ -466,26 +465,20 @@ impl MusicApp {
         if let Some((path, key)) = &target {
             self.fulltrack_id = self.fulltrack_id.wrapping_add(1);
             let id = self.fulltrack_id;
-            // RAM-кэш: мгновенный показ без декода.
-            let cache_in_mem = match mode {
-                VisualizationMode::Spectrogram => cfg.spectrogram.cache_in_memory,
-                _ => osc.cache_in_memory,
-            };
-            if cache_in_mem {
-                if let Some(img) = self.fulltrack_cache.get(key).cloned() {
-                    self.ui.set_osc_image(img);
-                    self.ui.set_osc_ready(true);
-                    self.fulltrack_key = Some(key.clone());
-                }
-            }
-            if !self.fulltrack_cache.contains_key(key) {
-                if let Some(tx) = self.fulltrack_tx.clone() {
-                    let _ = tx.send(FullCmd::Build(Box::new(FullBuild {
-                        id,
-                        path: path.clone(),
-                        cfg: cfg.clone(),
-                    })));
-                }
+            // RAM-кэш: мгновенный показ без декода. Показ из кэша не зависит от
+            // `cache_in_mem` — картинка уже в памяти, скрывать её незачем; от
+            // `cache_in_mem` зависит только запись новых изображений (см.
+            // `drain_fulltrack_events`). Сборка запускается только при промахе.
+            if let Some(img) = self.fulltrack_cache.get(key).cloned() {
+                self.ui.set_osc_image(img);
+                self.ui.set_osc_ready(true);
+                self.fulltrack_key = Some(key.clone());
+            } else if let Some(tx) = self.fulltrack_tx.clone() {
+                let _ = tx.send(FullCmd::Build(Box::new(FullBuild {
+                    id,
+                    path: path.clone(),
+                    cfg: cfg.clone(),
+                })));
             }
         } else {
             self.ui.set_osc_ready(false);
@@ -519,7 +512,7 @@ impl MusicApp {
                             _ => osc.cache_in_memory,
                         };
                         if cache_in_mem {
-                            self.fulltrack_cache.insert(key.clone(), img.clone());
+                            let _ = self.fulltrack_cache.put(key.clone(), img.clone());
                         }
                         self.ui.set_osc_image(img);
                         self.ui.set_osc_ready(true);
