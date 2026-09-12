@@ -95,7 +95,21 @@ export component TopPanel inherits Rectangle {
     in property <string> info-bit-depth: "—";
     in property <string> info-sample-rate: "—";
     in property <string> info-channels: "—";
-    in property <[string]> info-labels: ["Artist", "Track", "Title", "Duration", "Year", "Album", "Disc", "Genre", "Format", "Bitrate", "Bit depth", "Sample rate", "Channels"];
+    in property <[string]> info-labels: [
+        "Artist",
+        "Track",
+        "Title",
+        "Duration",
+        "Year",
+        "Album",
+        "Disc",
+        "Genre",
+        "Format",
+        "Bitrate",
+        "Bit depth",
+        "Sample rate",
+        "Channels"
+    ];
 
     in property <int> viz-mode: 0;
     in property <float> build-progress: 0.0;
@@ -304,6 +318,7 @@ export component TopPanel inherits Rectangle {
                 osc-ready: root.osc-ready;
                 disabled-text: root.disabled-text;
                 height: root.cover-size * 1px;
+                width: 100%;
             }
 
             VerticalLayout {
@@ -394,7 +409,7 @@ export component TopPanel inherits Rectangle {
         // ---------- Col 3: volume + mute ----------
         VerticalLayout {
             spacing: 0px;
-            width: 40px;
+            max-width: 40px;
             vertical-stretch: 1;
 
             // Верхняя часть: слайдер громкости, растягивается на всю доступную высоту
