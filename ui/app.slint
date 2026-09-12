@@ -76,6 +76,72 @@ export component AppWindow inherits Window {
     background: Colors.bg-window;
     max-width: 100000px;
 
+    // Нативное меню (MenuBar) — первое меню в окне. Содержит: Файл (add),
+    // Визуализация (checkable, §3.2), Настройки/О программе.
+    // checked: `root.settings-viz-mode == N` (synced via settings-viz-mode).
+    // enabled: !root.settings-open — горячие клавиши не работают при открытом диалоге.
+    MenuBar {
+        Menu {
+            title: "Файл";
+            MenuItem {
+                title: "Добавить файлы";
+                activated => { root.add-files(); }
+            }
+            MenuItem {
+                title: "Добавить папку";
+                activated => { root.add-folder(); }
+            }
+            MenuSeparator {}
+            MenuItem {
+                title: "Сохранить плейлист";
+                activated => { root.save-playlist(); }
+            }
+            MenuItem {
+                title: "Загрузить плейлист";
+                activated => { root.load-playlist(); }
+            }
+        }
+        Menu {
+            title: "Визуализация";
+            MenuItem {
+                title: "Отключена";
+                checked: root.settings-viz-mode == 0;
+                enabled: !root.settings-open;
+                activated => { root.menu-select-viz(0); }
+            }
+            MenuItem {
+                title: "Осциллограмма";
+                checked: root.settings-viz-mode == 1;
+                enabled: !root.settings-open;
+                activated => { root.menu-select-viz(1); }
+            }
+            MenuItem {
+                title: "Спектрограмма";
+                checked: root.settings-viz-mode == 2;
+                enabled: !root.settings-open;
+                activated => { root.menu-select-viz(2); }
+            }
+            MenuItem {
+                title: "Анализатор спектра";
+                checked: root.settings-viz-mode == 3;
+                enabled: !root.settings-open;
+                activated => { root.menu-select-viz(3); }
+            }
+        }
+        Menu {
+            title: "Настройки";
+            MenuItem {
+                title: "Параметры";
+                activated => { root.open-settings(); }
+            }
+            MenuSeparator {}
+            MenuItem {
+                title: "О программе";
+                activated => { root.show-about(); }
+            }
+        }
+    }
+
     in property <float> cover-size: 200;
     in property <float> col-info-w: 240;
     in property <float> col-gap: 12;
@@ -229,6 +295,7 @@ export component AppWindow inherits Window {
     in property <bool> settings-viz-sp-dsd-comp: true;
 
     callback cycle-viz();
+    callback menu-select-viz(int);
     callback settings-set-viz-mode(int);
     callback settings-set-viz-skip-dsd(bool);
     callback settings-set-viz-reset-type();
@@ -338,16 +405,6 @@ export component AppWindow inherits Window {
             seek-commit(v) => { root.seek-commit(v); }
             volume-changed(v) => { root.volume-changed(v); }
             toggle-mute => { root.toggle-mute(); }
-        }
-
-        AppMenuBar {
-            busy: root.busy;
-            add-files => { root.add-files(); }
-            add-folder => { root.add-folder(); }
-            save-playlist => { root.save-playlist(); }
-            load-playlist => { root.load-playlist(); }
-            open-settings => { root.open-settings(); }
-            show-about => { root.show-about(); }
         }
 
         playlist_view_width := Playlist {

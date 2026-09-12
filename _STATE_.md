@@ -1,23 +1,25 @@
 # Состояние сессии
 
 - **Проект:** `/home/matt/VSCode/apap/apap`
-- **Последний коммит:** `881c0b8 feat(viz 6.6): viz type switching (V hotkey) + visualization settings tab (ТЗ §3.2/§9)`
+- **Последний коммит:** `881c0b8 feat(viz 6.6): viz type switching (V hotkey) + visualization settings tab (ТЗ §3.2/§9)` (+ черновик: меню Визуализация в нерабочем дереве)
 - **Ветка:** main
-- **Состояние:** `done` — 6.6 «Переключение типа + UI настроек визуализации» (ТЗ §3.2/§9) СДЕЛАНО и подтверждено пользователем.
+- **Состояние:** `in_progress` — 6.6 extension: нативное меню «Визуализация» в MenuBar. Код готов, ждёт визуальной проверки пользователем → коммит.
 
-## Задача: 6.6 «Переключение типа + UI настроек визуализации» (ТЗ §3.2/§9)
+## Задача: 6.6-меню «Нативное MenuBar с checkable-меню „Визуализация“» (ТЗ §3.2)
 
-- Реализовано, проверено пользователем, закоммичено `881c0b8` (код + `_STATE_.md` + `ROADMAP.md`). Хэш добавлен в ROADMAP отдельной правкой.
+Исходный коммит 6.6: `881c0b8`. Текущая доработка — по запросу пользователя («кнопка Визуализация должна быть в ui/app.slint», предложение заменить Ректангл-тулбар на Menu).
 
 ### Что сделано (кратко)
-- **`src/app/viz_settings_manager.rs`** (новый): биндеры `bind_int/bind_bool/bind_float/bind_str` → `on_settings_set_viz_*`; `cycle_viz_mode` (хоткей V, Off→Osc→Spec→Spectrum→Off, save в settings.toml), `reset_viz_type`, `sync_viz_settings_to_ui`, `viz_apply_validated_texts` (§9.3: freq_min/freq_max 1..22050 + min<max, bands 4..128; невалидные не применяются, красная рамка, `viz-error`). +4 теста.
-- **`ui/settings.slint`**: вкладка «Visualization», LineEdit'ы текстовых полей — двусторонняя привязка `text <=> root.viz-*-text`.
-- **`ui/app.slint`**: корневой `FocusScope` + `KeyBinding @keys(V)`, колбэки `settings-set-viz-*`.
-- **`src/app/fulltrack_manager.rs`**: `drain_fulltrack` из `settings_ref()` (draft), debounce 500 мс, смена режима сразу.
-- **`src/audio/fulltrack.rs`**: фикс стерео — `render_rgba` граница строки `y_base+half_h` + тест `render_rgba_stereo_draws_both_channels`.
+- **`ui/app.slint`**: удалён `Menu`-блок из `AppMenuBar` (Rectangle, кнопки Add/Save/Open/About/Settings остались). Добавлен нативный `MenuBar` первым ребёнком `AppWindow` (требование Slint: MenuBar — прямой ребёнок Window, один на окно, вне for/if):
+  - `Menu "Файл"` — Добавить файлы / Добавить папку / --- / Сохранить плейлист / Загрузить плейлист → `add-files/add-folder/save-playlist/load-playlist`.
+  - `Menu "Визуализация"` — 4 checkable-пункта «Отключена/Осциллограмма/Спектрограмма/Анализатор спектра»: `checked: root.settings-viz-mode == N`, `enabled: !root.settings-open`, `activated => root.menu-select-viz(N)`.
+  - `Menu "Настройки"` — Параметры / О программе → `open-settings/show-about`.
+  - Колбэк `menu-select-viz(int)` добавлен на уровень `AppWindow` (строки 105-143).
+- **`src/app/viz_settings_manager.rs`**: новый `menu_select_viz_mode(i)` — клик по отмеченному пункту → Off, иначе → выбранный режим; мгновенный `save` в settings.toml + `sync_viz_settings_to_ui` (обновляет галочки меню и диалог). Биндер `on_menu_select_viz`.
+- Хоткей V (цикл через FocusScope+KeyBinding) сохранён в `root-focus`.
 
 ### Верификация
-- `cargo test` — 101 lib + 10 bin зелёные; build + release ок; clippy 0 новых; smoke X11 без паник.
+- `cargo check/build` ок; clippy 0 новых в своих файлах; `cargo test` — 101 lib + 10 bin зелёные. Ждёт визуальной проверки пользователя (меню рендерится в окне Slint на X11), затем коммит.
 
 ## Следующий ход
 

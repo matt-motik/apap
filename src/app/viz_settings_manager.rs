@@ -142,6 +142,22 @@ impl MusicApp {
         eprintln!("[viz] cycle: {:?} -> {:?}", current, next);
     }
 
+    /// Выбор пункта меню «Визуализация» (ТЗ §3.2): клик по отмеченному режиму
+    /// выключает визуализацию (Off), иначе — включает выбранный. Сразу
+    /// сохраняет режим в конфиг и синхронизирует UI (галочки меню).
+    pub(super) fn menu_select_viz_mode(&mut self, i: i32) {
+        if self.settings_draft.is_some() {
+            return;
+        }
+        let picked = VisualizationMode::from_index(i);
+        let cur = self.settings.settings.visualization.mode;
+        let next = if picked == cur { VisualizationMode::Off } else { picked };
+        self.settings.settings.visualization.mode = next;
+        self.settings.save();
+        self.sync_viz_settings_to_ui();
+        eprintln!("[viz] menu select {i} -> {:?}", next);
+    }
+
     /// Сброс настроек текущего типа к дефолтам (кнопка в диалоге, §9.2).
     pub(super) fn reset_viz_type(&mut self) {
         if self.settings_draft.is_none() {
@@ -434,6 +450,14 @@ pub fn bind_viz_settings_callbacks(this: &Rc<RefCell<MusicApp>>) {
     ui.on_cycle_viz(move || {
         eprintln!("[gui] cycle_viz");
         app.borrow_mut().cycle_viz_mode();
+    });
+
+    // Меню «Визуализация» в MenuBar (ТЗ §3.2): клик по пункту.
+    let app = this.clone();
+    let ui = app.borrow().ui.clone_strong();
+    ui.on_menu_select_viz(move |i| {
+        eprintln!("[gui] menu_select_viz {i}");
+        app.borrow_mut().menu_select_viz_mode(i);
     });
 }
 
