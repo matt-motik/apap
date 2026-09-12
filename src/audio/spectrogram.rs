@@ -110,6 +110,10 @@ pub fn cic_compensation_db(f: f32, sample_rate: f32) -> f32 {
 }
 
 /// Уровень энергии bin: magnitude → 0..1 (0 — тишина, 1 — максимум шкалы).
+///
+/// Заменён в `compute_column` на предвычисленный `RowPlan` (CIC-усиление и
+/// high-boost считаются на строку, а не на пиксель); оставлен как публичный
+/// помощник для тестов/внешних вычислений.
 pub fn level_of(mag_lin: f32, f: f32, cfg: &SpectrogramCfg, cic_db: f32) -> f32 {
     let mut m = mag_lin.max(1e-9) * cfg.sensitivity;
     if cic_db > 0.0 {
@@ -180,12 +184,21 @@ pub fn palette_rgb(t: f32, p: Palette, solid_rgb: [u8; 3]) -> [u8; 3] {
 // Стриминговый рендер
 // ---------------------------------------------------------------------------
 
+/// Предвычисленные константы строки спектрограммы, инвариантные к колонке:
+/// интерполяция magnitude по бинам, усиление компенсации CIC и high-boost.
+#[derive(Clone, Copy)]
+struct RowPlan {
+    b0: usize,
+    frac: f32,
+    b1: usize,
+    cic_gain: f32,
+    boost_db: f32,
+}
+
 /// Построитель спектрограммы: получает PCM пачками, рисует колонки на лету.
 pub struct Spectrogram {
     cfg: SpectrogramCfg,
-    sample_rate: u32,
     dst_ch: usize,
-    is_dsd: bool,
     hop: usize,
     columns: usize,
     fft_size: usize,
@@ -201,6 +214,17 @@ pub struct Spectrogram {
     img: Vec<u8>,
     /// Строк на канал.
     rows_per_ch: usize,
+    /// Предвычисленные на строку константы (bin-интерполяция, CIC, boost).
+    row_plan: Vec<RowPlan>,
+    /// LUT палитры 0..=255 для палитр с hex-LUT (Magma/Viridis/Plasma/Inferno);
+    /// `None` для формульных (Solid/Gray/Thermal/Rainbow) — там нет парсинга.
+    lut: Option<Vec<[u8; 3]>>,
+    /// Фон/цвет полосы (парсится один раз, не на каждую колонку).
+    bg_rgb: [u8; 3],
+    solid_rgb: [u8; 3],
+    /// Переиспользуемые буферы (не аллоцируются на каждую колонку×канал).
+    wbuf: Vec<Complex<f32>>,
+    mags: Vec<f32>,
 }
 
 impl Spectrogram {
@@ -223,11 +247,54 @@ impl Spectrogram {
         let window = window_coeffs(fft_size, cfg.window_type);
         let rows_per_ch = IMG_H / if dst_ch >= 2 { 2 } else { 1 };
         let img = vec![0u8; columns.min(MAX_PIX_W) * IMG_H * 4];
+        let bg = crate::audio::fulltrack::parse_color(&cfg.bg_color);
+        let fg = crate::audio::fulltrack::parse_color(&cfg.fg_color);
+        let solid_rgb = [fg[0], fg[1], fg[2]];
+        let bg_rgb = [bg[0], bg[1], bg[2]];
+        // RowPlan: всё, что зависит только от строки (bin-интерполяция, CIC,
+        // high-boost), вычисляем один раз на весь трек, а не на пиксель.
+        let half = fft_size / 2;
+        let fmin = cfg.freq_min.max(1) as f32;
+        let cic_on = is_dsd && cfg.dsd_cic_compensation;
+        let row_plan = (0..rows_per_ch)
+            .map(|y| {
+                let f = freq_for_row(y, rows_per_ch, cfg, sample_rate);
+                let pin = f * fft_size as f32 / sample_rate.max(1) as f32;
+                let bin = pin.min(half as f32 - 1e-3);
+                let b0 = bin.floor() as usize;
+                let frac = bin - b0 as f32;
+                let b1 = (b0 + 1).min(half);
+                let cic_db = if cic_on {
+                    cic_compensation_db(f, sample_rate as f32)
+                } else {
+                    0.0
+                };
+                let cic_gain = if cic_db > 0.0 {
+                    10f32.powf(cic_db / 20.0)
+                } else {
+                    1.0
+                };
+                let boost_db = if f > fmin {
+                    cfg.high_boost_db * (f / fmin).log10()
+                } else {
+                    0.0
+                };
+                RowPlan { b0, frac, b1, cic_gain, boost_db }
+            })
+            .collect();
+        // LUT только для hex-палитр (magma/viridis/plasma/inferno): парсинг
+        // 1536-байтной строки на пиксель заменяем O(1)-индексом.
+        let lut = match cfg.palette {
+            Palette::Solid | Palette::Gray | Palette::Thermal | Palette::Rainbow => None,
+            _ => Some(
+                (0..=255)
+                    .map(|i| palette_rgb(i as f32 / 255.0, cfg.palette, solid_rgb))
+                    .collect::<Vec<_>>(),
+            ),
+        };
         Ok(Spectrogram {
             cfg: cfg.clone(),
-            sample_rate,
             dst_ch,
-            is_dsd,
             hop,
             columns,
             fft_size,
@@ -240,6 +307,12 @@ impl Spectrogram {
             emitted: 0,
             img,
             rows_per_ch,
+            row_plan,
+            lut,
+            bg_rgb,
+            solid_rgb,
+            wbuf: vec![Complex::default(); fft_size],
+            mags: vec![0.0; fft_size / 2 + 1],
         })
     }
 
@@ -315,58 +388,45 @@ impl Spectrogram {
     /// Рисует одну колонку во всех каналах.
     fn compute_column(&mut self, col: usize) {
         let w = self.columns.min(MAX_PIX_W);
-        let bg = crate::audio::fulltrack::parse_color(&self.cfg.bg_color);
-        let fg = crate::audio::fulltrack::parse_color(&self.cfg.fg_color);
-        let solid_rgb = [fg[0], fg[1], fg[2]];
-        let bg_rgb = [bg[0], bg[1], bg[2]];
+        let half = self.fft_size / 2;
 
         for c in 0..self.dst_ch {
-            let mut wbuf: Vec<Complex<f32>> = (0..self.fft_size)
-                .map(|k| {
-                    let abs = col as u64 * self.hop as u64 + k as u64;
-                    let rel = (abs - self.trim_base) as usize;
-                    let s = if rel < self.bufs[c].len() {
-                        self.bufs[c][rel]
-                    } else {
-                        0.0
-                    };
-                    Complex {
-                        re: s * self.window[k],
-                        im: 0.0,
-                    }
-                })
-                .collect();
-            self.fft.process(&mut wbuf);
-
-            let half = self.fft_size / 2;
-            let mags: Vec<f32> = (0..=half)
-                .map(|i| {
-                    let re = wbuf[i].re;
-                    let im = wbuf[i].im;
-                    (re * re + im * im).sqrt()
-                })
-                .collect();
-
-            let y_base = c * self.rows_per_ch;
-            for y in 0..self.rows_per_ch {
-                let freq = freq_for_row(y, self.rows_per_ch, &self.cfg, self.sample_rate);
-                let pin = freq * self.fft_size as f32 / self.sample_rate.max(1) as f32;
-                let bin = pin.min(half as f32 - 1e-3);
-                let b0 = bin.floor() as usize;
-                let frac = bin - b0 as f32;
-                let b1 = (b0 + 1).min(half);
-                let mag = mags[b0] * (1.0 - frac) + mags[b1] * frac;
-
-                let cic_db = if self.is_dsd && self.cfg.dsd_cic_compensation {
-                    cic_compensation_db(freq, self.sample_rate as f32)
+            for k in 0..self.fft_size {
+                let abs = col as u64 * self.hop as u64 + k as u64;
+                let rel = (abs - self.trim_base) as usize;
+                let s = if rel < self.bufs[c].len() {
+                    self.bufs[c][rel]
                 } else {
                     0.0
                 };
-                let level = level_of(mag / self.fft_size as f32, freq, &self.cfg, cic_db);
+                self.wbuf[k] = Complex {
+                    re: s * self.window[k],
+                    im: 0.0,
+                };
+            }
+            self.fft.process(&mut self.wbuf);
+
+            for i in 0..=half {
+                let re = self.wbuf[i].re;
+                let im = self.wbuf[i].im;
+                self.mags[i] = (re * re + im * im).sqrt();
+            }
+
+            let y_base = c * self.rows_per_ch;
+            for y in 0..self.rows_per_ch {
+                let rp = self.row_plan[y];
+                let mag = self.mags[rp.b0] * (1.0 - rp.frac) + self.mags[rp.b1] * rp.frac;
+                let mut m = (mag / self.fft_size as f32).max(1e-9) * self.cfg.sensitivity;
+                m *= rp.cic_gain;
+                let db = 20.0 * (m + 1e-12).log10() + self.cfg.gain_db + rp.boost_db;
+                let level = ((db + self.cfg.range_db) / self.cfg.range_db).clamp(0.0, 1.0);
                 let rgb = if level < 0.001 {
-                    bg_rgb
+                    self.bg_rgb
                 } else {
-                    palette_rgb(level, self.cfg.palette, solid_rgb)
+                    match &self.lut {
+                        Some(lut) => lut[((level * 255.0).round() as usize).min(255)],
+                        None => palette_rgb(level, self.cfg.palette, self.solid_rgb),
+                    }
                 };
                 if col < w {
                     let off = ((y_base + y) * w + col) * 4;
