@@ -1,9 +1,9 @@
 # Состояние сессии
 
 - **Проект:** `/home/matt/VSCode/apap/apap`
-- **Последний коммит:** `881c0b8 feat(viz 6.6): viz type switching (V hotkey) + visualization settings tab (ТЗ §3.2/§9)` (+ черновик: меню Визуализация в нерабочем дереве)
+- **Последний коммит:** `480b998 chore: release v0.2 build — viz menu, oscilloscope/spectrogram/spectrum, native MenuBar` (тег `v0.2`)
 - **Ветка:** main
-- **Состояние:** `in_progress` — 6.6 extension: нативное меню «Визуализация» в MenuBar. Код готов, ждёт визуальной проверки пользователем → коммит.
+- **Состояние:** `done` — меню «Визуализация» в нативном MenuBar (ТЗ §3.2) закоммичено `301a402`, релиз `v0.2` (`480b998`, тег `v0.2`).
 
 ## Задача: 6.6-меню «Нативное MenuBar с checkable-меню „Визуализация“» (ТЗ §3.2)
 
@@ -19,7 +19,8 @@
 - Хоткей V (цикл через FocusScope+KeyBinding) сохранён в `root-focus`.
 
 ### Верификация
-- `cargo check/build` ок; clippy 0 новых в своих файлах; `cargo test` — 101 lib + 10 bin зелёные. Ждёт визуальной проверки пользователя (меню рендерится в окне Slint на X11), затем коммит.
+- `cargo check/build` ок; clippy 0 новых в своих файлах; `cargo test` — 101 lib + 10 bin зелёные; release build ок.
+- Коммит `301a402 feat(viz): native MenuBar with checkable viz menu (ТЗ §3.2)`. Релиз `v0.2` (тег, `480b998`).
 
 ## Следующий ход
 
