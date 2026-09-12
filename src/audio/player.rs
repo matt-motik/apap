@@ -6,6 +6,7 @@ use cpal::traits::{DeviceTrait, HostTrait, StreamTrait};
 use super::decoder::{AudioSource, Decoder, TrackInfo};
 use super::dsd::DsdDecoder;
 use super::output::{build_stream, select_output, Resampler};
+use crate::settings::ResamplerAlgorithm;
 
 /// Shared state accessed both by the UI thread and the audio callback.
 pub struct PlaybackCore {
@@ -115,6 +116,8 @@ pub struct Player {
     pub device_desc: String,
     pub last_error: Option<String>,
     preferred_device: Option<String>,
+    /// Resampling algorithm used by every new stream (ТЗ 5.1 §8.3).
+    resampler_algo: ResamplerAlgorithm,
 }
 
 impl Player {
@@ -131,7 +134,12 @@ impl Player {
             device_desc,
             last_error: None,
             preferred_device: None,
+            resampler_algo: ResamplerAlgorithm::SincMedium,
         }
+    }
+
+    pub fn set_resampler_algorithm(&mut self, algo: ResamplerAlgorithm) {
+        self.resampler_algo = algo;
     }
 
     pub fn set_preferred_device(&mut self, name: String) {
@@ -188,7 +196,13 @@ impl Player {
                 Ok(c) => c,
                 Err(_) => return Err("audio core poisoned; cannot open track".into()),
             };
-            core.resampler = Some(Resampler::new(src_rate, out_rate, src_ch, out_ch));
+            core.resampler = Some(Resampler::with_algo(
+                src_rate,
+                out_rate,
+                src_ch,
+                out_ch,
+                self.resampler_algo,
+            ));
             core.out_rate = out_rate;
             core.out_ch = out_ch;
             core.decoder = Some(src);
@@ -526,6 +540,7 @@ impl Player {
             device_desc: String::from("test"),
             last_error: None,
             preferred_device: None,
+            resampler_algo: ResamplerAlgorithm::SincMedium,
         }
     }
 }

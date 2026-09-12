@@ -207,6 +207,7 @@ impl MusicApp {
         let mut player = Player::new();
         player.set_volume(settings.settings.volume);
         player.set_muted(settings.settings.muted);
+        player.set_resampler_algorithm(settings.settings.audio.resampler.algorithm);
         if !settings.settings.audio_device.is_empty() {
             player.set_preferred_device(settings.settings.audio_device.clone());
         }

@@ -499,7 +499,7 @@ let config = AppConfig::builder()
 
 ## Этап 6: Визуализация аудио (ТЗ 5.1)
 
-**Статус:** 🔶 в работе — **6.1 «Каркас» ✅** и **6.2 «Анализатор спектра» ✅** сделаны, дальше 6.3 (DSD-ресемплеры).
+**Статус:** 🔶 в работе — **6.1 «Каркас» ✅**, **6.2 «Анализатор спектра» ✅**, **6.3 «DsdDecoder + ресемплеры» ✅** сделаны, дальше 6.4 (осциллограмма полнотрековая).
 
 **Суть:** три режима визуализации (отключено/осциллограмма/спектрограмма/анализатор спектра), независимые настройки для каждого типа, стерео/моно, обработка DSD (PCM/native/DoP), bit-perfect, кэширование (RAM+диск), персистентность в config.toml.
 
@@ -514,7 +514,15 @@ let config = AppConfig::builder()
 - **rtrb** из crates.io; `rustfft` 6.4.1 уже есть в lock (транзитивно от symphonia) — нужен будет на 6.2/6.4.
 - **Верификация:** build ок, clippy — ноль новых warning, тесты 68 lib + 6 bin зелёные.
 
-**Остальное (6.3+):** DSD-ресемплеры (linear/cubic/sinc_*/soxr), FullTrackWorker (осцилло/спектрограмма), DSD-режимы, bit-perfect, вкладка настроек «Визуализация», кэш RAM/диск.
+**Остальное (6.4+):** FullTrackWorker (осцилло/спектрограмма), DSD-режимы, bit-perfect, вкладка настроек «Визуализация/DSD/Звук», кэш RAM/диск.
+
+### 6.3. Доработка DsdDecoder + Ресемплеры ✅ сделано
+
+- **`src/settings.rs`**: новые секции `[dsd]` и `[audio]`/`[audio.resampler]` (ТЗ §8.2). `DsdMode (pcm/native/dop)`, `TargetBitDepth (16/24/32/32float)`, `TargetSampleRate (auto/44.1…192кГц)`, `ResamplerAlgorithm (linear/cubic/sinc_fast/…/sinc_slow, snake_case в TOML)`, `ResamplerDither (tpdf/triangular/off)`, `DsdCfg`, `AudioResamplerCfg`, `AudioCfg.bit_perfect`. Дефолты: sinc_medium, tpdf, pcm, 24 бит, auto. +4 теста (дефолты/round-trip/override/taps).
+- **`src/audio/output.rs`** — `Resampler` переписан: `with_algo(src_rate, out_rate, src_ch, out_ch, algo)`; алгоритмы linear / cubic (Catmull-Rom, 4 точки) / sinc_fast/sinc_medium/sinc_slow (windowed-sinc, Hann, 32/64/128 тапов, DC-нормализация); буфер «base+pos» держит lookbehind для sinc (m-1) и cubic (1); EOF-хвост — клампинг окна к последнему кадру; **исправлен инвертированный коэффициент `ratio`** (было out/src вместо src/out — 44.1→48 кГц разгонял звук) и добавлен break по концу данных (`left >= base+frames`), чтобы pull не плодил мусор после исчерпания буфера. +5 тестов (identity, DC pass-through, ramp 2×, EOF-хвост, стерео→моно миксдаун).
+- **`src/audio/player.rs`**: `Player.resampler_algo: ResamplerAlgorithm` (дефолт sinc_medium), `set_resampler_algorithm()`, `open()` создаёт `Resampler::with_algo`. `DsdDecoder` (CIC-децимация ×64, потоковая) не менялся — по §8.1 CIC фиксирован, не настраивается; `target_sample_rate`/`target_bit_depth` сохранены в конфиге, применяются на этапах 6.5/6.6 (device-caps/bit-perfect/dither).
+- **`src/app/mod.rs`**: `player.set_resampler_algorithm(settings.audio.resampler.algorithm)` в `MusicApp::new`.
+- **Верификация:** build + release ок, clippy — ноль новых warning (baseline 21 lib + 5 bin), тесты 86 lib + 6 bin зелёные.
 
 ### 6.2. Анализатор спектра (мгновенный) ✅ сделано
 
@@ -528,6 +536,7 @@ let config = AppConfig::builder()
 **Этапы разработки (из §16 ТЗ):**
 1. ~~Каркас~~ ✅ 6.1 (готово)
 2. ~~Анализатор спектра (мгновенный)~~ ✅ 6.2 (LiveWorker, FFT, полосы, сглаживание, peak hold + настройки + UI).
+3. ~~Доработка DsdDecoder + ресемплеры~~ ✅ 6.3 (потоковая CIC-децимация фиксирована по §8.1, линейный/кубический/sinc_* ресемплеры, настройки `[dsd]`+`[audio]`, интеграция в PlaybackCore).
 3. Доработка `DsdDecoder` + ресемплеры (linear/cubic/sinc_*/soxr) + интеграция в `PlaybackCore`.
 4. Осциллограмма (полнотрековая): `FullTrackWorker`, min/max децимация, прогресс, отмена, кэш, `skip_fulltrack_for_dsd`.
 5. Спектрограмма (полнотрековая): FFT по треку, палитры, адаптивный hop, CIC-компенсация.
@@ -571,7 +580,7 @@ let config = AppConfig::builder()
 | 5.1 | tracing вместо eprintln! | ⬜ желательно | ⬜ | — | Низкий |
 | 5.2 | builder для AppConfig | ⬜ желательно | ⬜ | — | Низкий |
 | 5.3 | Горячая перезагрузка конфигов | — отклонено | 🚫 | — | — |
-| 6.1 | Визуализация аудио (ТЗ 5.1): каркас + спектр + DSD/resamplers + oscillo/spectrogram + bit-perfect | 🔴 Высокий (ТЗ от пользователя) | 🔶 6.1 ✅; 6.2 ✅; 6.3+ ⬜ | 8 этапов (§16) | Высокий |
+| 6.1 | Визуализация аудио (ТЗ 5.1): каркас + спектр + DSD/resamplers + oscillo/spectrogram + bit-perfect | 🔴 Высокий (ТЗ от пользователя) | 🔶 6.1 ✅; 6.2 ✅; 6.3 ✅; 6.4+ ⬜ | 8 этапов (§16) | Высокий |
 
 ---
 

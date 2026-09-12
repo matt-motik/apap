@@ -333,6 +333,152 @@ fn default_info_labels() -> std::collections::HashMap<String, String> {
     .collect()
 }
 
+/// Режим вывода DSD (ТЗ 5.1 §8.2). `Pcm` — единственный реализованный;
+/// `Native`/`DoP` зарезервированы под этап 6.6 (bit-perfect / native / DoP).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
+#[serde(rename_all = "snake_case")]
+pub enum DsdMode {
+    #[default]
+    Pcm,
+    Native,
+    DoP,
+}
+
+/// Битность конвертации DSD → PCM (ТЗ 5.1 §8.2). Внутри плеера PCM всегда
+/// f32; значение используется на этапе 6.6 (dither/bit-perfect) и в FullTrackWorker.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
+pub enum TargetBitDepth {
+    #[serde(rename = "16")]
+    Bits16,
+    #[default]
+    #[serde(rename = "24")]
+    Bits24,
+    #[serde(rename = "32")]
+    Bits32Int,
+    #[serde(rename = "32float")]
+    Bits32Float,
+}
+
+/// Целевая частота DSD → PCM (ТЗ 5.1 §8.2). `Auto` — выход CIC-децимации
+/// (44.1/48/88.2/96/176.4/192 кГц в зависимости от кратности DSD), дальше всё
+/// доводит универсальный ресемплер до частоты устройства (§8.1).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
+pub enum TargetSampleRate {
+    #[default]
+    #[serde(rename = "auto")]
+    Auto,
+    #[serde(rename = "44100")]
+    Hz44100,
+    #[serde(rename = "48000")]
+    Hz48000,
+    #[serde(rename = "88200")]
+    Hz88200,
+    #[serde(rename = "96000")]
+    Hz96000,
+    #[serde(rename = "176400")]
+    Hz176400,
+    #[serde(rename = "192000")]
+    Hz192000,
+}
+
+/// Алгоритм универсального ресемплинга PCM → устройство (ТЗ 5.1 §8.3).
+/// Применяется ко всем трекам (PCM и DSD), где частоты не совпадают.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
+#[serde(rename_all = "snake_case")]
+pub enum ResamplerAlgorithm {
+    /// Линейная интерполяция (дёшево, низкое качество).
+    Linear,
+    /// Кубическая Catmull-Rom (4 точки).
+    Cubic,
+    /// Windowed-sinc, 32 тапа.
+    SincFast,
+    /// Windowed-sinc, 64 тапа (дефолт).
+    #[default]
+    SincMedium,
+    /// Windowed-sinc, 128 тапов.
+    SincSlow,
+}
+
+/// Дизеринг при ресемплинге (ТЗ 5.1 §8.2). Пока не применяется в горячем
+/// пути — зарезервирован под этап 6.6 (bit-perfect/dither).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
+#[serde(rename_all = "snake_case")]
+pub enum ResamplerDither {
+    #[default]
+    Tpdf,
+    Triangular,
+    Off,
+}
+
+/// Количество тапов windowed-sinc фильтра для алгоритма.
+impl ResamplerAlgorithm {
+    pub const fn sinc_taps(self) -> u32 {
+        match self {
+            ResamplerAlgorithm::Linear | ResamplerAlgorithm::Cubic => 0,
+            ResamplerAlgorithm::SincFast => 32,
+            ResamplerAlgorithm::SincMedium => 64,
+            ResamplerAlgorithm::SincSlow => 128,
+        }
+    }
+}
+
+/// Настройки `[dsd]` (ТЗ 5.1 §8.2).
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct DsdCfg {
+    #[serde(default)]
+    pub mode: DsdMode,
+    #[serde(default)]
+    pub target_bit_depth: TargetBitDepth,
+    #[serde(default)]
+    pub target_sample_rate: TargetSampleRate,
+}
+
+impl Default for DsdCfg {
+    fn default() -> Self {
+        Self {
+            mode: DsdMode::Pcm,
+            target_bit_depth: TargetBitDepth::Bits24,
+            target_sample_rate: TargetSampleRate::Auto,
+        }
+    }
+}
+
+/// Настройки `[audio.resampler]` (ТЗ 5.1 §8.2).
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct AudioResamplerCfg {
+    #[serde(default)]
+    pub algorithm: ResamplerAlgorithm,
+    #[serde(default)]
+    pub dither: ResamplerDither,
+}
+
+impl Default for AudioResamplerCfg {
+    fn default() -> Self {
+        Self {
+            algorithm: ResamplerAlgorithm::SincMedium,
+            dither: ResamplerDither::Tpdf,
+        }
+    }
+}
+
+/// Настройки `[audio]` (ТЗ 5.1 §8.2): bit-perfect и ресемплер.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct AudioCfg {
+    #[serde(default)]
+    pub bit_perfect: bool,
+    #[serde(default)]
+    pub resampler: AudioResamplerCfg,
+}
+
+impl Default for AudioCfg {
+    fn default() -> Self {
+        Self {
+            bit_perfect: false,
+            resampler: AudioResamplerCfg::default(),
+        }
+    }
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Settings {
     #[serde(default)]
@@ -408,6 +554,12 @@ pub struct Settings {
     /// Настройки визуализации аудио (ТЗ 5.1): режим и параметры трёх типов.
     #[serde(default)]
     pub visualization: crate::audio::visualizer::VisualizerSettings,
+    /// Настройки DSD → PCM (ТЗ 5.1 §8.2): режим вывода, битность, частота.
+    #[serde(default)]
+    pub dsd: DsdCfg,
+    /// Аудио-настройки (ТЗ 5.1 §8.2): bit-perfect и ресемплер для всех треков.
+    #[serde(default)]
+    pub audio: AudioCfg,
 }
 
 impl Default for Settings {
@@ -438,6 +590,8 @@ impl Default for Settings {
             cover_online: true,
             info_labels: default_info_labels(),
             visualization: crate::audio::visualizer::VisualizerSettings::default(),
+            dsd: DsdCfg::default(),
+            audio: AudioCfg::default(),
         }
     }
 }
@@ -788,6 +942,55 @@ pub fn playlist_path() -> PathBuf {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn audio_and_dsd_defaults() {
+        let s = Settings::default();
+        // ТЗ §8.3: дефолт ресемплера — sinc_medium.
+        assert_eq!(s.audio.resampler.algorithm, ResamplerAlgorithm::SincMedium);
+        assert_eq!(s.audio.resampler.dither, ResamplerDither::Tpdf);
+        assert!(!s.audio.bit_perfect);
+        // ТЗ §8.2: DSD по умолчанию «DSD → PCM», 24 бит, auto частота.
+        assert_eq!(s.dsd.mode, DsdMode::Pcm);
+        assert_eq!(s.dsd.target_bit_depth, TargetBitDepth::Bits24);
+        assert_eq!(s.dsd.target_sample_rate, TargetSampleRate::Auto);
+    }
+
+    #[test]
+    fn audio_and_dsd_toml_roundtrip() {
+        let s = Settings::default();
+        let toml = toml::to_string(&s).unwrap();
+        assert!(toml.contains("[dsd]"), "missing [dsd]:\n{toml}");
+        assert!(toml.contains("[audio]"), "missing [audio]:\n{toml}");
+        assert!(toml.contains("[audio.resampler]"), "missing [audio.resampler]:\n{toml}");
+        let parsed: Settings = toml::from_str(&toml).unwrap();
+        assert_eq!(parsed.audio, s.audio);
+        assert_eq!(parsed.dsd, s.dsd);
+    }
+
+    #[test]
+    fn audio_resampler_algorithm_overrides_default() {
+        let toml = "[audio.resampler]\nalgorithm = \"cubic\"\n";
+        let s: Settings = match toml::from_str(toml) {
+            Ok(s) => s,
+            Err(e) => {
+                panic!("parse failed: {e}");
+            }
+        };
+        assert_eq!(s.audio.resampler.algorithm, ResamplerAlgorithm::Cubic);
+        // Остальные секции — дефолты.
+        assert_eq!(s.audio.resampler.dither, ResamplerDither::Tpdf);
+        assert_eq!(s.dsd.mode, DsdMode::Pcm);
+    }
+
+    #[test]
+    fn resampler_algorithm_sinc_taps() {
+        assert_eq!(ResamplerAlgorithm::Linear.sinc_taps(), 0);
+        assert_eq!(ResamplerAlgorithm::Cubic.sinc_taps(), 0);
+        assert_eq!(ResamplerAlgorithm::SincFast.sinc_taps(), 32);
+        assert_eq!(ResamplerAlgorithm::SincMedium.sinc_taps(), 64);
+        assert_eq!(ResamplerAlgorithm::SincSlow.sinc_taps(), 128);
+    }
 
     #[test]
     fn ordered_columns_falls_back_to_canonical() {

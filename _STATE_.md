@@ -1,48 +1,18 @@
-# _STATE_ — рабочее состояние сессии
+# Состояние сессии
 
-> Точка входа для любой новой сессии (другая машина, другой агент, обрыв токенов/dead-loop).
-> Обновляется в конце каждого шага и коммится вместе с изменениями кода.
+- **Проект:** `/home/matt/VSCode/apap/apap`
+- **Последний коммит:** предстоит commit 6.3 (WIP не зафиксирован)
+- **Состояние:** `done` — Этап 6, подзадача **6.3 «Доработка DsdDecoder + Ресемплеры + интеграция в PlaybackCore»** (ТЗ §16.3) выполнена, тесты зелёные; коммит в момент записи не сделан.
 
-## Статус
+## Итог 6.3
 
-- **Состояние:** `done` — Этап 6, подзадача **6.2 «Анализатор спектра (мгновенный)»** завершена (ТЗ §16.2).
-
-## Активная задача
-
-**6.2 — LiveWorker: FFT + полосы + сглаживание + peak hold.**
-- `rustfft` как прямая зависимость;
-- `src/audio/analyzer.rs`: `SpectrumEngine` (чистый DSP, тестируемый) + `LiveWorker` (поток-консьюмер rtrb);
-- живой снапшот настроек `RwLock<Arc<SpectrumCfg>>` (решение по RwLock из 6.1);
-- отрисовка полос в `ui/visualizer.slint` (mode==3, mono/stereo по ТЗ §4.2: L слева / R справа);
-- интеграция в `MusicApp`: `viz_manager.rs`, создание tap в `new()`, `sync_viz()` в `tick()`, распад полос на паузе/стопе;
-- старый градиент-плейсхолдер скрывается при mode==3.
-
-## Шаги
-
-- [x] 1. Cargo.toml: `rustfft`
-- [x] 2. `src/audio/analyzer.rs`: `SpectrumEngine` + `LiveWorker` + тесты (синтез: тон/шум/стерео)
-- [x] 3. `src/audio/mod.rs`: подключить `analyzer`
-- [x] 4. `ui/visualizer.slint`: `spectrum-l/spectrum-r/viz-channels` + `BarRow` (полосы L/R)
-- [x] 5. `ui/top_panel.slint` + `ui/app.slint`: проброс spectrum-пропсов
-- [x] 6. `src/audio/player.rs`: метод `Player::format()` (out_rate/out_ch)
-- [x] 7. `src/app/visualizer_manager.rs` (новый, impl MusicApp): создание LiveWorker+tap в `new()`, `sync_viz()`/`push_viz_to_ui()` в `tick()`
-- [x] 8. build + clippy + test → коммит
-
-## Изменяемые файлы
-
-- `Cargo.toml`/`Cargo.lock` — rustfft
-- `src/audio/analyzer.rs` (новый), `src/audio/mod.rs`
-- `ui/visualizer.slint`, `ui/top_panel.slint`, `ui/app.slint`
-- `src/audio/player.rs`
-- `src/app/visualizer_manager.rs` (новый), `src/app/mod.rs`
-- `ROADMAP.md`, `_STATE_.md`
-
-## Риск / стоп-условие
-
-- Аудио-callback не трогаем (tap уже есть, только `Player::format()` — блокирующий lock, но только в UI-потоке).
-- Воркер не выделяет память в горячем цикле (переиспользуемые буферы `window`/`work`).
-- Slint: высоты полос через `% * f32`; проверить компиляцию.
+- `src/settings.rs`: `[dsd]` и `[audio]`/`[audio.resampler]` — `DsdMode`, `TargetBitDepth`, `TargetSampleRate`, `ResamplerAlgorithm`, `ResamplerDither`, `DsdCfg`, `AudioResamplerCfg`, `AudioCfg` (+4 теста).
+- `src/audio/output.rs`: `Resampler::with_algo` — linear/cubic(Catmull-Rom)/sinc_fast/medium/slow (windowed-sinc Hann, 32/64/128 тапов). Исправлены: инвертированный ratio (out/src → src/out) и бесконечный eof-clamping (break по концу данных). +5 тестов.
+- `src/audio/player.rs`: `set_resampler_algorithm`, `open()` → `with_algo`; `DsdDecoder` не менялся (CIC фиксирован по §8.1).
+- `src/app/mod.rs`: `MusicApp::new` прокидывает `settings.audio.resampler.algorithm`.
+- Тесты: 86 lib + 6 bin зелёные, clippy без новых warning, release собран.
 
 ## Следующий ход
 
-Задача закрыта. Следующая: **6.3** — доработка `DsdDecoder` + ресемплеры (linear/cubic/sinc_*/soxr) + интеграция в `PlaybackCore` (ТЗ §16.3). Начать с `_TODO_`/ROADMAP.
+1. Закоммитить: `git add` (Cargo.lock, src/settings.rs, src/audio/output.rs, src/audio/player.rs, src/app/mod.rs, _STATE_.md, ROADMAP.md) → `git commit` (стиль `feat(viz 6.3): ...`).
+2. Далее: **6.4** — осциллограмма (полнотрековая): `FullTrackWorker`, min/max-децимация, прогресс, отмена, кэш RAM/диск, `skip_fulltrack_for_dsd` (ТЗ §16.4).
