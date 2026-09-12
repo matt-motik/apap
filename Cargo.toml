@@ -19,6 +19,7 @@ rand = "0.8"
 slint = { version = "1.17", default-features = false, features = ["std", "compat-1-2", "backend-winit-x11", "renderer-winit-skia"] }
 rtrb = "0.4.0"
 rustfft = "6.4.1"
+image = { version = "0.25", default-features = false, features = ["png"] }
 
 [build-dependencies]
 slint-build = "1.17"

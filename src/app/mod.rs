@@ -21,12 +21,14 @@ use music_player_rs::settings::{ColumnId, RepeatMode, Settings, SettingsStore, T
 use music_player_rs::tray::{self, TrayCmd};
 
 pub mod events;
+pub mod fulltrack_manager;
 pub mod playback_manager;
 pub mod playlist_manager;
 pub mod ui_manager;
 pub mod visualizer_manager;
 
 use events::AppEvent;
+use fulltrack_manager::{FullCmd, FullEvt};
 
 /// Last values pushed to the UI by the delta playback sync. Kept so the
 /// 100 ms tick only re-writes properties that actually changed (e.g. no
@@ -199,6 +201,17 @@ pub struct MusicApp {
     viz_bars: Vec<f32>,
     /// Текущее состояние tap-тумблера в плеере.
     viz_tap_active: bool,
+    /// Полнотрековая осциллограмма (§16.4): каналы воркера.
+    fulltrack_tx: Option<std::sync::mpsc::Sender<FullCmd>>,
+    fulltrack_rx: Option<std::sync::mpsc::Receiver<FullEvt>>,
+    /// Последний выданный id билда.
+    fulltrack_id: u64,
+    /// Целевой (path, cache_key) текущего билда.
+    fulltrack_target: Option<(std::path::PathBuf, String)>,
+    /// Ключ билда, уже показанный на UI (для дропа устаревших Ready).
+    fulltrack_key: Option<String>,
+    /// RAM-кэш построенных изображений по пути трека.
+    fulltrack_cache: std::collections::HashMap<std::path::PathBuf, slint::Image>,
 }
 
 impl MusicApp {
@@ -319,7 +332,14 @@ impl MusicApp {
             viz_sig: None,
             viz_bars: Vec::new(),
             viz_tap_active: false,
+            fulltrack_tx: None,
+            fulltrack_rx: None,
+            fulltrack_id: 0,
+            fulltrack_target: None,
+            fulltrack_key: None,
+            fulltrack_cache: std::collections::HashMap::new(),
         };
+        app.setup_fulltrack();
         app.setup_visualizer(viz_cfg, viz_prod, viz_cons);
         app.rebuild_shuffle();
         if let Some(col) = app.settings.settings.sorted_col {
@@ -942,6 +962,7 @@ impl MusicApp {
         self.drain_startup_tracks();
         self.drain_scan();
         self.drain_cover();
+        self.drain_fulltrack();
         self.drain_audio_devices();
         self.handle_auto_advance();
         self.sync_playback_state_to_ui();

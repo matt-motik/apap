@@ -113,6 +113,10 @@ export component AppWindow inherits Window {
     in property <[string]> info-labels: ["Artist", "Track", "Title", "Duration", "Year", "Album", "Disc", "Genre", "Format", "Bitrate", "Bit depth", "Sample rate", "Channels"];
 
     in property <int> viz-mode: 0;
+    in property <float> build-progress: 0.0;
+    in property <image> osc-image: @image-url("");
+    in property <bool> osc-ready: false;
+    in property <string> disabled-text: "";
     in property <[float]> spectrum-l: [];
     in property <[float]> spectrum-r: [];
     in property <int> viz-channels: 2;
@@ -217,6 +221,10 @@ export component AppWindow inherits Window {
             info-channels: root.info-channels;
             info-labels: root.info-labels;
             viz-mode: root.viz-mode;
+            build-progress: root.build-progress;
+            osc-image: root.osc-image;
+            osc-ready: root.osc-ready;
+            disabled-text: root.disabled-text;
             spectrum-l: root.spectrum-l;
             spectrum-r: root.spectrum-r;
             viz-channels: root.viz-channels;

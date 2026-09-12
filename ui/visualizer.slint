@@ -51,6 +51,11 @@ export component Visualizer inherits Rectangle {
     in property <string> disabled-text: ""; // спец-плейсхолдер (§6.3)
     in property <float> build-progress: 0.0; // 0..1, полоса прогресса при построении
 
+    // Полнотрековая осциллограмма (§16.4): отрендеренное изображение
+    // (RGBA с min/max-колонками) и флаг готовности.
+    in property <image> osc-image: @image-url("");
+    in property <bool> osc-ready: false;
+
     // Анализатор спектра (режим 3): два набора полос рядом (L слева, R справа)
     // при стерео (§4.2), один — при моно.
     in property <[float]> spectrum-l: [];
@@ -68,14 +73,28 @@ export component Visualizer inherits Rectangle {
     background: Colors.bg-elevated;
     clip: true;
 
-    // Заглушка активной визуализации (осциллограмма/спектрограмма; заменится
-    // реальной отрисовкой на 6.4/6.5). Для анализатора спектра не нужна.
+    // Заглушка активной визуализации (§16.4) для спектрограммы (строится на
+    // 6.5); для осциллограммы теперь рисуется настоящее изображение.
     Rectangle {
-        visible: root.mode > 0 && root.mode != 3 && root.artist != "—" && root.disabled-text == "";
+        visible: root.mode == 2 && root.artist != "—" && root.disabled-text == "";
         height: 100%;
         width: 100%;
         background: @linear-gradient(90deg, Colors.viz-1 0%, Colors.viz-2 50%, Colors.viz-3 100%);
         opacity: 0.6;
+    }
+
+    // Полнотрековая осциллограмма (§16.4): изображение поверх плейсхолдера.
+    Rectangle {
+        visible: root.mode == 1 && root.osc-ready && root.disabled-text == "";
+        height: 100%;
+        width: 100%;
+
+        Image {
+            source: root.osc-image;
+            height: 100%;
+            width: 100%;
+            image-fit: contain;
+        }
     }
 
     // Анализатор спектра (§4.2): стерео — L слева, R справа; моно — один ряд.
@@ -118,7 +137,8 @@ export component Visualizer inherits Rectangle {
         spacing: 2px;
         width: 100%;
         height: 100%;
-        visible: (root.mode == 0 || root.artist == "—") && root.mode != 3;
+        visible: ((root.mode == 0 || root.artist == "—") && root.mode != 3)
+            || (root.mode == 1 && !root.osc-ready);
 
         Text {
             text: root.artist;

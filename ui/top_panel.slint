@@ -98,6 +98,10 @@ export component TopPanel inherits Rectangle {
     in property <[string]> info-labels: ["Artist", "Track", "Title", "Duration", "Year", "Album", "Disc", "Genre", "Format", "Bitrate", "Bit depth", "Sample rate", "Channels"];
 
     in property <int> viz-mode: 0;
+    in property <float> build-progress: 0.0;
+    in property <image> osc-image: @image-url("");
+    in property <bool> osc-ready: false;
+    in property <string> disabled-text: ""; // спец-плейсхолдер (§6.3/6.4)
 
     // Анализатор спектра (режим 3): данные и параметры отрисовки полос.
     in property <[float]> spectrum-l: [];
@@ -295,6 +299,10 @@ export component TopPanel inherits Rectangle {
                 bar-gap: root.bar-gap;
                 bar-radius: root.bar-radius;
                 gradient: root.gradient;
+                build-progress: root.build-progress;
+                osc-image: root.osc-image;
+                osc-ready: root.osc-ready;
+                disabled-text: root.disabled-text;
                 height: root.cover-size * 1px;
             }
 

@@ -2696,6 +2696,7 @@ version = "0.1.0"
 dependencies = [
  "cpal",
  "dirs",
+ "image",
  "ksni",
  "rand 0.8.8",
  "rfd",
