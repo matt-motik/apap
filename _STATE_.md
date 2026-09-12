@@ -5,27 +5,26 @@
 
 ## Статус
 
-- **Состояние:** `done` — названия полей инфо-панели выведены в конфиг (`info_labels`), коммит в процессе.
+- **Состояние:** `done` — релиз v0.1 собран; инбокс `_TODO_` обработан (ТЗ 5.1 внесено в ROADMAP как Этап 6). Коммит в процессе.
 
 ## Активная задача
 
-Нет.
+Нет (следующая плановая — Этап 6 «Визуализация аудио», ROADMAP).
 
 ## Выполнено
 
-### Названия полей инфо-панели в конфиг (`info_labels`)
-- `Settings.info_labels: HashMap<String, String>` + `INFO_LABEL_KEYS` (13 ключей) + `default_info_labels()` (англ. дефолты)
-- Методы `Settings::info_label(key)` (fallback: конфиг → дефолт → ключ) и `info_labels_ordered()`
-- `TopPanel.info-labels: [string]` — модель вместо 13 захардкоженных строк, `InfoRow` берут `root.info-labels[0..12]`
-- `AppWindow.info-labels` проброс; `set_info_labels(...)` в `sync_settings_to_ui()`
-- Локализация — правкой `[info_labels]` в config.toml
-- 2 теста (дефолты в порядке отображения, override/fallback); clippy без новых warning
+### Релиз v0.1
+- `cargo build --release` собран за ~4 мин; бинарь скопирован в `src/releases/music-player-rs-v0.1` (ELF x86-64, 31 МБ).
+- `src/releases/` добавлен в `.gitignore` (артефакт не коммитится).
+
+### Обработка инбокса `_TODO_`
+- `ТЗ_5.1` (визуализация аудио, 713 строк) дедуплицирована с future-пунктом F1 (F1 помечен «заменён ТЗ 5.1») и внесена в `ROADMAP.md` как **Этап 6** (8 подэтапов из §16 ТЗ, ключевые ограничения производительности, зависимость от `AppEvent`-feed из 4.1).
+- Файл перенесён в `_TODO_/done/ТЗ_5.1`.
 
 ## Изменяемые файлы
 
-- `src/settings.rs` — поле, константы, default-функция, методы, 2 теста
-- `src/app/ui_manager.rs` — `set_info_labels` в sync_settings_to_ui
-- `ui/top_panel.slint` — свойство `info-labels` + индексация вместо литералов
-- `ui/app.slint` — проброс `info-labels`
-- `ROADMAP.md` — пункт 4.13
+- `ROADMAP.md` — F1 (устарел), Этап 6 (новый), строка в сводной таблице
+- `.gitignore` — `src/releases/`
 - `_STATE_.md`
+- `src/releases/music-player-rs-v0.1` (артефакт, в git не идёт)
+- `_TODO_/done/ТЗ_5.1` (перемещён)
