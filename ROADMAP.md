@@ -499,14 +499,25 @@ let config = AppConfig::builder()
 
 ## Этап 6: Визуализация аудио (ТЗ 5.1)
 
-**Статус:** ⬜ запланировано (внешнее ТЗ от пользователя, инбокс `_TODO_/done/ТЗ_5.1`, закоммичено флагом `40d6c93`).
+**Статус:** 🔶 в работе — **6.1 «Каркас» ✅ сделано**, дальше 6.2 (анализатор спектра).
 
 **Суть:** три режима визуализации (отключено/осциллограмма/спектрограмма/анализатор спектра), независимые настройки для каждого типа, стерео/моно, обработка DSD (PCM/native/DoP), bit-perfect, кэширование (RAM+диск), персистентность в config.toml.
 
-**Архитектура:** `audio::visualizer` (обработка) + `ui::visualizer` (Slint-компонент); `FullTrackWorker` (полнотрековые, отдельный поток, та же конвертация, что у плеера — WYSIWYG) + `LiveWorker` (мгновенный, tap из cpal callback в ring buffer, FFT в отдельном потоке); настройки читаются атомарно на границе кадра (`ArcSwap`); UI-поток не считает FFT.
+**Архитектура:** `audio::visualizer` (обработка) + `ui::visualizer` (Slint-компонент); `FullTrackWorker` (полнотрековые, отдельный поток, та же конвертация, что у плеера — WYSIWYG) + `LiveWorker` (мгновенный, tap из cpal callback в ring buffer, FFT в отдельном потоке); настройки читаются атомарно на границе кадра (для LiveWorker — `RwLock<Arc<VisualizerConfig>>`, без arc_swap); UI-поток не считает FFT.
+
+### 6.1. Каркас ✅ сделано
+
+- **`src/audio/visualizer.rs`** (новый): `VisualizationMode`, `ChannelMode`, конфиги `OscilloscopeCfg`/`SpectrogramCfg`/`SpectrumCfg` с дефолтами по ТЗ §5, `VisualizerSettings` (`[visualization]` в config.toml), `VisualizerConfig::from_settings` (по образцу CoverConfig). +7 тестов (serde round-trip, дефолты, классификация режимов, partial-config fallback).
+- **`src/settings.rs`**: поле `Settings.visualization` (`#[serde(default)]`) — вложенные `[visualization.<type>]` без flatten (TOML не поддерживает flatten).
+- **Tap в ring buffer** (`rtrb 0.4.0`): `PlaybackCore.viz_tap: Option<Producer<f32>>` + `viz_tap_active`; после `fill()` во всех 3 колбэках (f32/i16/u8) копируется пост-ресемплерный PCM **до** громкости (`rtrb::push`, неблокирующий, drop на full). Методы `Player::set_viz_tap(Option<Producer>)` / `set_viz_tap_active(bool)`.
+- **`ui/visualizer.slint`** (новый): компонент `Visualizer` — базовый плейсхолдер (артист/альбом/формат, §5.5), спец-плейсхолдер `disabled-text` (§6.3), градиент-заглушка активных режимов, полоса `build-progress`. Интегрирован в top_panel (замена градиентного блока), проброшены `viz-mode: int` через app.slint → TopPanel. `sync_settings_to_ui` пишет режим из конфига.
+- **rtrb** из crates.io; `rustfft` 6.4.1 уже есть в lock (транзитивно от symphonia) — нужен будет на 6.2/6.4.
+- **Верификация:** build ок, clippy — ноль новых warning, тесты 68 lib + 6 bin зелёные.
+
+**Остальное (6.2+):** LiveWorker (FFT+полосы), FullTrackWorker (осцилло/спектрограмма), DSD-режимы, bit-perfect, вкладка настроек «Визуализация», кэш RAM/диск, ресемплеры sinc_*.
 
 **Этапы разработки (из §16 ТЗ):**
-1. Каркас: `audio::visualizer` настройки+сериализация, Slint-компонент `Visualizer` с плейсхолдером, tap в ring buffer в `PlaybackCore`.
+1. ~~Каркас~~ ✅ 6.1 (готово, коммит `6.1-visualizer-framework`)
 2. Анализатор спектра (мгновенный): `LiveWorker`, FFT, полосы, сглаживание, peak hold + настройки + UI.
 3. Доработка `DsdDecoder` + ресемплеры (linear/cubic/sinc_*/soxr) + интеграция в `PlaybackCore`.
 4. Осциллограмма (полнотрековая): `FullTrackWorker`, min/max децимация, прогресс, отмена, кэш, `skip_fulltrack_for_dsd`.
@@ -551,7 +562,7 @@ let config = AppConfig::builder()
 | 5.1 | tracing вместо eprintln! | ⬜ желательно | ⬜ | — | Низкий |
 | 5.2 | builder для AppConfig | ⬜ желательно | ⬜ | — | Низкий |
 | 5.3 | Горячая перезагрузка конфигов | — отклонено | 🚫 | — | — |
-| 6.1 | Визуализация аудио (ТЗ 5.1): каркас + спектр + DSD/resamplers + oscillo/spectrogram + bit-perfect | 🔴 Высокий (ТЗ от пользователя) | ⬜ запланировано | 8 этапов (§16) | Высокий |
+| 6.1 | Визуализация аудио (ТЗ 5.1): каркас + спектр + DSD/resamplers + oscillo/spectrogram + bit-perfect | 🔴 Высокий (ТЗ от пользователя) | 🔶 6.1 ✅; 6.2+ ⬜ | 8 этапов (§16) | Высокий |
 
 ---
 

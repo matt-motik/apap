@@ -22,6 +22,11 @@ pub struct PlaybackCore {
     pub out_rate: u32,
     pub out_ch: usize,
     scratch: Vec<f32>,
+    /// Visualizer tap: copy of the post-resampler PCM (before volume) is
+    /// pushed here by the audio callback when `viz_tap_active`. Only
+    /// non-blocking `push` is used — the callback never blocks.
+    pub viz_tap: Option<rtrb::Producer<f32>>,
+    pub viz_tap_active: bool,
 }
 
 impl PlaybackCore {
@@ -38,6 +43,8 @@ impl PlaybackCore {
             out_rate: 44100,
             out_ch: 2,
             scratch: Vec::with_capacity(8192),
+            viz_tap: None,
+            viz_tap_active: false,
         }
     }
 
@@ -336,6 +343,23 @@ impl Player {
         }
     }
 
+    /// Attach (or detach) the visualizer tap producer. The audio callback
+    /// writes post-resampler PCM into it only while [`Self::set_viz_tap_active`]
+    /// keeps it enabled.
+    pub fn set_viz_tap(&mut self, tap: Option<rtrb::Producer<f32>>) {
+        if let Ok(mut core) = self.core.lock() {
+            core.viz_tap = tap;
+        }
+    }
+
+    /// Toggle the tap on/off. When off, the audio callback skips the copy
+    /// entirely (zero CPU cost), per ТЗ §13.2.
+    pub fn set_viz_tap_active(&mut self, active: bool) {
+        if let Ok(mut core) = self.core.lock() {
+            core.viz_tap_active = active;
+        }
+    }
+
     /// Return a snapshot for the UI: (playing, pos, duration).
     pub fn snapshot(&self) -> (bool, f64, Option<f64>) {
         let core = match self.core.lock() {
@@ -374,6 +398,17 @@ pub fn audio_callback_f32(core: &Arc<Mutex<PlaybackCore>>, data: &mut [f32]) {
     let vol = effective_volume(&c);
     let produced = c.fill(data);
     c.pos_secs += produced as f64 / c.out_rate as f64 / c.out_ch as f64;
+    // Visualizer tap: post-resampler PCM, exactly what reaches the DAC
+    // (WYSIWYG), before soft volume is applied. Non-blocking: drops on full.
+    if c.viz_tap_active {
+        if let Some(tap) = c.viz_tap.as_mut() {
+            for s in data.iter().take(produced) {
+                if tap.push(*s).is_err() {
+                    break;
+                }
+            }
+        }
+    }
     for s in data.iter_mut().take(produced) {
         *s *= vol;
     }
@@ -403,6 +438,15 @@ pub fn audio_callback_i16(core: &Arc<Mutex<PlaybackCore>>, data: &mut [i16]) {
     tmp.resize(data.len(), 0.0);
     let produced = c.fill(&mut tmp);
     c.pos_secs += produced as f64 / c.out_rate as f64 / out_ch as f64;
+    if c.viz_tap_active {
+        if let Some(tap) = c.viz_tap.as_mut() {
+            for s in tmp.iter().take(produced) {
+                if tap.push(*s).is_err() {
+                    break;
+                }
+            }
+        }
+    }
     for (dst, src) in data.iter_mut().zip(tmp.iter()).take(produced) {
         *dst = (src.clamp(-1.0, 1.0) * vol * 32767.0) as i16;
     }
@@ -433,6 +477,15 @@ pub fn audio_callback_u8(core: &Arc<Mutex<PlaybackCore>>, data: &mut [u8]) {
     tmp.resize(data.len(), 0.0);
     let produced = c.fill(&mut tmp);
     c.pos_secs += produced as f64 / c.out_rate as f64 / out_ch as f64;
+    if c.viz_tap_active {
+        if let Some(tap) = c.viz_tap.as_mut() {
+            for s in tmp.iter().take(produced) {
+                if tap.push(*s).is_err() {
+                    break;
+                }
+            }
+        }
+    }
     for (dst, src) in data.iter_mut().zip(tmp.iter()).take(produced) {
         *dst = ((src.clamp(-1.0, 1.0) * vol * 0.5 + 0.5) * 255.0) as u8;
     }

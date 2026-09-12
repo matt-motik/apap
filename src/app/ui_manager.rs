@@ -85,6 +85,8 @@ impl MusicApp {
         self.ui.set_repeat(self.repeat == RepeatMode::All);
         self.ui.set_repeat_one(self.repeat == RepeatMode::One);
         self.ui
+            .set_viz_mode(s.visualization.mode.index());
+        self.ui
             .set_settings_cols(ModelRc::from(self.dialog_cols_model().as_slice()));
     }
 

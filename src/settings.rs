@@ -405,6 +405,9 @@ pub struct Settings {
     /// них нет. Отсутствующие/пустые ключи подставляются дефолтами.
     #[serde(default = "default_info_labels")]
     pub info_labels: std::collections::HashMap<String, String>,
+    /// Настройки визуализации аудио (ТЗ 5.1): режим и параметры трёх типов.
+    #[serde(default)]
+    pub visualization: crate::audio::visualizer::VisualizerSettings,
 }
 
 impl Default for Settings {
@@ -434,6 +437,7 @@ impl Default for Settings {
             cover_folder_names: default_cover_folder_names(),
             cover_online: true,
             info_labels: default_info_labels(),
+            visualization: crate::audio::visualizer::VisualizerSettings::default(),
         }
     }
 }

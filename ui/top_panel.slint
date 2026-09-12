@@ -1,5 +1,6 @@
 import { Colors } from "theme.slint";
 import { Slider, ScrollView } from "std-widgets.slint";
+import { Visualizer } from "visualizer.slint";
 
 component VerticalSeparator inherits Rectangle {
     in property <float> gap: 12;
@@ -95,6 +96,8 @@ export component TopPanel inherits Rectangle {
     in property <string> info-sample-rate: "—";
     in property <string> info-channels: "—";
     in property <[string]> info-labels: ["Artist", "Track", "Title", "Duration", "Year", "Album", "Disc", "Genre", "Format", "Bitrate", "Bit depth", "Sample rate", "Channels"];
+
+    in property <int> viz-mode: 0;
 
     callback play-pause();
     callback stop();
@@ -273,22 +276,11 @@ export component TopPanel inherits Rectangle {
             spacing: 0px;
             horizontal-stretch: 1;
 
-            Rectangle {
-                background: Colors.bg-elevated;
-                border-radius: 4px;
-                border-width: 1px;
-                border-color: Colors.border-default;
-                vertical-stretch: 1;
-                width: 100%;
-                VerticalLayout {
-                    alignment: start;
-                    Rectangle {
-                        height: 100%;
-                        width: 100%;
-                        background: @linear-gradient(90deg, Colors.viz-1 0%, Colors.viz-2 50%, Colors.viz-3 100%);
-                        opacity: 0.6;
-                    }
-                }
+            Visualizer {
+                mode: root.viz-mode;
+                artist: root.info-artist;
+                album: root.info-album;
+                format: root.info-format;
             }
 
             VerticalLayout {

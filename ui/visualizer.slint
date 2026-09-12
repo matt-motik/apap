@@ -1,0 +1,89 @@
+import { Colors } from "theme.slint";
+
+// Область визуализации аудио (ТЗ 5.1 §14).
+//
+// Сейчас это каркас: базовый плейсхолдер (режим off / нет трека), спец-
+// плейсхолдер недоступности (native DSD / DoP) и заглушка активных режимов.
+// Реальная отрисовка (полосы спектра, осциллограмма, спектрограмма)
+// подключается на этапах 6.2+ поверх этой же области.
+export component Visualizer inherits Rectangle {
+    in property <int> mode: 0;              // 0 off, 1 oscilloscope, 2 spectrogram, 3 spectrum
+    in property <string> artist: "—";
+    in property <string> album: "—";
+    in property <string> format: "";
+    in property <string> disabled-text: ""; // спец-плейсхолдер (§6.3)
+    in property <float> build-progress: 0.0; // 0..1, полоса прогресса при построении
+
+    vertical-stretch: 1;
+    width: 100%;
+    border-radius: 4px;
+    border-width: 1px;
+    border-color: Colors.border-default;
+    background: Colors.bg-elevated;
+    clip: true;
+
+    // Заглушка активной визуализации (заменится реальной на 6.2+).
+    Rectangle {
+        visible: root.mode > 0 && root.artist != "—" && root.disabled-text == "";
+        height: 100%;
+        width: 100%;
+        background: @linear-gradient(90deg, Colors.viz-1 0%, Colors.viz-2 50%, Colors.viz-3 100%);
+        opacity: 0.6;
+    }
+
+    // Базовый плейсхолдер (§5.5): крупно артист/альбом, мельче формат.
+    VerticalLayout {
+        alignment: center;
+        spacing: 2px;
+        width: 100%;
+        height: 100%;
+        visible: root.mode == 0 || root.artist == "—";
+
+        Text {
+            text: root.artist;
+            color: Colors.text-secondary;
+            font-size: 20px;
+            horizontal-alignment: center;
+            wrap: word-wrap;
+        }
+
+        Text {
+            text: root.album;
+            color: Colors.text-secondary;
+            font-size: 20px;
+            horizontal-alignment: center;
+            wrap: word-wrap;
+            visible: root.album != "";
+        }
+
+        Text {
+            text: root.format;
+            color: Colors.text-tertiary;
+            font-size: 12px;
+            horizontal-alignment: center;
+            visible: root.format != "";
+        }
+    }
+
+    // Спец-плейсхолдер: визуализация недоступна (§6.3, native DSD / DoP).
+    Text {
+        text: root.disabled-text;
+        color: Colors.text-tertiary;
+        font-size: 14px;
+        horizontal-alignment: center;
+        vertical-alignment: center;
+        width: 100%;
+        height: 100%;
+        wrap: word-wrap;
+        visible: root.disabled-text != "";
+    }
+
+    // Прогресс построения полнотрековых визуализаций (полоса снизу).
+    Rectangle {
+        height: 4px;
+        width: root.width * Math.clamp(root.build-progress, 0, 1);
+        y: root.height - 4px;
+        background: Colors.accent;
+        visible: root.build-progress > 0 && root.build-progress < 1;
+    }
+}
