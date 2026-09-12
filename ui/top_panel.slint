@@ -301,6 +301,7 @@ export component TopPanel inherits Rectangle {
         VerticalLayout {
             spacing: 0px;
             horizontal-stretch: 1;
+            max-width: 100000px;
 
             Visualizer {
                 mode: root.viz-mode;
@@ -409,7 +410,7 @@ export component TopPanel inherits Rectangle {
         // ---------- Col 3: volume + mute ----------
         VerticalLayout {
             spacing: 0px;
-            max-width: 40px;
+            width: 40px;
             vertical-stretch: 1;
 
             // Верхняя часть: слайдер громкости, растягивается на всю доступную высоту
