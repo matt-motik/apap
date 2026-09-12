@@ -51,8 +51,10 @@ export component Visualizer inherits Rectangle {
     in property <string> disabled-text: ""; // спец-плейсхолдер (§6.3)
     in property <float> build-progress: 0.0; // 0..1, полоса прогресса при построении
 
-    // Полнотрековая осциллограмма (§16.4): отрендеренное изображение
-    // (RGBA с min/max-колонками) и флаг готовности.
+    // Полнотрековая визуализация (§16.4 осциллограмма / §16.5 спектрограмма):
+    // отрендеренное RGBA-изображение и флаг готовности. Имена свойств общие,
+    // содержимое определяется режимом (mode 1 — envelope-осциллограмма,
+    // mode 2 — спектрограмма).
     in property <image> osc-image: @image-url("");
     in property <bool> osc-ready: false;
 
@@ -74,20 +76,10 @@ export component Visualizer inherits Rectangle {
     background: Colors.bg-elevated;
     clip: true;
 
-    // Заглушка активной визуализации (§16.4) для спектрограммы (строится на
-    // 6.5); для осциллограммы теперь рисуется настоящее изображение.
+    // Полнотрековая визуализация (§16.4/§16.5): изображение поверх
+    // плейсхолдера для режимов 1 (осциллограмма) и 2 (спектрограмма).
     Rectangle {
-        visible: root.mode == 2 && root.artist != "—" && root.disabled-text == "";
-        height: 100%;
-        width: 100%;
-        horizontal-stretch: 1;
-        background: @linear-gradient(90deg, Colors.viz-1 0%, Colors.viz-2 50%, Colors.viz-3 100%);
-        opacity: 0.6;
-    }
-
-    // Полнотрековая осциллограмма (§16.4): изображение поверх плейсхолдера.
-    Rectangle {
-        visible: root.mode == 1 && root.osc-ready && root.disabled-text == "";
+        visible: (root.mode == 1 || root.mode == 2) && root.osc-ready && root.disabled-text == "";
         height: 100%;
         width: 100%;
         horizontal-stretch: 1;
@@ -96,9 +88,9 @@ export component Visualizer inherits Rectangle {
             source: root.osc-image;
             height: 100%;
             width: 100%;
-            // `fill` (а не `contain`): картинка рендерится как min/max-колонки
-            // фиксированного размера (columns×512), а тут растягивается на всю
-            // область плейсхолдера — иначе по бокам/сверху остаются пустые поля.
+            // `fill` (а не `contain`): картинка рендерится фиксированного
+            // размера (columns×512), а тут растягивается на всю область
+            // плейсхолдера — иначе по бокам/сверху остаются пустые поля.
             image-fit: fill;
         }
     }
@@ -145,7 +137,7 @@ export component Visualizer inherits Rectangle {
         height: 100%;
         horizontal-stretch: 1;
         visible: ((root.mode == 0 || root.artist == "—") && root.mode != 3)
-            || (root.mode == 1 && !root.osc-ready);
+            || ((root.mode == 1 || root.mode == 2) && !root.osc-ready);
 
         Text {
             text: root.artist;

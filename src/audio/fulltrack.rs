@@ -262,6 +262,40 @@ pub fn cache_key(
     format!("{:x}", h.finish())
 }
 
+/// Ключ кэша полнотрековой спектрограммы (учитывает все визуальные параметры).
+pub fn cache_key_spectrogram(
+    path: &Path,
+    mtime: std::time::SystemTime,
+    size: u64,
+    cfg: &crate::audio::visualizer::SpectrogramCfg,
+) -> String {
+    let mut h = DefaultHasher::new();
+    path.to_string_lossy().hash(&mut h);
+    mtime
+        .duration_since(UNIX_EPOCH)
+        .unwrap_or_default()
+        .as_millis()
+        .hash(&mut h);
+    size.hash(&mut h);
+    "spectrogram".hash(&mut h);
+    (cfg.channels as u8).hash(&mut h);
+    cfg.fft_size.hash(&mut h);
+    (cfg.window_type as u8).hash(&mut h);
+    (cfg.freq_scale as u8).hash(&mut h);
+    cfg.freq_min.hash(&mut h);
+    cfg.freq_max.hash(&mut h);
+    cfg.gain_db.to_bits().hash(&mut h);
+    cfg.range_db.to_bits().hash(&mut h);
+    cfg.high_boost_db.to_bits().hash(&mut h);
+    (cfg.palette as u8).hash(&mut h);
+    cfg.sensitivity.to_bits().hash(&mut h);
+    cfg.max_frames.hash(&mut h);
+    cfg.dsd_cic_compensation.hash(&mut h);
+    cfg.bg_color.hash(&mut h);
+    cfg.fg_color.hash(&mut h);
+    format!("{:x}", h.finish())
+}
+
 /// Директория кэша осциллограмм: `$XDG_CACHE_HOME/music_player/viz`.
 pub fn viz_cache_dir() -> PathBuf {
     dirs::cache_dir()

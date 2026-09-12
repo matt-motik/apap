@@ -499,11 +499,30 @@ let config = AppConfig::builder()
 
 ## Этап 6: Визуализация аудио (ТЗ 5.1)
 
-**Статус:** 🔶 в работе — **6.1 «Каркас» ✅**, **6.2 «Анализатор спектра» ✅**, **6.3 «DsdDecoder + ресемплеры» ✅**, **6.4 «Осциллограмма» ✅** сделаны, баг-фикс окно/layout визуализатора ✅ (см. ниже), дальше 6.5 (спектрограмма полнотрековая).
+**Статус:** 🔶 в работе — **6.1 «Каркас» ✅**, **6.2 «Анализатор спектра» ✅**, **6.3 «DsdDecoder + ресемплеры» ✅**, **6.4 «Осциллограмма» ✅**, баг-фикс окно/layout визуализатора ✅ (см. ниже). **6.5 «Спектрограмма» — реализована, ждёт визуальной проверки пользователем (не закоммичено).**
+
+### 6.5. Спектрограмма (полнотрековая) 🔶 реализовано, ждёт проверки
+
+- **`src/audio/palettes.rs`** (новый): LUT magma/inferno/plasma/viridis (256, BIDS/colormap CC0) + `hex_for`/`parse_hex`; thermal (hot)/rainbow/gray — формулы в коде; solid = fg_color. +2 теста.
+- **`src/audio/spectrogram.rs`** (новый): стриминговый FFT рендер частота×время, `columns×512` RGBA. `adaptive_plan(total, fft, max_frames)` → hop ≥ fft, columns ≤ max_frames; окна Hann/Hamming/Blackman; row→freq linear/log/mel (rows_per_ch, L верх/R низ при стерео); дБ уровень (mag/fft·sensitivity + gain_db + high_boost·log10(f/fmin)), нормировка range_db; `cic_compensation_db` — инверсия двух каскадных CIC ×8 (4-й порядок, норм. к DC, clamp 36 дБ, для DSD); палитра по уровню; feed/progress/finish (zero-pad). +7 тестов.
+- **`src/audio/fulltrack.rs`**: `cache_key_spectrogram` (mode + все визуальные поля).
+- **`src/app/fulltrack_manager.rs`**: диспетчер `run_build` → `run_osc`/`run_spec`; `run_spec` (DST/не-DST декодер, Spectrogram::new(…), feed, finish, PNG-кэш mode="spectrogram"); `drain_fulltrack`: want для mode 1|2, ключ по режиму, RAM-кэш `HashMap<key, Image>` (было по PathBuf), disabled-текст DSD оставлен только для осциллограммы; `FullEvt::Ready` без `path`.
+- **`src/app/mod.rs`**: тип `fulltrack_cache` → `HashMap<String, Image>`.
+- **`ui/visualizer.slint`**: слой изображения при `(mode==1||mode==2) && osc-ready`; градиент-заглушка спектрограммы убрана; плейсхолдер — пока `!osc-ready` для 1|2.
+- **Верификация:** build + clippy (0 новых, baseline 22/9) + тесты 100 lib + 6 bin ✅; smoke на реальных файлах (примеры удалены): 10 c sweep 280 мс; «02. Rome.flac» 96 кГц/стерео/4:30 — 23.3 с декод symphonia (FFT ~40x realtime), 4000×512 = 8 МБ ≤ 128 МБ; пик лог-чирпа 200→8000 Гц отслежен по ярчайшей строке (бины сходятся).
+- **Коммит:** после подтверждения пользователем (mode="spectrogram" в `[visualization]`).
 
 ### Баг-фикс: окно зажималось / layout визуализатора ✅ сделано
 
-**Статус:** ✅ сделано — winit брал размер окна из WM-хинтов и резал до max ≈ 657 px (сумма max-лимитов фиксированных колонок top_panel); `horizontal-stretch: 1` у колонки визуализатора упирался в её собственный расчётный max (~119 px). Фикс обоих — приём «щедрый max-width»: `max-width: 100000px` на корне `AppWindow` (`ui/app.slint`) и на колонке визуализатора (`top_panel.slint`), col 3 обратно `width: 40px`. Осциллограмма: `image-fit: fill` вместо `contain` (картинка 16:1 в плейсхолдере ~6:1). Проверено xprop (user 1920×1008 / max 100000) и пользователем. Коммиты `ddeb176` + `<следующий>`.
+**Статус:** ✅ сделано — winit брал размер окна из WM-хинтов и резал до max ≈ 657 px (сумма max-лимитов фиксированных колонок top_panel); `horizontal-stretch: 1` у колонки визуализатора упирался в её собственный расчётный max (~119 px). Фикс обоих — приём «щедрый max-width»: `max-width: 100000px` на корне `AppWindow` (`ui/app.slint`) и на колонке визуализатора (`top_panel.slint`), col 3 обратно `width: 40px`. Осциллограмма: `image-fit: fill` вместо `contain` (картинка 16:1 в плейсхолдере ~6:1). Проверено xprop (user 1920×1008 / max 100000) и пользователем. Коммиты `ddeb176` + `6dc2dc5`.
+
+### 6.4. Осциллограмма (полнотрековая) ✅ сделано
+
+- **`src/audio/fulltrack.rs`** (lib): `Envelope` (min/max, stream), `render_rgba` (RGBA отрисовка, центр-линия, sensitivity, line_width, стерео/моно), `parse_color`, `cache_key` (path+mtime+size+mode+channels+параметры), disk cache (PNG + sidecar JSON) в `~/.cache/music_player/viz/`, `save_png`/`load_cached_png`/`cache_meta_valid`; 5 тестов.
+- **`src/app/fulltrack_manager.rs`** (bin): `FullBuild`/`FullCmd`/`FullEvt`/`is_dsd`/`start_worker` (cancel через `AtomicBool`-флаг на sub-thread, disk-cache hit без декода, полный декод + прогресс каждые 64 пакета). `MusicApp::{setup_fulltrack, drain_fulltrack}` — авто-драйв, RAM-кэш, прогресс-бар, спец-плейсхолдер `skip_fulltrack_for_dsd` в DSD, фильтрация Ready по id/cache_key.
+- **`src/app/mod.rs`**: модуль, поля, вызовы в new/tick.
+- **Slint**: слой `Image` mode==1 (`osc-image`/`osc-ready`), плейсхолдер пока `!osc-ready`; проброс пропсов в top_panel/app.
+- **Верификация:** 91 lib + 6 bin ✅, clippy 0 новых, build --release ок. Коммит `6dc2dc5`/`ddeb176` (совместно с баг-фиксом окна).
 
 **Суть:** три режима визуализации (отключено/осциллограмма/спектрограмма/анализатор спектра), независимые настройки для каждого типа, стерео/моно, обработка DSD (PCM/native/DoP), bit-perfect, кэширование (RAM+диск), персистентность в config.toml.
 
@@ -543,7 +562,7 @@ let config = AppConfig::builder()
 3. ~~Доработка DsdDecoder + ресемплеры~~ ✅ 6.3 (потоковая CIC-децимация фиксирована по §8.1, линейный/кубический/sinc_* ресемплеры, настройки `[dsd]`+`[audio]`, интеграция в PlaybackCore).
 3. Доработка `DsdDecoder` + ресемплеры (linear/cubic/sinc_*/soxr) + интеграция в `PlaybackCore`.
 4. Осциллограмма (полнотрековая): `FullTrackWorker`, min/max децимация, прогресс, отмена, кэш, `skip_fulltrack_for_dsd` — ✅ сделано в `594f56d`-следующий коммит 6.4.
-5. Спектрограмма (полнотрековая): FFT по треку, палитры, адаптивный hop, CIC-компенсация.
+5. Спектрограмма (полнотрековая): FFT по треку, палитры, адаптивный hop, CIC-компенсация — 🔶 реализовано, ждёт проверки.
 6. Bit-perfect и DSD native/DoP: блокировка громкости, плейсхолдеры.
 7. Полировка: seek по клику, персистентность и управление кэшем, метрики, тесты.
 8. Документация.
@@ -584,7 +603,7 @@ let config = AppConfig::builder()
 | 5.1 | tracing вместо eprintln! | ⬜ желательно | ⬜ | — | Низкий |
 | 5.2 | builder для AppConfig | ⬜ желательно | ⬜ | — | Низкий |
 | 5.3 | Горячая перезагрузка конфигов | — отклонено | 🚫 | — | — |
-| 6.1 | Визуализация аудио (ТЗ 5.1): каркас + спектр + DSD/resamplers + oscillo/spectrogram + bit-perfect | 🔴 Высокий (ТЗ от пользователя) | 🔶 6.1 ✅; 6.2 ✅; 6.3 ✅; 6.4 ✅; 6.5+ ⬜ | 8 этапов (§16) | Высокий |
+| 6.1 | Визуализация аудио (ТЗ 5.1): каркас + спектр + DSD/resamplers + oscillo/spectrogram + bit-perfect | 🔴 Высокий (ТЗ от пользователя) | 🔶 6.1 ✅; 6.2 ✅; 6.3 ✅; 6.4 ✅; 6.5 🔶 (ждёт проверки); 6.6+ ⬜ | 8 этапов (§16) | Высокий |
 
 ---
 

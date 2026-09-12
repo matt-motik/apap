@@ -16,6 +16,7 @@ use std::time::UNIX_EPOCH;
 use music_player_rs::audio::decoder::{AudioSource, Decoder};
 use music_player_rs::audio::dsd::DsdDecoder;
 use music_player_rs::audio::fulltrack::{self as ft};
+use music_player_rs::audio::spectrogram::{self, Spectrogram};
 use music_player_rs::audio::visualizer::{
     ChannelMode, VisualizerConfig, VisualizationMode,
 };
@@ -29,7 +30,7 @@ use super::MusicApp;
 pub struct FullBuild {
     pub id: u64,
     pub path: PathBuf,
-    /// Снимок настроек (режим + OscilloscopeCfg), как `CoverConfig`.
+    /// Снимок настроек (режим + OscilloscopeCfg/SpectrogramCfg).
     pub cfg: VisualizerConfig,
 }
 
@@ -50,7 +51,6 @@ pub enum FullEvt {
         w: usize,
         h: usize,
         key: String,
-        path: PathBuf,
     },
     Failed { id: u64, reason: String },
 }
@@ -88,8 +88,17 @@ pub fn start_worker(rx: Receiver<FullCmd>, out: Sender<FullEvt>) {
     });
 }
 
-/// Один билд: декод → envelope → рендер RGBA → (кэш на диск) → Ready.
+/// Один билд: декод → envelope/спектр → рендер RGBA → (кэш на диск) → Ready.
 fn run_build(b: FullBuild, flag: Arc<AtomicBool>, out: Sender<FullEvt>) {
+    match b.cfg.mode {
+        VisualizationMode::Oscilloscope => run_osc(b, flag, out),
+        VisualizationMode::Spectrogram => run_spec(b, flag, out),
+        VisualizationMode::Off | VisualizationMode::Spectrum => {}
+    }
+}
+
+/// Осциллограмма (ТЗ §16.4): envelope + `render_rgba`.
+fn run_osc(b: FullBuild, flag: Arc<AtomicBool>, out: Sender<FullEvt>) {
     let osc = b.cfg.oscilloscope.clone();
     let md = fs::metadata(&b.path).ok();
     let mtime = md
@@ -112,7 +121,6 @@ fn run_build(b: FullBuild, flag: Arc<AtomicBool>, out: Sender<FullEvt>) {
                 w,
                 h,
                 key,
-                path: b.path.clone(),
             });
             return;
         }
@@ -202,7 +210,127 @@ fn run_build(b: FullBuild, flag: Arc<AtomicBool>, out: Sender<FullEvt>) {
         w,
         h,
         key,
-        path: b.path.clone(),
+    });
+}
+
+/// Спектрограмма (ТЗ §16.5): стриминговое БПФ + адаптивный hop.
+fn run_spec(b: FullBuild, flag: Arc<AtomicBool>, out: Sender<FullEvt>) {
+    let scfg = b.cfg.spectrogram.clone();
+    let dsd = is_dsd(&b.path);
+    let md = fs::metadata(&b.path).ok();
+    let mtime = md
+        .as_ref()
+        .and_then(|m| m.modified().ok())
+        .unwrap_or(UNIX_EPOCH);
+    let size = md.as_ref().map(|m| m.len()).unwrap_or(0);
+    let key = ft::cache_key_spectrogram(&b.path, mtime, size, &scfg);
+
+    if flag.load(Ordering::SeqCst) {
+        return;
+    }
+
+    // 1. Disk-кэш (PNG + sidecar).
+    if scfg.cache_on_disk && ft::cache_meta_valid(&key) {
+        if let Some((rgba, w, h)) = ft::load_cached_png(&key) {
+            let _ = out.send(FullEvt::Ready {
+                id: b.id,
+                rgba,
+                w,
+                h,
+                key,
+            });
+            return;
+        }
+    }
+
+    let mut src: Box<dyn AudioSource> = if dsd {
+        match DsdDecoder::open(&b.path) {
+            Ok(d) => Box::new(d),
+            Err(e) => return fail(&out, b.id, &e),
+        }
+    } else {
+        match Decoder::open(&b.path) {
+            Ok(d) => Box::new(d),
+            Err(e) => return fail(&out, b.id, &e),
+        }
+    };
+
+    if flag.load(Ordering::SeqCst) {
+        return;
+    }
+
+    let info = src.info().clone();
+    let total = info.num_frames.unwrap_or(0);
+    if total == 0 {
+        return fail(&out, b.id, "не удалось определить длину трека (num_frames == 0)");
+    }
+    let dst_ch = match scfg.channels {
+        ChannelMode::Mono => 1,
+        ChannelMode::Stereo => 2.min(info.channels.max(1)),
+    };
+    let mut spec = match Spectrogram::new(
+        total,
+        info.sample_rate.max(1),
+        dst_ch,
+        dsd && scfg.dsd_cic_compensation,
+        &scfg,
+    ) {
+        Ok(s) => s,
+        Err(e) => return fail(&out, b.id, &e),
+    };
+
+    // 2. Полный декод с прогрессом.
+    let mut blk = 0u64;
+    loop {
+        if flag.load(Ordering::SeqCst) {
+            return;
+        }
+        let chunk = match src.next_frames() {
+            Some(c) => c,
+            None => break,
+        };
+        spec.feed(chunk, info.channels);
+        blk += 1;
+        if blk.is_multiple_of(64) {
+            if flag.load(Ordering::SeqCst) {
+                return;
+            }
+            let _ = out.send(FullEvt::Progress { id: b.id, p: spec.progress() });
+        }
+    }
+
+    if flag.load(Ordering::SeqCst) {
+        return;
+    }
+
+    let w = spec.columns().min(spectrogram::MAX_PIX_W);
+    let h = spectrogram::IMG_H;
+    let rgba = spec.finish();
+
+    if flag.load(Ordering::SeqCst) {
+        return;
+    }
+
+    // 3. Кэш на диск (PNG + sidecar JSON).
+    if scfg.cache_on_disk {
+        let meta = ft::CacheMeta {
+            path: b.path.clone(),
+            mtime_secs: mtime.duration_since(UNIX_EPOCH).unwrap_or_default().as_secs(),
+            size,
+            mode: "spectrogram".into(),
+            channels: format!("{:?}", scfg.channels),
+            max_columns: scfg.max_frames,
+            width: w,
+            height: h,
+        };
+        let _ = ft::save_png(&key, &rgba, w, h, &meta);
+    }
+    let _ = out.send(FullEvt::Ready {
+        id: b.id,
+        rgba,
+        w,
+        h,
+        key,
     });
 }
 
@@ -237,7 +365,9 @@ impl MusicApp {
         let skip_dsd = cfg.skip_fulltrack_for_dsd
             && current.as_deref().map(is_dsd).unwrap_or(false);
 
-        let want = mode == VisualizationMode::Oscilloscope && current.is_some() && !skip_dsd;
+        let want = matches!(mode, VisualizationMode::Oscilloscope | VisualizationMode::Spectrogram)
+            && current.is_some()
+            && !(mode == VisualizationMode::Oscilloscope && skip_dsd);
 
         // Спец-плейсхолдер §6.3 (native DSD / DoP и skip_fulltrack_for_dsd).
         let want_disabled = mode == VisualizationMode::Oscilloscope && skip_dsd;
@@ -262,9 +392,12 @@ impl MusicApp {
                 let md = fs::metadata(&p).ok();
                 let mtime = md.as_ref().and_then(|m| m.modified().ok());
                 let size = md.as_ref().map(|m| m.len()).unwrap_or(0);
-                let key = match mtime {
-                    Some(t) => ft::cache_key(&p, t, size, &osc),
-                    None => String::new(),
+                let key = match (mode, mtime) {
+                    (VisualizationMode::Spectrogram, Some(t)) => {
+                        ft::cache_key_spectrogram(&p, t, size, &cfg.spectrogram)
+                    }
+                    (_, Some(t)) => ft::cache_key(&p, t, size, &osc),
+                    (_, None) => String::new(),
                 };
                 (p, key)
             })
@@ -285,14 +418,18 @@ impl MusicApp {
                 self.fulltrack_id = self.fulltrack_id.wrapping_add(1);
                 let id = self.fulltrack_id;
                 // RAM-кэш: мгновенный показ без декода.
-                if osc.cache_in_memory {
-                    if let Some(img) = self.fulltrack_cache.get(path).cloned() {
+                let cache_in_mem = match mode {
+                    VisualizationMode::Spectrogram => cfg.spectrogram.cache_in_memory,
+                    _ => osc.cache_in_memory,
+                };
+                if cache_in_mem {
+                    if let Some(img) = self.fulltrack_cache.get(key).cloned() {
                         self.ui.set_osc_image(img);
                         self.ui.set_osc_ready(true);
                         self.fulltrack_key = Some(key.clone());
                     }
                 }
-                if !self.fulltrack_cache.contains_key(path) {
+                if !self.fulltrack_cache.contains_key(key) {
                     if let Some(tx) = self.fulltrack_tx.clone() {
                         let _ = tx.send(FullCmd::Build(Box::new(FullBuild {
                             id,
@@ -315,7 +452,7 @@ impl MusicApp {
                             self.ui.set_build_progress(p);
                         }
                     }
-                    FullEvt::Ready { id, rgba, w, h, key, path } => {
+                    FullEvt::Ready { id, rgba, w, h, key } => {
                         if self.fulltrack_key.as_deref() == Some(key.as_str()) && id == self.fulltrack_id {
                             let img = slint::Image::from_rgba8(
                                 SharedPixelBuffer::<Rgba8Pixel>::clone_from_slice(
@@ -324,8 +461,12 @@ impl MusicApp {
                                     h as u32,
                                 ),
                             );
-                            if osc.cache_in_memory {
-                                self.fulltrack_cache.insert(path, img.clone());
+                            let cache_in_mem = match mode {
+                                VisualizationMode::Spectrogram => cfg.spectrogram.cache_in_memory,
+                                _ => osc.cache_in_memory,
+                            };
+                            if cache_in_mem {
+                                self.fulltrack_cache.insert(key.clone(), img.clone());
                             }
                             self.ui.set_osc_image(img);
                             self.ui.set_osc_ready(true);

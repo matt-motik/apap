@@ -210,8 +210,8 @@ pub struct MusicApp {
     fulltrack_target: Option<(std::path::PathBuf, String)>,
     /// Ключ билда, уже показанный на UI (для дропа устаревших Ready).
     fulltrack_key: Option<String>,
-    /// RAM-кэш построенных изображений по пути трека.
-    fulltrack_cache: std::collections::HashMap<std::path::PathBuf, slint::Image>,
+    /// RAM-кэш построенных изображений по cache-ключу (режим+параметры).
+    fulltrack_cache: std::collections::HashMap<String, slint::Image>,
 }
 
 impl MusicApp {
