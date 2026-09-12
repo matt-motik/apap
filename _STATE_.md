@@ -1,9 +1,9 @@
 # Состояние сессии
 
 - **Проект:** `/home/matt/VSCode/apap/apap`
-- **Последний коммит:** `b5d021c perf: aggressive release profile (lto=fat, codegen-units=1, abort, native)` (ветка `feat/viz-optimizations`)
-- **Ветка:** `feat/viz-optimizations` (не слита в main)
-- **Состояние:** `done` — задача 6.7 «Оптимизация визуализации + критические баги» выполнена в ветке `feat/viz-optimizations`.
+- **Последний коммит:** `a01c1bf docs: mark 6.7 done (branch feat/viz-optimizations, state updated)` (ветка `main`)
+- **Ветка:** `main`
+- **Состояние:** `done` — 6.7 «Оптимизация визуализации + баги» выполнена, влита в `main` (fast-forward). Релиз `v0.2` обновлён (билд с веткой 6.7, тег `v0.2` перемещён на `a01c1bf`).
 
 ## Задача: 6.7 Оптимизация визуализации + критические баги (замечания кода от внешних ИИ)
 
@@ -30,5 +30,5 @@
 
 ## Следующий ход
 
-1. Слить `feat/viz-optimizations` в `main` (после подтверждения пользователя): `git checkout main && git merge feat/viz-optimizations` (без squash, сохранить 3 коммита). При желании — обновить `_STATE_.md`/Родмап после мержа.
+1. Релиз `v0.2` обновлён: бинарь `releases/v0.2/music-player-rs` пересобран с 6.7 (29.4 МБ), тег `v0.2` перемещён на `a01c1bf`. Push: `git push origin main --tags`.
 2. Следующая задача из ROADMAP (Этап 6): 6.8 — bit-perfect и DSD native/DoP.
