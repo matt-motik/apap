@@ -26,6 +26,7 @@ pub mod playback_manager;
 pub mod playlist_manager;
 pub mod ui_manager;
 pub mod visualizer_manager;
+pub mod viz_settings_manager;
 
 use events::AppEvent;
 use fulltrack_manager::{FullCmd, FullEvt};
@@ -212,6 +213,12 @@ pub struct MusicApp {
     fulltrack_key: Option<String>,
     /// RAM-кэш построенных изображений по cache-ключу (режим+параметры).
     fulltrack_cache: std::collections::HashMap<String, slint::Image>,
+    /// Режим, под который построен текущий целевой билд (детект смены типа —
+    /// смена режима применяется сразу, а не с debounce).
+    fulltrack_mode: Option<music_player_rs::audio::visualizer::VisualizationMode>,
+    /// Debounce перестроения полнотрековых при изменении параметров из диалога
+    /// (ТЗ §9.2: 500 мс): (момент последнего изменения, целевой (path, key)).
+    viz_debounce: Option<(Instant, Option<(PathBuf, String)>)>,
 }
 
 impl MusicApp {
@@ -338,6 +345,8 @@ impl MusicApp {
             fulltrack_target: None,
             fulltrack_key: None,
             fulltrack_cache: std::collections::HashMap::new(),
+            fulltrack_mode: None,
+            viz_debounce: None,
         };
         app.setup_fulltrack();
         app.setup_visualizer(viz_cfg, viz_prod, viz_cons);
@@ -545,6 +554,7 @@ impl MusicApp {
                 // Re-push every dialog field from the real settings: a reopened
                 // dialog must show current values, never a stale un-applied draft.
                 a.sync_settings_to_ui();
+                a.sync_viz_settings_to_ui();
                 a.sync_audio_devices();
                 a.sync_cover_settings_to_ui();
                 a.ui.set_settings_open(true);
@@ -954,6 +964,9 @@ impl MusicApp {
                 }
             });
         }
+
+        // 34. Вкладка «Visualization» и горячая клавиша V (ТЗ §9 / §3.2).
+        viz_settings_manager::bind_viz_settings_callbacks(this);
     }
 
     pub fn tick(&mut self) {

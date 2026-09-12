@@ -499,7 +499,7 @@ let config = AppConfig::builder()
 
 ## Этап 6: Визуализация аудио (ТЗ 5.1)
 
-**Статус:** 🔶 в работе — **6.1 «Каркас» ✅**, **6.2 «Анализатор спектра» ✅**, **6.3 «DsdDecoder + ресемплеры» ✅**, **6.4 «Осциллограмма» ✅**, баг-фикс окно/layout визуализатора ✅ (см. ниже), **6.5 «Спектрограмма» ✅ (в `e082148`)**, дальше 6.6 (bit-perfect / DSD native/DoP).
+**Статус:** 🔶 в работе — **6.1 «Каркас» ✅**, **6.2 «Анализатор спектра» ✅**, **6.3 «DsdDecoder + ресемплеры» ✅**, **6.4 «Осциллограмма» ✅**, баг-фикс окно/layout визуализатора ✅ (см. ниже), **6.5 «Спектрограмма» ✅ (в `e082148`)**, **6.6 «Переключение типа + UI настроек» ✅ (ТЗ §3.2/§9)** — дальше 6.7 (bit-perfect / DSD native/DoP).
 
 ### 6.5. Спектрограмма (полнотрековая) ✅ сделано в e082148
 
@@ -511,6 +511,19 @@ let config = AppConfig::builder()
 - **`ui/visualizer.slint`**: слой изображения при `(mode==1||mode==2) && osc-ready`; градиент-заглушка спектрограммы убрана; плейсхолдер — пока `!osc-ready` для 1|2.
 - **Верификация:** build + clippy (0 новых, baseline 22/9) + тесты 100 lib + 6 bin ✅; smoke на реальных файлах (примеры удалены): 10 c sweep 280 мс; «02. Rome.flac» 96 кГц/стерео/4:30 — 23.3 с декод symphonia (FFT ~40x realtime), 4000×512 = 8 МБ ≤ 128 МБ; пик лог-чирпа 200→8000 Гц отслежен по ярчайшей строке (бины сходятся).
 - **Коммит:** `e082148` (проверено пользователем, mode="spectrogram").
+
+### 6.6. Переключение типа + UI настроек визуализации (ТЗ §3.2/§9) ✅ сделано
+
+**Статус:** ✅ — реализовано переключение типа визуализации и вкладка «Visualization» в диалоге настроек.
+
+- **`src/app/viz_settings_manager.rs`** (новый): типизированные биндеры `bind_int/bind_bool/bind_float/bind_str` (маппинг на `on_settings_set_viz_*`); методы `cycle_viz_mode` (Off→Osc→Spectrogram→Spectrum→Off, мгновенный save в settings.toml, §3.2), `reset_viz_type` (§9.2, дефолты текущего типа), `sync_viz_settings_to_ui` (проброс всех настроек в диалог при open/reset/cycle), `viz_apply_validated_texts` (валидация §9.3: `freq_min`/`freq_max` целые 1..22050 и min<max; `bands` 4..128; невалидные не применяются, поля подсвечиваются, текст `viz-error`). +4 теста (fft roundtrip, channel roundtrip, palette default, defaults).
+- **`ui/settings.slint`**: вкладка «Visualization» перед «Playlist» — ComboBox типа («Off/Oscilloscope/Spectrogram/Spectrum»), чекбокс «Skip fulltrack for DSD», динамические блоки `if root.viz-mode == 1|2|3` (osc: channels/sensitivity/line-width/center-line/max-columns/cache mem+disk; spec: channels/sensitivity/fft/window/freq-scale/freq-min+freq-max LineEdit с красной рамкой при invalid/gain/range/boost/palette/max-frames/dsd-comp/cache; spectrum: channels/sensitivity/bands LineEdit/freq-scale/level-scale/smoothing/peak-hold/peak-decay/bar-gap/bar-radius/gradient/dsd-comp), строка `viz-error`, кнопка «Reset type settings». Все изменения идут в draft → реальное время (§9.2).
+- **`ui/app.slint`**: пропы/колбэки `settings-*-viz-*` для проброса в `Settings`; корневой `FocusScope` (+`KeyBinding { keys: @keys(V) }`, `enabled: !root.settings-open`) для хоткея V — событие всплывает от внутренних FocusScope-ов, поэтому работает в любом месте окна (клавиатура вне диалога).
+- **`src/app/fulltrack_manager.rs`**: `drain_fulltrack` читает `settings_ref()` (draft, когда диалог открыт); `FULLTRACK_DEBOUNCE = 500 ms` — правки параметров в диалоге перезапускают полнотрековый билд только после стабилизации (rearm/отмена при возврате к прежним значениям); смена режима применяется сразу. `apply_fulltrack`/`drain_fulltrack_events` вынесены.
+- **`src/app/mod.rs`**: модуль, поля `fulltrack_mode`/`viz_debounce`, `sync_viz_settings_to_ui()` в `open_settings`, вызов `bind_viz_settings_callbacks`.
+- **Верификация:** build + release ок, clippy 0 новых, тесты 101 lib + 10 bin ✅, smoke (X11) без паник.
+- **Багфиксы по проверке пользователя:** стерео-осциллограмма теряла нижний канал (`render_rgba` сверял границу с `half_h` вместо `y_base+half_h`) — исправлено + регрессионный тест; `bands`/`freq_min`/`freq_max` не применялись из меню — LineEdit'ы переведены на двустороннюю привязку `text <=> root.viz-*-text`.
+- **Коммит:** <TODO: commit hash>.
 
 ### Баг-фикс: окно зажималось / layout визуализатора ✅ сделано
 
@@ -603,7 +616,7 @@ let config = AppConfig::builder()
 | 5.1 | tracing вместо eprintln! | ⬜ желательно | ⬜ | — | Низкий |
 | 5.2 | builder для AppConfig | ⬜ желательно | ⬜ | — | Низкий |
 | 5.3 | Горячая перезагрузка конфигов | — отклонено | 🚫 | — | — |
-| 6.1 | Визуализация аудио (ТЗ 5.1): каркас + спектр + DSD/resamplers + oscillo/spectrogram + bit-perfect | 🔴 Высокий (ТЗ от пользователя) | 🔶 6.1 ✅; 6.2 ✅; 6.3 ✅; 6.4 ✅; 6.5 ✅; 6.6+ ⬜ | 8 этапов (§16) | Высокий |
+| 6.1 | Визуализация аудио (ТЗ 5.1): каркас + спектр + DSD/resamplers + oscillo/spectrogram + bit-perfect | 🔴 Высокий (ТЗ от пользователя) | 🔶 6.1 ✅; 6.2 ✅; 6.3 ✅; 6.4 ✅; 6.5 ✅; 6.6 ✅; 6.7+ ⬜ | 8 этапов (§16) | Высокий |
 
 ---
 

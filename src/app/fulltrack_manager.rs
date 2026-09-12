@@ -11,19 +11,23 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::mpsc::{channel, Receiver, Sender};
 use std::sync::Arc;
 use std::thread;
-use std::time::UNIX_EPOCH;
+use std::time::{Instant, UNIX_EPOCH};
 
 use music_player_rs::audio::decoder::{AudioSource, Decoder};
 use music_player_rs::audio::dsd::DsdDecoder;
 use music_player_rs::audio::fulltrack::{self as ft};
 use music_player_rs::audio::spectrogram::{self, Spectrogram};
 use music_player_rs::audio::visualizer::{
-    ChannelMode, VisualizerConfig, VisualizationMode,
+    ChannelMode, OscilloscopeCfg, VisualizerConfig, VisualizationMode,
 };
 
 use slint::{Rgba8Pixel, SharedPixelBuffer};
 
 use super::MusicApp;
+
+/// Debounce перестроения полнотрековых при изменении параметров из диалога
+/// настроек (ТЗ §9.2).
+const FULLTRACK_DEBOUNCE: std::time::Duration = std::time::Duration::from_millis(500);
 
 /// Запрос на построение полнотрековой визуализации трека.
 #[derive(Clone)]
@@ -351,10 +355,10 @@ impl MusicApp {
         self.fulltrack_rx = Some(done_rx);
     }
 
-    /// Авто-драйв: следит за `viz-mode == oscilloscope` и текущим треком,
-    /// строит/отменяет/показывает картинку. Вызывается каждый UI-тик.
+    /// Авто-драйв: следит за `viz-mode == oscilloscope/spectrogram` и текущим
+    /// треком, строит/отменяет/показывает картинку. Вызывается каждый UI-тик.
     pub(super) fn drain_fulltrack(&mut self) {
-        let cfg = VisualizerConfig::from_settings(&self.settings.settings);
+        let cfg = VisualizerConfig::from_settings(self.settings_ref());
         let mode = cfg.mode;
         let osc = cfg.oscilloscope.clone();
 
@@ -405,83 +409,131 @@ impl MusicApp {
             None
         };
 
-        let changed = self.fulltrack_target != target;
-        if changed {
-            if let Some(tx) = self.fulltrack_tx.clone() {
-                let _ = tx.send(FullCmd::Cancel);
-            }
-            self.fulltrack_target = target.clone();
-            self.fulltrack_key = target.as_ref().map(|(_, k)| k.clone());
-            self.ui.set_build_progress(0.0);
+        // Debounce (§9.2): правки параметров из диалога (draft) перезапускают
+        // полнотрековый билд только после 500 мс стабильности; смена режима
+        // применяется сразу (V / комбобокс типа).
+        let in_dialog = self.settings_draft.is_some();
+        let mode_changed = self.fulltrack_mode != Some(mode);
+        if !in_dialog {
+            self.viz_debounce = None;
+        }
 
-            if let Some((path, key)) = &target {
-                self.fulltrack_id = self.fulltrack_id.wrapping_add(1);
-                let id = self.fulltrack_id;
-                // RAM-кэш: мгновенный показ без декода.
-                let cache_in_mem = match mode {
-                    VisualizationMode::Spectrogram => cfg.spectrogram.cache_in_memory,
-                    _ => osc.cache_in_memory,
+        let changed = target != self.fulltrack_target || mode_changed;
+        if changed {
+            if in_dialog && !mode_changed {
+                let rearm = match &self.viz_debounce {
+                    Some((_, pending)) => pending.as_ref() != target.as_ref(),
+                    None => true,
                 };
-                if cache_in_mem {
-                    if let Some(img) = self.fulltrack_cache.get(key).cloned() {
-                        self.ui.set_osc_image(img);
-                        self.ui.set_osc_ready(true);
-                        self.fulltrack_key = Some(key.clone());
-                    }
-                }
-                if !self.fulltrack_cache.contains_key(key) {
-                    if let Some(tx) = self.fulltrack_tx.clone() {
-                        let _ = tx.send(FullCmd::Build(Box::new(FullBuild {
-                            id,
-                            path: path.clone(),
-                            cfg: cfg.clone(),
-                        })));
-                    }
+                if rearm {
+                    self.viz_debounce = Some((Instant::now(), target.clone()));
                 }
             } else {
-                self.ui.set_osc_ready(false);
+                self.viz_debounce = None;
+                self.apply_fulltrack(mode, target, &cfg, &osc);
+            }
+        } else if let Some((t0, pending)) = &self.viz_debounce {
+            if pending.as_ref() != target.as_ref() {
+                // Вернулись к прежним значениям — сбрасываем отложенный билд.
+                self.viz_debounce = None;
+            } else if t0.elapsed() >= FULLTRACK_DEBOUNCE {
+                self.viz_debounce = None;
+                self.apply_fulltrack(mode, target, &cfg, &osc);
             }
         }
 
         // События воркера.
-        if let Some(rx) = &self.fulltrack_rx {
-            while let Ok(evt) = rx.try_recv() {
-                match evt {
-                    FullEvt::Progress { id, p } => {
-                        if id == self.fulltrack_id {
-                            self.ui.set_build_progress(p);
-                        }
+        self.drain_fulltrack_events(&cfg, &osc);
+    }
+
+    /// Применить целевой (path, key): отменить текущий билд, проверить RAM-кэш,
+    /// при промахе — запустить новый. Обновляет `fulltrack_mode`/target/key.
+    fn apply_fulltrack(
+        &mut self,
+        mode: VisualizationMode,
+        target: Option<(PathBuf, String)>,
+        cfg: &VisualizerConfig,
+        osc: &OscilloscopeCfg,
+    ) {
+        self.fulltrack_mode = Some(mode);
+        if let Some(tx) = self.fulltrack_tx.clone() {
+            let _ = tx.send(FullCmd::Cancel);
+        }
+        self.fulltrack_target = target.clone();
+        self.fulltrack_key = target.as_ref().map(|(_, k)| k.clone());
+        self.ui.set_build_progress(0.0);
+
+        if let Some((path, key)) = &target {
+            self.fulltrack_id = self.fulltrack_id.wrapping_add(1);
+            let id = self.fulltrack_id;
+            // RAM-кэш: мгновенный показ без декода.
+            let cache_in_mem = match mode {
+                VisualizationMode::Spectrogram => cfg.spectrogram.cache_in_memory,
+                _ => osc.cache_in_memory,
+            };
+            if cache_in_mem {
+                if let Some(img) = self.fulltrack_cache.get(key).cloned() {
+                    self.ui.set_osc_image(img);
+                    self.ui.set_osc_ready(true);
+                    self.fulltrack_key = Some(key.clone());
+                }
+            }
+            if !self.fulltrack_cache.contains_key(key) {
+                if let Some(tx) = self.fulltrack_tx.clone() {
+                    let _ = tx.send(FullCmd::Build(Box::new(FullBuild {
+                        id,
+                        path: path.clone(),
+                        cfg: cfg.clone(),
+                    })));
+                }
+            }
+        } else {
+            self.ui.set_osc_ready(false);
+        }
+    }
+
+    /// Разбор событий воркера (прогресс / Ready / Failed).
+    fn drain_fulltrack_events(&mut self, cfg: &VisualizerConfig, osc: &OscilloscopeCfg) {
+        let Some(rx) = &self.fulltrack_rx else {
+            return;
+        };
+        let mode = cfg.mode;
+        while let Ok(evt) = rx.try_recv() {
+            match evt {
+                FullEvt::Progress { id, p } => {
+                    if id == self.fulltrack_id {
+                        self.ui.set_build_progress(p);
                     }
-                    FullEvt::Ready { id, rgba, w, h, key } => {
-                        if self.fulltrack_key.as_deref() == Some(key.as_str()) && id == self.fulltrack_id {
-                            let img = slint::Image::from_rgba8(
-                                SharedPixelBuffer::<Rgba8Pixel>::clone_from_slice(
-                                    &rgba,
-                                    w as u32,
-                                    h as u32,
-                                ),
-                            );
-                            let cache_in_mem = match mode {
-                                VisualizationMode::Spectrogram => cfg.spectrogram.cache_in_memory,
-                                _ => osc.cache_in_memory,
-                            };
-                            if cache_in_mem {
-                                self.fulltrack_cache.insert(key.clone(), img.clone());
-                            }
-                            self.ui.set_osc_image(img);
-                            self.ui.set_osc_ready(true);
-                            self.ui.set_build_progress(0.0);
+                }
+                FullEvt::Ready { id, rgba, w, h, key } => {
+                    if self.fulltrack_key.as_deref() == Some(key.as_str()) && id == self.fulltrack_id {
+                        let img = slint::Image::from_rgba8(
+                            SharedPixelBuffer::<Rgba8Pixel>::clone_from_slice(
+                                &rgba,
+                                w as u32,
+                                h as u32,
+                            ),
+                        );
+                        let cache_in_mem = match mode {
+                            VisualizationMode::Spectrogram => cfg.spectrogram.cache_in_memory,
+                            _ => osc.cache_in_memory,
+                        };
+                        if cache_in_mem {
+                            self.fulltrack_cache.insert(key.clone(), img.clone());
                         }
+                        self.ui.set_osc_image(img);
+                        self.ui.set_osc_ready(true);
+                        self.ui.set_build_progress(0.0);
                     }
-                    FullEvt::Failed { id, reason } => {
-                        if id == self.fulltrack_id {
-                            eprintln!("[fulltrack] build failed for {}: {reason}", self
-                                .fulltrack_target
-                                .as_ref()
-                                .map(|(p, _)| p.display().to_string())
-                                .unwrap_or_default());
-                            self.ui.set_build_progress(0.0);
-                        }
+                }
+                FullEvt::Failed { id, reason } => {
+                    if id == self.fulltrack_id {
+                        eprintln!("[fulltrack] build failed for {}: {reason}", self
+                            .fulltrack_target
+                            .as_ref()
+                            .map(|(p, _)| p.display().to_string())
+                            .unwrap_or_default());
+                        self.ui.set_build_progress(0.0);
                     }
                 }
             }

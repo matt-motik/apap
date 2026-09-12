@@ -191,8 +191,11 @@ pub fn render_rgba(
             let half_lw = line_w_px / 2;
             for x_px in px..px_end {
                 for y_px in (top - half_lw as i32)..=(bot + half_lw as i32) {
+                    // Бounds принадлежат своей строке (не абс): для row=1 это
+                    // [half_h..2*half_h), а не [0..half_h) — иначе стерео
+                    // нижний канал полностью вырезается.
                     let y = y_px + y_base as i32;
-                    if y < 0 || y >= half_h as i32 {
+                    if y < y_base as i32 || y >= (y_base + half_h) as i32 {
                         continue;
                     }
                     let off = (y as usize * w + x_px) * 4;
@@ -403,6 +406,31 @@ mod tests {
         let cfg = OscilloscopeCfg::default();
         let buf = render_rgba(&cols, false, &cfg, 4, 10);
         assert_eq!(buf.len(), 4 * 10 * 4);
+    }
+
+    #[test]
+    fn render_rgba_stereo_draws_both_channels() {
+        // Стерео: оба канала должны быть отрисованы (L — верхняя половина,
+        // R — нижняя). Раньше нижний канал целиком вырезался проверкой
+        // `y >= half_h` вместо относительной к строке границы.
+        let cols = vec![
+            vec![EnvelopeColumn { min: -1.0, max: 1.0 }; 4],
+            vec![EnvelopeColumn { min: -1.0, max: 1.0 }; 4],
+        ];
+        let cfg = OscilloscopeCfg {
+            bg_color: "#000000".into(),
+            fg_color: "#ffffff".into(),
+            line_width: 1.0,
+            ..OscilloscopeCfg::default()
+        };
+        let w = 8;
+        let h = 20;
+        let buf = render_rgba(&cols, true, &cfg, w, h);
+        let half = w * (h / 2) * 4;
+        let top_has_fg = buf[..half].chunks(4).any(|p| p[0] != 0);
+        let bot_has_fg = buf[half..].chunks(4).any(|p| p[0] != 0);
+        assert!(top_has_fg, "верхний канал (L) не отрисован");
+        assert!(bot_has_fg, "нижний канал (R) не отрисован");
     }
 
     #[test]

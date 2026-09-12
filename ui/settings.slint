@@ -40,6 +40,48 @@ export component Settings inherits Rectangle {
     in-out property <float> resize-dw: 0;
     in-out property <float> resize-dh: 0;
 
+    // ===== Визаулизация (ТЗ §9) =====
+    in property <int> viz-mode: 0;
+    in property <bool> viz-skip-dsd: true;
+    in property <string> viz-error: "";
+    in property <bool> viz-freq-min-invalid: false;
+    in property <bool> viz-freq-max-invalid: false;
+    in property <bool> viz-bands-invalid: false;
+    in-out property <string> viz-freq-min-text: "20";
+    in-out property <string> viz-freq-max-text: "22000";
+    in-out property <string> viz-bands-text: "32";
+    in property <int> viz-osc-channels: 1;
+    in property <float> viz-osc-sensitivity: 1.0;
+    in property <float> viz-osc-line-width: 1.2;
+    in property <bool> viz-osc-center-line: false;
+    in property <int> viz-osc-max-columns: 2000;
+    in property <bool> viz-osc-cache-mem: true;
+    in property <bool> viz-osc-cache-disk: true;
+    in property <int> viz-spec-channels: 1;
+    in property <float> viz-spec-sensitivity: 1.0;
+    in property <int> viz-spec-fft: 2;
+    in property <int> viz-spec-window: 0;
+    in property <int> viz-spec-scale: 1;
+    in property <float> viz-spec-gain: 20;
+    in property <float> viz-spec-range: 80;
+    in property <float> viz-spec-boost: 6;
+    in property <int> viz-spec-palette: 1;
+    in property <int> viz-spec-max-frames: 4000;
+    in property <bool> viz-spec-dsd-comp: true;
+    in property <bool> viz-spec-cache-mem: true;
+    in property <bool> viz-spec-cache-disk: true;
+    in property <int> viz-sp-channels: 1;
+    in property <float> viz-sp-sensitivity: 1.0;
+    in property <int> viz-sp-freq-scale: 1;
+    in property <int> viz-sp-level-scale: 1;
+    in property <float> viz-sp-smoothing: 0.7;
+    in property <bool> viz-sp-peak-hold: false;
+    in property <int> viz-sp-peak-decay: 400;
+    in property <int> viz-sp-bar-gap: 2;
+    in property <int> viz-sp-bar-radius: 2;
+    in property <bool> viz-sp-gradient: true;
+    in property <bool> viz-sp-dsd-comp: true;
+
     callback close();
     callback save-settings();
     callback set-theme(int);
@@ -59,6 +101,43 @@ export component Settings inherits Rectangle {
     callback cover-move-down(int);
     callback cover-names-edited(string);
     callback toggle-cover-online(bool);
+    callback set-viz-mode(int);
+    callback set-viz-skip-dsd(bool);
+    callback reset-viz-type();
+    callback set-viz-osc-channels(int);
+    callback set-viz-osc-sensitivity(float);
+    callback set-viz-osc-line-width(float);
+    callback set-viz-osc-center-line(bool);
+    callback set-viz-osc-max-columns(int);
+    callback set-viz-osc-cache-mem(bool);
+    callback set-viz-osc-cache-disk(bool);
+    callback set-viz-spec-channels(int);
+    callback set-viz-spec-sensitivity(float);
+    callback set-viz-spec-fft(int);
+    callback set-viz-spec-window(int);
+    callback set-viz-spec-scale(int);
+    callback set-viz-spec-freq-min(string);
+    callback set-viz-spec-freq-max(string);
+    callback set-viz-spec-gain(float);
+    callback set-viz-spec-range(float);
+    callback set-viz-spec-boost(float);
+    callback set-viz-spec-palette(int);
+    callback set-viz-spec-max-frames(int);
+    callback set-viz-spec-dsd-comp(bool);
+    callback set-viz-spec-cache-mem(bool);
+    callback set-viz-spec-cache-disk(bool);
+    callback set-viz-sp-channels(int);
+    callback set-viz-sp-sensitivity(float);
+    callback set-viz-sp-bands(string);
+    callback set-viz-sp-freq-scale(int);
+    callback set-viz-sp-level-scale(int);
+    callback set-viz-sp-smoothing(float);
+    callback set-viz-sp-peak-hold(bool);
+    callback set-viz-sp-peak-decay(int);
+    callback set-viz-sp-bar-gap(int);
+    callback set-viz-sp-bar-radius(int);
+    callback set-viz-sp-gradient(bool);
+    callback set-viz-sp-dsd-comp(bool);
 
     visible: root.open;
     background: Colors.bg-overlay;
@@ -368,6 +447,391 @@ export component Settings inherits Rectangle {
                                 toggled => { root.toggle-cover-online(self.checked); }
                             }
                             Rectangle { horizontal-stretch: 1; }
+                        }
+                    }
+                }
+
+                // ===== Visualization (ТЗ §9) =====
+                Tab {
+                    title: "Visualization";
+                    VerticalLayout {
+                        spacing: 8px;
+                        padding-top: 4px;
+
+                        HorizontalLayout {
+                            padding-left: 8px;
+                            padding-right: 8px;
+                            spacing: 4px;
+                            RowLabel { text: "Type"; min-width: 170px; }
+                            ComboBox {
+                                model: ["Off", "Oscilloscope", "Spectrogram", "Spectrum"];
+                                current-index: root.viz-mode;
+                                selected(s) => { root.set-viz-mode(self.current-index); }
+                            }
+                            Rectangle { horizontal-stretch: 1; }
+                        }
+
+                        HorizontalLayout {
+                            padding-left: 8px;
+                            padding-right: 8px;
+                            spacing: 4px;
+                            RowLabel { text: "Skip fulltrack for DSD"; min-width: 170px; }
+                            CheckBox {
+                                checked: root.viz-skip-dsd;
+                                toggled => { root.set-viz-skip-dsd(self.checked); }
+                            }
+                            Rectangle { horizontal-stretch: 1; }
+                        }
+
+                        // Прокручиваемый блок настроек текущего типа.
+                        VerticalLayout {
+                            vertical-stretch: 1;
+                            spacing: 8px;
+
+                                // ----- Осциллограмма -----
+                                if root.viz-mode == 1 : VerticalLayout {
+                                    spacing: 8px;
+                                    RowLabel { text: "Settings: Oscilloscope"; text-color: Colors.accent; }
+                                    HorizontalLayout {
+                                        padding-left: 8px; spacing: 4px;
+                                        RowLabel { text: "Channels"; min-width: 170px; }
+                                        ComboBox {
+                                            model: ["Mono", "Stereo"];
+                                            current-index: root.viz-osc-channels;
+                                            selected(s) => { root.set-viz-osc-channels(self.current-index); }
+                                        }
+                                        Rectangle { horizontal-stretch: 1; }
+                                    }
+                                    HorizontalLayout {
+                                        padding-left: 8px; spacing: 4px;
+                                        RowLabel { text: "Sensitivity"; min-width: 170px; }
+                                        Slider { minimum: 0.01; maximum: 20; value: root.viz-osc-sensitivity;
+                                                 preferred-height: 24px; changed(v) => { root.set-viz-osc-sensitivity(v); } }
+                                        Text { text: Math.round(root.viz-osc-sensitivity * 100) / 100; color: Colors.text-secondary; width: 56px; }
+                                    }
+                                    HorizontalLayout {
+                                        padding-left: 8px; spacing: 4px;
+                                        RowLabel { text: "Line width"; min-width: 170px; }
+                                        Slider { minimum: 0.5; maximum: 4.0; value: root.viz-osc-line-width;
+                                                 preferred-height: 24px; changed(v) => { root.set-viz-osc-line-width(v); } }
+                                        Text { text: Math.round(root.viz-osc-line-width * 10) / 10; color: Colors.text-secondary; width: 56px; }
+                                    }
+                                    HorizontalLayout {
+                                        padding-left: 8px; spacing: 4px;
+                                        RowLabel { text: "Max columns"; min-width: 170px; }
+                                        Slider { minimum: 512; maximum: 8192; value: root.viz-osc-max-columns;
+                                                 preferred-height: 24px; changed(v) => { root.set-viz-osc-max-columns(Math.round(v)); } }
+                                        Text { text: Math.round(root.viz-osc-max-columns); color: Colors.text-secondary; width: 56px; }
+                                    }
+                                    HorizontalLayout {
+                                        padding-left: 8px; spacing: 4px;
+                                        RowLabel { text: "Draw center line"; min-width: 170px; }
+                                        CheckBox {
+                                            checked: root.viz-osc-center-line;
+                                            toggled => { root.set-viz-osc-center-line(self.checked); }
+                                        }
+                                        Rectangle { horizontal-stretch: 1; }
+                                    }
+                                    HorizontalLayout {
+                                        padding-left: 8px; spacing: 4px;
+                                        RowLabel { text: "Cache in memory"; min-width: 170px; }
+                                        CheckBox {
+                                            checked: root.viz-osc-cache-mem;
+                                            toggled => { root.set-viz-osc-cache-mem(self.checked); }
+                                        }
+                                        Rectangle { horizontal-stretch: 1; }
+                                    }
+                                    HorizontalLayout {
+                                        padding-left: 8px; spacing: 4px;
+                                        RowLabel { text: "Cache on disk"; min-width: 170px; }
+                                        CheckBox {
+                                            checked: root.viz-osc-cache-disk;
+                                            toggled => { root.set-viz-osc-cache-disk(self.checked); }
+                                        }
+                                        Rectangle { horizontal-stretch: 1; }
+                                    }
+                                }
+
+                                // ----- Спектрограмма -----
+                                if root.viz-mode == 2 : VerticalLayout {
+                                    spacing: 8px;
+                                    RowLabel { text: "Settings: Spectrogram"; text-color: Colors.accent; }
+                                    HorizontalLayout {
+                                        padding-left: 8px; spacing: 4px;
+                                        RowLabel { text: "Channels"; min-width: 170px; }
+                                        ComboBox {
+                                            model: ["Mono", "Stereo"];
+                                            current-index: root.viz-spec-channels;
+                                            selected(s) => { root.set-viz-spec-channels(self.current-index); }
+                                        }
+                                        Rectangle { horizontal-stretch: 1; }
+                                    }
+                                    HorizontalLayout {
+                                        padding-left: 8px; spacing: 4px;
+                                        RowLabel { text: "Sensitivity"; min-width: 170px; }
+                                        Slider { minimum: 0.01; maximum: 20; value: root.viz-spec-sensitivity;
+                                                 preferred-height: 24px; changed(v) => { root.set-viz-spec-sensitivity(v); } }
+                                        Text { text: Math.round(root.viz-spec-sensitivity * 100) / 100; color: Colors.text-secondary; width: 56px; }
+                                    }
+                                    HorizontalLayout {
+                                        padding-left: 8px; spacing: 4px;
+                                        RowLabel { text: "FFT size"; min-width: 170px; }
+                                        ComboBox {
+                                            model: ["512", "1024", "2048", "4096", "8192"];
+                                            current-index: root.viz-spec-fft;
+                                            selected(s) => { root.set-viz-spec-fft(self.current-index); }
+                                        }
+                                        Rectangle { horizontal-stretch: 1; }
+                                    }
+                                    HorizontalLayout {
+                                        padding-left: 8px; spacing: 4px;
+                                        RowLabel { text: "Window type"; min-width: 170px; }
+                                        ComboBox {
+                                            model: ["Hann", "Hamming", "Blackman"];
+                                            current-index: root.viz-spec-window;
+                                            selected(s) => { root.set-viz-spec-window(self.current-index); }
+                                        }
+                                        Rectangle { horizontal-stretch: 1; }
+                                    }
+                                    HorizontalLayout {
+                                        padding-left: 8px; spacing: 4px;
+                                        RowLabel { text: "Freq scale"; min-width: 170px; }
+                                        ComboBox {
+                                            model: ["Linear", "Log", "Mel"];
+                                            current-index: root.viz-spec-scale;
+                                            selected(s) => { root.set-viz-spec-scale(self.current-index); }
+                                        }
+                                        Rectangle { horizontal-stretch: 1; }
+                                    }
+                                    HorizontalLayout {
+                                        padding-left: 8px; spacing: 4px;
+                                        RowLabel { text: "Freq min (Hz)"; min-width: 170px; }
+                                        Rectangle {
+                                            border-width: root.viz-freq-min-invalid ? 2px : 0px;
+                                            border-color: Colors.text-error;
+                                            border-radius: 6px;
+                                            preferred-width: 100px;
+                                            LineEdit {
+                                                text <=> root.viz-freq-min-text;
+                                                edited(t) => { root.set-viz-spec-freq-min(t); }
+                                            }
+                                        }
+                                        Rectangle { horizontal-stretch: 1; }
+                                    }
+                                    HorizontalLayout {
+                                        padding-left: 8px; spacing: 4px;
+                                        RowLabel { text: "Freq max (Hz)"; min-width: 170px; }
+                                        Rectangle {
+                                            border-width: root.viz-freq-max-invalid ? 2px : 0px;
+                                            border-color: Colors.text-error;
+                                            border-radius: 6px;
+                                            preferred-width: 100px;
+                                            LineEdit {
+                                                text <=> root.viz-freq-max-text;
+                                                edited(t) => { root.set-viz-spec-freq-max(t); }
+                                            }
+                                        }
+                                        Rectangle { horizontal-stretch: 1; }
+                                    }
+                                    HorizontalLayout {
+                                        padding-left: 8px; spacing: 4px;
+                                        RowLabel { text: "Gain (dB)"; min-width: 170px; }
+                                        Slider { minimum: -40; maximum: 100; value: root.viz-spec-gain;
+                                                 preferred-height: 24px; changed(v) => { root.set-viz-spec-gain(v); } }
+                                        Text { text: Math.round(root.viz-spec-gain); color: Colors.text-secondary; width: 56px; }
+                                    }
+                                    HorizontalLayout {
+                                        padding-left: 8px; spacing: 4px;
+                                        RowLabel { text: "Range (dB)"; min-width: 170px; }
+                                        Slider { minimum: 1; maximum: 200; value: root.viz-spec-range;
+                                                 preferred-height: 24px; changed(v) => { root.set-viz-spec-range(v); } }
+                                        Text { text: Math.round(root.viz-spec-range); color: Colors.text-secondary; width: 56px; }
+                                    }
+                                    HorizontalLayout {
+                                        padding-left: 8px; spacing: 4px;
+                                        RowLabel { text: "High boost (dB/dec)"; min-width: 170px; }
+                                        Slider { minimum: 0; maximum: 60; value: root.viz-spec-boost;
+                                                 preferred-height: 24px; changed(v) => { root.set-viz-spec-boost(v); } }
+                                        Text { text: Math.round(root.viz-spec-boost * 10) / 10; color: Colors.text-secondary; width: 56px; }
+                                    }
+                                    HorizontalLayout {
+                                        padding-left: 8px; spacing: 4px;
+                                        RowLabel { text: "Palette"; min-width: 170px; }
+                                        ComboBox {
+                                            model: ["Solid", "Magma", "Viridis", "Plasma", "Inferno", "Gray", "Thermal", "Rainbow"];
+                                            current-index: root.viz-spec-palette;
+                                            selected(s) => { root.set-viz-spec-palette(self.current-index); }
+                                        }
+                                        Rectangle { horizontal-stretch: 1; }
+                                    }
+                                    HorizontalLayout {
+                                        padding-left: 8px; spacing: 4px;
+                                        RowLabel { text: "Max frames"; min-width: 170px; }
+                                        Slider { minimum: 512; maximum: 8192; value: root.viz-spec-max-frames;
+                                                 preferred-height: 24px; changed(v) => { root.set-viz-spec-max-frames(Math.round(v)); } }
+                                        Text { text: Math.round(root.viz-spec-max-frames); color: Colors.text-secondary; width: 56px; }
+                                    }
+                                    HorizontalLayout {
+                                        padding-left: 8px; spacing: 4px;
+                                        RowLabel { text: "DSD CIC compensation"; min-width: 170px; }
+                                        CheckBox {
+                                            checked: root.viz-spec-dsd-comp;
+                                            toggled => { root.set-viz-spec-dsd-comp(self.checked); }
+                                        }
+                                        Rectangle { horizontal-stretch: 1; }
+                                    }
+                                    HorizontalLayout {
+                                        padding-left: 8px; spacing: 4px;
+                                        RowLabel { text: "Cache in memory"; min-width: 170px; }
+                                        CheckBox {
+                                            checked: root.viz-spec-cache-mem;
+                                            toggled => { root.set-viz-spec-cache-mem(self.checked); }
+                                        }
+                                        Rectangle { horizontal-stretch: 1; }
+                                    }
+                                    HorizontalLayout {
+                                        padding-left: 8px; spacing: 4px;
+                                        RowLabel { text: "Cache on disk"; min-width: 170px; }
+                                        CheckBox {
+                                            checked: root.viz-spec-cache-disk;
+                                            toggled => { root.set-viz-spec-cache-disk(self.checked); }
+                                        }
+                                        Rectangle { horizontal-stretch: 1; }
+                                    }
+                                }
+
+                                // ----- Анализатор спектра -----
+                                if root.viz-mode == 3 : VerticalLayout {
+                                    spacing: 8px;
+                                    RowLabel { text: "Settings: Spectrum"; text-color: Colors.accent; }
+                                    HorizontalLayout {
+                                        padding-left: 8px; spacing: 4px;
+                                        RowLabel { text: "Channels"; min-width: 170px; }
+                                        ComboBox {
+                                            model: ["Mono", "Stereo"];
+                                            current-index: root.viz-sp-channels;
+                                            selected(s) => { root.set-viz-sp-channels(self.current-index); }
+                                        }
+                                        Rectangle { horizontal-stretch: 1; }
+                                    }
+                                    HorizontalLayout {
+                                        padding-left: 8px; spacing: 4px;
+                                        RowLabel { text: "Sensitivity"; min-width: 170px; }
+                                        Slider { minimum: 0.01; maximum: 20; value: root.viz-sp-sensitivity;
+                                                 preferred-height: 24px; changed(v) => { root.set-viz-sp-sensitivity(v); } }
+                                        Text { text: Math.round(root.viz-sp-sensitivity * 100) / 100; color: Colors.text-secondary; width: 56px; }
+                                    }
+                                    HorizontalLayout {
+                                        padding-left: 8px; spacing: 4px;
+                                        RowLabel { text: "Bands (4-128)"; min-width: 170px; }
+                                        Rectangle {
+                                            border-width: root.viz-bands-invalid ? 2px : 0px;
+                                            border-color: Colors.text-error;
+                                            border-radius: 6px;
+                                            preferred-width: 100px;
+                                            LineEdit {
+                                                text <=> root.viz-bands-text;
+                                                edited(t) => { root.set-viz-sp-bands(t); }
+                                            }
+                                        }
+                                        Rectangle { horizontal-stretch: 1; }
+                                    }
+                                    HorizontalLayout {
+                                        padding-left: 8px; spacing: 4px;
+                                        RowLabel { text: "Freq scale"; min-width: 170px; }
+                                        ComboBox {
+                                            model: ["Linear", "Log", "Mel"];
+                                            current-index: root.viz-sp-freq-scale;
+                                            selected(s) => { root.set-viz-sp-freq-scale(self.current-index); }
+                                        }
+                                        Rectangle { horizontal-stretch: 1; }
+                                    }
+                                    HorizontalLayout {
+                                        padding-left: 8px; spacing: 4px;
+                                        RowLabel { text: "Level scale"; min-width: 170px; }
+                                        ComboBox {
+                                            model: ["Linear", "Log"];
+                                            current-index: root.viz-sp-level-scale;
+                                            selected(s) => { root.set-viz-sp-level-scale(self.current-index); }
+                                        }
+                                        Rectangle { horizontal-stretch: 1; }
+                                    }
+                                    HorizontalLayout {
+                                        padding-left: 8px; spacing: 4px;
+                                        RowLabel { text: "Smoothing"; min-width: 170px; }
+                                        Slider { minimum: 0.0; maximum: 0.99; value: root.viz-sp-smoothing;
+                                                 preferred-height: 24px; changed(v) => { root.set-viz-sp-smoothing(v); } }
+                                        Text { text: Math.round(root.viz-sp-smoothing * 100) / 100; color: Colors.text-secondary; width: 56px; }
+                                    }
+                                    HorizontalLayout {
+                                        padding-left: 8px; spacing: 4px;
+                                        RowLabel { text: "Peak hold"; min-width: 170px; }
+                                        CheckBox {
+                                            checked: root.viz-sp-peak-hold;
+                                            toggled => { root.set-viz-sp-peak-hold(self.checked); }
+                                        }
+                                        Rectangle { horizontal-stretch: 1; }
+                                    }
+                                    HorizontalLayout {
+                                        padding-left: 8px; spacing: 4px;
+                                        RowLabel { text: "Peak decay (ms)"; min-width: 170px; }
+                                        Slider { minimum: 50; maximum: 2000; value: root.viz-sp-peak-decay;
+                                                 preferred-height: 24px; changed(v) => { root.set-viz-sp-peak-decay(Math.round(v)); } }
+                                        Text { text: Math.round(root.viz-sp-peak-decay); color: Colors.text-secondary; width: 56px; }
+                                    }
+                                    HorizontalLayout {
+                                        padding-left: 8px; spacing: 4px;
+                                        RowLabel { text: "Bar gap (px)"; min-width: 170px; }
+                                        Slider { minimum: 0; maximum: 10; value: root.viz-sp-bar-gap;
+                                                 preferred-height: 24px; changed(v) => { root.set-viz-sp-bar-gap(Math.round(v)); } }
+                                        Text { text: Math.round(root.viz-sp-bar-gap); color: Colors.text-secondary; width: 56px; }
+                                    }
+                                    HorizontalLayout {
+                                        padding-left: 8px; spacing: 4px;
+                                        RowLabel { text: "Bar radius (px)"; min-width: 170px; }
+                                        Slider { minimum: 0; maximum: 12; value: root.viz-sp-bar-radius;
+                                                 preferred-height: 24px; changed(v) => { root.set-viz-sp-bar-radius(Math.round(v)); } }
+                                        Text { text: Math.round(root.viz-sp-bar-radius); color: Colors.text-secondary; width: 56px; }
+                                    }
+                                    HorizontalLayout {
+                                        padding-left: 8px; spacing: 4px;
+                                        RowLabel { text: "Gradient"; min-width: 170px; }
+                                        CheckBox {
+                                            checked: root.viz-sp-gradient;
+                                            toggled => { root.set-viz-sp-gradient(self.checked); }
+                                        }
+                                        Rectangle { horizontal-stretch: 1; }
+                                    }
+                                    HorizontalLayout {
+                                        padding-left: 8px; spacing: 4px;
+                                        RowLabel { text: "DSD CIC compensation"; min-width: 170px; }
+                                        CheckBox {
+                                            checked: root.viz-sp-dsd-comp;
+                                            toggled => { root.set-viz-sp-dsd-comp(self.checked); }
+                                        }
+                                        Rectangle { horizontal-stretch: 1; }
+                                    }
+                                }
+
+                                // ----- Отключено -----
+                                if root.viz-mode == 0 : VerticalLayout {
+                                    spacing: 8px;
+                                    RowLabel { text: "Visualization is disabled (placeholder only)."; text-color: Colors.text-tertiary; }
+                                }
+                            }
+
+                        // Валидация + сброс
+                        RowLabel {
+                            text: root.viz-error;
+                            text-color: Colors.text-error;
+                            wrap: word-wrap;
+                            visible: root.viz-error != "";
+                        }
+
+                        Button {
+                            text: "Reset type settings";
+                            preferred-height: 28px;
+                            clicked => { debug("settings: reset viz type"); root.reset-viz-type(); }
                         }
                     }
                 }

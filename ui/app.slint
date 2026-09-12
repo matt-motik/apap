@@ -187,6 +187,102 @@ export component AppWindow inherits Window {
     callback settings-toggle-cover-online(bool);
     callback show-about();
 
+    in property <int> settings-viz-mode: 0;
+    in property <bool> settings-viz-skip-dsd: true;
+    in property <string> settings-viz-error: "";
+    in property <bool> settings-viz-freq-min-invalid: false;
+    in property <bool> settings-viz-freq-max-invalid: false;
+    in property <bool> settings-viz-bands-invalid: false;
+    in-out property <string> settings-viz-freq-min-text: "20";
+    in-out property <string> settings-viz-freq-max-text: "22000";
+    in-out property <string> settings-viz-bands-text: "32";
+    in property <int> settings-viz-osc-channels: 1;
+    in property <float> settings-viz-osc-sensitivity: 1.0;
+    in property <float> settings-viz-osc-line-width: 1.2;
+    in property <bool> settings-viz-osc-center-line: false;
+    in property <int> settings-viz-osc-max-columns: 2000;
+    in property <bool> settings-viz-osc-cache-mem: true;
+    in property <bool> settings-viz-osc-cache-disk: true;
+    in property <int> settings-viz-spec-channels: 1;
+    in property <float> settings-viz-spec-sensitivity: 1.0;
+    in property <int> settings-viz-spec-fft: 2;
+    in property <int> settings-viz-spec-window: 0;
+    in property <int> settings-viz-spec-scale: 1;
+    in property <float> settings-viz-spec-gain: 20;
+    in property <float> settings-viz-spec-range: 80;
+    in property <float> settings-viz-spec-boost: 6;
+    in property <int> settings-viz-spec-palette: 1;
+    in property <int> settings-viz-spec-max-frames: 4000;
+    in property <bool> settings-viz-spec-dsd-comp: true;
+    in property <bool> settings-viz-spec-cache-mem: true;
+    in property <bool> settings-viz-spec-cache-disk: true;
+    in property <int> settings-viz-sp-channels: 1;
+    in property <float> settings-viz-sp-sensitivity: 1.0;
+    in property <int> settings-viz-sp-freq-scale: 1;
+    in property <int> settings-viz-sp-level-scale: 1;
+    in property <float> settings-viz-sp-smoothing: 0.7;
+    in property <bool> settings-viz-sp-peak-hold: false;
+    in property <int> settings-viz-sp-peak-decay: 400;
+    in property <int> settings-viz-sp-bar-gap: 2;
+    in property <int> settings-viz-sp-bar-radius: 2;
+    in property <bool> settings-viz-sp-gradient: true;
+    in property <bool> settings-viz-sp-dsd-comp: true;
+
+    callback cycle-viz();
+    callback settings-set-viz-mode(int);
+    callback settings-set-viz-skip-dsd(bool);
+    callback settings-set-viz-reset-type();
+    callback settings-set-viz-osc-channels(int);
+    callback settings-set-viz-osc-sensitivity(float);
+    callback settings-set-viz-osc-line-width(float);
+    callback settings-set-viz-osc-center-line(bool);
+    callback settings-set-viz-osc-max-columns(int);
+    callback settings-set-viz-osc-cache-mem(bool);
+    callback settings-set-viz-osc-cache-disk(bool);
+    callback settings-set-viz-spec-channels(int);
+    callback settings-set-viz-spec-sensitivity(float);
+    callback settings-set-viz-spec-fft(int);
+    callback settings-set-viz-spec-window(int);
+    callback settings-set-viz-spec-scale(int);
+    callback settings-set-viz-spec-freq-min(string);
+    callback settings-set-viz-spec-freq-max(string);
+    callback settings-set-viz-spec-gain(float);
+    callback settings-set-viz-spec-range(float);
+    callback settings-set-viz-spec-boost(float);
+    callback settings-set-viz-spec-palette(int);
+    callback settings-set-viz-spec-max-frames(int);
+    callback settings-set-viz-spec-dsd-comp(bool);
+    callback settings-set-viz-spec-cache-mem(bool);
+    callback settings-set-viz-spec-cache-disk(bool);
+    callback settings-set-viz-sp-channels(int);
+    callback settings-set-viz-sp-sensitivity(float);
+    callback settings-set-viz-sp-bands(string);
+    callback settings-set-viz-sp-freq-scale(int);
+    callback settings-set-viz-sp-level-scale(int);
+    callback settings-set-viz-sp-smoothing(float);
+    callback settings-set-viz-sp-peak-hold(bool);
+    callback settings-set-viz-sp-peak-decay(int);
+    callback settings-set-viz-sp-bar-gap(int);
+    callback settings-set-viz-sp-bar-radius(int);
+    callback settings-set-viz-sp-gradient(bool);
+    callback settings-set-viz-sp-dsd-comp(bool);
+
+    // Hotkey V — циклическое переключение типа визуализации (ТЗ §3.2).
+    // Корневой FocusScope оборачивает весь контент: внутренние FocusScope-ы
+    // отвергают незнакомые клавиши, событие всплывает сюда. Disabled while
+    // the settings dialog is open so typing in LineEdits does not cycle.
+    root-focus := FocusScope {
+        x: 0;
+        y: 0;
+        width: 100%;
+        height: 100%;
+        enabled: !root.settings-open;
+        KeyBinding {
+            keys: @keys(V);
+            enabled: !root.settings-open;
+            activated => { root.cycle-viz(); }
+        }
+
     VerticalLayout {
         spacing: 0;
 
@@ -272,6 +368,7 @@ export component AppWindow inherits Window {
             busy: root.busy;
         }
     }
+    }
 
     Settings {
         width: 100%;
@@ -311,5 +408,82 @@ export component AppWindow inherits Window {
         cover-move-down(i) => { root.settings-cover-move-down(i); }
         cover-names-edited(t) => { root.settings-cover-names-edited(t); }
         toggle-cover-online(b) => { root.settings-toggle-cover-online(b); }
+        viz-mode: root.settings-viz-mode;
+        viz-skip-dsd: root.settings-viz-skip-dsd;
+        viz-error: root.settings-viz-error;
+        viz-freq-min-invalid: root.settings-viz-freq-min-invalid;
+        viz-freq-max-invalid: root.settings-viz-freq-max-invalid;
+        viz-bands-invalid: root.settings-viz-bands-invalid;
+        viz-freq-min-text <=> root.settings-viz-freq-min-text;
+        viz-freq-max-text <=> root.settings-viz-freq-max-text;
+        viz-bands-text <=> root.settings-viz-bands-text;
+        viz-osc-channels: root.settings-viz-osc-channels;
+        viz-osc-sensitivity: root.settings-viz-osc-sensitivity;
+        viz-osc-line-width: root.settings-viz-osc-line-width;
+        viz-osc-center-line: root.settings-viz-osc-center-line;
+        viz-osc-max-columns: root.settings-viz-osc-max-columns;
+        viz-osc-cache-mem: root.settings-viz-osc-cache-mem;
+        viz-osc-cache-disk: root.settings-viz-osc-cache-disk;
+        viz-spec-channels: root.settings-viz-spec-channels;
+        viz-spec-sensitivity: root.settings-viz-spec-sensitivity;
+        viz-spec-fft: root.settings-viz-spec-fft;
+        viz-spec-window: root.settings-viz-spec-window;
+        viz-spec-scale: root.settings-viz-spec-scale;
+        viz-spec-gain: root.settings-viz-spec-gain;
+        viz-spec-range: root.settings-viz-spec-range;
+        viz-spec-boost: root.settings-viz-spec-boost;
+        viz-spec-palette: root.settings-viz-spec-palette;
+        viz-spec-max-frames: root.settings-viz-spec-max-frames;
+        viz-spec-dsd-comp: root.settings-viz-spec-dsd-comp;
+        viz-spec-cache-mem: root.settings-viz-spec-cache-mem;
+        viz-spec-cache-disk: root.settings-viz-spec-cache-disk;
+        viz-sp-channels: root.settings-viz-sp-channels;
+        viz-sp-sensitivity: root.settings-viz-sp-sensitivity;
+        viz-sp-freq-scale: root.settings-viz-sp-freq-scale;
+        viz-sp-level-scale: root.settings-viz-sp-level-scale;
+        viz-sp-smoothing: root.settings-viz-sp-smoothing;
+        viz-sp-peak-hold: root.settings-viz-sp-peak-hold;
+        viz-sp-peak-decay: root.settings-viz-sp-peak-decay;
+        viz-sp-bar-gap: root.settings-viz-sp-bar-gap;
+        viz-sp-bar-radius: root.settings-viz-sp-bar-radius;
+        viz-sp-gradient: root.settings-viz-sp-gradient;
+        viz-sp-dsd-comp: root.settings-viz-sp-dsd-comp;
+        set-viz-mode(i) => { root.settings-set-viz-mode(i); }
+        set-viz-skip-dsd(b) => { root.settings-set-viz-skip-dsd(b); }
+        reset-viz-type => { root.settings-set-viz-reset-type(); }
+        set-viz-osc-channels(i) => { root.settings-set-viz-osc-channels(i); }
+        set-viz-osc-sensitivity(v) => { root.settings-set-viz-osc-sensitivity(v); }
+        set-viz-osc-line-width(v) => { root.settings-set-viz-osc-line-width(v); }
+        set-viz-osc-center-line(b) => { root.settings-set-viz-osc-center-line(b); }
+        set-viz-osc-max-columns(i) => { root.settings-set-viz-osc-max-columns(i); }
+        set-viz-osc-cache-mem(b) => { root.settings-set-viz-osc-cache-mem(b); }
+        set-viz-osc-cache-disk(b) => { root.settings-set-viz-osc-cache-disk(b); }
+        set-viz-spec-channels(i) => { root.settings-set-viz-spec-channels(i); }
+        set-viz-spec-sensitivity(v) => { root.settings-set-viz-spec-sensitivity(v); }
+        set-viz-spec-fft(i) => { root.settings-set-viz-spec-fft(i); }
+        set-viz-spec-window(i) => { root.settings-set-viz-spec-window(i); }
+        set-viz-spec-scale(i) => { root.settings-set-viz-spec-scale(i); }
+        set-viz-spec-freq-min(t) => { root.settings-set-viz-spec-freq-min(t); }
+        set-viz-spec-freq-max(t) => { root.settings-set-viz-spec-freq-max(t); }
+        set-viz-spec-gain(v) => { root.settings-set-viz-spec-gain(v); }
+        set-viz-spec-range(v) => { root.settings-set-viz-spec-range(v); }
+        set-viz-spec-boost(v) => { root.settings-set-viz-spec-boost(v); }
+        set-viz-spec-palette(i) => { root.settings-set-viz-spec-palette(i); }
+        set-viz-spec-max-frames(i) => { root.settings-set-viz-spec-max-frames(i); }
+        set-viz-spec-dsd-comp(b) => { root.settings-set-viz-spec-dsd-comp(b); }
+        set-viz-spec-cache-mem(b) => { root.settings-set-viz-spec-cache-mem(b); }
+        set-viz-spec-cache-disk(b) => { root.settings-set-viz-spec-cache-disk(b); }
+        set-viz-sp-channels(i) => { root.settings-set-viz-sp-channels(i); }
+        set-viz-sp-sensitivity(v) => { root.settings-set-viz-sp-sensitivity(v); }
+        set-viz-sp-bands(t) => { root.settings-set-viz-sp-bands(t); }
+        set-viz-sp-freq-scale(i) => { root.settings-set-viz-sp-freq-scale(i); }
+        set-viz-sp-level-scale(i) => { root.settings-set-viz-sp-level-scale(i); }
+        set-viz-sp-smoothing(v) => { root.settings-set-viz-sp-smoothing(v); }
+        set-viz-sp-peak-hold(b) => { root.settings-set-viz-sp-peak-hold(b); }
+        set-viz-sp-peak-decay(i) => { root.settings-set-viz-sp-peak-decay(i); }
+        set-viz-sp-bar-gap(i) => { root.settings-set-viz-sp-bar-gap(i); }
+        set-viz-sp-bar-radius(i) => { root.settings-set-viz-sp-bar-radius(i); }
+        set-viz-sp-gradient(b) => { root.settings-set-viz-sp-gradient(b); }
+        set-viz-sp-dsd-comp(b) => { root.settings-set-viz-sp-dsd-comp(b); }
     }
 }

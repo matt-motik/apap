@@ -52,7 +52,7 @@ impl MusicApp {
         let (rate, ch) = self.player.format();
         viz.set_format(rate, ch);
 
-        let settings = self.settings.settings.visualization.clone();
+        let settings = self.settings_ref().visualization.clone();
         let mode = settings.mode;
         let sp = &settings.spectrum;
         let bands = sp.bands.clamp(4, 128) as usize;
@@ -62,7 +62,7 @@ impl MusicApp {
         let sig = Some((mode.index(), bands, channels, style.0, style.1, style.2));
         if sig != self.viz_sig {
             self.viz_sig = sig;
-            viz.set_cfg(Arc::new(VisualizerConfig::from_settings(&self.settings.settings)));
+            viz.set_cfg(Arc::new(VisualizerConfig::from_settings(self.settings_ref())));
             let active = mode == VisualizationMode::Spectrum;
             if active != self.viz_tap_active {
                 self.viz_tap_active = active;
