@@ -523,7 +523,7 @@ let config = AppConfig::builder()
 - **`src/app/mod.rs`**: модуль, поля `fulltrack_mode`/`viz_debounce`, `sync_viz_settings_to_ui()` в `open_settings`, вызов `bind_viz_settings_callbacks`.
 - **Верификация:** build + release ок, clippy 0 новых, тесты 101 lib + 10 bin ✅, smoke (X11) без паник.
 - **Багфиксы по проверке пользователя:** стерео-осциллограмма теряла нижний канал (`render_rgba` сверял границу с `half_h` вместо `y_base+half_h`) — исправлено + регрессионный тест; `bands`/`freq_min`/`freq_max` не применялись из меню — LineEdit'ы переведены на двустороннюю привязку `text <=> root.viz-*-text`.
-- **Коммит:** <TODO: commit hash>.
+- **Коммит:** `881c0b8` (проверено пользователем; стерео-фикс + bands).
 
 ### Баг-фикс: окно зажималось / layout визуализатора ✅ сделано
 
