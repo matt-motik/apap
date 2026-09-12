@@ -1,27 +1,34 @@
 # Состояние сессии
 
 - **Проект:** `/home/matt/VSCode/apap/apap`
-- **Последний коммит:** `480b998 chore: release v0.2 build — viz menu, oscilloscope/spectrogram/spectrum, native MenuBar` (тег `v0.2`)
-- **Ветка:** main
-- **Состояние:** `done` — меню «Визуализация» в нативном MenuBar (ТЗ §3.2) закоммичено `301a402`, релиз `v0.2` (`480b998`, тег `v0.2`).
+- **Последний коммит:** `b5d021c perf: aggressive release profile (lto=fat, codegen-units=1, abort, native)` (ветка `feat/viz-optimizations`)
+- **Ветка:** `feat/viz-optimizations` (не слита в main)
+- **Состояние:** `done` — задача 6.7 «Оптимизация визуализации + критические баги» выполнена в ветке `feat/viz-optimizations`.
 
-## Задача: 6.6-меню «Нативное MenuBar с checkable-меню „Визуализация“» (ТЗ §3.2)
+## Задача: 6.7 Оптимизация визуализации + критические баги (замечания кода от внешних ИИ)
 
-Исходный коммит 6.6: `881c0b8`. Текущая доработка — по запросу пользователя («кнопка Визуализация должна быть в ui/app.slint», предложение заменить Ректангл-тулбар на Menu).
+Источник: `_TODO_/замечания {1,2,2.1}` (ревью внешних ИИ, пути `/workspace/...` — артефакт, маппятся на проект). Верифицировано вручную против кода; файлы перенесены в `_TODO_/done/`.
 
-### Что сделано (кратко)
-- **`ui/app.slint`**: удалён `Menu`-блок из `AppMenuBar` (Rectangle, кнопки Add/Save/Open/About/Settings остались). Добавлен нативный `MenuBar` первым ребёнком `AppWindow` (требование Slint: MenuBar — прямой ребёнок Window, один на окно, вне for/if):
-  - `Menu "Файл"` — Добавить файлы / Добавить папку / --- / Сохранить плейлист / Загрузить плейлист → `add-files/add-folder/save-playlist/load-playlist`.
-  - `Menu "Визуализация"` — 4 checkable-пункта «Отключена/Осциллограмма/Спектрограмма/Анализатор спектра»: `checked: root.settings-viz-mode == N`, `enabled: !root.settings-open`, `activated => root.menu-select-viz(N)`.
-  - `Menu "Настройки"` — Параметры / О программе → `open-settings/show-about`.
-  - Колбэк `menu-select-viz(int)` добавлен на уровень `AppWindow` (строки 105-143).
-- **`src/app/viz_settings_manager.rs`**: новый `menu_select_viz_mode(i)` — клик по отмеченному пункту → Off, иначе → выбранный режим; мгновенный `save` в settings.toml + `sync_viz_settings_to_ui` (обновляет галочки меню и диалог). Биндер `on_menu_select_viz`.
-- Хоткей V (цикл через FocusScope+KeyBinding) сохранён в `root-focus`.
+### Что сделано (коммиты в ветке `feat/viz-optimizations`)
+
+- **`827d0d6 fix(viz): apply DSP settings live, RAM cache show/build, partial-frame got, LRU`**:
+  - `viz_sig` → именованный `VizSig` (PartialEq) со всеми DSP-параметрами (freq_scale, smoothing, peak_hold, sensitivity, level_scale, peak_decay_ms, dsd_cic) → `set_cfg()` прокидывает свежий снимок при любом изменении.
+  - `LiveWorker.last_key` включает freq_scale/peak_decay_ms → `SpectrumEngine` пересоздаётся (band_ranges/decay_per_frame).
+  - `apply_fulltrack`: показ из RAM-кэша не зависит от `cache_in_mem`; сборка только при промахе (вечный плейсхолдер устранён).
+  - `fulltrack_cache` → `clru::CLruCache` (LRU, лимит `FULLTRACK_CACHE_LEN=20`).
+  - `pull_frame`: частичное чтение кадра сохраняется в поле `frame_fill` (не смешиваются сэмплы разных интервалов).
+- **`8e29719 perf(viz): spectrogram RowPlan + palette LUT + buffer reuse`** (`src/audio/spectrogram.rs`):
+  - RowPlan: bin-интерполяция/cic_gain/boost_db предвычисляются на строку в `new()`.
+  - LUT для hex-палитр (magma/viridis/plasma/inferno) — parse_hex один раз, per-pixel O(1).
+  - `wbuf`/`mags` — переиспользуемые поля вместо Vec на колонку×канал; bg/solid парсятся один раз.
+- **`b5d021c perf: aggressive release profile`**: `lto="fat"`, `codegen-units=1`, `panic="abort"`, `.cargo/config.toml` → `target-cpu=native`. Релизный бинарь 29.4 МБ (было 34.3 МБ).
+- ROADMAP 6.7 ✅ (коммиты указаны), запущена ветка. SIMD/Rayon/Canvas — отложено «на подумать» пользователем.
 
 ### Верификация
-- `cargo check/build` ок; clippy 0 новых в своих файлах; `cargo test` — 101 lib + 10 bin зелёные; release build ок.
-- Коммит `301a402 feat(viz): native MenuBar with checkable viz menu (ТЗ §3.2)`. Релиз `v0.2` (тег, `480b998`).
+- `cargo test` — 101 lib + 10 bin зелёные; `cargo check` ок; clippy 0 новых warning'ов в изменённых файлах (pre-existing остались).
+- `cargo build --release` ок (3 мин 08 с, `lto=fat` + `target-cpu=native`); спецтесты спектрограммы подтверждают эквивалентность рендера.
 
 ## Следующий ход
 
-Следующая подзадача из ROADMAP (Этап 6): 6.7 — bit-perfect и DSD native/DoP (блокировка громкости, плейсхолдеры §6.3).
+1. Слить `feat/viz-optimizations` в `main` (после подтверждения пользователя): `git checkout main && git merge feat/viz-optimizations` (без squash, сохранить 3 коммита). При желании — обновить `_STATE_.md`/Родмап после мержа.
+2. Следующая задача из ROADMAP (Этап 6): 6.8 — bit-perfect и DSD native/DoP.
