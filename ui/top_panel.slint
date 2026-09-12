@@ -99,6 +99,14 @@ export component TopPanel inherits Rectangle {
 
     in property <int> viz-mode: 0;
 
+    // Анализатор спектра (режим 3): данные и параметры отрисовки полос.
+    in property <[float]> spectrum-l: [];
+    in property <[float]> spectrum-r: [];
+    in property <int> viz-channels: 2;
+    in property <float> bar-gap: 2;
+    in property <float> bar-radius: 2;
+    in property <bool> gradient: true;
+
     callback play-pause();
     callback stop();
     callback prev-track();
@@ -281,6 +289,13 @@ export component TopPanel inherits Rectangle {
                 artist: root.info-artist;
                 album: root.info-album;
                 format: root.info-format;
+                viz-channels: root.viz-channels;
+                spectrum-l: root.spectrum-l;
+                spectrum-r: root.spectrum-r;
+                bar-gap: root.bar-gap;
+                bar-radius: root.bar-radius;
+                gradient: root.gradient;
+                height: root.cover-size * 1px;
             }
 
             VerticalLayout {

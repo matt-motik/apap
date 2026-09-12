@@ -368,6 +368,16 @@ impl Player {
         };
         (core.playing, core.pos_secs, core.duration_secs())
     }
+
+    /// Output format of the current audio stream: (sample rate, channels).
+    /// Used by the visualizer to drive the FFT (tap is post-resampler PCM).
+    pub fn format(&self) -> (u32, usize) {
+        let core = match self.core.lock() {
+            Ok(c) => c,
+            Err(_) => return (44_100, 2),
+        };
+        (core.out_rate, core.out_ch)
+    }
 }
 
 fn effective_volume(core: &PlaybackCore) -> f32 {

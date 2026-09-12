@@ -499,7 +499,7 @@ let config = AppConfig::builder()
 
 ## Этап 6: Визуализация аудио (ТЗ 5.1)
 
-**Статус:** 🔶 в работе — **6.1 «Каркас» ✅ сделано**, дальше 6.2 (анализатор спектра).
+**Статус:** 🔶 в работе — **6.1 «Каркас» ✅** и **6.2 «Анализатор спектра» ✅** сделаны, дальше 6.3 (DSD-ресемплеры).
 
 **Суть:** три режима визуализации (отключено/осциллограмма/спектрограмма/анализатор спектра), независимые настройки для каждого типа, стерео/моно, обработка DSD (PCM/native/DoP), bit-perfect, кэширование (RAM+диск), персистентность в config.toml.
 
@@ -514,11 +514,20 @@ let config = AppConfig::builder()
 - **rtrb** из crates.io; `rustfft` 6.4.1 уже есть в lock (транзитивно от symphonia) — нужен будет на 6.2/6.4.
 - **Верификация:** build ок, clippy — ноль новых warning, тесты 68 lib + 6 bin зелёные.
 
-**Остальное (6.2+):** LiveWorker (FFT+полосы), FullTrackWorker (осцилло/спектрограмма), DSD-режимы, bit-perfect, вкладка настроек «Визуализация», кэш RAM/диск, ресемплеры sinc_*.
+**Остальное (6.3+):** DSD-ресемплеры (linear/cubic/sinc_*/soxr), FullTrackWorker (осцилло/спектрограмма), DSD-режимы, bit-perfect, вкладка настроек «Визуализация», кэш RAM/диск.
+
+### 6.2. Анализатор спектра (мгновенный) ✅ сделано
+
+- **`src/audio/analyzer.rs`** (новый): `SpectrumEngine` (чистый DSP, без аудио-потока) — лестничный консьюмер rtrb, окно Ханна, FFT rustfft (2048, 50% overlap), полосы по шкалам linear/log/mel (20 Гц…min(nyquist,22 кГц)), сглаживание `cur=val·(1-sm)+prev·sm`, peak hold с `decay=exp(−1000/(decay_ms·fps))`, нормализация mag/`(fft_size·0.25)` и log-(dB scale, 0 dBFS…−80). + `LiveWorker` (поток-обёртка: config via `RwLock<Arc<VisualizerConfig>>`, атомики rate/in_ch, publication через `mem::swap` без аллокаций, пересборка движка по ключу (rate,in_ch,bands,channels), drain при mode≠spectrum). Константы `TAP_CAPACITY=262144`, `SPECTRUM_FFT_SIZE=2048`, `SPECTRUM_HOP=1024`. +9 тестов (тишина→0, тон в ожидаемой полосе, stereo L/R, mono-average, сглаживание, peak hold, покрытие бинов, worker drain+swap).
+- **`rustfft 6.4.1`** — прямая зависимость (features avx/sse/neon).
+- **`ui/visualizer.slint`**: компонент `SpectrumBars` (колонки через `horizontal-stretch`, bottom-anchor через `VerticalLayout alignment: end`, высота полосы = `clamp(value)·root.height` — без binding-цикла) и блок спектра (mode==3): стерео — L слева/R справа с зазором 4px (§4.2), моно — один ряд; `bar-gap`/`bar-radius`/`gradient` (§5.4); градиент `viz-3→viz-2→viz-1` по вертикали; старый градиент-плейсхолдер при mode==3 скрыт. Проброс пропсов `spectrum-l/-r`, `viz-channels`, `bar-gap/-radius`, `gradient` через `top_panel.slint` → `app.slint`.
+- **`src/audio/player.rs`**: `Player::format() -> (u32, usize)` (out_rate/out_ch) для FFT.
+- **`src/app/visualizer_manager.rs`** (новый, impl MusicApp): тап-кольцо + `LiveWorker` создаются в `new()` (`setup_visualizer`), `viz_push()` (~33 мс, `VIZ_PUSH_INTERVAL_MS=33` — отдельный `slint::Timer` в main.rs, не 100 ms tick): формат плеера → воркер, delta-применение конфига (sig: mode,bands,channels,gap,radius,gradient), тумблер tap (только при mode==spectrum), публикация полос L/R в `spectrum-l/-r` с delta, распад `×0.80` на паузе/стопе (обнуление <0.004).
+- **Верификация:** build + release ок, clippy — ноль новых warning (baseline 21 lib + 5 bin), тесты 77 lib + 6 bin зелёные.
 
 **Этапы разработки (из §16 ТЗ):**
-1. ~~Каркас~~ ✅ 6.1 (готово, коммит `6.1-visualizer-framework`)
-2. Анализатор спектра (мгновенный): `LiveWorker`, FFT, полосы, сглаживание, peak hold + настройки + UI.
+1. ~~Каркас~~ ✅ 6.1 (готово)
+2. ~~Анализатор спектра (мгновенный)~~ ✅ 6.2 (LiveWorker, FFT, полосы, сглаживание, peak hold + настройки + UI).
 3. Доработка `DsdDecoder` + ресемплеры (linear/cubic/sinc_*/soxr) + интеграция в `PlaybackCore`.
 4. Осциллограмма (полнотрековая): `FullTrackWorker`, min/max децимация, прогресс, отмена, кэш, `skip_fulltrack_for_dsd`.
 5. Спектрограмма (полнотрековая): FFT по треку, палитры, адаптивный hop, CIC-компенсация.
@@ -562,7 +571,7 @@ let config = AppConfig::builder()
 | 5.1 | tracing вместо eprintln! | ⬜ желательно | ⬜ | — | Низкий |
 | 5.2 | builder для AppConfig | ⬜ желательно | ⬜ | — | Низкий |
 | 5.3 | Горячая перезагрузка конфигов | — отклонено | 🚫 | — | — |
-| 6.1 | Визуализация аудио (ТЗ 5.1): каркас + спектр + DSD/resamplers + oscillo/spectrogram + bit-perfect | 🔴 Высокий (ТЗ от пользователя) | 🔶 6.1 ✅; 6.2+ ⬜ | 8 этапов (§16) | Высокий |
+| 6.1 | Визуализация аудио (ТЗ 5.1): каркас + спектр + DSD/resamplers + oscillo/spectrogram + bit-perfect | 🔴 Высокий (ТЗ от пользователя) | 🔶 6.1 ✅; 6.2 ✅; 6.3+ ⬜ | 8 этапов (§16) | Высокий |
 
 ---
 

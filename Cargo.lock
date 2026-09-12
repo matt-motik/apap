@@ -2700,6 +2700,7 @@ dependencies = [
  "rand 0.8.8",
  "rfd",
  "rtrb",
+ "rustfft",
  "serde",
  "serde_json",
  "slint",

@@ -3,6 +3,7 @@ use std::collections::HashSet;
 use std::path::PathBuf;
 use std::rc::Rc;
 use std::sync::mpsc::{channel, Receiver, TryRecvError};
+use std::sync::Arc;
 use std::thread;
 use std::time::Instant;
 
@@ -10,8 +11,10 @@ use rfd::FileDialog;
 use slint::{ComponentHandle, Model, ModelRc, SharedString, StandardListViewItem, VecModel};
 use slint::language::{SortOrder, TableColumn};
 
+use music_player_rs::audio::analyzer::TAP_CAPACITY;
 use music_player_rs::audio::output::{default_device_name, probe_output};
 use music_player_rs::audio::player::Player;
+use music_player_rs::audio::visualizer::VisualizerConfig;
 use music_player_rs::cover::{self, CoverDone, CoverJob};
 use music_player_rs::playlist::{self, ScanMsg, Track};
 use music_player_rs::settings::{ColumnId, RepeatMode, Settings, SettingsStore, Theme};
@@ -21,6 +24,7 @@ pub mod events;
 pub mod playback_manager;
 pub mod playlist_manager;
 pub mod ui_manager;
+pub mod visualizer_manager;
 
 use events::AppEvent;
 
@@ -187,6 +191,14 @@ pub struct MusicApp {
     last_click_row: Option<i32>,
     /// Double-click detection: timestamp of the previous single-click.
     last_click_time: Instant,
+    /// Live spectrum worker + tap (только для режима spectrum, ТЗ §16.2).
+    viz: Option<music_player_rs::audio::analyzer::LiveWorker>,
+    /// Сигнатура конфига, применённого к воркеру/UI (delta-применение).
+    viz_sig: Option<(i32, usize, usize, u32, u32, bool)>,
+    /// Последний запушенный кадр полос (для распада на паузе и дельты).
+    viz_bars: Vec<f32>,
+    /// Текущее состояние tap-тумблера в плеере.
+    viz_tap_active: bool,
 }
 
 impl MusicApp {
@@ -258,6 +270,11 @@ impl MusicApp {
             None => format!("Audio: {active_device} ready"),
         };
 
+        // Visualization tap (ТЗ §16.2): кольцо PCM для анализатора, consumer
+        // уходит в LiveWorker, producer — в audio-callback плеера.
+        let (viz_prod, viz_cons) = rtrb::RingBuffer::new(TAP_CAPACITY);
+        let viz_cfg = Arc::new(VisualizerConfig::from_settings(&settings.settings));
+
         let mut app = Self {
             ui: ui.clone_strong(),
             settings,
@@ -297,7 +314,12 @@ impl MusicApp {
             last_ui: UiState::default(),
             last_click_row: None,
             last_click_time: Instant::now(),
+            viz: None,
+            viz_sig: None,
+            viz_bars: Vec::new(),
+            viz_tap_active: false,
         };
+        app.setup_visualizer(viz_cfg, viz_prod, viz_cons);
         app.rebuild_shuffle();
         if let Some(col) = app.settings.settings.sorted_col {
             let desc = app.settings.settings.sort_desc;

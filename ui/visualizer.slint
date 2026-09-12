@@ -1,11 +1,48 @@
 import { Colors } from "theme.slint";
 
+// Полосы анализатора спектра (§4.2, §14.2). Равные колонки (1fr через
+// horizontal-stretch), каждая колонка — VerticalLayout с alignment: end, так
+// что полоса растёт от нижней кромки. Высота полосы зависит от `root.height`
+// (сам компонент, а не от layout-cache), чтобы не было binding-цикла.
+component SpectrumBars inherits Rectangle {
+    in property <[float]> values: [];
+    in property <float> gap: 2;
+    in property <float> radius: 2;
+    in property <bool> gradient: true;
+
+    horizontal-stretch: 1;
+
+    HorizontalLayout {
+        spacing: root.gap * 1px;
+        height: 100%;
+        width: 100%;
+
+        for value in root.values : Rectangle {
+            horizontal-stretch: 1;
+
+            VerticalLayout {
+                alignment: end;
+                height: 100%;
+vertical-stretch: 1;
+    width: 100%;
+
+                Rectangle {
+                    height: Math.clamp(value, 0, 1) * root.height;
+                    border-radius: root.radius * 1px;
+                    background: root.gradient
+                        ? @linear-gradient(180deg, Colors.viz-3 0%, Colors.viz-2 50%, Colors.viz-1 100%)
+                        : Colors.viz-2;
+                }
+            }
+        }
+    }
+}
+
 // Область визуализации аудио (ТЗ 5.1 §14).
 //
 // Сейчас это каркас: базовый плейсхолдер (режим off / нет трека), спец-
-// плейсхолдер недоступности (native DSD / DoP) и заглушка активных режимов.
-// Реальная отрисовка (полосы спектра, осциллограмма, спектрограмма)
-// подключается на этапах 6.2+ поверх этой же области.
+// плейсхолдер недоступности (native DSD / DoP) и живой анализатор спектра
+// (режим 3). Осциллограмма и спектрограмма подключаются на 6.4/6.5.
 export component Visualizer inherits Rectangle {
     in property <int> mode: 0;              // 0 off, 1 oscilloscope, 2 spectrogram, 3 spectrum
     in property <string> artist: "—";
@@ -13,6 +50,15 @@ export component Visualizer inherits Rectangle {
     in property <string> format: "";
     in property <string> disabled-text: ""; // спец-плейсхолдер (§6.3)
     in property <float> build-progress: 0.0; // 0..1, полоса прогресса при построении
+
+    // Анализатор спектра (режим 3): два набора полос рядом (L слева, R справа)
+    // при стерео (§4.2), один — при моно.
+    in property <[float]> spectrum-l: [];
+    in property <[float]> spectrum-r: [];
+    in property <int> viz-channels: 2;
+    in property <float> bar-gap: 2;
+    in property <float> bar-radius: 2;
+    in property <bool> gradient: true;
 
     vertical-stretch: 1;
     width: 100%;
@@ -22,13 +68,48 @@ export component Visualizer inherits Rectangle {
     background: Colors.bg-elevated;
     clip: true;
 
-    // Заглушка активной визуализации (заменится реальной на 6.2+).
+    // Заглушка активной визуализации (осциллограмма/спектрограмма; заменится
+    // реальной отрисовкой на 6.4/6.5). Для анализатора спектра не нужна.
     Rectangle {
-        visible: root.mode > 0 && root.artist != "—" && root.disabled-text == "";
+        visible: root.mode > 0 && root.mode != 3 && root.artist != "—" && root.disabled-text == "";
         height: 100%;
         width: 100%;
         background: @linear-gradient(90deg, Colors.viz-1 0%, Colors.viz-2 50%, Colors.viz-3 100%);
         opacity: 0.6;
+    }
+
+    // Анализатор спектра (§4.2): стерео — L слева, R справа; моно — один ряд.
+    Rectangle {
+        visible: root.mode == 3 && root.artist != "—" && root.disabled-text == "";
+        height: 100%;
+        width: 100%;
+
+        HorizontalLayout {
+            spacing: root.viz-channels == 2 ? 4px : 0px;
+            height: 100%;
+            width: 100%;
+
+            if root.viz-channels == 2 : SpectrumBars {
+                values: root.spectrum-l;
+                gap: root.bar-gap;
+                radius: root.bar-radius;
+                gradient: root.gradient;
+            }
+
+            if root.viz-channels == 2 : SpectrumBars {
+                values: root.spectrum-r;
+                gap: root.bar-gap;
+                radius: root.bar-radius;
+                gradient: root.gradient;
+            }
+
+            if root.viz-channels != 2 : SpectrumBars {
+                values: root.spectrum-l;
+                gap: root.bar-gap;
+                radius: root.bar-radius;
+                gradient: root.gradient;
+            }
+        }
     }
 
     // Базовый плейсхолдер (§5.5): крупно артист/альбом, мельче формат.
@@ -37,7 +118,7 @@ export component Visualizer inherits Rectangle {
         spacing: 2px;
         width: 100%;
         height: 100%;
-        visible: root.mode == 0 || root.artist == "—";
+        visible: (root.mode == 0 || root.artist == "—") && root.mode != 3;
 
         Text {
             text: root.artist;

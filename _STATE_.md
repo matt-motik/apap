@@ -5,38 +5,44 @@
 
 ## Статус
 
-- **Состояние:** `done` — Этап 6 подзадача **6.1 «Каркас»** доведена до рабочего состояния и закоммичена.
+- **Состояние:** `done` — Этап 6, подзадача **6.2 «Анализатор спектра (мгновенный)»** завершена (ТЗ §16.2).
 
 ## Активная задача
 
-Следующая — **6.2 «Анализатор спектра (мгновенный)»** (LiveWorker + FFT + полосы, ТЗ §16.2). Перед стартом завести в этом файле.
+**6.2 — LiveWorker: FFT + полосы + сглаживание + peak hold.**
+- `rustfft` как прямая зависимость;
+- `src/audio/analyzer.rs`: `SpectrumEngine` (чистый DSP, тестируемый) + `LiveWorker` (поток-консьюмер rtrb);
+- живой снапшот настроек `RwLock<Arc<SpectrumCfg>>` (решение по RwLock из 6.1);
+- отрисовка полос в `ui/visualizer.slint` (mode==3, mono/stereo по ТЗ §4.2: L слева / R справа);
+- интеграция в `MusicApp`: `viz_manager.rs`, создание tap в `new()`, `sync_viz()` в `tick()`, распад полос на паузе/стопе;
+- старый градиент-плейсхолдер скрывается при mode==3.
 
-## Выполнено
+## Шаги
 
-### 6.1 «Каркас визуализации»
-- `src/audio/visualizer.rs` (новый): режимы + конфиги трёх типов + дефолты по ТЗ §5, `VisualizerSettings`, `VisualizerConfig::from_settings`. +7 тестов.
-- `src/settings.rs`: `Settings.visualization` (`#[serde(default)]`, вложенные `[visualization.<type>]`).
-- Tap: `PlaybackCore.viz_tap: Option<rtrb::Producer<f32>>` + `viz_tap_active`; пост-ресемплерный PCM до громкости во всех 3 колбэках (неблокирующий `push`). Методы `Player::set_viz_tap/set_viz_tap_active`.
-- `ui/visualizer.slint` (новый) + интеграция в top_panel/app.slint (prop `viz-mode`), `sync_settings_to_ui`.
-- Зависимость `rtrb` 0.4.0.
-- Решение по вопросу пользователя про `Arc<RwLock<>>`: `PlaybackCore` остаётся `Mutex` (callback мутирует — эксклюзив); снапшот настроек для LiveWorker — `RwLock<Arc<VisualizerConfig>>` на 6.2.
+- [x] 1. Cargo.toml: `rustfft`
+- [x] 2. `src/audio/analyzer.rs`: `SpectrumEngine` + `LiveWorker` + тесты (синтез: тон/шум/стерео)
+- [x] 3. `src/audio/mod.rs`: подключить `analyzer`
+- [x] 4. `ui/visualizer.slint`: `spectrum-l/spectrum-r/viz-channels` + `BarRow` (полосы L/R)
+- [x] 5. `ui/top_panel.slint` + `ui/app.slint`: проброс spectrum-пропсов
+- [x] 6. `src/audio/player.rs`: метод `Player::format()` (out_rate/out_ch)
+- [x] 7. `src/app/visualizer_manager.rs` (новый, impl MusicApp): создание LiveWorker+tap в `new()`, `sync_viz()`/`push_viz_to_ui()` в `tick()`
+- [x] 8. build + clippy + test → коммит
 
 ## Изменяемые файлы
 
-- `Cargo.toml`/`Cargo.lock` — rtrb
-- `src/audio/visualizer.rs` (новый), `src/audio/mod.rs`
-- `src/settings.rs`
+- `Cargo.toml`/`Cargo.lock` — rustfft
+- `src/audio/analyzer.rs` (новый), `src/audio/mod.rs`
+- `ui/visualizer.slint`, `ui/top_panel.slint`, `ui/app.slint`
 - `src/audio/player.rs`
-- `ui/visualizer.slint` (новый), `ui/top_panel.slint`, `ui/app.slint`
-- `src/app/ui_manager.rs`
-- `ROADMAP.md` (6.1 ✅), `_STATE_.md`
-
-## Верификация
-
-- `cargo build` — ок; `cargo test` — 68 lib + 6 bin зелёные; clippy — ноль новых warning (baseline 21 старых).
-- Живая проверка с дисплеем (режим отображения, 4К-проверка) — после 6.2, когда появится реальная отрисовка.
+- `src/app/visualizer_manager.rs` (новый), `src/app/mod.rs`
+- `ROADMAP.md`, `_STATE_.md`
 
 ## Риск / стоп-условие
 
-- Аудио-callback не блокируется (только `push` без блокировок/аллокаций) — соблюдено.
-- TOML не поддерживает `serde(flatten)` — общие поля дублируются в каждом конфиге.
+- Аудио-callback не трогаем (tap уже есть, только `Player::format()` — блокирующий lock, но только в UI-потоке).
+- Воркер не выделяет память в горячем цикле (переиспользуемые буферы `window`/`work`).
+- Slint: высоты полос через `% * f32`; проверить компиляцию.
+
+## Следующий ход
+
+Задача закрыта. Следующая: **6.3** — доработка `DsdDecoder` + ресемплеры (linear/cubic/sinc_*/soxr) + интеграция в `PlaybackCore` (ТЗ §16.3). Начать с `_TODO_`/ROADMAP.
