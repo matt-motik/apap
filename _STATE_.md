@@ -14,11 +14,11 @@
 
 [x] Шаг 2: ui/app.slint — root-проп `settings-bit-perfect`, callback `settings-set-bit-perfect(bool)`, binding + mapping в инстансе Settings. Проверка: `cargo check` без ошибок.
 
-[ ] Шаг 3: src/app/ui_manager.rs + src/app/mod.rs — `sync_settings_to_ui` → `set_settings_bit_perfect`; callback `settings-set-bit-perfect` (draft + live-warn); в `on_settings_save` diff-применение bit_perfect (player + unity gain) при изменении. Проверка: `cargo check` + `cargo test` зелёные.
+[x] Шаг 3: src/app/ui_manager.rs + src/app/mod.rs — `sync_settings_to_ui` → `set_settings_bit_perfect`; callback `settings-set-bit-perfect` (draft + live-warn); в `on_settings_save` diff-применение bit_perfect (player + unity gain) при изменении. Проверка: `cargo check` + `cargo test` зелёные.
 
 [ ] Шаг 4: Верификация (`cargo test`, `cargo clippy` 0 новых), ROADMAP V5.1-8.6 → ✅ (+ подзадачи, пометка про ручную DoP-проверку на железе), `_STATE_.md` → done, коммит. Проверка: тесты зелёные, clippy чист.
 
-- **Текущий шаг (current_step):** Шаг 3
-- **Следующий ход:** Sync set_settings_bit_perfect в ui_manager + callback settings-set-bit-perfect + diff-применение в on_settings_save в mod.rs
+- **Текущий шаг (current_step):** Шаг 4
+- **Следующий ход:** Полная верификация (cargo test, clippy), ROADMAP V5.1-8.6 → ✅, закрыть _STATE_.md, финальный коммит
 - **Счетчик безуспешных компиляций:** 0/3
 - **Состояние:** in_progress

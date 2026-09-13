@@ -785,6 +785,18 @@ impl MusicApp {
             });
         }
 
+        // 25c. settings-set-bit-perfect (draft-only: применяется на Save)
+        {
+            let app = this.clone();
+            ui.on_settings_set_bit_perfect(move |enabled| {
+                eprintln!("[gui] settings_set_bit_perfect enabled={enabled}");
+                let mut a = app.borrow_mut();
+                a.settings_mut().audio.bit_perfect = enabled;
+                // Live-обновление предупреждения DSD в диалоге.
+                a.sync_dsd_settings_to_ui();
+            });
+        }
+
         // 26. settings-toggle-col
         {
             let app = this.clone();
@@ -891,6 +903,7 @@ impl MusicApp {
                 // below (they change live from the top panel / playlist header),
                 // so preserve them across the draft replacement instead of
                 // letting the stale clone overwrite fresh values.
+                let old_bp = a.settings.settings.audio.bit_perfect;
                 let live = {
                     let l = &a.settings.settings;
                     (
@@ -921,6 +934,22 @@ impl MusicApp {
                 s.win_w = live.9;
                 s.win_h = live.10;
                 a.settings.save();
+                // ТЗ §7.5/§8.6: bit-perfect менялся в диалоге → применить к
+                // плееру. Включение = Direct Output (unity gain, снятие mute).
+                if a.settings.settings.audio.bit_perfect != old_bp {
+                    let bp = a.settings.settings.audio.bit_perfect;
+                    a.player.set_bit_perfect(bp);
+                    if bp {
+                        a.player.set_volume(1.0);
+                        a.player.set_muted(false);
+                        let s = &mut a.settings.settings;
+                        s.volume = 1.0;
+                        s.muted = false;
+                    }
+                    a.settings.save();
+                    a.emit(AppEvent::BitPerfectChanged);
+                    eprintln!("[gui] settings_save: bit_perfect applied -> {bp}");
+                }
                 // ТЗ §8.4: применить выбранный DSD-режим к плееру. Если в этот
                 // момент играет DSD-трек — перезапустить его, чтобы новый
                 // конвейер (PCM/Native/DoP) применился к незакрытому потоку.

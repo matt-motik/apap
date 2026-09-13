@@ -97,6 +97,7 @@ impl MusicApp {
         let s = self.settings_ref();
         self.ui.set_settings_dsd_mode(s.dsd.mode.index());
         self.ui.set_settings_dsd_bp_warn(s.dsd_pcm_breaks_bit_perfect());
+        self.ui.set_settings_bit_perfect(s.audio.bit_perfect);
     }
 
     /// ТЗ §7.5: актуализировать индикатор статус-бара «Не bit-perfect
