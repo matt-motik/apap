@@ -344,6 +344,27 @@ pub enum DsdMode {
     DoP,
 }
 
+impl DsdMode {
+    /// Порядковый индекс для ComboBox-модели `.slint` (0=Pcm, 1=Native, 2=DoP).
+    pub const fn index(self) -> usize {
+        match self {
+            DsdMode::Pcm => 0,
+            DsdMode::Native => 1,
+            DsdMode::DoP => 2,
+        }
+    }
+
+    /// Обратное отображение из индекса UI (валидные значения 0..=2).
+    pub fn from_index(i: usize) -> Option<Self> {
+        match i {
+            0 => Some(DsdMode::Pcm),
+            1 => Some(DsdMode::Native),
+            2 => Some(DsdMode::DoP),
+            _ => None,
+        }
+    }
+}
+
 /// Битность конвертации DSD → PCM (ТЗ 5.1 §8.2). Внутри плеера PCM всегда
 /// f32; значение используется на этапе 6.6 (dither/bit-perfect) и в FullTrackWorker.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
@@ -600,6 +621,14 @@ impl Settings {
     /// Get the `ColumnCfg` for a given column id.
     pub fn column_cfg(&self, id: ColumnId) -> Option<&ColumnCfg> {
         self.columns.get(id.key())
+    }
+
+    /// ТЗ §7.4/§8.4: bit-perfect активен, а DSD выводится конверсией в PCM
+    /// (`dsd.mode = pcm`). DSD→PCM — это смена формата, поэтому для DSD-потока
+    /// bit-perfect **не сохраняется** (конфликт сценариев, индикатор «Не
+    /// bit-perfect (DSD→PCM)»).
+    pub fn dsd_pcm_breaks_bit_perfect(&self) -> bool {
+        self.audio.bit_perfect && self.dsd.mode == DsdMode::Pcm
     }
 
     /// Get the display title for a column, falling back to the key if not in config.
@@ -966,6 +995,32 @@ mod tests {
         let parsed: Settings = toml::from_str(&toml).unwrap();
         assert_eq!(parsed.audio, s.audio);
         assert_eq!(parsed.dsd, s.dsd);
+    }
+
+    #[test]
+    fn dsd_pcm_breaks_bit_perfect_detects_conflict() {
+        let mut s = Settings::default();
+        assert!(!s.dsd_pcm_breaks_bit_perfect(), "без bit-perfect конфликта нет");
+        s.audio.bit_perfect = true;
+        assert!(s.dsd_pcm_breaks_bit_perfect());
+        s.dsd.mode = DsdMode::Native;
+        assert!(!s.dsd_pcm_breaks_bit_perfect(), "native — без конверсии");
+        s.dsd.mode = DsdMode::DoP;
+        assert!(!s.dsd_pcm_breaks_bit_perfect(), "DoP — без конверсии");
+        s.dsd.mode = DsdMode::Pcm;
+        assert!(s.dsd_pcm_breaks_bit_perfect(), "вернулся к конверсии");
+    }
+
+    #[test]
+    fn dsd_mode_index_roundtrip() {
+        assert_eq!(DsdMode::Pcm.index(), 0);
+        assert_eq!(DsdMode::Native.index(), 1);
+        assert_eq!(DsdMode::DoP.index(), 2);
+        assert_eq!(DsdMode::from_index(0), Some(DsdMode::Pcm));
+        assert_eq!(DsdMode::from_index(1), Some(DsdMode::Native));
+        assert_eq!(DsdMode::from_index(2), Some(DsdMode::DoP));
+        assert_eq!(DsdMode::from_index(3), None);
+        assert_eq!(DsdMode::from_index(usize::MAX), None);
     }
 
     #[test]
