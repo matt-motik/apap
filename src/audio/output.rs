@@ -515,7 +515,11 @@ pub fn choose_output(
         }
     }
 
-    let (out_rate, sample_format) = match supported_rate {
+    // ТЗ §8.5: если точный рейт не поддерживается — ближайший поддерживаемый
+    // ЦАП-рейт из capabilities; только при полном отсутствии диапазонов с
+    // нужным числом каналов — дефолтная частота устройства (последний резерв).
+    let nearest = supported_rate.or_else(|| nearest_rate(&device.supported, channels, track_rate));
+    let (out_rate, sample_format) = match nearest {
         Some(r) => (r, device.sample_format),
         None => (device.sample_rate, device.sample_format),
     };
@@ -838,6 +842,33 @@ mod tests {
         let chosen = choose_output(&[device], Some("DAC"), 384000, 1, None).unwrap();
         assert_eq!(chosen.config.sample_rate, 44100);
         assert_eq!(chosen.config.channels, 1);
+    }
+
+    #[test]
+    fn choose_output_picks_nearest_supported_when_unsupported() {
+        // ТЗ §8.5: 88200 не поддерживается; ближайший ЦАП-рейт — 48000,
+        // а не дефолт устройства 44100.
+        let device = mock_device(
+            "DAC",
+            2,
+            44100,
+            &[(2, 44100, 48000), (2, 176400, 352800)],
+        );
+        let chosen = choose_output(&[device], Some("DAC"), 88200, 2, None).unwrap();
+        assert_eq!(chosen.config.sample_rate, 48000);
+    }
+
+    #[test]
+    fn choose_output_exact_rate_wins_over_nearest() {
+        // 96000 поддерживается напрямую — точный рейт, а не ближайший.
+        let device = mock_device(
+            "DAC",
+            2,
+            44100,
+            &[(2, 44100, 48000), (2, 88200, 96000)],
+        );
+        let chosen = choose_output(&[device], Some("DAC"), 96000, 2, None).unwrap();
+        assert_eq!(chosen.config.sample_rate, 96000);
     }
 
     #[test]

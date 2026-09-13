@@ -11,11 +11,11 @@
 
 [x] Шаг 2: output.rs — unit-тесты `nearest_rate_*`: exact попадание, fallback по границе, семейства 44.1/48k, tie-break к меньшей, miss по каналам, пустой список (V5.1-8.5.2). Проверка: `cargo test output::nearest_rate` зелёный.
 
-[ ] Шаг 3: output.rs — интеграция в `choose_output`: когда `track_rate` не поддерживается — ближайший рейт через `nearest_rate` (V5.1-8.5.3) + тест `choose_output_picks_nearest_supported_when_unsupported`. Проверка: `cargo test audio::output` + `cargo check` зелёные.
+[x] Шаг 3: output.rs — интеграция в `choose_output`: когда `track_rate` не поддерживается — ближайший рейт через `nearest_rate` (V5.1-8.5.3) + тест `choose_output_picks_nearest_supported_when_unsupported`. Проверка: `cargo test audio::output` + `cargo check` зелёные.
 
 [ ] Шаг 4: Полная верификация (`cargo test`, `cargo clippy` 0 новых), ROADMAP V5.1-8.5 + подзадачи → ✅ (+ «активный следующий ход»), `_STATE_.md` → done, коммит. Проверка: тесты зелёные, clippy чист.
 
-- **Текущий шаг (current_step):** Шаг 3
-- **Следующий ход:** Интегрировать nearest_rate в choose_output (fallback) + тест интеграции
+- **Текущий шаг (current_step):** Шаг 4
+- **Следующий ход:** Полная верификация (cargo test, clippy), ROADMAP V5.1-8.5 → ✅, закрыть _STATE_.md, финальный коммит
 - **Счетчик безуспешных компиляций:** 0/3
 - **Состояние:** in_progress
