@@ -88,6 +88,31 @@ impl MusicApp {
             .set_viz_mode(s.visualization.mode.index());
         self.ui
             .set_settings_cols(ModelRc::from(self.dialog_cols_model().as_slice()));
+        self.ui.set_settings_dsd_mode(s.dsd.mode.index());
+        self.ui.set_settings_dsd_bp_warn(s.dsd_pcm_breaks_bit_perfect());
+    }
+
+    /// ТЗ §7.5: актуализировать индикатор статус-бара «Не bit-perfect
+    /// (DSD→PCM)» по текущему треку. Вызывается в `tick()`, поэтому всегда
+    /// отражает последний выбранный трек и live-настройки.
+    pub(super) fn sync_dsd_status_ui(&self) {
+        let warn = self.current_track_is_dsd()
+            && self.settings_ref().dsd_pcm_breaks_bit_perfect();
+        self.ui.set_status_dsd_not_bp(warn);
+    }
+
+    /// True, если текущий трек — DSD (DSF/DFF по расширению в `Track.format`).
+    fn current_track_is_dsd(&self) -> bool {
+        let Some(i) = self.current else {
+            return false;
+        };
+        match self.tracks.get(i) {
+            Some(t) => {
+                let fmt = t.format.to_ascii_lowercase();
+                fmt == "dsf" || fmt == "dff"
+            }
+            None => false,
+        }
     }
 
     /// Refresh only the dialog's Columns list after a draft-only reorder /

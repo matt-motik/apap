@@ -18,13 +18,13 @@
 
 [x] Шаг 3: ui/settings.slint + ui/app.slint — в Audio-вкладке: ComboBox «DSD mode» (PCM/Native/DoP) + warning «DSD→PCM несовместимо с bit-perfect для DSD» `visible: dsd-bp-warn && dsd-mode == 0`, пропсы `dsd-mode`/`dsd-bp-warn`, callback `set-dsd-mode`. Проверка: `cargo check` без ошибок.
 
-[ ] Шаг 4: src/app/ui_manager.rs + src/app/mod.rs — `sync_dsd_settings_to_ui()` (dsd-mode/warn) в `sync_settings_to_ui`, `sync_dsd_status_ui()` (индикатор статус-бара по текущему DSD-треку и конфликту) с вызовом в `tick()`. Проверка: `cargo check` без ошибок.
+[x] Шаг 4: src/app/ui_manager.rs + src/app/mod.rs — `sync_dsd_settings_to_ui()` (dsd-mode/warn) в `sync_settings_to_ui`, `sync_dsd_status_ui()` (индикатор статус-бара по текущему DSD-треку и конфликту) с вызовом в `tick()`. Проверка: `cargo check` без ошибок.
 
 [ ] Шаг 5: src/app/mod.rs — callback `settings-set-dsd-mode` (правка draft, live-warn) + применение в `on_settings_save` (`player.set_dsd_mode`, перезапуск текущего DSD-трека `play_track`, sync dsd UI). Проверка: `cargo check` без ошибок.
 
 [ ] Шаг 6: Верификация и коммит — `cargo test` + `cargo clippy` (0 новых предупреждений), ROADMAP V5.1-7.4 → ⏳/✅, git-коммит (код + `_STATE_.md`). Проверка: тесты зелёные, clippy чисто.
 
-- **Текущий шаг (current_step):** Шаг 4
-- **Следующий ход:** Добавить sync DSD-пропов в src/app/ui_manager.rs (в sync_settings_to_ui + sync_dsd_status_ui) и вызов в tick() в src/app/mod.rs
+- **Текущий шаг (current_step):** Шаг 5
+- **Следующий ход:** В src/app/mod.rs: колбэк settings-set-dsd-mode (draft + live-warn sync), применение режима в on_settings_save (player.set_dsd_mode + перезапуск текущего DSD-трека + sync)
 - **Счетчик безуспешных компиляций:** 0/3
 - **Состояние:** in_progress

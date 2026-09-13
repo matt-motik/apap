@@ -1038,6 +1038,7 @@ impl MusicApp {
         self.drain_audio_devices();
         self.handle_auto_advance();
         self.sync_playback_state_to_ui();
+        self.sync_dsd_status_ui();
         self.push_tray_status();
 
         let sig = self.compute_col_sig();

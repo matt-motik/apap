@@ -346,7 +346,7 @@ pub enum DsdMode {
 
 impl DsdMode {
     /// Порядковый индекс для ComboBox-модели `.slint` (0=Pcm, 1=Native, 2=DoP).
-    pub const fn index(self) -> usize {
+    pub const fn index(self) -> i32 {
         match self {
             DsdMode::Pcm => 0,
             DsdMode::Native => 1,
@@ -355,7 +355,7 @@ impl DsdMode {
     }
 
     /// Обратное отображение из индекса UI (валидные значения 0..=2).
-    pub fn from_index(i: usize) -> Option<Self> {
+    pub fn from_index(i: i32) -> Option<Self> {
         match i {
             0 => Some(DsdMode::Pcm),
             1 => Some(DsdMode::Native),
@@ -1020,7 +1020,7 @@ mod tests {
         assert_eq!(DsdMode::from_index(1), Some(DsdMode::Native));
         assert_eq!(DsdMode::from_index(2), Some(DsdMode::DoP));
         assert_eq!(DsdMode::from_index(3), None);
-        assert_eq!(DsdMode::from_index(usize::MAX), None);
+        assert_eq!(DsdMode::from_index(i32::MAX), None);
     }
 
     #[test]
