@@ -855,6 +855,72 @@ mod tests {
         assert!(r.is_err());
     }
 
+    fn rate_range(channels: u16, min: u32, max: u32) -> RateRange {
+        RateRange {
+            channels,
+            min,
+            max,
+            buffer_size: SupportedBufferSize::Range { min: 64, max: 4096 },
+        }
+    }
+
+    #[test]
+    fn nearest_rate_exact_returns_requested() {
+        let ranges = vec![rate_range(2, 44100, 96000)];
+        assert_eq!(nearest_rate(&ranges, 2, 48000), Some(48000));
+        assert_eq!(nearest_rate(&ranges, 2, 44100), Some(44100));
+        assert_eq!(nearest_rate(&ranges, 2, 96000), Some(96000));
+    }
+
+    #[test]
+    fn nearest_rate_clamps_to_closest_edge() {
+        // Запрос выше диапазона → верхняя граница (ближайшая).
+        let ranges = vec![rate_range(2, 44100, 88200)];
+        assert_eq!(nearest_rate(&ranges, 2, 176400), Some(88200));
+    }
+
+    #[test]
+    fn nearest_rate_falls_back_to_lowest_edge() {
+        // Запрос ниже диапазона → нижняя граница (ближайшая).
+        let ranges = vec![rate_range(2, 96000, 192000)];
+        assert_eq!(nearest_rate(&ranges, 2, 44100), Some(96000));
+    }
+
+    #[test]
+    fn nearest_rate_picks_closest_from_44_1_48_families() {
+        let ranges = vec![rate_range(2, 44100, 44100), rate_range(2, 192000, 192000)];
+        // DSD64 2822400/16 → 176400; к семейству 44.1 ближе 192k, чем к 44.1k.
+        assert_eq!(nearest_rate(&ranges, 2, 176400), Some(192000));
+        // 88200: к 44.1k дистанция 44100, к 192k — 103800 → 44.1k.
+        assert_eq!(nearest_rate(&ranges, 2, 88200), Some(44100));
+    }
+
+    #[test]
+    fn nearest_rate_picks_nearest_across_many_ranges() {
+        // 384000 не поддерживается; ближайшая граница из {44100..48000, 176400..352800}.
+        let ranges = vec![rate_range(2, 44100, 48000), rate_range(2, 176400, 352800)];
+        assert_eq!(nearest_rate(&ranges, 2, 384000), Some(352800));
+        assert_eq!(nearest_rate(&ranges, 2, 88200), Some(48000));
+    }
+
+    #[test]
+    fn nearest_rate_tie_prefers_smaller_rate() {
+        // 46050 равноудалён от 44100 и 48000 → меньшая частота.
+        let ranges = vec![rate_range(2, 44100, 44100), rate_range(2, 48000, 48000)];
+        assert_eq!(nearest_rate(&ranges, 2, 46050), Some(44100));
+    }
+
+    #[test]
+    fn nearest_rate_no_matching_channel_returns_none() {
+        let ranges = vec![rate_range(2, 44100, 192000)];
+        assert_eq!(nearest_rate(&ranges, 1, 44100), None);
+    }
+
+    #[test]
+    fn nearest_rate_empty_ranges_returns_none() {
+        assert_eq!(nearest_rate(&[], 2, 44100), None);
+    }
+
     /// Drain a whole resampler: feed a full block, then pull with `eof_mode`
     /// until it stops producing, collecting every output frame.
     fn run_resampler(
