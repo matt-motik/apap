@@ -17,6 +17,18 @@ use std::io::{BufReader, Read, Seek, SeekFrom};
 use std::path::Path;
 
 use super::decoder::{AudioSource, Tags, TrackInfo};
+use super::dop::DoPFramer;
+
+/// DSD decode path selected at open time (ТЗ 5.1 §8.2 / этап 6.8).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum DecodeMode {
+    /// Two cascaded 4th-order CIC stages decimate DSD to PCM float frames.
+    /// The default and only path for a native PCM pipeline.
+    Cic,
+    /// Raw DSD bytes are kept and packed into 16-bit DoP frames (see `dop`),
+    /// so the player can stream them directly to a DSD-over-PCM DAC.
+    Dop,
+}
 
 const CIC_DECIM: u8 = 8;
 const STAGE_GAIN: f64 = 4096.0; // 8^4
@@ -625,6 +637,13 @@ pub struct DsdDecoder {
     cic: Vec<Cic>,
     raw: Vec<u8>,
     pcm: Vec<f32>,
+    /// DoP mode: marker phase carried across decode groups.
+    framer: DoPFramer,
+    /// DoP mode: frame-ordered raw DSD bytes (de-interleaved for planar DSF).
+    dop_bytes: Vec<u8>,
+    /// DoP mode: packed 16-bit DoP words produced from `dop_bytes`.
+    dop_words: Vec<u16>,
+    mode: DecodeMode,
     pcm_frames: usize,
     info: TrackInfo,
     eof: bool,
@@ -633,7 +652,13 @@ pub struct DsdDecoder {
 const RAW_GROUP: usize = 4096;
 
 impl DsdDecoder {
+    /// Open a DSD file for CIC → PCM decoding (the standard path).
     pub fn open(path: &Path) -> Result<DsdDecoder, String> {
+        Self::open_with_mode(path, DecodeMode::Cic)
+    }
+
+    /// Open a DSD file with an explicit decode mode (see [`DecodeMode`]).
+    pub fn open_with_mode(path: &Path, mode: DecodeMode) -> Result<DsdDecoder, String> {
         let mut file =
             BufReader::new(File::open(path).map_err(|e| format!("Cannot open file: {e}"))?);
         let (header, meta_offset) = match path.extension().and_then(|e| e.to_str()) {
@@ -660,6 +685,13 @@ impl DsdDecoder {
             .map_err(|e| format!("DSD: {e}"))?;
         let ch_count = header.channels;
         let raw_len = (header.block_size * ch_count + 64).max(RAW_GROUP * ch_count);
+        // DoP stores one 16-bit word per raw byte, so the pcm buffer must hold
+        // up to `raw_len` f32 values; the CIC path holds one frame per 8 bytes.
+        let pcm_cap = if mode == DecodeMode::Dop {
+            raw_len
+        } else {
+            (RAW_GROUP / 8) * ch_count
+        };
         Ok(DsdDecoder {
             file,
             pcm_rate,
@@ -667,7 +699,11 @@ impl DsdDecoder {
             header,
             cic: (0..ch_count).map(|_| Cic::new()).collect(),
             raw: vec![0u8; raw_len],
-            pcm: Vec::with_capacity((RAW_GROUP / 8) * ch_count),
+            pcm: Vec::with_capacity(pcm_cap),
+            framer: DoPFramer::new(),
+            dop_bytes: Vec::with_capacity(raw_len),
+            dop_words: Vec::with_capacity(raw_len),
+            mode,
             pcm_frames: 0,
             info,
             eof: false,
@@ -679,6 +715,9 @@ impl DsdDecoder {
     fn decode_group(&mut self) -> usize {
         if self.bytes_remaining == 0 {
             return 0;
+        }
+        if self.mode == DecodeMode::Dop {
+            return self.decode_group_dop();
         }
         let ch = self.header.channels;
         // Fresh per-channel output buffers.
@@ -743,6 +782,62 @@ impl DsdDecoder {
             for chn in 0..ch {
                 self.pcm.push(per_ch[chn][f]);
             }
+        }
+        self.pcm_frames = frames;
+        frames
+    }
+
+    /// DoP path: read raw DSD bytes, order them by frame (DSF stores blocks
+    /// per channel; DFF is already interleaved) and pack 16-bit DoP words into
+    /// `self.pcm` as f32. The words pass the player pipeline verbatim (the
+    /// resampler is an identity config). No CIC, no heap allocation: all
+    /// buffers are preallocated in `open_with_mode`.
+    fn decode_group_dop(&mut self) -> usize {
+        let ch = self.header.channels;
+        let frames;
+        if self.header.planar {
+            // DSF: one `block_size` block per channel per period.
+            let period = self.header.block_size * ch;
+            let take = (self.bytes_remaining as usize).min(period);
+            if take == 0 {
+                self.bytes_remaining = 0;
+                return 0;
+            }
+            let _read = read_all(&mut self.file, &mut self.raw[..take]);
+            let valid_per_ch = take / ch;
+            frames = valid_per_ch;
+            self.dop_bytes.clear();
+            for f in 0..frames {
+                for c in 0..ch {
+                    self.dop_bytes.push(self.raw[c * frames + f]);
+                }
+            }
+            self.bytes_remaining -= take as u64;
+        } else {
+            // DFF: bytes already interleaved by channel.
+            let positions = (self.bytes_remaining as usize / ch).min(RAW_GROUP);
+            if positions == 0 {
+                self.bytes_remaining = 0;
+                return 0;
+            }
+            let take = positions * ch;
+            let read = read_all(&mut self.file, &mut self.raw[..take]);
+            if read == 0 {
+                self.bytes_remaining = 0;
+                return 0;
+            }
+            frames = read / ch;
+            self.dop_bytes.clear();
+            self.dop_bytes.extend_from_slice(&self.raw[..read]);
+            self.bytes_remaining -= take as u64;
+        }
+        let nbytes = frames * ch;
+        let mut framer = self.framer;
+        framer.frame(&self.dop_bytes[..nbytes], ch, &mut self.dop_words);
+        self.framer = framer;
+        self.pcm.clear();
+        for w in &self.dop_words[..nbytes] {
+            self.pcm.push(*w as f32);
         }
         self.pcm_frames = frames;
         frames
@@ -886,6 +981,50 @@ mod tests {
             }
         }
         assert!(saw, "no audio after seek");
+    }
+
+    #[test]
+    fn dsf_dop_raw_headless() {
+        let Some(path) = open_from_env("MUSIC_DSD_TEST_FILE") else {
+            return;
+        };
+        let mut dec =
+            DsdDecoder::open_with_mode(&path, DecodeMode::Dop).expect("open DSF in DoP mode");
+        assert_common(&dec);
+        let ch = dec.info.channels;
+        let target = (dec.info.sample_rate * 8) as usize; // one second at the DoP rate
+        let mut frames = 0usize;
+        let mut phase_even = true;
+        let mut marker_ok = true;
+        let mut data_nonzero = 0u64;
+        for _ in 0..100_000 {
+            let Some(buf) = dec.next_frames() else { break };
+            let n = buf.len() / ch;
+            for f in 0..n {
+                let want = if phase_even {
+                    crate::audio::dop::DOP_MARKER_EVEN
+                } else {
+                    crate::audio::dop::DOP_MARKER_ODD
+                };
+                for c in 0..ch {
+                    let w = buf[f * ch + c] as i64;
+                    if (w & 0xFF) as u8 != want {
+                        marker_ok = false;
+                    }
+                    if (w >> 8) as u8 != 0 {
+                        data_nonzero += 1;
+                    }
+                }
+                phase_even = !phase_even;
+            }
+            frames += n;
+            if frames >= target {
+                break;
+            }
+        }
+        assert!(frames > 0, "no DoP frames produced");
+        assert!(marker_ok, "DoP marker phase broken");
+        assert!(data_nonzero > 0, "DoP stream carries no DSD data bytes");
     }
 
     #[test]

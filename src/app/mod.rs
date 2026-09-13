@@ -41,6 +41,7 @@ struct UiState {
     playing: bool,
     muted: bool,
     volume: f32,
+    bit_perfect: bool,
     pos: String,
     dur: String,
     seek_fraction: f32,
@@ -54,6 +55,7 @@ impl Default for UiState {
             muted: false,
             // Sentinel: forces the first tick to push the real volume.
             volume: -1.0,
+            bit_perfect: false,
             pos: String::new(),
             dur: String::new(),
             seek_fraction: -1.0,
@@ -253,6 +255,9 @@ impl MusicApp {
         player.set_volume(settings.settings.volume);
         player.set_muted(settings.settings.muted);
         player.set_resampler_algorithm(settings.settings.audio.resampler.algorithm);
+        player.set_dither(settings.settings.audio.resampler.dither);
+        player.set_bit_perfect(settings.settings.audio.bit_perfect);
+        player.set_dsd_mode(settings.settings.dsd.mode);
         if !settings.settings.audio_device.is_empty() {
             player.set_preferred_device(settings.settings.audio_device.clone());
         }
@@ -508,6 +513,12 @@ impl MusicApp {
             ui.on_volume_changed(move |volume| {
                 eprintln!("[gui] volume_changed volume={volume:.3}");
                 let mut a = app.borrow_mut();
+                // Bit-perfect (Direct Output) moves the volume stage to the
+                // external DAC/amp: a stray slider/wheel event must never
+                // insert a software gain into the untouched stream.
+                if a.player.bit_perfect() {
+                    return;
+                }
                 a.player.set_volume(volume);
                 a.settings.settings.volume = volume;
                 // Persisted at exit (save-at-exit); no per-slider-move disk I/O.
@@ -521,6 +532,29 @@ impl MusicApp {
             ui.on_toggle_mute(move || {
                 eprintln!("[gui] toggle_mute");
                 app.borrow_mut().player.toggle_mute();
+            });
+        }
+
+        // 9b. toggle-bit-perfect (Direct Output)
+        {
+            let app = this.clone();
+            ui.on_toggle_bit_perfect(move || {
+                eprintln!("[gui] toggle_bit_perfect");
+                let mut a = app.borrow_mut();
+                let next = !a.player.bit_perfect();
+                a.player.set_bit_perfect(next);
+                if next {
+                    // Direct Output bypasses the software mixer completely —
+                    // deliver unity gain and clear the mute so nothing can
+                    // mask the DAC path. Persisted eagerly (surprise protection).
+                    a.player.set_volume(1.0);
+                    a.player.set_muted(false);
+                    a.settings.settings.volume = 1.0;
+                    a.settings.settings.muted = false;
+                }
+                a.settings.settings.audio.bit_perfect = next;
+                a.settings.save();
+                a.emit(AppEvent::BitPerfectChanged);
             });
         }
 
@@ -1129,7 +1163,12 @@ impl MusicApp {
                     // Hosts differ in the raw magnitude per event (Ubuntu: ±1,
                     // KDE/4k: ±120); only the sign matters — each scroll notch
                     // is a single step. Negative delta = louder.
-                    if delta != 0 {
+                    // Bit-perfect (Direct Output): volume control is moved to
+                    // the external DAC/amp — the tray wheel is silenced.
+                    if self.player.bit_perfect() || delta == 0 {
+                        // Skip volume change — either in bit-perfect mode or
+                        // host sent a neutral (zero) event.
+                    } else {
                         let dir = if delta < 0 { 1.0 } else { -1.0 };
                         let v = (self.player.volume() + dir * WHEEL_VOLUME_STEP).clamp(0.0, 1.0);
                         self.player.set_volume(v);
@@ -1166,7 +1205,8 @@ impl MusicApp {
                 | AppEvent::PlaybackStarted
                 | AppEvent::PlaybackPaused
                 | AppEvent::PlaybackStopped
-                | AppEvent::DeviceChanged => self.push_tray_now(),
+                | AppEvent::DeviceChanged
+                | AppEvent::BitPerfectChanged => self.push_tray_now(),
                 AppEvent::QueueChanged
                 | AppEvent::VolumeChanged(_)
                 | AppEvent::CoverChanged => {}
@@ -1196,6 +1236,7 @@ impl MusicApp {
         tray::TrayState {
             now_playing,
             playing: self.player.is_playing(),
+            bit_perfect: self.player.bit_perfect(),
             error: self.audio_error.clone(),
         }
     }

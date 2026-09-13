@@ -1,5 +1,5 @@
 import { Colors } from "theme.slint";
-import { Slider, ScrollView } from "std-widgets.slint";
+import { Slider, CheckBox, ScrollView } from "std-widgets.slint";
 import { Visualizer } from "visualizer.slint";
 
 component VerticalSeparator inherits Rectangle {
@@ -40,6 +40,7 @@ component InfoRow inherits Rectangle {
 component IconButton inherits Rectangle {
     in property <image> icon: @image-url("icons/play.svg");
     in property <bool> active: false;
+    in property <bool> enabled: true;
     in property <brush> active-bg: Colors.accent-container;
     callback clicked;
 
@@ -54,9 +55,11 @@ component IconButton inherits Rectangle {
         height: 20px;
         x: (parent.width - self.width) / 2;
         y: (parent.height - self.height) / 2;
+        opacity: root.enabled ? 1.0 : 0.4;
     }
 
     touch := TouchArea {
+        enabled: root.enabled;
         clicked => { root.clicked(); }
     }
 }
@@ -74,6 +77,9 @@ export component TopPanel inherits Rectangle {
     in property <bool> shuffle: false;
     in property <bool> muted: false;
     in property <float> volume: 0.8;
+    // Bit-perfect (Direct Output): программные ползунки громкости/мьюта
+    // блокируются, тракт идёт в ЦАП без пересчёта сэмплов.
+    in property <bool> bit-perfect: false;
     in property <float> seek-fraction: 0.0;
     out property <bool> seekbar-dragging: false;
     in property <string> pos: "0:00";
@@ -135,6 +141,7 @@ export component TopPanel inherits Rectangle {
     callback seek-commit(float);
     callback volume-changed(float);
     callback toggle-mute();
+    callback toggle-bit-perfect();
 
     background: transparent;
 
@@ -410,7 +417,7 @@ export component TopPanel inherits Rectangle {
         // ---------- Col 3: volume + mute ----------
         VerticalLayout {
             spacing: 0px;
-            width: 40px;
+            width: 92px;
             vertical-stretch: 1;
 
             // Верхняя часть: слайдер громкости, растягивается на всю доступную высоту
@@ -419,33 +426,35 @@ export component TopPanel inherits Rectangle {
                 HorizontalLayout {
                     alignment: center;
                     vertical-stretch: 1;
-                    wheel-vol := TouchArea {
-                        vertical-stretch: 1;
-                        width: 34px;
-                                // Wheel over the slider = one volume notch (same
-                                // step as the tray); drag keeps working via the
-                                // Slider's own TouchArea (scroll bubbles up here).
-                                scroll-event(event) => {
-                            if (event.delta-y != 0) {
-                                root.volume-changed(Math.clamp(root.volume + (event.delta-y > 0 ? 0.04 : -0.04), 0, 1));
-                                return accept;
-                            }
-                            reject
-                        }
-                        HorizontalLayout {
-                            alignment: center;
-                            vertical-stretch: 1;
-                            Slider {
-                                vertical-stretch: 1;
-                                width: 24px;
-                                value: root.volume;
-                                minimum: 0;
-                                maximum: 1;
-                                orientation: vertical;
-                                changed(v) => { root.volume-changed(v); }
-                            }
-                        }
+wheel-vol := TouchArea {
+                vertical-stretch: 1;
+                width: 34px;
+                enabled: !root.bit-perfect;
+                        // Wheel over the slider = one volume notch (same
+                        // step as the tray); drag keeps working via the
+                        // Slider's own TouchArea (scroll bubbles up here).
+                        scroll-event(event) => {
+                    if (event.delta-y != 0) {
+                        root.volume-changed(Math.clamp(root.volume + (event.delta-y > 0 ? 0.04 : -0.04), 0, 1));
+                        return accept;
                     }
+                    reject
+                }
+                HorizontalLayout {
+                    alignment: center;
+                    vertical-stretch: 1;
+                    Slider {
+                        vertical-stretch: 1;
+                        width: 24px;
+                        value: root.volume;
+                        minimum: 0;
+                        maximum: 1;
+                        orientation: vertical;
+                        enabled: !root.bit-perfect;
+                        changed(v) => { root.volume-changed(v); }
+                    }
+                }
+            }
                 }
             }
 
@@ -454,11 +463,20 @@ export component TopPanel inherits Rectangle {
                 max-height: 50px;
                 HorizontalLayout {
                     alignment: center;
+                    spacing: 6px;
+                    // Bit-perfect toggle (Direct Output): disables the software
+                    // volume/mute path — volume control moves to the DAC/amp.
+                    CheckBox {
+                        text: "BP";
+                        checked: root.bit-perfect;
+                        toggled => { root.toggle-bit-perfect(); }
+                    }
                     IconButton {
                         icon: root.theme == 0
                             ? (root.muted ? @image-url("icons/dark/muted.svg") : @image-url("icons/dark/volume.svg"))
                             : (root.muted ? @image-url("icons/light/muted.svg") : @image-url("icons/light/volume.svg"));
                         active: root.muted;
+                        enabled: !root.bit-perfect;
                         clicked => { root.toggle-mute(); }
                     }
                 }

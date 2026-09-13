@@ -22,6 +22,8 @@ pub enum TrayCmd {
 pub struct TrayState {
     pub now_playing: String,
     pub playing: bool,
+    /// Bit-perfect (Direct Output) mode is active: software volume is bypassed.
+    pub bit_perfect: bool,
     /// Non-empty when audio is unavailable (e.g. device missing at startup).
     pub error: Option<String>,
 }
@@ -79,6 +81,9 @@ impl ksni::Tray for PlayerTray {
     fn tool_tip(&self) -> ksni::ToolTip {
         let description = match &self.state.error {
             Some(e) => format!("Playback unavailable: {e}"),
+            None if self.state.bit_perfect => {
+                "Playing \u{2014} Bit-perfect (Direct Output, volume on DAC)".into()
+            }
             None if self.state.playing => "Playing".into(),
             None => "Paused".into(),
         };

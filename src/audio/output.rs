@@ -11,6 +11,15 @@ use crate::settings::ResamplerAlgorithm;
 /// for the backend to surface early ALSA errors, short enough to not delay UI.
 pub const PROBE_OPEN_MS: u64 = 50;
 
+/// Hard cap on the resampler's buffered source frames (in frames).
+///
+/// The buffer is sized once at construction so `push` never reallocates in the
+/// real-time audio callback. It is larger than any single decoder packet
+/// (symphonia packets ~ 4096 frames max, DSD groups 512), and the player's
+/// `fill` loop only pushes when `buffered_frames` underflows, so the buffered
+/// peak stays at `1 + one packet`.
+pub const MAX_BUFFERED_FRAMES: usize = 8192;
+
 /// Target output latency (~40 ms) — enough headroom to smooth single-decode
 /// stalls that would otherwise cause ALSA/PipeWire buffer underruns.
 fn target_buffer_frames(rate: u32, min: u32, max: u32) -> u32 {
@@ -101,7 +110,9 @@ impl Resampler {
             out_ch,
             pos: 0.0,
             base: 0,
-            buf: Vec::with_capacity(8192),
+            // Preallocated once so the audio callback performs zero heap
+            // allocations (the buffer is reused across `reset`, `drain`, etc.).
+            buf: Vec::with_capacity(MAX_BUFFERED_FRAMES * src_ch),
             frames_in_buf: 0,
             enabled: !(same_rate && same_ch),
             algo,
@@ -119,11 +130,27 @@ impl Resampler {
         self.frames_in_buf = 0;
     }
 
+    /// Whether this resampler actually transforms the stream (source rate or
+    /// channel count differs from the output config). A 1:1 config is a pure
+    /// pass-through, used by the player to decide dithering applicability.
+    pub fn is_enabled(&self) -> bool {
+        self.enabled
+    }
+
     pub fn push(&mut self, samples: &[f32]) -> usize {
         let frames = samples.len() / self.src_ch;
-        self.buf.extend_from_slice(samples);
-        self.frames_in_buf += frames;
-        frames
+        // Zero-allocation guard: never grow `buf` past the construction-time
+        // capacity. If the buffer is full, drop the surplus frames and let the
+        // caller (Player::fill) pull before pushing again. Frames are kept
+        // aligned to `src_ch` so interleaving is never torn mid-frame.
+        let room_frames = MAX_BUFFERED_FRAMES.saturating_sub(self.frames_in_buf);
+        let take_frames = frames.min(room_frames);
+        let take = take_frames * self.src_ch;
+        if take > 0 {
+            self.buf.extend_from_slice(&samples[..take]);
+            self.frames_in_buf += take_frames;
+        }
+        take_frames
     }
 
     /// Channel sample of buffered frame `i` (relative to `base`).
@@ -560,7 +587,7 @@ pub fn build_stream(
     error_flag: Option<Arc<AtomicBool>>,
 ) -> Result<cpal::Stream, String> {
     match spec.sample_format {
-        SampleFormat::F32 | SampleFormat::I16 | SampleFormat::U8 => {}
+        SampleFormat::F32 | SampleFormat::I16 | SampleFormat::U8 | SampleFormat::I32 => {}
         other => {
             return Err(format!("Unsupported output sample format: {other:?}"));
         }
@@ -610,6 +637,23 @@ pub fn build_stream(
                         cfg,
                         move |data: &mut [u8], _| {
                             crate::audio::player::audio_callback_u8(&core, data);
+                        },
+                        move |e| {
+                            eprintln!("Audio stream error: {e}");
+                            if let Some(f) = ef.as_ref() {
+                                f.store(true, Ordering::Relaxed);
+                            }
+                        },
+                        None,
+                    )
+                }
+                SampleFormat::I32 => {
+                    let core = core.clone();
+                    let ef = ef.clone();
+                    spec.device.build_output_stream(
+                        cfg,
+                        move |data: &mut [i32], _| {
+                            crate::audio::player::audio_callback_i32(&core, data);
                         },
                         move |e| {
                             eprintln!("Audio stream error: {e}");

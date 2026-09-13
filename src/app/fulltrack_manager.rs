@@ -369,15 +369,20 @@ impl MusicApp {
         let skip_dsd = cfg.skip_fulltrack_for_dsd
             && current.as_deref().map(is_dsd).unwrap_or(false);
 
-        let want = matches!(mode, VisualizationMode::Oscilloscope | VisualizationMode::Spectrogram)
-            && current.is_some()
-            && !(mode == VisualizationMode::Oscilloscope && skip_dsd);
+        let is_fulltrack_mode =
+            matches!(mode, VisualizationMode::Oscilloscope | VisualizationMode::Spectrogram);
+        let want = is_fulltrack_mode && current.is_some() && !skip_dsd;
 
         // Спец-плейсхолдер §6.3 (native DSD / DoP и skip_fulltrack_for_dsd).
-        let want_disabled = mode == VisualizationMode::Oscilloscope && skip_dsd;
+        let want_disabled = is_fulltrack_mode && skip_dsd && current.is_some();
         let disabled_text = if want_disabled {
+            let label = if mode == VisualizationMode::Spectrogram {
+                "Спектрограмма"
+            } else {
+                "Осциллограмма"
+            };
             format!(
-                "Осциллограмма недоступна для DSD: включён skip_fulltrack_for_dsd\n({})",
+                "{label} недоступна для DSD: включён skip_fulltrack_for_dsd\n({})",
                 current
                     .as_deref()
                     .map(|p| p.display().to_string())
