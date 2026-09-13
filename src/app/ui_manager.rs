@@ -88,6 +88,13 @@ impl MusicApp {
             .set_viz_mode(s.visualization.mode.index());
         self.ui
             .set_settings_cols(ModelRc::from(self.dialog_cols_model().as_slice()));
+        self.sync_dsd_settings_to_ui();
+    }
+
+    /// Синхронизация DSD-полей диалога настроек: текущий режим (0=PCM,
+    /// 1=Native, 2=DoP) и признак конфликта «DSD→PCM + bit-perfect» (§8.4).
+    pub(super) fn sync_dsd_settings_to_ui(&self) {
+        let s = self.settings_ref();
         self.ui.set_settings_dsd_mode(s.dsd.mode.index());
         self.ui.set_settings_dsd_bp_warn(s.dsd_pcm_breaks_bit_perfect());
     }
@@ -102,7 +109,7 @@ impl MusicApp {
     }
 
     /// True, если текущий трек — DSD (DSF/DFF по расширению в `Track.format`).
-    fn current_track_is_dsd(&self) -> bool {
+    pub(super) fn current_track_is_dsd(&self) -> bool {
         let Some(i) = self.current else {
             return false;
         };

@@ -19,7 +19,7 @@ use music_player_rs::audio::visualizer::{
 };
 use music_player_rs::cover::{self, CoverDone, CoverJob};
 use music_player_rs::playlist::{self, ScanMsg, Track};
-use music_player_rs::settings::{ColumnId, RepeatMode, Settings, SettingsStore, Theme};
+use music_player_rs::settings::{ColumnId, DsdMode, RepeatMode, Settings, SettingsStore, Theme};
 use music_player_rs::tray::{self, TrayCmd};
 
 pub mod events;
@@ -768,6 +768,23 @@ impl MusicApp {
             });
         }
 
+        // 25b. settings-set-dsd-mode (draft-only: применяется на Save)
+        {
+            let app = this.clone();
+            ui.on_settings_set_dsd_mode(move |idx| {
+                eprintln!("[gui] settings_set_dsd_mode idx={idx}");
+                let mut a = app.borrow_mut();
+                let Some(mode) = DsdMode::from_index(idx) else {
+                    eprintln!("[gui] settings_set_dsd_mode: invalid index {idx}");
+                    return;
+                };
+                a.settings_mut().dsd.mode = mode;
+                // Live-обновление предупреждения в диалоге: при выборе
+                // Native/DoP конфликт исчезает немедленно.
+                a.sync_dsd_settings_to_ui();
+            });
+        }
+
         // 26. settings-toggle-col
         {
             let app = this.clone();
@@ -904,6 +921,19 @@ impl MusicApp {
                 s.win_w = live.9;
                 s.win_h = live.10;
                 a.settings.save();
+                // ТЗ §8.4: применить выбранный DSD-режим к плееру. Если в этот
+                // момент играет DSD-трек — перезапустить его, чтобы новый
+                // конвейер (PCM/Native/DoP) применился к незакрытому потоку.
+                let dsd_mode = a.settings.settings.dsd.mode;
+                a.player.set_dsd_mode(dsd_mode);
+                a.sync_dsd_settings_to_ui();
+                a.sync_dsd_status_ui();
+                if a.current_track_is_dsd() {
+                    if let Some(idx) = a.current {
+                        eprintln!("[gui] settings_save: restarting current DSD track {idx} with new dsd mode");
+                        a.play_track(idx);
+                    }
+                }
                 a.apply_theme();
                 a.ui.set_settings_theme(match a.settings.settings.theme {
                     Theme::Dark => 0,
