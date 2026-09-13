@@ -1,0 +1,418 @@
+# План оптимизации визуализации APAP (v2)
+
+Этот документ представляет собой совокупный план исправления ошибок, устранения узких мест и оптимизации производительности проекта APAP. Он объединяет результаты статического анализа кода и глубокого ревью архитектуры.
+
+**Цели:**
+1. Исправить критические логические ошибки (баги).
+2. Ускорить построение полнотрековых спектрограмм в 10–50 раз.
+3. Обеспечить стабильные 60+ FPS для live-анализатора.
+4. Устранить утечки памяти и проблемы с кэшированием.
+
+---
+
+## 🔴 Часть 1. Критические баги (Must Fix)
+
+Эти ошибки приводят к некорректной работе приложения, игнорированию настроек или утечкам памяти.
+
+### 1.1. Игнорирование настроек анализатора (`visualizer_manager.rs`)
+
+**Проблема:** Сигнатура `viz_sig` не включает важные параметры (`smoothing`, `peak_hold`, `freq_scale`). При их изменении движок не пересоздается, и настройки не применяются. `freq_scale` вообще не влияет на расчет частотных полос.
+
+**Локация:** `src/visualizer_manager.rs:62`
+
+**Решение:** Расширить сигнатуру проверки и ключ воркера.
+
+```rust
+// БЫЛО:
+let sig = Some((mode.index(), bands, channels, style.0, style.1, style.2));
+
+// СТАЛО:
+// Включаем freq_scale, level_scale, smoothing (bits), peak_hold в сигнатуру
+let sig = Some((
+    mode.index(),
+    bands,
+    channels,
+    sp.freq_scale,       // Добавлено
+    sp.level_scale,      // Добавлено
+    sp.smoothing.to_bits(), // Добавлено (битовое представление enum)
+    sp.peak_hold,        // Добавлено
+    style.0, style.1, style.2
+));
+
+if sig != self.viz_sig {
+    // Пересоздание воркера с новым ключом, включающим freq_scale
+    let key = (rate, ch, bands, channels, sp.freq_scale); // Обновить ключ
+    self.spawn_worker(key);
+    self.viz_sig = sig;
+} else {
+    // Если сигнатура не изменилась, но настройки поменялись - применяем мягко
+    viz.set_cfg(sp.clone());
+}
+```
+
+### 1.2. Ошибка кэш-логики при выключенном `cache_in_memory` (`fulltrack_manager.rs`)
+
+**Проблема:** Если кэш в памяти отключен после того, как изображение было загружено, приложение попадает в состояние, когда изображение не показывается (так как ветка `cache_in_mem` пропущена), но и новый билд не запрашивается (так как ключ есть в HashMap). Результат: вечный плейсхолдер.
+
+**Локация:** `src/fulltrack_manager.rs:474-489`
+
+**Решение:** Разделить логику проверки наличия в кэше и логику отображения.
+
+```rust
+// БЫЛО:
+if cache_in_mem {
+    if let Some(img) = self.fulltrack_cache.get(key).cloned() { /* show */ }
+}
+if !self.fulltrack_cache.contains_key(key) { /* send Build */ }
+
+// СТАЛО:
+let exists = self.fulltrack_cache.contains_key(key);
+
+if cache_in_mem {
+    if let Some(img) = self.fulltrack_cache.get(key).cloned() {
+        self.show_image(img);
+        return; // Изображение найдено и показано
+    }
+}
+
+// Запрашиваем построение, если изображения нет в кэше ИЛИ кэш отключен
+// (чтобы обновить UI, если пользователь включил кэш обратно или сменил настройки)
+if !exists {
+    self.send_build_request();
+} else if !cache_in_mem {
+    // Кэш отключен, но картинка в памяти есть (старое состояние).
+    // Принудительно запрашиваем перестройку или показываем старую, если допустимо.
+    // Обычно лучше перестроить, чтобы учесть актуальные настройки без кэша.
+    self.send_build_request();
+}
+```
+
+### 1.3. Артефакты спектра из-за сброса счетчика байтов (`analyzer.rs`)
+
+**Проблема:** Переменная `got` (сколько байт прочитано в текущий кадр) локальна. Если буфер кольца опустошается на середине кадра, следующий вызов начинает запись с нуля, смешивая сэмплы разных временных интервалов.
+
+**Локация:** `src/analyzer.rs:166-176`
+
+**Решение:** Переместить `got` в поле структуры `Analyzer`.
+
+```rust
+// В структуре Analyzer:
+pub struct Analyzer {
+    // ...
+    frame_buf: Vec<f32>,
+    got: usize, // <-- Переместить сюда из локальных переменных
+}
+
+// В методе pull_frame:
+// Убираем let mut got = 0;
+// Используем self.got
+while self.got < frame_size {
+    // чтение...
+    if read == 0 { break; }
+    self.got += read;
+}
+
+if self.got >= frame_size {
+    self.process_frame();
+    self.got = 0; // Сброс только после полной обработки
+}
+```
+
+### 1.4. Неограниченный RAM-кэш (`fulltrack_manager.rs`)
+
+**Проблема:** `HashMap` растет бесконечно. 100 треков × 16 МБ = 1.6 ГБ RAM.
+
+**Решение:** Внедрить LRU (Least Recently Used) кэш с лимитом (например, 20 изображений). Использовать crate `lru` или реализовать вручную через `LinkedHashMap`.
+
+```rust
+use lru::LruCache;
+use std::num::NonZeroUsize;
+
+// В структуре FulltrackManager:
+// fulltrack_cache: HashMap<String, Image> ->
+fulltrack_cache: LruCache<String, Image>,
+
+// В new():
+let cache = LruCache::new(NonZeroUsize::new(20).unwrap());
+
+// При вставке:
+self.fulltrack_cache.put(key, image); // Старые записи автоматически вытесняются
+```
+
+### 1.5. Мелкие логические ошибки
+*   **DSD Skip:** Опция `skip_fulltrack_for_dsd` работает только для осциллограммы. Расширить проверку на спектрограмму.
+*   **Мертвые цвета:** `bg_color`/`fg_color` в конфиге не используются в UI. Подвязать их к свойствам Slint.
+*   **Лишнее копирование PNG:** В `save_png` убрать промежуточный `RgbaImage`, писать slice напрямую.
+*   **Кэш метаданных:** Добавить проверку nanosecond part mtime или хэш содержимого для надежности.
+
+---
+
+## 🟠 Часть 2. Оптимизация полнотрековой спектрограммы (Speedup 10-50x)
+
+Здесь находится основной потенциал ускорения. Текущая реализация пересчитывает константы миллионы раз.
+
+### 2.1. Lookup Table (LUT) для палитр
+
+**Проблема:** Парсинг HEX-строки и создание `Vec` происходит для каждого пикселя (2 млн раз на трек).
+
+**Решение:** Предвычислить LUT один раз при инициализации.
+
+```rust
+// В структуре Spectrogram:
+lut: Vec<[u8; 3]>, // Готовая таблица 256 цветов
+
+// В new():
+self.lut = match cfg.palette {
+    Palette::Solid | Palette::Gray => Vec::new(), // Для простых палитр формула быстрее
+    p => palettes::parse_hex(palettes::hex_for(p)), // Парсим ОДИН РАЗ
+};
+
+// В compute_column (горячий цикл):
+// БЫЛО: let color = palettes::parse_hex(...)[idx];
+// СТАЛО:
+let color = if self.lut.is_empty() {
+    // Быстрая формула для Gray/Solid
+    [val; 3]
+} else {
+    self.lut[idx.min(255)] // Доступ к памяти ~1 нс
+};
+```
+
+### 2.2. Row Plan (Предвычисление частот и компенсаций)
+
+**Проблема:** Функции `powf`, `log10`, `sin` вызываются для каждого пикселя внутри цикла по колонкам, хотя зависят только от строки (частоты).
+
+**Решение:** Создать `RowPlan` для всех 512 строк один раз.
+
+```rust
+struct RowPlan {
+    bin_start: usize,
+    bin_end: usize,
+    mag_scale: f32, // sensitivity * cic_compensation
+    boost_db: f32,  // high_boost коррекция
+}
+
+// В new() или при смене настроек частоты:
+self.row_plans = (0..height).map(|row| {
+    let freq = freq_for_row(row, height, cfg.freq_scale);
+    let cic_db = if is_dsd { cic_compensation_db(freq) } else { 0.0 };
+    let boost = if cfg.high_boost { calculate_boost(freq) } else { 0.0 };
+
+    RowPlan {
+        bin_start: freq_to_bin(freq, fft_size, rate),
+        bin_end: ...,
+        mag_scale: cfg.sensitivity * (10.0_f32.powf(cic_db / 20.0)),
+        boost_db: boost,
+    }
+}).collect();
+
+// В горячем цикле (compute_column):
+// Убираем все powf/log10/sin. Остается только суммирование и умножение.
+let plan = &self.row_plans[row];
+let mut sum = 0.0;
+for bin in plan.bin_start..plan.bin_end {
+    sum += mags[bin];
+}
+let level = (sum * plan.mag_scale).min(1.0);
+```
+
+### 2.3. Устранение аллокаций в цикле
+
+**Проблема:** `Vec::new()` и `collect()` внутри цикла по колонкам.
+
+**Решение:** Вынести буферы (`wbuf`, `mags`) в поля структуры и переиспользовать их через `clear()`.
+
+```rust
+// В структуре:
+wbuf: Vec<Complex<f32>>,
+mags: Vec<f32>,
+
+// В цикле:
+self.wbuf.clear();
+self.mags.clear();
+// Заполняем существующие буферы
+fft.process(&mut self.wbuf, &mut self.mags);
+```
+
+### 2.4. Параллелизация колонок (Rayon)
+
+**Проблема:** Колонки рендерятся последовательно.
+
+**Решение:** Использовать `rayon` для параллельной обработки чанков колонок.
+
+```rust
+use rayon::prelude::*;
+
+// Вместо iter().for_each():
+columns.par_chunks_mut(100).for_each(|chunk| {
+    for col in chunk {
+        self.compute_column(col);
+    }
+});
+```
+*Важно:* Убедиться, что общие данные (`row_plans`, `audio_data`) доступны только на чтение.
+
+### 2.5. Оптимизация хранения кэша (Raw RGBA + Zstd)
+
+**Проблема:** PNG медленно декодируется при загрузке.
+
+**Решение:** Хранить кэш как сырые RGBA данные, сжатые Zstd.
+
+```rust
+// Сохранение:
+let compressed = zstd::encode_all(raw_rgba_slice, 3)?; // Быстро
+fs::write(path, compressed)?;
+
+// Загрузка:
+let compressed = fs::read(path)?;
+let raw = zstd::decode_all(compressed.as_slice())?; // Очень быстро (memcpy)
+Image::from_rgba8(width, height, raw)
+```
+
+---
+
+## 🟡 Часть 3. Оптимизация Live-анализатора (Stable 60 FPS)
+
+Основная нагрузка здесь — не FFT, а передача данных в UI и рендеринг множества элементов Slint.
+
+### 3.1. Замена `for-each` на Canvas или Path
+
+**Проблема:** Slint `for value in root.values` создает 64-128 объектов `Rectangle` на каждый кадр. Layout engine перегружен.
+
+**Решение А (Path):** Рисовать весь спектр одной командой `Path`.
+
+```slint
+// visualizer.slint
+Canvas {
+    id: spectrum_canvas;
+    width: parent.width;
+    height: parent.height;
+
+    property <[float]> values; // Массив значений
+
+    on_render: %{
+        let ctx = getContext("2d");
+        ctx.clearRect(0, 0, width, height);
+        ctx.beginPath();
+        let barWidth = width / values.length;
+        for (i, val) : values {
+            let h = val * height;
+            let x = i * barWidth;
+            // Рисуем прямоугольник через линии
+            ctx.moveTo(x, height);
+            ctx.lineTo(x, height - h);
+            ctx.lineTo(x + barWidth - gap, height - h);
+            ctx.lineTo(x + barWidth - gap, height);
+        }
+        ctx.fillStyle = gradient;
+        ctx.fill();
+    }
+}
+```
+
+**Решение Б (Image Buffer):** Рисовать в Rust в `SharedPixelBuffer` и отдавать как картинку. Максимальная производительность.
+
+```rust
+// Rust side
+let mut buffer = SharedPixelBuffer::<Rgb8>::new(width, height);
+// Быстрая отрисовка прямоугольников в память (memset/memcpy)
+buffer.copy_from_slice(&rendered_bytes);
+viz.set_spectrum_image(buffer);
+```
+
+### 3.2. Double-buffering ModelRc
+
+**Проблема:** Создание `ModelRc::from(vec!)` каждый тик вызывает аллокации.
+
+**Решение:** Держать модель в состоянии и обновлять значения по индексу.
+
+```rust
+// В VisualizerManager:
+bars_model: Rc<VecModel<f32>>,
+
+// При обновлении:
+for (i, val) in new_values.iter().enumerate() {
+    self.bars_model.set_row_data(i, *val);
+}
+// Никаких новых Vec, никаких аллокаций.
+```
+
+### 3.3. Кольцевой буфер вместо сдвига
+
+**Проблема:** `memmove` данных при сдвиге окна (`shift_window`).
+
+**Решение:** Использовать кольцевую индексацию в `pull_frame` и `compute_bands`.
+
+```rust
+// Индексация: buffer[(pos + offset) % capacity]
+// Убирает O(N) копирование на каждый хоп.
+```
+
+### 3.4. Оптимизация тика UI
+
+*   Проверять номер кадра (`AtomicU64`), пушить в UI только если кадр изменился.
+*   Убрать клонирование структур настроек (`visualization.clone()`) в каждом тике. Передавать ссылки или флаги изменений.
+*   Увеличить приоритет потока воркера или уменьшить `sleep` до 1мс/условная переменная.
+
+---
+
+## 🟢 Часть 4. Конфигурация сборки (Cargo.toml)
+
+Добавить профили для максимальной производительности DSP-кода.
+
+```toml
+# Cargo.toml
+
+[profile.release]
+opt-level = 3
+lto = "fat"          # Сквозная оптимизация
+codegen-units = 1    # Лучшая векторизация
+panic = "abort"      # Меньше бинарник, быстрее экцепшены (если есть)
+
+# .cargo/config.toml
+[build]
+rustflags = ["-C", "target-cpu=native"] # AVX2/FMA инструкции для rustfft
+```
+
+---
+
+## 📅 План внедрения (Roadmap)
+
+| Этап | Задачи | Ожидаемый эффект | Время |
+|------|--------|------------------|-------|
+| **1. Стабилизация** | Фиксы 1.1–1.5 (Баги) | Корректная работа настроек, нет утечек | 2-3 ч |
+| **2. Turbo Spectrogram** | LUT (2.1), RowPlan (2.2), Буферы (2.3) | **20-50x** ускорение рендера | 3-4 ч |
+| **3. Smooth Live** | Canvas (3.1), Double-buffer (3.2) | **60+ FPS**, низкий CPU | 4-6 ч |
+| **4. Hardening** | Rayon (2.4), Zstd кэш (2.5), LRU (1.4) | Масштабируемость, надежность | 3-4 ч |
+| **5. Polish** | Профиль релиза (Часть 4), чистка кода | +10% скорости везде | 30 мин |
+
+### Чеклист перед коммитом:
+- [ ] Пройден `cargo clippy -- -D warnings`
+- [ ] Пройден `cargo test`
+- [ ] Проверено изменение настроек "на лету" (без перезапуска)
+- [ ] Проверено отсутствие роста RAM при переключении 50 треков
+- [ ] Замер FPS в режиме Spectrum (цель > 55)
+- [ ] Замер времени построения спектрограммы 3-мин трека (цель < 5 сек)
+
+---
+
+## Приложение: Пример бенчмарка (ожидаемый)
+
+```text
+Трек: 3:30 мин, FLAC, 44.1kHz/16bit
+Визуализация: Spectrogram (512px height, ~4000 cols)
+
+[BEFORE]
+Time: 66.4 sec
+CPU Avg: 98%
+Allocs: 12,500,000 (mainly hex parsing & vecs)
+
+[AFTER - Stage 2]
+Time: 2.8 sec
+CPU Avg: 45% (single thread)
+Allocs: < 1,000
+
+[AFTER - Stage 4 (Rayon 8 threads)]
+Time: 0.4 sec
+CPU Avg: 60% (multi core)
+```

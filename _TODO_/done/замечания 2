@@ -1,0 +1,217 @@
+## Executive Summary
+Analysis of the APAP audio visualizer codebase reveals significant opportunities for performance improvement, particularly in the live spectrum analyzer and full-track spectrogram generation. The current implementation suffers from excessive memory allocations in hot paths, redundant mathematical calculations, and suboptimal UI rendering strategies.
+**Key Findings:**
+1.  **Critical Performance Bottleneck:** Hex color parsing inside the pixel rendering loop for spectrograms causes millions of unnecessary allocations.
+2.  **UI Overhead:** Slint's `for-each` loop creating individual `Rectangle` elements for spectrum bars introduces significant layout and rendering overhead.
+3.  **Redundant Math:** Frequency and compensation calculations are repeated per-pixel instead of per-row.
+4.  **Logic Bugs:** Settings updates are ignored under certain conditions, and cache logic has flaws leading to missing visuals.
+**Expected Outcomes:**
+-   **Spectrogram Generation:** 10x to 50x speedup.
+-   **Live Visualization:** Stable 60+ FPS with lower CPU usage.
+-   **Memory Usage:** Drastic reduction in allocations during rendering.
+---
+## 1. Critical Bug Fixes
+### 1.1. Settings Not Applied Live
+**Issue:** Changes to `smoothing`, `peak_hold`, `sensitivity`, and `level_scale` are ignored until a "signature" parameter changes. `freq_scale` changes never propagate to band ranges.
+**Location:** `visualizer_manager.rs:62`, `LiveWorker` key logic.
+**Solution:**
+Expand the configuration signature to include all DSP parameters. Ensure `freq_scale` triggers a recalculation of `band_ranges`.
+```rust
+// visualizer_manager.rs
+// OLD: let sig = Some((mode.index(), bands, channels, style.0, style.1, style.2));
+// NEW: Include all relevant settings in the signature
+let sig = Some((
+mode.index(), 
+bands, 
+channels, 
+sp.freq_scale as u8, 
+sp.level_scale as u8, 
+sp.smoothing.to_bits(), 
+sp.peak_hold as u8,
+style.0, style.1, style.2
+));
+if sig != self.viz_sig {
+    self.viz_sig = sig;
+    // Force re-initialization or immediate config update
+    viz.set_cfg(sp.clone());
+}
+```
+### 1.2. Cache Logic Flaw
+**Issue:** When `cache_in_memory` is toggled off after an image was cached, the system neither loads from cache nor requests a rebuild, resulting in a permanent placeholder.
+**Location:** `fulltrack_manager.rs:474-489`.
+**Solution:**
+Decouple the cache lookup from the build trigger logic.
+```rust
+// fulltrack_manager.rs
+let mut found = false;
+if cache_in_mem {
+    if let Some(img) = self.fulltrack_cache.get(key).cloned() {
+        show_image(img);
+        found = true;
+    }
+}
+if !found {
+    // Always send build request if not shown from cache
+    sender.send(BuildRequest { key, ... });
+}
+```
+### 1.3. Sample Smearing in `pull_frame`
+**Issue:** Local variable `got` resets on partial reads, causing frames to be assembled from samples of different time intervals.
+**Location:** `analyzer.rs:166-176`.
+**Solution:**
+Move `got` to a struct field to persist state across callback invocations.
+---
+## 2. Performance Optimizations: Spectrogram
+### 2.1. Eliminate Per-Pixel Hex Parsing (High Impact)
+**Issue:** `palettes::parse_hex` is called for every pixel (~2 million times for a 3-min track).
+**Location:** `spectrogram.rs:170-175`.
+**Solution:**
+Pre-compute a Lookup Table (LUT) for the selected palette once during initialization.
+```rust
+// spectrogram.rs
+pub struct Spectrogram {
+    // ... existing fields
+    palette_lut: Vec<[u8; 3]>,
+}
+impl Spectrogram {
+    pub fn new(cfg: &Config) -> Self {
+        // Parse ONCE during initialization
+        let lut = match cfg.palette {
+            Palette::Solid | Palette::Gray => Vec::new(),
+            _ => palettes::parse_hex(palettes::hex_for(cfg.palette)),
+        };
+        
+        Self {
+            // ...
+            palette_lut: lut,
+        }
+    }
+    fn get_color(&self, t: f32) -> [u8; 3] {
+        if self.palette_lut.is_empty() {
+            return [0, 0, 0]; // Fallback
+        }
+        let idx = ((t * 255.0).clamp(0.0, 255.0)) as usize;
+        self.palette_lut[idx] // O(1) access
+    }
+}
+```
+### 2.2. Pre-calculate Row Plans (High Impact)
+**Issue:** `freq_for_row`, `cic_compensation_db`, and `level_of` involve expensive trigonometric and logarithmic functions called per pixel.
+**Solution:**
+Calculate these values once per row (512 times) instead of per pixel (Columns × 512 times).
+```rust
+struct RowPlan {
+    bin_start: usize,
+    bin_frac: f32,
+    mag_scale: f32, // Pre-combined sensitivity and CIC compensation
+    boost_db: f32,
+}
+// In Spectrogram::new() or on config change:
+let mut row_plans = Vec::with_capacity(512);
+for row in 0..512 {
+    let freq = freq_for_row(row, height, cfg.freq_scale);
+    let cic_db = if is_dsd { cic_compensation_db(freq) } else { 0.0 };
+    let mag_scale = cfg.sensitivity * (10.0_f32.powf(cic_db / 20.0));
+
+    row_plans.push(RowPlan {
+        bin_start: (freq / bin_width) as usize,
+        bin_frac: (freq / bin_width).fract(),
+        mag_scale,
+        boost_db: cfg.high_boost_db * (freq.log10() - f_min.log10()),
+    });
+}
+// Store row_plans and use in the inner loop
+```
+### 2.3. Buffer Reuse and Parallelism
+**Issue:** Allocations of `wbuf` and `mags` inside `compute_column`. Sequential processing of independent columns.
+**Solution:**
+1.  Move buffers to struct fields and reuse them (`clear()` + `resize()`).
+2.  Use `rayon` to process columns in parallel.
+```rust
+use rayon::prelude::*;
+// Parallel column processing
+(0..num_columns).into_par_iter().for_each(|col_idx| {
+    // Use pre-allocated buffers from thread-local storage or struct
+    self.compute_column(col_idx);
+});
+```
+---
+## 3. Performance Optimizations: Live Spectrum
+### 3.1. Replace Slint `for-each` with Single Path or Image
+**Issue:** Creating 64-128 `Rectangle` elements every frame causes layout thrashing and high CPU usage in Slint.
+**Location:** `visualizer.slint`.
+**Solution A: Single Path (Vector Graphics)**
+Construct a single `Path` element representing all bars.
+```slint
+// visualizer.slint
+element Path {
+    id: bar_path;
+    fill-rule: evenodd;
+    // Commands updated from Rust
+}
+```
+```rust
+// Rust side: Build path commands
+let mut commands = Vec::new();
+for (i, val) in values.iter().enumerate() {
+    let x = i * (width + gap);
+    let h = val * max_height;
+    // Add MoveTo, LineTo commands for a rectangle
+    commands.push(PathCommand::MoveTo(x, bottom));
+    commands.push(PathCommand::LineTo(x, bottom - h));
+    commands.push(PathCommand::LineTo(x + width, bottom - h));
+    commands.push(PathCommand::LineTo(x + width, bottom));
+    commands.push(PathCommand::Close);
+}
+root.set_bar_path(commands);
+```
+**Solution B: Raster Image (Fastest)**
+Render the spectrum to a `SharedPixelBuffer<Rgba8>` in Rust and pass it as a single image to Slint. This bypasses Slint's scene graph entirely for the bars.
+### 3.2. Optimization of Data Push
+**Issue:** `viz_push` clones data every 33ms even if no new FFT frame is ready.
+**Solution:**
+Use an atomic frame counter to skip updates when no new data is available.
+```rust
+// Check frame counter before cloning and pushing
+if current_frame == last_frame { return; }
+```
+### 3.3. Ring Buffer for Window Shifting
+**Issue:** `shift_window` performs a memory copy every hop.
+**Solution:**
+Implement a circular buffer index calculation to avoid copying data.
+---
+## 4. System & Build Improvements
+### 4.1. Cargo Profile Optimization
+Enable aggressive optimizations for DSP-heavy code.
+```toml
+# Cargo.toml
+[profile.release]
+opt-level = 3
+lto = "fat"
+codegen-units = 1
+panic = "abort"
+```
+```toml
+# .cargo/config.toml
+[build]
+rustflags = ["-C", "target-cpu=native"]
+```
+### 4.2. Cache Management
+**Issue:** Unbounded RAM growth from `fulltrack_cache`.
+**Solution:**
+Implement an LRU (Least Recently Used) cache with a byte-size limit (e.g., 200MB).
+### 4.3. Disk Cache Format
+**Issue:** PNG decoding is slow for cache hits.
+**Solution:**
+Store raw RGBA data compressed with Zstd or Flate for faster read/write compared to PNG encoding/decoding.
+---
+## 5. Implementation Roadmap
+| Phase | Task | Priority | Est. Impact |
+| :--- | :--- | :--- | :--- |
+| **1** | **Fix Logic Bugs** (Settings, Cache, Smearing) | 🔴 Critical | Correctness |
+| **2** | **Spectrogram LUT & RowPlan** | 🔴 High | 10-50x Speedup |
+| **3** | **Slint Path/Image Optimization** | 🟠 High | Smooth UI |
+| **4** | **Buffer Reuse & Parallelism** | 🟠 Medium | 2-5x Speedup |
+| **5** | **Build Flags & LRU Cache** | 🟢 Low | Stability/Margin |
+## Conclusion
+By addressing the logical bugs first and then applying the algorithmic optimizations (LUT, RowPlan), the application will see immediate correctness fixes and massive performance gains. The UI refactor (Slint Path/Image) will ensure smooth interaction even on lower-end hardware.` did not appear verbatim in /workspace/VISUALIZATION_OPTIMIZATION.md.
