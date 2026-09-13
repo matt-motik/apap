@@ -32,6 +32,10 @@ export component Settings inherits Rectangle {
     in property <string> active-device: "";
     in property <string> codec-info: "";
     in property <string> active-error: "";
+    // ТЗ §8.2/§8.4: режим вывода DSD (0=PCM, 1=Native, 2=DoP) и признак
+    // конфликта «DSD→PCM + bit-perfect».
+    in property <int> dsd-mode: 0;
+    in property <bool> dsd-bp-warn: false;
     in property <[ColumnSetting]> columns-cfg: [];
     in-out property <int> selected-col: -1;
     in property <[CoverSetting]> covers: [];
@@ -91,6 +95,7 @@ export component Settings inherits Rectangle {
     callback set-minimize-to-tray(bool);
     callback set-audio-device(string);
     callback refresh-devices();
+    callback set-dsd-mode(int);
     callback toggle-column(int);
     callback reset-columns();
     callback move-col-up(int);
@@ -295,6 +300,25 @@ export component Settings inherits Rectangle {
                                 visible: root.active-error != "";
 
                             }
+                        }
+                        HorizontalLayout {
+                            padding-left: 8px;
+                            padding-right: 8px;
+                            spacing: 4px;
+                            RowLabel { text: "DSD mode"; }
+                            ComboBox {
+                                model: ["DSD \u{2192} PCM", "Native DSD", "DoP"];
+                                current-index: root.dsd-mode;
+                                selected(s) => { root.set-dsd-mode(self.current-index); }
+                            }
+                            Rectangle { horizontal-stretch: 1; }
+                        }
+                        // ТЗ §8.4: DSD→PCM конвертация нарушает bit-perfect для DSD.
+                        RowLabel {
+                            text: "DSD\u{2192}PCM несовместимо с bit-perfect для DSD";
+                            color: Colors.text-error;
+                            wrap: word-wrap;
+                            visible: root.dsd-bp-warn && root.dsd-mode == 0;
                         }
                         Rectangle { vertical-stretch: 1; }
                     }
