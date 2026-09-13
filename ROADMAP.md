@@ -23,8 +23,8 @@
 завершены, влиты в `main`, заархивированы в `_TODO_/history/archive_v0.2.md`.
 Релиз `v0.2` (тег на `a01c1bf`).
 
-Активный следующий ход — **V5.1-7.4**: предупреждение «DSD→PCM несовместимо
-с bit-perfect для DSD» + логика переключения сценариев (§7.4/§8.4).
+Активный следующий ход — **V5.1-7.5**: значок-индикатор «Bit-perfect» в
+статус-баре (§7.5).
 
 ---
 
@@ -41,10 +41,10 @@
 | V5.1-7 | Bit-perfect (Direct Output) + TPDF-дизеринг + DSD native заглушка / DoP MVP — базовая часть | 🔴 Высший | ✅ `20080d8` | [§7.1](docs/spec_visualizer_v5.1.md#71-определение) |
 | V5.1-7.2 | Подпись «Управляется внешним предусилителем / ОС» у заблокированных регуляторов громкости (slider/Mute) | 🟢 Средний | ✅ `e114113` | [§7.2](docs/spec_visualizer_v5.1.md#72-влияние-на-громкость) |
 | V5.1-7.5 | Значок-индикатор «Bit-perfect» в статус-баре | 🟢 Средний | ⬜ Бэклог | [§7.5](docs/spec_visualizer_v5.1.md#75-индикация) |
-| V5.1-7.4 | Предупреждение «DSD→PCM несовместимо с bit-perfect для DSD» + логика переключения сценариев | 🟡 Высокий | ⬜ Бэклог | [§7.4](docs/spec_visualizer_v5.1.md#74-dsd-в-bit-perfect), [§8.4](docs/spec_visualizer_v5.1.md#84-взаимодействие-с-bit-perfect) |
-| ↳ V5.1-7.4.1 | Детекция сценария: `bit_perfect ∧ DSD ∧ mode ≠ native/dop` | — | ⬜ | [§7.4](docs/spec_visualizer_v5.1.md#74-dsd-в-bit-perfect) |
-| ↳ V5.1-7.4.2 | Логика переключения сценариев (fallback PCM + предупреждение) | — | ⬜ | [§8.4](docs/spec_visualizer_v5.1.md#84-взаимодействие-с-bit-perfect) |
-| ↳ V5.1-7.4.3 | Показ предупреждения в UI (settings / status) | — | ⬜ | [§7.4](docs/spec_visualizer_v5.1.md#74-dsd-в-bit-perfect) |
+| V5.1-7.4 | Предупреждение «DSD→PCM несовместимо с bit-perfect для DSD» + логика переключения сценариев | 🟡 Высокий | ✅ сделано в `bb4bed0` (ветка `main`) | [§7.4](docs/spec_visualizer_v5.1.md#74-dsd-в-bit-perfect), [§8.4](docs/spec_visualizer_v5.1.md#84-взаимодействие-с-bit-perfect) |
+| ↳ V5.1-7.4.1 | Детекция сценария: `bit_perfect ∧ DSD ∧ mode = pcm` (api `Settings::dsd_pcm_breaks_bit_perfect`) | — | ✅ сделано в `a8f9c81` (ветка `main`) | [§7.4](docs/spec_visualizer_v5.1.md#74-dsd-в-bit-perfect) |
+| ↳ V5.1-7.4.2 | Логика переключения сценариев: ComboBox DSD mode в настройках, `player.set_dsd_mode` + рестарт DSD-трека на Save | — | ✅ сделано в `bb4bed0` (ветка `main`) | [§8.4](docs/spec_visualizer_v5.1.md#84-взаимодействие-с-bit-perfect) |
+| ↳ V5.1-7.4.3 | Показ предупреждения в UI: warning в settings (Audio) + индикатор «Не bit-perfect (DSD→PCM)» в status-баре | — | ✅ сделано в `82421ad` (ветка `main`) | [§7.4](docs/spec_visualizer_v5.1.md#74-dsd-в-bit-perfect) |
 
 ### 6.2 DSD → PCM / Ресемплинг (§8)
 
