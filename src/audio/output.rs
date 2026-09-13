@@ -430,6 +430,41 @@ impl CpalHost {
     }
 }
 
+/// ТЗ §8.5: ближайший поддерживаемый ЦАП-рейт для запрошенной частоты.
+///
+/// Учитываются только диапазоны с нужным числом каналов. Точное попадание
+/// (`requested` внутри `[min, max]`) → дистанция 0 и возврат `requested`;
+/// иначе берётся ближайшая граница диапазона. При равной дистанции
+/// предпочитается меньшая частота (более консервативный коэффициент
+/// ресемплера, не ломает семейства 44.1/48k).
+pub fn nearest_rate(ranges: &[RateRange], channels: u16, requested: u32) -> Option<u32> {
+    let req = u64::from(requested);
+    let mut best: Option<(u64, u32)> = None;
+    for r in ranges {
+        if r.channels != channels {
+            continue;
+        }
+        let (lo, hi) = (u64::from(r.min), u64::from(r.max));
+        let (candidate, dist) = if req < lo {
+            (r.min, lo - req)
+        } else if req > hi {
+            (r.max, req - hi)
+        } else {
+            (requested, 0)
+        };
+        let better = match best {
+            None => true,
+            Some((best_dist, best_rate)) => {
+                dist < best_dist || (dist == best_dist && candidate < best_rate)
+            }
+        };
+        if better {
+            best = Some((dist, candidate));
+        }
+    }
+    best.map(|(_, rate)| rate)
+}
+
 /// Decide which device/config to use for the given track parameters.
 ///
 /// Pure selection: no audio backend is touched, so it can be tested with a
