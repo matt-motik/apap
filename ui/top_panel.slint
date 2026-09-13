@@ -426,7 +426,7 @@ export component TopPanel inherits Rectangle {
                 HorizontalLayout {
                     alignment: center;
                     vertical-stretch: 1;
-wheel-vol := TouchArea {
+                    wheel-vol := TouchArea {
                 vertical-stretch: 1;
                 width: 34px;
                 enabled: !root.bit-perfect;
@@ -455,6 +455,18 @@ wheel-vol := TouchArea {
                     }
                 }
             }
+                }
+
+                // Bit-perfect (Direct Output): софтверная громкость отключена — регулятор
+                // отдан внешнему предусилителю / ОС. Подпись рисуется поверх слайдера.
+                Text {
+                    visible: root.bit-perfect;
+                    text: "Управляется внешним предусилителем / ОС";
+                    color: Colors.text-tertiary;
+                    font-size: 11px;
+                    transform-rotation: -90deg;
+                    x: (parent.width - self.width) / 2;
+                    y: (parent.height - self.height) / 2;
                 }
             }
 
