@@ -32,6 +32,8 @@ export component Settings inherits Rectangle {
     in property <string> active-device: "";
     in property <string> codec-info: "";
     in property <string> active-error: "";
+    // ТЗ §7.5/§8.6: чекбокс bit-perfect в настройках звука.
+    in property <bool> bit-perfect: false;
     // ТЗ §8.2/§8.4: режим вывода DSD (0=PCM, 1=Native, 2=DoP) и признак
     // конфликта «DSD→PCM + bit-perfect».
     in property <int> dsd-mode: 0;
@@ -96,6 +98,7 @@ export component Settings inherits Rectangle {
     callback set-audio-device(string);
     callback refresh-devices();
     callback set-dsd-mode(int);
+    callback set-bit-perfect(bool);
     callback toggle-column(int);
     callback reset-columns();
     callback move-col-up(int);
@@ -274,15 +277,27 @@ export component Settings inherits Rectangle {
                                 clicked => { root.refresh-devices(); }
                             }
                         }
-                        HorizontalLayout {
+HorizontalLayout {
                             padding-left: 8px;
                             padding-right: 8px;
-                            spacing: 4px;                        
+                            spacing: 4px;
                             RowLabel { text: "Active:"; }
                             RowLabel {
                                 text: root.active-device;
                                 text-color: Colors.text-primary;
                             }
+                        }
+                        // ТЗ §7.5/§8.6: bit-perfect (Direct Output).
+                        HorizontalLayout {
+                            padding-left: 8px;
+                            padding-right: 8px;
+                            spacing: 4px;
+                            RowLabel { text: "Bit-perfect"; }
+                            CheckBox {
+                                checked: root.bit-perfect;
+                                toggled => { root.set-bit-perfect(self.checked); }
+                            }
+                            Rectangle { horizontal-stretch: 1; }
                         }
                         HorizontalLayout {
                             padding-left: 8px;
