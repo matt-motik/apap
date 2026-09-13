@@ -5,6 +5,8 @@ export component StatusBar inherits Rectangle {
     in property <string> track-info: "";
     in property <string> track-count: "0 tracks";
     in property <bool> busy: false;
+    // ТЗ §7.5: bit-perfect-режим активен — значок-индикатор в статус-баре.
+    in property <bool> bp-active: false;
     // ТЗ §7.5: активен bit-perfect, но DSD выводится конверсией в PCM — для
     // DSD-потока bit-perfect не сохраняется.
     in property <bool> dsd-not-bp: false;
@@ -52,6 +54,23 @@ export component StatusBar inherits Rectangle {
             font-size: 12px;
             vertical-alignment: center;
             horizontal-alignment: right;
+        }
+        // ТЗ §7.5: значок «Bit-perfect», когда режим активен.
+        Rectangle {
+            border-width: 1px;
+            border-color: Colors.accent;
+            border-radius: 4px;
+            padding-left: 6px;
+            padding-right: 6px;
+            padding-top: 2px;
+            padding-bottom: 2px;
+            visible: root.bp-active;
+            Text {
+                text: "Bit-perfect";
+                color: Colors.accent;
+                font-size: 11px;
+                vertical-alignment: center;
+            }
         }
         Text {
             text: "Не bit-perfect (DSD→PCM)";
