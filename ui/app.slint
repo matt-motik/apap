@@ -163,6 +163,8 @@ export component AppWindow inherits Window {
     in property <string> track-info: "";
     in property <string> track-count: "0 tracks";
     in property <bool> busy: false;
+    // ТЗ §7.5: активен bit-perfect, но текущий DSD-трек идёт конверсией в PCM.
+    in property <bool> status-dsd-not-bp: false;
 
     in property <string> info-artist: "—";
     in property <string> info-track: "—";
@@ -427,6 +429,7 @@ export component AppWindow inherits Window {
             track-info: root.track-info;
             track-count: root.track-count;
             busy: root.busy;
+            dsd-not-bp: root.status-dsd-not-bp;
         }
     }
     }

@@ -5,6 +5,9 @@ export component StatusBar inherits Rectangle {
     in property <string> track-info: "";
     in property <string> track-count: "0 tracks";
     in property <bool> busy: false;
+    // ТЗ §7.5: активен bit-perfect, но DSD выводится конверсией в PCM — для
+    // DSD-потока bit-perfect не сохраняется.
+    in property <bool> dsd-not-bp: false;
 
     background: Colors.bg-surface;
     border-width: 1px;
@@ -49,6 +52,14 @@ export component StatusBar inherits Rectangle {
             font-size: 12px;
             vertical-alignment: center;
             horizontal-alignment: right;
+        }
+        Text {
+            text: "Не bit-perfect (DSD→PCM)";
+            color: Colors.text-error;
+            font-size: 12px;
+            vertical-alignment: center;
+            horizontal-alignment: right;
+            visible: root.dsd-not-bp;
         }
     }
 }
