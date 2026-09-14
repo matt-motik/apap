@@ -374,9 +374,21 @@ pub fn load_cached_png(key: &str) -> Option<(Vec<u8>, usize, usize)> {
     Some((rgba, w, h))
 }
 
-/// Проверить, валиден ли sidecar (mtime не новее файла).
+/// Проверить валидность дискового кэша по sidecar (§10.4 TTL).
+///
+/// Валидно, если: sidecar читается и парсится, PNG существует, а mtime
+/// исходного файла не новее mtime sidecar-файла (момента создания кэша).
 pub fn cache_meta_valid(key: &str) -> bool {
-    let meta_path = cache_meta_path(key);
+    cache_meta_valid_in(&viz_cache_dir(), key)
+}
+
+/// Ядро `cache_meta_valid` над произвольным каталогом (тестируемое,
+/// без глобального XDG-состояния).
+fn cache_meta_valid_in(dir: &Path, key: &str) -> bool {
+    let meta_path = dir.join(format!("{key}.json"));
+    if !dir.join(format!("{key}.png")).is_file() {
+        return false;
+    }
     let meta_data = match fs::read_to_string(&meta_path) {
         Ok(d) => d,
         Err(_) => return false,
@@ -385,16 +397,17 @@ pub fn cache_meta_valid(key: &str) -> bool {
         Ok(m) => m,
         Err(_) => return false,
     };
-    // Проверяем, что mtime файла на диске не новее mtime из мета-данных.
-    if let Ok(disk_mtime) = fs::metadata(&meta.path).and_then(|m| m.modified()) {
-        let disk_secs = disk_mtime
-            .duration_since(UNIX_EPOCH)
-            .unwrap_or_default()
-            .as_secs();
-        disk_secs <= meta.mtime_secs
-    } else {
-        false
-    }
+    // TTL: момент создания кэша — mtime sidecar-файла. Если исходник новее
+    // (изменён после записи кэша), запись невалидна (§10.4).
+    let src_mtime = match fs::metadata(&meta.path).and_then(|m| m.modified()) {
+        Ok(t) => t,
+        Err(_) => return false,
+    };
+    let sidecar_mtime = match fs::metadata(&meta_path).and_then(|m| m.modified()) {
+        Ok(t) => t,
+        Err(_) => return false,
+    };
+    src_mtime <= sidecar_mtime
 }
 
 /// Вытеснить старейшие записи (по mtime) дискового кэша визуализации, пока
