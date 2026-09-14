@@ -150,6 +150,9 @@ pub mod defaults {
     pub const fn true_() -> bool {
         true
     }
+    pub const fn viz_max_ram_mb() -> u32 {
+        64
+    }
 }
 
 /// Настройки осциллограммы (полнотрековая, ТЗ §5.2).
@@ -381,6 +384,9 @@ pub struct VisualizerSettings {
     /// Не строить полнотрековые визуализации для DSD.
     #[serde(default = "defaults::true_")]
     pub skip_fulltrack_for_dsd: bool,
+    /// Бюджет RAM-кэша полнотрековых изображений, MiB (§10.4, default 64).
+    #[serde(default = "defaults::viz_max_ram_mb")]
+    pub viz_max_ram_mb: u32,
     #[serde(default)]
     pub oscilloscope: OscilloscopeCfg,
     #[serde(default)]
@@ -394,6 +400,7 @@ impl Default for VisualizerSettings {
         Self {
             mode: VisualizationMode::Off,
             skip_fulltrack_for_dsd: true,
+            viz_max_ram_mb: defaults::viz_max_ram_mb(),
             oscilloscope: OscilloscopeCfg::default(),
             spectrogram: SpectrogramCfg::default(),
             spectrum: SpectrumCfg::default(),
@@ -406,6 +413,7 @@ impl Default for VisualizerSettings {
 pub struct VisualizerConfig {
     pub mode: VisualizationMode,
     pub skip_fulltrack_for_dsd: bool,
+    pub viz_max_ram_mb: u32,
     pub oscilloscope: OscilloscopeCfg,
     pub spectrogram: SpectrogramCfg,
     pub spectrum: SpectrumCfg,
@@ -417,6 +425,7 @@ impl VisualizerConfig {
         Self {
             mode: v.mode,
             skip_fulltrack_for_dsd: v.skip_fulltrack_for_dsd,
+            viz_max_ram_mb: v.viz_max_ram_mb,
             oscilloscope: v.oscilloscope.clone(),
             spectrogram: v.spectrogram.clone(),
             spectrum: v.spectrum.clone(),
