@@ -72,7 +72,7 @@
 | ↳ V5.1-10.4.1a | Поле `viz_max_ram_mb` в `Settings` (TOML `[visualization]`) | — | ✅ сделано в `e6cdef7` (ветка `main`) | [§10.4](docs/spec_visualizer_v5.1.md#104-кэширование-изображений) |
 | ↳ V5.1-10.4.1b | Расчёт `max_entries = mb / avg_rgba_mb` → `NonZeroUsize` | — | ✅ сделано в `ab42d4b` (ветка `main`) | [§10.4](docs/spec_visualizer_v5.1.md#104-кэширование-изображений) |
 | ↳ V5.1-10.4.1c | Горячая пересборка `CLruCache` при изменении настройки | — | ✅ сделано в `5c78194` (ветка `main`) | [§10.4](docs/spec_visualizer_v5.1.md#104-кэширование-изображений) |
-| V5.1-10.4.2 | Disk-лимит `cache.max_size_mb` + LRU-вытеснение по mtime на диске | 🟡 Высокий | ⬜ Бэклог | [§10.4](docs/spec_visualizer_v5.1.md#104-кэширование-изображений) |
+| V5.1-10.4.2 | Disk-лимит `cache.max_size_mb` + LRU-вытеснение по mtime на диске | 🟡 Высокий | ⏳ выполняется | [§10.4](docs/spec_visualizer_v5.1.md#104-кэширование-изображений) |
 | ↳ V5.1-10.4.2a | Поле `cache.max_size_mb` в `Settings` (TOML `[visualization]`) | — | ⬜ | [§10.4](docs/spec_visualizer_v5.1.md#104-кэширование-изображений) |
 | ↳ V5.1-10.4.2b | Сканирование `viz_cache_dir()` → сумма → удаление oldest по mtime | — | ⬜ | [§10.4](docs/spec_visualizer_v5.1.md#104-кэширование-изображений) |
 | ↳ V5.1-10.4.2c | Вызов вытеснения после записи нового PNG (`save_png`) | — | ⬜ | [§10.4](docs/spec_visualizer_v5.1.md#104-кэширование-изображений) |
