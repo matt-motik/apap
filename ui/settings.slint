@@ -147,6 +147,10 @@ export component Settings inherits Rectangle {
     callback set-viz-sp-gradient(bool);
     callback set-viz-sp-dsd-comp(bool);
 
+    // ===== Кэш (§10.5) =====
+    in property <string> cache-ram-size: "";
+    in property <string> cache-disk-size: "";
+
     visible: root.open;
     background: Colors.bg-overlay;
 
@@ -891,6 +895,39 @@ HorizontalLayout {
                             preferred-height: 28px;
                             clicked => { root.clear-playlist(); }
                         }
+                        Rectangle { vertical-stretch: 1; }
+                    }
+                }
+
+                // ===== Cache (§10.5) =====
+                Tab {
+                    title: "Cache";
+                    VerticalLayout {
+                        spacing: 10px;
+                        padding-top: 4px;
+                        HorizontalLayout {
+                            padding-left: 8px;
+                            padding-right: 8px;
+                            spacing: 4px;
+                            RowLabel { text: "RAM cache"; }
+                            RowLabel {
+                                text: root.cache-ram-size;
+                                text-color: Colors.text-primary;
+                            }
+                            Rectangle { horizontal-stretch: 1; }
+                        }
+                        HorizontalLayout {
+                            padding-left: 8px;
+                            padding-right: 8px;
+                            spacing: 4px;
+                            RowLabel { text: "Disk cache"; }
+                            RowLabel {
+                                text: root.cache-disk-size;
+                                text-color: Colors.text-primary;
+                            }
+                            Rectangle { horizontal-stretch: 1; }
+                        }
+                        // Кнопки очистки — задача V5.1-10.5.2 (отдельная).
                         Rectangle { vertical-stretch: 1; }
                     }
                 }

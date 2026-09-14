@@ -91,6 +91,17 @@ impl MusicApp {
         self.sync_dsd_settings_to_ui();
     }
 
+    /// Синхронизация статистики кэша визуализации (RAM / Disk, §10.5).
+    /// Вызывается при открытии диалога и при его тике (размеры меняются
+    /// из-за билдов полнотрековых изображений и вытеснения LRU).
+    pub(super) fn sync_cache_stats_to_ui(&self) {
+        let (ram, disk) = self.cache_sizes();
+        self.ui
+            .set_settings_cache_ram_size(music_player_rs::audio::fulltrack::fmt_cache_bytes(ram).into());
+        self.ui
+            .set_settings_cache_disk_size(music_player_rs::audio::fulltrack::fmt_cache_bytes(disk).into());
+    }
+
     /// Синхронизация DSD-полей диалога настроек: текущий режим (0=PCM,
     /// 1=Native, 2=DoP) и признак конфликта «DSD→PCM + bit-perfect» (§8.4).
     pub(super) fn sync_dsd_settings_to_ui(&self) {

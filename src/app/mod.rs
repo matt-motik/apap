@@ -618,6 +618,7 @@ impl MusicApp {
                 a.sync_viz_settings_to_ui();
                 a.sync_audio_devices();
                 a.sync_cover_settings_to_ui();
+                a.sync_cache_stats_to_ui();
                 a.ui.set_settings_open(true);
             });
         }
@@ -1112,6 +1113,11 @@ impl MusicApp {
         self.handle_auto_advance();
         self.sync_playback_state_to_ui();
         self.sync_dsd_status_ui();
+        // §10.5: пока диалог открыт, обновлять размеры кэша (билды полнотрековых
+        // изображений и LRU-вытеснение меняют их в реальном времени).
+        if self.ui.get_settings_open() {
+            self.sync_cache_stats_to_ui();
+        }
         self.push_tray_status();
 
         let sig = self.compute_col_sig();
