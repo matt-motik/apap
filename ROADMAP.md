@@ -77,9 +77,9 @@ mtime+ключ присутствуют, не хватает `dsd_params` в к�
 | ↳ V5.1-10.4.2a | Поле `cache.max_size_mb` в `Settings` (TOML `[visualization]`) | — | ✅ сделано в `5114567` (ветка `main`) | [§10.4](docs/spec_visualizer_v5.1.md#104-кэширование-изображений) |
 | ↳ V5.1-10.4.2b | Сканирование `viz_cache_dir()` → сумма → удаление oldest по mtime | — | ✅ сделано в `29a84d7` (ветка `main`) | [§10.4](docs/spec_visualizer_v5.1.md#104-кэширование-изображений) |
 | ↳ V5.1-10.4.2c | Вызов вытеснения после записи нового PNG (`save_png`) | — | ✅ сделано в `29a84d7` (ветка `main`) | [§10.4](docs/spec_visualizer_v5.1.md#104-кэширование-изображений) |
-| V5.1-10.4.3 | TTL-инвалидация по mtime + расширение ключа `hash(path+mtime+size+mode+channels+params+dsd)` | 🟢 Средний | 🟡 mtime+ключ частично | [§10.4](docs/spec_visualizer_v5.1.md#104-кэширование-изображений) |
-| ↳ V5.1-10.4.3a | Добавить `dsd_params`/`params_snapshot` в `cache_key` / `cache_key_spectrogram` | — | ⬜ | [§10.4](docs/spec_visualizer_v5.1.md#104-кэширование-изображений) |
-| ↳ V5.1-10.4.3b | Проверка sidecar mtime + TTL-окно (mtime исходника новее sidecar → инвалидация) | — | ⬜ | [§10.4](docs/spec_visualizer_v5.1.md#104-кэширование-изображений) |
+| V5.1-10.4.3 | TTL-инвалидация по mtime + расширение ключа `hash(path+mtime+size+mode+channels+params+dsd)` | 🟢 Средний | ✅ сделано в `52e0adf` (ветка `main`) | [§10.4](docs/spec_visualizer_v5.1.md#104-кэширование-изображений) |
+| ↳ V5.1-10.4.3a | Добавить `dsd_params`/`params_snapshot` в `cache_key` / `cache_key_spectrogram` | — | ✅ сделано в `6e138df` (ветка `main`) | [§10.4](docs/spec_visualizer_v5.1.md#104-кэширование-изображений) |
+| ↳ V5.1-10.4.3b | Проверка sidecar mtime + TTL-окно (mtime исходника новее sidecar → инвалидация) | — | ✅ сделано в `ff95ce0` (ветка `main`) | [§10.4](docs/spec_visualizer_v5.1.md#104-кэширование-изображений) |
 
 ### 6.4 Взаимодействие с плеером (§13)
 
