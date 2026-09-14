@@ -254,7 +254,7 @@ impl MusicApp {
     pub(super) fn apply_theme(&self) {
         let c = self.ui.global::<Colors>();
         let dark = self.settings.settings.theme == Theme::Dark;
-        self.ui.global::<MaterialPalette>().set_color_scheme(if dark {
+        self.ui.global::<FluentPalette>().set_color_scheme(if dark {
             slint::private_unstable_api::re_exports::ColorScheme::Dark
         } else {
             slint::private_unstable_api::re_exports::ColorScheme::Light

@@ -1,5 +1,15 @@
 import { Colors } from "theme.slint";
-import { TabWidget, ComboBox, Slider, Switch, Button, ListView, CheckBox, LineEdit } from "std-widgets.slint";
+import {
+    TabWidget,
+    ComboBox,
+    Slider,
+    Switch,
+    Button,
+    ListView,
+    CheckBox,
+    LineEdit,
+    ScrollView,
+} from "std-widgets.slint";
 
 export struct ColumnSetting {
     index: int,
@@ -147,6 +157,11 @@ export component Settings inherits Rectangle {
     callback set-viz-sp-gradient(bool);
     callback set-viz-sp-dsd-comp(bool);
 
+    // ===== Кэш (§10.5): кнопки очистки ====
+    callback clear-viz-cache();
+    callback clear-cover-cache();
+    callback clear-all-cache();
+
     // ===== Кэш (§10.5) =====
     in property <string> cache-ram-size: "";
     in property <string> cache-disk-size: "";
@@ -154,11 +169,19 @@ export component Settings inherits Rectangle {
     visible: root.open;
     background: Colors.bg-overlay;
 
-    TouchArea { clicked => { debug("settings: backdrop click (outside dialog)"); } }
+    TouchArea {
+        width: 100%;
+        height: 100%;
+        clicked => { debug("settings: backdrop click (outside dialog)"); }
+        scroll-event(event) => {
+            debug("settings: backdrop scroll");
+            EventResult.accept   // <-- останавливает распространение
+            }
+    }
 
     dialog := Rectangle {
-        min-width: 540px;
-        min-height: 420px;
+        // min-width: 540px;
+        // min-height: 420px;
         width: 640px + root.resize-dw * 1px;
         height: 480px + root.resize-dh * 1px;
 
@@ -170,795 +193,1372 @@ export component Settings inherits Rectangle {
         border-width: 1px;
         border-color: Colors.border-default;
 
-        // Content is re-created on every open (`if root.open`): stateful
-        // widgets (ComboBox/Slider/CheckBox/LineEdit) keep their internal
-        // value otherwise and even break their one-way bindings after a user
-        // interaction, so a reused dialog would show stale, un-applied values.
-        if root.open : VerticalLayout {
+        VerticalLayout {
             padding: 12px;
             spacing: 8px;
-
-            TabWidget {
-                vertical-stretch: 1;
-
-                // ===== General =====
-                Tab {
-                    title: "General";
-                    VerticalLayout {
-                        spacing: 10px;
-                        padding-top: 10px;
-                        HorizontalLayout {
-                            padding-left: 8px;
-                            padding-right: 8px;
-                            spacing: 4px;
-                            RowLabel { text: "Theme"; }
-                            ComboBox {
-                                model: ["Dark", "Light"];
-                                current-index: root.theme;
-                                selected(s) => { debug("settings: theme combo selected"); root.set-theme(s == "Light" ? 1 : 0); }
-                            }
-                        }
-                        HorizontalLayout {
-                            padding-left: 8px;
-                            padding-right: 8px;
-                            spacing: 4px;
-                            RowLabel { text: "Cover size"; }
-                            Slider {
-                                minimum: 100;
-                                maximum: 400;
-                                value: root.cover-size;
-                                preferred-height: 24px;
-                                changed(v) => { root.set-cover-size(v); }
-                            }
-                        }
-
-                        HorizontalLayout {
-                            padding-left: 8px;
-                            padding-right: 8px;
-                            spacing: 4px;
-                            RowLabel { text: "Info column width"; }
-                            Slider {
-                                minimum: 200;
-                                maximum: 400;
-                                value: root.col-info-w;
-                                preferred-height: 24px;
-                                changed(v) => { root.set-col-info-w(v); }
-                            }
-                        }
-                        HorizontalLayout {
-                            padding-left: 8px;
-                            padding-right: 8px;
-                            spacing: 4px;
-                            RowLabel { text: "Column gap"; }
-                            Slider {
-                                minimum: 0;
-                                maximum: 20;
-                                value: root.col-gap;
-                                preferred-height: 24px;
-                                changed(v) => { root.set-col-gap(v); }
-                            }
-                        }
-                        HorizontalLayout {
-                            padding-left: 8px;
-                            padding-right: 8px;
-                            spacing: 4px;
-                            RowLabel { text: "Minimize to tray"; }
-                            CheckBox {
-                                checked: root.minimize-to-tray;
-                                toggled => { root.set-minimize-to-tray(self.checked); }
-                            }
-                            Rectangle { horizontal-stretch: 1; }
-                        }
-                        Rectangle { vertical-stretch: 1; }
-                    }
+            // Content is re-created on every open (`if root.open`): stateful
+            // widgets (ComboBox/Slider/CheckBox/LineEdit) keep their internal
+            // value otherwise and even break their one-way bindings after a user
+            // interaction, so a reused dialog would show stale, un-applied values.
+            if root.open: FocusScope {
+                init => { self.focus(); }
+                key-pressed(event) => {
+                    if (event.text == Key.Escape) { root.close(); accept; }
+                    reject;
                 }
+                VerticalLayout {
+                    TabWidget {
+                        
+                        vertical-stretch: 1;
 
-                // ===== Audio =====
-                Tab {
-                    title: "Audio";
-                    VerticalLayout {
-                        spacing: 10px;
-                        padding-top: 4px;
-                        HorizontalLayout {
-                            padding-left: 8px;
-                            padding-right: 8px;
-                            spacing: 4px;
-                            RowLabel { text: "Audio device"; }
-                            ComboBox {
-                                model: root.audio-devices;
-                                current-index: root.audio-device-idx;
-                                selected(s) => { debug("settings: audio combo selected"); root.set-audio-device(s); }
-                            }
-                        }
-                        HorizontalLayout {
-                            padding-left: 8px;
-                            padding-right: 8px;
-                            spacing: 4px;
-                            RowLabel { text: ""; }
-                            Button {
-                                text: "Refresh devices";
-                                preferred-height: 28px;
-                                clicked => { root.refresh-devices(); }
-                            }
-                        }
-HorizontalLayout {
-                            padding-left: 8px;
-                            padding-right: 8px;
-                            spacing: 4px;
-                            RowLabel { text: "Active:"; }
-                            RowLabel {
-                                text: root.active-device;
-                                text-color: Colors.text-primary;
-                            }
-                        }
-                        // ТЗ §7.5/§8.6: bit-perfect (Direct Output).
-                        HorizontalLayout {
-                            padding-left: 8px;
-                            padding-right: 8px;
-                            spacing: 4px;
-                            RowLabel { text: "Bit-perfect"; }
-                            CheckBox {
-                                checked: root.bit-perfect;
-                                toggled => { root.set-bit-perfect(self.checked); }
-                            }
-                            Rectangle { horizontal-stretch: 1; }
-                        }
-                        HorizontalLayout {
-                            padding-left: 8px;
-                            padding-right: 8px;
-                            spacing: 4px;
-                            RowLabel { text: root.codec-info;  }
-                        }
-                        HorizontalLayout {
-                            padding-left: 8px;
-                            padding-right: 8px;
-                            spacing: 4px;
-                            RowLabel {
-                                color: Colors.text-error;
-                                text: root.active-error;
-                                visible: root.active-error != "";
+                        // ===== General =====
+                        Tab {
+                            title: "General";
+                            ScrollView {
+                                VerticalLayout {
+                                    spacing: 10px;
+                                    padding-top: 10px;
+                                    HorizontalLayout {
+                                        padding-left: 8px;
+                                        padding-right: 8px;
+                                        spacing: 4px;
+                                        RowLabel {
+                                            text: "Theme";
+                                        }
 
-                            }
-                        }
-                        HorizontalLayout {
-                            padding-left: 8px;
-                            padding-right: 8px;
-                            spacing: 4px;
-                            RowLabel { text: "DSD mode"; }
-                            ComboBox {
-                                model: ["DSD \u{2192} PCM", "Native DSD", "DoP"];
-                                current-index: root.dsd-mode;
-                                selected(s) => { root.set-dsd-mode(self.current-index); }
-                            }
-                            Rectangle { horizontal-stretch: 1; }
-                        }
-                        // ТЗ §8.4: DSD→PCM конвертация нарушает bit-perfect для DSD.
-                        RowLabel {
-                            text: "DSD\u{2192}PCM несовместимо с bit-perfect для DSD";
-                            color: Colors.text-error;
-                            wrap: word-wrap;
-                            visible: root.dsd-bp-warn && root.dsd-mode == 0;
-                        }
-                        Rectangle { vertical-stretch: 1; }
-                    }
-                    
-                }
-
-                // ===== Columns =====
-                Tab {
-                    title: "Columns";
-                    VerticalLayout {
-                        spacing: 8px;
-                        padding-top: 4px;
-
-                        // Прокручиваемая таблица колонок
-                        ListView {
-                            vertical-stretch: 1;
-                            for col in root.columns-cfg : Rectangle {
-                                height: 32px;
-                                background: root.selected-col == col.index ? Colors.surface-selected : transparent;
-
-                                touch := TouchArea {
-                                    clicked => { root.selected-col = col.index; }
-                                }
-
-                                HorizontalLayout {
-                                    padding-left: 8px;
-                                    padding-right: 8px;
-                                    spacing: 4px;
-
-                                    // Видимость
-                                    CheckBox {
-                                        checked: col.visible;
-                                        toggled => { root.toggle-column(col.index); }
+                                        ComboBox {
+                                            model: ["Dark", "Light"];
+                                            current-index: root.theme;
+                                            selected(s) => { debug("settings: theme combo selected"); root.set-theme(s == "Light" ? 1 : 0); }
+                                        }
                                     }
 
-                                    // Название колонки
-                                    Text {
-                                        text: col.label;
-                                        color: Colors.text-primary;
-                                        font-size: 14px;
-                                        vertical-alignment: center;
-                                    }
-                                    Rectangle { horizontal-stretch: 1; }
+                                    HorizontalLayout {
+                                        padding-left: 8px;
+                                        padding-right: 8px;
+                                        spacing: 4px;
+                                        RowLabel {
+                                            text: "Cover size";
+                                        }
 
-                                    // Размер в процентах
-                                    Text {
-                                        text: col.visible ? Math.round(col.width-pct) + "%" : "0%";
-                                        color: col.visible ? Colors.text-primary : Colors.text-dim;
-                                        font-size: 14px;
-                                        vertical-alignment: center;
-                                        horizontal-alignment: right;
-                                        min-width: 40px;
+                                        Slider {
+                                            minimum: 100;
+                                            maximum: 400;
+                                            value: root.cover-size;
+                                            preferred-height: 24px;
+                                            changed(v) => { root.set-cover-size(v); }
+                                        }
+                                    }
+
+                                    HorizontalLayout {
+                                        padding-left: 8px;
+                                        padding-right: 8px;
+                                        spacing: 4px;
+                                        RowLabel {
+                                            text: "Info column width";
+                                        }
+
+                                        Slider {
+                                            minimum: 200;
+                                            maximum: 400;
+                                            value: root.col-info-w;
+                                            preferred-height: 24px;
+                                            changed(v) => { root.set-col-info-w(v); }
+                                        }
+                                    }
+
+                                    HorizontalLayout {
+                                        padding-left: 8px;
+                                        padding-right: 8px;
+                                        spacing: 4px;
+                                        RowLabel {
+                                            text: "Column gap";
+                                        }
+
+                                        Slider {
+                                            minimum: 0;
+                                            maximum: 20;
+                                            value: root.col-gap;
+                                            preferred-height: 24px;
+                                            changed(v) => { root.set-col-gap(v); }
+                                        }
+                                    }
+
+                                    HorizontalLayout {
+                                        padding-left: 8px;
+                                        padding-right: 8px;
+                                        spacing: 4px;
+                                        RowLabel {
+                                            text: "Minimize to tray";
+                                        }
+
+                                        CheckBox {
+                                            checked: root.minimize-to-tray;
+                                            toggled => { root.set-minimize-to-tray(self.checked); }
+                                        }
+
+                                        Rectangle {
+                                            horizontal-stretch: 1;
+                                        }
+                                    }
+
+                                    Rectangle {
+                                        vertical-stretch: 1;
                                     }
                                 }
                             }
                         }
 
-                        // Кнопки перемещения и сброса
-                        HorizontalLayout {
-                            spacing: 8px;
-                            Button {
-                                text: "\u{25B2}";
-                                preferred-height: 28px;
-                                preferred-width: 40px;
-                                enabled: root.selected-col > 0;
-                                clicked => { root.move-col-up(root.selected-col); }
-                            }
-                            Button {
-                                text: "\u{25BC}";
-                                preferred-height: 28px;
-                                preferred-width: 40px;
-                                enabled: root.selected-col >= 0 && root.selected-col < root.columns-cfg.length - 1;
-                                clicked => { root.move-col-down(root.selected-col); }
-                            }
-                            Rectangle { horizontal-stretch: 1; }
-                            Button {
-                                text: "Reset";
-                                preferred-height: 28px;
-                                clicked => { root.reset-columns(); }
+                        // ===== Audio =====
+                        Tab {
+                            title: "Audio";
+                            ScrollView {
+                                VerticalLayout {
+                                    spacing: 10px;
+                                    padding-top: 10px;
+                                    HorizontalLayout {
+                                        padding-left: 8px;
+                                        padding-right: 8px;
+                                        spacing: 4px;
+                                        RowLabel {
+                                            text: "Audio device";
+                                        }
+
+                                        ComboBox {
+                                            model: root.audio-devices;
+                                            current-index: root.audio-device-idx;
+                                            selected(s) => { debug("settings: audio combo selected"); root.set-audio-device(s); }
+                                        }
+
+                                        Button {
+                                            text: "Refresh";
+                                            preferred-height: 20px;
+                                            clicked => { root.refresh-devices(); }
+                                        }
+                                    }
+
+                                    HorizontalLayout {
+                                        padding-left: 8px;
+                                        padding-right: 8px;
+                                        spacing: 4px;
+                                        RowLabel {
+                                            text: "Active:";
+                                        }
+
+                                        RowLabel {
+                                            text: root.active-device;
+                                            text-color: Colors.text-primary;
+                                        }
+                                        Rectangle {
+                                            horizontal-stretch: 1;
+                                        }
+                                    }
+                                    // ТЗ §7.5/§8.6: bit-perfect (Direct Output).
+                                    HorizontalLayout {
+                                        padding-left: 8px;
+                                        padding-right: 8px;
+                                        spacing: 4px;
+                                        RowLabel {
+                                            text: "Bit-perfect";
+                                        }
+
+                                        CheckBox {
+                                            checked: root.bit-perfect;
+                                            toggled => { root.set-bit-perfect(self.checked); }
+                                        }
+
+                                        Rectangle {
+                                            horizontal-stretch: 1;
+                                        }
+                                    }
+
+                                    HorizontalLayout {
+                                        padding-left: 8px;
+                                        padding-right: 8px;
+                                        spacing: 4px;
+                                        RowLabel {
+                                            text: "Codec info:";
+                                        }
+                                        RowLabel {
+                                            text: root.codec-info;
+                                        }
+                                        Rectangle {
+                                            horizontal-stretch: 1;
+                                        }
+                                    }
+
+                                    HorizontalLayout {
+                                        padding-left: 8px;
+                                        padding-right: 8px;
+                                        spacing: 4px;
+                                        RowLabel {
+                                            color: Colors.text-error;
+                                            text: root.active-error;
+                                            visible: root.active-error != "";
+                                        }
+                                    }
+
+                                    HorizontalLayout {
+                                        padding-left: 8px;
+                                        padding-right: 8px;
+                                        spacing: 4px;
+                                        RowLabel {
+                                            text: "DSD mode";
+                                        }
+
+                                        ComboBox {
+                                            model: ["DSD \u{2192} PCM", "Native DSD", "DoP"];
+                                            current-index: root.dsd-mode;
+                                            selected(s) => { root.set-dsd-mode(self.current-index); }
+                                        }
+
+                                        Rectangle {
+                                            horizontal-stretch: 1;
+                                        }
+                                    }
+                                    // ТЗ §8.4: DSD→PCM конвертация нарушает bit-perfect для DSD.
+                                    RowLabel {
+                                        text: "DSD\u{2192}PCM несовместимо с bit-perfect для DSD";
+                                        color: Colors.text-error;
+                                        wrap: word-wrap;
+                                        visible: root.dsd-bp-warn && root.dsd-mode == 0;
+                                    }
+
+                                    Rectangle {
+                                        vertical-stretch: 1;
+                                    }
+                                }
                             }
                         }
-                    }
-                }
 
-                // ===== Covers =====
-                Tab {
-                    title: "Covers";
-                    VerticalLayout {
-                        spacing: 8px;
-                        padding-top: 4px;
+                        // ===== Columns =====
+                        Tab {
+                            title: "Columns";
+                            ScrollView {
+                                VerticalLayout {
+                                    spacing: 8px;
+                                    padding-top: 10px;
 
-                        RowLabel { text: "Cover source priority"; }
+                                    // Прокручиваемая таблица колонок
+                                    ListView {
+                                        vertical-stretch: 1;
+                                        for col in root.columns-cfg: Rectangle {
+                                            height: 32px;
+                                            background: root.selected-col == col.index ? Colors.surface-selected : transparent;
 
-                        ListView {
-                            vertical-stretch: 1;
-                            for cover-row in root.covers : Rectangle {
-                                height: 32px;
+                                            touch := TouchArea {
+                                                clicked => { root.selected-col = col.index; }
+                                            }
 
-                                HorizontalLayout {
-                                    padding-left: 8px;
-                                    padding-right: 8px;
-                                    spacing: 4px;
+                                            HorizontalLayout {
+                                                padding-left: 8px;
+                                                padding-right: 8px;
+                                                spacing: 4px;
 
-                                    Text {
-                                        text: cover-row.label;
-                                        color: Colors.text-primary;
-                                        font-size: 14px;
-                                        vertical-alignment: center;
-                                        horizontal-stretch: 1;
-                                        overflow: elide;
+                                                // Видимость
+                                                CheckBox {
+                                                    checked: col.visible;
+                                                    toggled => { root.toggle-column(col.index); }
+                                                }
+
+                                                // Название колонки
+                                                Text {
+                                                    text: col.label;
+                                                    color: Colors.text-primary;
+                                                    font-size: 14px;
+                                                    padding-left: 8px;
+                                                    vertical-alignment: center;
+                                                    horizontal-alignment: left;
+                                                }
+
+                                                Rectangle {
+                                                    horizontal-stretch: 1;
+                                                }
+
+                                                // Размер в процентах
+                                                Text {
+                                                    text: col.visible ? Math.round(col.width-pct) + "%" : "0%";
+                                                    color: col.visible ? Colors.text-primary : Colors.text-dim;
+                                                    font-size: 14px;
+                                                    vertical-alignment: center;
+                                                    horizontal-alignment: right;
+                                                    padding-right: 8px;
+                                                    min-width: 40px;
+                                                }
+                                            }
+                                        }
+                                    }
+
+                                    // Кнопки перемещения и сброса
+                                    HorizontalLayout {
+                                        padding-top: 14px;
+                                        padding-bottom: 14px;
+                                        spacing: 8px;
+                                        Button {
+                                            text: "\u{25B2}";
+                                            preferred-height: 20px;
+                                            preferred-width: 40px;
+                                            enabled: root.selected-col > 0;
+                                            clicked => { root.move-col-up(root.selected-col); }
+                                        }
+
+                                        Button {
+                                            text: "\u{25BC}";
+                                            preferred-height: 20px;
+                                            preferred-width: 40px;
+                                            enabled: root.selected-col >= 0 && root.selected-col < root.columns-cfg.length - 1;
+                                            clicked => { root.move-col-down(root.selected-col); }
+                                        }
+
+                                        Rectangle {
+                                            horizontal-stretch: 1;
+                                        }
+
+                                        Button {
+                                            text: "Reset";
+                                            preferred-height: 20px;
+                                            clicked => { root.reset-columns(); }
+                                        }
+                                    }
+                                }
+                            }
+                        }
+
+                        // ===== Covers =====
+                        Tab {
+                            title: "Covers";
+                            ScrollView {
+                                VerticalLayout {
+                                    spacing: 8px;
+                                    padding-top: 10px;
+
+                                    RowLabel {
+                                        text: "Cover source priority";
+                                    }
+
+                                    ListView {
+                                        vertical-stretch: 1;
+                                        for cover-row in root.covers: Rectangle {
+                                            height: 32px;
+
+                                            HorizontalLayout {
+                                                padding-left: 8px;
+                                                padding-right: 8px;
+                                                spacing: 4px;
+
+                                                Text {
+                                                    text: cover-row.label;
+                                                    color: Colors.text-primary;
+                                                    font-size: 14px;
+                                                    vertical-alignment: center;
+                                                    horizontal-stretch: 1;
+                                                    overflow: elide;
+                                                }
+
+                                                Button {
+                                                    text: "\u{25B2}";
+                                                    preferred-height: 28px;
+                                                    preferred-width: 32px;
+                                                    enabled: cover-row.pos > 0;
+                                                    clicked => { root.cover-move-up(cover-row.pos); }
+                                                }
+
+                                                Button {
+                                                    text: "\u{25BC}";
+                                                    preferred-height: 28px;
+                                                    preferred-width: 32px;
+                                                    enabled: cover-row.pos < root.covers.length - 1;
+                                                    clicked => { root.cover-move-down(cover-row.pos); }
+                                                }
+                                            }
+                                        }
+                                    }
+
+                                    HorizontalLayout {
+                                        padding-left: 8px;
+                                        spacing: 4px;
+                                        RowLabel {
+                                            text: "Folder cover filenames (comma-separated)";
+                                        }
+
+                                        Rectangle {
+                                            horizontal-stretch: 1;
+                                        }
+                                    }
+
+                                    LineEdit {
+                                        preferred-height: 32px;
+                                        text: root.cover-names;
+                                        edited(t) => { root.cover-names-edited(t); }
+                                    }
+
+                                    HorizontalLayout {
+                                        padding-left: 8px;
+                                        spacing: 4px;
+                                        RowLabel {
+                                            text: "Search the internet (iTunes)";
+                                        }
+
+                                        CheckBox {
+                                            checked: root.cover-online;
+                                            toggled => { root.toggle-cover-online(self.checked); }
+                                        }
+
+                                        Rectangle {
+                                            horizontal-stretch: 1;
+                                        }
+                                    }
+                                }
+                            }
+                        }
+
+                        // ===== Visualization (ТЗ §9) =====
+                        Tab {
+                            title: "Visualization";
+                            ScrollView {
+                                VerticalLayout {
+                                    spacing: 8px;
+                                    padding-top: 10px;
+
+                                    HorizontalLayout {
+                                        padding-left: 8px;
+                                        padding-right: 8px;
+                                        spacing: 4px;
+                                        RowLabel {
+                                            text: "Type";
+                                            min-width: 170px;
+                                        }
+
+                                        ComboBox {
+                                            model: ["Off", "Oscilloscope", "Spectrogram", "Spectrum"];
+                                            current-index: root.viz-mode;
+                                            selected(s) => { root.set-viz-mode(self.current-index); }
+                                        }
+
+                                        Rectangle { horizontal-stretch: 1; }
+                                    }
+
+                                    HorizontalLayout {
+                                        padding-left: 8px;
+                                        padding-right: 8px;
+                                        spacing: 4px;
+                                        RowLabel {
+                                            text: "Skip fulltrack for DSD";
+                                            min-width: 170px;
+                                        }
+
+                                        CheckBox {
+                                            checked: root.viz-skip-dsd;
+                                            toggled => { root.set-viz-skip-dsd(self.checked); }
+                                        }
+
+                                        Rectangle {
+                                            horizontal-stretch: 1;
+                                        }
+                                    }
+
+                                    // Прокручиваемый блок настроек текущего типа.
+                                    VerticalLayout {
+                                        vertical-stretch: 1;
+                                        spacing: 8px;
+
+                                        // ----- Осциллограмма -----
+                                        if root.viz-mode == 1: VerticalLayout {
+                                            spacing: 8px;
+                                            RowLabel {
+                                                text: "Settings: Oscilloscope";
+                                                text-color: Colors.accent;
+                                            }
+
+                                            HorizontalLayout {
+                                                padding-left: 8px;
+                                                spacing: 4px;
+                                                RowLabel {
+                                                    text: "Channels";
+                                                    min-width: 170px;
+                                                }
+
+                                                ComboBox {
+                                                    model: ["Mono", "Stereo"];
+                                                    current-index: root.viz-osc-channels;
+                                                    selected(s) => { root.set-viz-osc-channels(self.current-index); }
+                                                }
+
+                                                Rectangle {
+                                                    horizontal-stretch: 1;
+                                                }
+                                            }
+
+                                            HorizontalLayout {
+                                                padding-left: 8px;
+                                                spacing: 4px;
+                                                RowLabel {
+                                                    text: "Sensitivity";
+                                                    min-width: 170px;
+                                                }
+
+                                                Slider {
+                                                    minimum: 0.01;
+                                                    maximum: 2;
+                                                    value: root.viz-osc-sensitivity;
+                                                    preferred-height: 24px;
+                                                    changed(v) => { root.set-viz-osc-sensitivity(v); }
+                                                }
+
+                                                Text {
+                                                    text: Math.round(root.viz-osc-sensitivity * 100) / 100;
+                                                    color: Colors.text-secondary;
+                                                    width: 56px;
+                                                }
+                                            }
+
+                                            HorizontalLayout {
+                                                padding-left: 8px;
+                                                spacing: 4px;
+                                                RowLabel {
+                                                    text: "Line width";
+                                                    min-width: 170px;
+                                                }
+
+                                                Slider {
+                                                    minimum: 0.5;
+                                                    maximum: 4.0;
+                                                    value: root.viz-osc-line-width;
+                                                    preferred-height: 24px;
+                                                    changed(v) => { root.set-viz-osc-line-width(v); }
+                                                }
+
+                                                Text {
+                                                    text: Math.round(root.viz-osc-line-width * 10) / 10;
+                                                    color: Colors.text-secondary;
+                                                    width: 56px;
+                                                }
+                                            }
+
+                                            HorizontalLayout {
+                                                padding-left: 8px;
+                                                spacing: 4px;
+                                                RowLabel {
+                                                    text: "Max columns";
+                                                    min-width: 170px;
+                                                }
+
+                                                Slider {
+                                                    minimum: 512;
+                                                    maximum: 8192;
+                                                    value: root.viz-osc-max-columns;
+                                                    preferred-height: 24px;
+                                                    changed(v) => { root.set-viz-osc-max-columns(Math.round(v)); }
+                                                }
+
+                                                Text {
+                                                    text: Math.round(root.viz-osc-max-columns);
+                                                    color: Colors.text-secondary;
+                                                    width: 56px;
+                                                }
+                                            }
+
+                                            HorizontalLayout {
+                                                padding-left: 8px;
+                                                spacing: 4px;
+                                                RowLabel {
+                                                    text: "Draw center line";
+                                                    min-width: 170px;
+                                                }
+
+                                                CheckBox {
+                                                    checked: root.viz-osc-center-line;
+                                                    toggled => { root.set-viz-osc-center-line(self.checked); }
+                                                }
+
+                                                Rectangle {
+                                                    horizontal-stretch: 1;
+                                                }
+                                            }
+
+                                            HorizontalLayout {
+                                                padding-left: 8px;
+                                                spacing: 4px;
+                                                RowLabel {
+                                                    text: "Cache in memory";
+                                                    min-width: 170px;
+                                                }
+
+                                                CheckBox {
+                                                    checked: root.viz-osc-cache-mem;
+                                                    toggled => { root.set-viz-osc-cache-mem(self.checked); }
+                                                }
+
+                                                Rectangle {
+                                                    horizontal-stretch: 1;
+                                                }
+                                            }
+
+                                            HorizontalLayout {
+                                                padding-left: 8px;
+                                                spacing: 4px;
+                                                RowLabel {
+                                                    text: "Cache on disk";
+                                                    min-width: 170px;
+                                                }
+
+                                                CheckBox {
+                                                    checked: root.viz-osc-cache-disk;
+                                                    toggled => { root.set-viz-osc-cache-disk(self.checked); }
+                                                }
+
+                                                Rectangle {
+                                                    horizontal-stretch: 1;
+                                                }
+                                            }
+                                        }
+
+                                        // ----- Спектрограмма -----
+                                        if root.viz-mode == 2: VerticalLayout {
+                                            spacing: 8px;
+                                            RowLabel {
+                                                text: "Settings: Spectrogram";
+                                                text-color: Colors.accent;
+                                            }
+
+                                            HorizontalLayout {
+                                                padding-left: 8px;
+                                                spacing: 4px;
+                                                RowLabel {
+                                                    text: "Channels";
+                                                    min-width: 170px;
+                                                }
+
+                                                ComboBox {
+                                                    model: ["Mono", "Stereo"];
+                                                    current-index: root.viz-spec-channels;
+                                                    selected(s) => { root.set-viz-spec-channels(self.current-index); }
+                                                }
+
+                                                Rectangle {
+                                                    horizontal-stretch: 1;
+                                                }
+                                            }
+
+                                            HorizontalLayout {
+                                                padding-left: 8px;
+                                                spacing: 4px;
+                                                RowLabel {
+                                                    text: "Sensitivity";
+                                                    min-width: 170px;
+                                                }
+
+                                                Slider {
+                                                    minimum: 0.01;
+                                                    maximum: 20;
+                                                    value: root.viz-spec-sensitivity;
+                                                    preferred-height: 24px;
+                                                    changed(v) => { root.set-viz-spec-sensitivity(v); }
+                                                }
+
+                                                Text {
+                                                    text: Math.round(root.viz-spec-sensitivity * 100) / 100;
+                                                    color: Colors.text-secondary;
+                                                    width: 56px;
+                                                }
+                                            }
+
+                                            HorizontalLayout {
+                                                padding-left: 8px;
+                                                spacing: 4px;
+                                                RowLabel {
+                                                    text: "FFT size";
+                                                    min-width: 170px;
+                                                }
+
+                                                ComboBox {
+                                                    model: ["512", "1024", "2048", "4096", "8192"];
+                                                    current-index: root.viz-spec-fft;
+                                                    selected(s) => { root.set-viz-spec-fft(self.current-index); }
+                                                }
+
+                                                Rectangle {
+                                                    horizontal-stretch: 1;
+                                                }
+                                            }
+
+                                            HorizontalLayout {
+                                                padding-left: 8px;
+                                                spacing: 4px;
+                                                RowLabel {
+                                                    text: "Window type";
+                                                    min-width: 170px;
+                                                }
+
+                                                ComboBox {
+                                                    model: ["Hann", "Hamming", "Blackman"];
+                                                    current-index: root.viz-spec-window;
+                                                    selected(s) => { root.set-viz-spec-window(self.current-index); }
+                                                }
+
+                                                Rectangle {
+                                                    horizontal-stretch: 1;
+                                                }
+                                            }
+
+                                            HorizontalLayout {
+                                                padding-left: 8px;
+                                                spacing: 4px;
+                                                RowLabel {
+                                                    text: "Freq scale";
+                                                    min-width: 170px;
+                                                }
+
+                                                ComboBox {
+                                                    model: ["Linear", "Log", "Mel"];
+                                                    current-index: root.viz-spec-scale;
+                                                    selected(s) => { root.set-viz-spec-scale(self.current-index); }
+                                                }
+
+                                                Rectangle {
+                                                    horizontal-stretch: 1;
+                                                }
+                                            }
+
+                                            HorizontalLayout {
+                                                padding-left: 8px;
+                                                spacing: 4px;
+                                                RowLabel {
+                                                    text: "Freq min (Hz)";
+                                                    min-width: 170px;
+                                                }
+
+                                                Rectangle {
+                                                    border-width: root.viz-freq-min-invalid ? 2px : 0px;
+                                                    border-color: Colors.text-error;
+                                                    border-radius: 6px;
+                                                    preferred-width: 100px;
+                                                    LineEdit {
+                                                        height: 24px;
+                                                        text <=> root.viz-freq-min-text;
+                                                        edited(t) => { root.set-viz-spec-freq-min(t); }
+                                                    }
+                                                }
+
+                                                Rectangle {
+                                                    horizontal-stretch: 1;
+                                                }
+                                            }
+
+                                            HorizontalLayout {
+                                                padding-left: 8px;
+                                                spacing: 4px;
+                                                RowLabel {
+                                                    text: "Freq max (Hz)";
+                                                    min-width: 170px;
+                                                }
+
+                                                Rectangle {
+                                                    border-width: root.viz-freq-max-invalid ? 2px : 0px;
+                                                    border-color: Colors.text-error;
+                                                    border-radius: 6px;
+                                                    preferred-width: 100px;
+                                                    LineEdit {
+                                                        height: 24px;
+                                                        text <=> root.viz-freq-max-text;
+                                                        edited(t) => { root.set-viz-spec-freq-max(t); }
+                                                    }
+                                                }
+
+                                                Rectangle {
+                                                    horizontal-stretch: 1;
+                                                }
+                                            }
+
+                                            HorizontalLayout {
+                                                padding-left: 8px;
+                                                spacing: 4px;
+                                                RowLabel {
+                                                    text: "Gain (dB)";
+                                                    min-width: 170px;
+                                                }
+
+                                                Slider {
+                                                    minimum: -40;
+                                                    maximum: 100;
+                                                    value: root.viz-spec-gain;
+                                                    preferred-height: 24px;
+                                                    changed(v) => { root.set-viz-spec-gain(v); }
+                                                }
+
+                                                Text {
+                                                    text: Math.round(root.viz-spec-gain);
+                                                    color: Colors.text-secondary;
+                                                    width: 56px;
+                                                }
+                                            }
+
+                                            HorizontalLayout {
+                                                padding-left: 8px;
+                                                spacing: 4px;
+                                                RowLabel {
+                                                    text: "Range (dB)";
+                                                    min-width: 170px;
+                                                }
+
+                                                Slider {
+                                                    minimum: 1;
+                                                    maximum: 200;
+                                                    value: root.viz-spec-range;
+                                                    preferred-height: 24px;
+                                                    changed(v) => { root.set-viz-spec-range(v); }
+                                                }
+
+                                                Text {
+                                                    text: Math.round(root.viz-spec-range);
+                                                    color: Colors.text-secondary;
+                                                    width: 56px;
+                                                }
+                                            }
+
+                                            HorizontalLayout {
+                                                padding-left: 8px;
+                                                spacing: 4px;
+                                                RowLabel {
+                                                    text: "High boost (dB/dec)";
+                                                    min-width: 170px;
+                                                }
+
+                                                Slider {
+                                                    minimum: 0;
+                                                    maximum: 60;
+                                                    value: root.viz-spec-boost;
+                                                    preferred-height: 24px;
+                                                    changed(v) => { root.set-viz-spec-boost(v); }
+                                                }
+
+                                                Text {
+                                                    text: Math.round(root.viz-spec-boost * 10) / 10;
+                                                    color: Colors.text-secondary;
+                                                    width: 56px;
+                                                }
+                                            }
+
+                                            HorizontalLayout {
+                                                padding-left: 8px;
+                                                spacing: 4px;
+                                                RowLabel {
+                                                    text: "Palette";
+                                                    min-width: 170px;
+                                                }
+
+                                                ComboBox {
+                                                    model: [
+                                                        "Solid",
+                                                        "Magma",
+                                                        "Viridis",
+                                                        "Plasma",
+                                                        "Inferno",
+                                                        "Gray",
+                                                        "Thermal",
+                                                        "Rainbow"
+                                                    ];
+                                                    current-index: root.viz-spec-palette;
+                                                    selected(s) => { root.set-viz-spec-palette(self.current-index); }
+                                                }
+
+                                                Rectangle {
+                                                    horizontal-stretch: 1;
+                                                }
+                                            }
+
+                                            HorizontalLayout {
+                                                padding-left: 8px;
+                                                spacing: 4px;
+                                                RowLabel {
+                                                    text: "Max frames";
+                                                    min-width: 170px;
+                                                }
+
+                                                Slider {
+                                                    minimum: 512;
+                                                    maximum: 8192;
+                                                    value: root.viz-spec-max-frames;
+                                                    preferred-height: 24px;
+                                                    changed(v) => { root.set-viz-spec-max-frames(Math.round(v)); }
+                                                }
+
+                                                Text {
+                                                    text: Math.round(root.viz-spec-max-frames);
+                                                    color: Colors.text-secondary;
+                                                    width: 56px;
+                                                }
+                                            }
+
+                                            HorizontalLayout {
+                                                padding-left: 8px;
+                                                spacing: 4px;
+                                                RowLabel {
+                                                    text: "DSD CIC compensation";
+                                                    min-width: 170px;
+                                                }
+
+                                                CheckBox {
+                                                    checked: root.viz-spec-dsd-comp;
+                                                    toggled => { root.set-viz-spec-dsd-comp(self.checked); }
+                                                }
+
+                                                Rectangle {
+                                                    horizontal-stretch: 1;
+                                                }
+                                            }
+
+                                            HorizontalLayout {
+                                                padding-left: 8px;
+                                                spacing: 4px;
+                                                RowLabel {
+                                                    text: "Cache in memory";
+                                                    min-width: 170px;
+                                                }
+
+                                                CheckBox {
+                                                    checked: root.viz-spec-cache-mem;
+                                                    toggled => { root.set-viz-spec-cache-mem(self.checked); }
+                                                }
+
+                                                Rectangle {
+                                                    horizontal-stretch: 1;
+                                                }
+                                            }
+
+                                            HorizontalLayout {
+                                                padding-left: 8px;
+                                                spacing: 4px;
+                                                RowLabel {
+                                                    text: "Cache on disk";
+                                                    min-width: 170px;
+                                                }
+
+                                                CheckBox {
+                                                    checked: root.viz-spec-cache-disk;
+                                                    toggled => { root.set-viz-spec-cache-disk(self.checked); }
+                                                }
+
+                                                Rectangle {
+                                                    horizontal-stretch: 1;
+                                                }
+                                            }
+                                        }
+
+                                        // ----- Анализатор спектра -----
+                                        if root.viz-mode == 3: VerticalLayout {
+                                            
+                                            spacing: 8px;
+                                            RowLabel {
+                                                text: "Settings: Spectrum";
+                                                text-color: Colors.accent;
+                                            }
+
+                                            HorizontalLayout {
+                                                padding-left: 8px;
+                                                spacing: 4px;
+                                                RowLabel {
+                                                    text: "Channels";
+                                                    min-width: 170px;
+                                                }
+
+                                                ComboBox {
+                                                    model: ["Mono", "Stereo"];
+                                                    current-index: root.viz-sp-channels;
+                                                    selected(s) => { root.set-viz-sp-channels(self.current-index); }
+                                                }
+
+                                                Rectangle {
+                                                    horizontal-stretch: 1;
+                                                }
+                                            }
+
+                                            HorizontalLayout {
+                                                padding-left: 8px;
+                                                spacing: 4px;
+                                                RowLabel {
+                                                    text: "Sensitivity";
+                                                    min-width: 170px;
+                                                }
+
+                                                Slider {
+                                                    minimum: 0.01;
+                                                    maximum: 20;
+                                                    value: root.viz-sp-sensitivity;
+                                                    preferred-height: 24px;
+                                                    changed(v) => { root.set-viz-sp-sensitivity(v); }
+                                                }
+
+                                                Text {
+                                                    text: Math.round(root.viz-sp-sensitivity * 100) / 100;
+                                                    color: Colors.text-secondary;
+                                                    width: 56px;
+                                                }
+                                            }
+
+                                            HorizontalLayout {
+                                                padding-left: 4px;
+                                                spacing: 4px;
+                                                RowLabel {
+                                                    text: "Bands (4-128)";
+                                                    min-width: 170px;
+                                                }
+
+                                                Rectangle {
+                                                    border-width: root.viz-bands-invalid ? 2px : 0px;
+                                                    border-color: Colors.text-error;
+                                                    border-radius: 6px;
+                                                    preferred-width: 100px;
+                                                    LineEdit {
+                                                        height: 24px;
+                                                        text <=> root.viz-bands-text;
+                                                        edited(t) => { root.set-viz-sp-bands(t); }
+                                                    }
+                                                }
+
+                                                Rectangle {
+                                                    horizontal-stretch: 1;
+                                                }
+                                            }
+
+                                            HorizontalLayout {
+                                                padding-left: 8px;
+                                                spacing: 4px;
+                                                RowLabel {
+                                                    text: "Freq scale";
+                                                    min-width: 170px;
+                                                }
+
+                                                ComboBox {
+                                                    model: ["Linear", "Log", "Mel"];
+                                                    current-index: root.viz-sp-freq-scale;
+                                                    selected(s) => { root.set-viz-sp-freq-scale(self.current-index); }
+                                                }
+
+                                                Rectangle {
+                                                    horizontal-stretch: 1;
+                                                }
+                                            }
+
+                                            HorizontalLayout {
+                                                padding-left: 8px;
+                                                spacing: 4px;
+                                                RowLabel {
+                                                    text: "Level scale";
+                                                    min-width: 170px;
+                                                }
+
+                                                ComboBox {
+                                                    model: ["Linear", "Log"];
+                                                    current-index: root.viz-sp-level-scale;
+                                                    selected(s) => { root.set-viz-sp-level-scale(self.current-index); }
+                                                }
+
+                                                Rectangle {
+                                                    horizontal-stretch: 1;
+                                                }
+                                            }
+
+                                            HorizontalLayout {
+                                                padding-left: 8px;
+                                                spacing: 4px;
+                                                RowLabel {
+                                                    text: "Smoothing";
+                                                    min-width: 170px;
+                                                }
+
+                                                Slider {
+                                                    minimum: 0.0;
+                                                    maximum: 0.99;
+                                                    value: root.viz-sp-smoothing;
+                                                    preferred-height: 24px;
+                                                    changed(v) => { root.set-viz-sp-smoothing(v); }
+                                                }
+
+                                                Text {
+                                                    text: Math.round(root.viz-sp-smoothing * 100) / 100;
+                                                    color: Colors.text-secondary;
+                                                    width: 56px;
+                                                }
+                                            }
+
+                                            HorizontalLayout {
+                                                padding-left: 8px;
+                                                spacing: 4px;
+                                                RowLabel {
+                                                    text: "Peak hold";
+                                                    min-width: 170px;
+                                                }
+
+                                                CheckBox {
+                                                    checked: root.viz-sp-peak-hold;
+                                                    toggled => { root.set-viz-sp-peak-hold(self.checked); }
+                                                }
+
+                                                Rectangle {
+                                                    horizontal-stretch: 1;
+                                                }
+                                            }
+
+                                            HorizontalLayout {
+                                                padding-left: 8px;
+                                                spacing: 4px;
+                                                RowLabel {
+                                                    text: "Peak decay (ms)";
+                                                    min-width: 170px;
+                                                }
+
+                                                Slider {
+                                                    minimum: 50;
+                                                    maximum: 2000;
+                                                    value: root.viz-sp-peak-decay;
+                                                    preferred-height: 24px;
+                                                    changed(v) => { root.set-viz-sp-peak-decay(Math.round(v)); }
+                                                }
+
+                                                Text {
+                                                    text: Math.round(root.viz-sp-peak-decay);
+                                                    color: Colors.text-secondary;
+                                                    width: 56px;
+                                                }
+                                            }
+
+                                            HorizontalLayout {
+                                                padding-left: 8px;
+                                                spacing: 4px;
+                                                RowLabel {
+                                                    text: "Bar gap (px)";
+                                                    min-width: 170px;
+                                                }
+
+                                                Slider {
+                                                    minimum: 0;
+                                                    maximum: 10;
+                                                    value: root.viz-sp-bar-gap;
+                                                    preferred-height: 24px;
+                                                    changed(v) => { root.set-viz-sp-bar-gap(Math.round(v)); }
+                                                }
+
+                                                Text {
+                                                    text: Math.round(root.viz-sp-bar-gap);
+                                                    color: Colors.text-secondary;
+                                                    width: 56px;
+                                                }
+                                            }
+
+                                            HorizontalLayout {
+                                                padding-left: 8px;
+                                                spacing: 4px;
+                                                RowLabel {
+                                                    text: "Bar radius (px)";
+                                                    min-width: 170px;
+                                                }
+
+                                                Slider {
+                                                    minimum: 0;
+                                                    maximum: 12;
+                                                    value: root.viz-sp-bar-radius;
+                                                    preferred-height: 24px;
+                                                    changed(v) => { root.set-viz-sp-bar-radius(Math.round(v)); }
+                                                }
+
+                                                Text {
+                                                    text: Math.round(root.viz-sp-bar-radius);
+                                                    color: Colors.text-secondary;
+                                                    width: 56px;
+                                                }
+                                            }
+
+                                            HorizontalLayout {
+                                                padding-left: 8px;
+                                                spacing: 4px;
+                                                RowLabel {
+                                                    text: "Gradient";
+                                                    min-width: 170px;
+                                                }
+
+                                                CheckBox {
+                                                    checked: root.viz-sp-gradient;
+                                                    toggled => { root.set-viz-sp-gradient(self.checked); }
+                                                }
+
+                                                Rectangle {
+                                                    horizontal-stretch: 1;
+                                                }
+                                            }
+
+                                            HorizontalLayout {
+                                                padding-left: 8px;
+                                                spacing: 4px;
+                                                RowLabel {
+                                                    text: "DSD CIC compensation";
+                                                    min-width: 170px;
+                                                }
+
+                                                CheckBox {
+                                                    checked: root.viz-sp-dsd-comp;
+                                                    toggled => { root.set-viz-sp-dsd-comp(self.checked); }
+                                                }
+
+                                                Rectangle {
+                                                    horizontal-stretch: 1;
+                                                }
+                                            }
+                                        }
+
+                                        // ----- Отключено -----
+                                        if root.viz-mode == 0: VerticalLayout {
+                                            spacing: 8px;
+                                            RowLabel {
+                                                text: "Visualization is disabled (placeholder only).";
+                                                text-color: Colors.text-tertiary;
+                                            }
+                                        }
+                                    }
+
+                                    // Валидация + сброс
+                                    RowLabel {
+                                        text: root.viz-error;
+                                        text-color: Colors.text-error;
+                                        wrap: word-wrap;
+                                        visible: root.viz-error != "";
                                     }
 
                                     Button {
-                                        text: "\u{25B2}";
+                                        text: "Reset type settings";
                                         preferred-height: 28px;
-                                        preferred-width: 32px;
-                                        enabled: cover-row.pos > 0;
-                                        clicked => { root.cover-move-up(cover-row.pos); }
+                                        clicked => { debug("settings: reset viz type"); root.reset-viz-type(); }
                                     }
+                                }
+                            }
+                        }
+
+                        // ===== Playlist =====
+                        Tab {
+                            title: "Playlist";
+                            ScrollView {
+                                VerticalLayout {
+                                    spacing: 10px;
+                                    padding-top: 10px;
                                     Button {
-                                        text: "\u{25BC}";
+                                        text: "Remove current track";
                                         preferred-height: 28px;
-                                        preferred-width: 32px;
-                                        enabled: cover-row.pos < root.covers.length - 1;
-                                        clicked => { root.cover-move-down(cover-row.pos); }
+                                        clicked => { root.remove-current(); }
+                                    }
+
+                                    Button {
+                                        text: "Clear playlist";
+                                        preferred-height: 28px;
+                                        clicked => { root.clear-playlist(); }
+                                    }
+
+                                    Rectangle {
+                                        vertical-stretch: 1;
                                     }
                                 }
                             }
                         }
 
-                        HorizontalLayout {
-                            padding-left: 8px;
-                            spacing: 4px;
-                            RowLabel { text: "Folder cover filenames (comma-separated)"; }
-                            Rectangle { horizontal-stretch: 1; }
-                        }
+                        // ===== Cache (§10.5) =====
+                        Tab {
+                            title: "Cache";
+                            ScrollView {
+                                VerticalLayout {
+                                    spacing: 10px;
+                                    padding-top: 10px;
+                                    HorizontalLayout {
+                                        padding-left: 8px;
+                                        padding-right: 8px;
+                                        spacing: 4px;
+                                        RowLabel {
+                                            text: "RAM cache";
+                                        }
 
-                        LineEdit {
-                            preferred-height: 32px;
-                            text: root.cover-names;
-                            edited(t) => { root.cover-names-edited(t); }
-                        }
+                                        RowLabel {
+                                            text: root.cache-ram-size;
+                                            text-color: Colors.text-primary;
+                                        }
 
-                        HorizontalLayout {
-                            padding-left: 8px;
-                            spacing: 4px;
-                            RowLabel { text: "Search the internet (iTunes)"; }
-                            CheckBox {
-                                checked: root.cover-online;
-                                toggled => { root.toggle-cover-online(self.checked); }
+                                        Rectangle {
+                                            horizontal-stretch: 1;
+                                        }
+                                    }
+
+                                    HorizontalLayout {
+                                        padding-left: 8px;
+                                        padding-right: 8px;
+                                        spacing: 4px;
+                                        RowLabel {
+                                            text: "Disk cache";
+                                        }
+
+                                        RowLabel {
+                                            text: root.cache-disk-size;
+                                            text-color: Colors.text-primary;
+                                        }
+
+                                        Rectangle {
+                                            horizontal-stretch: 1;
+                                        }
+                                    }
+                                    // Кнопки очистки (§10.5). Подпись RAM/Total уточняет объём:
+                                    // viz очищает RAM+диск визуализации; covers — диск обложек.
+                                    HorizontalLayout {
+                                        padding-left: 8px;
+                                        padding-right: 8px;
+                                        spacing: 4px;
+                                        RowLabel {
+                                            text: "";
+                                        }
+
+                                        Button {
+                                            text: "Clear viz cache";
+                                            preferred-height: 28px;
+                                            clicked => { root.clear-viz-cache(); }
+                                        }
+
+                                        Button {
+                                            text: "Clear cover cache";
+                                            preferred-height: 28px;
+                                            clicked => { root.clear-cover-cache(); }
+                                        }
+
+                                        Button {
+                                            text: "Clear all";
+                                            preferred-height: 28px;
+                                            clicked => { root.clear-all-cache(); }
+                                        }
+                                    }
+
+                                    Rectangle {
+                                        vertical-stretch: 1;
+                                    }
+                                }
                             }
-                            Rectangle { horizontal-stretch: 1; }
                         }
                     }
-                }
-
-                // ===== Visualization (ТЗ §9) =====
-                Tab {
-                    title: "Visualization";
-                    VerticalLayout {
+                    // Кнопки Save / Cancel внизу диалога
+                    HorizontalLayout {
                         spacing: 8px;
-                        padding-top: 4px;
+                        alignment: end;
 
-                        HorizontalLayout {
-                            padding-left: 8px;
-                            padding-right: 8px;
-                            spacing: 4px;
-                            RowLabel { text: "Type"; min-width: 170px; }
-                            ComboBox {
-                                model: ["Off", "Oscilloscope", "Spectrogram", "Spectrum"];
-                                current-index: root.viz-mode;
-                                selected(s) => { root.set-viz-mode(self.current-index); }
-                            }
-                            Rectangle { horizontal-stretch: 1; }
-                        }
-
-                        HorizontalLayout {
-                            padding-left: 8px;
-                            padding-right: 8px;
-                            spacing: 4px;
-                            RowLabel { text: "Skip fulltrack for DSD"; min-width: 170px; }
-                            CheckBox {
-                                checked: root.viz-skip-dsd;
-                                toggled => { root.set-viz-skip-dsd(self.checked); }
-                            }
-                            Rectangle { horizontal-stretch: 1; }
-                        }
-
-                        // Прокручиваемый блок настроек текущего типа.
-                        VerticalLayout {
-                            vertical-stretch: 1;
-                            spacing: 8px;
-
-                                // ----- Осциллограмма -----
-                                if root.viz-mode == 1 : VerticalLayout {
-                                    spacing: 8px;
-                                    RowLabel { text: "Settings: Oscilloscope"; text-color: Colors.accent; }
-                                    HorizontalLayout {
-                                        padding-left: 8px; spacing: 4px;
-                                        RowLabel { text: "Channels"; min-width: 170px; }
-                                        ComboBox {
-                                            model: ["Mono", "Stereo"];
-                                            current-index: root.viz-osc-channels;
-                                            selected(s) => { root.set-viz-osc-channels(self.current-index); }
-                                        }
-                                        Rectangle { horizontal-stretch: 1; }
-                                    }
-                                    HorizontalLayout {
-                                        padding-left: 8px; spacing: 4px;
-                                        RowLabel { text: "Sensitivity"; min-width: 170px; }
-                                        Slider { minimum: 0.01; maximum: 20; value: root.viz-osc-sensitivity;
-                                                 preferred-height: 24px; changed(v) => { root.set-viz-osc-sensitivity(v); } }
-                                        Text { text: Math.round(root.viz-osc-sensitivity * 100) / 100; color: Colors.text-secondary; width: 56px; }
-                                    }
-                                    HorizontalLayout {
-                                        padding-left: 8px; spacing: 4px;
-                                        RowLabel { text: "Line width"; min-width: 170px; }
-                                        Slider { minimum: 0.5; maximum: 4.0; value: root.viz-osc-line-width;
-                                                 preferred-height: 24px; changed(v) => { root.set-viz-osc-line-width(v); } }
-                                        Text { text: Math.round(root.viz-osc-line-width * 10) / 10; color: Colors.text-secondary; width: 56px; }
-                                    }
-                                    HorizontalLayout {
-                                        padding-left: 8px; spacing: 4px;
-                                        RowLabel { text: "Max columns"; min-width: 170px; }
-                                        Slider { minimum: 512; maximum: 8192; value: root.viz-osc-max-columns;
-                                                 preferred-height: 24px; changed(v) => { root.set-viz-osc-max-columns(Math.round(v)); } }
-                                        Text { text: Math.round(root.viz-osc-max-columns); color: Colors.text-secondary; width: 56px; }
-                                    }
-                                    HorizontalLayout {
-                                        padding-left: 8px; spacing: 4px;
-                                        RowLabel { text: "Draw center line"; min-width: 170px; }
-                                        CheckBox {
-                                            checked: root.viz-osc-center-line;
-                                            toggled => { root.set-viz-osc-center-line(self.checked); }
-                                        }
-                                        Rectangle { horizontal-stretch: 1; }
-                                    }
-                                    HorizontalLayout {
-                                        padding-left: 8px; spacing: 4px;
-                                        RowLabel { text: "Cache in memory"; min-width: 170px; }
-                                        CheckBox {
-                                            checked: root.viz-osc-cache-mem;
-                                            toggled => { root.set-viz-osc-cache-mem(self.checked); }
-                                        }
-                                        Rectangle { horizontal-stretch: 1; }
-                                    }
-                                    HorizontalLayout {
-                                        padding-left: 8px; spacing: 4px;
-                                        RowLabel { text: "Cache on disk"; min-width: 170px; }
-                                        CheckBox {
-                                            checked: root.viz-osc-cache-disk;
-                                            toggled => { root.set-viz-osc-cache-disk(self.checked); }
-                                        }
-                                        Rectangle { horizontal-stretch: 1; }
-                                    }
-                                }
-
-                                // ----- Спектрограмма -----
-                                if root.viz-mode == 2 : VerticalLayout {
-                                    spacing: 8px;
-                                    RowLabel { text: "Settings: Spectrogram"; text-color: Colors.accent; }
-                                    HorizontalLayout {
-                                        padding-left: 8px; spacing: 4px;
-                                        RowLabel { text: "Channels"; min-width: 170px; }
-                                        ComboBox {
-                                            model: ["Mono", "Stereo"];
-                                            current-index: root.viz-spec-channels;
-                                            selected(s) => { root.set-viz-spec-channels(self.current-index); }
-                                        }
-                                        Rectangle { horizontal-stretch: 1; }
-                                    }
-                                    HorizontalLayout {
-                                        padding-left: 8px; spacing: 4px;
-                                        RowLabel { text: "Sensitivity"; min-width: 170px; }
-                                        Slider { minimum: 0.01; maximum: 20; value: root.viz-spec-sensitivity;
-                                                 preferred-height: 24px; changed(v) => { root.set-viz-spec-sensitivity(v); } }
-                                        Text { text: Math.round(root.viz-spec-sensitivity * 100) / 100; color: Colors.text-secondary; width: 56px; }
-                                    }
-                                    HorizontalLayout {
-                                        padding-left: 8px; spacing: 4px;
-                                        RowLabel { text: "FFT size"; min-width: 170px; }
-                                        ComboBox {
-                                            model: ["512", "1024", "2048", "4096", "8192"];
-                                            current-index: root.viz-spec-fft;
-                                            selected(s) => { root.set-viz-spec-fft(self.current-index); }
-                                        }
-                                        Rectangle { horizontal-stretch: 1; }
-                                    }
-                                    HorizontalLayout {
-                                        padding-left: 8px; spacing: 4px;
-                                        RowLabel { text: "Window type"; min-width: 170px; }
-                                        ComboBox {
-                                            model: ["Hann", "Hamming", "Blackman"];
-                                            current-index: root.viz-spec-window;
-                                            selected(s) => { root.set-viz-spec-window(self.current-index); }
-                                        }
-                                        Rectangle { horizontal-stretch: 1; }
-                                    }
-                                    HorizontalLayout {
-                                        padding-left: 8px; spacing: 4px;
-                                        RowLabel { text: "Freq scale"; min-width: 170px; }
-                                        ComboBox {
-                                            model: ["Linear", "Log", "Mel"];
-                                            current-index: root.viz-spec-scale;
-                                            selected(s) => { root.set-viz-spec-scale(self.current-index); }
-                                        }
-                                        Rectangle { horizontal-stretch: 1; }
-                                    }
-                                    HorizontalLayout {
-                                        padding-left: 8px; spacing: 4px;
-                                        RowLabel { text: "Freq min (Hz)"; min-width: 170px; }
-                                        Rectangle {
-                                            border-width: root.viz-freq-min-invalid ? 2px : 0px;
-                                            border-color: Colors.text-error;
-                                            border-radius: 6px;
-                                            preferred-width: 100px;
-                                            LineEdit {
-                                                text <=> root.viz-freq-min-text;
-                                                edited(t) => { root.set-viz-spec-freq-min(t); }
-                                            }
-                                        }
-                                        Rectangle { horizontal-stretch: 1; }
-                                    }
-                                    HorizontalLayout {
-                                        padding-left: 8px; spacing: 4px;
-                                        RowLabel { text: "Freq max (Hz)"; min-width: 170px; }
-                                        Rectangle {
-                                            border-width: root.viz-freq-max-invalid ? 2px : 0px;
-                                            border-color: Colors.text-error;
-                                            border-radius: 6px;
-                                            preferred-width: 100px;
-                                            LineEdit {
-                                                text <=> root.viz-freq-max-text;
-                                                edited(t) => { root.set-viz-spec-freq-max(t); }
-                                            }
-                                        }
-                                        Rectangle { horizontal-stretch: 1; }
-                                    }
-                                    HorizontalLayout {
-                                        padding-left: 8px; spacing: 4px;
-                                        RowLabel { text: "Gain (dB)"; min-width: 170px; }
-                                        Slider { minimum: -40; maximum: 100; value: root.viz-spec-gain;
-                                                 preferred-height: 24px; changed(v) => { root.set-viz-spec-gain(v); } }
-                                        Text { text: Math.round(root.viz-spec-gain); color: Colors.text-secondary; width: 56px; }
-                                    }
-                                    HorizontalLayout {
-                                        padding-left: 8px; spacing: 4px;
-                                        RowLabel { text: "Range (dB)"; min-width: 170px; }
-                                        Slider { minimum: 1; maximum: 200; value: root.viz-spec-range;
-                                                 preferred-height: 24px; changed(v) => { root.set-viz-spec-range(v); } }
-                                        Text { text: Math.round(root.viz-spec-range); color: Colors.text-secondary; width: 56px; }
-                                    }
-                                    HorizontalLayout {
-                                        padding-left: 8px; spacing: 4px;
-                                        RowLabel { text: "High boost (dB/dec)"; min-width: 170px; }
-                                        Slider { minimum: 0; maximum: 60; value: root.viz-spec-boost;
-                                                 preferred-height: 24px; changed(v) => { root.set-viz-spec-boost(v); } }
-                                        Text { text: Math.round(root.viz-spec-boost * 10) / 10; color: Colors.text-secondary; width: 56px; }
-                                    }
-                                    HorizontalLayout {
-                                        padding-left: 8px; spacing: 4px;
-                                        RowLabel { text: "Palette"; min-width: 170px; }
-                                        ComboBox {
-                                            model: ["Solid", "Magma", "Viridis", "Plasma", "Inferno", "Gray", "Thermal", "Rainbow"];
-                                            current-index: root.viz-spec-palette;
-                                            selected(s) => { root.set-viz-spec-palette(self.current-index); }
-                                        }
-                                        Rectangle { horizontal-stretch: 1; }
-                                    }
-                                    HorizontalLayout {
-                                        padding-left: 8px; spacing: 4px;
-                                        RowLabel { text: "Max frames"; min-width: 170px; }
-                                        Slider { minimum: 512; maximum: 8192; value: root.viz-spec-max-frames;
-                                                 preferred-height: 24px; changed(v) => { root.set-viz-spec-max-frames(Math.round(v)); } }
-                                        Text { text: Math.round(root.viz-spec-max-frames); color: Colors.text-secondary; width: 56px; }
-                                    }
-                                    HorizontalLayout {
-                                        padding-left: 8px; spacing: 4px;
-                                        RowLabel { text: "DSD CIC compensation"; min-width: 170px; }
-                                        CheckBox {
-                                            checked: root.viz-spec-dsd-comp;
-                                            toggled => { root.set-viz-spec-dsd-comp(self.checked); }
-                                        }
-                                        Rectangle { horizontal-stretch: 1; }
-                                    }
-                                    HorizontalLayout {
-                                        padding-left: 8px; spacing: 4px;
-                                        RowLabel { text: "Cache in memory"; min-width: 170px; }
-                                        CheckBox {
-                                            checked: root.viz-spec-cache-mem;
-                                            toggled => { root.set-viz-spec-cache-mem(self.checked); }
-                                        }
-                                        Rectangle { horizontal-stretch: 1; }
-                                    }
-                                    HorizontalLayout {
-                                        padding-left: 8px; spacing: 4px;
-                                        RowLabel { text: "Cache on disk"; min-width: 170px; }
-                                        CheckBox {
-                                            checked: root.viz-spec-cache-disk;
-                                            toggled => { root.set-viz-spec-cache-disk(self.checked); }
-                                        }
-                                        Rectangle { horizontal-stretch: 1; }
-                                    }
-                                }
-
-                                // ----- Анализатор спектра -----
-                                if root.viz-mode == 3 : VerticalLayout {
-                                    spacing: 8px;
-                                    RowLabel { text: "Settings: Spectrum"; text-color: Colors.accent; }
-                                    HorizontalLayout {
-                                        padding-left: 8px; spacing: 4px;
-                                        RowLabel { text: "Channels"; min-width: 170px; }
-                                        ComboBox {
-                                            model: ["Mono", "Stereo"];
-                                            current-index: root.viz-sp-channels;
-                                            selected(s) => { root.set-viz-sp-channels(self.current-index); }
-                                        }
-                                        Rectangle { horizontal-stretch: 1; }
-                                    }
-                                    HorizontalLayout {
-                                        padding-left: 8px; spacing: 4px;
-                                        RowLabel { text: "Sensitivity"; min-width: 170px; }
-                                        Slider { minimum: 0.01; maximum: 20; value: root.viz-sp-sensitivity;
-                                                 preferred-height: 24px; changed(v) => { root.set-viz-sp-sensitivity(v); } }
-                                        Text { text: Math.round(root.viz-sp-sensitivity * 100) / 100; color: Colors.text-secondary; width: 56px; }
-                                    }
-                                    HorizontalLayout {
-                                        padding-left: 8px; spacing: 4px;
-                                        RowLabel { text: "Bands (4-128)"; min-width: 170px; }
-                                        Rectangle {
-                                            border-width: root.viz-bands-invalid ? 2px : 0px;
-                                            border-color: Colors.text-error;
-                                            border-radius: 6px;
-                                            preferred-width: 100px;
-                                            LineEdit {
-                                                text <=> root.viz-bands-text;
-                                                edited(t) => { root.set-viz-sp-bands(t); }
-                                            }
-                                        }
-                                        Rectangle { horizontal-stretch: 1; }
-                                    }
-                                    HorizontalLayout {
-                                        padding-left: 8px; spacing: 4px;
-                                        RowLabel { text: "Freq scale"; min-width: 170px; }
-                                        ComboBox {
-                                            model: ["Linear", "Log", "Mel"];
-                                            current-index: root.viz-sp-freq-scale;
-                                            selected(s) => { root.set-viz-sp-freq-scale(self.current-index); }
-                                        }
-                                        Rectangle { horizontal-stretch: 1; }
-                                    }
-                                    HorizontalLayout {
-                                        padding-left: 8px; spacing: 4px;
-                                        RowLabel { text: "Level scale"; min-width: 170px; }
-                                        ComboBox {
-                                            model: ["Linear", "Log"];
-                                            current-index: root.viz-sp-level-scale;
-                                            selected(s) => { root.set-viz-sp-level-scale(self.current-index); }
-                                        }
-                                        Rectangle { horizontal-stretch: 1; }
-                                    }
-                                    HorizontalLayout {
-                                        padding-left: 8px; spacing: 4px;
-                                        RowLabel { text: "Smoothing"; min-width: 170px; }
-                                        Slider { minimum: 0.0; maximum: 0.99; value: root.viz-sp-smoothing;
-                                                 preferred-height: 24px; changed(v) => { root.set-viz-sp-smoothing(v); } }
-                                        Text { text: Math.round(root.viz-sp-smoothing * 100) / 100; color: Colors.text-secondary; width: 56px; }
-                                    }
-                                    HorizontalLayout {
-                                        padding-left: 8px; spacing: 4px;
-                                        RowLabel { text: "Peak hold"; min-width: 170px; }
-                                        CheckBox {
-                                            checked: root.viz-sp-peak-hold;
-                                            toggled => { root.set-viz-sp-peak-hold(self.checked); }
-                                        }
-                                        Rectangle { horizontal-stretch: 1; }
-                                    }
-                                    HorizontalLayout {
-                                        padding-left: 8px; spacing: 4px;
-                                        RowLabel { text: "Peak decay (ms)"; min-width: 170px; }
-                                        Slider { minimum: 50; maximum: 2000; value: root.viz-sp-peak-decay;
-                                                 preferred-height: 24px; changed(v) => { root.set-viz-sp-peak-decay(Math.round(v)); } }
-                                        Text { text: Math.round(root.viz-sp-peak-decay); color: Colors.text-secondary; width: 56px; }
-                                    }
-                                    HorizontalLayout {
-                                        padding-left: 8px; spacing: 4px;
-                                        RowLabel { text: "Bar gap (px)"; min-width: 170px; }
-                                        Slider { minimum: 0; maximum: 10; value: root.viz-sp-bar-gap;
-                                                 preferred-height: 24px; changed(v) => { root.set-viz-sp-bar-gap(Math.round(v)); } }
-                                        Text { text: Math.round(root.viz-sp-bar-gap); color: Colors.text-secondary; width: 56px; }
-                                    }
-                                    HorizontalLayout {
-                                        padding-left: 8px; spacing: 4px;
-                                        RowLabel { text: "Bar radius (px)"; min-width: 170px; }
-                                        Slider { minimum: 0; maximum: 12; value: root.viz-sp-bar-radius;
-                                                 preferred-height: 24px; changed(v) => { root.set-viz-sp-bar-radius(Math.round(v)); } }
-                                        Text { text: Math.round(root.viz-sp-bar-radius); color: Colors.text-secondary; width: 56px; }
-                                    }
-                                    HorizontalLayout {
-                                        padding-left: 8px; spacing: 4px;
-                                        RowLabel { text: "Gradient"; min-width: 170px; }
-                                        CheckBox {
-                                            checked: root.viz-sp-gradient;
-                                            toggled => { root.set-viz-sp-gradient(self.checked); }
-                                        }
-                                        Rectangle { horizontal-stretch: 1; }
-                                    }
-                                    HorizontalLayout {
-                                        padding-left: 8px; spacing: 4px;
-                                        RowLabel { text: "DSD CIC compensation"; min-width: 170px; }
-                                        CheckBox {
-                                            checked: root.viz-sp-dsd-comp;
-                                            toggled => { root.set-viz-sp-dsd-comp(self.checked); }
-                                        }
-                                        Rectangle { horizontal-stretch: 1; }
-                                    }
-                                }
-
-                                // ----- Отключено -----
-                                if root.viz-mode == 0 : VerticalLayout {
-                                    spacing: 8px;
-                                    RowLabel { text: "Visualization is disabled (placeholder only)."; text-color: Colors.text-tertiary; }
-                                }
-                            }
-
-                        // Валидация + сброс
-                        RowLabel {
-                            text: root.viz-error;
-                            text-color: Colors.text-error;
-                            wrap: word-wrap;
-                            visible: root.viz-error != "";
+                        Rectangle {
+                            horizontal-stretch: 1;
                         }
 
                         Button {
-                            text: "Reset type settings";
+                            text: "Cancel";
                             preferred-height: 28px;
-                            clicked => { debug("settings: reset viz type"); root.reset-viz-type(); }
+                            clicked => { debug("settings: Cancel button clicked"); root.close(); }
                         }
-                    }
-                }
 
-                // ===== Playlist =====
-                Tab {
-                    title: "Playlist";
-                    VerticalLayout {
-                        spacing: 10px;
-                        padding-top: 4px;
                         Button {
-                            text: "Remove current track";
+                            text: "Save";
                             preferred-height: 28px;
-                            clicked => { root.remove-current(); }
+                            clicked => { debug("settings: Save button clicked"); root.save-settings(); }
                         }
-                        Button {
-                            text: "Clear playlist";
-                            preferred-height: 28px;
-                            clicked => { root.clear-playlist(); }
-                        }
-                        Rectangle { vertical-stretch: 1; }
                     }
                 }
-
-                // ===== Cache (§10.5) =====
-                Tab {
-                    title: "Cache";
-                    VerticalLayout {
-                        spacing: 10px;
-                        padding-top: 4px;
-                        HorizontalLayout {
-                            padding-left: 8px;
-                            padding-right: 8px;
-                            spacing: 4px;
-                            RowLabel { text: "RAM cache"; }
-                            RowLabel {
-                                text: root.cache-ram-size;
-                                text-color: Colors.text-primary;
-                            }
-                            Rectangle { horizontal-stretch: 1; }
-                        }
-                        HorizontalLayout {
-                            padding-left: 8px;
-                            padding-right: 8px;
-                            spacing: 4px;
-                            RowLabel { text: "Disk cache"; }
-                            RowLabel {
-                                text: root.cache-disk-size;
-                                text-color: Colors.text-primary;
-                            }
-                            Rectangle { horizontal-stretch: 1; }
-                        }
-                        // Кнопки очистки — задача V5.1-10.5.2 (отдельная).
-                        Rectangle { vertical-stretch: 1; }
-                    }
-                }
-            }
-
-            // Кнопки Save / Cancel внизу диалога
-            HorizontalLayout {
-                spacing: 8px;
-                alignment: end;
-                Rectangle { horizontal-stretch: 1; }
-                Button {
-                    text: "Cancel";
-                    preferred-height: 28px;
-                    clicked => { debug("settings: Cancel button clicked"); root.close(); }
-                }
-                Button {
-                    text: "Save";
-                    preferred-height: 28px;
-                    clicked => { debug("settings: Save button clicked"); root.save-settings(); }
-                }
-            }
-        }
-
-        // Escape — отмена
-        FocusScope {
-            key-pressed(event) => {
-                if (event.text == Key.Escape) {
-                    root.close();
-                    accept;
-                }
-                reject;
             }
         }
 

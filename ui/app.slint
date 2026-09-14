@@ -1,7 +1,7 @@
 import { Colors } from "theme.slint";
 export { Colors }
-import { MaterialPalette } from "builtin:/material/styling.slint";
-export { MaterialPalette }
+import { FluentPalette } from "builtin:/fluent/styling.slint";
+export { FluentPalette }
 import { TopPanel } from "top_panel.slint";
 import { Playlist } from "playlist.slint";
 import { StatusBar } from "status.slint";
@@ -258,6 +258,10 @@ export component AppWindow inherits Window {
     callback settings-clear-playlist();
     callback settings-remove-current();
     callback settings-save();
+    // §10.5: кнопки очистки кэша
+    callback settings-clear-viz-cache();
+    callback settings-clear-cover-cache();
+    callback settings-clear-all-cache();
     callback settings-cover-move-up(int);
     callback settings-cover-move-down(int);
     callback settings-cover-names-edited(string);
