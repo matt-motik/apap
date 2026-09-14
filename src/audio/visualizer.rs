@@ -537,8 +537,10 @@ mod tests {
         assert_eq!(VisualizerSettings::default().viz_max_ram_mb, 64);
         assert_eq!(VisualizerConfig::from_settings(&crate::settings::Settings::default()).viz_max_ram_mb, 64);
         // TOML-roundtrip нестандартного значения.
-        let mut v = VisualizerSettings::default();
-        v.viz_max_ram_mb = 128;
+        let v = VisualizerSettings {
+            viz_max_ram_mb: 128,
+            ..VisualizerSettings::default()
+        };
         let s = toml::to_string(&v).unwrap();
         assert!(s.contains("viz_max_ram_mb = 128"));
         let back: VisualizerSettings = toml::from_str(&s).unwrap();
