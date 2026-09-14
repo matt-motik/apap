@@ -490,7 +490,7 @@ impl MusicApp {
             // `cache_in_mem` — картинка уже в памяти, скрывать её незачем; от
             // `cache_in_mem` зависит только запись новых изображений (см.
             // `drain_fulltrack_events`). Сборка запускается только при промахе.
-            if let Some(img) = self.fulltrack_cache.get(key).cloned() {
+            if let Some((img, _)) = self.fulltrack_cache.get(key).cloned() {
                 self.ui.set_osc_image(img);
                 self.ui.set_osc_ready(true);
                 self.fulltrack_key = Some(key.clone());
@@ -533,7 +533,7 @@ impl MusicApp {
                             _ => osc.cache_in_memory,
                         };
                         if cache_in_mem {
-                            let _ = self.fulltrack_cache.put(key.clone(), img.clone());
+                            let _ = self.fulltrack_cache.put(key.clone(), (img.clone(), rgba.len()));
                         }
                         self.ui.set_osc_image(img);
                         self.ui.set_osc_ready(true);

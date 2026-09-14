@@ -236,7 +236,8 @@ pub struct MusicApp {
     fulltrack_key: Option<String>,
     /// RAM-кэш построенных изображений по cache-ключу (режим+параметры).
     /// LRU: лимит записей из `viz_max_ram_mb` (см. `fulltrack_cache_max_entries`).
-    fulltrack_cache: clru::CLruCache<String, slint::Image>,
+    /// Значение хранит фактический размер RGBA-буфера в байтах (для §10.5).
+    fulltrack_cache: clru::CLruCache<String, (slint::Image, usize)>,
     /// Режим, под который построен текущий целевой билд (детект смены типа —
     /// смена режима применяется сразу, а не с debounce).
     fulltrack_mode: Option<music_player_rs::audio::visualizer::VisualizationMode>,
