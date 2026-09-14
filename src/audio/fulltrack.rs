@@ -419,7 +419,7 @@ fn evict_disk_cache_in(dir: PathBuf, max_size_mb: u32) -> std::io::Result<(u64, 
             .modified()
             .ok()
             .and_then(|t| t.duration_since(UNIX_EPOCH).ok())
-            .map(|d| d.as_secs())
+            .map(|d| u64::try_from(d.as_millis()).unwrap_or(0))
             .unwrap_or(0);
         let count = entries.entry(stem).or_insert((0, 0));
         count.0 = count.0.saturating_add(meta.len());
@@ -443,8 +443,8 @@ fn evict_disk_cache_in(dir: PathBuf, max_size_mb: u32) -> std::io::Result<(u64, 
         if bytes_after <= budget {
             break;
         }
-        let _ = fs::remove_file(cache_png_path(&key));
-        let _ = fs::remove_file(cache_meta_path(&key));
+        let _ = fs::remove_file(dir.join(format!("{key}.png")));
+        let _ = fs::remove_file(dir.join(format!("{key}.json")));
         bytes_after = bytes_after.saturating_sub(bytes);
         removed_pairs += 1;
     }
@@ -542,5 +542,77 @@ mod tests {
         assert_eq!(fulltrack_cache_max_entries(1).get(), 1);
         // Базисный случай: 1 запись (~4 MiB) умещается ровно.
         assert_eq!(fulltrack_cache_max_entries(4).get(), 1);
+    }
+
+    // --- Дисковое вытеснение (§10.4) ---
+
+    /// Создать тестовый каталог кэша с `N` парами png+json заданного размера,
+    /// записываемыми последовательно (возрастающий mtime → ключи "a", "b", …).
+    fn make_test_cache(
+        parent: &std::path::Path,
+        n: usize,
+        png_bytes: usize,
+        json_bytes: usize,
+    ) -> PathBuf {
+        let dir = parent.join("viz");
+        fs::create_dir_all(&dir).unwrap();
+        for ch in (b'a'..).take(n) {
+            let stem = String::from(ch as char);
+            fs::write(dir.join(format!("{stem}.png")), vec![0u8; png_bytes]).unwrap();
+            fs::write(dir.join(format!("{stem}.json")), vec![0u8; json_bytes]).unwrap();
+            // Различимый mtime между соседними парами.
+            std::thread::sleep(std::time::Duration::from_millis(5));
+        }
+        dir
+    }
+
+    fn dir_size(dir: &PathBuf) -> u64 {
+        fs::read_dir(dir)
+            .unwrap()
+            .filter_map(|e| e.ok())
+            .filter_map(|e| e.metadata().ok())
+            .map(|m| m.len())
+            .sum()
+    }
+
+    #[test]
+    fn evict_disk_cache_removes_oldest_pairs() {
+        let parent = std::env::temp_dir().join(format!("mp_evict_oldest_{}", std::process::id()));
+        let _ = fs::remove_dir_all(&parent);
+        let dir = make_test_cache(&parent, 3, 500_000, 1_000); // пара 501 000 B, итого 1 503 000
+
+        // Бюджет 1 MiB < 1 503 000 → вытеснить старейшую пару ("a").
+        let (bytes_after, removed) = evict_disk_cache_in(dir.clone(), 1).unwrap();
+        assert_eq!(removed, 1);
+        assert_eq!(bytes_after, 1_002_000);
+        assert!(!dir.join("a.png").exists(), "старая png должна быть удалена");
+        assert!(!dir.join("a.json").exists(), "sidecar старой пары тоже удаляется");
+        assert!(dir.join("b.png").exists());
+        assert!(dir.join("c.png").exists());
+        assert_eq!(dir_size(&dir), bytes_after);
+        let _ = fs::remove_dir_all(&parent);
+    }
+
+    #[test]
+    fn evict_disk_cache_noop_within_budget() {
+        let parent = std::env::temp_dir().join(format!("mp_evict_within_{}", std::process::id()));
+        let _ = fs::remove_dir_all(&parent);
+        let dir = make_test_cache(&parent, 3, 500_000, 1_000);
+
+        // Бюджет 2 MiB покрывает 1 503 000 B → ничего не удаляется.
+        let (bytes_after, removed) = evict_disk_cache_in(dir.clone(), 2).unwrap();
+        assert_eq!(removed, 0);
+        assert_eq!(bytes_after, 1_503_000);
+        assert!(dir.join("a.png").exists() && dir.join("c.png").exists());
+        let _ = fs::remove_dir_all(&parent);
+    }
+
+    #[test]
+    fn evict_disk_cache_missing_dir_is_noop() {
+        let parent = std::env::temp_dir().join(format!("mp_evict_missing_{}", std::process::id()));
+        let _ = fs::remove_dir_all(&parent);
+        let missing = parent.join("does_not_exist");
+        let (bytes_after, removed) = evict_disk_cache_in(missing, 8).unwrap();
+        assert_eq!((bytes_after, removed), (0, 0));
     }
 }

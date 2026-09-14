@@ -11,11 +11,11 @@
 [x] Шаг 1: Поле `disk_max_size_mb: u32` (default 512, `serde(default)`) в `VisualizerSettings` + проброс в `VisualizerConfig`. Проверка: `cargo check` без ошибок
 [x] Шаг 2: Функция `evict_disk_cache(max_size_mb) -> io::Result<(u64, usize)>` в `audio/fulltrack.rs`: сумма пар png+json, удаление oldest по mtime. Проверка: `cargo check` без ошибок
 [x] Шаг 3: Вызов `ft::evict_disk_cache(cfg.disk_max_size_mb)` после `save_png` в `run_osc` и `run_spec` (src/app/fulltrack_manager.rs). Проверка: `cargo check` без ошибок
-[ ] Шаг 4: Юнит-тесты `evict_disk_cache` (перерасход → удаление старейших пар; в пределах лимита → без изменений; отсутствующий каталог → no-op). Проверка: `cargo test evict_disk_cache` зелёный
-[ ] Шаг 5: Юнит-тесты roundtrip `disk_max_size_mb` (default 512, TOML, fallback) в `audio/visualizer.rs`. Проверка: `cargo test disk_disk_roundtrip` зелёный
+[x] Шаг 4: Юнит-тесты `evict_disk_cache` (перерасход → удаление старейших пар; в пределах лимита → без изменений; отсутствующий каталог → no-op). Проверка: `cargo test evict_disk_cache` зелёный
+[ ] Шаг 5: Юнит-тесты roundtrip `disk_max_size_mb` (default 512, TOML, fallback) в `audio/visualizer.rs`. Проверка: `cargo test viz_max_ram_roundtrip_and_default` зелёный
 [ ] Шаг 6: Финальная верификация `cargo test` + `cargo clippy` без новых warning → ROADMAP статус ✅ + консервация `_STATE_.md`. Проверка: полный зелёный прогон
 
-- **Текущий шаг (current_step):** Шаг 4
-- **Следующий ход:** Написать юнит-тесты `evict_disk_cache_in` (над temp-каталогом) в src/audio/fulltrack.rs, затем `cargo test evict_disk_cache`
+- **Текущий шаг (current_step):** Шаг 5
+- **Следующий ход:** Расширить `viz_max_ram_roundtrip_and_default` в src/audio/visualizer.rs проверками `disk_max_size_mb` (default 512 + TOML + fallback), затем `cargo test`
 - **Счетчик безуспешных компиляций:** 0/3
 - **Состояние:** in_progress
