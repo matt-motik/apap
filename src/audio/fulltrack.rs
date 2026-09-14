@@ -320,6 +320,26 @@ pub fn viz_cache_dir() -> PathBuf {
         .join("viz")
 }
 
+/// Суммарный объём дискового кэша визуализации (все файлы в `viz_cache_dir()`,
+/// пары `{key}.png + {key}.json`), байт. Несуществующий каталог → 0 (§10.5).
+pub fn disk_cache_size() -> u64 {
+    disk_cache_size_in(&viz_cache_dir())
+}
+
+/// Ядро `disk_cache_size` над произвольным каталогом (тестируемое,
+/// без глобального XDG-состояния).
+fn disk_cache_size_in(dir: &Path) -> u64 {
+    let Ok(read_dir) = fs::read_dir(dir) else {
+        return 0;
+    };
+    read_dir
+        .flatten()
+        .filter(|e| e.path().is_file())
+        .filter_map(|e| e.metadata().ok())
+        .map(|m| m.len())
+        .sum()
+}
+
 /// Оценочный средний размер полнотрекового RGBA-изображения
 /// (~2000×512×4 B, §10.4): отражает типичную осциллограмму/спектрограмму.
 pub const AVG_FULLTRACK_RGBA_BYTES: usize = 2000 * 512 * 4;
@@ -735,5 +755,26 @@ mod tests {
         let missing = parent.join("does_not_exist");
         let (bytes_after, removed) = evict_disk_cache_in(missing, 8).unwrap();
         assert_eq!((bytes_after, removed), (0, 0));
+    }
+
+    #[test]
+    fn disk_cache_size_in_sums_all_files() {
+        let parent = std::env::temp_dir().join(format!("mp_disk_size_{}", std::process::id()));
+        let _ = fs::remove_dir_all(&parent);
+        let dir = make_test_cache(&parent, 3, 500_000, 1_000);
+        assert_eq!(disk_cache_size_in(&dir), 1_503_000);
+
+        // Сумма переживает вытеснение: после удаления старейшей пары остаётся 2.
+        let (_, removed) = evict_disk_cache_in(dir.clone(), 1).unwrap();
+        assert_eq!(removed, 1);
+        assert_eq!(disk_cache_size_in(&dir), 1_002_000);
+        let _ = fs::remove_dir_all(&parent);
+    }
+
+    #[test]
+    fn disk_cache_size_in_missing_dir_is_zero() {
+        let parent = std::env::temp_dir().join(format!("mp_disk_size_missing_{}", std::process::id()));
+        let _ = fs::remove_dir_all(&parent);
+        assert_eq!(disk_cache_size_in(&parent.join("does_not_exist")), 0);
     }
 }
