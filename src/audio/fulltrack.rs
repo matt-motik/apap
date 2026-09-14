@@ -556,6 +556,102 @@ mod tests {
         assert_ne!(k1, k3);
     }
 
+/// Ключ изменяется при смене DSD→PCM параметров для DSD-трека (§10.4 `dsd_params`).
+    #[test]
+    fn cache_key_dsd_params_change_key() {
+        let osc = OscilloscopeCfg::default();
+        let sg = crate::audio::visualizer::SpectrogramCfg::default();
+        let t = UNIX_EPOCH + std::time::Duration::from_secs(1000);
+
+        let mk = |bit: crate::settings::TargetBitDepth,
+                  rate: crate::settings::TargetSampleRate,
+                  algo: crate::settings::ResamplerAlgorithm|
+         -> crate::audio::visualizer::DsdCacheParams {
+            let settings = crate::settings::Settings {
+                dsd: crate::settings::DsdCfg {
+                    target_bit_depth: bit,
+                    target_sample_rate: rate,
+                    ..crate::settings::DsdCfg::default()
+                },
+                audio: crate::settings::AudioCfg {
+                    resampler: crate::settings::AudioResamplerCfg {
+                        algorithm: algo,
+                        dither: crate::settings::ResamplerDither::Tpdf,
+                    },
+                    ..crate::settings::AudioCfg::default()
+                },
+                ..crate::settings::Settings::default()
+            };
+            crate::audio::visualizer::VisualizerConfig::from_settings(&settings).dsd_params
+        };
+
+        let dp_a = mk(
+            crate::settings::TargetBitDepth::Bits24,
+            crate::settings::TargetSampleRate::Auto,
+            crate::settings::ResamplerAlgorithm::SincMedium,
+        );
+        let dp_b = mk(
+            crate::settings::TargetBitDepth::Bits32Float,
+            crate::settings::TargetSampleRate::Hz192000,
+            crate::settings::ResamplerAlgorithm::SincSlow,
+        );
+
+        let k_a = cache_key(Path::new("t.dsf"), t, 12345, &osc, Some(&dp_a));
+        let k_b = cache_key(Path::new("t.dsf"), t, 12345, &osc, Some(&dp_b));
+        assert_ne!(k_a, k_b, "differing DSD params must change the oscilloscope key");
+
+        let ks_a = cache_key_spectrogram(Path::new("t.dsf"), t, 12345, &sg, Some(&dp_a));
+        let ks_b = cache_key_spectrogram(Path::new("t.dsf"), t, 12345, &sg, Some(&dp_b));
+        assert_ne!(
+            ks_a, ks_b,
+            "differing DSD params must change the spectrogram key"
+        );
+
+        // Без DSD-параметров (PCM-трек) ключ не должен зависеть от dsd_params.
+        let k_no = cache_key(Path::new("t.flac"), t, 12345, &osc, None);
+        assert_eq!(k_no, cache_key(Path::new("t.flac"), t, 12345, &osc, None));
+    }
+
+    /// TTL по mtime: sidecar новее исходника — валидно; исходник новее sidecar — невалидно.
+    #[test]
+    fn cache_meta_valid_ttl_vs_sidecar_mtime() {
+        let parent = std::env::temp_dir().join(format!("mp_ttl_{}", std::process::id()));
+        let _ = fs::remove_dir_all(&parent);
+        fs::create_dir_all(&parent).unwrap();
+
+        // Исходник создаём первым, кэш после него — mtime исходника старее sidecar.
+        let src = parent.join("song.dsf");
+        fs::write(&src, b"dsd-bytes-1").unwrap();
+        std::thread::sleep(std::time::Duration::from_millis(10));
+
+        let meta = CacheMeta {
+            path: src.clone(),
+            mtime_secs: 0,
+            size: 11,
+            mode: "oscilloscope".into(),
+            channels: "Stereo".into(),
+            max_columns: 2000,
+            width: 100,
+            height: 100,
+        };
+        fs::write(parent.join("k1.png"), b"png").unwrap();
+        fs::write(parent.join("k1.json"), serde_json::to_vec(&meta).unwrap()).unwrap();
+        assert!(cache_meta_valid_in(&parent, "k1"), "fresh cache is valid");
+
+        // Перезаписываем исходник позже кэша → mtime источника новее sidecar.
+        std::thread::sleep(std::time::Duration::from_millis(10));
+        fs::write(&src, b"dsd-bytes-2-modified").unwrap();
+        assert!(
+            !cache_meta_valid_in(&parent, "k1"),
+            "source newer than sidecar must invalidate"
+        );
+
+        // Отсутствующий PNG → невалидно.
+        fs::write(&src, b"restored").unwrap();
+        assert!(!cache_meta_valid_in(&parent, "missing"), "no png is invalid");
+        let _ = fs::remove_dir_all(&parent);
+    }
+
     #[test]
     fn fulltrack_cache_max_entries_math() {
         // Default 64 MiB / ~4 MiB avg (2000×512×4 B) → 16 записей.
