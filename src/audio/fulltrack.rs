@@ -6,6 +6,7 @@
 use std::fs;
 use std::hash::{DefaultHasher, Hash, Hasher};
 use std::io::BufWriter;
+use std::num::NonZeroUsize;
 use std::path::{Path, PathBuf};
 use std::time::UNIX_EPOCH;
 
@@ -305,6 +306,19 @@ pub fn viz_cache_dir() -> PathBuf {
         .unwrap_or_else(std::env::temp_dir)
         .join("music_player")
         .join("viz")
+}
+
+/// Оценочный средний размер полнотрекового RGBA-изображения
+/// (~2000×512×4 B, §10.4): отражает типичную осциллограмму/спектрограмму.
+pub const AVG_FULLTRACK_RGBA_BYTES: usize = 2000 * 512 * 4;
+
+/// Лимит числа записей RAM-кэша из бюджета `viz_max_ram_mb` (§10.4):
+/// `max_entries = budget_bytes / AVG_FULLTRACK_RGBA_BYTES`, минимум 1.
+pub fn fulltrack_cache_max_entries(viz_max_ram_mb: u32) -> NonZeroUsize {
+    let budget = usize::try_from(viz_max_ram_mb).unwrap_or(0).saturating_mul(1024 * 1024);
+    let entries = budget / AVG_FULLTRACK_RGBA_BYTES;
+    // Минимум 1 запись: пустой кэш бесполезен, но NonZero обязателен.
+    NonZeroUsize::new(entries.max(1)).expect("cache capacity is always >= 1")
 }
 
 /// Путь к PNG-файлу кэша для данного ключа.
