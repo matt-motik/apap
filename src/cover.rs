@@ -69,6 +69,30 @@ pub fn covers_cache_dir() -> PathBuf {
         .join("covers")
 }
 
+/// Полностью очистить дисковый кэш обложек (§10.5): удалить все файлы в
+/// `covers_cache_dir()`. Возвращает число удалённых файлов (0 при пустом
+/// или отсутствующем каталоге).
+pub fn clear_cover_cache() -> usize {
+    clear_cover_cache_in(&covers_cache_dir())
+}
+
+/// Ядро `clear_cover_cache` над произвольным каталогом (тестируемое,
+/// без глобального XDG-состояния).
+fn clear_cover_cache_in(dir: &Path) -> usize {
+    let Ok(rd) = std::fs::read_dir(dir) else {
+        return 0;
+    };
+    let mut removed = 0usize;
+    for entry in rd.flatten() {
+        if entry.path().is_file() {
+            if std::fs::remove_file(entry.path()).is_ok() {
+                removed += 1;
+            }
+        }
+    }
+    removed
+}
+
 /// Фоновый поток: принимает `CoverJob`, резолвит обложку и отправляет
 /// `CoverDone`. Перед обработкой сбрасывает уже поставленные в очередь
 /// джобы, оставляя самый свежий (быстрое переключение треков).
@@ -295,6 +319,28 @@ pub fn percent_encode(s: &str) -> String {
 mod tests {
     use super::*;
     use crate::settings::CoverSource;
+
+    #[test]
+    fn clear_cover_cache_removes_all_files() {
+        let parent = std::env::temp_dir().join(format!("mp_clear_covers_{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&parent);
+        std::fs::create_dir_all(&parent).unwrap();
+        std::fs::write(parent.join("a.jpg"), vec![0u8; 100]).unwrap();
+        std::fs::write(parent.join("b.png"), vec![0u8; 200]).unwrap();
+        std::fs::write(parent.join("c.jpg"), vec![0u8; 300]).unwrap();
+        let removed = clear_cover_cache_in(&parent);
+        assert_eq!(removed, 3);
+        assert_eq!(std::fs::read_dir(&parent).unwrap().count(), 0);
+        assert!(parent.is_dir(), "directory itself must survive");
+        let _ = std::fs::remove_dir_all(&parent);
+    }
+
+    #[test]
+    fn clear_cover_cache_missing_dir_is_zero() {
+        let parent = std::env::temp_dir().join(format!("mp_clear_covers_missing_{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&parent);
+        assert_eq!(clear_cover_cache_in(&parent.join("no_dir")), 0);
+    }
 
     #[test]
     fn percent_encode_encodes_space_and_unicode() {

@@ -10,13 +10,13 @@
 - **Критерий успеха (Definition of Done):** `cargo check` чистый, `cargo test` зелёный, `cargo clippy` без новых предупреждений в изменённых файлах; 3 кнопки в вкладке «Cache» удаляют файлы кэша и корректно обновляют статистику RAM/Disk.
 
 ## Итерационный трекер
-[ ] Шаг 1: `fulltrack.rs`: `clear_disk_cache_in(dir) -> io::Result<usize>` + `clear_disk_cache()` + юнит-тесты (temp dir, missing dir). Проверка: `cargo test clear_disk_cache` зелёный
-[ ] Шаг 2: `cover.rs`: `clear_cover_cache_in(dir) -> io::Result<usize>` + `clear_cover_cache()` + юнит-тесты. Проверка: `cargo test clear_cover_cache` зелёный
+[x] Шаг 1: `fulltrack.rs`: `clear_disk_cache_in(dir) -> io::Result<usize>` + `clear_disk_cache()` + юнит-тесты (temp dir, missing dir). Проверка: `cargo test clear_disk_cache` зелёный (`9c87a51`)
+[ ] Шаг 2: `cover.rs`: `clear_cover_cache_in(dir) -> usize` + `clear_cover_cache()` + юнит-тесты. Проверка: `cargo test clear_cover_cache` зелёный
 [ ] Шаг 3: `settings.slint`: 3 кнопки («Clear viz cache», «Clear cover cache», «Clear all») + 3 callback declarations в Cache tab. Проверка: `cargo build` компилирует .slint без ошибок
 [ ] Шаг 4: `app.slint`: 3 forwarded callbacks (`settings-clear-viz-cache` и т.д.) через AppWindow → Settings. Проверка: `cargo build`
 [ ] Шаг 5: `app/mod.rs`: привязка 3 колбэков (`on_settings_clear_viz_cache` и т.д.) — RAM clear + disk clear + sync stats. Проверка: `cargo check` + `cargo test` + `cargo clippy`
 
-- **Текущий шаг (current_step):** Шаг 1
-- **Следующий ход:** Реализовать `clear_disk_cache_in` + `clear_disk_cache` + тесты в `src/audio/fulltrack.rs`.
+- **Текущий шаг (current_step):** Шаг 2
+- **Следующий ход:** Реализовать `clear_cover_cache` в `src/cover.rs` (очистка `covers_cache_dir()`) + юнит-тесты.
 - **Счетчик безуспешных компиляций:** 0/3
 - **Состояние:** in_progress
