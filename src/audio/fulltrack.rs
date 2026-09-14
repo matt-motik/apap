@@ -246,6 +246,7 @@ pub fn cache_key(
     mtime: std::time::SystemTime,
     size: u64,
     cfg: &OscilloscopeCfg,
+    dsd: Option<&crate::audio::visualizer::DsdCacheParams>,
 ) -> String {
     let mut h = DefaultHasher::new();
     path.to_string_lossy().hash(&mut h);
@@ -263,6 +264,11 @@ pub fn cache_key(
     cfg.sensitivity.to_bits().hash(&mut h);
     cfg.bg_color.hash(&mut h);
     cfg.fg_color.hash(&mut h);
+    if let Some(d) = dsd {
+        (d.target_bit_depth as u8).hash(&mut h);
+        (d.target_sample_rate as u8).hash(&mut h);
+        (d.resampler_algorithm as u8).hash(&mut h);
+    }
     format!("{:x}", h.finish())
 }
 
@@ -272,6 +278,7 @@ pub fn cache_key_spectrogram(
     mtime: std::time::SystemTime,
     size: u64,
     cfg: &crate::audio::visualizer::SpectrogramCfg,
+    dsd: Option<&crate::audio::visualizer::DsdCacheParams>,
 ) -> String {
     let mut h = DefaultHasher::new();
     path.to_string_lossy().hash(&mut h);
@@ -297,6 +304,11 @@ pub fn cache_key_spectrogram(
     cfg.dsd_cic_compensation.hash(&mut h);
     cfg.bg_color.hash(&mut h);
     cfg.fg_color.hash(&mut h);
+    if let Some(d) = dsd {
+        (d.target_bit_depth as u8).hash(&mut h);
+        (d.target_sample_rate as u8).hash(&mut h);
+        (d.resampler_algorithm as u8).hash(&mut h);
+    }
     format!("{:x}", h.finish())
 }
 
@@ -524,10 +536,10 @@ mod tests {
     fn cache_key_deterministic() {
         let cfg = OscilloscopeCfg::default();
         let t = UNIX_EPOCH + std::time::Duration::from_secs(1000);
-        let k1 = cache_key(Path::new("foo.flac"), t, 12345, &cfg);
-        let k2 = cache_key(Path::new("foo.flac"), t, 12345, &cfg);
+        let k1 = cache_key(Path::new("foo.flac"), t, 12345, &cfg, None);
+        let k2 = cache_key(Path::new("foo.flac"), t, 12345, &cfg, None);
         assert_eq!(k1, k2);
-        let k3 = cache_key(Path::new("bar.flac"), t, 12345, &cfg);
+        let k3 = cache_key(Path::new("bar.flac"), t, 12345, &cfg, None);
         assert_ne!(k1, k3);
     }
 

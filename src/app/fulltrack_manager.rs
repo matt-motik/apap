@@ -110,7 +110,13 @@ fn run_osc(b: FullBuild, flag: Arc<AtomicBool>, out: Sender<FullEvt>) {
         .and_then(|m| m.modified().ok())
         .unwrap_or(UNIX_EPOCH);
     let size = md.as_ref().map(|m| m.len()).unwrap_or(0);
-    let key = ft::cache_key(&b.path, mtime, size, &osc);
+    let key = ft::cache_key(
+        &b.path,
+        mtime,
+        size,
+        &osc,
+        is_dsd(&b.path).then_some(&b.cfg.dsd_params),
+    );
 
     if flag.load(Ordering::SeqCst) {
         return;
@@ -229,7 +235,13 @@ fn run_spec(b: FullBuild, flag: Arc<AtomicBool>, out: Sender<FullEvt>) {
         .and_then(|m| m.modified().ok())
         .unwrap_or(UNIX_EPOCH);
     let size = md.as_ref().map(|m| m.len()).unwrap_or(0);
-    let key = ft::cache_key_spectrogram(&b.path, mtime, size, &scfg);
+    let key = ft::cache_key_spectrogram(
+        &b.path,
+        mtime,
+        size,
+        &scfg,
+        dsd.then_some(&b.cfg.dsd_params),
+    );
 
     if flag.load(Ordering::SeqCst) {
         return;
@@ -405,12 +417,12 @@ impl MusicApp {
                 let md = fs::metadata(&p).ok();
                 let mtime = md.as_ref().and_then(|m| m.modified().ok());
                 let size = md.as_ref().map(|m| m.len()).unwrap_or(0);
-                let key = match (mode, mtime) {
-                    (VisualizationMode::Spectrogram, Some(t)) => {
-                        ft::cache_key_spectrogram(&p, t, size, &cfg.spectrogram)
+                let key = match (mode, mtime, is_dsd(&p)) {
+                    (VisualizationMode::Spectrogram, Some(t), dsd) => {
+                        ft::cache_key_spectrogram(&p, t, size, &cfg.spectrogram, dsd.then_some(&cfg.dsd_params))
                     }
-                    (_, Some(t)) => ft::cache_key(&p, t, size, &osc),
-                    (_, None) => String::new(),
+                    (_, Some(t), dsd) => ft::cache_key(&p, t, size, &osc, dsd.then_some(&cfg.dsd_params)),
+                    (_, None, _) => String::new(),
                 };
                 (p, key)
             })

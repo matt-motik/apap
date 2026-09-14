@@ -9,13 +9,13 @@
 
 ## Итерационный трекер
 
-[ ] Шаг 1: Добавить `DsdCacheParams` в `visualizer.rs` (новая структура + поле в `VisualizerConfig` + `from_settings`). Проверка: `cargo check`.
-[ ] Шаг 2: Расширить `cache_key`/`cache_key_spectrogram` параметром `dsd: Option<&DsdCacheParams>`, хешировать DSD-поля при Some. Обновить 4 сайта вызова в `fulltrack_manager.rs` (run_osc, run_spec, check_settings x2) + существующий тест. Проверка: `cargo check` + `cargo test cache_key`.
+[x] Шаг 1: Добавить `DsdCacheParams` в `visualizer.rs` (новая структура + поле в `VisualizerConfig` + `from_settings`). Проверка: `cargo check`.
+[x] Шаг 2: Расширить `cache_key`/`cache_key_spectrogram` параметром `dsd: Option<&DsdCacheParams>`, хешировать DSD-поля при Some. Обновить 4 сайта вызова в `fulltrack_manager.rs` (run_osc, run_spec, check_settings x2) + существующий тест. Проверка: `cargo check` + `cargo test cache_key`.
 [ ] Шаг 3: Улучшить `cache_meta_valid` — сравнивать mtime источника с mtime sidecar-файла (суб-секундная точность через SystemTime). Добавить `cache_meta_valid_in(dir, key)` для тестопригодности. Проверка: `cargo check` + `cargo test`.
 [ ] Шаг 4: Тесты — DSD-ключ меняется при смене DSD-параметров; TTL: source mtime > sidecar mtime → невалидно; PNG отсутствует → невалидно. Проверка: `cargo test`.
 [ ] Шаг 5: Финальная верификация (cargo check + cargo clippy + cargo test), обновление ROADMAP.md (✅), консервация _STATE_.md.
 
-- **Текущий шаг (current_step):** Шаг 1
-- **Следующий ход:** Определить `DsdCacheParams` в `visualizer.rs`, добавить в `VisualizerConfig`, заполнить в `from_settings` (из `Settings.dsd.target_sample_rate`, `target_bit_depth`, `Settings.audio.resampler.algorithm`).
+- **Текущий шаг (current_step):** Шаг 3
+- **Следующий ход:** В `fulltrack.rs` переписать `cache_meta_valid` с суб-секундным сравнением mtime источника и его sidecar-файла; выделить тестируемое ядро `cache_meta_valid_in(dir, key)`.
 - **Счетчик безуспешных компиляций:** 0/3
 - **Состояние:** in_progress
