@@ -340,6 +340,23 @@ fn disk_cache_size_in(dir: &Path) -> u64 {
         .sum()
 }
 
+/// Человекочитаемый формат объёма кэша (§10.5): `B`/`KiB`/`MiB`/`GiB`,
+/// 512-кратные шаги двоичных единиц, до 2 знаков после запятой.
+pub fn fmt_cache_bytes(bytes: u64) -> String {
+    const UNITS: [&str; 4] = ["B", "KiB", "MiB", "GiB"];
+    let mut value = bytes as f64;
+    let mut unit = 0usize;
+    while value >= 1024.0 && unit < UNITS.len() - 1 {
+        value /= 1024.0;
+        unit += 1;
+    }
+    if unit == 0 {
+        format!("{bytes} B")
+    } else {
+        format!("{value:.2} {}", UNITS[unit])
+    }
+}
+
 /// Оценочный средний размер полнотрекового RGBA-изображения
 /// (~2000×512×4 B, §10.4): отражает типичную осциллограмму/спектрограмму.
 pub const AVG_FULLTRACK_RGBA_BYTES: usize = 2000 * 512 * 4;
@@ -776,5 +793,18 @@ mod tests {
         let parent = std::env::temp_dir().join(format!("mp_disk_size_missing_{}", std::process::id()));
         let _ = fs::remove_dir_all(&parent);
         assert_eq!(disk_cache_size_in(&parent.join("does_not_exist")), 0);
+    }
+
+    #[test]
+    fn fmt_cache_bytes_units() {
+        assert_eq!(fmt_cache_bytes(0), "0 B");
+        assert_eq!(fmt_cache_bytes(999), "999 B");
+        // 1 048 576 B = 1.00 MiB (минимальный шаг с двумя знаками — 1.00 MiB).
+        assert_eq!(fmt_cache_bytes(1024), "1.00 KiB");
+        assert_eq!(fmt_cache_bytes(1536), "1.50 KiB");
+        assert_eq!(fmt_cache_bytes(1024 * 1024), "1.00 MiB");
+        assert_eq!(fmt_cache_bytes(1024 * 1024 * 1024), "1.00 GiB");
+        // Ровно 1024 B поднимает единицу до KiB, а не остаётся в B.
+        assert_ne!(fmt_cache_bytes(1023), fmt_cache_bytes(1024));
     }
 }
