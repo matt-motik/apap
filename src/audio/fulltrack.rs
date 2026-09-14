@@ -513,6 +513,29 @@ fn evict_disk_cache_in(dir: PathBuf, max_size_mb: u32) -> std::io::Result<(u64, 
     Ok((bytes_after, removed_pairs))
 }
 
+/// Полностью очистить дисковый кэш визуализации (§10.5): удалить все файлы в
+/// `viz_cache_dir()` (пары `{key}.png + {key}.json`). Возвращает число
+/// удалённых файлов (0 при пустом/отсутствующем каталоге).
+pub fn clear_disk_cache() -> usize {
+    clear_disk_cache_in(&viz_cache_dir())
+}
+
+/// Ядро `clear_disk_cache` над произвольным каталогом (тестируемое).
+fn clear_disk_cache_in(dir: &Path) -> usize {
+    let Ok(rd) = fs::read_dir(dir) else {
+        return 0;
+    };
+    let mut removed = 0usize;
+    for entry in rd.flatten() {
+        if entry.path().is_file() {
+            if fs::remove_file(entry.path()).is_ok() {
+                removed += 1;
+            }
+        }
+    }
+    removed
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -793,6 +816,26 @@ mod tests {
         let parent = std::env::temp_dir().join(format!("mp_disk_size_missing_{}", std::process::id()));
         let _ = fs::remove_dir_all(&parent);
         assert_eq!(disk_cache_size_in(&parent.join("does_not_exist")), 0);
+    }
+
+    #[test]
+    fn clear_disk_cache_removes_all_files() {
+        let parent = std::env::temp_dir().join(format!("mp_clear_viz_{}", std::process::id()));
+        let _ = fs::remove_dir_all(&parent);
+        let dir = make_test_cache(&parent, 3, 100, 20);
+        assert_eq!(disk_cache_size_in(&dir), 360);
+        let removed = clear_disk_cache_in(&dir);
+        assert_eq!(removed, 6); // 3 png + 3 json
+        assert_eq!(disk_cache_size_in(&dir), 0);
+        assert!(dir.is_dir(), "directory itself must survive");
+        let _ = fs::remove_dir_all(&parent);
+    }
+
+    #[test]
+    fn clear_disk_cache_missing_dir_is_zero() {
+        let parent = std::env::temp_dir().join(format!("mp_clear_viz_missing_{}", std::process::id()));
+        let _ = fs::remove_dir_all(&parent);
+        assert_eq!(clear_disk_cache_in(&parent.join("does_not_exist")), 0);
     }
 
     #[test]
