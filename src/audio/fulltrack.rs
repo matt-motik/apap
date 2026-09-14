@@ -464,4 +464,17 @@ mod tests {
         let k3 = cache_key(Path::new("bar.flac"), t, 12345, &cfg);
         assert_ne!(k1, k3);
     }
+
+    #[test]
+    fn fulltrack_cache_max_entries_math() {
+        // Default 64 MiB / ~4 MiB avg (2000×512×4 B) → 16 записей.
+        assert_eq!(fulltrack_cache_max_entries(64).get(), 16);
+        // 32 MiB → 8 записей.
+        assert_eq!(fulltrack_cache_max_entries(32).get(), 8);
+        // Нулевой/крошечный бюджет → минимум 1 запись (NonZero обязателен).
+        assert_eq!(fulltrack_cache_max_entries(0).get(), 1);
+        assert_eq!(fulltrack_cache_max_entries(1).get(), 1);
+        // Базисный случай: 1 запись (~4 MiB) умещается ровно.
+        assert_eq!(fulltrack_cache_max_entries(4).get(), 1);
+    }
 }

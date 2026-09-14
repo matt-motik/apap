@@ -530,4 +530,22 @@ mod tests {
         assert_eq!(cfg.mode, VisualizationMode::Off);
         assert_eq!(cfg.spectrum.bands, 32);
     }
+
+    #[test]
+    fn viz_max_ram_roundtrip_and_default() {
+        // Default 64 MiB (§10.4).
+        assert_eq!(VisualizerSettings::default().viz_max_ram_mb, 64);
+        assert_eq!(VisualizerConfig::from_settings(&crate::settings::Settings::default()).viz_max_ram_mb, 64);
+        // TOML-roundtrip нестандартного значения.
+        let mut v = VisualizerSettings::default();
+        v.viz_max_ram_mb = 128;
+        let s = toml::to_string(&v).unwrap();
+        assert!(s.contains("viz_max_ram_mb = 128"));
+        let back: VisualizerSettings = toml::from_str(&s).unwrap();
+        assert_eq!(back.viz_max_ram_mb, 128);
+        // Отсутствующий ключ → дефолт 64.
+        let partial: VisualizerSettings =
+            toml::from_str("skip_fulltrack_for_dsd = false").unwrap();
+        assert_eq!(partial.viz_max_ram_mb, 64);
+    }
 }
