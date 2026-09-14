@@ -905,6 +905,7 @@ impl MusicApp {
                 // so preserve them across the draft replacement instead of
                 // letting the stale clone overwrite fresh values.
                 let old_bp = a.settings.settings.audio.bit_perfect;
+                let old_viz_ram_mb = a.settings.settings.visualization.viz_max_ram_mb;
                 let live = {
                     let l = &a.settings.settings;
                     (
@@ -935,6 +936,17 @@ impl MusicApp {
                 s.win_w = live.9;
                 s.win_h = live.10;
                 a.settings.save();
+                // ТЗ §10.4: лимит RAM-кэша визуализации менялся в диалоге →
+                // горячий `resize` существующего LRU (лишние записи вытесняются
+                // по LRU внутри `CLruCache::resize`).
+                let new_viz_ram_mb = a.settings.settings.visualization.viz_max_ram_mb;
+                if new_viz_ram_mb != old_viz_ram_mb {
+                    let cap = music_player_rs::audio::fulltrack::fulltrack_cache_max_entries(
+                        new_viz_ram_mb,
+                    );
+                    a.fulltrack_cache.resize(cap);
+                    eprintln!("[gui] settings_save: fulltrack cache resize -> {new_viz_ram_mb} MiB");
+                }
                 // ТЗ §7.5/§8.6: bit-perfect менялся в диалоге → применить к
                 // плееру. Включение = Direct Output (unity gain, снятие mute).
                 if a.settings.settings.audio.bit_perfect != old_bp {
