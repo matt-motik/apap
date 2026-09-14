@@ -559,4 +559,24 @@ mod tests {
             toml::from_str("skip_fulltrack_for_dsd = false").unwrap();
         assert_eq!(partial.viz_max_ram_mb, 64);
     }
+
+    #[test]
+    fn disk_max_size_roundtrip_and_default() {
+        // Default 512 MiB (§10.4).
+        assert_eq!(VisualizerSettings::default().disk_max_size_mb, 512);
+        assert_eq!(VisualizerConfig::from_settings(&crate::settings::Settings::default()).disk_max_size_mb, 512);
+        // TOML-roundtrip нестандартного значения.
+        let v = VisualizerSettings {
+            disk_max_size_mb: 256,
+            ..VisualizerSettings::default()
+        };
+        let s = toml::to_string(&v).unwrap();
+        assert!(s.contains("disk_max_size_mb = 256"));
+        let back: VisualizerSettings = toml::from_str(&s).unwrap();
+        assert_eq!(back.disk_max_size_mb, 256);
+        // Отсутствующий ключ → дефолт 512.
+        let partial: VisualizerSettings =
+            toml::from_str("viz_max_ram_mb = 32").unwrap();
+        assert_eq!(partial.disk_max_size_mb, 512);
+    }
 }
