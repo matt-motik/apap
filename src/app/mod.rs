@@ -75,9 +75,6 @@ const COL_SAVE_DEBOUNCE_TICKS: u32 = 6;
 /// a window resize. ~64 ms.
 const REFLOW_SETTLE_TICKS: u32 = 4;
 
-/// Лимит RAM-кэша полнотрековых изображений (LRU): ~20 × 4 МБ RGBA (2000×512).
-const FULLTRACK_CACHE_LEN: usize = 20;
-
 /// Полная сигнатура визуализации для детекта изменений DSP-настроек. Кортежи
 /// std реализуют `PartialEq` только до 12 элементов, поэтому — отдельный тип.
 #[derive(Debug, Clone, PartialEq)]
@@ -238,7 +235,7 @@ pub struct MusicApp {
     /// Ключ билда, уже показанный на UI (для дропа устаревших Ready).
     fulltrack_key: Option<String>,
     /// RAM-кэш построенных изображений по cache-ключу (режим+параметры).
-    /// LRU: лимит `FULLTRACK_CACHE_LEN` ~2000×512 RGBA ≈ 20×4 МБ.
+    /// LRU: лимит записей из `viz_max_ram_mb` (см. `fulltrack_cache_max_entries`).
     fulltrack_cache: clru::CLruCache<String, slint::Image>,
     /// Режим, под который построен текущий целевой билд (детект смены типа —
     /// смена режима применяется сразу, а не с debounce).
@@ -325,6 +322,10 @@ impl MusicApp {
         // уходит в LiveWorker, producer — в audio-callback плеера.
         let (viz_prod, viz_cons) = rtrb::RingBuffer::new(TAP_CAPACITY);
         let viz_cfg = Arc::new(VisualizerConfig::from_settings(&settings.settings));
+        let cache_max_entries =
+            music_player_rs::audio::fulltrack::fulltrack_cache_max_entries(
+                settings.settings.visualization.viz_max_ram_mb,
+            );
 
         let mut app = Self {
             ui: ui.clone_strong(),
@@ -374,7 +375,7 @@ impl MusicApp {
             fulltrack_id: 0,
             fulltrack_target: None,
             fulltrack_key: None,
-            fulltrack_cache: clru::CLruCache::new(std::num::NonZeroUsize::new(FULLTRACK_CACHE_LEN).expect("cache len > 0")),
+            fulltrack_cache: clru::CLruCache::new(cache_max_entries),
             fulltrack_mode: None,
             viz_debounce: None,
         };
