@@ -385,6 +385,72 @@ pub fn cache_meta_valid(key: &str) -> bool {
     }
 }
 
+/// Вытеснить старейшие записи (по mtime) дискового кэша визуализации, пока
+/// суммарный объём не войдёт в лимит `max_size_mb` (§10.4). Каждая запись —
+/// пара файлов `{key}.png + {key}.json`; удаляются обе. Несуществующий
+/// каталог и бюджет, покрывающий текущий объём, — no-op.
+/// Возвращает `(bytes_after, removed_pairs)`.
+pub fn evict_disk_cache(max_size_mb: u32) -> std::io::Result<(u64, usize)> {
+    evict_disk_cache_in(viz_cache_dir(), max_size_mb)
+}
+
+/// Ядро `evict_disk_cache` над произвольным каталогом (тестируемая,
+/// без глобального XDG-состояния).
+fn evict_disk_cache_in(dir: PathBuf, max_size_mb: u32) -> std::io::Result<(u64, usize)> {
+    if !dir.is_dir() {
+        return Ok((0, 0));
+    }
+    let budget = u64::from(max_size_mb).saturating_mul(1024 * 1024);
+
+    // ключ -> (суммарный объём пары png+json, max mtime пары).
+    let mut entries: std::collections::HashMap<String, (u64, u64)> =
+        std::collections::HashMap::new();
+    for dir_entry in fs::read_dir(&dir)? {
+        let dir_entry = dir_entry?;
+        let path = dir_entry.path();
+        if !path.is_file() {
+            continue;
+        }
+        let Some(stem) = path.file_stem().map(|s| s.to_string_lossy().into_owned()) else {
+            continue;
+        };
+        let Ok(meta) = dir_entry.metadata() else { continue };
+        let mtime = meta
+            .modified()
+            .ok()
+            .and_then(|t| t.duration_since(UNIX_EPOCH).ok())
+            .map(|d| d.as_secs())
+            .unwrap_or(0);
+        let count = entries.entry(stem).or_insert((0, 0));
+        count.0 = count.0.saturating_add(meta.len());
+        count.1 = count.1.max(mtime);
+    }
+
+    let mut bytes_after: u64 = entries.values().map(|(b, _)| *b).sum();
+    if bytes_after <= budget {
+        return Ok((bytes_after, 0));
+    }
+
+    let mut ordered: Vec<(String, u64, u64)> = entries
+        .into_iter()
+        .map(|(key, (bytes, mtime))| (key, bytes, mtime))
+        .collect();
+    // Старейшие (минимальный mtime) — в начало списка на удаление (LRU).
+    ordered.sort_by_key(|(_, _, mtime)| *mtime);
+
+    let mut removed_pairs = 0usize;
+    for (key, bytes, _) in ordered {
+        if bytes_after <= budget {
+            break;
+        }
+        let _ = fs::remove_file(cache_png_path(&key));
+        let _ = fs::remove_file(cache_meta_path(&key));
+        bytes_after = bytes_after.saturating_sub(bytes);
+        removed_pairs += 1;
+    }
+    Ok((bytes_after, removed_pairs))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

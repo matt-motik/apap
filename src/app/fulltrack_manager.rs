@@ -207,6 +207,8 @@ fn run_osc(b: FullBuild, flag: Arc<AtomicBool>, out: Sender<FullEvt>) {
             height: h,
         };
         let _ = ft::save_png(&key, &rgba, w, h, &meta);
+        // §10.4: после записи нового PNG проверить бюджет дискового кэша.
+        let _ = ft::evict_disk_cache(b.cfg.disk_max_size_mb);
     }
     let _ = out.send(FullEvt::Ready {
         id: b.id,
@@ -328,6 +330,8 @@ fn run_spec(b: FullBuild, flag: Arc<AtomicBool>, out: Sender<FullEvt>) {
             height: h,
         };
         let _ = ft::save_png(&key, &rgba, w, h, &meta);
+        // §10.4: после записи нового PNG проверить бюджет дискового кэша.
+        let _ = ft::evict_disk_cache(b.cfg.disk_max_size_mb);
     }
     let _ = out.send(FullEvt::Ready {
         id: b.id,
