@@ -12,6 +12,8 @@
 
 use serde::{Deserialize, Serialize};
 
+use crate::settings::{ResamplerAlgorithm, TargetBitDepth, TargetSampleRate};
+
 /// Режим визуализации.
 ///
 /// Сериализуется в нижнем регистре (`off`/`oscilloscope`/`spectrogram`/
@@ -425,6 +427,26 @@ pub struct VisualizerConfig {
     pub oscilloscope: OscilloscopeCfg,
     pub spectrogram: SpectrogramCfg,
     pub spectrum: SpectrumCfg,
+    /// DSD→PCM параметры, участвующие в ключе кэша полнотрековых (§10.4).
+    pub dsd_params: DsdCacheParams,
+}
+
+/// Снимок DSD→PCM параметров для ключа кэша полнотрековых (§10.4 `dsd_params`).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub struct DsdCacheParams {
+    pub target_bit_depth: TargetBitDepth,
+    pub target_sample_rate: TargetSampleRate,
+    pub resampler_algorithm: ResamplerAlgorithm,
+}
+
+impl Default for DsdCacheParams {
+    fn default() -> Self {
+        Self {
+            target_bit_depth: TargetBitDepth::Bits24,
+            target_sample_rate: TargetSampleRate::Auto,
+            resampler_algorithm: ResamplerAlgorithm::SincMedium,
+        }
+    }
 }
 
 impl VisualizerConfig {
@@ -438,6 +460,11 @@ impl VisualizerConfig {
             oscilloscope: v.oscilloscope.clone(),
             spectrogram: v.spectrogram.clone(),
             spectrum: v.spectrum.clone(),
+            dsd_params: DsdCacheParams {
+                target_bit_depth: s.dsd.target_bit_depth,
+                target_sample_rate: s.dsd.target_sample_rate,
+                resampler_algorithm: s.audio.resampler.algorithm,
+            },
         }
     }
 }
