@@ -6,4 +6,5 @@ pub mod meta;
 pub mod playlist;
 pub mod playlist_layout;
 pub mod settings;
+pub mod theme;
 pub mod tray;
