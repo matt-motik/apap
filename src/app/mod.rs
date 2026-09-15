@@ -537,29 +537,6 @@ impl MusicApp {
             });
         }
 
-        // 9b. toggle-bit-perfect (Direct Output)
-        {
-            let app = this.clone();
-            ui.on_toggle_bit_perfect(move || {
-                eprintln!("[gui] toggle_bit_perfect");
-                let mut a = app.borrow_mut();
-                let next = !a.player.bit_perfect();
-                a.player.set_bit_perfect(next);
-                if next {
-                    // Direct Output bypasses the software mixer completely —
-                    // deliver unity gain and clear the mute so nothing can
-                    // mask the DAC path. Persisted eagerly (surprise protection).
-                    a.player.set_volume(1.0);
-                    a.player.set_muted(false);
-                    a.settings.settings.volume = 1.0;
-                    a.settings.settings.muted = false;
-                }
-                a.settings.settings.audio.bit_perfect = next;
-                a.settings.save();
-                a.emit(AppEvent::BitPerfectChanged);
-            });
-        }
-
         // 10. play-track (double-click detection: single click selects, double-click plays)
         {
             let app = this.clone();

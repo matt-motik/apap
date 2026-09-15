@@ -230,7 +230,6 @@ export component AppWindow inherits Window {
     callback seek-commit(float);
     callback volume-changed(float);
     callback toggle-mute();
-    callback toggle-bit-perfect();
     callback play-track(int);
     callback scroll-to-row(int);
     scroll-to-row(idx) => { playlist_view_width.do-scroll-to-row(idx); }
