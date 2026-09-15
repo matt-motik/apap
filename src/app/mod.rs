@@ -196,6 +196,8 @@ pub struct MusicApp {
     tray_rx: Option<std::sync::mpsc::Receiver<TrayCmd>>,
     tray_up_tx: Option<tokio::sync::mpsc::UnboundedSender<tray::TrayState>>,
     last_tray_update: Instant,
+    /// Deadline of the transient tray tooltip about bit-perfect (None = off).
+    bp_notice_until: Option<Instant>,
     last_view_width: f32,
     view_w_stable_ticks: u32,
     col_model_sig: u64,
@@ -352,6 +354,7 @@ impl MusicApp {
             tray_rx: Some(tray_rx),
             tray_up_tx: Some(tray_up_tx),
             last_tray_update: Instant::now(),
+            bp_notice_until: None,
             last_view_width: 0.0,
             view_w_stable_ticks: 0,
             col_model_sig: 0,
@@ -1285,6 +1288,12 @@ impl MusicApp {
         }
     }
 
+    /// Показать временный тултип трея «громкость не регулируется
+    /// программно» (~5 с), когда включается bit-perfect (Direct Output).
+    fn set_bp_notice(&mut self) {
+        self.bp_notice_until = Some(Instant::now() + std::time::Duration::from_secs(5));
+    }
+
     /// Emit a state-change event for the direction-feed (surfaces react in
     /// `drain_events`, which runs every tick before the UI sync).
     fn emit(&mut self, event: AppEvent) {
@@ -1334,6 +1343,10 @@ impl MusicApp {
             playing: self.player.is_playing(),
             bit_perfect: self.player.bit_perfect(),
             error: self.audio_error.clone(),
+            notice: self
+                .bp_notice_until
+                .filter(|deadline| Instant::now() < *deadline)
+                .map(|_| tray::BP_NOTICE_TEXT.to_string()),
         }
     }
 }

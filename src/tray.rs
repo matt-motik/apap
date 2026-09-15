@@ -17,6 +17,11 @@ pub enum TrayCmd {
     Wheel(i32),
 }
 
+/// Text shown as a transient tray tooltip the moment bit-perfect (Direct
+/// Output) is enabled: the software volume stage is bypassed.
+pub const BP_NOTICE_TEXT: &str =
+    "Bit-perfect: громкость не регулируется программно (регулировка на внешнем предусилителе / ЦАП)";
+
 /// State pushed from the application to the tray (title/tooltip updates).
 #[derive(Debug, Clone, Default)]
 pub struct TrayState {
@@ -26,6 +31,9 @@ pub struct TrayState {
     pub bit_perfect: bool,
     /// Non-empty when audio is unavailable (e.g. device missing at startup).
     pub error: Option<String>,
+    /// Transient tooltip override (e.g. bit-perfect volume notice). When set,
+    /// [`PlayerTray::tool_tip`] shows this text instead of the regular status.
+    pub notice: Option<String>,
 }
 
 #[derive(Debug)]
@@ -79,13 +87,16 @@ impl ksni::Tray for PlayerTray {
     }
 
     fn tool_tip(&self) -> ksni::ToolTip {
-        let description = match &self.state.error {
-            Some(e) => format!("Playback unavailable: {e}"),
-            None if self.state.bit_perfect => {
-                "Playing \u{2014} Bit-perfect (Direct Output, volume on DAC)".into()
-            }
-            None if self.state.playing => "Playing".into(),
-            None => "Paused".into(),
+        let description = match &self.state.notice {
+            Some(n) if !n.is_empty() => n.clone(),
+            _ => match &self.state.error {
+                Some(e) => format!("Playback unavailable: {e}"),
+                None if self.state.bit_perfect => {
+                    "Playing \u{2014} Bit-perfect (Direct Output, volume on DAC)".into()
+                }
+                None if self.state.playing => "Playing".into(),
+                None => "Paused".into(),
+            },
         };
         ksni::ToolTip {
             icon_name: "multimedia-player".into(),
