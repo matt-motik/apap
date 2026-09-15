@@ -51,6 +51,15 @@ export component Visualizer inherits Rectangle {
     in property <string> disabled-text: ""; // спец-плейсхолдер (§6.3)
     in property <float> build-progress: 0.0; // 0..1, полоса прогресса при построении
 
+    // Seek по полнотрековой визуализации (§13.3): доля трека (0..1), обновляется
+    // из тика; seek-commit вызывается при отпускании кнопки мыши.
+    in property <float> seek-fraction: 0.0;
+    callback seek-commit(float);
+
+    private property <bool> seek-dragging: false;
+    private property <float> pending-seek: -1;
+    private property <bool> seek-active: root.mode == 1 || root.mode == 2;
+
     // Полнотрековая визуализация (§16.4 осциллограмма / §16.5 спектрограмма):
     // отрендеренное RGBA-изображение и флаг готовности. Имена свойств общие,
     // содержимое определяется режимом (mode 1 — envelope-осциллограмма,
@@ -92,6 +101,59 @@ export component Visualizer inherits Rectangle {
             // размера (columns×512), а тут растягивается на всю область
             // плейсхолдера — иначе по бокам/сверху остаются пустые поля.
             image-fit: fill;
+        }
+    }
+
+    // Seek-маркеры полнотрековой визуализации (§13.3):
+    //  1. маркер текущей позиции — сплошная акцентная линия, X = seek-fraction;
+    //  2. во время драга — полупрозрачный маркер, следует за мышью;
+    //  3. отпускание → seek-commit (клик без движения тоже seek, как сикбар).
+    Rectangle {
+        visible: root.seek-active && root.osc-ready && root.disabled-text == "";
+        x: root.seek-fraction * root.width;
+        width: 2px;
+        height: 100%;
+        background: Colors.accent;
+    }
+
+    Rectangle {
+        visible: root.seek-dragging && root.pending-seek >= 0;
+        x: root.pending-seek * root.width;
+        width: 2px;
+        height: 100%;
+        opacity: 0.5;
+        background: Colors.accent;
+    }
+
+    // Клик/драг на области визуализации → seek (§13.3). Активен только для
+    // полнотрековых режимов с готовым изображением; анализатор (mode 3) и
+    // плейсхолдеры seek не обрабатывают. Живой seek во время драга не
+    // вызывается (только preview маркером) — перемотка один раз при отпускании.
+    seekgrab := TouchArea {
+        width: 100%;
+        height: 100%;
+        mouse-cursor: MouseCursor.pointer;
+        enabled: root.seek-active && root.osc-ready && root.disabled-text == "";
+
+        pointer-event(event) => {
+            if (event.kind == PointerEventKind.down) {
+                root.seek-dragging = true;
+                root.pending-seek = Math.clamp(self.mouse-x / self.width, 0, 1);
+            } else if (event.kind == PointerEventKind.up) {
+                if (root.seek-dragging) {
+                    if (root.pending-seek >= 0) {
+                        root.seek-commit(root.pending-seek);
+                    }
+                    root.pending-seek = -1;
+                }
+                root.seek-dragging = false;
+            }
+        }
+
+        moved => {
+            if (root.seek-dragging) {
+                root.pending-seek = Math.clamp(self.mouse-x / self.width, 0, 1);
+            }
         }
     }
 

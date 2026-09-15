@@ -86,9 +86,9 @@ mtime+ключ присутствуют, не хватает `dsd_params` в к�
 
 | ID | Задача | Приоритет | Статус | ТЗ |
 | --- | --- | --- | --- | --- |
-| V5.1-13.3 | Seek по клику/драгу на осциллограмме и спектрограмме (координата X → время) | 🟢 Средний | ⬜ Бэклог | [§13.3](docs/spec_visualizer_v5.1.md#133-клик-для-seek) |
+| V5.1-13.3 | Seek по клику/драгу на осциллограмме и спектрограмме (координата X → время) | 🟢 Средний | ⏳ выполняется | [§13.3](docs/spec_visualizer_v5.1.md#133-клик-для-seek) |
 | ↳ V5.1-13.3.1 | TouchArea в `visualizer.slint` (X → fraction, драг-метка) | — | ⬜ | [§13.3](docs/spec_visualizer_v5.1.md#133-клик-для-seek) |
-| ↳ V5.1-13.3.2 | Callback `viz-seek(float)` → `MusicApp` → `player.seek` | — | ⬜ | [§13.3](docs/spec_visualizer_v5.1.md#133-клик-для-seek) |
+| ↳ V5.1-13.3.2 | Callback `viz-seek(float)` → `MusicApp` → `player.seek` | — | ✅ done (переисп. `seek-commit` цепочка app.slint→Rust) | [§13.3](docs/spec_visualizer_v5.1.md#133-клик-для-seek) |
 | ↳ V5.1-13.3.3 | Подавление fulltrack-билда во время драга | — | ⬜ | [§13.3](docs/spec_visualizer_v5.1.md#133-клик-для-seek) |
 
 ### 6.5 Техническое документирование

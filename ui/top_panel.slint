@@ -325,8 +325,10 @@ export component TopPanel inherits Rectangle {
                 osc-image: root.osc-image;
                 osc-ready: root.osc-ready;
                 disabled-text: root.disabled-text;
+                seek-fraction: root.seek-fraction;
                 height: root.cover-size * 1px;
                 width: 100%;
+                seek-commit(v) => { root.seek-commit(v); }
             }
 
             VerticalLayout {
