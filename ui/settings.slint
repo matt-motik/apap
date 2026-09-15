@@ -164,7 +164,8 @@ export component Settings inherits Rectangle {
 
     // ===== Кэш (§10.5) =====
     in property <string> cache-ram-size: "";
-    in property <string> cache-disk-size: "";
+    in property <string> cache-viz-size: "";
+    in property <string> cache-cover-size: "";
 
     visible: root.open;
     background: Colors.bg-overlay;
@@ -1471,7 +1472,7 @@ export component Settings inherits Rectangle {
                                         padding-right: 8px;
                                         spacing: 4px;
                                         RowLabel {
-                                            text: "RAM cache";
+                                            text: "RAM viz cache";
                                         }
 
                                         RowLabel {
@@ -1489,11 +1490,29 @@ export component Settings inherits Rectangle {
                                         padding-right: 8px;
                                         spacing: 4px;
                                         RowLabel {
-                                            text: "Disk cache";
+                                            text: "Viz cache";
                                         }
 
                                         RowLabel {
-                                            text: root.cache-disk-size;
+                                            text: root.cache-viz-size;
+                                            text-color: Colors.text-primary;
+                                        }
+
+                                        Rectangle {
+                                            horizontal-stretch: 1;
+                                        }
+                                    }
+
+                                    HorizontalLayout {
+                                        padding-left: 8px;
+                                        padding-right: 8px;
+                                        spacing: 4px;
+                                        RowLabel {
+                                            text: "Cover cache";
+                                        }
+
+                                        RowLabel {
+                                            text: root.cache-cover-size;
                                             text-color: Colors.text-primary;
                                         }
 

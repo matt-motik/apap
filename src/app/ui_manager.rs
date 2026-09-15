@@ -91,15 +91,19 @@ impl MusicApp {
         self.sync_dsd_settings_to_ui();
     }
 
-    /// Синхронизация статистики кэша визуализации (RAM / Disk, §10.5).
-    /// Вызывается при открытии диалога и при его тике (размеры меняются
-    /// из-за билдов полнотрековых изображений и вытеснения LRU).
+    /// Синхронизация статистики кэша (§10.5): RAM визуализации + дисковый
+    /// кэш визуализации + дисковый кэш обложек. Вызывается при открытии
+    /// диалога и при его тике (размеры меняются из-за билдов полнотрековых
+    /// изображений, вытеснения LRU и подгрузки обложек).
     pub(super) fn sync_cache_stats_to_ui(&self) {
-        let (ram, disk) = self.cache_sizes();
+        let (ram, viz_disk) = self.cache_sizes();
+        let cover_disk = music_player_rs::cover::cover_cache_size();
         self.ui
             .set_settings_cache_ram_size(music_player_rs::audio::fulltrack::fmt_cache_bytes(ram).into());
         self.ui
-            .set_settings_cache_disk_size(music_player_rs::audio::fulltrack::fmt_cache_bytes(disk).into());
+            .set_settings_cache_viz_size(music_player_rs::audio::fulltrack::fmt_cache_bytes(viz_disk).into());
+        self.ui
+            .set_settings_cache_cover_size(music_player_rs::audio::fulltrack::fmt_cache_bytes(cover_disk).into());
     }
 
     /// Синхронизация DSD-полей диалога настроек: текущий режим (0=PCM,

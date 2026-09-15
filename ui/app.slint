@@ -310,7 +310,8 @@ export component AppWindow inherits Window {
     in property <bool> settings-viz-sp-dsd-comp: true;
     // §10.5: статистика кэша визуализации (RAM / Disk, форматируется в Rust).
     in property <string> settings-cache-ram-size: "";
-    in property <string> settings-cache-disk-size: "";
+    in property <string> settings-cache-viz-size: "";
+    in property <string> settings-cache-cover-size: "";
 
     callback cycle-viz();
     callback menu-select-viz(int);
@@ -533,7 +534,8 @@ export component AppWindow inherits Window {
         viz-sp-gradient: root.settings-viz-sp-gradient;
         viz-sp-dsd-comp: root.settings-viz-sp-dsd-comp;
         cache-ram-size: root.settings-cache-ram-size;
-        cache-disk-size: root.settings-cache-disk-size;
+        cache-viz-size: root.settings-cache-viz-size;
+        cache-cover-size: root.settings-cache-cover-size;
         set-viz-mode(i) => { root.settings-set-viz-mode(i); }
         set-viz-skip-dsd(b) => { root.settings-set-viz-skip-dsd(b); }
         reset-viz-type => { root.settings-set-viz-reset-type(); }
