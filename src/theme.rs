@@ -84,6 +84,8 @@ pub struct ThemeEntry {
 pub enum ThemeError {
     Io(std::io::Error),
     Deserialize(toml::de::Error),
+    /// HEX-строка цвета не прошла `parse_hex`; несёт имя поля для UI-диагностики.
+    InvalidHex { field: String },
 }
 
 impl fmt::Display for ThemeError {
@@ -91,6 +93,7 @@ impl fmt::Display for ThemeError {
         match self {
             ThemeError::Io(e) => write!(f, "io error: {e}"),
             ThemeError::Deserialize(e) => write!(f, "toml error: {e}"),
+            ThemeError::InvalidHex { field } => write!(f, "invalid hex color in field `{field}`"),
         }
     }
 }
@@ -100,6 +103,7 @@ impl std::error::Error for ThemeError {
         match self {
             ThemeError::Io(e) => Some(e),
             ThemeError::Deserialize(e) => Some(e),
+            ThemeError::InvalidHex { .. } => None,
         }
     }
 }

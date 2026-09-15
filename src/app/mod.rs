@@ -20,6 +20,7 @@ use music_player_rs::audio::visualizer::{
 use music_player_rs::cover::{self, CoverDone, CoverJob};
 use music_player_rs::playlist::{self, ScanMsg, Track};
 use music_player_rs::settings::{ColumnId, DsdMode, RepeatMode, Settings, SettingsStore, Theme};
+use music_player_rs::theme::{ColorsData, ThemeData, ThemeError, DEFAULT_LIGHT_TOML, parse_hex};
 use music_player_rs::tray::{self, TrayCmd};
 
 pub mod events;
@@ -134,6 +135,77 @@ fn hex_color(hex: &str) -> Option<slint::Color> {
         Some(slint::Color::from_rgb_u8(r, g, b))
     } else {
         Some(slint::Color::from_argb_u8(a, r, g, b))
+    }
+}
+
+/// Валидирует HEX всех 22 полей `ColorsData` через `theme::parse_hex` (§2.3).
+/// Любой отказ → `ThemeError::InvalidHex` с именем поля для диагностики.
+#[allow(dead_code)] // активируется в Шаге 6 (apply_theme/resolve_startup_theme)
+fn validate_colors(colors: &ColorsData) -> Result<(), ThemeError> {
+    type ColorField = fn(&ColorsData) -> &str;
+    const FIELDS: [(&str, ColorField); 22] = [
+        ("bg_window", |c| &c.bg_window),
+        ("bg_surface", |c| &c.bg_surface),
+        ("bg_toolbar", |c| &c.bg_toolbar),
+        ("bg_elevated", |c| &c.bg_elevated),
+        ("bg_overlay", |c| &c.bg_overlay),
+        ("border_subtle", |c| &c.border_subtle),
+        ("border_default", |c| &c.border_default),
+        ("text_primary", |c| &c.text_primary),
+        ("text_secondary", |c| &c.text_secondary),
+        ("text_tertiary", |c| &c.text_tertiary),
+        ("text_dim", |c| &c.text_dim),
+        ("text_on_accent", |c| &c.text_on_accent),
+        ("text_error", |c| &c.text_error),
+        ("accent", |c| &c.accent),
+        ("accent_container", |c| &c.accent_container),
+        ("accent_on", |c| &c.accent_on),
+        ("surface_hover", |c| &c.surface_hover),
+        ("surface_active", |c| &c.surface_active),
+        ("surface_selected", |c| &c.surface_selected),
+        ("viz_1", |c| &c.viz_1),
+        ("viz_2", |c| &c.viz_2),
+        ("viz_3", |c| &c.viz_3),
+    ];
+    for (field, get) in FIELDS {
+        if parse_hex(get(colors)).is_none() {
+            return Err(ThemeError::InvalidHex {
+                field: field.to_owned(),
+            });
+        }
+    }
+    Ok(())
+}
+
+/// Разрешает стартовую тему без GUI (§8.2/§6.1).
+///
+/// Цепочка fallback: `<name>.toml` (структура + HEX) → `light.toml` →
+/// `DEFAULT_LIGHT_TOML`. Возвращает `(данные_темы, was_fallback)`.
+/// `settings.toml` не пишет — намерение пользователя сохраняется.
+#[allow(dead_code)] // активируется в Шаге 6 (init/apply_theme)
+fn resolve_startup_theme(name: &str, themes_dir: &std::path::Path) -> (ThemeData, bool) {
+    let try_file = |p: &std::path::Path| -> Option<ThemeData> {
+        let data = ThemeData::load_from_file(p).ok()?;
+        if validate_colors(&data.colors).is_ok() {
+            Some(data)
+        } else {
+            None
+        }
+    };
+
+    if let Some(data) = try_file(&themes_dir.join(format!("{name}.toml"))) {
+        return (data, false);
+    }
+
+    match try_file(&themes_dir.join("light.toml")) {
+        Some(data) => (data, true),
+        None => (
+            toml::from_str(DEFAULT_LIGHT_TOML).expect(
+                "DEFAULT_LIGHT_TOML — константа с фиксированным набором HEX, \
+                 покрыта test_load_default_light",
+            ),
+            true,
+        ),
     }
 }
 
@@ -1451,5 +1523,32 @@ mod tests {
         assert!(hex_color("#gggggg").is_none()); // non-hex
         assert!(hex_color("#12345g").is_none()); // non-hex tail
         assert!(hex_color("ФфФФФФ").is_none()); // non-utf8/ascii hex
+    }
+
+    #[test]
+    fn test_validate_colors_ok() {
+        let data: ThemeData = toml::from_str(music_player_rs::theme::DEFAULT_DARK_TOML).unwrap();
+        assert!(validate_colors(&data.colors).is_ok());
+    }
+
+    #[test]
+    fn test_validate_colors_bad_hex() {
+        let mut data: ThemeData = toml::from_str(music_player_rs::theme::DEFAULT_DARK_TOML).unwrap();
+        data.colors.viz_3 = "zzzzzz".to_string();
+        let err = validate_colors(&data.colors).unwrap_err();
+        assert!(err.to_string().contains("viz_3"), "ошибка: {err}");
+    }
+
+    #[test]
+    fn test_startup_fallback_missing_file() {
+        let dir = std::env::temp_dir().join(format!("mp_resolve_{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+
+        let (data, was_fallback) = resolve_startup_theme("ghost", &dir);
+        assert!(was_fallback);
+        assert_eq!(data.standard_palette, music_player_rs::theme::StandardPalette::Light);
+        assert_eq!(data.colors.accent, "#6750a4");
+        assert!(!dir.join("settings.toml").exists(), "resolve не должен писать на диск");
     }
 }
