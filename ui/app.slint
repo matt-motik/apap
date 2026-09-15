@@ -205,6 +205,12 @@ export component AppWindow inherits Window {
     in property <int> settings-theme: 0;
     // T1.0 §7: палитра стандартных виджетов/иконок (0=dark, 1=light).
     in property <int> theme-palette: 0;
+    // T1.0 §5: список тем и состояние UI выбора темы в диалоге.
+    in property <[string]> theme-list-model: [""];
+    in property <string> theme-current: "";
+    in property <string> theme-name: "";
+    in property <string> theme-description: "";
+    in property <bool> theme-save-enabled: false;
     in property <bool> settings-minimize: false;
     in property <[string]> settings-devices: [];
     in property <int> settings-device-idx: -1;
@@ -244,6 +250,7 @@ export component AppWindow inherits Window {
     callback load-playlist();
     callback settings-close();
     callback settings-theme-changed(int);
+    callback settings-theme-selected(string);
     callback settings-cover-size(float);
     callback settings-col-info-w(float);
     callback settings-col-gap(float);
@@ -459,7 +466,6 @@ export component AppWindow inherits Window {
         width: 100%;
         height: 100%;
         open: root.settings-open;
-        theme: root.settings-theme;
         cover-size: root.cover-size;
         col-info-w: root.col-info-w;
         col-gap: root.col-gap;
@@ -477,8 +483,13 @@ export component AppWindow inherits Window {
         covers: root.settings-covers;
         cover-names: root.settings-cover-names;
         cover-online: root.settings-cover-online;
+        theme-list-model: root.theme-list-model;
+        theme-current: root.theme-current;
+        theme-name: root.theme-name;
+        theme-description: root.theme-description;
+        theme-save-enabled: root.theme-save-enabled;
         close => { root.settings-close(); }
-        set-theme(i) => { root.settings-theme-changed(i); }
+        settings-theme-selected(s) => { root.settings-theme-selected(s); }
         set-cover-size(v) => { root.settings-cover-size(v); }
         set-col-info-w(v) => { root.settings-col-info-w(v); }
         set-col-gap(v) => { root.settings-col-gap(v); }

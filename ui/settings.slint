@@ -32,7 +32,13 @@ component RowLabel inherits Text {
 
 export component Settings inherits Rectangle {
     in property <bool> open: false;
-    in property <int> theme: 0;
+    // T1.0 §5: динамический список тем (из `themes/*.toml`), текущая тема,
+    // метаданные под ComboBox и блокировка Save при невалидной теме.
+    in property <[string]> theme-list-model: [""];
+    in property <string> theme-current: "";
+    in property <string> theme-name: "";
+    in property <string> theme-description: "";
+    in property <bool> theme-save-enabled: false;
     in property <float> cover-size: 200;
     in property <float> col-info-w: 240;
     in property <float> col-gap: 12;
@@ -100,7 +106,7 @@ export component Settings inherits Rectangle {
 
     callback close();
     callback save-settings();
-    callback set-theme(int);
+    callback settings-theme-selected(string);
     callback set-cover-size(float);
     callback set-col-info-w(float);
     callback set-col-gap(float);
@@ -227,10 +233,23 @@ export component Settings inherits Rectangle {
                                             text: "Theme";
                                         }
 
-                                        ComboBox {
-                                            model: ["Dark", "Light"];
-                                            current-index: root.theme;
-                                            selected(s) => { debug("settings: theme combo selected"); root.set-theme(s == "Light" ? 1 : 0); }
+                                        VerticalLayout {
+                                            spacing: 2px;
+                                            ComboBox {
+                                                model: root.theme-list-model;
+                                                current-value: root.theme-current;
+                                                selected(s) => { debug("settings: theme combo selected"); root.settings-theme-selected(s); }
+                                            }
+                                            Text {
+                                                text: root.theme-name;
+                                                color: Colors.text-secondary;
+                                                font-size: 11px;
+                                            }
+                                            Text {
+                                                text: root.theme-description;
+                                                color: Colors.text-tertiary;
+                                                font-size: 11px;
+                                            }
                                         }
                                     }
 
@@ -1574,6 +1593,7 @@ export component Settings inherits Rectangle {
                         Button {
                             text: "Save";
                             preferred-height: 28px;
+                            enabled: root.theme-save-enabled;
                             clicked => { debug("settings: Save button clicked"); root.save-settings(); }
                         }
                     }
