@@ -69,7 +69,7 @@ export component TopPanel inherits Rectangle {
     in property <float> col-info-w: 240;
     in property <float> col-gap: 12;
     in property <image> cover-art;
-    in property <int> theme: 0;
+    in property <int> theme-palette: 0;
 
     in property <bool> playing: false;
     in property <bool> repeat: false;
@@ -196,7 +196,7 @@ export component TopPanel inherits Rectangle {
 
                 spacing: 2px;
                 IconButton {
-                    icon: root.theme == 0 ? @image-url("icons/dark/prev.svg") : @image-url("icons/light/prev.svg");
+                    icon: root.theme-palette == 0 ? @image-url("icons/dark/prev.svg") : @image-url("icons/light/prev.svg");
                     visible: true;
                     width: (root.cover-size * 1px - 10px) / 6;
                     height: 24px;
@@ -204,7 +204,7 @@ export component TopPanel inherits Rectangle {
                 }
 
                 IconButton {
-                    icon: root.theme == 0
+                    icon: root.theme-palette == 0
                         ? (root.playing ? @image-url("icons/dark/pause.svg") : @image-url("icons/dark/play.svg"))
                         : (root.playing ? @image-url("icons/light/pause.svg") : @image-url("icons/light/play.svg"));
                     active: root.playing;
@@ -214,21 +214,21 @@ export component TopPanel inherits Rectangle {
                 }
 
                 IconButton {
-                    icon: root.theme == 0 ? @image-url("icons/dark/stop.svg") : @image-url("icons/light/stop.svg");
+                    icon: root.theme-palette == 0 ? @image-url("icons/dark/stop.svg") : @image-url("icons/light/stop.svg");
                     width: (root.cover-size * 1px - 10px) / 6;
                     height: 24px;
                     clicked => { root.stop(); }
                 }
 
                 IconButton {
-                    icon: root.theme == 0 ? @image-url("icons/dark/next.svg") : @image-url("icons/light/next.svg");
+                    icon: root.theme-palette == 0 ? @image-url("icons/dark/next.svg") : @image-url("icons/light/next.svg");
                     width: (root.cover-size * 1px - 10px) / 6;
                     height: 24px;
                     clicked => { root.next-track(); }
                 }
 
                 IconButton {
-                    icon: root.theme == 0
+                    icon: root.theme-palette == 0
                         ? (root.repeat-one ? @image-url("icons/dark/repeat-one.svg") : @image-url("icons/dark/repeat.svg"))
                         : (root.repeat-one ? @image-url("icons/light/repeat-one.svg") : @image-url("icons/light/repeat.svg"));
                     active: root.repeat || root.repeat-one;
@@ -238,7 +238,7 @@ export component TopPanel inherits Rectangle {
                 }
 
                 IconButton {
-                    icon: root.theme == 0 ? @image-url("icons/dark/shuffle.svg") : @image-url("icons/light/shuffle.svg");
+                    icon: root.theme-palette == 0 ? @image-url("icons/dark/shuffle.svg") : @image-url("icons/light/shuffle.svg");
                     active: root.shuffle;
                     width: (root.cover-size * 1px - 10px) / 6;
                     height: 24px;
@@ -506,7 +506,7 @@ export component TopPanel inherits Rectangle {
                     spacing: 6px;
 
                     IconButton {
-                        icon: root.theme == 0
+                        icon: root.theme-palette == 0
                             ? (root.muted ? @image-url("icons/dark/muted.svg") : @image-url("icons/dark/volume.svg"))
                             : (root.muted ? @image-url("icons/light/muted.svg") : @image-url("icons/light/volume.svg"));
                         active: root.muted;

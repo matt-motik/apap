@@ -203,6 +203,8 @@ export component AppWindow inherits Window {
 
     in property <bool> settings-open: false;
     in property <int> settings-theme: 0;
+    // T1.0 §7: палитра стандартных виджетов/иконок (0=dark, 1=light).
+    in property <int> theme-palette: 0;
     in property <bool> settings-minimize: false;
     in property <[string]> settings-devices: [];
     in property <int> settings-device-idx: -1;
@@ -374,7 +376,7 @@ export component AppWindow inherits Window {
         main-top := TopPanel {
             horizontal-stretch: 1;
             max-height: root.cover-size *1px + 50px;
-            theme: root.settings-theme;
+            theme-palette: root.settings-theme;
             cover-size: root.cover-size;
             col-info-w: root.col-info-w;
             col-gap: root.col-gap;
