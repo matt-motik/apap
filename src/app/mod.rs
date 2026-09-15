@@ -126,23 +126,14 @@ fn empty_dash(s: &str) -> SharedString {
 ///
 /// Returns `None` on any invalid input (wrong length, non-hex characters, or
 /// a non-UTF-8 string) instead of panicking, so callers are safe against
-/// malformed configuration or other input.
+/// malformed configuration or other input. Thin wrapper over
+/// `theme::parse_hex` (§2.3).
 fn hex_color(hex: &str) -> Option<slint::Color> {
-    let hex = hex.trim_start_matches('#');
-    if hex.len() != 6 && hex.len() != 8 {
-        return None;
-    }
-    let bytes = hex.as_bytes();
-    if !bytes.iter().all(|b| b.is_ascii_hexdigit()) {
-        return None;
-    }
-    let val = |i: usize| -> Option<u8> { u8::from_str_radix(&hex[i..i + 2], 16).ok() };
-    if hex.len() == 8 {
-        let (a, r, g, b) = (val(0)?, val(2)?, val(4)?, val(6)?);
-        Some(slint::Color::from_argb_u8(a, r, g, b))
-    } else {
-        let (r, g, b) = (val(0)?, val(2)?, val(4)?);
+    let (a, r, g, b) = music_player_rs::theme::parse_hex(hex)?;
+    if a == 255 {
         Some(slint::Color::from_rgb_u8(r, g, b))
+    } else {
+        Some(slint::Color::from_argb_u8(a, r, g, b))
     }
 }
 
