@@ -58,7 +58,7 @@
 
 | ID | Задача | Приоритет | Статус | ТЗ |
 | --- | --- | --- | --- | --- |
-| T1.0 | Система тем: `src/theme.rs` (ThemeData/ColorsData/StandardPalette/scan/create/parse_hex), `Settings.theme: String` (enum удалён), `apply_theme(&ThemeData)` + `theme-palette`, UI-выбор в диалоге (list/current/name/description/save-enabled), fallback Light без перезаписи settings.toml, удаление `settings-theme-changed(int)` | 🟢 Средний | ⏳ выполняется | [§2](docs/spec_theme_v1.0.md#2-формат-toml-файла-темы), [§5](docs/spec_theme_v1.0.md#5-ui-выбора-темы-диалог-настроек), [§6](docs/spec_theme_v1.0.md#6-логика-загрузки-тем), [§8](docs/spec_theme_v1.0.md#8-файлы-и-модули) |
+| T1.0 | Система тем: `src/theme.rs` (ThemeData/ColorsData/StandardPalette/scan/create/parse_hex), `Settings.theme: String` (enum удалён), `apply_theme(&ThemeData)` + `theme-palette`, UI-выбор в диалоге (list/current/name/description/save-enabled), fallback Light без перезаписи settings.toml, удаление `settings-theme-changed(int)` | 🟢 Средний | ✅ сделано в `c46e7e4` (ветка `main`) | [§2](docs/spec_theme_v1.0.md#2-формат-toml-файла-темы), [§5](docs/spec_theme_v1.0.md#5-ui-выбора-темы-диалог-настроек), [§6](docs/spec_theme_v1.0.md#6-логика-загрузки-тем), [§8](docs/spec_theme_v1.0.md#8-файлы-и-модули) |
 
 ---
 
