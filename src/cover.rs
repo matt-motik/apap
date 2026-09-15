@@ -100,6 +100,34 @@ fn clear_cover_cache_in(dir: &Path) -> usize {
     removed
 }
 
+/// Суммарный объём дискового кэша обложек (§10.5): все файлы в
+/// `covers_cache_dir()`, включая hash-поддиректории, байт.
+/// Несуществующий каталог → 0.
+pub fn cover_cache_size() -> u64 {
+    cover_cache_size_in(&covers_cache_dir())
+}
+
+/// Ядро `cover_cache_size` над произвольным каталогом (тестируемое,
+/// без глобального XDG-состояния). Рекурсивно суммирует размеры файлов
+/// в поддиректориях `<hex[0..2]>`.
+fn cover_cache_size_in(dir: &Path) -> u64 {
+    let Ok(rd) = std::fs::read_dir(dir) else {
+        return 0;
+    };
+    let mut total = 0u64;
+    for entry in rd.flatten() {
+        let path = entry.path();
+        if path.is_file() {
+            if let Ok(meta) = entry.metadata() {
+                total = total.saturating_add(meta.len());
+            }
+        } else if path.is_dir() {
+            total = total.saturating_add(cover_cache_size_in(&path));
+        }
+    }
+    total
+}
+
 /// Фоновый поток: принимает `CoverJob`, резолвит обложку и отправляет
 /// `CoverDone`. Перед обработкой сбрасывает уже поставленные в очередь
 /// джобы, оставляя самый свежий (быстрое переключение треков).
@@ -354,6 +382,26 @@ mod tests {
         let parent = std::env::temp_dir().join(format!("mp_clear_covers_missing_{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&parent);
         assert_eq!(clear_cover_cache_in(&parent.join("no_dir")), 0);
+    }
+
+    #[test]
+    fn cover_cache_size_sums_subdir_tree() {
+        let parent = std::env::temp_dir().join(format!("mp_cover_size_{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&parent);
+        std::fs::create_dir_all(&parent.join("4c")).unwrap();
+        std::fs::create_dir_all(&parent.join("50")).unwrap();
+        std::fs::write(parent.join("4c/a.jpg"), vec![0u8; 100]).unwrap();
+        std::fs::write(parent.join("50/b.png"), vec![0u8; 200]).unwrap();
+        std::fs::write(parent.join("legacy.jpg"), vec![0u8; 50]).unwrap();
+        assert_eq!(cover_cache_size_in(&parent), 350);
+        let _ = std::fs::remove_dir_all(&parent);
+    }
+
+    #[test]
+    fn cover_cache_size_missing_dir_is_zero() {
+        let parent = std::env::temp_dir().join(format!("mp_cover_size_missing_{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&parent);
+        assert_eq!(cover_cache_size_in(&parent.join("no_dir")), 0);
     }
 
     #[test]
