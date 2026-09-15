@@ -1,6 +1,6 @@
 use std::cell::RefCell;
 use std::collections::HashSet;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::rc::Rc;
 use std::sync::mpsc::{channel, Receiver, TryRecvError};
 use std::sync::Arc;
@@ -20,7 +20,10 @@ use music_player_rs::audio::visualizer::{
 use music_player_rs::cover::{self, CoverDone, CoverJob};
 use music_player_rs::playlist::{self, ScanMsg, Track};
 use music_player_rs::settings::{ColumnId, DsdMode, RepeatMode, Settings, SettingsStore};
-use music_player_rs::theme::{ColorsData, ThemeData, ThemeError, DEFAULT_LIGHT_TOML, parse_hex};
+use music_player_rs::theme::{
+    ColorsData, ThemeData, ThemeError, DEFAULT_LIGHT_TOML, create_default_themes, parse_hex,
+    scan_themes_dir,
+};
 use music_player_rs::tray::{self, TrayCmd};
 
 pub mod events;
@@ -63,6 +66,15 @@ impl Default for UiState {
             status: String::new(),
         }
     }
+}
+
+/// Метаданные темы, показываемые в диалоге настроек (T1.0 §8.2):
+/// name/description + полная валидность (структура + HEX, §6).
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct ThemeMeta {
+    name: String,
+    description: Option<String>,
+    valid: bool,
 }
 
 /// Throttle for persisting user-dragged column widths: ticks (100 ms each)
@@ -251,13 +263,19 @@ pub struct MusicApp {
     tray_rx: Option<std::sync::mpsc::Receiver<TrayCmd>>,
     tray_up_tx: Option<tokio::sync::mpsc::UnboundedSender<tray::TrayState>>,
     last_tray_update: Instant,
-    /// Deadline of the transient tray tooltip about bit-perfect (None = off).
-    bp_notice_until: Option<Instant>,
+    /// Deadline + текст транзитного тултипа трея (None = выключен).
+    /// Сообщения: bit-perfect volume notice, theme-fallback (T1.0 §6.1).
+    tray_notice: Option<(Instant, String)>,
     last_view_width: f32,
     view_w_stable_ticks: u32,
     col_model_sig: u64,
     col_sig_stable_ticks: u32,
     settings_draft: Option<Settings>,
+    /// Транзитное состояние выбора темы в диалоге (T1.0 §5.4/§8.2): имя,
+    /// выбранное в ComboBox, не пишется в draft/settings до «Сохранить».
+    theme_selection: Option<String>,
+    /// Метаданные темы, показанные под ComboBox (name/description/valid).
+    theme_meta: Option<ThemeMeta>,
     cover_tx: Option<std::sync::mpsc::Sender<CoverJob>>,
     cover_rx: Option<Receiver<CoverDone>>,
     cover_gen: u64,
@@ -306,6 +324,13 @@ pub struct MusicApp {
 impl MusicApp {
     pub fn new(ui: AppWindow) -> Self {
         let settings = SettingsStore::load();
+        // T1.0 §1/§8.2: гарантировать `themes/` + `dark.toml`/`light.toml`.
+        // Существующие файлы не перезаписываются (воссоздаются только
+        // отсутствующие, в т.ч. после ручного удаления).
+        let themes_dir = music_player_rs::settings::config_dir().join("themes");
+        if let Err(e) = create_default_themes(&themes_dir) {
+            eprintln!("[theme] create_default_themes failed: {e}");
+        }
         let mut player = Player::new();
         player.set_volume(settings.settings.volume);
         player.set_muted(settings.settings.muted);
@@ -409,12 +434,14 @@ impl MusicApp {
             tray_rx: Some(tray_rx),
             tray_up_tx: Some(tray_up_tx),
             last_tray_update: Instant::now(),
-            bp_notice_until: None,
+            tray_notice: None,
             last_view_width: 0.0,
             view_w_stable_ticks: 0,
             col_model_sig: 0,
             col_sig_stable_ticks: 0,
             settings_draft: None,
+            theme_selection: None,
+            theme_meta: None,
             cover_tx: Some(cover_tx),
             cover_rx: Some(cover_done_rx),
             cover_gen: 0,
@@ -453,8 +480,21 @@ impl MusicApp {
         {
             let mut app = this.borrow_mut();
             let themes_dir = music_player_rs::settings::config_dir().join("themes");
-            let (theme, _) = resolve_startup_theme(&app.settings.settings.theme, &themes_dir);
+            let theme_name = app.settings.settings.theme.clone();
+            let (theme, was_fallback) = resolve_startup_theme(&theme_name, &themes_dir);
             app.apply_theme(&theme);
+            // T1.0 §6.1: падение загрузки темы → Light визуально для текущего
+            // запуска + тултип трея. Значение `theme` в settings.toml НЕ
+            // перезаписывается (resolve_startup_theme чистая, намерение
+            // пользователя сохраняется до исправления TOML).
+            if was_fallback {
+                eprintln!(
+                    "[theme] startup: тема \"{theme_name}\" не загружена, применена светлая"
+                );
+                app.set_tray_notice(format!(
+                    "Тема \"{theme_name}\" не загружена, применена светлая тема"
+                ));
+            }
             app.sync_settings_to_ui();
             app.sync_playlist_to_ui();
             // Pre-warm the output-device enumeration so the settings dialog's
@@ -471,6 +511,81 @@ impl MusicApp {
 
     fn settings_mut(&mut self) -> &mut Settings {
         self.settings_draft.as_mut().unwrap_or(&mut self.settings.settings)
+    }
+
+    // ---------------- Тема: состояние диалога настроек (T1.0) ----------------
+
+    /// Загружает тему по имени файла и валидирует структуру + HEX (§2.3/§6).
+    /// `None` — файл отсутствует или структурно повреждён.
+    fn load_theme_meta(name: &str, themes_dir: &Path) -> Option<ThemeMeta> {
+        let data = ThemeData::load_from_file(&themes_dir.join(format!("{name}.toml"))).ok()?;
+        Some(ThemeMeta {
+            name: data.name,
+            description: data.description,
+            valid: validate_colors(&data.colors).is_ok(),
+        })
+    }
+
+    /// Применяет метаданные темы к UI диалога (§5.2/§5.3). `None` — тема не
+    /// найдена в `themes/`; `name` пуст — файл есть, но не читается/невалиден.
+    fn set_theme_meta(&mut self, meta: Option<ThemeMeta>) {
+        self.theme_meta = meta;
+        let (name, desc, valid) = match &self.theme_meta {
+            Some(m) if !m.name.is_empty() => (
+                m.name.clone(),
+                m.description.clone().unwrap_or_default(),
+                m.valid,
+            ),
+            Some(_) => (
+                "(не удалось загрузить метаданные)".to_string(),
+                String::new(),
+                false,
+            ),
+            None => ("(тема не найдена)".to_string(), String::new(), false),
+        };
+        self.ui.set_theme_name(name.into());
+        self.ui.set_theme_description(desc.into());
+        self.ui.set_theme_save_enabled(valid);
+    }
+
+    /// Заполняет список тем и метаданные при открытии диалога (§6.2).
+    /// Текущая тема может быть удалена (не найдена → Save заблокирован,
+    /// §5.1) или сломана (структура/HEX → Save заблокирован, §5.2).
+    fn populate_theme_ui(&mut self) {
+        let themes_dir = music_player_rs::settings::config_dir().join("themes");
+        let entries = scan_themes_dir(&themes_dir);
+        let names: Vec<SharedString> = entries.iter().map(|e| e.file_stem.clone().into()).collect();
+        self.ui.set_theme_list_model(ModelRc::from(names.as_slice()));
+        let current = self.settings.settings.theme.clone();
+        self.ui.set_theme_current(current.clone().into());
+        let meta = if entries.iter().any(|e| e.file_stem == current) {
+            match Self::load_theme_meta(&current, &themes_dir) {
+                Some(m) => Some(m),
+                None => Some(ThemeMeta {
+                    name: String::new(),
+                    description: None,
+                    valid: false,
+                }),
+            }
+        } else {
+            None
+        };
+        self.set_theme_meta(meta);
+    }
+
+    /// Обработчик выбора темы в ComboBox (§5.4/§6.3): в draft/settings не
+    /// пишет — показывает метаданные и запоминает имя в `theme_selection`.
+    fn on_settings_theme_selected(&mut self, name: &str) {
+        let themes_dir = music_player_rs::settings::config_dir().join("themes");
+        let meta = Self::load_theme_meta(name, &themes_dir).or(Some(ThemeMeta {
+            name: String::new(),
+            description: None,
+            valid: false,
+        }));
+        if meta.as_ref().is_some_and(|m| m.valid) {
+            self.theme_selection = Some(name.to_string());
+        }
+        self.set_theme_meta(meta);
     }
 
     fn bind_callbacks(this: &Rc<RefCell<Self>>) {
@@ -649,6 +764,10 @@ impl MusicApp {
                 eprintln!("[gui] open_settings");
                 let mut a = app.borrow_mut();
                 a.settings_draft = Some(a.settings.settings.clone());
+                // T1.0 §6.2: свежий диалог → сброс транзитного выбора темы и
+                // пересборка списка/метаданных из themes/*.toml.
+                a.theme_selection = None;
+                a.populate_theme_ui();
                 // Re-push every dialog field from the real settings: a reopened
                 // dialog must show current values, never a stale un-applied draft.
                 a.sync_settings_to_ui();
@@ -729,6 +848,16 @@ impl MusicApp {
                 // real settings on the next open, so no field resync is needed.
                 a.settings_draft = None;
                 a.ui.set_settings_open(false);
+            });
+        }
+
+        // 19. settings-theme-selected (T1.0 §5.4/§6.3): выбор темы в ComboBox
+        {
+            let app = this.clone();
+            ui.on_settings_theme_selected(move |name| {
+                eprintln!("[gui] settings_theme_selected: {name}");
+                let mut a = app.borrow_mut();
+                a.on_settings_theme_selected(&name);
             });
         }
 
@@ -985,7 +1114,7 @@ impl MusicApp {
                         s.muted = false;
                         // V5.1-8.7: показать тултип трея про громкость
                         // на момент включения Direct Output.
-                        a.set_bp_notice();
+                        a.set_tray_notice(tray::BP_NOTICE_TEXT.to_string());
                     }
                     a.settings.save();
                     a.emit(AppEvent::BitPerfectChanged);
@@ -1003,6 +1132,11 @@ impl MusicApp {
                         eprintln!("[gui] settings_save: restarting current DSD track {idx} with new dsd mode");
                         a.play_track(idx);
                     }
+                }
+                // T1.0 §6.4: коммит выбранной в диалоге темы из транзитного поля
+                // (кнопка Save активна только для валидной темы, §5.3).
+                if let Some(sel) = a.theme_selection.take() {
+                    a.settings.settings.theme = sel;
                 }
                 a.apply_theme(&resolve_startup_theme(
                     &a.settings.settings.theme,
@@ -1334,10 +1468,10 @@ impl MusicApp {
         }
     }
 
-    /// Показать временный тултип трея «громкость не регулируется
-    /// программно» (~5 с), когда включается bit-perfect (Direct Output).
-    fn set_bp_notice(&mut self) {
-        self.bp_notice_until = Some(Instant::now() + std::time::Duration::from_secs(5));
+    /// Показать временный тултип трея (~5 с) поверх штатного статуса.
+    /// Используется для bit-perfect (Direct Output) и fallback темы (§6.1).
+    fn set_tray_notice(&mut self, text: String) {
+        self.tray_notice = Some((Instant::now() + std::time::Duration::from_secs(5), text));
     }
 
     /// Emit a state-change event for the direction-feed (surfaces react in
@@ -1390,9 +1524,10 @@ impl MusicApp {
             bit_perfect: self.player.bit_perfect(),
             error: self.audio_error.clone(),
             notice: self
-                .bp_notice_until
-                .filter(|deadline| Instant::now() < *deadline)
-                .map(|_| tray::BP_NOTICE_TEXT.to_string()),
+                .tray_notice
+                .as_ref()
+                .filter(|(deadline, _)| Instant::now() < *deadline)
+                .map(|(_, text)| text.clone()),
         }
     }
 }
