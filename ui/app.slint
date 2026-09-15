@@ -571,5 +571,9 @@ export component AppWindow inherits Window {
         set-viz-sp-bar-radius(i) => { root.settings-set-viz-sp-bar-radius(i); }
         set-viz-sp-gradient(b) => { root.settings-set-viz-sp-gradient(b); }
         set-viz-sp-dsd-comp(b) => { root.settings-set-viz-sp-dsd-comp(b); }
+        // §10.5: кнопки очистки кэша
+        clear-viz-cache => { root.settings-clear-viz-cache(); }
+        clear-cover-cache => { root.settings-clear-cover-cache(); }
+        clear-all-cache => { root.settings-clear-all-cache(); }
     }
 }

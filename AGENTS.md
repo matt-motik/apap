@@ -355,7 +355,7 @@ src/
 - `build.rs` компилирует `ui/app.slint` → генерирует структуру `AppWindow` в Rust (`slint::include_modules!()` в `src/app/mod.rs`).
 - `AppWindow` содержит `in-property`, `callback` и т.д.; Rust подписывается через `ui.on_<callback>(...)` и читает/пишет через `ui.set_<prop>(...)` / `ui.get_<prop>()`.
 - Slint-файлы импортируют друг друга через `import { Name } from "file.slint";`. `app.slint` — точка входа, остальные — компоненты.
-- Стиль UI задан в `build.rs` (`material`).
+- Стиль UI задан в `build.rs` (`fluent`).
 
 ### Единый экземпляр настроек (SettingsStore)
 

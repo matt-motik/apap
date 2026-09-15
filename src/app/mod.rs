@@ -1070,6 +1070,45 @@ impl MusicApp {
             });
         }
 
+        // 31f. settings-clear-viz-cache (§10.5): RAM + disk clear + sync stats
+        {
+            let app = this.clone();
+            ui.on_settings_clear_viz_cache(move || {
+                eprintln!("[gui] settings_clear_viz_cache");
+                let mut a = app.borrow_mut();
+                a.fulltrack_cache.clear();
+                let removed_disk = music_player_rs::audio::fulltrack::clear_disk_cache();
+                eprintln!("[gui] viz cache cleared: disk removed={removed_disk}");
+                a.sync_cache_stats_to_ui();
+            });
+        }
+
+        // 31g. settings-clear-cover-cache (§10.5): disk clear + sync stats
+        {
+            let app = this.clone();
+            ui.on_settings_clear_cover_cache(move || {
+                eprintln!("[gui] settings_clear_cover_cache");
+                let a = app.borrow_mut();
+                let removed = cover::clear_cover_cache();
+                eprintln!("[gui] cover cache cleared: removed={removed}");
+                a.sync_cache_stats_to_ui();
+            });
+        }
+
+        // 31h. settings-clear-all-cache (§10.5): viz + cover + sync stats
+        {
+            let app = this.clone();
+            ui.on_settings_clear_all_cache(move || {
+                eprintln!("[gui] settings_clear_all_cache");
+                let mut a = app.borrow_mut();
+                a.fulltrack_cache.clear();
+                let removed_viz = music_player_rs::audio::fulltrack::clear_disk_cache();
+                let removed_cover = cover::clear_cover_cache();
+                eprintln!("[gui] all cache cleared: viz_disk={removed_viz}, cover={removed_cover}");
+                a.sync_cache_stats_to_ui();
+            });
+        }
+
         // 32. show-about (stub)
         {
             ui.on_show_about(move || {
