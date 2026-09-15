@@ -202,7 +202,6 @@ export component AppWindow inherits Window {
     out property <length> playlist-view-width: playlist_view_width.view-width;
 
     in property <bool> settings-open: false;
-    in property <int> settings-theme: 0;
     // T1.0 §7: палитра стандартных виджетов/иконок (0=dark, 1=light).
     in property <int> theme-palette: 0;
     // T1.0 §5: список тем и состояние UI выбора темы в диалоге.
@@ -249,7 +248,6 @@ export component AppWindow inherits Window {
     callback save-playlist();
     callback load-playlist();
     callback settings-close();
-    callback settings-theme-changed(int);
     callback settings-theme-selected(string);
     callback settings-cover-size(float);
     callback settings-col-info-w(float);
@@ -383,7 +381,7 @@ export component AppWindow inherits Window {
         main-top := TopPanel {
             horizontal-stretch: 1;
             max-height: root.cover-size *1px + 50px;
-            theme-palette: root.settings-theme;
+            theme-palette: root.theme-palette;
             cover-size: root.cover-size;
             col-info-w: root.col-info-w;
             col-gap: root.col-gap;
