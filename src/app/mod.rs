@@ -940,6 +940,9 @@ impl MusicApp {
                         let s = &mut a.settings.settings;
                         s.volume = 1.0;
                         s.muted = false;
+                        // V5.1-8.7: показать тултип трея про громкость
+                        // на момент включения Direct Output.
+                        a.set_bp_notice();
                     }
                     a.settings.save();
                     a.emit(AppEvent::BitPerfectChanged);
