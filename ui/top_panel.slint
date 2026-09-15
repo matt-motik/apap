@@ -149,40 +149,58 @@ export component TopPanel inherits Rectangle {
         spacing: 0;
         // ---------- Col 0: cover + transport ----------
         VerticalLayout {
-            alignment: center;
-            spacing: 12px;
 
-            // 
-            Rectangle {
-                width: root.cover-size * 1px;
-                height: root.cover-size * 1px;
-                border-radius: 6px;
-                clip: true;
-                background: Colors.bg-elevated;
+            spacing: 0px;
+            vertical-stretch: 1;
 
-                Image {
-                    source: root.cover-art;
-                    image-fit: cover;
-                    width: 100%;
-                    height: 100%;
-                }
+            // Cover
+            VerticalLayout {
+                padding-top: 10px;
+                padding-left: 10px;
+                padding-right: 10px;
+                Rectangle {
+                    width: root.cover-size * 1px;
+                    height: root.cover-size * 1px;
+                    border-radius: 6px;
+                    clip: true;
+                    background: Colors.bg-elevated;
 
-                // Placeholder, shown while no cover is available.
+                    Image {
+                        source: root.cover-art;
+                        image-fit: cover;
+                        width: 100%;
+                        height: 100%;
+                    }
+
+                    // Placeholder, shown while no cover is available.
                 Text {
-                    text: "Album Art";
-                    color: Colors.text-tertiary;
-                    font-size: 14px;
-                    horizontal-alignment: center;
-                    vertical-alignment: center;
-                    wrap: word-wrap;
-                    visible: root.cover-art.width == 0;
+                        text: "Album Art";
+                        color: Colors.text-tertiary;
+                        font-size: 14px;
+                        horizontal-alignment: center;
+                        vertical-alignment: center;
+                        wrap: word-wrap;
+                        visible: root.cover-art.width == 0;
+                    }
                 }
             }
 
+            VerticalLayout {
+                vertical-stretch: 1;
+                Rectangle { }
+            }
+            // transport buttons
             HorizontalLayout {
-                spacing: 6px;
+                padding-left: 10px;
+                padding-right: 10px;
+                width: root.cover-size * 1px;
+
+                spacing: 2px;
                 IconButton {
                     icon: root.theme == 0 ? @image-url("icons/dark/prev.svg") : @image-url("icons/light/prev.svg");
+                    visible: true;
+                    width: (root.cover-size * 1px - 10px) / 6;
+                    height: 24px;
                     clicked => { root.prev-track(); }
                 }
 
@@ -191,16 +209,22 @@ export component TopPanel inherits Rectangle {
                         ? (root.playing ? @image-url("icons/dark/pause.svg") : @image-url("icons/dark/play.svg"))
                         : (root.playing ? @image-url("icons/light/pause.svg") : @image-url("icons/light/play.svg"));
                     active: root.playing;
+                    width: (root.cover-size * 1px - 10px) / 6;
+                    height: 24px;
                     clicked => { root.play-pause(); }
                 }
 
                 IconButton {
                     icon: root.theme == 0 ? @image-url("icons/dark/stop.svg") : @image-url("icons/light/stop.svg");
+                    width: (root.cover-size * 1px - 10px) / 6;
+                    height: 24px;
                     clicked => { root.stop(); }
                 }
 
                 IconButton {
                     icon: root.theme == 0 ? @image-url("icons/dark/next.svg") : @image-url("icons/light/next.svg");
+                    width: (root.cover-size * 1px - 10px) / 6;
+                    height: 24px;
                     clicked => { root.next-track(); }
                 }
 
@@ -209,12 +233,16 @@ export component TopPanel inherits Rectangle {
                         ? (root.repeat-one ? @image-url("icons/dark/repeat-one.svg") : @image-url("icons/dark/repeat.svg"))
                         : (root.repeat-one ? @image-url("icons/light/repeat-one.svg") : @image-url("icons/light/repeat.svg"));
                     active: root.repeat || root.repeat-one;
+                    width: (root.cover-size * 1px - 10px) / 6;
+                    height: 24px;
                     clicked => { root.toggle-repeat(); }
                 }
 
                 IconButton {
                     icon: root.theme == 0 ? @image-url("icons/dark/shuffle.svg") : @image-url("icons/light/shuffle.svg");
                     active: root.shuffle;
+                    width: (root.cover-size * 1px - 10px) / 6;
+                    height: 24px;
                     clicked => { root.toggle-shuffle(); }
                 }
             }
@@ -311,6 +339,7 @@ export component TopPanel inherits Rectangle {
             horizontal-stretch: 1;
             max-width: 100000px;
             VerticalLayout {
+                padding-top: 10px;
                 padding-left: 10px;
                 padding-right: 10px;
                 Visualizer {
@@ -334,16 +363,36 @@ export component TopPanel inherits Rectangle {
                     seek-commit(v) => { root.seek-commit(v); }
                 }
             }
+                HorizontalLayout {
+                    horizontal-stretch: 1;
+                    padding-top: 0px;
+                    padding-left: 6px;
+                    padding-right: 6px;
+                    Text {
+                        text: root.pos;
+                        color: Colors.text-tertiary;
+                        font-size: 11px;
+                        vertical-alignment: center;
+                        horizontal-alignment: left;
+                    }
 
+                    Text {
+                        text: root.dur;
+                        color: Colors.text-tertiary;
+                        font-size: 11px;
+                        horizontal-alignment: right;
+                        vertical-alignment: center;
+                    }
+                }
             VerticalLayout {
                 spacing: 0px;
                 alignment: center;
                 horizontal-stretch: 1;
-                max-height: 50px;
+                max-height: 0px;
 
                 seekbar := Rectangle {
                     horizontal-stretch: 1;
-                    height: 28px;
+                    height: 24px;
 
                     Slider {
                         width: 100%;
@@ -392,27 +441,7 @@ export component TopPanel inherits Rectangle {
                     }
                 }
 
-                HorizontalLayout {
-                    horizontal-stretch: 1;
-                    padding-top: 6px;
-                    padding-left: 6px;
-                    padding-right: 6px;
-                    Text {
-                        text: root.pos;
-                        color: Colors.text-tertiary;
-                        font-size: 11px;
-                        vertical-alignment: center;
-                        horizontal-alignment: left;
-                    }
 
-                    Text {
-                        text: root.dur;
-                        color: Colors.text-tertiary;
-                        font-size: 11px;
-                        horizontal-alignment: right;
-                        vertical-alignment: center;
-                    }
-                }
             }
         }
 
@@ -422,83 +451,96 @@ export component TopPanel inherits Rectangle {
 
         // ---------- Col 3: volume + mute ----------
         VerticalLayout {
-            spacing: 0px;
-            width: 92px;
-            vertical-stretch: 1;
+            //padding-top: 10px;
+            alignment: center;
+            padding-right: 10px;
 
             // Верхняя часть: слайдер громкости, растягивается на всю доступную высоту
             Rectangle {
                 vertical-stretch: 1;
+                height: root.cover-size * 1px +20px;
                 HorizontalLayout {
                     alignment: center;
                     vertical-stretch: 1;
                     wheel-vol := TouchArea {
-                vertical-stretch: 1;
-                width: 34px;
-                enabled: !root.bit-perfect;
+                        vertical-stretch: 1;
+                        width: 34px;
+                        enabled: !root.bit-perfect;
                         // Wheel over the slider = one volume notch (same
                         // step as the tray); drag keeps working via the
                         // Slider's own TouchArea (scroll bubbles up here).
                         scroll-event(event) => {
-                    if (event.delta-y != 0) {
-                        root.volume-changed(Math.clamp(root.volume + (event.delta-y > 0 ? 0.04 : -0.04), 0, 1));
-                        return accept;
+                            if (event.delta-y != 0) {
+                                root.volume-changed(Math.clamp(root.volume + (event.delta-y > 0 ? 0.04 : -0.04), 0, 1));
+                                return accept;
+                            }
+                            reject
+                        }
+                        HorizontalLayout {
+                            alignment: center;
+                            vertical-stretch: 1;
+                            Slider {
+                                vertical-stretch: 1;
+                                width: 24px;
+                                value: root.volume;
+                                minimum: 0;
+                                maximum: 1;
+                                orientation: vertical;
+                                enabled: !root.bit-perfect;
+                                changed(v) => { root.volume-changed(v); }
+                            }
+                        }
                     }
-                    reject
-                }
-                HorizontalLayout {
-                    alignment: center;
-                    vertical-stretch: 1;
-                    Slider {
-                        vertical-stretch: 1;
-                        width: 24px;
-                        value: root.volume;
-                        minimum: 0;
-                        maximum: 1;
-                        orientation: vertical;
-                        enabled: !root.bit-perfect;
-                        changed(v) => { root.volume-changed(v); }
-                    }
-                }
-            }
                 }
 
                 // Bit-perfect (Direct Output): софтверная громкость отключена — регулятор
                 // отдан внешнему предусилителю / ОС. Подпись рисуется поверх слайдера.
-                Text {
-                    visible: root.bit-perfect;
-                    text: "Управляется внешним предусилителем / ОС";
-                    color: Colors.text-tertiary;
-                    font-size: 11px;
-                    transform-rotation: -90deg;
-                    x: (parent.width - self.width) / 2;
-                    y: (parent.height - self.height) / 2;
-                }
+                // Text {
+                //     visible: root.bit-perfect;
+                //     text: "Управляется внешним предусилителем / ОС";
+                //     color: Colors.text-tertiary;
+                //     font-size: 11px;
+                //     transform-rotation: -90deg;
+                //     x: (parent.width - self.width) / 2;
+                //     y: (parent.height - self.height) / 2;
+                // }
+            }
+            VerticalLayout {
+                vertical-stretch: 1;
+                Rectangle { }
             }
 
             // Нижняя часть: кнопка mute такой же высоты, как панель с ползунком позиции
-            Rectangle {
-                max-height: 50px;
+            HorizontalLayout {
+
                 HorizontalLayout {
                     alignment: center;
                     spacing: 6px;
                     // Bit-perfect toggle (Direct Output): disables the software
                     // volume/mute path — volume control moves to the DAC/amp.
-                    CheckBox {
-                        text: "BP";
-                        checked: root.bit-perfect;
-                        toggled => { root.toggle-bit-perfect(); }
-                    }
+                    // CheckBox {
+                    //     text: "BP";
+                    //     checked: root.bit-perfect;
+                    //     toggled => { root.toggle-bit-perfect(); }
+                    // }
+
                     IconButton {
                         icon: root.theme == 0
                             ? (root.muted ? @image-url("icons/dark/muted.svg") : @image-url("icons/dark/volume.svg"))
                             : (root.muted ? @image-url("icons/light/muted.svg") : @image-url("icons/light/volume.svg"));
                         active: root.muted;
                         enabled: !root.bit-perfect;
+                        width: (root.cover-size * 1px - 10px) / 6;
+                        height: 24px;
                         clicked => { root.toggle-mute(); }
                     }
                 }
             }
         }
+
+        VerticalLayout {
+            width: root.col-gap * 1px / 2 + 1px;
+        }
     }
+
 }

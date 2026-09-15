@@ -427,6 +427,11 @@ export component AppWindow inherits Window {
             toggle-mute => { root.toggle-mute(); }
             toggle-bit-perfect => { root.toggle-bit-perfect(); }
         }
+        HorizontalLayout {
+            Rectangle {
+                height: 6px;
+            }
+        }
 
         playlist_view_width := Playlist {
             horizontal-stretch: 1;
