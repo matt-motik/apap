@@ -1,5 +1,5 @@
 import { Colors } from "theme.slint";
-import { Slider, CheckBox, ScrollView } from "std-widgets.slint";
+import { Slider, ScrollView } from "std-widgets.slint";
 import { Visualizer } from "visualizer.slint";
 
 component VerticalSeparator inherits Rectangle {
@@ -141,7 +141,6 @@ export component TopPanel inherits Rectangle {
     callback seek-commit(float);
     callback volume-changed(float);
     callback toggle-mute();
-    callback toggle-bit-perfect();
 
     background: transparent;
 
@@ -173,7 +172,7 @@ export component TopPanel inherits Rectangle {
                     }
 
                     // Placeholder, shown while no cover is available.
-                Text {
+                    Text {
                         text: "Album Art";
                         color: Colors.text-tertiary;
                         font-size: 14px;
@@ -493,18 +492,7 @@ export component TopPanel inherits Rectangle {
                     }
                 }
 
-                // Bit-perfect (Direct Output): софтверная громкость отключена — регулятор
-                // отдан внешнему предусилителю / ОС. Подпись рисуется поверх слайдера.
-                // Text {
-                //     visible: root.bit-perfect;
-                //     text: "Управляется внешним предусилителем / ОС";
-                //     color: Colors.text-tertiary;
-                //     font-size: 11px;
-                //     transform-rotation: -90deg;
-                //     x: (parent.width - self.width) / 2;
-                //     y: (parent.height - self.height) / 2;
-                // }
-            }
+                }
             VerticalLayout {
                 vertical-stretch: 1;
                 Rectangle { }
@@ -516,13 +504,6 @@ export component TopPanel inherits Rectangle {
                 HorizontalLayout {
                     alignment: center;
                     spacing: 6px;
-                    // Bit-perfect toggle (Direct Output): disables the software
-                    // volume/mute path — volume control moves to the DAC/amp.
-                    // CheckBox {
-                    //     text: "BP";
-                    //     checked: root.bit-perfect;
-                    //     toggled => { root.toggle-bit-perfect(); }
-                    // }
 
                     IconButton {
                         icon: root.theme == 0
