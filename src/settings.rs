@@ -4,13 +4,6 @@ use std::path::PathBuf;
 use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
-pub enum Theme {
-    #[default]
-    Dark,
-    Light,
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
 pub enum RepeatMode {
     #[default]
     Off,
@@ -79,6 +72,11 @@ fn default_cfg_title() -> String {
 
 fn default_true() -> bool {
     true
+}
+
+/// Дефолтное имя темы (T1.0 §4): светлая тема при отсутствии поля `theme`.
+fn default_theme() -> String {
+    "light".into()
 }
 
 impl ColumnCfg {
@@ -502,8 +500,9 @@ impl Default for AudioCfg {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Settings {
-    #[serde(default)]
-    pub theme: Theme,
+    /// Имя темы = имя файла `themes/<имя>.toml` без расширения (T1.0 §4).
+    #[serde(default = "default_theme")]
+    pub theme: String,
     #[serde(default)]
     pub volume: f32,
     #[serde(default)]
@@ -586,7 +585,7 @@ pub struct Settings {
 impl Default for Settings {
     fn default() -> Self {
         Self {
-            theme: Theme::Dark,
+            theme: default_theme(),
             volume: 0.8,
             muted: false,
             last_dir: String::new(),

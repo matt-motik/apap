@@ -19,7 +19,7 @@ use music_player_rs::audio::visualizer::{
 };
 use music_player_rs::cover::{self, CoverDone, CoverJob};
 use music_player_rs::playlist::{self, ScanMsg, Track};
-use music_player_rs::settings::{ColumnId, DsdMode, RepeatMode, Settings, SettingsStore, Theme};
+use music_player_rs::settings::{ColumnId, DsdMode, RepeatMode, Settings, SettingsStore};
 use music_player_rs::theme::{ColorsData, ThemeData, ThemeError, DEFAULT_LIGHT_TOML, parse_hex};
 use music_player_rs::tray::{self, TrayCmd};
 
@@ -140,7 +140,6 @@ fn hex_color(hex: &str) -> Option<slint::Color> {
 
 /// Валидирует HEX всех 22 полей `ColorsData` через `theme::parse_hex` (§2.3).
 /// Любой отказ → `ThemeError::InvalidHex` с именем поля для диагностики.
-#[allow(dead_code)] // активируется в Шаге 6 (apply_theme/resolve_startup_theme)
 fn validate_colors(colors: &ColorsData) -> Result<(), ThemeError> {
     type ColorField = fn(&ColorsData) -> &str;
     const FIELDS: [(&str, ColorField); 22] = [
@@ -182,7 +181,6 @@ fn validate_colors(colors: &ColorsData) -> Result<(), ThemeError> {
 /// Цепочка fallback: `<name>.toml` (структура + HEX) → `light.toml` →
 /// `DEFAULT_LIGHT_TOML`. Возвращает `(данные_темы, was_fallback)`.
 /// `settings.toml` не пишет — намерение пользователя сохраняется.
-#[allow(dead_code)] // активируется в Шаге 6 (init/apply_theme)
 fn resolve_startup_theme(name: &str, themes_dir: &std::path::Path) -> (ThemeData, bool) {
     let try_file = |p: &std::path::Path| -> Option<ThemeData> {
         let data = ThemeData::load_from_file(p).ok()?;
@@ -207,12 +205,6 @@ fn resolve_startup_theme(name: &str, themes_dir: &std::path::Path) -> (ThemeData
             true,
         ),
     }
-}
-
-/// Parse a compile-time hex color literal, falling back to black if it is
-/// somehow invalid. Only used with hard-coded palette constants.
-fn hex_color_lit(hex: &str) -> slint::Color {
-    hex_color(hex).unwrap_or(slint::Color::from_rgb_u8(0, 0, 0))
 }
 
 fn num_str(v: u32, suffix: &str) -> SharedString {
@@ -460,7 +452,9 @@ impl MusicApp {
     pub fn init(this: &Rc<RefCell<Self>>) {
         {
             let mut app = this.borrow_mut();
-            app.apply_theme();
+            let themes_dir = music_player_rs::settings::config_dir().join("themes");
+            let (theme, _) = resolve_startup_theme(&app.settings.settings.theme, &themes_dir);
+            app.apply_theme(&theme);
             app.sync_settings_to_ui();
             app.sync_playlist_to_ui();
             // Pre-warm the output-device enumeration so the settings dialog's
@@ -738,20 +732,6 @@ impl MusicApp {
             });
         }
 
-        // 19. settings-theme-changed
-        {
-            let app = this.clone();
-            ui.on_settings_theme_changed(move |value| {
-                eprintln!("[gui] settings_theme_changed value={value}");
-                let mut a = app.borrow_mut();
-                a.settings_mut().theme = if value == 1 {
-                    Theme::Light
-                } else {
-                    Theme::Dark
-                };
-            });
-        }
-
         // 20. settings-cover-size
         {
             let app = this.clone();
@@ -1024,11 +1004,11 @@ impl MusicApp {
                         a.play_track(idx);
                     }
                 }
-                a.apply_theme();
-                a.ui.set_settings_theme(match a.settings.settings.theme {
-                    Theme::Dark => 0,
-                    Theme::Light => 1,
-                });
+                a.apply_theme(&resolve_startup_theme(
+                    &a.settings.settings.theme,
+                    &music_player_rs::settings::config_dir().join("themes"),
+                )
+                .0);
                 a.ui.set_cover_size(a.settings.settings.cover_size);
                 a.ui.set_col_info_w(a.settings.settings.col_info_w);
                 a.ui.set_col_gap(a.settings.settings.col_gap);

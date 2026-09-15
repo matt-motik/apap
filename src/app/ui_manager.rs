@@ -3,6 +3,8 @@
 
 use super::*;
 
+use music_player_rs::theme::StandardPalette;
+
 impl MusicApp {
     /// Restore the saved window size/position (if any) before the window is shown.
     pub(super) fn apply_window_geometry(&self) {
@@ -64,10 +66,7 @@ impl MusicApp {
     /// when those really should change.
     pub(super) fn sync_settings_to_ui(&self) {
         let s = self.settings_ref();
-        self.ui.set_settings_theme(match s.theme {
-            Theme::Dark => 0,
-            Theme::Light => 1,
-        });
+        self.ui.set_theme_palette(if s.theme == "dark" { 0 } else { 1 });
         self.ui
             .set_settings_minimize(s.minimize_to_tray);
         self.ui
@@ -255,62 +254,46 @@ impl MusicApp {
         self.ui.set_settings_devices(ModelRc::from(model.as_slice()));
     }
 
-    pub(super) fn apply_theme(&self) {
+    pub(super) fn apply_theme(&self, theme: &ThemeData) {
+        if validate_colors(&theme.colors).is_err() {
+            eprintln!("[theme] apply_theme: невалидные HEX-цвета, применение пропущено");
+            return;
+        }
         let c = self.ui.global::<Colors>();
-        let dark = self.settings.settings.theme == Theme::Dark;
-        self.ui.global::<FluentPalette>().set_color_scheme(if dark {
-            slint::private_unstable_api::re_exports::ColorScheme::Dark
-        } else {
-            slint::private_unstable_api::re_exports::ColorScheme::Light
+        self.ui.global::<FluentPalette>().set_color_scheme(match theme.standard_palette {
+            StandardPalette::Dark => slint::private_unstable_api::re_exports::ColorScheme::Dark,
+            StandardPalette::Light => slint::private_unstable_api::re_exports::ColorScheme::Light,
         });
 
-        if dark {
-            c.set_bg_window(hex_color_lit("#121018"));
-            c.set_bg_surface(hex_color_lit("#1a1720"));
-            c.set_bg_toolbar(hex_color_lit("#211e28"));
-            c.set_bg_elevated(hex_color_lit("#252230"));
-            c.set_bg_overlay(hex_color_lit("#00000088"));
-            c.set_border_subtle(hex_color_lit("#2d2a38"));
-            c.set_border_default(hex_color_lit("#3a3645"));
-            c.set_text_primary(hex_color_lit("#e6e1ec"));
-            c.set_text_secondary(hex_color_lit("#a9a3b8"));
-            c.set_text_tertiary(hex_color_lit("#7c7690"));
-            c.set_text_dim(hex_color_lit("#5c5670"));
-            c.set_text_on_accent(hex_color_lit("#ffffff"));
-            c.set_text_error(hex_color_lit("#f2b8b5"));
-            c.set_accent(hex_color_lit("#d0bcff"));
-            c.set_accent_container(hex_color_lit("#4f378b"));
-            c.set_accent_on(hex_color_lit("#eaddff"));
-            c.set_surface_hover(hex_color_lit("#322e3c"));
-            c.set_surface_active(hex_color_lit("#3a2f1f"));
-            c.set_surface_selected(hex_color_lit("#2d2a38"));
-            c.set_viz_1(hex_color_lit("#d35400"));
-            c.set_viz_2(hex_color_lit("#f1c40f"));
-            c.set_viz_3(hex_color_lit("#e74c3c"));
-        } else {
-            c.set_bg_window(hex_color_lit("#f8f5fa"));
-            c.set_bg_surface(hex_color_lit("#ffffff"));
-            c.set_bg_toolbar(hex_color_lit("#f3edf7"));
-            c.set_bg_elevated(hex_color_lit("#ffffff"));
-            c.set_bg_overlay(hex_color_lit("#00000044"));
-            c.set_border_subtle(hex_color_lit("#e4dde8"));
-            c.set_border_default(hex_color_lit("#cac4d0"));
-            c.set_text_primary(hex_color_lit("#1d1b20"));
-            c.set_text_secondary(hex_color_lit("#49454f"));
-            c.set_text_tertiary(hex_color_lit("#79747e"));
-            c.set_text_dim(hex_color_lit("#938f99"));
-            c.set_text_on_accent(hex_color_lit("#ffffff"));
-            c.set_text_error(hex_color_lit("#b3261e"));
-            c.set_accent(hex_color_lit("#6750a4"));
-            c.set_accent_container(hex_color_lit("#eaddff"));
-            c.set_accent_on(hex_color_lit("#21005d"));
-            c.set_surface_hover(hex_color_lit("#e8e0ec"));
-            c.set_surface_active(hex_color_lit("#d0c4db"));
-            c.set_surface_selected(hex_color_lit("#e4dde8"));
-            c.set_viz_1(hex_color_lit("#b14a00"));
-            c.set_viz_2(hex_color_lit("#c4a00a"));
-            c.set_viz_3(hex_color_lit("#c0392b"));
-        }
+        let col = &theme.colors;
+        c.set_bg_window(hex_color(&col.bg_window).unwrap_or(slint::Color::from_rgb_u8(0, 0, 0)));
+        c.set_bg_surface(hex_color(&col.bg_surface).unwrap_or(slint::Color::from_rgb_u8(0, 0, 0)));
+        c.set_bg_toolbar(hex_color(&col.bg_toolbar).unwrap_or(slint::Color::from_rgb_u8(0, 0, 0)));
+        c.set_bg_elevated(hex_color(&col.bg_elevated).unwrap_or(slint::Color::from_rgb_u8(0, 0, 0)));
+        c.set_bg_overlay(hex_color(&col.bg_overlay).unwrap_or(slint::Color::from_rgb_u8(0, 0, 0)));
+        c.set_border_subtle(hex_color(&col.border_subtle).unwrap_or(slint::Color::from_rgb_u8(0, 0, 0)));
+        c.set_border_default(hex_color(&col.border_default).unwrap_or(slint::Color::from_rgb_u8(0, 0, 0)));
+        c.set_text_primary(hex_color(&col.text_primary).unwrap_or(slint::Color::from_rgb_u8(0, 0, 0)));
+        c.set_text_secondary(hex_color(&col.text_secondary).unwrap_or(slint::Color::from_rgb_u8(0, 0, 0)));
+        c.set_text_tertiary(hex_color(&col.text_tertiary).unwrap_or(slint::Color::from_rgb_u8(0, 0, 0)));
+        c.set_text_dim(hex_color(&col.text_dim).unwrap_or(slint::Color::from_rgb_u8(0, 0, 0)));
+        c.set_text_on_accent(hex_color(&col.text_on_accent).unwrap_or(slint::Color::from_rgb_u8(0, 0, 0)));
+        c.set_text_error(hex_color(&col.text_error).unwrap_or(slint::Color::from_rgb_u8(0, 0, 0)));
+        c.set_accent(hex_color(&col.accent).unwrap_or(slint::Color::from_rgb_u8(0, 0, 0)));
+        c.set_accent_container(hex_color(&col.accent_container).unwrap_or(slint::Color::from_rgb_u8(0, 0, 0)));
+        c.set_accent_on(hex_color(&col.accent_on).unwrap_or(slint::Color::from_rgb_u8(0, 0, 0)));
+        c.set_surface_hover(hex_color(&col.surface_hover).unwrap_or(slint::Color::from_rgb_u8(0, 0, 0)));
+        c.set_surface_active(hex_color(&col.surface_active).unwrap_or(slint::Color::from_rgb_u8(0, 0, 0)));
+        c.set_surface_selected(hex_color(&col.surface_selected).unwrap_or(slint::Color::from_rgb_u8(0, 0, 0)));
+        c.set_viz_1(hex_color(&col.viz_1).unwrap_or(slint::Color::from_rgb_u8(0, 0, 0)));
+        c.set_viz_2(hex_color(&col.viz_2).unwrap_or(slint::Color::from_rgb_u8(0, 0, 0)));
+        c.set_viz_3(hex_color(&col.viz_3).unwrap_or(slint::Color::from_rgb_u8(0, 0, 0)));
+
+        // T1.0 §7: иконки и палитра виджетов следуют за standard_palette.
+        self.ui.set_theme_palette(match theme.standard_palette {
+            StandardPalette::Dark => 0,
+            StandardPalette::Light => 1,
+        });
     }
 
     /// Columns currently visible, in display order.
