@@ -77,17 +77,24 @@ pub fn clear_cover_cache() -> usize {
 }
 
 /// Ядро `clear_cover_cache` над произвольным каталогом (тестируемое,
-/// без глобального XDG-состояния).
+/// без глобального XDG-состояния). Рекурсивно обходит hash-поддиректории
+/// (`<hex[0..2]>`), удаляет все файлы и освободившиеся подкаталоги.
+/// Возвращает число удалённых файлов (0 при пустом/отсутствующем каталоге).
 fn clear_cover_cache_in(dir: &Path) -> usize {
     let Ok(rd) = std::fs::read_dir(dir) else {
         return 0;
     };
     let mut removed = 0usize;
     for entry in rd.flatten() {
-        if entry.path().is_file() {
-            if std::fs::remove_file(entry.path()).is_ok() {
+        let path = entry.path();
+        if path.is_file() {
+            if std::fs::remove_file(&path).is_ok() {
                 removed += 1;
             }
+        } else if path.is_dir() {
+            removed += clear_cover_cache_in(&path);
+            // Hash-подкаталог уже пуст — подчищаем и его.
+            let _ = std::fs::remove_dir(&path);
         }
     }
     removed
@@ -325,11 +332,18 @@ mod tests {
         let parent = std::env::temp_dir().join(format!("mp_clear_covers_{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&parent);
         std::fs::create_dir_all(&parent).unwrap();
-        std::fs::write(parent.join("a.jpg"), vec![0u8; 100]).unwrap();
-        std::fs::write(parent.join("b.png"), vec![0u8; 200]).unwrap();
-        std::fs::write(parent.join("c.jpg"), vec![0u8; 300]).unwrap();
+        // Боевой layout (§10.5): файлы в hash-поддиректориях `<hex[0..2]>`.
+        std::fs::create_dir_all(parent.join("4c")).unwrap();
+        std::fs::create_dir_all(parent.join("50")).unwrap();
+        std::fs::create_dir_all(parent.join("79")).unwrap();
+        std::fs::write(parent.join("4c/a.jpg"), vec![0u8; 100]).unwrap();
+        std::fs::write(parent.join("50/b.png"), vec![0u8; 200]).unwrap();
+        std::fs::write(parent.join("79/c.jpg"), vec![0u8; 300]).unwrap();
         let removed = clear_cover_cache_in(&parent);
         assert_eq!(removed, 3);
+        // Файлы удалены вместе со своими hash-подкаталогами.
+        assert!(!parent.join("4c").exists());
+        assert!(!parent.join("50").exists());
         assert_eq!(std::fs::read_dir(&parent).unwrap().count(), 0);
         assert!(parent.is_dir(), "directory itself must survive");
         let _ = std::fs::remove_dir_all(&parent);
