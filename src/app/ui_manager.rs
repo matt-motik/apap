@@ -214,6 +214,15 @@ impl MusicApp {
             }
         };
         self.audio_devices_rx = None;
+        // Keep the previously-known listing when a transient enumeration comes
+        // back empty (a DAC briefly busy with a probe/another stream must not
+        // "disappear" between two Refreshes).
+        let pairs = if pairs.is_empty() && !self.audio_devices_pairs.is_empty() {
+            eprintln!("[audio] enumeration returned no devices; keeping previous list");
+            self.audio_devices_pairs.clone()
+        } else {
+            pairs
+        };
         self.audio_devices_pairs = pairs;
 
         let saved = self.settings_ref().audio_device.clone();
@@ -232,8 +241,12 @@ impl MusicApp {
 
         // The ComboBox model holds *labels*; selection is matched back to the
         // raw device name on the Rust side (`resolve_device_label`).
-        let mut model: Vec<SharedString> = Vec::with_capacity(self.audio_devices_pairs.len() + 1);
-        let sel: i32 = if let Some(w) = want {
+        let mut model: Vec<SharedString> =
+            Vec::with_capacity(self.audio_devices_pairs.len() + 1);
+        let sel: i32 = if self.audio_devices_pairs.is_empty() {
+            model.push("(no devices \u{2014} retry Refresh)".into());
+            0
+        } else if let Some(w) = want {
             if let Some(i) = self
                 .audio_devices_pairs
                 .iter()

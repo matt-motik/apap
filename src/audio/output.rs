@@ -360,7 +360,9 @@ pub struct ChosenOutput {
 
 /// Abstraction over the audio backend (cpal in production, a mock in tests).
 pub trait AudioHost {
-    /// Usable output devices (only those with a resolvable default config).
+    /// Usable output devices, each with a resolvable default config (or a
+    /// sane synthesized one — a device whose default probe transiently fails
+    /// must not silently vanish from the settings list).
     fn devices(&self) -> Vec<DeviceInfo>;
     /// Name of the host's default output device, if any.
     fn default_name(&self) -> Option<String>;
@@ -375,31 +377,63 @@ impl AudioHost for CpalHost {
         let mut out = Vec::new();
         if let Ok(devices) = host.output_devices() {
             for dev in devices {
-                if let Ok(default) = dev.default_output_config() {
-                    let name = dev
-                        .description()
-                        .map(|d| d.name().to_string())
-                        .unwrap_or_else(|_| "default".to_string());
-                    let mut supported = Vec::new();
-                    if let Ok(configs) = dev.supported_output_configs() {
-                        for cfg in configs {
-                            supported.push(RateRange {
-                                channels: cfg.channels(),
-                                min: cfg.min_sample_rate(),
-                                max: cfg.max_sample_rate(),
-                                buffer_size: *cfg.buffer_size(),
-                            });
+                let Ok(name) = dev.description().map(|d| d.name().to_string()) else {
+                    continue;
+                };
+                // Supported configs and their formats are aligned by index so a
+                // fallback default can pick a format the device really supports.
+                let mut supported = Vec::new();
+                let mut supported_formats: Vec<SampleFormat> = Vec::new();
+                if let Ok(configs) = dev.supported_output_configs() {
+                    for cfg in configs {
+                        supported.push(RateRange {
+                            channels: cfg.channels(),
+                            min: cfg.min_sample_rate(),
+                            max: cfg.max_sample_rate(),
+                            buffer_size: *cfg.buffer_size(),
+                        });
+                        supported_formats.push(cfg.sample_format());
+                    }
+                }
+                let default = dev.default_output_config().ok();
+                // A device whose default config cannot be resolved right now
+                // (e.g. the probe/another stream holds it at that instant) must
+                // still show up in the settings list — otherwise a working DAC
+                // "disappears" between two Refreshes. Fall back to the first
+                // 2-channel supported config; `choose_output` re-picks a precise
+                // rate from `supported` anyway.
+                let (channels, sample_rate, sample_format, buffer_size) = match &default {
+                    Some(cfg) => (
+                        cfg.channels(),
+                        cfg.sample_rate(),
+                        cfg.sample_format(),
+                        *cfg.buffer_size(),
+                    ),
+                    None => {
+                        let pick = supported
+                            .iter()
+                            .enumerate()
+                            .find(|(_, r)| r.channels == 2)
+                            .or_else(|| supported.iter().enumerate().next());
+                        match pick {
+                            Some((i, r)) => (
+                                r.channels,
+                                r.min,
+                                supported_formats.get(i).copied().unwrap_or(SampleFormat::F32),
+                                r.buffer_size,
+                            ),
+                            None => continue, // no supported config at all
                         }
                     }
-                    out.push(DeviceInfo {
-                        name,
-                        channels: default.channels(),
-                        sample_rate: default.sample_rate(),
-                        sample_format: default.sample_format(),
-                        buffer_size: *default.buffer_size(),
-                        supported,
-                    });
-                }
+                };
+                out.push(DeviceInfo {
+                    name,
+                    channels,
+                    sample_rate,
+                    sample_format,
+                    buffer_size,
+                    supported,
+                });
             }
         }
         out
