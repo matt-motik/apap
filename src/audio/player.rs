@@ -377,6 +377,7 @@ impl Player {
             return self.open_pcm(path);
         }
         spec.sample_format = SampleFormat::I32;
+        spec.is_dop = true;
         self.device_desc = spec.device_name.clone();
 
         {
@@ -820,14 +821,14 @@ pub fn audio_callback_u8(core: &Arc<Mutex<PlaybackCore>>, data: &mut [u8]) {
     c.scratch_release(tmp);
 }
 
-/// cpal callback for i32 output. Only used by the DoP (DSD over PCM) stream:
-/// samples are already framed 24-bit DoP words (marker 0x05/0xFA in bits
-/// 23-16, two DSD bytes in bits 15-0), carried verbatim as f32 through the
-/// identity resampler. The i32 container left-aligns them: `<< 8` places the
-/// marker into bits 31-24 (mpv `marker << 24 | d0 << 16 | d1 << 8`; the low
-/// byte stays zero). This is a Direct Output path: no volume, no dither, no
-/// resampler, so the raw DSD stream reaches the DAC untouched.
-pub fn audio_callback_i32(core: &Arc<Mutex<PlaybackCore>>, data: &mut [i32]) {
+/// cpal callback for i32 output on the DoP (DSD over PCM) path: samples are
+/// already framed 24-bit DoP words (marker 0x05/0xFA in bits 23-16, two DSD
+/// bytes in bits 15-0), carried verbatim as f32 through the identity resampler.
+/// The i32 container left-aligns them: `<< 8` places the marker into bits
+/// 31-24 (mpv `marker << 24 | d0 << 16 | d1 << 8`; the low byte stays zero).
+/// This is a Direct Output path: no volume, no dither, no resampler, so the
+/// raw DSD stream reaches the DAC untouched.
+pub fn audio_callback_i32_dop(core: &Arc<Mutex<PlaybackCore>>, data: &mut [i32]) {
     let Ok(mut c) = core.try_lock() else {
         data.fill(0);
         return;
@@ -844,6 +845,64 @@ pub fn audio_callback_i32(core: &Arc<Mutex<PlaybackCore>>, data: &mut [i32]) {
     for (dst, &src) in data.iter_mut().zip(tmp.iter()).take(produced) {
         *dst = ((src.clamp(0.0, 16_777_215.0) as u32) << 8) as i32;
     }
+    for s in data.iter_mut().skip(produced) {
+        *s = 0;
+    }
+    if produced < data.len() && c.decoder.as_ref().map(|d| d.eof()).unwrap_or(false) {
+        c.playing = false;
+        c.finished = true;
+        c.natural_end = true;
+    }
+    c.scratch_release(tmp);
+}
+
+/// cpal callback for i32 PCM output (a native-I32 hardware node, e.g. the raw
+/// `hw:*` ALSA handle of a USB DAC). Same semantics as [`audio_callback_i16`]
+/// scaled to 32-bit: volume (bypassed in bit-perfect mode), optional TPDF
+/// dither, hard clipping to the i32 range.
+pub fn audio_callback_i32_pcm(core: &Arc<Mutex<PlaybackCore>>, data: &mut [i32]) {
+    let Ok(mut c) = core.try_lock() else {
+        data.fill(0);
+        return;
+    };
+    if !c.playing {
+        data.fill(0);
+        return;
+    }
+    let vol = if c.bit_perfect.load(Ordering::Relaxed) {
+        1.0
+    } else {
+        effective_volume(&c)
+    };
+    let (apply_dither, dither_amp) = if dither_enabled(&c) {
+        (true, dither_amplitude(c.dither.load(Ordering::Relaxed)))
+    } else {
+        (false, 1.0)
+    };
+    let out_ch = c.out_ch;
+    let mut tmp = c.scratch_f32();
+    tmp.resize(data.len(), 0.0);
+    let produced = c.fill(&mut tmp);
+    c.pos_secs += produced as f64 / c.out_rate as f64 / out_ch as f64;
+    if c.viz_tap_active {
+        if let Some(tap) = c.viz_tap.as_mut() {
+            for s in tmp.iter().take(produced) {
+                if tap.push(*s).is_err() {
+                    break;
+                }
+            }
+        }
+    }
+    const I32_MAX: f64 = 2_147_483_647.0;
+    let mut tpdf = c.tpdf;
+    for (dst, &src) in data.iter_mut().zip(tmp.iter()).take(produced) {
+        let mut x = src.clamp(-1.0, 1.0) as f64 * vol as f64 * I32_MAX;
+        if apply_dither {
+            x += tpdf.next_tpdf() as f64 * dither_amp as f64;
+        }
+        *dst = x.round().clamp(-I32_MAX - 1.0, I32_MAX) as i32;
+    }
+    c.tpdf = tpdf;
     for s in data.iter_mut().skip(produced) {
         *s = 0;
     }
@@ -1189,6 +1248,45 @@ mod tests {
         assert!(produced > 0, "expected i16 output");
         let expected = (0.25f32 * 0.5 * 32767.0).round() as i16;
         assert!(buf[..produced].iter().all(|s| *s == expected), "got {:?}", &buf[..produced]);
+    }
+
+    #[test]
+    fn i32_pcm_scales_and_clamps_volume() {
+        let core = core_with_source(10_000);
+        {
+            let mut c = core.lock().unwrap();
+            c.playing = true;
+            c.volume = 0.5;
+            c.dither.store(DITHER_INDEX_OFF, Ordering::Relaxed);
+        }
+        let mut buf = vec![0i32; 256];
+        audio_callback_i32_pcm(&core, &mut buf);
+        let produced = buf.len() - buf.iter().rev().take_while(|s| **s == 0).count();
+        assert!(produced > 0, "expected i32 PCM output");
+        let expected = (0.25f32 * 0.5 * 2_147_483_647.0).round() as i32;
+        assert!(buf[..produced].iter().all(|s| *s == expected), "got {:?}", &buf[..produced]);
+    }
+
+    #[test]
+    fn i32_pcm_is_not_dop_packed() {
+        // The ADI-2 regression: the old i32 callback was the DoP packer
+        // (`(src << 8)`), producing silence for plain PCM. A positive sample
+        // must come out as a positive i32 value, not a left-shifted byte.
+        let core = core_with_source(10_000);
+        {
+            let mut c = core.lock().unwrap();
+            c.playing = true;
+            c.volume = 1.0;
+            c.dither.store(DITHER_INDEX_OFF, Ordering::Relaxed);
+        }
+        let mut buf = vec![0i32; 64];
+        audio_callback_i32_pcm(&core, &mut buf);
+        let produced = buf.len() - buf.iter().rev().take_while(|s| **s == 0).count();
+        assert!(produced > 0);
+        let expected = (0.25f32 * 2_147_483_647.0).round() as i32;
+        assert_eq!(buf[0], expected);
+        // A left-shifted 0.25 would be 0x40000000 (or clamped 0.0 in old code).
+        assert!(buf[0] > 0 && buf[0] != 0x4000_0000_i32, "DoP packing leaked into PCM");
     }
 
     #[test]

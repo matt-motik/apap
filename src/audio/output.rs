@@ -325,14 +325,25 @@ pub struct OutputSpec {
     pub device: cpal::Device,
     pub config: StreamConfig,
     pub sample_format: SampleFormat,
+    /// Stable backend key of the device (persisted in settings).
+    pub device_id: String,
     pub device_name: String,
+    /// Whether the stream carries DoP (DSD-over-PCM) words. I32 callbacks must
+    /// pack DoP markers only on this path; plain PCM on an I32 node uses the
+    /// normal PCM conversion instead.
+    pub is_dop: bool,
 }
 
 /// Backend-agnostic snapshot of an output device's capabilities, enough for
 /// the stream-selection logic to run without a live audio backend (and thus
 /// to be unit-tested with a mock).
+///
+/// `id` is the stable, backend-usable key that settings persist and
+/// `select_output` uses to re-open the device (on ALSA it is the pcm id, e.g.
+/// `hw:CARD=4,DEV=0`); `name` is the human-readable label shown in the UI.
 #[derive(Debug, Clone)]
 pub struct DeviceInfo {
+    pub id: String,
     pub name: String,
     pub channels: u16,
     pub sample_rate: u32,
@@ -353,6 +364,8 @@ pub struct RateRange {
 /// The result of device selection, independent of the concrete backend.
 #[derive(Debug, Clone)]
 pub struct ChosenOutput {
+    /// Stable backend key of the chosen device (persisted in settings).
+    pub device_id: String,
     pub device_name: String,
     pub config: StreamConfig,
     pub sample_format: SampleFormat,
@@ -377,9 +390,13 @@ impl AudioHost for CpalHost {
         let mut out = Vec::new();
         if let Ok(devices) = host.output_devices() {
             for dev in devices {
-                let Ok(name) = dev.description().map(|d| d.name().to_string()) else {
-                    continue;
+                let name = match dev.description().map(|d| d.name().to_string()) {
+                    Ok(name) => name,
+                    Err(_) => continue,
                 };
+                // Stable backend key used to re-open the device and persisted in
+                // settings (ALSA pcm id, e.g. "hw:CARD=4,DEV=0").
+                let id = dev.id().map(|d| d.id().to_string()).unwrap_or_else(|_| name.clone());
                 // Supported configs and their formats are aligned by index so a
                 // fallback default can pick a format the device really supports.
                 let mut supported = Vec::new();
@@ -427,6 +444,7 @@ impl AudioHost for CpalHost {
                     }
                 };
                 out.push(DeviceInfo {
+                    id,
                     name,
                     channels,
                     sample_rate,
@@ -436,7 +454,11 @@ impl AudioHost for CpalHost {
                 });
             }
         }
-        out
+        // cpal's ALSA backend exposes several handles with the same human name
+        // (raw `hw:*`, `plughw:*`, server proxies, format variants). Among them
+        // only the raw hardware node can deliver native rates / bit-exact
+        // output; keep exactly one entry per name, preferring `hw:*`.
+        collapse_same_name(out)
     }
 
     fn default_name(&self) -> Option<String> {
@@ -447,20 +469,64 @@ impl AudioHost for CpalHost {
     }
 }
 
-impl CpalHost {
-    /// Recover the concrete cpal device handle for stream building.
-    fn device_by_name(&self, name: &str) -> Result<cpal::Device, String> {
-        let host = cpal::default_host();
-        if let Ok(devices) = host.output_devices() {
-            for dev in devices {
-                if let Ok(desc) = dev.description() {
-                    if desc.name().to_string() == name {
-                        return Ok(dev);
+/// True when the backend-specific device id names a raw ALSA hardware node
+/// (`hw:*`). Such nodes expose discrete native rates and formats without a
+/// software-resampling proxy (PipeWire/Pulse/plughw) in between, so they are
+/// the only handles that can deliver native-rate and bit-exact (DoP) output.
+fn is_raw_hardware_id(id: &str) -> bool {
+    let id = id.to_ascii_lowercase();
+    id.starts_with("hw:") || id.starts_with("hw=")
+}
+
+/// Best handle for a device name, preferring the raw `hw:*` node.
+///
+/// cpal's ALSA backend reports several handles with the same human-readable
+/// description (raw `hw:*`, `plughw:*` with all software conversions, server
+/// proxies, per-format variants). The first one in enumeration order is
+/// typically a `plughw:`/`default` proxy whose range covers every rate and
+/// buffer size — selecting it silently re-samples everything to the server's
+/// rate (48 kHz) and makes DoP impossible. Among equal names the raw `hw:*`
+/// node wins; anything else keeps the first handle (existing behaviour).
+fn collapse_same_name(infos: Vec<DeviceInfo>) -> Vec<DeviceInfo> {
+    let mut seen = std::collections::HashSet::new();
+    let mut out: Vec<DeviceInfo> = Vec::with_capacity(infos.len());
+    for info in infos {
+        if !seen.insert(info.name.clone()) {
+            // Same name already included: prefer the raw hardware node when
+            // the kept entry is not one yet.
+            if is_raw_hardware_id(&info.id) {
+                if let Some(kept) = out.iter_mut().find(|k| k.name == info.name) {
+                    if !is_raw_hardware_id(&kept.id) {
+                        *kept = info;
                     }
                 }
             }
+            continue;
         }
-        Err(format!("Audio device '{name}' no longer available"))
+        out.push(info);
+    }
+    out
+}
+
+impl CpalHost {
+    /// Recover the concrete cpal device handle for stream building by its
+    /// stable backend id (ALSA pcm id). Falls back to a description-name match
+    /// for configs persisted before the id was stored.
+    fn device_by_id(&self, id: &str) -> Result<cpal::Device, String> {
+        let host = cpal::default_host();
+        if let Ok(devices) = host.output_devices() {
+            for dev in devices {
+                let matches_id = dev.id().map(|d| d.id() == id).unwrap_or(false);
+                let matches_name = dev
+                    .description()
+                    .map(|d| d.name() == id)
+                    .unwrap_or(false);
+                if matches_id || matches_name {
+                    return Ok(dev);
+                }
+            }
+        }
+        Err(format!("Audio device '{id}' no longer available"))
     }
 }
 
@@ -515,11 +581,12 @@ pub fn choose_output(
         return Err(String::from("No audio output device found"));
     }
 
-    // Resolve the requested device, falling back to the host default.
+    // Resolve the requested device, falling back to the host default. `preferred`
+    // may be a stable id (new settings) or a human name (legacy configs).
     let preferred = preferred_name.filter(|n| !n.is_empty());
     let device = preferred
-        .and_then(|name| devices.iter().find(|d| d.name == name))
-        .or_else(|| default_name.and_then(|d| devices.iter().find(|dev| dev.name == d)))
+        .and_then(|key| devices.iter().find(|d| d.id == key).or_else(|| devices.iter().find(|d| d.name == key)))
+        .or_else(|| default_name.and_then(|d| devices.iter().find(|dev| dev.id == d).or_else(|| devices.iter().find(|dev| dev.name == d))))
         .ok_or_else(|| String::from("No audio output device found"))?;
 
     // Prefer a config matching the source channels when the device supports it,
@@ -559,6 +626,7 @@ pub fn choose_output(
     };
 
     Ok(ChosenOutput {
+        device_id: device.id.clone(),
         device_name: device.name.clone(),
         config: StreamConfig {
             channels,
@@ -585,12 +653,14 @@ pub fn select_output(
         track_channels,
         preferred_name,
     )?;
-    let device = host.device_by_name(&chosen.device_name)?;
+    let device = host.device_by_id(&chosen.device_id)?;
     Ok(OutputSpec {
         device,
         config: chosen.config,
         sample_format: chosen.sample_format,
+        device_id: chosen.device_id,
         device_name: chosen.device_name,
+        is_dop: false,
     })
 }
 
@@ -608,6 +678,10 @@ pub fn is_server_node(name: &str) -> bool {
         || n == "default audio device"
 }
 
+/// Suffix appended to software sound-server (PipeWire/Pulse) device labels in
+/// the settings dialog, signalling that such nodes resample the stream.
+pub const SERVER_NODE_SUFFIX: &str = " — (software, resamples)";
+
 /// Build the settings-dialog device list as `(raw_name, label)` pairs.
 ///
 /// 1. Deduplicates repeated names (cpal's ALSA backend exposes several
@@ -616,7 +690,7 @@ pub fn is_server_node(name: &str) -> bool {
 /// 2. Groups direct hardware nodes first, software server nodes last, so a
 ///    user picking an audiophile output (DoP / bit-perfect) sees the DAC before
 ///    the PipeWire/Pulse proxies.
-/// 3. Server nodes get a `(software, resamples)` suffix in the label while the
+/// 3. Server nodes get a [`SERVER_NODE_SUFFIX`] suffix in the label while the
 ///    raw name is preserved untouched (it is what gets persisted in settings
 ///    and matched by `choose_output`/`device_by_name`).
 pub fn label_device_names(names: &[impl AsRef<str>]) -> Vec<(String, String)> {
@@ -634,7 +708,7 @@ pub fn label_device_names(names: &[impl AsRef<str>]) -> Vec<(String, String)> {
             &mut hw
         };
         let label = if is_server_node(name) {
-            format!("{name} — (software, resamples)")
+            format!("{name}{SERVER_NODE_SUFFIX}")
         } else {
             name.to_string()
         };
@@ -644,13 +718,24 @@ pub fn label_device_names(names: &[impl AsRef<str>]) -> Vec<(String, String)> {
     hw
 }
 
-/// Enumerate usable output devices as `(raw_name, label)` pairs. The raw pair
-/// is the stable key persisted in settings and passed back to `select_output`;
-/// the label is the deduplicated, grouped display string (see
-/// [`label_device_names`]).
+/// Enumerate usable output devices as `(id, label)` pairs.
+///
+/// The first element is the stable, backend-openable key (ALSA pcm id, e.g.
+/// `hw:CARD=4,DEV=0`) persisted in settings and passed back to
+/// `select_output`; the second is the deduplicated, grouped human-readable
+/// label shown in the settings dialog (see [`label_device_names`]).
 pub fn output_devices() -> Vec<(String, String)> {
-    let names: Vec<String> = CpalHost.devices().into_iter().map(|d| d.name).collect();
+    let infos = CpalHost.devices();
+    let ids: std::collections::HashMap<&str, &str> =
+        infos.iter().map(|d| (d.name.as_str(), d.id.as_str())).collect();
+    let names: Vec<String> = infos.iter().map(|d| d.name.clone()).collect();
     label_device_names(&names)
+        .into_iter()
+        .map(|(name, label)| {
+            let id = ids.get(name.as_str()).copied().unwrap_or(name.as_str()).to_string();
+            (id, label)
+        })
+        .collect()
 }
 
 /// Name of the host's default output device, if any.
@@ -658,24 +743,34 @@ pub fn default_device_name() -> Option<String> {
     CpalHost.default_name()
 }
 
+/// Stable backend id of the host's default output device, if any.
+pub fn default_device_id() -> Option<String> {
+    let host = cpal::default_host();
+    host.default_output_device()
+        .and_then(|d| d.id().ok())
+        .map(|d| d.id().to_string())
+}
+
 /// Probe the configured output device (or the host default when `preferred` is
 /// empty/`None`).
 ///
 /// The probe opens a real (silent) output stream for a short moment so that
 /// runtime failures — e.g. ALSA `snd_pcm_dmix_open: unable to open slave` —
-/// surface at startup instead of on the first Play. Returns the name of the
-/// effective device.
+/// surface at startup instead of on the first Play. `preferred` may be a
+/// stable id or a human-readable name (legacy configs). Returns the name of
+/// the effective device.
 pub fn probe_output(preferred: Option<&str>) -> Result<String, String> {
-    let names = output_devices();
     let preferred = preferred.filter(|n| !n.is_empty());
+    let infos = CpalHost.devices();
 
     // A configured device that is not enumerable counts as unavailable.
-    if let Some(name) = preferred {
-        if !names.iter().any(|(n, _)| n == name) {
-            return Err(format!("Configured audio device '{name}' not found"));
+    if let Some(key) = preferred {
+        let found = infos.iter().any(|d| d.id == key) || infos.iter().any(|d| d.name == key);
+        if !found {
+            return Err(format!("Configured audio device '{key}' not found"));
         }
     }
-    if names.is_empty() {
+    if infos.is_empty() {
         return Err(String::from("No audio output device found"));
     }
 
@@ -772,10 +867,15 @@ pub fn build_stream(
                 SampleFormat::I32 => {
                     let core = core.clone();
                     let ef = ef.clone();
+                    let is_dop = spec.is_dop;
                     spec.device.build_output_stream(
                         cfg,
                         move |data: &mut [i32], _| {
-                            crate::audio::player::audio_callback_i32(&core, data);
+                            if is_dop {
+                                crate::audio::player::audio_callback_i32_dop(&core, data);
+                            } else {
+                                crate::audio::player::audio_callback_i32_pcm(&core, data);
+                            }
                         },
                         move |e| {
                             eprintln!("Audio stream error: {e}");
@@ -842,7 +942,18 @@ mod tests {
         sample_rate: u32,
         supported: &[(u16, u32, u32)],
     ) -> DeviceInfo {
+        mock_device_id(name, name, channels, sample_rate, supported)
+    }
+
+    fn mock_device_id(
+        id: &str,
+        name: &str,
+        channels: u16,
+        sample_rate: u32,
+        supported: &[(u16, u32, u32)],
+    ) -> DeviceInfo {
         DeviceInfo {
+            id: id.to_string(),
             name: name.to_string(),
             channels,
             sample_rate,
@@ -877,8 +988,43 @@ mod tests {
         };
         let chosen = select_from_host(&host, 44100, 2, Some("HDMI")).unwrap();
         assert_eq!(chosen.device_name, "HDMI");
+        assert_eq!(chosen.device_id, "HDMI");
         assert_eq!(chosen.config.sample_rate, 44100);
         assert_eq!(chosen.config.channels, 2);
+    }
+
+    #[test]
+    fn choose_output_resolves_by_id_over_name() {
+        // The persisted key is now the stable id; names only resolve because
+        // the mock uses id == name. With a distinct id the id must win.
+        let dac = mock_device_id(
+            "hw:CARD=4,DEV=0",
+            "ADI-2 DAC (56680121), USB Audio",
+            2,
+            48000,
+            &[(2, 44100, 192000)],
+        );
+        let host = MockHost {
+            devices: vec![dac.clone()],
+            default_name: Some("ADI-2 DAC (56680121), USB Audio".into()),
+        };
+        // Preferred id matches even though it differs from the display name.
+        let chosen = select_from_host(&host, 96000, 2, Some("hw:CARD=4,DEV=0")).unwrap();
+        assert_eq!(chosen.device_id, "hw:CARD=4,DEV=0");
+        assert_eq!(chosen.device_name, "ADI-2 DAC (56680121), USB Audio");
+        // Unknown id falls back to the name lookup (legacy configs).
+        let chosen = select_from_host(&host, 44100, 2, Some("ADI-2 DAC (56680121), USB Audio"))
+            .unwrap();
+        assert_eq!(chosen.device_id, "hw:CARD=4,DEV=0");
+        // Unknown id + unknown name -> default rescue when a default exists;
+        // strict error when neither id, name nor default matches.
+        let chosen = select_from_host(&host, 44100, 2, Some("nope")).unwrap();
+        assert_eq!(chosen.device_id, "hw:CARD=4,DEV=0");
+        let host_no_default = MockHost {
+            devices: vec![dac],
+            default_name: None,
+        };
+        assert!(select_from_host(&host_no_default, 44100, 2, Some("nope")).is_err());
     }
 
     #[test]
@@ -1087,6 +1233,86 @@ mod tests {
     #[test]
     fn device_labels_empty_input() {
         assert_eq!(label_device_names(&[] as &[&str]), Vec::<(String, String)>::new());
+    }
+
+    #[test]
+    fn collapse_same_name_prefers_raw_hw_node() {
+        // The observed ADI-2 fingerprint: identical human names, several
+        // handles — the *last* one is the raw `hw:` node (I32, discrete rates),
+        // the first is a plughw/proxy variant. Collapse must keep the hw node.
+        let proxy = mock_device_id(
+            "plughw:CARD=4,DEV=0",
+            "ADI-2 DAC (56680121), USB Audio",
+            2,
+            48000,
+            &[(2, 4000, 4294967295)],
+        );
+        let raw = mock_device_id(
+            "hw:CARD=4,DEV=0",
+            "ADI-2 DAC (56680121), USB Audio",
+            2,
+            48000,
+            &[(2, 44100, 44100), (2, 48000, 48000), (2, 176400, 176400)],
+        );
+        let mut raws = vec![proxy.clone(), proxy.clone(), raw.clone(), raw.clone()];
+        // The hw node is already first — stays.
+        let collapsed = collapse_same_name(raws.clone());
+        assert_eq!(collapsed.len(), 1);
+        assert_eq!(collapsed[0].id, "hw:CARD=4,DEV=0");
+        // The hw node comes last — collapse still finds and promotes it.
+        raws.reverse();
+        let collapsed = collapse_same_name(raws);
+        assert_eq!(collapsed.len(), 1);
+        assert_eq!(collapsed[0].id, "hw:CARD=4,DEV=0");
+    }
+
+    #[test]
+    fn collapse_same_name_keeps_distinct_names() {
+        let devs = vec![
+            mock_device("Speakers", 2, 48000, &[(2, 44100, 48000)]),
+            mock_device("Default Audio Device", 2, 48000, &[(2, 44100, 48000)]),
+            mock_device("Speakers", 2, 48000, &[(2, 44100, 48000)]),
+        ];
+        let collapsed = collapse_same_name(devs);
+        assert_eq!(collapsed.len(), 2);
+        assert_eq!(collapsed[0].name, "Speakers");
+        assert_eq!(collapsed[1].name, "Default Audio Device");
+    }
+
+    #[test]
+    fn collapse_same_name_keeps_first_without_hw_variant() {
+        // No raw hw handle for this name: the first entry wins (existing
+        // behaviour), e.g. the virtual "Default Audio Device" (id `default`).
+        let devs = vec![
+            mock_device_id(
+                "default",
+                "Default Audio Device",
+                2,
+                48000,
+                &[(2, 4000, 4294967295)],
+            ),
+            mock_device_id(
+                "front:CARD=4,DEV=0",
+                "Default Audio Device",
+                2,
+                48000,
+                &[(2, 4000, 4294967295)],
+            ),
+        ];
+        let collapsed = collapse_same_name(devs);
+        assert_eq!(collapsed.len(), 1);
+        assert_eq!(collapsed[0].id, "default");
+    }
+
+    #[test]
+    fn raw_hardware_id_detection() {
+        assert!(is_raw_hardware_id("hw:CARD=4,DEV=0"));
+        assert!(is_raw_hardware_id("hw:CARD=DAC56680121,DEV=0"));
+        assert!(!is_raw_hardware_id("plughw:CARD=4,DEV=0"));
+        assert!(!is_raw_hardware_id("default"));
+        assert!(!is_raw_hardware_id("front:CARD=4,DEV=0"));
+        assert!(!is_raw_hardware_id("sysdefault:CARD=4"));
+        assert!(!is_raw_hardware_id(""));
     }
 
     /// Drain a whole resampler: feed a full block, then pull with `eof_mode`

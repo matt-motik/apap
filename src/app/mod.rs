@@ -281,9 +281,10 @@ pub struct MusicApp {
     cover_gen: u64,
     /// In-flight async enumeration of output devices for the Settings dialog.
     audio_devices_rx: Option<Receiver<Vec<(String, String)>>>,
-    /// Last device listing as `(raw_name, label)` pairs; the label is what the
-    /// ComboBox shows, the raw name is what gets persisted and matched by the
-    /// audio backend, so selection must translate label -> raw.
+    /// Last device listing as `(id, label)` pairs; the label is what the
+    /// ComboBox shows, the id is the stable backend key (ALSA pcm id) that gets
+    /// persisted and matched by the audio backend, so selection must translate
+    /// label -> id.
     audio_devices_pairs: Vec<(String, String)>,
     /// Async startup playlist load: yields the persisted track list once it
     /// has been read off disk (avoids blocking UI init on large playlists).
@@ -916,8 +917,8 @@ impl MusicApp {
                 // the draft is applied on "Save".
                 //
                 // The ComboBox hands back the *label* (deduplicated, grouped,
-                // possibly suffixed for server nodes); the settings and the
-                // audio backend must receive the raw device name.
+                // possibly suffixed for server nodes); the settings persist the
+                // stable device id it maps to.
                 let mut a = app.borrow_mut();
                 let raw = a.resolve_device_label(&name);
                 if !raw.is_empty() {

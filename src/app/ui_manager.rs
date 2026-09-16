@@ -240,18 +240,14 @@ impl MusicApp {
         };
 
         // The ComboBox model holds *labels*; selection is matched back to the
-        // raw device name on the Rust side (`resolve_device_label`).
+        // stable device id on the Rust side (`resolve_device_label`).
         let mut model: Vec<SharedString> =
             Vec::with_capacity(self.audio_devices_pairs.len() + 1);
         let sel: i32 = if self.audio_devices_pairs.is_empty() {
             model.push("(no devices \u{2014} retry Refresh)".into());
             0
         } else if let Some(w) = want {
-            if let Some(i) = self
-                .audio_devices_pairs
-                .iter()
-                .position(|(raw, _)| *raw == w)
-            {
+            if let Some(i) = self.find_device_index(&w) {
                 model.extend(
                     self.audio_devices_pairs
                         .iter()
@@ -287,8 +283,8 @@ impl MusicApp {
     }
 
     /// Translate a ComboBox *label* (the deduplicated/grouped display string,
-    /// possibly with a server-node suffix) back to the raw device name that the
-    /// settings and the audio backend use. Empty when the label is unknown
+    /// possibly with a server-node suffix) back to the stable device id that
+    /// the settings and the audio backend use. Empty when the label is unknown
     /// (e.g. the "(select device)" placeholder).
     pub(super) fn resolve_device_label(&self, label: &str) -> String {
         self.audio_devices_pairs
@@ -296,6 +292,38 @@ impl MusicApp {
             .find(|(_, l)| l == label)
             .map(|(raw, _)| raw.clone())
             .unwrap_or_default()
+    }
+
+    /// Index of the pair matching `want`, which is either a stable device id
+    /// (new settings) or a human-readable name (the active device, legacy
+    /// configs). For server nodes the name matches the label with the
+    /// "software, resamples" suffix stripped.
+    fn find_device_index(&self, want: &str) -> Option<usize> {
+        self.audio_devices_pairs
+            .iter()
+            .position(|(raw, _)| raw == want)
+            .or_else(|| self.audio_devices_pairs.iter().position(|(_, label)| label == want))
+            .or_else(|| {
+                self.audio_devices_pairs.iter().position(|(_, label)| {
+                    label
+                        .strip_suffix(music_player_rs::audio::output::SERVER_NODE_SUFFIX)
+                        .is_some_and(|stripped| stripped == want)
+                })
+            })
+    }
+
+    /// Human-readable display label for a stable device id (the grid label
+    /// without the server-node suffix). `None` when the id is unknown.
+    pub(super) fn device_display_name(&self, id: &str) -> Option<String> {
+        self.audio_devices_pairs
+            .iter()
+            .find(|(raw, _)| raw == id)
+            .map(|(_, label)| {
+                label
+                    .strip_suffix(music_player_rs::audio::output::SERVER_NODE_SUFFIX)
+                    .unwrap_or(label)
+                    .to_string()
+            })
     }
 
     pub(super) fn apply_theme(&self, theme: &ThemeData) {

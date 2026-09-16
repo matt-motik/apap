@@ -388,19 +388,25 @@ impl MusicApp {
                         self.audio_error.clone().unwrap_or_default().into(),
                     );
                 } else {
-                    self.status = format!("Audio device: {name}").into();
+                    // The configuration stores the stable device id; present it
+                    // to the user by its human-readable name of the opened node.
+                    let human = self.player.device_desc.clone();
+                    self.status = format!("Audio device: {human}").into();
                     self.audio_ready = true;
                     self.audio_error = None;
-                    self.active_device = name.clone();
-                    self.ui.set_settings_active_device(name.into());
+                    self.active_device = human.clone();
+                    self.ui.set_settings_active_device(human.into());
                     self.ui.set_settings_active_error(String::new().into());
                 }
             }
             None => {
                 self.player.set_preferred_device(name.clone());
-                self.status = format!("Audio device: {name}").into();
-                self.active_device = name.clone();
-                self.ui.set_settings_active_device(name.into());
+                let human = self
+                    .device_display_name(&name)
+                    .unwrap_or_else(|| self.player.device_desc.clone());
+                self.status = format!("Audio device: {human}").into();
+                self.active_device = human.clone();
+                self.ui.set_settings_active_device(human.into());
             }
         }
         self.emit(AppEvent::DeviceChanged);
