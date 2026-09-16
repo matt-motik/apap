@@ -641,8 +641,8 @@ pub struct DsdDecoder {
     framer: DoPFramer,
     /// DoP mode: frame-ordered raw DSD bytes (de-interleaved for planar DSF).
     dop_bytes: Vec<u8>,
-    /// DoP mode: packed 16-bit DoP words produced from `dop_bytes`.
-    dop_words: Vec<u16>,
+    /// DoP mode: packed 24-bit DoP words produced from `dop_bytes`.
+    dop_words: Vec<u32>,
     mode: DecodeMode,
     pcm_frames: usize,
     info: TrackInfo,
@@ -685,13 +685,16 @@ impl DsdDecoder {
             .map_err(|e| format!("DSD: {e}"))?;
         let ch_count = header.channels;
         let raw_len = (header.block_size * ch_count + 64).max(RAW_GROUP * ch_count);
-        // DoP stores one 16-bit word per raw byte, so the pcm buffer must hold
-        // up to `raw_len` f32 values; the CIC path holds one frame per 8 bytes.
+        // DoP packs one 24-bit word (f32-exact) per channel per pair of source
+        // bytes, so the pcm buffer must hold up to `raw_len` f32 words; the CIC
+        // path holds one frame per 8 bytes.
         let pcm_cap = if mode == DecodeMode::Dop {
             raw_len
         } else {
             (RAW_GROUP / 8) * ch_count
         };
+        let mut framer = DoPFramer::new();
+        framer.with_channels(ch_count);
         Ok(DsdDecoder {
             file,
             pcm_rate,
@@ -700,9 +703,9 @@ impl DsdDecoder {
             cic: (0..ch_count).map(|_| Cic::new()).collect(),
             raw: vec![0u8; raw_len],
             pcm: Vec::with_capacity(pcm_cap),
-            framer: DoPFramer::new(),
+            framer,
             dop_bytes: Vec::with_capacity(raw_len),
-            dop_words: vec![0u16; raw_len],
+            dop_words: vec![0u32; raw_len],
             mode,
             pcm_frames: 0,
             info,
@@ -788,10 +791,12 @@ impl DsdDecoder {
     }
 
     /// DoP path: read raw DSD bytes, order them by frame (DSF stores blocks
-    /// per channel; DFF is already interleaved) and pack 16-bit DoP words into
+    /// per channel; DFF is already interleaved) and pack 24-bit DoP words into
     /// `self.pcm` as f32. The words pass the player pipeline verbatim (the
-    /// resampler is an identity config). No CIC, no heap allocation: all
-    /// buffers are preallocated in `open_with_mode`.
+    /// resampler is an identity config). The framer emits `ch` words per pair
+    /// of source frames (2 DSD bytes per channel per word), so the container
+    /// rate is the byte rate / 2. No CIC, no heap allocation: all buffers are
+    /// preallocated in `open_with_mode`.
     fn decode_group_dop(&mut self) -> usize {
         let ch = self.header.channels;
         let frames;
@@ -832,15 +837,15 @@ impl DsdDecoder {
             self.bytes_remaining -= take as u64;
         }
         let nbytes = frames * ch;
-        let mut framer = self.framer;
-        framer.frame(&self.dop_bytes[..nbytes], ch, &mut self.dop_words);
-        self.framer = framer;
+        let words = self
+            .framer
+            .frame(&self.dop_bytes[..nbytes], ch, &mut self.dop_words);
         self.pcm.clear();
-        for w in &self.dop_words[..nbytes] {
+        for w in &self.dop_words[..words] {
             self.pcm.push(*w as f32);
         }
-        self.pcm_frames = frames;
-        frames
+        self.pcm_frames = words / ch;
+        self.pcm_frames
     }
 }
 
@@ -992,7 +997,8 @@ mod tests {
             DsdDecoder::open_with_mode(&path, DecodeMode::Dop).expect("open DSF in DoP mode");
         assert_common(&dec);
         let ch = dec.info.channels;
-        let target = (dec.info.sample_rate * 8) as usize; // one second at the DoP rate
+        // DoP container rate = byte rate / 2 = (sample_rate * 8) / 2.
+        let target = (dec.info.sample_rate * 4) as usize; // one second at the DoP rate
         let mut frames = 0usize;
         let mut phase_even = true;
         let mut marker_ok = true;
@@ -1008,10 +1014,11 @@ mod tests {
                 };
                 for c in 0..ch {
                     let w = buf[f * ch + c] as i64;
-                    if (w & 0xFF) as u8 != want {
+                    // 24-bit word: marker in bits 23-16, two DSD bytes in 15-0.
+                    if ((w >> 16) & 0xFF) as u8 != want {
                         marker_ok = false;
                     }
-                    if (w >> 8) as u8 != 0 {
+                    if w & 0xFFFF != 0 {
                         data_nonzero += 1;
                     }
                 }

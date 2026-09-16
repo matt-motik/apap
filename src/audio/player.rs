@@ -353,12 +353,14 @@ impl Player {
     }
 
     /// DoP (DSD over PCM) path: the decoder keeps the raw DSD bytes and packs
-    /// them into 16-bit DoP frames at the container rate (DSD rate / 8, i.e.
-    /// one byte per channel per frame). Any device mismatch (rate, channels or
+    /// them into 24-bit DoP words at the container rate (byte rate / 2, i.e.
+    /// two bytes per channel per frame). Any device mismatch (rate, channels or
     /// stream build) falls back to a honest PCM (CIC) decoding with a WARN.
     fn open_dop(&mut self, path: &Path) -> Result<TrackInfo, String> {
         let dop = DsdDecoder::open_with_mode(path, DecodeMode::Dop)?;
-        let dop_rate = dop.info().sample_rate * 8; // one byte/channel/frame
+        // DSD64: byte rate = dsd_rate / 8 = 352800; DoP carries 2 bytes per
+        // channel per 32-bit frame -> container rate 176400 (mpv/mpd framing).
+        let dop_rate = dop.info().sample_rate * 4;
         let src_ch = dop.info().channels;
         let info = dop.info().clone();
 
@@ -819,10 +821,12 @@ pub fn audio_callback_u8(core: &Arc<Mutex<PlaybackCore>>, data: &mut [u8]) {
 }
 
 /// cpal callback for i32 output. Only used by the DoP (DSD over PCM) stream:
-/// samples are already framed 16-bit DoP words (MSB = DSD byte, LSB =
-/// 0x05/0xFA marker) carried verbatim in the low 16 bits of each i32. This is
-/// a Direct Output path: no volume, no dither, no resampler (the resampler is
-/// an identity config), so the raw DSD stream reaches the DAC untouched.
+/// samples are already framed 24-bit DoP words (marker 0x05/0xFA in bits
+/// 23-16, two DSD bytes in bits 15-0), carried verbatim as f32 through the
+/// identity resampler. The i32 container left-aligns them: `<< 8` places the
+/// marker into bits 31-24 (mpv `marker << 24 | d0 << 16 | d1 << 8`; the low
+/// byte stays zero). This is a Direct Output path: no volume, no dither, no
+/// resampler, so the raw DSD stream reaches the DAC untouched.
 pub fn audio_callback_i32(core: &Arc<Mutex<PlaybackCore>>, data: &mut [i32]) {
     let Ok(mut c) = core.try_lock() else {
         data.fill(0);
@@ -837,10 +841,8 @@ pub fn audio_callback_i32(core: &Arc<Mutex<PlaybackCore>>, data: &mut [i32]) {
     tmp.resize(data.len(), 0.0);
     let produced = c.fill(&mut tmp);
     c.pos_secs += produced as f64 / c.out_rate as f64 / out_ch as f64;
-    // DoP words live in [0, 65535]; pass them through exactly (no gain, no
-    // dither — the DAC rebuilds the 1-bit stream from the marker framing).
     for (dst, &src) in data.iter_mut().zip(tmp.iter()).take(produced) {
-        *dst = src.clamp(0.0, 65_535.0) as i32;
+        *dst = ((src.clamp(0.0, 16_777_215.0) as u32) << 8) as i32;
     }
     for s in data.iter_mut().skip(produced) {
         *s = 0;
