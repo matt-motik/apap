@@ -702,7 +702,7 @@ impl DsdDecoder {
             pcm: Vec::with_capacity(pcm_cap),
             framer: DoPFramer::new(),
             dop_bytes: Vec::with_capacity(raw_len),
-            dop_words: Vec::with_capacity(raw_len),
+            dop_words: vec![0u16; raw_len],
             mode,
             pcm_frames: 0,
             info,
