@@ -280,7 +280,11 @@ pub struct MusicApp {
     cover_rx: Option<Receiver<CoverDone>>,
     cover_gen: u64,
     /// In-flight async enumeration of output devices for the Settings dialog.
-    audio_devices_rx: Option<Receiver<Vec<SharedString>>>,
+    audio_devices_rx: Option<Receiver<Vec<(String, String)>>>,
+    /// Last device listing as `(raw_name, label)` pairs; the label is what the
+    /// ComboBox shows, the raw name is what gets persisted and matched by the
+    /// audio backend, so selection must translate label -> raw.
+    audio_devices_pairs: Vec<(String, String)>,
     /// Async startup playlist load: yields the persisted track list once it
     /// has been read off disk (avoids blocking UI init on large playlists).
     startup_tracks_rx: Option<Receiver<Vec<Track>>>,
@@ -446,6 +450,7 @@ impl MusicApp {
             cover_rx: Some(cover_done_rx),
             cover_gen: 0,
             audio_devices_rx: None,
+            audio_devices_pairs: Vec::new(),
             startup_tracks_rx: Some(startup_tracks_rx),
             events_tx,
             events_rx,
@@ -909,8 +914,17 @@ impl MusicApp {
                 // Edit-Commit: store the choice in the dialog draft; the real
                 // device switch (stream restart, probe, save) happens only when
                 // the draft is applied on "Save".
+                //
+                // The ComboBox hands back the *label* (deduplicated, grouped,
+                // possibly suffixed for server nodes); the settings and the
+                // audio backend must receive the raw device name.
                 let mut a = app.borrow_mut();
-                a.settings_mut().audio_device = name.to_string();
+                let raw = a.resolve_device_label(&name);
+                if !raw.is_empty() {
+                    a.settings_mut().audio_device = raw;
+                } else {
+                    a.settings_mut().audio_device = String::new();
+                }
             });
         }
 

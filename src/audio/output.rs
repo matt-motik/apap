@@ -560,14 +560,63 @@ pub fn select_output(
     })
 }
 
-/// Enumerate usable output devices as `(name, description)` pairs. The `name`
-/// is the stable key persisted in settings and passed back to `select_output`.
+/// True when `name` is a software sound-server node (PipeWire/Pulse) that cpal
+/// surfaces as an ALSA "device". Such nodes proxy the stream through a server
+/// with implicit resampling and can never deliver bit-exact (DoP) output, so
+/// the settings dialog marks them clearly and lists them after the direct
+/// hardware nodes.
+pub fn is_server_node(name: &str) -> bool {
+    let n = name.to_ascii_lowercase();
+    n.contains("pipewire")
+        || n.contains("pulseaudio")
+        || n.contains("sound server")
+        || n.contains("default alsa output")
+        || n == "default audio device"
+}
+
+/// Build the settings-dialog device list as `(raw_name, label)` pairs.
+///
+/// 1. Deduplicates repeated names (cpal's ALSA backend exposes several
+///    device handles with the same description — one per format/rate variant),
+///    keeping the first (the one `device_by_name` will resolve at open time).
+/// 2. Groups direct hardware nodes first, software server nodes last, so a
+///    user picking an audiophile output (DoP / bit-perfect) sees the DAC before
+///    the PipeWire/Pulse proxies.
+/// 3. Server nodes get a `(software, resamples)` suffix in the label while the
+///    raw name is preserved untouched (it is what gets persisted in settings
+///    and matched by `choose_output`/`device_by_name`).
+pub fn label_device_names(names: &[impl AsRef<str>]) -> Vec<(String, String)> {
+    let mut seen = std::collections::HashSet::new();
+    let mut hw = Vec::new();
+    let mut srv = Vec::new();
+    for name in names {
+        let name = name.as_ref();
+        if !seen.insert(name.to_string()) {
+            continue;
+        }
+        let out = if is_server_node(name) {
+            &mut srv
+        } else {
+            &mut hw
+        };
+        let label = if is_server_node(name) {
+            format!("{name} — (software, resamples)")
+        } else {
+            name.to_string()
+        };
+        out.push((name.to_string(), label));
+    }
+    hw.extend(srv);
+    hw
+}
+
+/// Enumerate usable output devices as `(raw_name, label)` pairs. The raw pair
+/// is the stable key persisted in settings and passed back to `select_output`;
+/// the label is the deduplicated, grouped display string (see
+/// [`label_device_names`]).
 pub fn output_devices() -> Vec<(String, String)> {
-    CpalHost
-        .devices()
-        .into_iter()
-        .map(|d| (d.name.clone(), d.name))
-        .collect()
+    let names: Vec<String> = CpalHost.devices().into_iter().map(|d| d.name).collect();
+    label_device_names(&names)
 }
 
 /// Name of the host's default output device, if any.
@@ -950,6 +999,60 @@ mod tests {
     #[test]
     fn nearest_rate_empty_ranges_returns_none() {
         assert_eq!(nearest_rate(&[], 2, 44100), None);
+    }
+
+    #[test]
+    fn device_labels_dedup_group_and_mark_server_nodes() {
+        // cpal exposes several ADI-2 handles with the same description (one per
+        // format/rate variant) plus the to-be-avoided PipeWire/Pulse proxies.
+        let names: Vec<&str> = vec![
+            "ADI-2 DAC (56680121), USB Audio",
+            "PipeWire Sound Server",
+            "ADI-2 DAC (56680121), USB Audio", // duplicate -> dropped
+            "Default Audio Device",
+            "ADI-2 DAC (56680121)",
+        ];
+        let pairs = label_device_names(&names);
+        assert_eq!(pairs.len(), 4);
+        // Direct hardware nodes first, in original order, label == raw name.
+        assert_eq!(
+            pairs[0],
+            (
+                "ADI-2 DAC (56680121), USB Audio".to_string(),
+                "ADI-2 DAC (56680121), USB Audio".to_string()
+            )
+        );
+        assert_eq!(pairs[1].0, "ADI-2 DAC (56680121)");
+        assert_eq!(pairs[1].1, "ADI-2 DAC (56680121)");
+        // Server nodes last, raw name preserved, label carries the hint.
+        assert_eq!(pairs[2].0, "PipeWire Sound Server");
+        assert!(pairs[2].1.contains("(software, resamples)"), "{}", pairs[2].1);
+        assert_eq!(pairs[3].0, "Default Audio Device");
+        assert!(pairs[3].1.contains("(software, resamples)"), "{}", pairs[3].1);
+    }
+
+    #[test]
+    fn device_labels_keep_raw_name_for_lookup() {
+        // The persisted/‘active’ key is the raw name; the label is only for the
+        // drop-down. Every raw name must be recoverable from its pair.
+        let names: Vec<&str> = vec![
+            "Default ALSA Output (currently PulseAudio Sound Server)",
+            "USB Audio",
+            "PulseAudio Sound Server",
+        ];
+        let pairs = label_device_names(&names);
+        let raws: Vec<&str> = pairs.iter().map(|(r, _)| r.as_str()).collect();
+        assert_eq!(raws.len(), 3);
+        assert!(raws.contains(&"Default ALSA Output (currently PulseAudio Sound Server)"));
+        assert!(raws.contains(&"PulseAudio Sound Server"));
+        assert!(is_server_node("Default ALSA Output (currently PulseAudio Sound Server)"));
+        assert!(is_server_node("PulseAudio Sound Server"));
+        assert!(!is_server_node("USB Audio"));
+    }
+
+    #[test]
+    fn device_labels_empty_input() {
+        assert_eq!(label_device_names(&[] as &[&str]), Vec::<(String, String)>::new());
     }
 
     /// Drain a whole resampler: feed a full block, then pull with `eof_mode`

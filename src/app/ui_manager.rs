@@ -180,14 +180,14 @@ impl MusicApp {
         if self.audio_devices_rx.is_some() {
             return;
         }
-        let (tx, rx): (std::sync::mpsc::Sender<Vec<SharedString>>, _) = channel();
+        let (tx, rx): (
+            std::sync::mpsc::Sender<Vec<(String, String)>>,
+            _,
+        ) = channel();
         self.audio_devices_rx = Some(rx);
         thread::spawn(move || {
-            let names: Vec<SharedString> = music_player_rs::audio::output::output_devices()
-                .into_iter()
-                .map(|(n, _)| n.into())
-                .collect();
-            let _ = tx.send(names);
+            let pairs: Vec<(String, String)> = music_player_rs::audio::output::output_devices();
+            let _ = tx.send(pairs);
         });
         // Show a placeholder on the very first enumeration; on reopen keep the
         // previous list visible until the fresh one lands (no "first item"
@@ -202,10 +202,10 @@ impl MusicApp {
     /// Finish `sync_audio_devices`: apply the device list once the worker
     /// thread has produced it. Polled from the UI tick loop.
     pub(super) fn drain_audio_devices(&mut self) {
-        let names = {
+        let pairs = {
             let Some(rx) = &self.audio_devices_rx else { return };
             match rx.try_recv() {
-                Ok(names) => names,
+                Ok(pairs) => pairs,
                 Err(TryRecvError::Empty) => return,
                 Err(TryRecvError::Disconnected) => {
                     self.audio_devices_rx = None;
@@ -214,6 +214,7 @@ impl MusicApp {
             }
         };
         self.audio_devices_rx = None;
+        self.audio_devices_pairs = pairs;
 
         let saved = self.settings_ref().audio_device.clone();
 
@@ -229,19 +230,37 @@ impl MusicApp {
             default_device_name().map(|n| n.into())
         };
 
-        let mut model: Vec<SharedString> = Vec::with_capacity(names.len() + 1);
+        // The ComboBox model holds *labels*; selection is matched back to the
+        // raw device name on the Rust side (`resolve_device_label`).
+        let mut model: Vec<SharedString> = Vec::with_capacity(self.audio_devices_pairs.len() + 1);
         let sel: i32 = if let Some(w) = want {
-            if let Some(i) = names.iter().position(|n| *n == w) {
-                model.extend_from_slice(&names);
+            if let Some(i) = self
+                .audio_devices_pairs
+                .iter()
+                .position(|(raw, _)| *raw == w)
+            {
+                model.extend(
+                    self.audio_devices_pairs
+                        .iter()
+                        .map(|(_, label)| SharedString::from(label.as_str())),
+                );
                 i as i32
             } else {
                 model.push("(select device)".into());
-                model.extend_from_slice(&names);
+                model.extend(
+                    self.audio_devices_pairs
+                        .iter()
+                        .map(|(_, label)| SharedString::from(label.as_str())),
+                );
                 0
             }
         } else {
             model.push("(select device)".into());
-            model.extend_from_slice(&names);
+            model.extend(
+                self.audio_devices_pairs
+                    .iter()
+                    .map(|(_, label)| SharedString::from(label.as_str())),
+            );
             0
         };
 
@@ -252,6 +271,18 @@ impl MusicApp {
         // value, so the combo ends up highlighting the active device.
         self.ui.set_settings_device_idx(sel);
         self.ui.set_settings_devices(ModelRc::from(model.as_slice()));
+    }
+
+    /// Translate a ComboBox *label* (the deduplicated/grouped display string,
+    /// possibly with a server-node suffix) back to the raw device name that the
+    /// settings and the audio backend use. Empty when the label is unknown
+    /// (e.g. the "(select device)" placeholder).
+    pub(super) fn resolve_device_label(&self, label: &str) -> String {
+        self.audio_devices_pairs
+            .iter()
+            .find(|(_, l)| l == label)
+            .map(|(raw, _)| raw.clone())
+            .unwrap_or_default()
     }
 
     pub(super) fn apply_theme(&self, theme: &ThemeData) {
