@@ -354,6 +354,22 @@ if visualizer_active && visualizer_mode == Spectrum {
 └──────────────────────────────────────────┘
 ```
 
+### 8.7. Выбор физического устройства вывода (raw ALSA `hw:`)
+
+**Проблема (из эксплуатации, V5.1-B3).** ALSA (через cpal) перечисляет несколько дескрипторов с одним и тем же именем. Первый — прокси `default`/PipeWire/`plughw` (F32, рейты 4000..4294967295, буфер до 91628833) — ресемплирует всё в 48 кГц и не умеет DoP на нужной частоте. Raw-узел `hw:CARD=…,DEV=…` (I32, дискретные точные рейты, буфер 8..768000) перечисляется позже и при выборе «по первому дескриптору» не достигался. Симптомы: звука нет / всё играет на 48 кГц, DSF (например, «Энигма») не поднимается до DSD64.
+
+**Решение.**
+- Дедуп дескрипторов по имени (`collapse_same_name`, `src/audio/output.rs`): среди одинаковых имён приоритет отдаётся raw `hw:`-узлу (`is_raw_hardware_id`). У проекта собственный Universal-ресемплер и bit-perfect/DoP-вывод, поэтому `hw:` **предпочтителен** — это инверсия стратегии mpv, который `hw:` из списка **исключает** (`is_useless_device`) и включает свой ресемплер.
+- Конфиг хранит стабильный «открываемый» ключ — ALSA pcm_id (`hw:CARD=4,DEV=0`); в GUI показывается человекочитаемое имя. Резолв **id-or-name**: legacy-конфиги со старым описанием работают (фолбэк по имени), новый выбор сохраняет id. Точки реализации: `choose_output`, `probe_output`, `CpalHost::device_by_id`, `output_devices()` (пары `(id,label)`), `SERVER_NODE_SUFFIX`, матчинг label→id в `ui_manager::resolve_device_label`/`find_device_index`, человекочитаемое active-имя из `player.device_desc`.
+- Бонус-баг: `audio_callback_i32` был DoP-упаковкой (`<<8`) и молчал на обычном PCM при I32-канале. Разделено: `audio_callback_i32_dop` (только при `OutputSpec.is_dop`, флаг ставится в `open_dop`) и `audio_callback_i32_pcm` (масштаб i32, vol/dither/clamp, по образцу i16).
+
+**Референсы (mpv — надёжный эталон, проверено по исходникам):**
+- [mpv `audio/out/ao_alsa.c`](https://github.com/mpv-player/mpv/blob/master/audio/out/ao_alsa.c): перечисление через `snd_device_name_hint(-1, "pcm")` (`list_devs` ~L1124); фильтр неполезных устройств `is_useless_device` ~L1109 (отсекает `hw:`/`default`/`pulse`/… — мы, наоборот, предпочитаем `hw:`); отключение программного ресемплера ALSA `snd_pcm_hw_params_set_rate_resample(…, 0)` ~L675. Forced-устройство — явная ошибка при недоступности, без тихого фолбэка.
+- [mpv `audio/decode/ad_dsd.c`](https://github.com/mpv-player/mpv/blob/master/audio/decode/ad_dsd.c): эталон DoP-фрейминга `(marker << 24) | (d0 << 16) | (d1 << 8)`, маркер 0x05/0xFA (L40, L127) — идентичен нашему `dop.rs` + сдвиг `<<8` в `audio_callback_i32_dop`.
+- [mpv `audio/out/ao.c`](https://github.com/mpv-player/mpv/blob/master/audio/out/ao.c): `ao_hotplug` (~L460–610) — кэш списка устройств пересобирается только по событию; у нас — кнопка Refresh + сохранение предыдущего списка при неудаче.
+
+**Реализация:** `7693088` (код + `_STATE_.md`), `38d664d` (ROADMAP). Проверено на реальном железе: ADI-2 — FLAC 192 кГц, DSF «Энигма» — DSD64. Тесты: 157 lib + 13 bin зелёные, clippy без новых предупреждений.
+
 ---
 
 ## 9. UI настроек визуализации
