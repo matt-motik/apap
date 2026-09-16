@@ -41,7 +41,7 @@
 
 | ID | Задача | Приоритет | Статус | ТЗ |
 | --- | --- | --- | --- | --- |
-| V5.1-B1 | Паника в DoP-фреймере (`dop.rs:37` `assertion failed: out.len() >= words * ch`) при воспроизведении DSD в DoP-режиме: `dop_words` создаётся `Vec::with_capacity` (len=0), декодер падает в аудио-потоке → вешается ALSA | 🔴 Критический | ⏳ выполняется | [§7.4](docs/spec_visualizer_v5.1.md#74-dsd-в-bit-perfect) |
+| V5.1-B1 | Паника в DoP-фреймере (`dop.rs:37` `assertion failed: out.len() >= words * ch`) при воспроизведении DSD в DoP-режиме: `dop_words` создаётся `Vec::with_capacity` (len=0), декодер падает в аудио-потоке → вешается ALSA | 🔴 Критический | ✅ сделано в `e0f9bd0` (ветка `main`) | [§7.4](docs/spec_visualizer_v5.1.md#74-dsd-в-bit-perfect) |
 
 ### Микро-фиксы (ручные, без сессии)
 
