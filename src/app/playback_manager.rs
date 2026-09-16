@@ -63,24 +63,46 @@ impl MusicApp {
         if let Some(i) = self.current {
             if let Some(t) = self.tracks.get(i) {
                 self.ui.set_info_artist(opt_str(&t.artist));
-                self.ui.set_info_track(fmt_num(t.track_number, t.track_total));
-                self.ui.set_info_title(if t.title.is_empty() { "—".into() } else { t.title.as_str().into() });
-                self.ui.set_info_duration(playlist::get_duration_string(t.duration).into());
+                self.ui
+                    .set_info_track(fmt_num(t.track_number, t.track_total));
+                self.ui.set_info_title(if t.title.is_empty() {
+                    "—".into()
+                } else {
+                    t.title.as_str().into()
+                });
+                self.ui
+                    .set_info_duration(playlist::get_duration_string(t.duration).into());
                 self.ui.set_info_year(empty_dash(&t.year));
                 self.ui.set_info_album(opt_str(&t.album));
                 self.ui.set_info_disc(fmt_num(t.disc, t.disc_total));
-                self.ui.set_info_genre(empty_dash(t.genre.as_deref().unwrap_or("")));
+                self.ui
+                    .set_info_genre(empty_dash(t.genre.as_deref().unwrap_or("")));
                 self.ui.set_info_format(empty_dash(&t.format));
-                self.ui.set_info_bitrate(if t.bitrate > 0 { format!("{} kbps", t.bitrate).into() } else { "—".into() });
+                self.ui.set_info_bitrate(if t.bitrate > 0 {
+                    format!("{} kbps", t.bitrate).into()
+                } else {
+                    "—".into()
+                });
                 self.ui.set_info_bit_depth(empty_dash(&t.bit_depth));
                 self.ui.set_info_sample_rate(num_str(t.sample_rate, " Hz"));
                 self.ui.set_info_channels(num_str(t.channels, " ch"));
 
                 let mut parts: Vec<String> = Vec::new();
-                if !t.format.is_empty() { parts.push(t.format.clone()); }
-                if !t.bit_depth.is_empty() { parts.push(t.bit_depth.clone()); }
-                if t.sample_rate > 0 { parts.push(format!("{} Hz", t.sample_rate)); }
-                if t.channels > 0 { parts.push(format!("{} ch", t.channels)); }
+                if !t.format.is_empty() {
+                    parts.push(t.format.clone());
+                }
+                if !t.bit_depth.is_empty() {
+                    parts.push(t.bit_depth.clone());
+                }
+                if t.sample_rate > 0 {
+                    parts.push(format!("{} Hz", t.sample_rate));
+                }
+                if t.bitrate > 0 {
+                    parts.push({ format!("{} kbps", t.bitrate).into() })
+                }
+                if t.channels > 0 {
+                    parts.push(format!("{} ch", t.channels));
+                }
                 let track_count = format!("{} tracks", self.tracks.len());
                 self.ui.set_track_info(parts.join(" \u{2022} ").into());
                 self.ui.set_track_count(track_count.into());
@@ -132,13 +154,13 @@ impl MusicApp {
                     } else {
                         playlist::advance_index(self.current, 1, self.tracks.len(), self.repeat)
                     };
-match next {
-                    Some(idx) => self.play_track(idx),
-                    None => {
-                        self.player.clear_end();
-                        self.emit(AppEvent::PlaybackStopped);
+                    match next {
+                        Some(idx) => self.play_track(idx),
+                        None => {
+                            self.player.clear_end();
+                            self.emit(AppEvent::PlaybackStopped);
+                        }
                     }
-                }
                 }
             }
         }
@@ -147,7 +169,9 @@ match next {
     /// Request a cover for the track; bumps `cover_gen` so stale results are
     /// discarded when `drain_cover` applies them.
     fn request_cover(&mut self, index: usize) {
-        let Some(track) = self.tracks.get(index) else { return };
+        let Some(track) = self.tracks.get(index) else {
+            return;
+        };
         self.cover_gen = self.cover_gen.wrapping_add(1);
         if let Some(tx) = &self.cover_tx {
             let cfg = cover::CoverConfig::from_settings(&self.settings.settings);
@@ -245,10 +269,8 @@ match next {
                 self.current = Some(index);
                 self.sync_shuffle_pos();
                 let title = &self.tracks[index].title;
-                self.status = format!(
-                    "Playing: {title} \u{2014} {} Hz, {} ch, {}",
-                    info.sample_rate, info.channels, info.format_name
-                ).into();
+                let track_artist = self.tracks[index].artist.as_deref().unwrap_or("");
+                self.status = format!("Playing: {track_artist}\u{2014}{title}").into();
                 self.player.play();
                 // Only the affected rows change: metadata of the new current
                 // track and the `>` marker on the old/new current indices.

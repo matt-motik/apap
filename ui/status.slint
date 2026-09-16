@@ -28,7 +28,7 @@ export component StatusBar inherits Rectangle {
         padding-left: 12px;
         padding-right: 16px;
         spacing: 8px;
-        alignment: center;
+        //alignment: center;
 
         Text {
             text: root.status-text;
@@ -38,7 +38,9 @@ export component StatusBar inherits Rectangle {
             vertical-alignment: center;
         }
 
-        Rectangle { } // stretch spacer
+        Rectangle {
+            horizontal-stretch: 1;
+        } // stretch spacer
 
         Text {
             text: root.track-info;
@@ -48,6 +50,7 @@ export component StatusBar inherits Rectangle {
             vertical-alignment: center;
             horizontal-alignment: right;
         }
+
         Text {
             text: root.track-count;
             color: Colors.text-dim;
@@ -56,29 +59,43 @@ export component StatusBar inherits Rectangle {
             horizontal-alignment: right;
         }
         // ТЗ §7.5: значок «Bit-perfect», когда режим активен.
-        Rectangle {
-            border-width: 1px;
-            border-color: Colors.accent;
-            border-radius: 4px;
-            padding-left: 6px;
-            padding-right: 6px;
-            padding-top: 2px;
-            padding-bottom: 2px;
-            visible: root.bp-active;
-            Text {
-                text: "Bit-perfect";
-                color: Colors.accent;
-                font-size: 11px;
-                vertical-alignment: center;
+        // Bit-perfect badge
+        if root.bp-active && !root.dsd-not-bp: VerticalLayout {
+            padding: 2px;
+            Rectangle {
+                border-width: 1px;
+                border-color: Colors.accent;
+                border-radius: 4px;
+                VerticalLayout {
+                    padding-left: 4px;
+                    padding-right: 4px;
+                    Text {
+                        text: "Bit-perfect";
+                        color: Colors.accent;
+                        font-size: 10px;
+                        vertical-alignment: center;
+                    }
+                }
             }
-        }
-        Text {
-            text: "Не bit-perfect (DSD→PCM)";
-            color: Colors.text-error;
-            font-size: 12px;
-            vertical-alignment: center;
-            horizontal-alignment: right;
-            visible: root.dsd-not-bp;
+        }    
+        // DSD→PCM warning badge
+        if root.bp-active && root.dsd-not-bp:  VerticalLayout {
+            padding: 2px;
+            Rectangle {
+                border-width: 1px;
+                border-color: Colors.text-error;
+                border-radius: 4px;
+                VerticalLayout {
+                    padding-left: 4px;
+                    padding-right: 4px;
+                    Text {
+                        text: "Не bit-perfect (DSD→PCM)";
+                        color: Colors.text-error;
+                        font-size: 10px;
+                        vertical-alignment: center;
+                    }
+                }
+            }
         }
     }
 }
