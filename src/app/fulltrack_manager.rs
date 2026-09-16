@@ -398,11 +398,7 @@ impl MusicApp {
                 "Осциллограмма"
             };
             format!(
-                "{label} недоступна для DSD: включён skip_fulltrack_for_dsd\n({})",
-                current
-                    .as_deref()
-                    .map(|p| p.display().to_string())
-                    .unwrap_or_default()
+                "{label} недоступна для DSD"
             )
         } else {
             String::new()
