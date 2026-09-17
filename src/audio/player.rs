@@ -8,7 +8,9 @@ use super::decoder::{AudioSource, Decoder, TrackInfo};
 use super::dsd::{DecodeMode, DsdDecoder};
 use super::output::{build_stream_rt, select_output, OutputSpec, Resampler};
 use super::worker::{PlaybackWorker, RtConsumer, RtShared, VizTap, WorkerCmd};
-use crate::settings::{DsdMode, ResamplerAlgorithm, ResamplerDither};
+use crate::settings::{
+    clamp_ring_buffer_ms, DsdMode, ResamplerAlgorithm, ResamplerDither, RING_BUFFER_MS_DEFAULT,
+};
 
 /// Zero-allocation LCG PRNG for TPDF dithering in the real-time audio path.
 ///
@@ -81,15 +83,24 @@ fn track_seed(path: &Path) -> u32 {
     (hasher.finish() >> (64 - 30)) as u32 | 1
 }
 
-/// Ring capacity depth in milliseconds of output audio (ТЗ A2.0 §8). Until the
-/// `ring_buffer_ms` setting lands (A2.0-5.2) every stream uses this default.
-const DEFAULT_RING_MS: u64 = 1500;
-
-/// Interleaved-sample capacity for the producer/consumer ring, derived from the
-/// device geometry and [`DEFAULT_RING_MS`].
-fn ring_capacity(out_rate: u32, out_ch: usize) -> usize {
-    let samples = out_rate as u64 * out_ch.max(1) as u64 * DEFAULT_RING_MS / 1000;
-    (samples as usize).max(4096)
+/// Interleaved-sample capacity for the producer/consumer ring (ТЗ A2.0 §5.2).
+///
+/// Derived from the requested depth in milliseconds and the device geometry,
+/// then floored at `max(4096, 2 cpal-buffer periods)` so the ring can never be
+/// shorter than two output callbacks (which would guarantee underruns).
+fn ring_capacity(
+    out_rate: u32,
+    out_ch: usize,
+    ring_buffer_ms: u32,
+    buffer_frames: Option<u32>,
+) -> usize {
+    let ch = out_ch.max(1);
+    let ms = clamp_ring_buffer_ms(ring_buffer_ms) as u64;
+    let samples = out_rate as u64 * ch as u64 * ms / 1000;
+    let buffer_floor = buffer_frames
+        .map(|f| f as usize * ch * 2)
+        .unwrap_or(0);
+    (samples as usize).max(buffer_floor).max(4096)
 }
 
 /// Owns audio playback: a [`PlaybackWorker`] thread decoding into a lock-free
@@ -114,6 +125,8 @@ pub struct Player {
     resampler_algo: ResamplerAlgorithm,
     /// DSD output mode (Pcm / Native / DoP, ТЗ 5.1 §8.2).
     dsd_mode: DsdMode,
+    /// Ring depth in milliseconds for new streams (ТЗ A2.0 §5.2).
+    ring_buffer_ms: u32,
     /// Desired transport state, persisted across stream re-creation so a new
     /// track inherits volume/mute/dither/bit-perfect/visualizer settings.
     volume: f32,
@@ -142,6 +155,7 @@ impl Player {
             preferred_device: None,
             resampler_algo: ResamplerAlgorithm::SincMedium,
             dsd_mode: DsdMode::Pcm,
+            ring_buffer_ms: RING_BUFFER_MS_DEFAULT,
             volume: 0.8,
             muted: false,
             bit_perfect: false,
@@ -158,6 +172,13 @@ impl Player {
     /// (cpal has no native-DSD backend), `DoP` enables the raw-DSD/DoP path.
     pub fn set_dsd_mode(&mut self, mode: DsdMode) {
         self.dsd_mode = mode;
+    }
+
+    /// Ring depth in ms for streams opened from now on (ТЗ A2.0 §5.2).
+    /// Clamped into `[RING_BUFFER_MS_MIN..RING_BUFFER_MS_MAX]`; takes effect on
+    /// the next `open`/device change.
+    pub fn set_ring_buffer_ms(&mut self, ms: u32) {
+        self.ring_buffer_ms = clamp_ring_buffer_ms(ms);
     }
 
     pub fn set_preferred_device(&mut self, name: String) {
@@ -250,9 +271,20 @@ impl Player {
         rng: TpdfRng,
         mut spec: OutputSpec,
     ) -> Result<cpal::Stream, String> {
-        let capacity = ring_capacity(shared.out_rate(), shared.out_ch());
         let viz_tap = self.viz_tap.clone();
         loop {
+            // Recompute per iteration so the `Default` retry gets a floor that
+            // matches the actual (unknown) callback period less aggressively.
+            let buffer_frames = match spec.config.buffer_size {
+                BufferSize::Fixed(f) => Some(f),
+                BufferSize::Default => None,
+            };
+            let capacity = ring_capacity(
+                shared.out_rate(),
+                shared.out_ch(),
+                self.ring_buffer_ms,
+                buffer_frames,
+            );
             let (producer, ring) = rtrb::RingBuffer::<f32>::new(capacity);
             let mut consumer = RtConsumer::new(ring, shared.clone());
             consumer.set_tpdf(rng);
@@ -852,6 +884,7 @@ impl Player {
             preferred_device: None,
             resampler_algo: ResamplerAlgorithm::SincMedium,
             dsd_mode: DsdMode::Pcm,
+            ring_buffer_ms: RING_BUFFER_MS_DEFAULT,
             volume: 0.8,
             muted: false,
             bit_perfect: false,
@@ -972,6 +1005,29 @@ mod tests {
         let mut c = RtConsumer::new(cons, shared);
         c.shared().set_playing(true);
         c
+    }
+
+    #[test]
+    fn ring_capacity_scales_with_ms_and_geometry() {
+        assert_eq!(ring_capacity(48_000, 2, 1000, None), 96_000);
+        assert_eq!(ring_capacity(44_100, 2, 1500, None), 132_300);
+        assert_eq!(ring_capacity(8_000, 1, 100, None), 4096);
+    }
+
+    #[test]
+    fn ring_capacity_respects_cpal_buffer_floor() {
+        // At 8 kHz stereo the 100 ms request is only 1600 samples, so the
+        // Fixed(2048)-frame floor (2 periods × 2 ch = 8192) wins.
+        assert_eq!(ring_capacity(8_000, 2, 100, Some(2048)), 2048 * 2 * 2);
+    }
+
+    #[test]
+    fn set_ring_buffer_ms_clamps() {
+        let mut p = Player::test_new();
+        p.set_ring_buffer_ms(50);
+        assert_eq!(p.ring_buffer_ms, crate::settings::RING_BUFFER_MS_MIN);
+        p.set_ring_buffer_ms(3000);
+        assert_eq!(p.ring_buffer_ms, 3000);
     }
 
     #[test]
