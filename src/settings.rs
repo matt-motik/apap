@@ -635,13 +635,25 @@ impl Default for DsdCfg {
     }
 }
 
-/// Настройки `[audio.resampler]` (ТЗ 5.1 §8.2).
+/// Настройки `[audio.resampler]` (ТЗ 5.1 §8.2, A3.0 §2.2).
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct AudioResamplerCfg {
     #[serde(default)]
     pub algorithm: ResamplerAlgorithm,
     #[serde(default)]
     pub dither: ResamplerDither,
+    /// Политика ресемплинга (ТЗ A3.0 §2.2).
+    #[serde(default)]
+    pub mode: ResamplerMode,
+    /// 0 = auto по семейству (используется только при `mode = Fixed`).
+    #[serde(default)]
+    pub fixed_rate: u32,
+    /// Предпочитаемое частотное семейство (ТЗ A3.0 §2.2).
+    #[serde(default)]
+    pub prefer_family: ClockFamily,
+    /// Политика fallback-рейта при недоступности native (ТЗ A3.0 §2.2).
+    #[serde(default)]
+    pub fallback_rate: FallbackRatePolicy,
 }
 
 impl Default for AudioResamplerCfg {
@@ -649,6 +661,10 @@ impl Default for AudioResamplerCfg {
         Self {
             algorithm: ResamplerAlgorithm::SincMedium,
             dither: ResamplerDither::Tpdf,
+            mode: ResamplerMode::Auto,
+            fixed_rate: 0,
+            prefer_family: ClockFamily::Auto,
+            fallback_rate: FallbackRatePolicy::Nearest,
         }
     }
 }

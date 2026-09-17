@@ -8,13 +8,13 @@
 ## Итерационный трекер
 [x] Шаг 1: Добавить 5 enum-типов (`ExclusiveMode`, `FallbackPolicy`, `ResamplerMode`, `ClockFamily`, `FallbackRatePolicy`) с `serde(snake_case)`, `#[default]`, и `index()/from_index()` для UI. Проверка: `cargo check` без ошибок.
 
-[ ] Шаг 2: Расширить `AudioResamplerCfg` полями `mode`, `fixed_rate`, `prefer_family`, `fallback_rate` и кастомным `Default`. Проверка: `cargo check` без ошибок.
+[x] Шаг 2: Расширить `AudioResamplerCfg` полями `mode`, `fixed_rate`, `prefer_family`, `fallback_rate` и кастомным `Default`. Проверка: `cargo check` без ошибок.
 
 [ ] Шаг 3: Расширить `AudioCfg` полями `exclusive`, `fallback`, `filter_hardware_only`, `filter_stereo_only` и кастомным `Default`. Проверка: `cargo check` без ошибок.
 
 [ ] Шаг 4: Добавить тесты §11.1: `audio_resampler_defaults`, `audio_defaults_new_fields`, `audio_toml_roundtrip_with_new_fields`, `audio_partial_config_preserves_existing`. Проверка: `cargo test settings` зелёный, `cargo clippy` без новых предупреждений.
 
-- **Текущий шаг (current_step):** Шаг 2
-- **Следующий ход:** Расширить `AudioResamplerCfg` полями `mode`, `fixed_rate`, `prefer_family`, `fallback_rate` + кастомный `Default`, затем `cargo check`
+- **Текущий шаг (current_step):** Шаг 3
+- **Следующий ход:** Расширить `AudioCfg` полями `exclusive`, `fallback`, `filter_hardware_only`, `filter_stereo_only` + кастомный `Default`, затем `cargo check`
 - **Счетчик безуспешных компиляций:** 0/3
 - **Состояние:** in_progress
