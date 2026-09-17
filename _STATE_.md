@@ -1,16 +1,17 @@
 # Текущая микро-сессия
 
-- **Задача из ROADMAP:** A2.0-3.1 — Преаллокация `scratch` до `MAX_OUT_SAMPLES` в `open_pcm`/`open_dop` (спека `docs/spec_audio_core_v2.0.md` §3.1)
+- **Задача из ROADMAP:** A2.0-3.2 — Guard «не растить» во всех `audio_callback_*` (спека `docs/spec_audio_core_v2.0.md` §3.2)
 - **Вайтлист файлов в работе (Изменяемые файлы):**
   - `src/audio/player.rs`
-- **Критерий успеха (Definition of Done):** `cargo test audio::player` зелёный; после первого колбэка `scratch.capacity() == MAX_OUT_SAMPLES`; `cargo clippy` без новых предупреждений.
+- **Критерий успеха (Definition of Done):** все 4 колбэка (i16/u8/i32_pcm/i32_dop) отдают тишину при `data.len() > MAX_OUT_SAMPLES`, `resize` внутри потолка не аллоцирует; `cargo test` + `cargo clippy` (player.rs) зелёные.
 
 ## Итерационный трекер
-[ ] Шаг 1: Добавить const `MAX_OUT_SAMPLES = 1 << 16` и выделять `scratch = vec![0.0f32; MAX_OUT_SAMPLES]` в `open_pcm`/`open_dop` (заменить текущий `Vec::with_capacity(8192)` + `clear()`). Проверка: `cargo check` ок; тест `scratch_capacity_is_pinned` зелёный.
-[ ] Шаг 2: Написать юнит-тест `scratch_capacity_is_pinned`: после симуляции open (seed_core) проверять, что scratch имеет capacity ≥ MAX_OUT_SAMPLES и не растёт/не сжимается после колбэка. Проверка: `cargo test scratch_capacity_is_pinned` зелёный.
-[ ] Шаг 3: Прогнать `cargo test` (полный) + `cargo clippy`; зафиксировать 0 новых предупреждений. Проверка: полный тест-ран и clippy ок.
+[ ] Шаг 1: Добавить хелпер `PlaybackCore::scratch_for(len) -> Option<Vec<f32>>` — ceiling-check `len > MAX_OUT_SAMPLES` ДО `resize`. Проверка: `cargo check` ок.
+[ ] Шаг 2: Применить `let Some(mut tmp) = c.scratch_for(data.len()) else { тишина; return }` в `audio_callback_i16`/`u8`/`i32_pcm`/`i32_dop` (заменить `scratch_f32`+`resize`). Проверка: `cargo check` ок; clippy по `player.rs` без предупреждений.
+[ ] Шаг 3: Юнит-тест `callback_silences_when_buffer_exceeds_ceiling` (буфер > MAX_OUT_SAMPLES → тишина, пул не растёт). Проверка: `cargo test callback_silences_when_buffer_exceeds_ceiling` зелёный.
+[ ] Шаг 4: Полный `cargo test` + `cargo clippy`; 0 новых предупреждений. Проверка: полный прогон ок.
 
 - **Текущий шаг (current_step):** Шаг 1
-- **Следующий ход:** Внести правку в `src/audio/player.rs`: константа `MAX_OUT_SAMPLES`, инициализация `scratch` в `open_pcm` и `open_dop`.
+- **Следующий ход:** Внести в `src/audio/player.rs` хелпер `scratch_for`, проверить сборку.
 - **Счетчик безуспешных компиляций:** 0/3
 - **Состояние:** in_progress

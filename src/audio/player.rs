@@ -81,6 +81,12 @@ fn track_seed(path: &Path) -> u32 {
     (hasher.finish() >> (64 - 30)) as u32 | 1
 }
 
+/// Hard ceiling for the preallocated f32 scratch pool (interleaved samples).
+/// Large enough to cover any realistic `cpal` callback buffer (65536 samples ≈
+/// 8K stereo frames @44.1 kHz); pinned once at track open so the real-time
+/// callbacks never reallocate (ТЗ A2.0 §3.1).
+const MAX_OUT_SAMPLES: usize = 1 << 16;
+
 /// Shared state accessed both by the UI thread and the audio callback.
 pub struct PlaybackCore {
     pub decoder: Option<Box<dyn AudioSource>>,
@@ -129,7 +135,7 @@ impl PlaybackCore {
             pos_secs: 0.0,
             out_rate: 44100,
             out_ch: 2,
-            scratch: Vec::with_capacity(8192),
+            scratch: Vec::new(),
             viz_tap: None,
             viz_tap_active: false,
         }
@@ -176,6 +182,13 @@ impl PlaybackCore {
 
     fn scratch_f32(&mut self) -> Vec<f32> {
         std::mem::take(&mut self.scratch)
+    }
+
+    /// (Re)pins the scratch pool to [`MAX_OUT_SAMPLES`] at track open. After
+    /// this call every audio callback uses a slice of the preallocated buffer
+    /// and never allocates (ТЗ A2.0 §3.1).
+    fn prepare_scratch(&mut self) {
+        self.scratch = vec![0.0f32; MAX_OUT_SAMPLES];
     }
 
     fn scratch_release(&mut self, buf: Vec<f32>) {
@@ -328,7 +341,7 @@ impl Player {
             core.playing = false;
             core.finished = false;
             core.natural_end = false;
-            core.scratch.clear();
+            core.prepare_scratch();
             // Fresh dither seed per track: statistically independent noise,
             // reproducible across runs for a given track path.
             core.tpdf.reseed(track_seed(path));
@@ -402,7 +415,7 @@ impl Player {
             core.playing = false;
             core.finished = false;
             core.natural_end = false;
-            core.scratch.clear();
+            core.prepare_scratch();
             core.tpdf.reseed(track_seed(path));
         }
 
@@ -1174,6 +1187,32 @@ mod tests {
         let mut buf = vec![0.3; 8];
         audio_callback_f32(&core, &mut buf);
         assert!(buf.iter().all(|s| *s == 0.0), "callback must not block");
+    }
+
+    #[test]
+    fn scratch_capacity_is_pinned() {
+        // After `open` (simulated via prepare_scratch) the f32 pool stays
+        // pinned to MAX_OUT_SAMPLES: a resize inside the callback reuses the
+        // capacity and never reallocates (ТЗ A2.0 §3.1).
+        let core = core_with_source(10_000);
+        {
+            let mut c = core.lock().unwrap();
+            c.prepare_scratch();
+            c.playing = true;
+            c.dither.store(DITHER_INDEX_OFF, Ordering::Relaxed);
+        }
+        let mut buf = vec![0i16; 256];
+        audio_callback_i16(&core, &mut buf);
+        {
+            let c = core.lock().unwrap();
+            assert_eq!(c.scratch.capacity(), MAX_OUT_SAMPLES);
+            assert_eq!(c.scratch.len(), 0, "pool must be returned cleared");
+        }
+        // A buffer at the ceiling must also never grow the pool.
+        let mut buf = vec![0i16; MAX_OUT_SAMPLES];
+        audio_callback_i16(&core, &mut buf);
+        let c = core.lock().unwrap();
+        assert_eq!(c.scratch.capacity(), MAX_OUT_SAMPLES);
     }
 
     #[test]
