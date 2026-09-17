@@ -97,6 +97,11 @@ pub struct PlaybackCore {
     /// the stream is delivered untouched. Read in the audio callback with a
     /// relaxed load; written via [`Player::set_bit_perfect`].
     pub bit_perfect: Arc<AtomicBool>,
+    /// True when bit-perfect is active but the device cannot open the native
+    /// rate, so a software resample re-quantizes the stream and bit-perfect is
+    /// not guaranteed. Recomputed at open and on `set_bit_perfect`; read by the
+    /// UI tick for the «Resample (device limit)» badge (ТЗ A2.0 §4.1).
+    pub bit_perfect_resampled: Arc<AtomicBool>,
     /// Dither mode index (see `dither_index`). Read in the audio callback;
     /// written via [`Player::set_dither`].
     pub dither: Arc<AtomicU8>,
@@ -127,6 +132,7 @@ impl PlaybackCore {
             volume: 0.8,
             muted: false,
             bit_perfect: Arc::new(AtomicBool::new(false)),
+            bit_perfect_resampled: Arc::new(AtomicBool::new(false)),
             dither: Arc::new(AtomicU8::new(DITHER_INDEX_TPDF)),
             tpdf: TpdfRng::new(),
             playing: false,
@@ -205,6 +211,21 @@ impl PlaybackCore {
         // The pool only grows up to MAX_OUT_SAMPLES and never shrinks: capacity
         // is pinned so the real-time callbacks never reallocate (ТЗ A2.0 §3.3).
         self.scratch = buf;
+    }
+
+    /// Recomputed whenever the stream opens or bit-perfect toggles. The flag is
+    /// true when bit-perfect is active and the resampler actually transforms
+    /// the stream (device rejects the native rate), so bit-perfect cannot be
+    /// guaranteed (ТЗ A2.0 §4.1).
+    fn recompute_bit_perfect_resampled(&mut self) {
+        let resampled = self.bit_perfect.load(Ordering::Relaxed)
+            && self
+                .resampler
+                .as_ref()
+                .map(|r| r.is_enabled())
+                .unwrap_or(false);
+        self.bit_perfect_resampled
+            .store(resampled, Ordering::Relaxed);
     }
 
     fn duration_secs(&self) -> Option<f64> {
@@ -352,9 +373,8 @@ impl Player {
             // Fresh dither seed per track: statistically independent noise,
             // reproducible across runs for a given track path.
             core.tpdf.reseed(track_seed(path));
-            if core.bit_perfect.load(Ordering::Relaxed)
-                && core.resampler.as_ref().map(|r| r.is_enabled()).unwrap_or(false)
-            {
+            core.recompute_bit_perfect_resampled();
+            if core.bit_perfect_resampled.load(Ordering::Relaxed) {
                 eprintln!(
                     "[audio] WARN: device does not support native rate {src_rate} Hz, \
                      resampling to {out_rate} Hz under Bit-perfect mode"
@@ -424,6 +444,9 @@ impl Player {
             core.natural_end = false;
             core.prepare_scratch();
             core.tpdf.reseed(track_seed(path));
+            // DoP runs on an identity resampler; unless a device rate was forced,
+            // bit-perfect holds. Keeping the flag in sync with the stream config.
+            core.recompute_bit_perfect_resampled();
         }
 
         let stream = match build_stream(&spec, self.core.clone(), None) {
@@ -565,8 +588,9 @@ impl Player {
     /// a native-rate match) delivers the stream untouched. Safe to call from
     /// any thread: the flag is an atomic read inside the audio callback.
     pub fn set_bit_perfect(&mut self, enabled: bool) {
-        if let Ok(core) = self.core.lock() {
+        if let Ok(mut core) = self.core.lock() {
             core.bit_perfect.store(enabled, Ordering::Relaxed);
+            core.recompute_bit_perfect_resampled();
         }
     }
 
@@ -575,6 +599,16 @@ impl Player {
         self.core
             .lock()
             .map(|c| c.bit_perfect.load(Ordering::Relaxed))
+            .unwrap_or(false)
+    }
+
+    /// True when bit-perfect mode is active while the device forces a software
+    /// resample (native rate unsupported), i.e. bit-perfect is not guaranteed.
+    /// Drives the «Resample (device limit)» status badge (ТЗ A2.0 §4.1).
+    pub fn bit_perfect_resampled(&self) -> bool {
+        self.core
+            .lock()
+            .map(|c| c.bit_perfect_resampled.load(Ordering::Relaxed))
             .unwrap_or(false)
     }
 
@@ -1436,6 +1470,31 @@ mod tests {
         assert!(buf.iter().any(|s| *s != 0.0), "mute must be ignored in bit-perfect");
         let filled = buf.len() - buf.iter().rev().take_while(|s| **s == 0.0).count();
         assert!(buf[..filled].iter().all(|s| (*s - 0.25).abs() < 1e-6));
+    }
+
+    #[test]
+    fn bit_perfect_resampled_flag_updates_on_toggle() {
+        let mut p = Player::new();
+        // Identity resampler: native-rate match, resampling is unnecessary.
+        {
+            let mut c = p.core.lock().unwrap();
+            c.resampler = Some(Resampler::new(44100, 44100, 1, 1));
+        }
+        p.set_bit_perfect(true);
+        assert!(!p.bit_perfect_resampled());
+
+        // Device rejects the native rate: a real conversion starts, the
+        // «bit-perfect not guaranteed» flag must flip (ТЗ A2.0 §4.1).
+        {
+            let mut c = p.core.lock().unwrap();
+            c.resampler = Some(Resampler::new(44100, 48000, 1, 1));
+            c.recompute_bit_perfect_resampled();
+        }
+        assert!(p.bit_perfect_resampled());
+
+        // Switching bit-perfect off clears the badge even while resampling.
+        p.set_bit_perfect(false);
+        assert!(!p.bit_perfect_resampled());
     }
 
     #[test]
