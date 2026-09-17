@@ -117,6 +117,14 @@ pub enum FallbackRatePolicy {
 }
 ```
 
+Каждый из 5 enum предоставляет пару `index()/from_index()` для ComboBox-моделей
+`.slint`, **по паттерну существующего `DsdMode`** (см. `src/settings.rs`):
+`from_index(i) -> Option<Self>` — невалидный индекс даёт `None`, колл-сайты
+применяют `from_index(i).unwrap_or_default()`. Порядок индексов зафиксирован
+(порядок вариантов): `Off/Auto/Strict` = 0/1/2, `Nearest/DeviceDefault/Fail` =
+0/1/2, `Auto/Native/Fixed` = 0/1/2, `Auto/44k/48k` = 0/1/2, `Nearest/SameFamily/
+NeverDownsample` = 0/1/2.
+
 ### 2.2 `settings.rs` — расширения структур
 
 ```rust
@@ -191,8 +199,9 @@ impl Default for AudioCfg {
 | Флаг | Эффект |
 |---|---|
 | `bit_perfect = true` | UI: показать `audio-exclusive-warn`, если `exclusive = Off`. Не меняет настройки автоматически. |
-| `resampler.mode = Native` | UI: `fallback` disabled (всегда должен быть `Fail`); при переключении — auto-выставить `Fail`. |
-| `resampler.mode = Fixed` | UI: включить поле `fixed_rate`. Если `fallback == Fail` → **авто-подмена на `Nearest` + баннер** (§8.3). |
+| `resampler.mode = Native` | UI: `fallback` disabled (всегда должен быть `Fail`); `fallback_rate` disabled (фолбеков нет); при переключении — auto-выставить `Fail`. |
+| `resampler.mode = Fixed` | UI: включить поле `fixed_rate`. `fallback_rate` disabled (игнорируется; в Auto определяет выбор среди fallback-частот, см. §3.4 шаг 5). Если `fallback == Fail` → **авто-подмена на `Nearest` + баннер** (§7.7). |
+| `resampler.mode = Auto` | `fallback_rate` **enabled** — определяет выбор среди alternatives (шаг 5 в §3.4). |
 | `fallback = Fail` | UI: секция DSD chain — красная подсветка строк, требующих фолбека. |
 | `filter_hardware_only` | Список устройств фильтруется по `category == Hardware`. |
 | `filter_stereo_only` | Список фильтруется по `channels == 2`. |
@@ -295,14 +304,51 @@ pub enum FallbackReason {
 
 ### 3.4 `choose_output` — обновлённый алгоритм
 
-```
-Input: devices, default_name, track_rate, track_channels, preferred,
-       ExclusiveMode, FallbackPolicy, ResamplerMode, FallbackRatePolicy,
-       ClockFamily, fixed_rate
+`choose_output` получает настройки через **`OutputRequest`** — единый value-объект
+вместо 12 позиционных аргументов (собрано из ревью §14.11):
 
-1. Разрешить устройство (existing: preferred id → preferred name → default name)
+```rust
+pub struct OutputRequest {
+    pub track_rate: u32,
+    pub track_channels: usize,
+    /// Желаемое устройство: пользовательское (audio_device) либо None.
+    pub preferred_device: Option<String>,
+    // Настройки из AudioCfg, скопированные сюда.
+    pub exclusive: ExclusiveMode,
+    pub fallback: FallbackPolicy,
+    pub resampler: ResamplerMode,
+    pub fallback_rate: FallbackRatePolicy,
+    pub clock_family: ClockFamily,
+    pub fixed_rate: u32,
+}
+
+impl OutputRequest {
+    /// Собрать запрос из настроек для конкретного источника.
+    pub fn from_settings(s: &Settings, track_rate: u32, track_channels: usize) -> Self;
+    /// Для итераций Validation: сменить источник без пересборки (см. §5.3).
+    pub fn with_source(&self, track_rate: u32, track_channels: usize) -> Self;
+}
+
+/// Три аргумента вместо двенадцати.
+pub fn choose_output(
+    devices: &[DeviceInfo],
+    default_name: Option<&str>,
+    req: &OutputRequest,
+) -> Result<ChosenOutput, String>;
+```
+
+`with_source` клонирует запрос и меняет только `track_rate`/`track_channels` —
+`validate_audio_settings` строит `OutputRequest` один раз и переиспользует на
+11 итерациях.
+
+Алгоритм:
+
+```
+Input: devices, default_name, req (OutputRequest)
+
+1. Разрешить устройство (existing: preferred_device → default name)
 2. Exclusive:
-   requested = exclusive_mode
+   requested = req.exclusive
    Off    → exclusive = false
    Auto   → exclusive = device.exclusive_capable
    Strict → if !device.exclusive_capable → Err(ExclusiveUnavailable)
@@ -312,8 +358,8 @@ Input: devices, default_name, track_rate, track_channels, preferred,
 4. Rate:
    mode = Native → только exact, иначе Err(RateUnsupported)   // HARD FAIL (§14)
    mode = Fixed:
-     target = fixed_rate != 0 ? fixed_rate
-                              : nearest_in_family(device, prefer_family)
+     target = req.fixed_rate != 0 ? req.fixed_rate
+                                  : nearest_in_family(device, req.clock_family)
      если fixed_rate == 0 и семейство пусто → target = device.default_rate,
         fallback = ClockFamilyIncomplete { requested: track_rate, chosen: default_rate }
         (НЕ silent: причина всегда записывается.)
@@ -343,9 +389,14 @@ Input: devices, default_name, track_rate, track_channels, preferred,
 
 ### 3.5 `describe_stream`
 
+Строка для `stream-desc` в `BpReportDialog` и статус-бара — **русская**, но
+технические термины (`Exclusive`, `Shared`, `I32`, `DoP`, `Native`, частоты)
+не переводятся (это международная нотация, как `SPDIF`/`USB`; §14.7):
+
 ```rust
-/// "48000 Hz · I32 · Exclusive"
-/// "48000 Hz · I32 · Shared · resampled from 96000"
+/// "48000 Гц · I32 · Exclusive"
+/// "48000 Гц · I32 · Shared · ресемплинг из 96000"
+/// "176400 Гц · I32 · Exclusive · DoP @176400"
 pub fn describe_stream(chosen: &ChosenOutput) -> String;
 ```
 
@@ -474,6 +525,13 @@ pub struct ValidationRow {
     pub detail: String,       // "native", "resampled → 48k", "unsupported"
 }
 
+/// Чистая функция: без I/O, без зависимостей от MusicApp.
+///
+/// Вызывающий код в `sync_capabilities_and_validation` (§8.2) передаёт
+/// `MusicApp::settings_ref()`, который при открытом диалоге настроек
+/// возвращает `settings_draft`, а иначе — `settings.settings`.
+/// Validation всегда отражает актуальные значения (live-превью draft
+/// или применённые), без отдельной логики (ревью §14.8).
 pub fn validate_audio_settings(device: &DeviceInfo, settings: &Settings) -> Vec<ValidationRow>;
 ```
 
@@ -545,8 +603,15 @@ for mode in chain {
 
 ```rust
 // app/bp_report.rs
+
+/// Уровень серьёзности строки отчёта (ревью §14.5):
+/// Warning = что-то мешает bit-perfect; Info = всё ОК, но есть нюанс.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Severity { Warning, Info }
+
 #[derive(Debug, Clone, PartialEq)]
 pub struct BpReason {
+    pub severity: Severity,
     pub title: String,
     pub detail: String,
     pub action_id: i32,       // 0 = нет кнопки
@@ -565,20 +630,27 @@ pub struct BpReport {
 pub fn build_bp_report(app: &MusicApp) -> BpReport;
 ```
 
+**Правило фильтрации:** `build_bp_report` пропускает причину, если условия
+её детекта не выполнены (например, DSD-трек — пропустить строки #1–#6).
+
 ### 6.2 Каталог причин (порядок = вес)
 
-| # | Детект | Title | Detail | Action id / label |
-|---|---|---|---|---|
-| 1 | `player.volume() < 1.0` | `Программная громкость активна ({v:.2})` | `{db:.1} dB ослабление в аудио-колбэке` | `1` / `Поставить 100%` |
-| 2 | `player.muted()` | `Приглушено` | `Приглушено в аудио-колбэке` | `2` / `Включить звук` |
-| 3 | `shared.resampler_enabled()` | `Ресемплинг включён` | `{src} → {out} (устройство не поддерживает {src})` | `0` |
-| 4 | `!stream_desc.exclusive` && `!exclusive_fallback` | `Общий доступ (shared)` | `Устройство {ServerProxy|default}` | `0` |
-| 5 | `stream_desc.exclusive_fallback` | `Exclusive недоступен` | `Устройство отклонило exclusive; используется shared` | `0` |
-| 6 | `dither_idx != Off` | `Дизеринг активен` | `Применён {Tpdf|Triangular} дизеринг` | `3` / `Отключить дизеринг` |
-| 7 | `stream_desc.dsd_mode == Some(Pcm) && source is DSD` | `Конвертация DSD → PCM` | `Децимация CIC ломает bit-perfect` | `0` |
-| 8 | `stream_desc.dsd_fallback_reason.is_some()` | `Фолбек DSD применён` | `Предпочтительно {preferred:?}, используется {actual:?}` | `0` |
+`#1`–`#7` → `Severity::Warning` (text-warn). `#8` → `Severity::Info`
+(text-secondary) — успешная замена, не требующая действия (ревью §14.5).
 
-Порядок сортировки — по возрастанию `#`. Причины с действиями — выше информационных.
+| # | Детект | Severity | Title | Detail | Action id / label |
+|---|---|---|---|---|---|
+| 1 | `player.volume() < 1.0` | Warning | `Программная громкость активна ({v:.2})` | `{db:.1} dB ослабление в аудио-колбэке` | `1` / `Поставить 100%` |
+| 2 | `player.muted()` | Warning | `Приглушено` | `Приглушено в аудио-колбэке` | `2` / `Включить звук` |
+| 3 | `shared.resampler_enabled()` | Warning | `Ресемплинг включён` | `{src} → {out} (устройство не поддерживает {src})` | `0` |
+| 4 | `!stream_desc.exclusive` && `!exclusive_fallback` | Warning | `Общий доступ (shared)` | `Устройство {ServerProxy|default}` | `0` |
+| 5 | `stream_desc.exclusive_fallback` | Warning | `Exclusive недоступен` | `Устройство отклонило exclusive; используется shared` | `0` |
+| 6 | `dither_idx != Off` | Warning | `Дизеринг активен` | `Применён {Tpdf|Triangular} дизеринг` | `3` / `Отключить дизеринг` |
+| 7 | `stream_desc.dsd_mode == Some(Pcm) && source is DSD` | Warning | `Конвертация DSD → PCM` | `Децимация CIC ломает bit-perfect` | `0` |
+| 8 | `stream_desc.dsd_fallback_reason.is_some()` | Info | `DoP применяется вместо Native` | `Устройство не поддерживает Native DSD. DoP сохраняет bit-perfect поток.` | `0` |
+
+Порядок сортировки — Warning-строки по весу (#1 → #7), Info (#8) — внизу.
+Для UI: Warning → `text-warn`; Info → `text-secondary`.
 
 ### 6.3 Positives (показываются, если true)
 
@@ -643,8 +715,8 @@ pub fn build_bp_report(app: &MusicApp) -> BpReport;
   ⚠ Для bit-perfect требуется exclusive (если bp && exclusive == Off)
 
 [DSD]
-  DSD mode:  [ PCM (CIC) ▾ ]
-  Цепочка:   Native → DoP → PCM
+  DSD mode:  [ Native ▾ ]          — согласованная пара, §14.9:
+  Цепочка:   Native → DoP → PCM       [PCM (CIC)] ↔ «PCM only»
   ⓘ  Фолбек автоматический. FallbackPolicy управляет провалом цепочки.
 
 [Проверка]
@@ -658,15 +730,19 @@ pub fn build_bp_report(app: &MusicApp) -> BpReport;
 [Дополнительно]  ▸ (collapsed by default)
   Exclusive         [ Авто ▾ ]        (Выкл / Авто / Строгий)
   Fallback policy   [ Ближайший ▾ ]   (Ближайший / Дефолт устройства / Ошибка)
+                                      (в Native — disabled, всегда Fail)
   Resampler mode    [ Авто ▾ ]        (Авто / Native / Фиксированная)
-  Fixed rate        [ Авто ▾ ]        (включён если mode = Fixed)
+  Fixed rate        [ Авто ▾ ]        (enabled только при mode = Fixed;
+                                       иначе disabled + ⓘ «Безрезультатно вне режима Fixed»)
   Clock family      [ Авто ▾ ]        (Авто / 44.1 / 48)
   Fallback rate     [ Ближайший ▾ ]   (Ближайший / То же семейство / Не понижать)
+                                      (enabled только при mode = Auto;
+                                       иначе disabled + ⓘ «Используется только при Авто»)
   Алгоритм          [ Sinc (64 тапа) ▾ ]
   Дизеринг          [ TPDF ▾ ]
   Кольцевой буфер   [────●─────] 1500 мс
                     значения < 500 мс могут давать underrun при exclusive
-  ⚠ баннер: «Fixed несовместим с Fail — используется Nearest» (если конфликт, §8.3)
+  ⚠ баннер: «Fixed несовместим с Fail — используется Nearest» (если конфликт, §8.2)
 ```
 
 Все контролы (кроме превью Capabilities/Validation) — **draft-only**:
@@ -744,6 +820,7 @@ export struct BpReason {
     detail: string,
     action-id: int,
     action-label: string,
+    severity: int,        // 0=Warning, 1=Info
 }
 
 export component BpReportDialog inherits Rectangle {
@@ -808,7 +885,7 @@ export component BpReportDialog inherits Rectangle {
 
                             Text {
                                 text: reason.title;
-                                color: Colors.text-warn;
+                                color: reason.severity == 0 ? Colors.text-warn : Colors.text-secondary;
                                 font-size: 13px;
                                 font-weight: 600;
                             }
@@ -912,22 +989,38 @@ ui.on_set_audio_filter_stereo(|v| {
 });
 ui.on_set_audio_toggle_advanced(|v| { /* audio_advanced_open = v */ });
 ui.on_set_audio_exclusive(|i| {
-    a.settings_mut().exclusive = ExclusiveMode::from_index(i);
+    a.settings_mut().exclusive = ExclusiveMode::from_index(i).unwrap_or_default();
     a.sync_capabilities_and_validation();
 });
-ui.on_set_audio_fallback(|i| { a.settings_mut().fallback = FallbackPolicy::from_index(i); });
+ui.on_set_audio_fallback(|i| {
+    a.settings_mut().fallback = FallbackPolicy::from_index(i).unwrap_or_default();
+});
 ui.on_set_audio_resampler_mode(|i| {
-    let m = ResamplerMode::from_index(i);
+    let m = ResamplerMode::from_index(i).unwrap_or_default();
     if m == Fixed && draft.fallback == Fail {
-        draft.fallback = Nearest;                     // авто-коррекция §14
-        a.show_info_message("Fallback изменён на «Ближайший»: Fixed требует ресемплинга.");
+        draft.fallback = Nearest;                     // авто-коррекция §14.1
+        // Сообщение через существующий канал `status` (статус-бар),
+        // а не новый UI-компонент (ревью §14.3). Исчезает при следующем треке.
+        self.ui.set_status_text(
+            "Авто-коррекция: Fallback = «Ближайший» (Fixed требует ресемплинга)".into()
+        );
         a.sync_audio_advanced();
     }
     draft.resampler.mode = m; a.sync_capabilities_and_validation();
 });
-ui.on_set_audio_fixed_rate(|i| { draft.resampler.fixed_rate = FIXED_RATES[i]; });
-ui.on_set_audio_clock_family(|i| { draft.resampler.prefer_family = ...; });
-ui.on_set_audio_fallback_rate(|i| { draft.resampler.fallback_rate = ...; });
+ui.on_set_audio_fixed_rate(|i| {
+    draft.resampler.fixed_rate = FIXED_RATES[i];
+    draft.resampler.fixed_rate_idx = i;
+    a.sync_capabilities_and_validation();
+});
+ui.on_set_audio_clock_family(|i| {
+    draft.resampler.prefer_family = ClockFamily::from_index(i).unwrap_or_default();
+    a.sync_capabilities_and_validation();
+});
+ui.on_set_audio_fallback_rate(|i| {
+    draft.resampler.fallback_rate = FallbackRatePolicy::from_index(i).unwrap_or_default();
+    a.sync_capabilities_and_validation();
+});
 ui.on_set_audio_ring_buffer_ms(|v| { draft.ring_buffer_ms = clamp(v); });
 
 ui.on_bp_report_close(|| { /* bp-report-open = false */ });
@@ -952,6 +1045,22 @@ ui.on_bp_report_open_settings(|| { /* bp-report-open = false; settings-open = tr
 2. Формирование ComboBox-модели (labels).
 3. Сохранение полного списка `DeviceInfo` в `MusicApp.audio_device_infos: Vec<DeviceInfo>`
    (нужно для capabilities + validation).
+
+**Пустой результат после фильтров** (ревью §14.6): например, `filter_hardware_only`
+включён, а на машине только PipeWire. ComboBox не должен пустеть молча:
+
+```rust
+if filtered.is_empty() {
+    self.ui.set_settings_devices(ModelRc::from(
+        &[SharedString::from("(нет устройств, удовлетворяющих фильтру)")][..],
+    ));
+    self.ui.set_settings_device_idx(-1);
+    self.ui.set_settings_active_device("".into());
+    self.ui.set_audio_caps(ModelRc::from(&[][..]));
+    self.ui.set_audio_validation(ModelRc::from(&[][..]));
+    return;
+}
+```
 
 ### 8.2 `sync_capabilities_and_validation`
 
@@ -1033,8 +1142,9 @@ pub fn apply_action(app: &mut MusicApp, action_id: i32);
 fn source_desc(track: Option<&Track>) -> String {
     match track {
         Some(t) => {
-            if t.format.starts_with("DSD") {
-                format!("{} {}", t.bit_depth.to_uppercase(), t.format)
+            if t.format == "DSD64" || t.format == "DSD128" || t.format == "DSD256" {
+                // "DSD64 DSF" / "DSD256 DFF" — нотация, без перевода (ревью §14.4).
+                format!("{} {}", t.format, t.bit_depth.to_uppercase())
             } else {
                 format!("{}/{} {}", t.bit_depth, t.sample_rate / 1000, t.format)
             }
@@ -1267,6 +1377,15 @@ pub(crate) struct TestHooks {
 | 8 | Immediate vs Dirty Flag | **Dirty Flag + Apply on Save** (существующий паттерн `settings_draft`): ни один новый контрол не применяется до «Сохранить», Capabilities/Validation — live-превью от draft. |
 | 9 | Тесты `Player::open` | Scoped Seam: `TestHooks { build_failures: AtomicUsize }` в `start_engine` (только `#[cfg(test)]`); мок для Native не нужен. |
 | 10 | `dsd_fallback_reason` в `StreamDesc` | Строка на русском, без локализации конфига. |
+| 11 | 12 позиционных аргументов `choose_output` | Заменены на `OutputRequest` (value-объект из `AudioCfg` + source): сигнатура `choose_output(devices, default_name, &OutputRequest)`. `validate_audio_settings` строит запрос один раз, на итерациях меняет только source через `with_source`. |
+| 12 | `index()/from_index()` для новых enum | Все 5 enum дают пару по паттерну `DsdMode`: `from_index(i) -> Option<Self>` (невалидный индекс → `None`), колл-сайты UI применяют `.unwrap_or_default()`. |
+| 13 | Сообщение об авто-коррекции (`show_info_message`) | Новый UI-компонент не вводим: сообщение идёт через существующий канал `status` (статус-бар) и исчезает при следующем треке. |
+| 14 | `describe_stream` и строки bp-report — язык | Русский с нетранслируемыми техническими терминами (`Exclusive`, `Shared`, `I32`, `DoP`, `Native`, `Hz`, частота). DSD-источник: `"DSD64 DSF"` / `"DSD256 DFF"` — без слова «DSD» дважды. |
+| 15 | Слишком «тревожная» строка #8 (fallback DSD) | Введён `BpReason::severity: Severity(Warning|Info)`; #1–#7 = Warning (text-warn), #8 = Info (text-secondary). Текст #8 явно объясняет успешную замену: «DoP применяется вместо Native / Устройство не поддерживает Native DSD. DoP сохраняет bit-perfect поток.» |
+| 16 | Пустой список после фильтров | `sync_audio_devices` при пустом `filtered` ставит плейсхолдер `(нет устройств, удовлетворяющих фильтру)`, `device_idx = -1`, очищает caps/validation. |
+| 17 | `fallback_rate` / `fixed_rate` disabled при неприменимом режиме | `fallback_rate` активен ТОЛЬКО при `ResamplerMode::Auto` (disabled в Fixed и Native + hint «Используется только при Авто»); `fixed_rate` активен ТОЛЬКО при `Fixed` (иначе disabled + hint). |
+| 18 | Макет DSD вкладки соответствовал DSP-логике | Согласованная пара: `[Native ▾]` ↔ «Native → DoP → PCM», `[PCM (CIC) ▾]` ↔ «PCM only». |
+| 19 | Validation читает draft | В §5.1 зафиксировано: вызывающий код передаёт `MusicApp::settings_ref()`, который при открытом диалоге возвращает `settings_draft` — Validation всегда отражает актуальные (превью/применённые) значения без отдельной логики. |
 
 ---
 
@@ -1275,14 +1394,14 @@ pub(crate) struct TestHooks {
 | Файл | Тип изменения |
 |---|---|
 | `src/settings.rs` | +5 enum, +поля в `AudioCfg` / `AudioResamplerCfg` |
-| `src/audio/output.rs` | +`DeviceCategory`, +поля `DeviceInfo`, +`FallbackReason`, +поля `ChosenOutput`, +`describe_stream`, +`validate_audio_settings`, переписать `choose_output`, +`classify_device` |
+| `src/audio/output.rs` | +`DeviceCategory`, +поля `DeviceInfo`, +`FallbackReason`, +поля `ChosenOutput`, +`describe_stream`, +`validate_audio_settings`, переписать `choose_output` (сигнатура с `OutputRequest`), +`classify_device`, +`OutputRequest` |
 | `src/audio/player.rs` | Переписать `open`, +`open_dsd_with_chain`, +`try_open_dsd`, +`StreamDesc`, +`stream_desc()`, +политики exclusive/fallback/resampler, +`TestHooks` (cfg(test)) |
-| `src/app/mod.rs` | +колбэки Audio (10, draft-only), +колбэки bp-report (3), +поле `stream_desc`, +поле `audio_device_infos`, +`show_info_message` |
-| `src/app/ui_manager.rs` | +`sync_capabilities_and_validation`, +`sync_dsd_chain_desc`, +фильтрация `sync_audio_devices` |
+| `src/app/mod.rs` | +колбэки Audio (10, draft-only), +колбэки bp-report (3), +поле `stream_desc`, +поле `audio_device_infos`, +`settings_ref()` (draft-aware) |
+| `src/app/ui_manager.rs` | +`sync_capabilities_and_validation`, +`sync_dsd_chain_desc`, +фильтрация `sync_audio_devices` (вкл. пустой результат → плейсхолдер) |
 | `src/app/playback_manager.rs` | +`stream_desc` при `play_track`, обновление badge-логики |
-| `src/app/bp_report.rs` | Новый файл — `BpReport`, `BpReason`, `build_bp_report`, `apply_action` |
-| `ui/settings.slint` | +2 struct, +13 свойств, +12 колбэков, переписать вкладку Audio |
-| `ui/bp_report.slint` | Новый компонент |
+| `src/app/bp_report.rs` | Новый файл — `BpReport`, `BpReason` (с `Severity`), `build_bp_report`, `apply_action` |
+| `ui/settings.slint` | +2 struct (+severity), +13 свойств, +12 колбэков, переписать вкладку Audio (дизейблы fallback_rate/fixed_rate) |
+| `ui/bp_report.slint` | Новый компонент (severity → text-warn/text-secondary) |
 | `ui/main.slint` | +5 свойств, +3 колбэка, +`BpReportDialog` в иерархии |
 | `ui/status.slint` | +callback `bp-clicked()`, упростить badge-условия |
 | `AGENTS.md` | Раздел A3.0: архитектура, ключевые решения |
