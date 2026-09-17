@@ -1,0 +1,402 @@
+я внимательно изучил код APAP и референсные реализации из MPD и mpv. Вот моё детальное код-ревью:
+🏛 Вердикт по архитектуре
+Оценка: 7/10 — Хорошая база, но не соответствует High-End Audio стандартам
+Архитектура APAP демонстрирует понимание разделения потоков:
+
+    ✅ UI и Audio разделены: PlaybackCore передаётся в cpal callback через Arc<Mutex<>>
+    ✅ Lock-free для визуализатора: Используется rtrb::RingBuffer для спектра
+    ✅ Non-blocking callback: try_lock() вместо lock() предотвращает deadlock при seek/open
+
+Однако, по сравнению с MPD/mpv:
+Аспект
+	
+MPD/mpv (референс)
+	
+APAP (проблема)
+Синхронизация
+	
+Lock-free pipes (MusicPipe, ao_buffer)
+	
+std::sync::Mutex в RT потоке
+Аллокации
+	
+Zero-allocation в audio thread
+	
+Vec::resize() в callback
+Обработка ошибок
+	
+Graceful degradation
+	
+unwrap/expect → panic
+Bit-perfect
+	
+Явный bypass ресемплера
+	
+Флаг без гарантии
+🚨 Критические проблемы (Блокирующие)
+1. Аллокации в Real-Time аудио-потоке
+Файл: src/audio/player.rs, строки 738, 792, 842, 884
+
+// ❌ БЛОКИРУЮЩАЯ ПРОБЛЕМА
+let mut tmp = c.scratch_f32();
+tmp.resize(data.len(), 0.0);  // МОЖЕТ ВЫЗВАТЬ ALLOCATION В RT!
+
+Почему это критично:
+
+    В отличие от MPD (где MusicBuffer преаллоцирован на старте), здесь resize() может вызвать системный вызов mmap/brk
+    Даже если capacity достаточно, resize проверяет размер и может триггернуть аллокацию
+    В RT потоке это приводит к xrun (буферному прерыванию)
+
+Сравнение с mpv:
+// mpv_ref/audio/out/buffer.c: pre-allocated ring buffer
+struct ao_buffer {
+    char *data[AO_BUFFER_NUM_SLOTS];  // Заранее выделено
+    size_t slot_size;                  // Фиксированный размер
+};
+2. unwrap/expect в продакшн-коде
+Файлы: main.rs:24,70,71, player.rs:152,708,762,816,851,909
+// ❌ main.rs:24
+let ui = app::create_ui().expect("Failed to create Slint UI");  // PANIC!
+
+// ❌ player.rs:152 (внутри fill() который вызывается из RT!)
+let eof = self.decoder.as_ref().map(|d| d.eof()).unwrap_or(true);
+
+Почему это критично:
+
+    unwrap() на MutexGuard вызывает panic если mutex poisoned → краш всего приложения
+    В MPD все ошибки обрабатываются через try/catch с логированием и graceful shutdown
+    В rt-потоке panic = немедленный краш без возможности восстановления
+
+3. std::sync::Mutex в audio callback
+Файл: player.rs:671,718,772,832,864
+let Ok(mut c) = core.try_lock() else {
+    data.fill(0.0);
+    return;
+};
+
+let Ok(mut c) = core.try_lock() else {
+    data.fill(0.0);
+    return;
+};
+Проблема:
+
+    std::sync::Mutex использует futex (Linux) / pthread_mutex (macOS) — не RT-safe
+    Может вызывать priority inversion: низкоприоритетный UI поток держит lock, высокоприоритетный audio поток ждёт
+    В MPD используется Mutex только между non-RT потоками, audio thread работает с lock-free pipe
+
+Сравнение с MPD:
+// mpd_ref/src/player/Thread.cxx:18-25
+/* The player thread ... passes #MusicChunk instances around in #MusicPipe objects. */
+// MusicPipe — lock-free SPSC queue, нет mutex в audio path
+
+4. String аллокации в UI polling (100ms тик)
+Файл: app/playback_manager.rs:18,42
+let pos_s = playlist::format_duration(pos);  // Аллокация каждый тик!
+let dur_s = playlist::format_duration(dur_f);  // Аллокация!
+
+Проблема:
+
+    Вызывается каждые 100мс → 10 аллокаций в секунду только на форматирование времени
+    В MPD форматирование делается только при изменении значения с порогом
+
+5. Bit-perfect без аппаратной гарантии
+Файл: player.rs:335-339
+
+if core.bit_perfect.load(Ordering::Relaxed)
+    && core.resampler.as_ref().map(|r| r.is_enabled()).unwrap_or(false)
+{
+    eprintln!("[audio] WARN: device does not support native rate...");
+}
+
+Проблема:
+
+    Bit-perfect режим включается флагом, но если устройство не поддерживает частоту — всё равно идёт ресемплинг
+    Нет явной индикации в UI что bit-perfect не обеспечен
+    В mpv есть explicit sample rate negotiation с fallback и уведомлением
+
+⚡ Оптимизация High-End (по образцу MPD/mpv)
+1. Pre-allocate scratch buffer с проверкой capacity
+
+// Было (player.rs:132):
+scratch: Vec::with_capacity(8192),
+
+// Стало (как в mpv buffer.c):
+const MAX_AUDIO_BUFFER_FRAMES: usize = 65536;  // ~1.5 сек при 44.1kHz stereo
+
+impl PlaybackCore {
+    pub(crate) fn new() -> Self {
+        Self {
+            // ...
+            scratch: vec![0.0f32; MAX_AUDIO_BUFFER_FRAMES * 2],  // Сразу выделено
+            // ...
+        }
+    }
+}
+
+// В callback:
+pub fn audio_callback_i16(core: &Arc<Mutex<PlaybackCore>>, data: &mut [i16]) {
+    let Ok(mut c) = core.try_lock() else {
+        data.fill(0);
+        return;
+    };
+    
+    // ✅ Никаких resize — используем срез от преаллоцированного
+    if data.len() > c.scratch.len() {
+        // Это должно быть невозможно при правильном MAX_AUDIO_BUFFER_FRAMES
+        data.fill(0);
+        return;
+    }
+    
+    let tmp = &mut c.scratch[..data.len()];
+    tmp.fill(0.0);
+    let produced = c.fill(tmp);
+    // ... остальная логика
+}
+
+2. Lock-free поля для volume/muted/playing
+// Было:
+pub struct PlaybackCore {
+    pub volume: f32,      // Требует lock
+    pub muted: bool,      // Требует lock
+    pub playing: bool,    // Требует lock
+}
+
+// Стало (как атомики в MPD):
+use std::sync::atomic::{AtomicBool, AtomicU32};
+
+pub struct PlaybackCore {
+    pub volume_bits: AtomicU32,  // f32 bits для атомарного доступа
+    pub muted: AtomicBool,
+    pub playing: AtomicBool,
+    pub bit_perfect: Arc<AtomicBool>,  // Уже есть ✅
+    // Остальные поля под mutex
+    pub decoder: Option<Box<dyn AudioSource>>,
+}
+
+impl PlaybackCore {
+    #[inline]
+    fn volume(&self) -> f32 {
+        f32::from_bits(self.volume_bits.load(Ordering::Relaxed))
+    }
+    
+    #[inline]
+    fn set_volume(&self, v: f32) {
+        self.volume_bits.store(v.to_bits(), Ordering::Relaxed);
+    }
+}
+
+// В audio callback — ЧТЕНИЕ БЕЗ LOCK:
+pub fn audio_callback_f32(core: &Arc<Mutex<PlaybackCore>>, data: &mut [f32]) {
+    let Ok(mut c) = core.try_lock() else {
+        data.fill(0.0);
+        return;
+    };
+    
+    // ✅ Читаем атомики без дополнительного lock
+    let vol = if c.bit_perfect.load(Ordering::Relaxed) {
+        1.0
+    } else {
+        let volume = f32::from_bits(c.volume_bits.load(Ordering::Relaxed));
+        let muted = c.muted.load(Ordering::Relaxed);
+        if muted { 0.0 } else { volume }
+    };
+    // ...
+}
+
+3. Throttling UI updates с порогом
+// Было (playback_manager.rs:18-45):
+let pos_s = playlist::format_duration(pos);  // Каждый тик
+let dur_s = playlist::format_duration(dur_f);
+
+// Стало (как в MPD — только при изменении):
+impl MusicApp {
+    pub(super) fn sync_playback_state_to_ui(&mut self) {
+        let (playing, pos, dur) = self.player.snapshot();
+        let dur_f = dur.unwrap_or(0.0);
+        
+        // ✅ Форматируем только если изменилось > порога
+        const POS_THRESHOLD_SECS: f64 = 0.5;  // Обновлять не чаще 2 раз в секунду
+        if (pos - self.last_pos).abs() < POS_THRESHOLD_SECS && playing == self.last_playing {
+            return;  // Пропускаем обновление
+        }
+        
+        let pos_s = playlist::format_duration(pos);
+        // ... остальное
+        self.last_pos = pos;
+        self.last_playing = playing;
+    }
+}
+
+4. Замена eprintln! в RT потоке на атомарный флаг ошибки
+// Было (player.rs:338):
+eprintln!("[audio] WARN: device does not support native rate...");  // I/O в RT!
+
+// Стало (как в mpv — установка флага для обработки на UI потоке):
+pub struct PlaybackCore {
+    pub rt_error: AtomicU8,  // 0=none, 1=rate_mismatch, 2=buffer_underrun
+}
+
+// В callback:
+if core.bit_perfect.load(Ordering::Relaxed) && resampler_enabled {
+    c.rt_error.store(1, Ordering::Relaxed);  // Без I/O!
+}
+
+// В UI tick:
+if core.rt_error.swap(0, Ordering::Relaxed) == 1 {
+    eprintln!("[audio] WARN: bit-perfect not guaranteed");  // Уже на UI потоке
+}
+
+📝 Примеры рефакторинга
+Проблема 1: Аллокация в audio_callback_i16
+Было:
+pub fn audio_callback_i16(core: &Arc<Mutex<PlaybackCore>>, data: &mut [i16]) {
+    let Ok(mut c) = core.try_lock() else {
+        data.fill(0);
+        return;
+    };
+    // ...
+    let mut tmp = c.scratch_f32();
+    tmp.resize(data.len(), 0.0);  // ❌ POTENTIAL ALLOCATION
+    let produced = c.fill(&mut tmp);
+    // ...
+    c.scratch_release(tmp);
+}
+Стало:
+pub fn audio_callback_i16(core: &Arc<Mutex<PlaybackCore>>, data: &mut [i16]) {
+    let Ok(mut c) = core.try_lock() else {
+        data.fill(0);
+        return;
+    };
+    
+    // ✅ Гарантируем отсутствие аллокаций
+    if data.len() > c.scratch.len() {
+        // Невозможно при правильном MAX_AUDIO_BUFFER_FRAMES
+        data.fill(0);
+        return;
+    }
+    
+    let tmp = &mut c.scratch[..data.len()];
+    tmp.fill(0.0);
+    let produced = c.fill(tmp);
+    // ... rest of logic without scratch_release
+}
+
+Проблема 2: Обработка ошибок в main
+Было:
+fn main() {
+    let ui = app::create_ui().expect("Failed to create Slint UI");
+    ui.show().unwrap();
+    slint::run_event_loop_until_quit().unwrap();
+}
+
+Стало (как в MPD — graceful error handling):
+fn main() -> Result<(), Box<dyn std::error::Error>> {
+    let ui = match app::create_ui() {
+        Ok(ui) => ui,
+        Err(e) => {
+            eprintln!("CRITICAL: Cannot initialize UI: {}", e);
+            return Err(Box::new(e));
+        }
+    };
+    
+    let app = Rc::new(RefCell::new(MusicApp::new(ui.clone_strong())));
+    MusicApp::init(&app);
+
+    // ... timers setup ...
+
+    if let Err(e) = ui.show() {
+        eprintln!("CRITICAL: Cannot show window: {}", e);
+        return Err(Box::new(e));
+    }
+    
+    if let Err(e) = slint::run_event_loop_until_quit() {
+        eprintln!("CRITICAL: Event loop failed: {}", e);
+        return Err(Box::new(e));
+    }
+    
+    Ok(())
+}
+
+Проблема 3: Lock-free volume/muted
+Было:
+pub struct PlaybackCore {
+    pub volume: f32,
+    pub muted: bool,
+    // ...
+}
+
+// В Player:
+pub fn volume(&self) -> f32 {
+    self.core.lock().map(|c| c.volume).unwrap_or(0.8)
+}
+Стало:
+use std::sync::atomic::{AtomicBool, AtomicU32};
+
+pub struct PlaybackCore {
+    pub volume_bits: AtomicU32,
+    pub muted: AtomicBool,
+    // ...
+}
+
+impl PlaybackCore {
+    fn new() -> Self {
+        Self {
+            volume_bits: AtomicU32::new(0.8f32.to_bits()),
+            muted: AtomicBool::new(false),
+            // ...
+        }
+    }
+}
+
+// В Player — чтение без lock:
+pub fn volume(&self) -> f32 {
+    let core = match self.core.lock() {
+        Ok(c) => c,
+        Err(_) => return 0.8,  // Poisoned mutex — безопасный дефолт
+    };
+    f32::from_bits(core.volume_bits.load(Ordering::Relaxed))
+}
+
+// В audio callback — вообще без lock:
+let vol = if c.bit_perfect.load(Ordering::Relaxed) {
+    1.0
+} else {
+    let v = f32::from_bits(c.volume_bits.load(Ordering::Relaxed));
+    if c.muted.load(Ordering::Relaxed) { 0.0 } else { v }
+};
+
+📊 Итоговая оценка
+Критерий
+	
+Оценка
+	
+Комментарий
+Баги и логические ошибки
+	
+5/10
+	
+unwrap/expect в production, потенциальные аллокации в RT
+Производительность
+	
+7/10
+	
+Хорошая структура, но mutex contention и аллокации
+Читаемость и архитектура
+	
+9/10
+	
+Отличная модульность, понятные имена, SOLID соблюдён
+Тестируемость
+	
+8/10
+	
+Есть тесты, но можно покрыть больше edge cases
+🔧 Рекомендации к немедленному исправлению (по приоритету):
+
+    Заменить tmp.resize() на преаллоцированный буфер с проверкой capacity
+    Убрать все unwrap/expect из main.rs и critical path
+    Вынести volume/muted/playing в AtomicU32/AtomicBool для lock-free чтения в RT
+    Добавить throttling UI updates с порогом 0.5 сек
+    Рассмотреть spin::Mutex или lock-free очереди для состояния
+
+Код требует исправления ~5 критических проблем для соответствия High-End Audio стандартам по образцу MPD/mpv.
