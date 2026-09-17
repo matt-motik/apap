@@ -441,6 +441,179 @@ impl ResamplerAlgorithm {
     }
 }
 
+/// Режим exclusive-доступа к устройству (ТЗ A3.0 §2.1). На ALSA/cpal
+/// «exclusive» означает предпочтение raw-ноды `hw:*`; отдельного флага
+/// exclusive-access у cpal нет, режим задаётся на этапе выбора устройства.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
+#[serde(rename_all = "snake_case")]
+pub enum ExclusiveMode {
+    /// Всегда shared (не пытаться вешать raw-ноду как exclusive).
+    Off,
+    /// Пытаться exclusive (raw-нода); при неудаче один откат к shared.
+    #[default]
+    Auto,
+    /// Требовать exclusive; при неудаче — Err, без retry.
+    Strict,
+}
+
+impl ExclusiveMode {
+    /// Порядковый индекс для ComboBox-модели `.slint` (0=Off, 1=Auto, 2=Strict).
+    pub const fn index(self) -> i32 {
+        match self {
+            ExclusiveMode::Off => 0,
+            ExclusiveMode::Auto => 1,
+            ExclusiveMode::Strict => 2,
+        }
+    }
+
+    /// Обратное отображение из индекса UI (валидные значения 0..=2).
+    pub fn from_index(i: i32) -> Option<Self> {
+        match i {
+            0 => Some(ExclusiveMode::Off),
+            1 => Some(ExclusiveMode::Auto),
+            2 => Some(ExclusiveMode::Strict),
+            _ => None,
+        }
+    }
+}
+
+/// Политика фолбека при несовпадении параметров потока (ТЗ A3.0 §2.1).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
+#[serde(rename_all = "snake_case")]
+pub enum FallbackPolicy {
+    /// Ближайший поддерживаемый rate / clamp channels.
+    #[default]
+    Nearest,
+    /// Дефолтный конфиг устройства.
+    DeviceDefault,
+    /// Отказ при несовпадении — трек не откроется.
+    Fail,
+}
+
+impl FallbackPolicy {
+    /// Порядковый индекс для ComboBox-модели `.slint` (0=Nearest, 1=DeviceDefault, 2=Fail).
+    pub const fn index(self) -> i32 {
+        match self {
+            FallbackPolicy::Nearest => 0,
+            FallbackPolicy::DeviceDefault => 1,
+            FallbackPolicy::Fail => 2,
+        }
+    }
+
+    /// Обратное отображение из индекса UI (валидные значения 0..=2).
+    pub fn from_index(i: i32) -> Option<Self> {
+        match i {
+            0 => Some(FallbackPolicy::Nearest),
+            1 => Some(FallbackPolicy::DeviceDefault),
+            2 => Some(FallbackPolicy::Fail),
+            _ => None,
+        }
+    }
+}
+
+/// Политика ресемплинга (ТЗ A3.0 §2.1).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
+#[serde(rename_all = "snake_case")]
+pub enum ResamplerMode {
+    /// Ресемплить, только если native rate недоступен.
+    #[default]
+    Auto,
+    /// Никогда не ресемплить: exact match или Err.
+    Native,
+    /// Всегда ресемплить к `fixed_rate` (или к ближайшей из семейства).
+    Fixed,
+}
+
+impl ResamplerMode {
+    /// Порядковый индекс для ComboBox-модели `.slint` (0=Auto, 1=Native, 2=Fixed).
+    pub const fn index(self) -> i32 {
+        match self {
+            ResamplerMode::Auto => 0,
+            ResamplerMode::Native => 1,
+            ResamplerMode::Fixed => 2,
+        }
+    }
+
+    /// Обратное отображение из индекса UI (валидные значения 0..=2).
+    pub fn from_index(i: i32) -> Option<Self> {
+        match i {
+            0 => Some(ResamplerMode::Auto),
+            1 => Some(ResamplerMode::Native),
+            2 => Some(ResamplerMode::Fixed),
+            _ => None,
+        }
+    }
+}
+
+/// Частотное семейство для выбора fallback-рейта (ТЗ A3.0 §2.1).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
+#[serde(rename_all = "snake_case")]
+pub enum ClockFamily {
+    #[default]
+    Auto,
+    /// 44.1 / 88.2 / 176.4 / 352.8
+    Family44k,
+    /// 48 / 96 / 192 / 384
+    Family48k,
+}
+
+impl ClockFamily {
+    /// Порядковый индекс для ComboBox-модели `.slint` (0=Auto, 1=44k, 2=48k).
+    pub const fn index(self) -> i32 {
+        match self {
+            ClockFamily::Auto => 0,
+            ClockFamily::Family44k => 1,
+            ClockFamily::Family48k => 2,
+        }
+    }
+
+    /// Обратное отображение из индекса UI (валидные значения 0..=2).
+    pub fn from_index(i: i32) -> Option<Self> {
+        match i {
+            0 => Some(ClockFamily::Auto),
+            1 => Some(ClockFamily::Family44k),
+            2 => Some(ClockFamily::Family48k),
+            _ => None,
+        }
+    }
+}
+
+/// Политика выбора fallback-рейта при недоступности native (ТЗ A3.0 §2.1).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
+#[serde(rename_all = "snake_case")]
+pub enum FallbackRatePolicy {
+    /// Ближайшая поддерживаемая (текущее поведение `nearest_rate`).
+    #[default]
+    Nearest,
+    /// Остаться в семействе источника; если семейство неполное — падать
+    /// на `Nearest` (но с пометкой в `FallbackReason`).
+    SameFamily,
+    /// Никогда не downsampl'ить: ближайшая поддерживаемая ≥ источника,
+    /// иначе Err.
+    NeverDownsample,
+}
+
+impl FallbackRatePolicy {
+    /// Порядковый индекс для ComboBox-модели `.slint` (0=Nearest, 1=SameFamily, 2=NeverDownsample).
+    pub const fn index(self) -> i32 {
+        match self {
+            FallbackRatePolicy::Nearest => 0,
+            FallbackRatePolicy::SameFamily => 1,
+            FallbackRatePolicy::NeverDownsample => 2,
+        }
+    }
+
+    /// Обратное отображение из индекса UI (валидные значения 0..=2).
+    pub fn from_index(i: i32) -> Option<Self> {
+        match i {
+            0 => Some(FallbackRatePolicy::Nearest),
+            1 => Some(FallbackRatePolicy::SameFamily),
+            2 => Some(FallbackRatePolicy::NeverDownsample),
+            _ => None,
+        }
+    }
+}
+
 /// Настройки `[dsd]` (ТЗ 5.1 §8.2).
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct DsdCfg {
