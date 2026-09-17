@@ -350,6 +350,48 @@ pub struct DeviceInfo {
     pub sample_format: SampleFormat,
     pub buffer_size: SupportedBufferSize,
     pub supported: Vec<RateRange>,
+    /// Категория устройства (ТЗ A3.0 §3.1): фильтр «только железо» и
+    /// exclusive-политики опираются на неё.
+    pub category: DeviceCategory,
+    /// Плоский сортированный список семпловых частот (без дубликатов) для UI
+    /// и проверок `supports_rate` / семейств клока.
+    pub supported_rates: Vec<u32>,
+    /// Поддерживаемые sample-форматы (порядок первого появления, без дублей).
+    pub supported_formats: Vec<SampleFormat>,
+    /// Может ли устройство (теоретически) открыть монопольный raw-поток:
+    /// это raw-нода `hw:*` и она же классифицирована как Hardware.
+    pub exclusive_capable: bool,
+}
+
+/// Собирает плоский сортированный (без дубликатов) список семпловых частот из
+/// набора диапазонов. Дискретные конфиги (`min == max`) дают ровно одну
+/// частоту; непрерывные диапазоны отдают границы `min`/`max` — на реальном
+/// ALSA-железе перечень приходит дискретными записями, поэтому список точный,
+/// а не «пила» из тысяч значений.
+fn expand_supported_rates(supported: &[RateRange]) -> Vec<u32> {
+    let mut rates = std::collections::BTreeSet::new();
+    for r in supported {
+        if r.min == r.max {
+            rates.insert(r.min);
+        } else {
+            rates.insert(r.min);
+            rates.insert(r.max);
+        }
+    }
+    rates.into_iter().collect()
+}
+
+/// Снимает дубликаты sample-форматов, сохраняя порядок первого появления.
+fn dedup_formats(formats: &[SampleFormat]) -> Vec<SampleFormat> {
+    let mut seen: Vec<SampleFormat> = Vec::new();
+    let mut out: Vec<SampleFormat> = Vec::new();
+    for &f in formats {
+        if !seen.contains(&f) {
+            seen.push(f);
+            out.push(f);
+        }
+    }
+    out
 }
 
 /// One entry from a device's supported-configuration list.
@@ -443,6 +485,11 @@ impl AudioHost for CpalHost {
                         }
                     }
                 };
+                let category = classify_device(&id, &name);
+                let rates = expand_supported_rates(&supported);
+                let formats = dedup_formats(&supported_formats);
+                let exclusive_capable =
+                    is_raw_hardware_id(&id) && category == DeviceCategory::Hardware;
                 out.push(DeviceInfo {
                     id,
                     name,
@@ -451,6 +498,10 @@ impl AudioHost for CpalHost {
                     sample_format,
                     buffer_size,
                     supported,
+                    category,
+                    supported_rates: rates,
+                    supported_formats: formats,
+                    exclusive_capable,
                 });
             }
         }
@@ -1019,6 +1070,16 @@ mod tests {
         sample_rate: u32,
         supported: &[(u16, u32, u32)],
     ) -> DeviceInfo {
+        let supported: Vec<RateRange> = supported
+            .iter()
+            .map(|&(c, lo, hi)| RateRange {
+                channels: c,
+                min: lo,
+                max: hi,
+                buffer_size: SupportedBufferSize::Range { min: 64, max: 4096 },
+            })
+            .collect();
+        let category = classify_device(id, name);
         DeviceInfo {
             id: id.to_string(),
             name: name.to_string(),
@@ -1026,15 +1087,11 @@ mod tests {
             sample_rate,
             sample_format: SampleFormat::F32,
             buffer_size: SupportedBufferSize::Range { min: 64, max: 4096 },
-            supported: supported
-                .iter()
-                .map(|&(c, lo, hi)| RateRange {
-                    channels: c,
-                    min: lo,
-                    max: hi,
-                    buffer_size: SupportedBufferSize::Range { min: 64, max: 4096 },
-                })
-                .collect(),
+            supported_rates: expand_supported_rates(&supported),
+            supported_formats: vec![SampleFormat::F32],
+            category,
+            exclusive_capable: is_raw_hardware_id(id) && category == DeviceCategory::Hardware,
+            supported,
         }
     }
 
