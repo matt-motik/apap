@@ -360,7 +360,14 @@ Input: devices, default_name, req (OutputRequest)
    mode = Fixed:
      target = req.fixed_rate != 0 ? req.fixed_rate
                                   : nearest_in_family(device, req.clock_family)
-     если fixed_rate == 0 и семейство пусто → target = device.default_rate,
+     если req.fixed_rate != 0 && !device.supports_rate(req.fixed_rate):
+        // «Fixed» — интент, а не контракт: жёсткий Err запрещён (§14 №20).
+        // fallback_rate при Fixed игнорируется (§2.3), поэтому «ближайший»
+        // однозначно = nearest_rate (как в Auto+Nearest, шаг 5).
+        target = nearest_rate(device, channels, req.fixed_rate)
+        fallback = RateUnsupported { requested: req.fixed_rate, chosen: target,
+                                     cross_family: !same_family(req.fixed_rate, target) }
+     если req.fixed_rate == 0 и семейство пусто → target = device.default_rate,
         fallback = ClockFamilyIncomplete { requested: track_rate, chosen: default_rate }
         (НЕ silent: причина всегда записывается.)
      resampled = (target != track_rate)
@@ -1142,9 +1149,20 @@ pub fn apply_action(app: &mut MusicApp, action_id: i32);
 fn source_desc(track: Option<&Track>) -> String {
     match track {
         Some(t) => {
-            if t.format == "DSD64" || t.format == "DSD128" || t.format == "DSD256" {
+            // ВАЖНО (ревью §14.4): для DSD-треков t.format = контейнер ("DSF"/"DFF",
+            // см. meta.rs format_name_for_ext), а t.bit_depth = "dsd64"/"dsd128" (нижний
+            // регистр, см. playlist.rs + meta.bit_depth_string). Сравнение с "DSD64"
+            // НИКОГДА не сработало бы и уводило бы DSD-трек в else-ветку
+            // ("dsd64/352 DSF" — мусор). Идём от контейнера.
+            let is_dsd = matches!(t.format.as_str(), "DSF" | "DFF");
+            if is_dsd {
+                let label = if t.bit_depth.is_empty() {
+                    "DSD".to_string()
+                } else {
+                    t.bit_depth.to_uppercase()
+                };
                 // "DSD64 DSF" / "DSD256 DFF" — нотация, без перевода (ревью §14.4).
-                format!("{} {}", t.format, t.bit_depth.to_uppercase())
+                format!("{label} {}", t.format)
             } else {
                 format!("{}/{} {}", t.bit_depth, t.sample_rate / 1000, t.format)
             }
@@ -1243,6 +1261,10 @@ self.ui.set_status_bp_degraded(bp_active && degraded);
 - `choose_output_native_mode_requires_exact`.
 - `choose_output_fixed_mode_uses_fixed_rate`.
 - `choose_output_fixed_mode_uses_family_if_zero`.
+- `choose_output_fixed_mode_unsupported_rate_falls_to_nearest` — Fixed + `fixed_rate`
+  = 88200, устройство `[44100, 48000, 96000]` → target 96000 (nearest),
+  `FallbackReason::RateUnsupported { requested: 88200, chosen: 96000,
+  cross_family: true }` (§3.4 шаг 4, ревью §14.4 №20).
 - `choose_output_fixed_mode_auto_empty_family_falls_to_device_default` — устройство
   только `[48000, 96000]`, prefer = 44k family → target 48000 (default),
   `fallback_reason = ClockFamilyIncomplete`.
@@ -1312,6 +1334,7 @@ pub(crate) struct TestHooks {
 - `bp_report_reasons_sorted_by_weight`.
 - `bp_report_dsd_not_bp`.
 - `bp_report_empty_when_all_green` — все условия выполнены → `reasons.is_empty()`, `positives` непусто.
+- `bp_report_dsd_source_desc` — `Track { format: "DSF", bit_depth: "dsd64" }` → `source_desc` = `"DSD64 DSF"`; `format: "DFF", bit_depth: ""` → `"DSD DFF"`; PCM `{ bit_depth: "24 bit", sample_rate: 96000, format: "FLAC" }` → `"24 bit/96 FLAC"` (§9.2).
 
 ### 11.6 Ручной smoke
 
@@ -1386,6 +1409,8 @@ pub(crate) struct TestHooks {
 | 17 | `fallback_rate` / `fixed_rate` disabled при неприменимом режиме | `fallback_rate` активен ТОЛЬКО при `ResamplerMode::Auto` (disabled в Fixed и Native + hint «Используется только при Авто»); `fixed_rate` активен ТОЛЬКО при `Fixed` (иначе disabled + hint). |
 | 18 | Макет DSD вкладки соответствовал DSP-логике | Согласованная пара: `[Native ▾]` ↔ «Native → DoP → PCM», `[PCM (CIC) ▾]` ↔ «PCM only». |
 | 19 | Validation читает draft | В §5.1 зафиксировано: вызывающий код передаёт `MusicApp::settings_ref()`, который при открытом диалоге возвращает `settings_draft` — Validation всегда отражает актуальные (превью/применённые) значения без отдельной логики. |
+| 20 | `Fixed` + `fixed_rate`, неподдерживаемый устройством | «Fixed» — интент, а не контракт: жёсткий `Err` запрещён. `fallback_rate` при Fixed игнорируется (§2.3), поэтому target = `nearest_rate(device, channels, fixed_rate)` + `FallbackReason::RateUnsupported { cross_family }`. Поведение консистентно с Auto+Nearest. |
+| 21 | `source_desc`: DSD против `t.format` | `Track.format` для DSD = контейнер (`"DSF"`/`"DFF"`, см. `meta.rs`), а `"DSD64"` живёт в `t.bit_depth` (нижний регистр). Детектор DSD идёт от контейнера; label = `bit_depth.to_uppercase()` (fallback `"DSD"`). Условие «format == DSD64» было мёртвым кодом — уводило DSD в PCM-ветку. |
 
 ---
 
