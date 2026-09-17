@@ -202,9 +202,8 @@ impl PlaybackCore {
     fn scratch_release(&mut self, buf: Vec<f32>) {
         let mut buf = buf;
         buf.clear();
-        if buf.capacity() > 128 * 1024 {
-            buf.shrink_to(64 * 1024);
-        }
+        // The pool only grows up to MAX_OUT_SAMPLES and never shrinks: capacity
+        // is pinned so the real-time callbacks never reallocate (ТЗ A2.0 §3.3).
         self.scratch = buf;
     }
 
@@ -1251,6 +1250,29 @@ mod tests {
         );
         let c = core.lock().unwrap();
         assert_eq!(c.scratch.capacity(), MAX_OUT_SAMPLES, "pool must not grow");
+    }
+
+    #[test]
+    fn scratch_pool_never_shrinks_across_calls() {
+        let core = core_with_source(20_000);
+        {
+            let mut c = core.lock().unwrap();
+            c.prepare_scratch();
+            c.playing = true;
+            c.dither.store(DITHER_INDEX_OFF, Ordering::Relaxed);
+        }
+        // A released pool must keep its capacity across repeated callback
+        // cycles — shrinking would force a reallocation inside the RT path
+        // (ТЗ A2.0 §3.3).
+        for i in 0..3 {
+            let mut buf = vec![0i16; 8192];
+            audio_callback_i16(&core, &mut buf);
+            let cap = core.lock().unwrap().scratch.capacity();
+            assert_eq!(
+                cap, MAX_OUT_SAMPLES,
+                "capacity dropped after callback cycle {i}"
+            );
+        }
     }
 
     #[test]
