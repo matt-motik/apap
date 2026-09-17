@@ -8,3 +8,4 @@ pub mod spectrogram;
 pub mod output;
 pub mod player;
 pub mod visualizer;
+pub mod worker;

@@ -59,7 +59,7 @@ impl Default for TpdfRng {
 /// Dither-mode index stored in [`PlaybackCore::dither`] (maps from
 /// [`ResamplerDither`]; kept as a plain u8 so the audio callback can read it
 /// through an [`Arc<AtomicU8>`] with a single relaxed load).
-const DITHER_INDEX_TPDF: u8 = 0;
+pub(crate) const DITHER_INDEX_TPDF: u8 = 0;
 const DITHER_INDEX_TRIANGULAR: u8 = 1;
 const DITHER_INDEX_OFF: u8 = 2;
 
