@@ -84,9 +84,9 @@
 | A2.0-3.2 | Guard «не растить» во всех `audio_callback_*` (тишина вместо `resize`) | 🟡 Высокий | ✅ сделано в `45545e5` (ветка `main`) | [§3.2](docs/spec_audio_core_v2.0.md#32-guard-не-растить-в-колбэках-a20-32) |
 | A2.0-3.3 | Запрет `shrink_to` в `scratch_release` (только `clear()`) | 🟡 Высокий | ✅ сделано в `450d488` (ветка `main`) | [§3.3](docs/spec_audio_core_v2.0.md#33-запрет-сжатия-буфера-a20-33) |
 | A2.0-3.4 | Тест-детектор аллокаций в колбэках (counting allocator) | 🟡 Высокий | ✅ сделано в `c3334fd` (ветка `main`) | [§3.4](docs/spec_audio_core_v2.0.md#34-тест-детектор-аллокаций-в-колбэке-a20-34) |
-| A2.0-4 | Честная индикация bit-perfect (состояние + UI-бейдж) | 🟢 Средний | ⏳ выполняется (шаг 4.1) | [§4](docs/spec_audio_core_v2.0.md#4-честная-индикация-bit-perfect-a20-4) |
-| A2.0-4.1 | Состояние «bit-perfect без гарантии» → `bit_perfect_resampled` | 🟢 Средний | ⏳ выполняется | [§4.1](docs/spec_audio_core_v2.0.md#41-состояние-бит-perfect-без-гарантии-a20-41) |
-| A2.0-4.2 | UI-бейдж «Resample (device limit)» в статус-баре | 🟢 Средний | ⬜ | [§4.2](docs/spec_audio_core_v2.0.md#42-ui-бейдж-a20-42) |
+| A2.0-4 | Честная индикация bit-perfect (состояние + UI-бейдж) | 🟢 Средний | ✅ сделано в `435575b` (ветка `main`) | [§4](docs/spec_audio_core_v2.0.md#4-честная-индикация-bit-perfect-a20-4) |
+| A2.0-4.1 | Состояние «bit-perfect без гарантии» → `bit_perfect_resampled` | 🟢 Средний | ✅ сделано в `954bafb` (ветка `main`) | [§4.1](docs/spec_audio_core_v2.0.md#41-состояние-бит-perfect-без-гарантии-a20-41) |
+| A2.0-4.2 | UI-бейдж «Resample (device limit)» в статус-баре | 🟢 Средний | ✅ сделано в `435575b` (ветка `main`) | [§4.2](docs/spec_audio_core_v2.0.md#42-ui-бейдж-a20-42) |
 | A2.0-5 | Producer/Consumer: декодирование вне RT-потока | 🟢 Средний | ⬜ | [§5](docs/spec_audio_core_v2.0.md#5-producerconsumer-декодирование-вне-rt-a20-5) |
 | A2.0-5.1 | `PlaybackWorker` (поток декодера + ресемплера → ring) | 🟢 Средний | ⬜ | [§5.1](docs/spec_audio_core_v2.0.md#51-playbackworker-поток-декодера-и-ресемплера-a20-51) |
 | A2.0-5.2 | `ring_buffer_ms` в `Settings` + размер ring | 🟢 Средний | ⬜ | [§5.2](docs/spec_audio_core_v2.0.md#52-ring-buffer-размер-и-бюджет-a20-52) |
