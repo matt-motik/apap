@@ -94,7 +94,7 @@ Producer/Consumer (Worker → ring → RtConsumer, seek-хендшейк, DoP,
 
 | ID | Задача | Приоритет | Статус | ТЗ |
 | --- | --- | --- | --- | --- |
-| A3.1 | Модель настроек: `ExclusiveMode`, `FallbackPolicy`, `ResamplerMode`, `ClockFamily`, `FallbackRatePolicy`; расширение `AudioResamplerCfg` / `AudioCfg`; round-trip тесты | 🟡 Высокий | ⬜ | [§2](docs/spec_audio_settings_v3.0.md#2-модель-данных-rust) |
+| A3.1 | Модель настроек: `ExclusiveMode`, `FallbackPolicy`, `ResamplerMode`, `ClockFamily`, `FallbackRatePolicy`; расширение `AudioResamplerCfg` / `AudioCfg`; round-trip тесты | 🟡 Высокий | ✅ сделано в `95f0a3d` (ветка `main`) | [§2](docs/spec_audio_settings_v3.0.md#2-модель-данных-rust) |
 | A3.2 | Backend: `DeviceCategory`/`classify_device`, расширение `DeviceInfo` (rates/formats/exclusive_capable/desc), `dop_container_rate` | 🟢 Средний | ⬜ | [§3.1](docs/spec_audio_settings_v3.0.md#31-devicecategory) · [§3.2](docs/spec_audio_settings_v3.0.md#32-deviceinfo--расширение) |
 | A3.3 | Backend: `choose_output` по политикам, `FallbackReason`, `ChosenOutput`, `describe_stream`; `validate_audio_settings` (11 строк) + тесты | 🟡 Высокий | ⬜ | [§3.3](docs/spec_audio_settings_v3.0.md#33-chosenoutput--расширение) · [§3.4](docs/spec_audio_settings_v3.0.md#34-choose_output--обновлённый-алгоритм) · [§5](docs/spec_audio_settings_v3.0.md#5-validation-чистая-функция) |
 | A3.4 | `Player`: DSD preference chain, exclusive retry, `StreamDesc`, `try_open_dsd`, `TestHooks` (scoped seam) | 🟡 Высокий | ⬜ | [§4](docs/spec_audio_settings_v3.0.md#4-dsd-preference-chain) |
