@@ -478,6 +478,66 @@ fn is_raw_hardware_id(id: &str) -> bool {
     id.starts_with("hw:") || id.starts_with("hw=")
 }
 
+/// Категория устройства вывода (ТЗ A3.0 §3.1) — используется для фильтрации
+/// списка («только железо»), пометки capabilities и решения об exclusive.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum DeviceCategory {
+    /// Реальная нода `hw:*` (raw-железо без прослойки-ресемплера).
+    Hardware,
+    /// Прокси звукового сервера (PipeWire/Pulse/plughw/default/front/surround).
+    ServerProxy,
+    /// Виртуальные узлы ALSA (dmix, dsnoop, softvol, null, ffmpeg, loopback).
+    Virtual,
+    /// Loopback: «Monitor of …» / id loopback.
+    Loopback,
+    /// Не известа категория — нетривиальный id/name.
+    Unknown,
+}
+
+/// Классифицирует устройство по стабильному backend-id и человекочитаемому
+/// имени (ТЗ A3.0 §3.1). Чистая функция, никакого бэкенда не трогает.
+///
+/// Порядок правил (первое совпадение побеждает):
+///  1. `hw:` / `hw=` → Hardware
+///  2. id `loopback` / name «Monitor of …» → Loopback (раньше Virtual — id
+///     loopback попадает в список Virtual в §3.1, но это именно отражение
+///     ALSA-loopback-устройства)
+///  3. `plughw:` / `default` / `front:` / `surround*` / `sysdefault` /
+///     name PipeWire/Pulse → ServerProxy
+///  4. id содержит dmix|dsnoop|softvol|null|ffmpeg → Virtual
+///  5. иначе → Unknown
+pub fn classify_device(id: &str, name: &str) -> DeviceCategory {
+    let id_l = id.to_ascii_lowercase();
+    let name_l = name.to_ascii_lowercase();
+
+    if id_l.starts_with("hw:") || id_l.starts_with("hw=") {
+        return DeviceCategory::Hardware;
+    }
+    if id_l.contains("loopback") || name_l.contains("monitor of") {
+        return DeviceCategory::Loopback;
+    }
+    if id_l.starts_with("plughw:")
+        || id_l == "default"
+        || id_l.starts_with("front:")
+        || id_l.starts_with("surround")
+        || id_l.starts_with("sysdefault")
+        || name_l.contains("pipewire")
+        || name_l.contains("pulseaudio")
+        || name_l.contains("sound server")
+    {
+        return DeviceCategory::ServerProxy;
+    }
+    if id_l.contains("dmix")
+        || id_l.contains("dsnoop")
+        || id_l.contains("softvol")
+        || id_l.contains("null")
+        || id_l.contains("ffmpeg")
+    {
+        return DeviceCategory::Virtual;
+    }
+    DeviceCategory::Unknown
+}
+
 /// Best handle for a device name, preferring the raw `hw:*` node.
 ///
 /// cpal's ALSA backend reports several handles with the same human-readable
@@ -1320,6 +1380,56 @@ mod tests {
         assert!(!is_raw_hardware_id("front:CARD=4,DEV=0"));
         assert!(!is_raw_hardware_id("sysdefault:CARD=4"));
         assert!(!is_raw_hardware_id(""));
+    }
+
+    #[test]
+    fn classify_device_hw_is_hardware() {
+        assert_eq!(
+            classify_device("hw:CARD=4,DEV=0", "ADI-2 DAC (56680121), USB Audio"),
+            DeviceCategory::Hardware
+        );
+        assert_eq!(classify_device("hw=CARD=DAC,DEV=0", "DAC"), DeviceCategory::Hardware);
+    }
+
+    #[test]
+    fn classify_device_plughw_is_server_proxy() {
+        assert_eq!(classify_device("plughw:CARD=4,DEV=0", "x"), DeviceCategory::ServerProxy);
+        assert_eq!(classify_device("default", "Default Audio Device"), DeviceCategory::ServerProxy);
+        assert_eq!(classify_device("front:CARD=4,DEV=0", "x"), DeviceCategory::ServerProxy);
+        assert_eq!(classify_device("surround51:CARD=4", "x"), DeviceCategory::ServerProxy);
+        assert_eq!(classify_device("sysdefault:CARD=4", "x"), DeviceCategory::ServerProxy);
+    }
+
+    #[test]
+    fn classify_device_pipewire_and_pulse_are_server_proxy() {
+        assert_eq!(
+            classify_device("pipewire", "PipeWire Sound Server"),
+            DeviceCategory::ServerProxy
+        );
+        assert_eq!(
+            classify_device("pulse", "Default ALSA Output (currently PulseAudio Sound Server)"),
+            DeviceCategory::ServerProxy
+        );
+    }
+
+    #[test]
+    fn classify_device_virtual_and_loopback() {
+        assert_eq!(classify_device("dmix:CARD=4", "x"), DeviceCategory::Virtual);
+        assert_eq!(classify_device("dsnoop:CARD=4", "x"), DeviceCategory::Virtual);
+        assert_eq!(classify_device("softvol:4", "x"), DeviceCategory::Virtual);
+        assert_eq!(classify_device("null", "x"), DeviceCategory::Virtual);
+        assert_eq!(classify_device("ffmpeg", "x"), DeviceCategory::Virtual);
+        assert_eq!(classify_device("loopback", "x"), DeviceCategory::Loopback);
+        assert_eq!(
+            classify_device("plughw:CARD=2,DEV=1", "Monitor of Built-in Audio"),
+            DeviceCategory::Loopback
+        );
+    }
+
+    #[test]
+    fn classify_device_unknown_fallback() {
+        assert_eq!(classify_device("weird-node-42", "USB Audio"), DeviceCategory::Unknown);
+        assert_eq!(classify_device("", ""), DeviceCategory::Unknown);
     }
 
     /// Drain a whole resampler: feed a full block, then pull with `eof_mode`
