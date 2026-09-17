@@ -1,14 +1,13 @@
 use std::path::Path;
-use std::sync::atomic::{AtomicBool, AtomicU8, Ordering};
 use std::sync::{Arc, Mutex};
 
 use cpal::traits::{DeviceTrait, HostTrait, StreamTrait};
-use cpal::SampleFormat;
+use cpal::{BufferSize, SampleFormat};
 
 use super::decoder::{AudioSource, Decoder, TrackInfo};
-use super::dsd::{DsdDecoder, DecodeMode};
-use super::output::{build_stream, select_output, Resampler};
-use super::worker::RtConsumer;
+use super::dsd::{DecodeMode, DsdDecoder};
+use super::output::{build_stream_rt, select_output, OutputSpec, Resampler};
+use super::worker::{PlaybackWorker, RtConsumer, RtShared, VizTap, WorkerCmd};
 use crate::settings::{DsdMode, ResamplerAlgorithm, ResamplerDither};
 
 /// Zero-allocation LCG PRNG for TPDF dithering in the real-time audio path.
@@ -27,7 +26,7 @@ impl TpdfRng {
         Self { state: 0x9E37_79B9 }
     }
 
-    /// (Re)seed the generator. Called per-track in [`Player::open`] so each
+    /// (Re)seed the generator. Called per-track in `Player::open` so each
     /// track starts with a fresh, deterministic-but-random noise sequence.
     pub fn reseed(&mut self, seed: u32) {
         self.state = seed | 1;
@@ -57,9 +56,9 @@ impl Default for TpdfRng {
     }
 }
 
-/// Dither-mode index stored in [`PlaybackCore::dither`] (maps from
-/// [`ResamplerDither`]; kept as a plain u8 so the audio callback can read it
-/// through an [`Arc<AtomicU8>`] with a single relaxed load).
+/// Dither-mode index stored in [`RtShared`] (maps from [`ResamplerDither`];
+/// kept as a plain u8 so the audio callback can read it through an
+/// [`std::sync::atomic::AtomicU8`] with a single relaxed load).
 pub(crate) const DITHER_INDEX_TPDF: u8 = 0;
 const DITHER_INDEX_TRIANGULAR: u8 = 1;
 const DITHER_INDEX_OFF: u8 = 2;
@@ -82,172 +81,46 @@ fn track_seed(path: &Path) -> u32 {
     (hasher.finish() >> (64 - 30)) as u32 | 1
 }
 
-/// Hard ceiling for the preallocated f32 scratch pool (interleaved samples).
-/// Large enough to cover any realistic `cpal` callback buffer (65536 samples ≈
-/// 8K stereo frames @44.1 kHz); pinned once at track open so the real-time
-/// callbacks never reallocate (ТЗ A2.0 §3.1).
-const MAX_OUT_SAMPLES: usize = 1 << 16;
+/// Ring capacity depth in milliseconds of output audio (ТЗ A2.0 §8). Until the
+/// `ring_buffer_ms` setting lands (A2.0-5.2) every stream uses this default.
+const DEFAULT_RING_MS: u64 = 1500;
 
-/// Shared state accessed both by the UI thread and the audio callback.
-pub struct PlaybackCore {
-    pub decoder: Option<Box<dyn AudioSource>>,
-    pub resampler: Option<Resampler>,
-    pub volume: f32,
-    pub muted: bool,
-    /// Bit-perfect (Direct Output) mode: software volume/mute are bypassed;
-    /// the stream is delivered untouched. Read in the audio callback with a
-    /// relaxed load; written via [`Player::set_bit_perfect`].
-    pub bit_perfect: Arc<AtomicBool>,
-    /// True when bit-perfect is active but the device cannot open the native
-    /// rate, so a software resample re-quantizes the stream and bit-perfect is
-    /// not guaranteed. Recomputed at open and on `set_bit_perfect`; read by the
-    /// UI tick for the «Resample (device limit)» badge (ТЗ A2.0 §4.1).
-    pub bit_perfect_resampled: Arc<AtomicBool>,
-    /// Dither mode index (see `dither_index`). Read in the audio callback;
-    /// written via [`Player::set_dither`].
-    pub dither: Arc<AtomicU8>,
-    /// TPDF noise generator used during quantization (i16/u8 conversion).
-    /// Touched only inside the audio callback (guarded by the core lock).
-    pub tpdf: TpdfRng,
-    pub playing: bool,
-    pub finished: bool,
-    /// True when the track reached its natural end-of-stream (as opposed to a
-    /// manual Stop). Drives playlist auto-advance only.
-    pub natural_end: bool,
-    pub pos_secs: f64,
-    pub out_rate: u32,
-    pub out_ch: usize,
-    scratch: Vec<f32>,
-    /// Visualizer tap: copy of the post-resampler PCM (before volume) is
-    /// pushed here by the audio callback when `viz_tap_active`. Only
-    /// non-blocking `push` is used — the callback never blocks.
-    pub viz_tap: Option<rtrb::Producer<f32>>,
-    pub viz_tap_active: bool,
+/// Interleaved-sample capacity for the producer/consumer ring, derived from the
+/// device geometry and [`DEFAULT_RING_MS`].
+fn ring_capacity(out_rate: u32, out_ch: usize) -> usize {
+    let samples = out_rate as u64 * out_ch.max(1) as u64 * DEFAULT_RING_MS / 1000;
+    (samples as usize).max(4096)
 }
 
-impl PlaybackCore {
-    pub(crate) fn new() -> Self {
-        Self {
-            decoder: None,
-            resampler: None,
-            volume: 0.8,
-            muted: false,
-            bit_perfect: Arc::new(AtomicBool::new(false)),
-            bit_perfect_resampled: Arc::new(AtomicBool::new(false)),
-            dither: Arc::new(AtomicU8::new(DITHER_INDEX_TPDF)),
-            tpdf: TpdfRng::new(),
-            playing: false,
-            finished: true,
-            natural_end: false,
-            pos_secs: 0.0,
-            out_rate: 44100,
-            out_ch: 2,
-            scratch: Vec::new(),
-            viz_tap: None,
-            viz_tap_active: false,
-        }
-    }
-
-    fn fill(&mut self, out: &mut [f32]) -> usize {
-        if self.decoder.is_none() {
-            return 0;
-        }
-        let out_ch = self.out_ch;
-        let mut written_samples = 0usize;
-        loop {
-            if written_samples >= out.len() {
-                break;
-            }
-            let remaining_frames = (out.len() - written_samples) / out_ch;
-            if remaining_frames == 0 {
-                break;
-            }
-            let eof = self.decoder.as_ref().map(|d| d.eof()).unwrap_or(true);
-            match &mut self.resampler {
-                Some(res) => {
-                    // Keep at least one source frame buffered for interpolation.
-                    let mut guard = 0;
-                    while res.buffered_frames() < 2 && !eof && guard < 1024 {
-                        guard += 1;
-                        let Some(s) = self.decoder.as_mut().and_then(|d| d.next_frames()) else {
-                            break;
-                        };
-                        res.push(s);
-                    }
-                    let produced_frames =
-                        res.pull(&mut out[written_samples..], remaining_frames, eof);
-                    if produced_frames == 0 {
-                        break;
-                    }
-                    written_samples += produced_frames * out_ch;
-                }
-                None => break,
-            }
-        }
-        written_samples
-    }
-
-    /// Borrow the scratch pool resized to `len` (zero-filled). Returns `None`
-    /// when `len` exceeds the pinned ceiling [`MAX_OUT_SAMPLES`]: the callback
-    /// must emit silence instead of growing the buffer (ТЗ A2.0 §3.2).
-    fn scratch_for(&mut self, len: usize) -> Option<Vec<f32>> {
-        if len > MAX_OUT_SAMPLES {
-            return None;
-        }
-        let mut buf = std::mem::take(&mut self.scratch);
-        buf.resize(len, 0.0);
-        Some(buf)
-    }
-
-    /// (Re)pins the scratch pool to [`MAX_OUT_SAMPLES`] at track open. After
-    /// this call every audio callback uses a slice of the preallocated buffer
-    /// and never allocates (ТЗ A2.0 §3.1).
-    fn prepare_scratch(&mut self) {
-        self.scratch = vec![0.0f32; MAX_OUT_SAMPLES];
-    }
-
-    fn scratch_release(&mut self, buf: Vec<f32>) {
-        let mut buf = buf;
-        buf.clear();
-        // The pool only grows up to MAX_OUT_SAMPLES and never shrinks: capacity
-        // is pinned so the real-time callbacks never reallocate (ТЗ A2.0 §3.3).
-        self.scratch = buf;
-    }
-
-    /// Recomputed whenever the stream opens or bit-perfect toggles. The flag is
-    /// true when bit-perfect is active and the resampler actually transforms
-    /// the stream (device rejects the native rate), so bit-perfect cannot be
-    /// guaranteed (ТЗ A2.0 §4.1).
-    fn recompute_bit_perfect_resampled(&mut self) {
-        let resampled = self.bit_perfect.load(Ordering::Relaxed)
-            && self
-                .resampler
-                .as_ref()
-                .map(|r| r.is_enabled())
-                .unwrap_or(false);
-        self.bit_perfect_resampled
-            .store(resampled, Ordering::Relaxed);
-    }
-
-    fn duration_secs(&self) -> Option<f64> {
-        self.decoder.as_ref().and_then(|d| d.duration_secs())
-    }
-}
-
-/// Owns audio playback: the shared [`PlaybackCore`] (decoder + resampler +
-/// transport state, also read by the cpal callback) and the running output
-/// stream. All control happens on the caller's thread; only the cpal
-/// callback touches the core concurrently.
+/// Owns audio playback: a [`PlaybackWorker`] thread decoding into a lock-free
+/// ring and the cpal output stream whose real-time callback only consumes that
+/// ring through [`RtConsumer`]. All control happens on the caller's thread via
+/// the [`RtShared`] atomics and [`WorkerCmd`] messages (ТЗ A2.0 §5).
 pub struct Player {
-    pub core: Arc<Mutex<PlaybackCore>>,
+    /// Stream geometry + transport/control atomics shared with the worker and
+    /// the real-time consumer. `None` until a track is opened.
+    shared: Option<Arc<RtShared>>,
+    worker: Option<PlaybackWorker>,
+    /// Persistent visualizer tap holder; survives worker re-creation on every
+    /// `open` (the producer itself is not cloneable).
+    viz_tap: VizTap,
     pub stream: Option<cpal::Stream>,
     pub device_desc: String,
     pub last_error: Option<String>,
+    /// Current track info (duration/rate), kept for `snapshot`.
+    info: Option<TrackInfo>,
     preferred_device: Option<String>,
     /// Resampling algorithm used by every new stream (ТЗ 5.1 §8.3).
     resampler_algo: ResamplerAlgorithm,
     /// DSD output mode (Pcm / Native / DoP, ТЗ 5.1 §8.2).
     dsd_mode: DsdMode,
+    /// Desired transport state, persisted across stream re-creation so a new
+    /// track inherits volume/mute/dither/bit-perfect/visualizer settings.
+    volume: f32,
+    muted: bool,
+    bit_perfect: bool,
+    dither_idx: u8,
+    viz_active: bool,
 }
 
 impl Player {
@@ -259,13 +132,21 @@ impl Player {
             .map(|d| d.name().to_string())
             .unwrap_or_else(|| "none".to_string());
         Self {
-            core: Arc::new(Mutex::new(PlaybackCore::new())),
+            shared: None,
+            worker: None,
+            viz_tap: Arc::new(Mutex::new(None)),
             stream: None,
             device_desc,
             last_error: None,
+            info: None,
             preferred_device: None,
             resampler_algo: ResamplerAlgorithm::SincMedium,
             dsd_mode: DsdMode::Pcm,
+            volume: 0.8,
+            muted: false,
+            bit_perfect: false,
+            dither_idx: DITHER_INDEX_TPDF,
+            viz_active: false,
         }
     }
 
@@ -281,6 +162,15 @@ impl Player {
 
     pub fn set_preferred_device(&mut self, name: String) {
         self.preferred_device = Some(name);
+    }
+
+    /// Tear down the current engine (stream, then worker) before a new open.
+    fn teardown(&mut self) {
+        // Drop the stream first so the real-time callback stops touching the
+        // ring, then join the worker.
+        self.stream = None;
+        self.worker = None;
+        self.shared = None;
     }
 
     /// Change the output device. When `path` is given the current track is
@@ -306,8 +196,8 @@ impl Player {
     }
 
     /// Open `path` for playback: pick an output device/format via
-    /// [`select_output`](crate::audio::output::select_output), build the stream
-    /// and reset transport state. Returns the track's format info.
+    /// [`select_output`](crate::audio::output::select_output), spawn the
+    /// producer worker and build the consumer stream. Returns the track info.
     /// Errors (unsupported file, no device) are returned as strings.
     pub fn open(&mut self, path: &Path) -> Result<TrackInfo, String> {
         let is_dsd = path
@@ -330,11 +220,67 @@ impl Player {
         self.open_pcm(path)
     }
 
+    /// Publish the persisted control state onto a freshly created [`RtShared`].
+    fn apply_state(
+        shared: &RtShared,
+        volume: f32,
+        muted: bool,
+        dither_idx: u8,
+        bit_perfect: bool,
+        viz_active: bool,
+    ) {
+        shared.set_volume(volume);
+        shared.set_muted(muted);
+        shared.set_dither_index(dither_idx);
+        shared.set_bit_perfect(bit_perfect);
+        shared.set_viz_tap_active(viz_active);
+        // A freshly opened stream is not "finished": the first `play` must not
+        // trigger the rewind/seek path.
+        shared.set_finished(false);
+    }
+
+    /// Build the consumer stream and spawn the producer worker. On a
+    /// `Fixed`-buffer rejection the stream is retried with `Default` (the
+    /// source/resampler are only handed to the worker once the stream builds).
+    fn start_engine(
+        &mut self,
+        source: Box<dyn AudioSource>,
+        resampler: Resampler,
+        shared: Arc<RtShared>,
+        rng: TpdfRng,
+        mut spec: OutputSpec,
+    ) -> Result<cpal::Stream, String> {
+        let capacity = ring_capacity(shared.out_rate(), shared.out_ch());
+        let viz_tap = self.viz_tap.clone();
+        loop {
+            let (producer, ring) = rtrb::RingBuffer::<f32>::new(capacity);
+            let mut consumer = RtConsumer::new(ring, shared.clone());
+            consumer.set_tpdf(rng);
+            match build_stream_rt(&spec, consumer, None) {
+                Ok(stream) => {
+                    self.worker = Some(PlaybackWorker::spawn(
+                        source,
+                        resampler,
+                        producer,
+                        shared,
+                        viz_tap,
+                    ));
+                    return Ok(stream);
+                }
+                Err(e) => {
+                    if matches!(spec.config.buffer_size, BufferSize::Fixed(_)) {
+                        spec.config.buffer_size = BufferSize::Default;
+                        continue;
+                    }
+                    return Err(e);
+                }
+            }
+        }
+    }
+
     /// Standard path (existing behaviour): PCM files or DSD decoded to PCM via
     /// the CIC cascade, resampled to the device rate.
     fn open_pcm(&mut self, path: &Path) -> Result<TrackInfo, String> {
-        // Open and probe outside the audio-thread lock so the callback never
-        // blocks on slow I/O.
         let src: Box<dyn AudioSource> = match path.extension().and_then(|e| e.to_str()) {
             Some(e) if e.eq_ignore_ascii_case("dsf") || e.eq_ignore_ascii_case("dff") => {
                 Box::new(DsdDecoder::open(path)?)
@@ -344,52 +290,45 @@ impl Player {
         let (src_rate, src_ch) = (src.info().sample_rate, src.info().channels);
         let info = src.info().clone();
 
-        // Rebuild the output stream for the current track parameters.
-        self.stream = None;
+        self.teardown();
+
         let spec = select_output(src_rate, src_ch, self.preferred_device.as_deref())?;
         let out_rate = spec.config.sample_rate;
         let out_ch = spec.config.channels as usize;
         self.device_desc = spec.device_name.clone();
 
-        {
-            let mut core = match self.core.lock() {
-                Ok(c) => c,
-                Err(_) => return Err("audio core poisoned; cannot open track".into()),
-            };
-            core.resampler = Some(Resampler::with_algo(
-                src_rate,
-                out_rate,
-                src_ch,
-                out_ch,
-                self.resampler_algo,
-            ));
-            core.out_rate = out_rate;
-            core.out_ch = out_ch;
-            core.decoder = Some(src);
-            core.pos_secs = 0.0;
-            core.playing = false;
-            core.finished = false;
-            core.natural_end = false;
-            core.prepare_scratch();
-            // Fresh dither seed per track: statistically independent noise,
-            // reproducible across runs for a given track path.
-            core.tpdf.reseed(track_seed(path));
-            core.recompute_bit_perfect_resampled();
-            if core.bit_perfect_resampled.load(Ordering::Relaxed) {
-                eprintln!(
-                    "[audio] WARN: device does not support native rate {src_rate} Hz, \
-                     resampling to {out_rate} Hz under Bit-perfect mode"
-                );
-            }
-        }
+        let resampler =
+            Resampler::with_algo(src_rate, out_rate, src_ch, out_ch, self.resampler_algo);
+        let shared = RtShared::new(out_rate, out_ch, resampler.is_enabled());
+        Self::apply_state(
+            &shared,
+            self.volume,
+            self.muted,
+            self.dither_idx,
+            self.bit_perfect,
+            self.viz_active,
+        );
+        // Fresh dither seed per track: statistically independent noise,
+        // reproducible across runs for a given track path.
+        let mut rng = TpdfRng::new();
+        rng.reseed(track_seed(path));
 
-        let stream = build_stream(&spec, self.core.clone(), None)?;
+        let resampled = shared.bit_perfect_resampled();
+        let stream = self.start_engine(src, resampler, shared.clone(), rng, spec)?;
+        if resampled {
+            eprintln!(
+                "[audio] WARN: device does not support native rate {src_rate} Hz, \
+                 resampling to {out_rate} Hz under Bit-perfect mode"
+            );
+        }
         if let Err(e) = stream.play() {
             self.last_error = Some(format!("Cannot start stream: {e}"));
+        } else {
+            self.last_error = None;
         }
         self.stream = Some(stream);
-        self.last_error = None;
-
+        self.shared = Some(shared);
+        self.info = Some(info.clone());
         Ok(info)
     }
 
@@ -405,7 +344,7 @@ impl Player {
         let src_ch = dop.info().channels;
         let info = dop.info().clone();
 
-        self.stream = None;
+        self.teardown();
         let mut spec = select_output(dop_rate, src_ch, self.preferred_device.as_deref())?;
 
         // DoP is bit-exact only when the device opens the exact container slot.
@@ -421,560 +360,260 @@ impl Player {
         spec.is_dop = true;
         self.device_desc = spec.device_name.clone();
 
-        {
-            let mut core = match self.core.lock() {
-                Ok(c) => c,
-                Err(_) => return Err("audio core poisoned; cannot open track".into()),
-            };
-            // Identity config: source and output rates/channels match, so the
-            // resampler degrades to a pure pass-through and the DoP words are
-            // delivered verbatim (no volume, no dither — Direct Output).
-            core.resampler = Some(Resampler::with_algo(
-                dop_rate,
-                dop_rate,
-                src_ch,
-                src_ch,
-                self.resampler_algo,
-            ));
-            core.out_rate = dop_rate;
-            core.out_ch = src_ch;
-            core.decoder = Some(Box::new(dop));
-            core.pos_secs = 0.0;
-            core.playing = false;
-            core.finished = false;
-            core.natural_end = false;
-            core.prepare_scratch();
-            core.tpdf.reseed(track_seed(path));
-            // DoP runs on an identity resampler; unless a device rate was forced,
-            // bit-perfect holds. Keeping the flag in sync with the stream config.
-            core.recompute_bit_perfect_resampled();
-        }
+        // Identity config: source and output rates/channels match, so the
+        // resampler degrades to a pure pass-through and the DoP words are
+        // delivered verbatim (no volume, no dither — Direct Output).
+        let resampler =
+            Resampler::with_algo(dop_rate, dop_rate, src_ch, src_ch, self.resampler_algo);
+        let shared = RtShared::new(dop_rate, src_ch, resampler.is_enabled());
+        Self::apply_state(
+            &shared,
+            self.volume,
+            self.muted,
+            self.dither_idx,
+            self.bit_perfect,
+            self.viz_active,
+        );
+        let mut rng = TpdfRng::new();
+        rng.reseed(track_seed(path));
+        let resampled = shared.bit_perfect_resampled();
 
-        let stream = match build_stream(&spec, self.core.clone(), None) {
+        let stream = match self.start_engine(Box::new(dop), resampler, shared.clone(), rng, spec) {
             Ok(s) => s,
             Err(e) => {
                 eprintln!("[audio] WARN: cannot build DoP stream ({e}); falling back to PCM (CIC)");
                 return self.open_pcm(path);
             }
         };
+        if resampled {
+            eprintln!(
+                "[audio] WARN: device does not support the DoP slot {dop_rate} Hz, \
+                 resampling under Bit-perfect mode"
+            );
+        }
         if let Err(e) = stream.play() {
             eprintln!("[audio] WARN: cannot start DoP stream ({e}); falling back to PCM (CIC)");
             return self.open_pcm(path);
         }
         self.stream = Some(stream);
+        self.shared = Some(shared);
+        self.info = Some(info.clone());
         self.last_error = None;
-
         Ok(info)
+    }
+
+    /// Rewind the worker/resampler to the start and clear the finished state.
+    fn rewind(&self, shared: &Arc<RtShared>) {
+        let generation = shared.begin_seek(0);
+        if let Some(worker) = &self.worker {
+            worker.send(WorkerCmd::Seek {
+                generation,
+                secs: 0.0,
+            });
+        }
+        shared.set_finished(false);
+        shared.set_natural_end(false);
     }
 
     /// Start/resume playback. A finished track is rewound and replayed.
     pub fn play(&mut self) {
-        let Ok(mut core) = self.core.lock() else {
-            self.last_error = Some("audio core busy/poisoned".into());
+        let Some(shared) = self.shared.clone() else {
+            self.last_error = Some("no track loaded".into());
             return;
         };
-        if core.decoder.is_none() {
-            return;
+        if shared.finished() {
+            self.rewind(&shared);
         }
-        if core.finished {
-            core.pos_secs = 0.0;
-            if let Some(dec) = &mut core.decoder {
-                let _ = dec.seek(0.0);
-            }
-            if let Some(res) = &mut core.resampler {
-                res.reset();
-            }
-            core.finished = false;
-        }
-        core.natural_end = false;
-        core.playing = true;
+        shared.set_natural_end(false);
+        shared.set_playing(true);
     }
 
     /// Returns `true` if a decoder (track) is currently loaded.
     pub fn has_decoder(&self) -> bool {
-        self.core.lock().map(|c| c.decoder.is_some()).unwrap_or(false)
+        self.shared.is_some()
     }
 
     /// Pause/resume the current track (rewinds if it had finished).
     pub fn toggle(&mut self) {
-        let Ok(mut core) = self.core.lock() else {
-            self.last_error = Some("audio core busy/poisoned".into());
+        let Some(shared) = self.shared.clone() else {
             return;
         };
-        if core.decoder.is_none() {
-            return;
-        }
-        if core.playing {
-            core.playing = false;
+        if shared.is_playing() {
+            shared.set_playing(false);
         } else {
-            if core.finished {
-                core.pos_secs = 0.0;
-                if let Some(dec) = &mut core.decoder {
-                    let _ = dec.seek(0.0);
-                }
-                if let Some(res) = &mut core.resampler {
-                    res.reset();
-                }
-                core.finished = false;
+            if shared.finished() {
+                self.rewind(&shared);
             }
-            core.natural_end = false;
-            core.playing = true;
+            shared.set_natural_end(false);
+            shared.set_playing(true);
         }
     }
 
     /// Stop playback, mark the track as finished and rewind to the start.
     pub fn stop(&mut self) {
-        let Ok(mut core) = self.core.lock() else { return };
-        core.playing = false;
-        core.finished = true;
-        core.natural_end = false;
-        core.pos_secs = 0.0;
-        if let Some(dec) = &mut core.decoder {
-            let _ = dec.seek(0.0);
-        }
-        if let Some(res) = &mut core.resampler {
-            res.reset();
+        let Some(shared) = self.shared.clone() else {
+            return;
+        };
+        shared.set_playing(false);
+        shared.set_finished(true);
+        shared.set_natural_end(false);
+        shared.set_pos_frames(0);
+        let generation = shared.begin_seek(0);
+        if let Some(worker) = &self.worker {
+            worker.send(WorkerCmd::Seek {
+                generation,
+                secs: 0.0,
+            });
         }
     }
 
-    /// Seek to `secs` (clamped to >= 0). Resets the resampler so the new
-    /// position is played from the decoder, not computed from stale buffers.
+    /// Seek to `secs` (clamped to >= 0). The position is re-based optimistically
+    /// and finalised by the consumer once the worker acknowledges the seek.
     pub fn seek(&mut self, secs: f64) {
-        let Ok(mut core) = self.core.lock() else { return };
-        if let Some(dec) = &mut core.decoder {
-            if dec.seek(secs).is_ok() {
-                if let Some(res) = &mut core.resampler {
-                    res.reset();
-                }
-                core.pos_secs = secs.max(0.0);
-                core.finished = false;
-                core.natural_end = false;
-            }
+        let Some(shared) = self.shared.clone() else {
+            return;
+        };
+        let secs = secs.max(0.0);
+        let target = (secs * shared.out_rate() as f64) as u64;
+        let generation = shared.begin_seek(target);
+        if let Some(worker) = &self.worker {
+            worker.send(WorkerCmd::Seek { generation, secs });
         }
+        shared.set_pos_frames(target);
+        shared.set_finished(false);
+        shared.set_natural_end(false);
     }
 
     /// Set volume, clamped to [0, 1]. Applied inside the audio callback.
     pub fn set_volume(&mut self, v: f32) {
-        if let Ok(mut core) = self.core.lock() {
-            core.volume = v.clamp(0.0, 1.0);
+        self.volume = v.clamp(0.0, 1.0);
+        if let Some(shared) = &self.shared {
+            shared.set_volume(self.volume);
         }
     }
 
-    /// Current volume in [0, 1] (fallback 0.8 while the core is busy).
+    /// Current volume in [0, 1].
     pub fn volume(&self) -> f32 {
-        self.core.lock().map(|c| c.volume).unwrap_or(0.8)
+        self.volume
     }
 
     /// Mute/unmute without changing the volume.
     pub fn set_muted(&mut self, m: bool) {
-        if let Ok(mut core) = self.core.lock() {
-            core.muted = m;
+        self.muted = m;
+        if let Some(shared) = &self.shared {
+            shared.set_muted(m);
         }
     }
 
     /// Mute state.
     pub fn muted(&self) -> bool {
-        self.core.lock().map(|c| c.muted).unwrap_or(false)
+        self.muted
     }
 
     /// Toggle mute.
     pub fn toggle_mute(&mut self) {
-        if let Ok(mut core) = self.core.lock() {
-            core.muted = !core.muted;
+        self.muted = !self.muted;
+        if let Some(shared) = &self.shared {
+            shared.set_muted(self.muted);
         }
     }
 
     /// Enable/disable bit-perfect (Direct Output) mode. When active, the
-    /// audio callback bypasses the software volume/mute stage entirely and (at
-    /// a native-rate match) delivers the stream untouched. Safe to call from
-    /// any thread: the flag is an atomic read inside the audio callback.
+    /// consumer bypasses the software volume/mute stage entirely and (at a
+    /// native-rate match) delivers the stream untouched.
     pub fn set_bit_perfect(&mut self, enabled: bool) {
-        if let Ok(mut core) = self.core.lock() {
-            core.bit_perfect.store(enabled, Ordering::Relaxed);
-            core.recompute_bit_perfect_resampled();
+        self.bit_perfect = enabled;
+        if let Some(shared) = &self.shared {
+            shared.set_bit_perfect(enabled);
         }
     }
 
     /// Current bit-perfect flag.
     pub fn bit_perfect(&self) -> bool {
-        self.core
-            .lock()
-            .map(|c| c.bit_perfect.load(Ordering::Relaxed))
-            .unwrap_or(false)
+        self.bit_perfect
     }
 
     /// True when bit-perfect mode is active while the device forces a software
     /// resample (native rate unsupported), i.e. bit-perfect is not guaranteed.
     /// Drives the «Resample (device limit)» status badge (ТЗ A2.0 §4.1).
     pub fn bit_perfect_resampled(&self) -> bool {
-        self.core
-            .lock()
-            .map(|c| c.bit_perfect_resampled.load(Ordering::Relaxed))
+        self.shared
+            .as_ref()
+            .map(|s| s.bit_perfect_resampled())
             .unwrap_or(false)
     }
 
     /// Set the dither mode applied during final quantization (i16/u8).
     pub fn set_dither(&mut self, dither: ResamplerDither) {
-        if let Ok(core) = self.core.lock() {
-            core.dither.store(dither_index(dither), Ordering::Relaxed);
+        self.dither_idx = dither_index(dither);
+        if let Some(shared) = &self.shared {
+            shared.set_dither_index(self.dither_idx);
         }
     }
 
     /// Whether the core is actively decoding (not paused/stopped).
     pub fn is_playing(&self) -> bool {
-        self.core.lock().map(|c| c.playing).unwrap_or(false)
+        self.shared
+            .as_ref()
+            .map(|s| s.is_playing())
+            .unwrap_or(false)
     }
 
     /// True when the current track played to its natural end (EOF).
     pub fn ended(&self) -> bool {
-        self.core.lock().map(|c| c.natural_end).unwrap_or(false)
+        self.shared
+            .as_ref()
+            .map(|s| s.natural_end())
+            .unwrap_or(false)
     }
 
     /// Clear the natural-end flag (e.g. after the playlist handled it).
     pub fn clear_end(&mut self) {
-        if let Ok(mut core) = self.core.lock() {
-            core.natural_end = false;
+        if let Some(shared) = &self.shared {
+            shared.set_natural_end(false);
         }
     }
 
-    /// Attach (or detach) the visualizer tap producer. The audio callback
-    /// writes post-resampler PCM into it only while [`Self::set_viz_tap_active`]
+    /// Attach (or detach) the visualizer tap producer. The worker writes
+    /// post-resampler PCM into it only while [`Self::set_viz_tap_active`]
     /// keeps it enabled.
     pub fn set_viz_tap(&mut self, tap: Option<rtrb::Producer<f32>>) {
-        if let Ok(mut core) = self.core.lock() {
-            core.viz_tap = tap;
+        if let Ok(mut slot) = self.viz_tap.lock() {
+            *slot = tap;
         }
     }
 
-    /// Toggle the tap on/off. When off, the audio callback skips the copy
-    /// entirely (zero CPU cost), per ТЗ §13.2.
+    /// Toggle the tap on/off. When off, the worker skips the copy entirely
+    /// (zero CPU cost), per ТЗ §13.2.
     pub fn set_viz_tap_active(&mut self, active: bool) {
-        if let Ok(mut core) = self.core.lock() {
-            core.viz_tap_active = active;
+        self.viz_active = active;
+        if let Some(shared) = &self.shared {
+            shared.set_viz_tap_active(active);
         }
     }
 
     /// Return a snapshot for the UI: (playing, pos, duration).
     pub fn snapshot(&self) -> (bool, f64, Option<f64>) {
-        let core = match self.core.lock() {
-            Ok(c) => c,
-            Err(_) => return (false, 0.0, None),
+        let playing = self.is_playing();
+        let pos = match &self.shared {
+            Some(shared) => shared.pos_frames() as f64 / shared.out_rate().max(1) as f64,
+            None => 0.0,
         };
-        (core.playing, core.pos_secs, core.duration_secs())
+        let duration = self
+            .info
+            .as_ref()
+            .and_then(|i| i.num_frames.map(|n| n as f64 / i.sample_rate as f64));
+        (playing, pos, duration)
     }
 
     /// Output format of the current audio stream: (sample rate, channels).
     /// Used by the visualizer to drive the FFT (tap is post-resampler PCM).
     pub fn format(&self) -> (u32, usize) {
-        let core = match self.core.lock() {
-            Ok(c) => c,
-            Err(_) => return (44_100, 2),
-        };
-        (core.out_rate, core.out_ch)
-    }
-}
-
-fn effective_volume(core: &PlaybackCore) -> f32 {
-    if core.muted {
-        0.0
-    } else {
-        core.volume
-    }
-}
-
-/// Whether dithering must be applied during final quantization (i16/u8).
-///
-/// Dither is skipped in a true bit-perfect passthrough (native sample rate,
-/// resampler inactive) so the samples stay untouched. It is applied in the
-/// normal Mixed path and in bit-perfect mode whenever a rate conversion forced
-/// a re-quantization anyway — there the noise is the only thing masking the
-/// quantization error.
-fn dither_enabled(core: &PlaybackCore) -> bool {
-    let idx = core.dither.load(Ordering::Relaxed);
-    if idx == DITHER_INDEX_OFF {
-        return false;
-    }
-    if core.bit_perfect.load(Ordering::Relaxed) {
-        let native = !core.resampler.as_ref().map(|r| r.is_enabled()).unwrap_or(true);
-        if native {
-            return false;
+        match &self.shared {
+            Some(shared) => (shared.out_rate(), shared.out_ch()),
+            None => (44_100, 2),
         }
     }
-    true
-}
-
-/// Per-sample dither amplitude for the two supported PDF shapes:
-/// full TPDF peak = 1 LSB, triangular peak = 0.5 LSB (half-amplitude).
-fn dither_amplitude(idx: u8) -> f32 {
-    if idx == DITHER_INDEX_TRIANGULAR {
-        0.5
-    } else {
-        1.0
-    }
-}
-
-// ---- Audio callback entry points (called from the cpal audio thread). ----
-//
-// These run on the real-time audio thread and must never block. They use
-// `try_lock()`; if the UI thread holds the lock (e.g. during a seek or track
-// open), the callback emits silence for that buffer instead of blocking.
-
-/// cpal callback for f32 output: pulls up to `data.len()` frames from the
-/// decoder/resampler, applies volume (bypassed in bit-perfect mode),
-/// returns silence on lock contention.
-pub fn audio_callback_f32(core: &Arc<Mutex<PlaybackCore>>, data: &mut [f32]) {
-    let Ok(mut c) = core.try_lock() else {
-        data.fill(0.0);
-        return;
-    };
-    if !c.playing {
-        data.fill(0.0);
-        return;
-    }
-    // Direct Output: bit-perfect bypasses the software volume stage (mute is
-    // ignored too — volume control moves to the external DAC/amp).
-    let vol = if c.bit_perfect.load(Ordering::Relaxed) {
-        1.0
-    } else {
-        effective_volume(&c)
-    };
-    let produced = c.fill(data);
-    c.pos_secs += produced as f64 / c.out_rate as f64 / c.out_ch as f64;
-    // Visualizer tap: post-resampler PCM, exactly what reaches the DAC
-    // (WYSIWYG), before soft volume is applied. Non-blocking: drops on full.
-    if c.viz_tap_active {
-        if let Some(tap) = c.viz_tap.as_mut() {
-            for s in data.iter().take(produced) {
-                if tap.push(*s).is_err() {
-                    break;
-                }
-            }
-        }
-    }
-    // Skip the multiply entirely when the effective volume is unity (saves
-    // cycles and preserves bits for `volume == 1.0`).
-    if vol < 1.0 {
-        for s in data.iter_mut().take(produced) {
-            *s *= vol;
-        }
-    }
-    if produced < data.len() {
-        data[produced..].fill(0.0);
-        if c.decoder.as_ref().map(|d| d.eof()).unwrap_or(false) {
-            c.playing = false;
-            c.finished = true;
-            c.natural_end = true;
-        }
-    }
-}
-
-/// cpal callback for i16 output (see [`audio_callback_f32`]).
-pub fn audio_callback_i16(core: &Arc<Mutex<PlaybackCore>>, data: &mut [i16]) {
-    let Ok(mut c) = core.try_lock() else {
-        data.fill(0);
-        return;
-    };
-    if !c.playing {
-        data.fill(0);
-        return;
-    }
-    let vol = if c.bit_perfect.load(Ordering::Relaxed) {
-        1.0
-    } else {
-        effective_volume(&c)
-    };
-    let (apply_dither, dither_amp) = if dither_enabled(&c) {
-        (true, dither_amplitude(c.dither.load(Ordering::Relaxed)))
-    } else {
-        (false, 1.0)
-    };
-    let out_ch = c.out_ch;
-    let Some(mut tmp) = c.scratch_for(data.len()) else {
-        data.fill(0);
-        return;
-    };
-    let produced = c.fill(&mut tmp);
-    c.pos_secs += produced as f64 / c.out_rate as f64 / out_ch as f64;
-    if c.viz_tap_active {
-        if let Some(tap) = c.viz_tap.as_mut() {
-            for s in tmp.iter().take(produced) {
-                if tap.push(*s).is_err() {
-                    break;
-                }
-            }
-        }
-    }
-    let mut tpdf = c.tpdf;
-    for (dst, &src) in data.iter_mut().zip(tmp.iter()).take(produced) {
-        let mut x = src.clamp(-1.0, 1.0) * vol * 32767.0;
-        if apply_dither {
-            x += tpdf.next_tpdf() * dither_amp;
-        }
-        *dst = x.round().clamp(-32768.0, 32767.0) as i16;
-    }
-    c.tpdf = tpdf;
-    for s in data.iter_mut().skip(produced) {
-        *s = 0;
-    }
-    if produced < data.len() && c.decoder.as_ref().map(|d| d.eof()).unwrap_or(false) {
-        c.playing = false;
-        c.finished = true;
-        c.natural_end = true;
-    }
-    c.scratch_release(tmp);
-}
-
-/// cpal callback for u8 output (silence = 128, samples centered at 0.5).
-pub fn audio_callback_u8(core: &Arc<Mutex<PlaybackCore>>, data: &mut [u8]) {
-    let Ok(mut c) = core.try_lock() else {
-        data.fill(128);
-        return;
-    };
-    if !c.playing {
-        data.fill(128);
-        return;
-    }
-    let vol = if c.bit_perfect.load(Ordering::Relaxed) {
-        1.0
-    } else {
-        effective_volume(&c)
-    };
-    let (apply_dither, dither_amp) = if dither_enabled(&c) {
-        (true, dither_amplitude(c.dither.load(Ordering::Relaxed)))
-    } else {
-        (false, 1.0)
-    };
-    let out_ch = c.out_ch;
-    let Some(mut tmp) = c.scratch_for(data.len()) else {
-        data.fill(128);
-        return;
-    };
-    let produced = c.fill(&mut tmp);
-    c.pos_secs += produced as f64 / c.out_rate as f64 / out_ch as f64;
-    if c.viz_tap_active {
-        if let Some(tap) = c.viz_tap.as_mut() {
-            for s in tmp.iter().take(produced) {
-                if tap.push(*s).is_err() {
-                    break;
-                }
-            }
-        }
-    }
-    let mut tpdf = c.tpdf;
-    for (dst, &src) in data.iter_mut().zip(tmp.iter()).take(produced) {
-        let mut x = (src.clamp(-1.0, 1.0) * vol * 0.5 + 0.5) * 255.0;
-        if apply_dither {
-            x += tpdf.next_tpdf() * dither_amp;
-        }
-        *dst = x.round().clamp(0.0, 255.0) as u8;
-    }
-    c.tpdf = tpdf;
-    for s in data.iter_mut().skip(produced) {
-        *s = 128;
-    }
-    if produced < data.len() && c.decoder.as_ref().map(|d| d.eof()).unwrap_or(false) {
-        c.playing = false;
-        c.finished = true;
-        c.natural_end = true;
-    }
-    c.scratch_release(tmp);
-}
-
-/// cpal callback for i32 output on the DoP (DSD over PCM) path: samples are
-/// already framed 24-bit DoP words (marker 0x05/0xFA in bits 23-16, two DSD
-/// bytes in bits 15-0), carried verbatim as f32 through the identity resampler.
-/// The i32 container left-aligns them: `<< 8` places the marker into bits
-/// 31-24 (mpv `marker << 24 | d0 << 16 | d1 << 8`; the low byte stays zero).
-/// This is a Direct Output path: no volume, no dither, no resampler, so the
-/// raw DSD stream reaches the DAC untouched.
-pub fn audio_callback_i32_dop(core: &Arc<Mutex<PlaybackCore>>, data: &mut [i32]) {
-    let Ok(mut c) = core.try_lock() else {
-        data.fill(0);
-        return;
-    };
-    if !c.playing {
-        data.fill(0);
-        return;
-    }
-    let out_ch = c.out_ch;
-    let Some(mut tmp) = c.scratch_for(data.len()) else {
-        data.fill(0);
-        return;
-    };
-    let produced = c.fill(&mut tmp);
-    c.pos_secs += produced as f64 / c.out_rate as f64 / out_ch as f64;
-    for (dst, &src) in data.iter_mut().zip(tmp.iter()).take(produced) {
-        *dst = ((src.clamp(0.0, 16_777_215.0) as u32) << 8) as i32;
-    }
-    for s in data.iter_mut().skip(produced) {
-        *s = 0;
-    }
-    if produced < data.len() && c.decoder.as_ref().map(|d| d.eof()).unwrap_or(false) {
-        c.playing = false;
-        c.finished = true;
-        c.natural_end = true;
-    }
-    c.scratch_release(tmp);
-}
-
-/// cpal callback for i32 PCM output (a native-I32 hardware node, e.g. the raw
-/// `hw:*` ALSA handle of a USB DAC). Same semantics as [`audio_callback_i16`]
-/// scaled to 32-bit: volume (bypassed in bit-perfect mode), optional TPDF
-/// dither, hard clipping to the i32 range.
-pub fn audio_callback_i32_pcm(core: &Arc<Mutex<PlaybackCore>>, data: &mut [i32]) {
-    let Ok(mut c) = core.try_lock() else {
-        data.fill(0);
-        return;
-    };
-    if !c.playing {
-        data.fill(0);
-        return;
-    }
-    let vol = if c.bit_perfect.load(Ordering::Relaxed) {
-        1.0
-    } else {
-        effective_volume(&c)
-    };
-    let (apply_dither, dither_amp) = if dither_enabled(&c) {
-        (true, dither_amplitude(c.dither.load(Ordering::Relaxed)))
-    } else {
-        (false, 1.0)
-    };
-    let out_ch = c.out_ch;
-    let Some(mut tmp) = c.scratch_for(data.len()) else {
-        data.fill(0);
-        return;
-    };
-    let produced = c.fill(&mut tmp);
-    c.pos_secs += produced as f64 / c.out_rate as f64 / out_ch as f64;
-    if c.viz_tap_active {
-        if let Some(tap) = c.viz_tap.as_mut() {
-            for s in tmp.iter().take(produced) {
-                if tap.push(*s).is_err() {
-                    break;
-                }
-            }
-        }
-    }
-    const I32_MAX: f64 = 2_147_483_647.0;
-    let mut tpdf = c.tpdf;
-    for (dst, &src) in data.iter_mut().zip(tmp.iter()).take(produced) {
-        let mut x = src.clamp(-1.0, 1.0) as f64 * vol as f64 * I32_MAX;
-        if apply_dither {
-            x += tpdf.next_tpdf() as f64 * dither_amp as f64;
-        }
-        *dst = x.round().clamp(-I32_MAX - 1.0, I32_MAX) as i32;
-    }
-    c.tpdf = tpdf;
-    for s in data.iter_mut().skip(produced) {
-        *s = 0;
-    }
-    if produced < data.len() && c.decoder.as_ref().map(|d| d.eof()).unwrap_or(false) {
-        c.playing = false;
-        c.finished = true;
-        c.natural_end = true;
-    }
-    c.scratch_release(tmp);
 }
 
 impl Default for Player {
@@ -989,8 +628,8 @@ impl Default for Player {
 // atomics): no `Mutex`, no decoder, no allocation, no logging. Volume/mute/
 // bit-perfect/dither come from `RtShared`; samples come from the worker's ring.
 
-/// Dither applicability for the ring-consumer path (mirrors `dither_enabled`):
-/// skipped in a true bit-perfect passthrough, applied otherwise.
+/// Dither applicability for the ring-consumer path: skipped in a true
+/// bit-perfect passthrough, applied otherwise.
 fn dither_enabled_rt(bit_perfect: bool, resampler_enabled: bool, dither_idx: u8) -> bool {
     if dither_idx == DITHER_INDEX_OFF {
         return false;
@@ -1064,7 +703,8 @@ pub fn audio_callback_i16_rt(consumer: &mut RtConsumer, data: &mut [i16]) {
         consumer.shared().volume()
     };
     let dither_idx = consumer.shared().dither_index();
-    let apply_dither = dither_enabled_rt(bit_perfect, consumer.shared().resampler_enabled(), dither_idx);
+    let apply_dither =
+        dither_enabled_rt(bit_perfect, consumer.shared().resampler_enabled(), dither_idx);
     let dither_amp = dither_amplitude(dither_idx);
     let produced = consumer.pull_scratch(data.len());
     let mut tpdf = consumer.tpdf();
@@ -1103,7 +743,8 @@ pub fn audio_callback_u8_rt(consumer: &mut RtConsumer, data: &mut [u8]) {
         consumer.shared().volume()
     };
     let dither_idx = consumer.shared().dither_index();
-    let apply_dither = dither_enabled_rt(bit_perfect, consumer.shared().resampler_enabled(), dither_idx);
+    let apply_dither =
+        dither_enabled_rt(bit_perfect, consumer.shared().resampler_enabled(), dither_idx);
     let dither_amp = dither_amplitude(dither_idx);
     let produced = consumer.pull_scratch(data.len());
     let mut tpdf = consumer.tpdf();
@@ -1142,7 +783,8 @@ pub fn audio_callback_i32_pcm_rt(consumer: &mut RtConsumer, data: &mut [i32]) {
         consumer.shared().volume()
     };
     let dither_idx = consumer.shared().dither_index();
-    let apply_dither = dither_enabled_rt(bit_perfect, consumer.shared().resampler_enabled(), dither_idx);
+    let apply_dither =
+        dither_enabled_rt(bit_perfect, consumer.shared().resampler_enabled(), dither_idx);
     let dither_amp = dither_amplitude(dither_idx);
     let produced = consumer.pull_scratch(data.len());
     const I32_MAX: f64 = 2_147_483_647.0;
@@ -1185,18 +827,36 @@ pub fn audio_callback_i32_dop_rt(consumer: &mut RtConsumer, data: &mut [i32]) {
     }
 }
 
+/// Per-sample dither amplitude for the two supported PDF shapes:
+/// full TPDF peak = 1 LSB, triangular peak = 0.5 LSB (half-amplitude).
+fn dither_amplitude(idx: u8) -> f32 {
+    if idx == DITHER_INDEX_TRIANGULAR {
+        0.5
+    } else {
+        1.0
+    }
+}
+
 #[cfg(test)]
 impl Player {
     /// Test-only: build a `Player` without touching the audio backend.
     fn test_new() -> Self {
         Self {
-            core: Arc::new(Mutex::new(PlaybackCore::new())),
+            shared: None,
+            worker: None,
+            viz_tap: Arc::new(Mutex::new(None)),
             stream: None,
             device_desc: String::from("test"),
             last_error: None,
+            info: None,
             preferred_device: None,
             resampler_algo: ResamplerAlgorithm::SincMedium,
             dsd_mode: DsdMode::Pcm,
+            volume: 0.8,
+            muted: false,
+            bit_perfect: false,
+            dither_idx: DITHER_INDEX_TPDF,
+            viz_active: false,
         }
     }
 }
@@ -1267,86 +927,51 @@ static GLOBAL_ALLOC: alloc_tracking::CountingAllocator = alloc_tracking::Countin
 mod tests {
     use super::*;
     use crate::audio::decoder::TrackInfo;
-    use crate::audio::worker::RtShared;
+    use crate::audio::worker::{RtShared, MAX_OUT_SAMPLES};
 
-    /// Deterministic test source: mono PCM at 44100 Hz, constant amplitude.
-    struct MockSource {
-        info: TrackInfo,
-        data: Vec<f32>,
-        offset: usize,
-        scratch: Vec<f32>,
-        eof: bool,
-    }
-
-    impl MockSource {
-        fn new(frames: usize) -> Self {
-            let rate = 44100;
-            Self {
-                info: TrackInfo {
-                    sample_rate: rate,
-                    channels: 1,
-                    num_frames: Some(frames as u64),
-                    format_name: "mock".into(),
-                    bitrate: 0,
-                    bits: Some(16),
-                    tags: Default::default(),
-                },
-                data: vec![0.25; frames],
-                offset: 0,
-                scratch: vec![0.0; 512],
-                eof: false,
-            }
+    fn track_info(frames: usize) -> TrackInfo {
+        TrackInfo {
+            sample_rate: 44100,
+            channels: 1,
+            num_frames: Some(frames as u64),
+            format_name: "mock".into(),
+            bitrate: 0,
+            bits: Some(16),
+            tags: Default::default(),
         }
     }
 
-    impl AudioSource for MockSource {
-        fn next_frames(&mut self) -> Option<&[f32]> {
-            if self.eof || self.offset >= self.data.len() {
-                self.eof = true;
-                return None;
-            }
-            let n = self.scratch.len().min(self.data.len() - self.offset);
-            self.scratch[..n].copy_from_slice(&self.data[self.offset..self.offset + n]);
-            self.offset += n;
-            Some(&self.scratch[..n])
-        }
-        fn seek(&mut self, _secs: f64) -> Result<(), String> {
-            self.offset = 0;
-            self.eof = false;
-            Ok(())
-        }
-        fn info(&self) -> &TrackInfo {
-            &self.info
-        }
-        fn eof(&self) -> bool {
-            self.eof
-        }
-    }
-
-    /// Core with a mono 1:1 resampler so callbacks can actually produce
-    /// frames from `MockSource`.
-    fn core_with_source(frames: usize) -> Arc<Mutex<PlaybackCore>> {
-        let core = Arc::new(Mutex::new(PlaybackCore::new()));
-        seed_core(&core, frames);
-        core
-    }
-
-    fn seed_core(core: &Arc<Mutex<PlaybackCore>>, frames: usize) {
-        let mut c = core.lock().unwrap();
-        c.decoder = Some(Box::new(MockSource::new(frames)));
-        c.resampler = Some(Resampler::new(44100, 44100, 1, 1));
-        c.out_rate = 44100;
-        c.out_ch = 1;
-        c.playing = false;
-        c.finished = false;
-        c.natural_end = false;
-        c.pos_secs = 0.0;
-    }
-
-    fn player_with_source(frames: usize) -> Player {
-        let p = Player::test_new();
-        seed_core(&p.core, frames);
+    /// A `Player` with a live `RtShared` but no output engine: enough to test
+    /// transport/control state without touching a real backend.
+    fn player_with_shared(frames: usize) -> Player {
+        let mut p = Player::test_new();
+        p.shared = Some(RtShared::new(44100, 1, false));
+        p.info = Some(track_info(frames));
         p
+    }
+
+    /// `RtConsumer` with a pre-filled ring and playing transport.
+    fn rt_consumer_with(samples: &[f32], out_ch: usize) -> RtConsumer {
+        let (mut prod, cons) = rtrb::RingBuffer::<f32>::new(samples.len().max(64) + 1024);
+        let shared = RtShared::new(44100, out_ch, false);
+        for &s in samples {
+            let _ = prod.push(s);
+        }
+        let mut c = RtConsumer::new(cons, shared);
+        c.shared().set_playing(true);
+        c
+    }
+
+    /// `RtConsumer` with `n` constant `0.5` samples queued.
+    fn rt_consumer_filled(n: usize, out_ch: usize) -> RtConsumer {
+        let (mut prod, cons) = rtrb::RingBuffer::<f32>::new(n + 1024);
+        let shared = RtShared::new(44100, out_ch, false);
+        for _ in 0..n {
+            let _ = prod.push(0.5);
+        }
+        let mut c = RtConsumer::new(cons, shared);
+        c.shared().set_playing(true);
+        c
     }
 
     #[test]
@@ -1358,7 +983,7 @@ mod tests {
 
     #[test]
     fn toggle_pauses_and_resumes() {
-        let mut p = player_with_source(1000);
+        let mut p = player_with_shared(1000);
         p.toggle();
         assert!(p.is_playing(), "toggle should start playback");
         p.toggle();
@@ -1367,31 +992,31 @@ mod tests {
 
     #[test]
     fn stop_rewinds_and_confirms_manual_end() {
-        let mut p = player_with_source(1000);
+        let mut p = player_with_shared(1000);
         p.play();
         p.stop();
         assert!(!p.is_playing());
         assert_eq!(p.snapshot().1, 0.0, "stop must rewind to start");
-        let c = p.core.lock().unwrap();
-        assert!(c.finished);
-        assert!(!c.natural_end, "manual stop is not a natural end");
+        let shared = p.shared.as_ref().expect("shared");
+        assert!(shared.finished());
+        assert!(!shared.natural_end(), "manual stop is not a natural end");
     }
 
     #[test]
     fn play_after_stop_replays_from_start() {
-        let mut p = player_with_source(1000);
+        let mut p = player_with_shared(1000);
         p.play();
         p.stop();
         p.play();
         assert!(p.is_playing());
-        let c = p.core.lock().unwrap();
-        assert!(!c.finished);
-        assert_eq!(c.pos_secs, 0.0);
+        let shared = p.shared.as_ref().expect("shared");
+        assert!(!shared.finished());
+        assert_eq!(p.snapshot().1, 0.0);
     }
 
     #[test]
     fn seek_moves_position() {
-        let mut p = player_with_source(100_000);
+        let mut p = player_with_shared(100_000);
         p.seek(10.0);
         let (_, pos, _) = p.snapshot();
         assert!((pos - 10.0).abs() < 1e-6, "pos = {pos}");
@@ -1421,202 +1046,9 @@ mod tests {
 
     #[test]
     fn snapshot_reports_duration() {
-        let p = player_with_source(4_410_000);
+        let p = player_with_shared(4_410_000);
         let (_, _, dur) = p.snapshot();
         assert_eq!(dur, Some(100.0));
-    }
-
-    #[test]
-    fn callback_applies_volume() {
-        let core = core_with_source(10_000);
-        {
-            let mut c = core.lock().unwrap();
-            c.playing = true;
-            c.volume = 0.5;
-        }
-        let mut buf = vec![0.0; 256];
-        audio_callback_f32(&core, &mut buf);
-        let filled = buf.len() - buf.iter().rev().take_while(|s| **s == 0.0).count();
-        assert!(filled > 0, "expected audio output");
-        // Constant 0.25 input scaled by 0.5 volume.
-        assert!(
-            buf[..filled].iter().all(|s| (*s - 0.125).abs() < 1e-6),
-            "volume scaling"
-        );
-    }
-
-    #[test]
-    fn callback_advances_position_while_playing() {
-        let core = core_with_source(4_410_000);
-        {
-            let mut c = core.lock().unwrap();
-            c.playing = true;
-        }
-        let mut buf = vec![0.0; 256];
-        audio_callback_f32(&core, &mut buf);
-        let pos = core.lock().unwrap().pos_secs;
-        assert_eq!(pos, 256.0 / 44100.0);
-    }
-
-    #[test]
-    fn callback_silences_when_muted() {
-        let core = core_with_source(10_000);
-        {
-            let mut c = core.lock().unwrap();
-            c.playing = true;
-            c.muted = true;
-        }
-        let mut buf = vec![0.3; 256];
-        audio_callback_f32(&core, &mut buf);
-        assert!(buf.iter().all(|s| *s == 0.0));
-    }
-
-    #[test]
-    fn callback_marks_natural_end_at_eof() {
-        let core = core_with_source(1000);
-        {
-            let mut c = core.lock().unwrap();
-            c.playing = true;
-        }
-        let mut buf = vec![0.0; 4096];
-        audio_callback_f32(&core, &mut buf);
-
-        let ended = core.lock().unwrap();
-        assert!(!ended.playing, "EOF must stop playback");
-        assert!(ended.finished);
-        assert!(ended.natural_end);
-    }
-
-    #[test]
-    fn callback_emits_silence_when_lock_held() {
-        let core = Arc::new(Mutex::new(PlaybackCore::new()));
-        // std Mutex is not reentrant: holding the guard here simulates the
-        // UI thread owning the lock while the audio thread tries to write.
-        let _guard = core.lock().unwrap();
-        let mut buf = vec![0.3; 8];
-        audio_callback_f32(&core, &mut buf);
-        assert!(buf.iter().all(|s| *s == 0.0), "callback must not block");
-    }
-
-    #[test]
-    fn scratch_capacity_is_pinned() {
-        // After `open` (simulated via prepare_scratch) the f32 pool stays
-        // pinned to MAX_OUT_SAMPLES: a resize inside the callback reuses the
-        // capacity and never reallocates (ТЗ A2.0 §3.1).
-        let core = core_with_source(10_000);
-        {
-            let mut c = core.lock().unwrap();
-            c.prepare_scratch();
-            c.playing = true;
-            c.dither.store(DITHER_INDEX_OFF, Ordering::Relaxed);
-        }
-        let mut buf = vec![0i16; 256];
-        audio_callback_i16(&core, &mut buf);
-        {
-            let c = core.lock().unwrap();
-            assert_eq!(c.scratch.capacity(), MAX_OUT_SAMPLES);
-            assert_eq!(c.scratch.len(), 0, "pool must be returned cleared");
-        }
-        // A buffer at the ceiling must also never grow the pool.
-        let mut buf = vec![0i16; MAX_OUT_SAMPLES];
-        audio_callback_i16(&core, &mut buf);
-        let c = core.lock().unwrap();
-        assert_eq!(c.scratch.capacity(), MAX_OUT_SAMPLES);
-    }
-
-    #[test]
-    fn callback_silences_when_buffer_exceeds_ceiling() {
-        let core = core_with_source(10_000);
-        {
-            let mut c = core.lock().unwrap();
-            c.prepare_scratch();
-            c.playing = true;
-            c.volume = 0.5;
-            c.dither.store(DITHER_INDEX_OFF, Ordering::Relaxed);
-        }
-        // A buffer larger than the pinned ceiling must be replaced by silence
-        // instead of growing the pool (ТЗ A2.0 §3.2).
-        let mut buf = vec![1i16; MAX_OUT_SAMPLES + 256];
-        audio_callback_i16(&core, &mut buf);
-        assert!(
-            buf.iter().all(|s| *s == 0),
-            "oversized buffer must be silenced"
-        );
-        let c = core.lock().unwrap();
-        assert_eq!(c.scratch.capacity(), MAX_OUT_SAMPLES, "pool must not grow");
-    }
-
-    #[test]
-    fn scratch_pool_never_shrinks_across_calls() {
-        let core = core_with_source(20_000);
-        {
-            let mut c = core.lock().unwrap();
-            c.prepare_scratch();
-            c.playing = true;
-            c.dither.store(DITHER_INDEX_OFF, Ordering::Relaxed);
-        }
-        // A released pool must keep its capacity across repeated callback
-        // cycles — shrinking would force a reallocation inside the RT path
-        // (ТЗ A2.0 §3.3).
-        for i in 0..3 {
-            let mut buf = vec![0i16; 8192];
-            audio_callback_i16(&core, &mut buf);
-            let cap = core.lock().unwrap().scratch.capacity();
-            assert_eq!(
-                cap, MAX_OUT_SAMPLES,
-                "capacity dropped after callback cycle {i}"
-            );
-        }
-    }
-
-    /// Run `f` with allocation counting armed; returns the number of new
-    /// allocations performed on this thread during the call.
-    fn zero_alloc_run<F: FnOnce()>(f: F) -> u64 {
-        use super::alloc_tracking as at;
-        at::TRACKING.store(true, Ordering::SeqCst);
-        at::reset_count();
-        f();
-        let n = at::alloc_count();
-        at::TRACKING.store(false, Ordering::SeqCst);
-        n
-    }
-
-    #[test]
-    fn all_callbacks_perform_zero_allocations() {
-        let core = core_with_source(50_000);
-        {
-            let mut c = core.lock().unwrap();
-            c.prepare_scratch();
-            c.playing = true;
-            c.volume = 1.0;
-            c.dither.store(DITHER_INDEX_OFF, Ordering::Relaxed);
-        }
-        let mut b_f32 = vec![0.0f32; 4096];
-        let mut b_i16 = vec![0i16; 4096];
-        let mut b_u8 = vec![0u8; 4096];
-        let mut b_i32 = vec![0i32; 4096];
-        let mut b_dop = vec![0i32; 4096];
-        // Warm-up: any lazily-initialised state (iterator glue, TLS, etc.) must
-        // settle before the zero-allocation assertion (ТЗ A2.0 §3.4).
-        audio_callback_f32(&core, &mut b_f32);
-        audio_callback_i16(&core, &mut b_i16);
-        audio_callback_u8(&core, &mut b_u8);
-        audio_callback_i32_pcm(&core, &mut b_i32);
-        audio_callback_i32_dop(&core, &mut b_dop);
-
-        assert_eq!(zero_alloc_run(|| audio_callback_f32(&core, &mut b_f32)), 0, "f32");
-        assert_eq!(zero_alloc_run(|| audio_callback_i16(&core, &mut b_i16)), 0, "i16");
-        assert_eq!(zero_alloc_run(|| audio_callback_u8(&core, &mut b_u8)), 0, "u8");
-        assert_eq!(
-            zero_alloc_run(|| audio_callback_i32_pcm(&core, &mut b_i32)),
-            0,
-            "i32_pcm"
-        );
-        assert_eq!(
-            zero_alloc_run(|| audio_callback_i32_dop(&core, &mut b_dop)),
-            0,
-            "i32_dop"
-        );
     }
 
     #[test]
@@ -1640,157 +1072,9 @@ mod tests {
         }
         let mean = sum / N as f64;
         assert!(mean.abs() < 1e-3, "TPDF mean not centred: {mean}");
-        assert!(0.0 > -1.5, "guard");
-    }
-
-    #[test]
-    fn bit_perfect_bypasses_software_volume() {
-        let core = core_with_source(10_000);
-        {
-            let mut c = core.lock().unwrap();
-            c.playing = true;
-            c.volume = 0.5;
-            c.bit_perfect.store(true, Ordering::Relaxed);
-        }
-        let mut buf = vec![0.0; 256];
-        audio_callback_f32(&core, &mut buf);
-        let filled = buf.len() - buf.iter().rev().take_while(|s| **s == 0.0).count();
-        assert!(buf[..filled].iter().all(|s| (*s - 0.25).abs() < 1e-6),
-            "bit-perfect must not scale samples by software volume");
-    }
-
-    #[test]
-    fn bit_perfect_passthrough_keeps_samples_untouched() {
-        let core = core_with_source(10_000);
-        {
-            let mut c = core.lock().unwrap();
-            c.playing = true;
-            c.volume = 0.3;
-            c.muted = true;
-            c.bit_perfect.store(true, Ordering::Relaxed);
-        }
-        let mut buf = vec![0.0; 256];
-        audio_callback_f32(&core, &mut buf);
-        assert!(buf.iter().any(|s| *s != 0.0), "mute must be ignored in bit-perfect");
-        let filled = buf.len() - buf.iter().rev().take_while(|s| **s == 0.0).count();
-        assert!(buf[..filled].iter().all(|s| (*s - 0.25).abs() < 1e-6));
-    }
-
-    #[test]
-    fn bit_perfect_resampled_flag_updates_on_toggle() {
-        let mut p = Player::new();
-        // Identity resampler: native-rate match, resampling is unnecessary.
-        {
-            let mut c = p.core.lock().unwrap();
-            c.resampler = Some(Resampler::new(44100, 44100, 1, 1));
-        }
-        p.set_bit_perfect(true);
-        assert!(!p.bit_perfect_resampled());
-
-        // Device rejects the native rate: a real conversion starts, the
-        // «bit-perfect not guaranteed» flag must flip (ТЗ A2.0 §4.1).
-        {
-            let mut c = p.core.lock().unwrap();
-            c.resampler = Some(Resampler::new(44100, 48000, 1, 1));
-            c.recompute_bit_perfect_resampled();
-        }
-        assert!(p.bit_perfect_resampled());
-
-        // Switching bit-perfect off clears the badge even while resampling.
-        p.set_bit_perfect(false);
-        assert!(!p.bit_perfect_resampled());
-    }
-
-    #[test]
-    fn i16_clamps_and_scales_volume() {
-        let core = core_with_source(10_000);
-        {
-            let mut c = core.lock().unwrap();
-            c.playing = true;
-            c.volume = 0.5;
-            c.dither.store(DITHER_INDEX_OFF, Ordering::Relaxed);
-        }
-        let mut buf = vec![0i16; 256];
-        audio_callback_i16(&core, &mut buf);
-        let produced = buf.len() - buf.iter().rev().take_while(|s| **s == 0).count();
-        assert!(produced > 0, "expected i16 output");
-        let expected = (0.25f32 * 0.5 * 32767.0).round() as i16;
-        assert!(buf[..produced].iter().all(|s| *s == expected), "got {:?}", &buf[..produced]);
-    }
-
-    #[test]
-    fn i32_pcm_scales_and_clamps_volume() {
-        let core = core_with_source(10_000);
-        {
-            let mut c = core.lock().unwrap();
-            c.playing = true;
-            c.volume = 0.5;
-            c.dither.store(DITHER_INDEX_OFF, Ordering::Relaxed);
-        }
-        let mut buf = vec![0i32; 256];
-        audio_callback_i32_pcm(&core, &mut buf);
-        let produced = buf.len() - buf.iter().rev().take_while(|s| **s == 0).count();
-        assert!(produced > 0, "expected i32 PCM output");
-        let expected = (0.25f32 * 0.5 * 2_147_483_647.0).round() as i32;
-        assert!(buf[..produced].iter().all(|s| *s == expected), "got {:?}", &buf[..produced]);
-    }
-
-    #[test]
-    fn i32_pcm_is_not_dop_packed() {
-        // The ADI-2 regression: the old i32 callback was the DoP packer
-        // (`(src << 8)`), producing silence for plain PCM. A positive sample
-        // must come out as a positive i32 value, not a left-shifted byte.
-        let core = core_with_source(10_000);
-        {
-            let mut c = core.lock().unwrap();
-            c.playing = true;
-            c.volume = 1.0;
-            c.dither.store(DITHER_INDEX_OFF, Ordering::Relaxed);
-        }
-        let mut buf = vec![0i32; 64];
-        audio_callback_i32_pcm(&core, &mut buf);
-        let produced = buf.len() - buf.iter().rev().take_while(|s| **s == 0).count();
-        assert!(produced > 0);
-        let expected = (0.25f32 * 2_147_483_647.0).round() as i32;
-        assert_eq!(buf[0], expected);
-        // A left-shifted 0.25 would be 0x40000000 (or clamped 0.0 in old code).
-        assert!(buf[0] > 0 && buf[0] != 0x4000_0000_i32, "DoP packing leaked into PCM");
-    }
-
-    #[test]
-    fn tpdf_dither_adds_noise_to_quantization() {
-        let core = core_with_source(10_000);
-        {
-            let mut c = core.lock().unwrap();
-            c.playing = true;
-            c.volume = 1.0;
-            c.dither.store(DITHER_INDEX_TPDF, Ordering::Relaxed);
-        }
-        let mut buf = vec![0i16; 256];
-        audio_callback_i16(&core, &mut buf);
-        let mut unique = std::collections::BTreeSet::new();
-        for &s in &buf {
-            unique.insert(s);
-        }
-        assert!(unique.len() > 1, "dithering must make quantized samples vary");
-        // All output must stay within i16 bounds.
-        let (lo, hi) = (i16::MIN, i16::MAX);
-        assert!(buf.iter().all(|s| *s >= lo && *s <= hi));
     }
 
     // ---- Producer/Consumer callback tests (ТЗ A2.0 §5.3) ----
-
-    /// RtConsumer with a pre-filled ring and playing transport.
-    fn rt_consumer_with(samples: &[f32], out_ch: usize) -> RtConsumer {
-        let (mut prod, cons) = rtrb::RingBuffer::<f32>::new(4096);
-        let shared = RtShared::new(44100, out_ch, false);
-        for &s in samples {
-            let _ = prod.push(s);
-        }
-        let mut c = RtConsumer::new(cons, shared);
-        c.shared().set_playing(true);
-        c
-    }
 
     #[test]
     fn rt_f32_applies_volume_and_silences_when_paused() {
@@ -1807,6 +1091,25 @@ mod tests {
     }
 
     #[test]
+    fn rt_callback_advances_position_by_frames() {
+        let mut c = rt_consumer_filled(1024, 1);
+        let mut data = [0.0f32; 256];
+        audio_callback_f32_rt(&mut c, &mut data);
+        assert_eq!(c.shared().pos_frames(), 256);
+    }
+
+    #[test]
+    fn rt_callback_marks_natural_end_at_eof() {
+        let mut c = rt_consumer_with(&[0.5, 0.5], 1);
+        c.shared().set_eof(true);
+        let mut data = [0.0f32; 8];
+        audio_callback_f32_rt(&mut c, &mut data);
+        assert!(!c.shared().is_playing(), "EOF must stop playback");
+        assert!(c.shared().finished());
+        assert!(c.shared().natural_end());
+    }
+
+    #[test]
     fn rt_i16_scales_to_full_scale() {
         let mut c = rt_consumer_with(&[1.0, 1.0], 1);
         c.shared().set_volume(1.0);
@@ -1814,6 +1117,17 @@ mod tests {
         let mut data = [0i16; 2];
         audio_callback_i16_rt(&mut c, &mut data);
         assert_eq!(data, [32767, 32767]);
+    }
+
+    #[test]
+    fn rt_i16_clamps_and_scales_volume() {
+        let mut c = rt_consumer_with(&[0.25; 256], 1);
+        c.shared().set_volume(0.5);
+        c.shared().set_dither_index(DITHER_INDEX_OFF);
+        let mut data = [0i16; 256];
+        audio_callback_i16_rt(&mut c, &mut data);
+        let expected = (0.25f32 * 0.5 * 32767.0).round() as i16;
+        assert!(data.iter().all(|s| *s == expected), "got {:?}", &data[..4]);
     }
 
     #[test]
@@ -1827,11 +1141,148 @@ mod tests {
     }
 
     #[test]
+    fn rt_i32_pcm_is_not_dop_packed() {
+        // The ADI-2 regression: the old i32 callback was the DoP packer
+        // (`(src << 8)`), producing silence for plain PCM. A positive sample
+        // must come out as a positive i32 value, not a left-shifted byte.
+        let mut c = rt_consumer_with(&[0.25; 64], 1);
+        c.shared().set_volume(1.0);
+        c.shared().set_dither_index(DITHER_INDEX_OFF);
+        let mut data = [0i32; 64];
+        audio_callback_i32_pcm_rt(&mut c, &mut data);
+        let expected = (0.25f32 * 2_147_483_647.0).round() as i32;
+        assert_eq!(data[0], expected);
+        assert!(data[0] > 0 && data[0] != 0x4000_0000_i32, "DoP packing leaked");
+    }
+
+    #[test]
     fn rt_i32_dop_left_aligns_marker() {
         let mut c = rt_consumer_with(&[16_777_215.0, 0.0], 1);
         let mut data = [0i32; 2];
         audio_callback_i32_dop_rt(&mut c, &mut data);
         assert_eq!(data[0], (16_777_215u32 << 8) as i32);
         assert_eq!(data[1], 0);
+    }
+
+    #[test]
+    fn rt_bit_perfect_bypasses_software_volume() {
+        let mut c = rt_consumer_with(&[0.25; 256], 1);
+        c.shared().set_volume(0.5);
+        c.shared().set_bit_perfect(true);
+        let mut data = [0.0f32; 256];
+        audio_callback_f32_rt(&mut c, &mut data);
+        assert!(data.iter().all(|s| (*s - 0.25).abs() < 1e-6));
+    }
+
+    #[test]
+    fn rt_bit_perfect_ignores_mute() {
+        let mut c = rt_consumer_with(&[0.25; 64], 1);
+        c.shared().set_volume(0.3);
+        c.shared().set_muted(true);
+        c.shared().set_bit_perfect(true);
+        let mut data = [0.0f32; 64];
+        audio_callback_f32_rt(&mut c, &mut data);
+        assert!(data.iter().any(|s| *s != 0.0), "mute must be ignored");
+        assert!(data.iter().all(|s| (*s - 0.25).abs() < 1e-6));
+    }
+
+    #[test]
+    fn rt_tpdf_dither_adds_noise_to_quantization() {
+        let mut c = rt_consumer_with(&[0.25; 256], 1);
+        c.shared().set_volume(1.0);
+        c.shared().set_dither_index(DITHER_INDEX_TPDF);
+        let mut data = [0i16; 256];
+        audio_callback_i16_rt(&mut c, &mut data);
+        let unique: std::collections::BTreeSet<i16> = data.iter().copied().collect();
+        assert!(unique.len() > 1, "dithering must make quantized samples vary");
+    }
+
+    #[test]
+    fn rt_scratch_is_pinned_and_clamped() {
+        let mut c = rt_consumer_filled(MAX_OUT_SAMPLES + 512, 1);
+        assert_eq!(c.scratch_capacity(), MAX_OUT_SAMPLES);
+        let n = c.pull_scratch(MAX_OUT_SAMPLES + 256);
+        assert!(n <= MAX_OUT_SAMPLES, "oversized pull must clamp to the pool");
+        assert_eq!(c.scratch_capacity(), MAX_OUT_SAMPLES, "pool must not grow");
+    }
+
+    #[test]
+    fn bit_perfect_resampled_flag_updates_on_toggle() {
+        let mut p = Player::test_new();
+        // Identity resampler: native-rate match, resampling is unnecessary.
+        p.shared = Some(RtShared::new(44100, 1, false));
+        p.set_bit_perfect(true);
+        assert!(!p.bit_perfect_resampled());
+
+        // Device rejects the native rate: a real conversion starts, the
+        // «bit-perfect not guaranteed» flag must flip (ТЗ A2.0 §4.1).
+        p.shared = Some(RtShared::new(44100, 1, true));
+        p.set_bit_perfect(true);
+        assert!(p.bit_perfect_resampled());
+
+        // Switching bit-perfect off clears the badge even while resampling.
+        p.set_bit_perfect(false);
+        assert!(!p.bit_perfect_resampled());
+    }
+
+    // ---- Zero-allocation detector (ТЗ A2.0 §3.4) ----
+
+    /// Run `f` with allocation counting armed; returns the number of new
+    /// allocations performed on this thread during the call.
+    fn zero_alloc_run<F: FnOnce()>(f: F) -> u64 {
+        use super::alloc_tracking as at;
+        at::TRACKING.store(true, std::sync::atomic::Ordering::SeqCst);
+        at::reset_count();
+        f();
+        let n = at::alloc_count();
+        at::TRACKING.store(false, std::sync::atomic::Ordering::SeqCst);
+        n
+    }
+
+    #[test]
+    fn all_callbacks_perform_zero_allocations() {
+        let mut c_f32 = rt_consumer_filled(32768, 1);
+        let mut c_i16 = rt_consumer_filled(32768, 1);
+        let mut c_u8 = rt_consumer_filled(32768, 1);
+        let mut c_i32 = rt_consumer_filled(32768, 1);
+        let mut c_dop = rt_consumer_filled(32768, 1);
+        let mut b_f32 = vec![0.0f32; 4096];
+        let mut b_i16 = vec![0i16; 4096];
+        let mut b_u8 = vec![0u8; 4096];
+        let mut b_i32 = vec![0i32; 4096];
+        let mut b_dop = vec![0i32; 4096];
+        // Warm-up: any lazily-initialised state (iterator glue, TLS, etc.) must
+        // settle before the zero-allocation assertion (ТЗ A2.0 §3.4).
+        audio_callback_f32_rt(&mut c_f32, &mut b_f32);
+        audio_callback_i16_rt(&mut c_i16, &mut b_i16);
+        audio_callback_u8_rt(&mut c_u8, &mut b_u8);
+        audio_callback_i32_pcm_rt(&mut c_i32, &mut b_i32);
+        audio_callback_i32_dop_rt(&mut c_dop, &mut b_dop);
+
+        assert_eq!(
+            zero_alloc_run(|| audio_callback_f32_rt(&mut c_f32, &mut b_f32)),
+            0,
+            "f32"
+        );
+        assert_eq!(
+            zero_alloc_run(|| audio_callback_i16_rt(&mut c_i16, &mut b_i16)),
+            0,
+            "i16"
+        );
+        assert_eq!(
+            zero_alloc_run(|| audio_callback_u8_rt(&mut c_u8, &mut b_u8)),
+            0,
+            "u8"
+        );
+        assert_eq!(
+            zero_alloc_run(|| audio_callback_i32_pcm_rt(&mut c_i32, &mut b_i32)),
+            0,
+            "i32_pcm"
+        );
+        assert_eq!(
+            zero_alloc_run(|| audio_callback_i32_dop_rt(&mut c_dop, &mut b_dop)),
+            0,
+            "i32_dop"
+        );
     }
 }

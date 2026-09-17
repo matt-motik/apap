@@ -1,10 +1,9 @@
 use std::sync::atomic::{AtomicBool, Ordering};
-use std::sync::{Arc, Mutex};
+use std::sync::Arc;
 
 use cpal::traits::{DeviceTrait, HostTrait, StreamTrait};
 use cpal::{BufferSize, SampleFormat, StreamConfig, SupportedBufferSize};
 
-use crate::audio::player::PlaybackCore;
 use crate::audio::worker::{RtConsumer, RtShared};
 use crate::settings::ResamplerAlgorithm;
 
@@ -809,115 +808,9 @@ pub fn probe_output(preferred: Option<&str>) -> Result<String, String> {
     Ok(spec.device_name)
 }
 
-/// Build the output stream. `sample_format` decides the callback sample type.
-/// When `error_flag` is provided, the error callback will set it on failure.
-pub fn build_stream(
-    spec: &OutputSpec,
-    core: Arc<Mutex<PlaybackCore>>,
-    error_flag: Option<Arc<AtomicBool>>,
-) -> Result<cpal::Stream, String> {
-    match spec.sample_format {
-        SampleFormat::F32 | SampleFormat::I16 | SampleFormat::U8 | SampleFormat::I32 => {}
-        other => {
-            return Err(format!("Unsupported output sample format: {other:?}"));
-        }
-    }
-
-    let build =
-        |cfg: StreamConfig, core: Arc<Mutex<PlaybackCore>>, ef: Option<Arc<AtomicBool>>| -> Result<cpal::Stream, cpal::Error> {
-            match spec.sample_format {
-                SampleFormat::F32 => {
-                    let core = core.clone();
-                    let ef = ef.clone();
-                    spec.device.build_output_stream(
-                        cfg,
-                        move |data: &mut [f32], _| {
-                            crate::audio::player::audio_callback_f32(&core, data);
-                        },
-                        move |e| {
-                            eprintln!("Audio stream error: {e}");
-                            if let Some(f) = ef.as_ref() {
-                                f.store(true, Ordering::Relaxed);
-                            }
-                        },
-                        None,
-                    )
-                }
-                SampleFormat::I16 => {
-                    let core = core.clone();
-                    let ef = ef.clone();
-                    spec.device.build_output_stream(
-                        cfg,
-                        move |data: &mut [i16], _| {
-                            crate::audio::player::audio_callback_i16(&core, data);
-                        },
-                        move |e| {
-                            eprintln!("Audio stream error: {e}");
-                            if let Some(f) = ef.as_ref() {
-                                f.store(true, Ordering::Relaxed);
-                            }
-                        },
-                        None,
-                    )
-                }
-                SampleFormat::U8 => {
-                    let core = core.clone();
-                    let ef = ef.clone();
-                    spec.device.build_output_stream(
-                        cfg,
-                        move |data: &mut [u8], _| {
-                            crate::audio::player::audio_callback_u8(&core, data);
-                        },
-                        move |e| {
-                            eprintln!("Audio stream error: {e}");
-                            if let Some(f) = ef.as_ref() {
-                                f.store(true, Ordering::Relaxed);
-                            }
-                        },
-                        None,
-                    )
-                }
-                SampleFormat::I32 => {
-                    let core = core.clone();
-                    let ef = ef.clone();
-                    let is_dop = spec.is_dop;
-                    spec.device.build_output_stream(
-                        cfg,
-                        move |data: &mut [i32], _| {
-                            if is_dop {
-                                crate::audio::player::audio_callback_i32_dop(&core, data);
-                            } else {
-                                crate::audio::player::audio_callback_i32_pcm(&core, data);
-                            }
-                        },
-                        move |e| {
-                            eprintln!("Audio stream error: {e}");
-                            if let Some(f) = ef.as_ref() {
-                                f.store(true, Ordering::Relaxed);
-                            }
-                        },
-                        None,
-                    )
-                }
-                _other => unreachable!("sample format checked above"),
-            }
-        };
-
-    match build(spec.config.clone(), core.clone(), error_flag.clone()) {
-        Ok(stream) => Ok(stream),
-        Err(_e) if matches!(spec.config.buffer_size, BufferSize::Fixed(_)) => {
-            // Some devices reject an explicit buffer size; retry with the default.
-            let mut cfg = spec.config.clone();
-            cfg.buffer_size = BufferSize::Default;
-            build(cfg, core, error_flag).map_err(|e| format!("Cannot build output stream: {e}"))
-        }
-        Err(e) => Err(format!("Cannot build output stream: {e}")),
-    }
-}
-
 /// Build the output stream for the Producer/Consumer engine (ТЗ A2.0 §5.3).
 /// The cpal real-time callback owns the [`RtConsumer`] and reads samples from
-/// the lock-free ring; unlike [`build_stream`] it never touches a `Mutex`.
+/// the lock-free ring; it never touches a `Mutex`.
 ///
 /// The buffer-size fallback (Fixed → Default) is the caller's responsibility:
 /// on failure the consumer has been consumed, so a fresh ring/consumer must be

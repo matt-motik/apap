@@ -291,11 +291,7 @@ impl MusicApp {
             }
             Err(e) => {
                 self.status = format!("Cannot play {title}: {e}").into();
-                if let Ok(mut core) = self.player.core.lock() {
-                    core.playing = false;
-                    core.finished = true;
-                    core.natural_end = false;
-                }
+                self.player.stop();
             }
         }
     }

@@ -12,7 +12,7 @@
 
 use std::sync::atomic::{AtomicBool, AtomicU32, AtomicU64, AtomicU8, Ordering};
 use std::sync::mpsc::{Receiver, Sender, TryRecvError};
-use std::sync::Arc;
+use std::sync::{Arc, Mutex};
 use std::thread::{self, JoinHandle};
 use std::time::Duration;
 
@@ -351,19 +351,27 @@ impl RtConsumer {
         &self.scratch
     }
 
+    /// Pinned capacity of the preallocated scratch pool (test/diagnostics).
+    pub fn scratch_capacity(&self) -> usize {
+        self.scratch.capacity()
+    }
+
     /// Last generation reconciled by this consumer (test/diagnostics helper).
     pub fn generation(&self) -> u64 {
         self.generation
     }
 }
 
+/// Visualizer tap holder shared between the UI (which installs/removes the
+/// producer) and the worker (which pushes post-resampler PCM into it). The
+/// worker is not a real-time thread, so a short `Mutex` here is acceptable.
+pub type VizTap = Arc<Mutex<Option<rtrb::Producer<f32>>>>;
+
 /// Command sent from the UI thread to the worker (non-real-time channel).
 pub enum WorkerCmd {
     /// Seek the decoder and reset the resampler; `generation` echoes the value
     /// returned by [`RtShared::begin_seek`].
     Seek { generation: u64, secs: f64 },
-    /// Install/replace the visualizer tap producer on the worker.
-    SetVizTap(Option<rtrb::Producer<f32>>),
     /// Terminate the worker loop (the thread also ends when the sender drops).
     Stop,
 }
@@ -382,12 +390,13 @@ impl PlaybackWorker {
         resampler: Resampler,
         producer: rtrb::Producer<f32>,
         shared: Arc<RtShared>,
+        viz_tap: VizTap,
     ) -> Self {
         let (tx, rx) = std::sync::mpsc::channel::<WorkerCmd>();
         let loop_shared = shared.clone();
         let handle = thread::Builder::new()
             .name("audio-decode".into())
-            .spawn(move || worker_loop(source, resampler, producer, loop_shared, rx))
+            .spawn(move || worker_loop(source, resampler, producer, loop_shared, rx, viz_tap))
             .ok();
         Self {
             handle,
@@ -423,21 +432,14 @@ fn handle_cmd(
     source: &mut Box<dyn AudioSource>,
     resampler: &mut Resampler,
     shared: &RtShared,
-    viz_tap: &mut Option<rtrb::Producer<f32>>,
 ) -> bool {
     match cmd {
         WorkerCmd::Seek { generation, secs } => {
             let _ = source.seek(secs.max(0.0));
             resampler.reset();
             shared.set_eof(false);
-            shared.set_finished(false);
-            shared.set_natural_end(false);
             // Release pairs with the consumer's Acquire load in reconcile_seek.
             shared.publish_seek_done(generation);
-            false
-        }
-        WorkerCmd::SetVizTap(tap) => {
-            *viz_tap = tap;
             false
         }
         WorkerCmd::Stop => true,
@@ -450,6 +452,7 @@ fn worker_loop(
     mut producer: rtrb::Producer<f32>,
     shared: Arc<RtShared>,
     rx: Receiver<WorkerCmd>,
+    viz_tap: VizTap,
 ) {
     let out_ch = shared.out_ch();
     if out_ch == 0 {
@@ -457,7 +460,6 @@ fn worker_loop(
         return;
     }
     let mut staging = vec![0.0f32; WORKER_CHUNK_FRAMES * out_ch];
-    let mut viz_tap: Option<rtrb::Producer<f32>> = None;
 
     loop {
         if shared.stop_requested() {
@@ -467,7 +469,7 @@ fn worker_loop(
         loop {
             match rx.try_recv() {
                 Ok(cmd) => {
-                    if handle_cmd(cmd, &mut source, &mut resampler, &shared, &mut viz_tap) {
+                    if handle_cmd(cmd, &mut source, &mut resampler, &shared) {
                         return;
                     }
                 }
@@ -480,7 +482,7 @@ fn worker_loop(
         if !shared.is_playing() {
             match rx.recv_timeout(Duration::from_millis(20)) {
                 Ok(cmd) => {
-                    if handle_cmd(cmd, &mut source, &mut resampler, &shared, &mut viz_tap) {
+                    if handle_cmd(cmd, &mut source, &mut resampler, &shared) {
                         return;
                     }
                 }
@@ -505,10 +507,12 @@ fn worker_loop(
         //    WYSIWYG), then push the chunk into the ring.
         let samples = produced_frames * out_ch;
         if shared.viz_tap_active() {
-            if let Some(tap) = viz_tap.as_mut() {
-                for &s in staging.iter().take(samples) {
-                    if tap.push(s).is_err() {
-                        break;
+            if let Ok(mut guard) = viz_tap.lock() {
+                if let Some(tap) = guard.as_mut() {
+                    for &s in staging.iter().take(samples) {
+                        if tap.push(s).is_err() {
+                            break;
+                        }
                     }
                 }
             }
@@ -584,6 +588,10 @@ mod tests {
         rtrb::RingBuffer::new(capacity)
     }
 
+    fn no_tap() -> VizTap {
+        Arc::new(Mutex::new(None))
+    }
+
     /// Deterministic mono source of constant amplitude.
     struct MockSource {
         info: TrackInfo,
@@ -643,6 +651,7 @@ mod tests {
             Resampler::new(44100, 44100, 1, 1),
             prod,
             shared.clone(),
+            no_tap(),
         );
         shared.set_finished(false);
         shared.set_playing(true);
@@ -678,6 +687,7 @@ mod tests {
             Resampler::new(44100, 44100, 1, 1),
             prod,
             shared.clone(),
+            no_tap(),
         );
         shared.set_finished(false);
         shared.set_playing(true);
