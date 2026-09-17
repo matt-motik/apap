@@ -685,7 +685,8 @@ pub fn clamp_ring_buffer_ms(ms: u32) -> u32 {
     ms.clamp(RING_BUFFER_MS_MIN, RING_BUFFER_MS_MAX)
 }
 
-/// Настройки `[audio]` (ТЗ 5.1 §8.2): bit-perfect, ресемплер и ring-буфер.
+/// Настройки `[audio]` (ТЗ 5.1 §8.2, A3.0 §2.2): bit-perfect, ресемплер,
+/// exclusive/fallback и фильтры списка устройств.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct AudioCfg {
     #[serde(default)]
@@ -695,6 +696,18 @@ pub struct AudioCfg {
     pub ring_buffer_ms: u32,
     #[serde(default)]
     pub resampler: AudioResamplerCfg,
+    /// Режим exclusive-доступа (ТЗ A3.0 §2.2).
+    #[serde(default)]
+    pub exclusive: ExclusiveMode,
+    /// Политика фолбека при несовпадении параметров (ТЗ A3.0 §2.2).
+    #[serde(default)]
+    pub fallback: FallbackPolicy,
+    /// Показывать в списке только аппаратные устройства (ТЗ A3.0 §2.2).
+    #[serde(default)]
+    pub filter_hardware_only: bool,
+    /// Показывать в списке только стерео-устройства (ТЗ A3.0 §2.2).
+    #[serde(default)]
+    pub filter_stereo_only: bool,
 }
 
 impl Default for AudioCfg {
@@ -703,6 +716,10 @@ impl Default for AudioCfg {
             bit_perfect: false,
             ring_buffer_ms: RING_BUFFER_MS_DEFAULT,
             resampler: AudioResamplerCfg::default(),
+            exclusive: ExclusiveMode::Auto,
+            fallback: FallbackPolicy::Nearest,
+            filter_hardware_only: false,
+            filter_stereo_only: false,
         }
     }
 }
