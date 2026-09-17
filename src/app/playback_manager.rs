@@ -9,6 +9,7 @@ impl MusicApp {
         let muted = self.player.muted();
         let v = self.player.volume();
         let bit_perfect = self.player.bit_perfect();
+        let bp_resample = self.player.bit_perfect_resampled();
         let dur_f = dur.unwrap_or(0.0);
         let seek_f = if dur_f > 0.0 {
             (pos / dur_f).clamp(0.0, 1.0) as f32
@@ -35,6 +36,9 @@ impl MusicApp {
         if bit_perfect != cur.bit_perfect {
             self.ui.set_bit_perfect(bit_perfect);
         }
+        if bp_resample != cur.bp_resample {
+            self.ui.set_status_bp_resample(bp_resample);
+        }
         if !seeking && (pos_s != cur.pos || seek_f != cur.seek_fraction) {
             self.ui.set_pos(pos_s.clone().into());
             self.ui.set_seek_fraction(seek_f);
@@ -52,6 +56,7 @@ impl MusicApp {
             muted,
             volume: v,
             bit_perfect,
+            bp_resample,
             pos: pos_s,
             dur: dur_s,
             seek_fraction: seek_f,

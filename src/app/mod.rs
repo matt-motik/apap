@@ -46,6 +46,7 @@ struct UiState {
     muted: bool,
     volume: f32,
     bit_perfect: bool,
+    bp_resample: bool,
     pos: String,
     dur: String,
     seek_fraction: f32,
@@ -60,6 +61,7 @@ impl Default for UiState {
             // Sentinel: forces the first tick to push the real volume.
             volume: -1.0,
             bit_perfect: false,
+            bp_resample: false,
             pos: String::new(),
             dur: String::new(),
             seek_fraction: -1.0,

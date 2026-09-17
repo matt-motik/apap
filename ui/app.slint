@@ -165,6 +165,8 @@ export component AppWindow inherits Window {
     in property <bool> busy: false;
     // ТЗ §7.5: активен bit-perfect, но текущий DSD-трек идёт конверсией в PCM.
     in property <bool> status-dsd-not-bp: false;
+    // ТЗ A2.0 §4.2: bit-perfect активен, но устройство заставляет ресемплить.
+    in property <bool> status-bp-resample: false;
 
     in property <string> info-artist: "—";
     in property <string> info-track: "—";
@@ -456,6 +458,7 @@ export component AppWindow inherits Window {
             busy: root.busy;
             bp-active: root.bit-perfect;
             dsd-not-bp: root.status-dsd-not-bp;
+            bp-resample: root.status-bp-resample;
         }
     }
     }

@@ -10,6 +10,9 @@ export component StatusBar inherits Rectangle {
     // ТЗ §7.5: активен bit-perfect, но DSD выводится конверсией в PCM — для
     // DSD-потока bit-perfect не сохраняется.
     in property <bool> dsd-not-bp: false;
+    // ТЗ A2.0 §4.2: bit-perfect без гарантии — режим активен, но устройство
+    // не поддерживает нативный rate, поэтому тракт ресемплит (re-quantization).
+    in property <bool> bp-resample: false;
 
     background: Colors.bg-surface;
     border-width: 1px;
@@ -91,6 +94,26 @@ export component StatusBar inherits Rectangle {
                     Text {
                         text: "Не bit-perfect (DSD→PCM)";
                         color: Colors.text-error;
+                        font-size: 10px;
+                        vertical-alignment: center;
+                    }
+                }
+            }
+        }
+        // ТЗ A2.0 §4.2: bit-perfect активен, но тракт ресемплит (rate mismatch
+        // с устройством) — bit-perfect без гарантии.
+        if root.bp-resample:  VerticalLayout {
+            padding: 2px;
+            Rectangle {
+                border-width: 1px;
+                border-color: Colors.text-warn;
+                border-radius: 4px;
+                VerticalLayout {
+                    padding-left: 4px;
+                    padding-right: 4px;
+                    Text {
+                        text: "Resample (device limit)";
+                        color: Colors.text-warn;
                         font-size: 10px;
                         vertical-alignment: center;
                     }
