@@ -180,8 +180,16 @@ impl PlaybackCore {
         written_samples
     }
 
-    fn scratch_f32(&mut self) -> Vec<f32> {
-        std::mem::take(&mut self.scratch)
+    /// Borrow the scratch pool resized to `len` (zero-filled). Returns `None`
+    /// when `len` exceeds the pinned ceiling [`MAX_OUT_SAMPLES`]: the callback
+    /// must emit silence instead of growing the buffer (ТЗ A2.0 §3.2).
+    fn scratch_for(&mut self, len: usize) -> Option<Vec<f32>> {
+        if len > MAX_OUT_SAMPLES {
+            return None;
+        }
+        let mut buf = std::mem::take(&mut self.scratch);
+        buf.resize(len, 0.0);
+        Some(buf)
     }
 
     /// (Re)pins the scratch pool to [`MAX_OUT_SAMPLES`] at track open. After
@@ -747,8 +755,10 @@ pub fn audio_callback_i16(core: &Arc<Mutex<PlaybackCore>>, data: &mut [i16]) {
         (false, 1.0)
     };
     let out_ch = c.out_ch;
-    let mut tmp = c.scratch_f32();
-    tmp.resize(data.len(), 0.0);
+    let Some(mut tmp) = c.scratch_for(data.len()) else {
+        data.fill(0);
+        return;
+    };
     let produced = c.fill(&mut tmp);
     c.pos_secs += produced as f64 / c.out_rate as f64 / out_ch as f64;
     if c.viz_tap_active {
@@ -801,8 +811,10 @@ pub fn audio_callback_u8(core: &Arc<Mutex<PlaybackCore>>, data: &mut [u8]) {
         (false, 1.0)
     };
     let out_ch = c.out_ch;
-    let mut tmp = c.scratch_f32();
-    tmp.resize(data.len(), 0.0);
+    let Some(mut tmp) = c.scratch_for(data.len()) else {
+        data.fill(128);
+        return;
+    };
     let produced = c.fill(&mut tmp);
     c.pos_secs += produced as f64 / c.out_rate as f64 / out_ch as f64;
     if c.viz_tap_active {
@@ -851,8 +863,10 @@ pub fn audio_callback_i32_dop(core: &Arc<Mutex<PlaybackCore>>, data: &mut [i32])
         return;
     }
     let out_ch = c.out_ch;
-    let mut tmp = c.scratch_f32();
-    tmp.resize(data.len(), 0.0);
+    let Some(mut tmp) = c.scratch_for(data.len()) else {
+        data.fill(0);
+        return;
+    };
     let produced = c.fill(&mut tmp);
     c.pos_secs += produced as f64 / c.out_rate as f64 / out_ch as f64;
     for (dst, &src) in data.iter_mut().zip(tmp.iter()).take(produced) {
@@ -893,8 +907,10 @@ pub fn audio_callback_i32_pcm(core: &Arc<Mutex<PlaybackCore>>, data: &mut [i32])
         (false, 1.0)
     };
     let out_ch = c.out_ch;
-    let mut tmp = c.scratch_f32();
-    tmp.resize(data.len(), 0.0);
+    let Some(mut tmp) = c.scratch_for(data.len()) else {
+        data.fill(0);
+        return;
+    };
     let produced = c.fill(&mut tmp);
     c.pos_secs += produced as f64 / c.out_rate as f64 / out_ch as f64;
     if c.viz_tap_active {
@@ -1213,6 +1229,28 @@ mod tests {
         audio_callback_i16(&core, &mut buf);
         let c = core.lock().unwrap();
         assert_eq!(c.scratch.capacity(), MAX_OUT_SAMPLES);
+    }
+
+    #[test]
+    fn callback_silences_when_buffer_exceeds_ceiling() {
+        let core = core_with_source(10_000);
+        {
+            let mut c = core.lock().unwrap();
+            c.prepare_scratch();
+            c.playing = true;
+            c.volume = 0.5;
+            c.dither.store(DITHER_INDEX_OFF, Ordering::Relaxed);
+        }
+        // A buffer larger than the pinned ceiling must be replaced by silence
+        // instead of growing the pool (ТЗ A2.0 §3.2).
+        let mut buf = vec![1i16; MAX_OUT_SAMPLES + 256];
+        audio_callback_i16(&core, &mut buf);
+        assert!(
+            buf.iter().all(|s| *s == 0),
+            "oversized buffer must be silenced"
+        );
+        let c = core.lock().unwrap();
+        assert_eq!(c.scratch.capacity(), MAX_OUT_SAMPLES, "pool must not grow");
     }
 
     #[test]
