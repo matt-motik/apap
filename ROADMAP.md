@@ -89,7 +89,7 @@
 | A2.0-4.2 | UI-бейдж «Resample (device limit)» в статус-баре | 🟢 Средний | ✅ сделано в `435575b` (ветка `main`) | [§4.2](docs/spec_audio_core_v2.0.md#42-ui-бейдж-a20-42) |
 | A2.0-5 | Producer/Consumer: декодирование вне RT-потока | 🟢 Средний | ⏳ выполняется (осталось 5.2) | [§5](docs/spec_audio_core_v2.0.md#5-producerconsumer-декодирование-вне-rt-a20-5) |
 | A2.0-5.1 | `PlaybackWorker` (поток декодера + ресемплера → ring) | 🟢 Средний | ✅ сделано в `894c497` (ветка `main`) | [§5.1](docs/spec_audio_core_v2.0.md#51-playbackworker-поток-декодера-и-ресемплера-a20-51) |
-| A2.0-5.2 | `ring_buffer_ms` в `Settings` + размер ring | 🟢 Средний | ⬜ | [§5.2](docs/spec_audio_core_v2.0.md#52-ring-buffer-размер-и-бюджет-a20-52) |
+| A2.0-5.2 | `ring_buffer_ms` в `Settings` + размер ring | 🟢 Средний | ⏳ выполняется | [§5.2](docs/spec_audio_core_v2.0.md#52-ring-buffer-размер-и-бюджет-a20-52) |
 | A2.0-5.3 | Колбэки как Consumer (`RtConsumer`, pull из ring) | 🟢 Средний | ✅ сделано в `2c32b51` (ветка `main`) | [§5.3](docs/spec_audio_core_v2.0.md#53-колбэки-как-consumer-a20-53) |
 | A2.0-5.4 | Управляющее состояние без `Mutex` (атомики) | 🟢 Средний | ✅ сделано в `2c32b51` (ветка `main`) | [§5.4](docs/spec_audio_core_v2.0.md#54-управляющее-состояние-без-mutex-атомики-a20-54) |
 | A2.0-5.5 | Seek-хендшейк (поколение + дренаж ring) | 🟢 Средний | ✅ сделано в `2c32b51` (ветка `main`) | [§5.5](docs/spec_audio_core_v2.0.md#55-seek-хендшейк-a20-55) |

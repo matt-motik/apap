@@ -480,11 +480,30 @@ impl Default for AudioResamplerCfg {
     }
 }
 
-/// Настройки `[audio]` (ТЗ 5.1 §8.2): bit-perfect и ресемплер.
+/// Default depth of the producer/consumer ring in milliseconds (ТЗ A2.0 §5.2).
+pub const RING_BUFFER_MS_DEFAULT: u32 = 1500;
+/// Lower bound of the configurable ring depth (ТЗ A2.0 §5.2).
+pub const RING_BUFFER_MS_MIN: u32 = 100;
+/// Upper bound of the configurable ring depth (ТЗ A2.0 §5.2).
+pub const RING_BUFFER_MS_MAX: u32 = 10000;
+
+fn default_ring_buffer_ms() -> u32 {
+    RING_BUFFER_MS_DEFAULT
+}
+
+/// Clamp a ring depth into the supported `[MIN..MAX]` range (ТЗ A2.0 §5.2).
+pub fn clamp_ring_buffer_ms(ms: u32) -> u32 {
+    ms.clamp(RING_BUFFER_MS_MIN, RING_BUFFER_MS_MAX)
+}
+
+/// Настройки `[audio]` (ТЗ 5.1 §8.2): bit-perfect, ресемплер и ring-буфер.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct AudioCfg {
     #[serde(default)]
     pub bit_perfect: bool,
+    /// Глубина ring-буфера «задержка vs устойчивость», мс (ТЗ A2.0 §5.2).
+    #[serde(default = "default_ring_buffer_ms")]
+    pub ring_buffer_ms: u32,
     #[serde(default)]
     pub resampler: AudioResamplerCfg,
 }
@@ -493,6 +512,7 @@ impl Default for AudioCfg {
     fn default() -> Self {
         Self {
             bit_perfect: false,
+            ring_buffer_ms: RING_BUFFER_MS_DEFAULT,
             resampler: AudioResamplerCfg::default(),
         }
     }
@@ -978,6 +998,8 @@ mod tests {
         assert_eq!(s.audio.resampler.algorithm, ResamplerAlgorithm::SincMedium);
         assert_eq!(s.audio.resampler.dither, ResamplerDither::Tpdf);
         assert!(!s.audio.bit_perfect);
+        // ТЗ A2.0 §5.2: дефолтная глубина ring-буфера — 1500 мс.
+        assert_eq!(s.audio.ring_buffer_ms, RING_BUFFER_MS_DEFAULT);
         // ТЗ §8.2: DSD по умолчанию «DSD → PCM», 24 бит, auto частота.
         assert_eq!(s.dsd.mode, DsdMode::Pcm);
         assert_eq!(s.dsd.target_bit_depth, TargetBitDepth::Bits24);
@@ -994,6 +1016,26 @@ mod tests {
         let parsed: Settings = toml::from_str(&toml).unwrap();
         assert_eq!(parsed.audio, s.audio);
         assert_eq!(parsed.dsd, s.dsd);
+    }
+
+    #[test]
+    fn ring_buffer_ms_roundtrips_and_overrides() {
+        let s = Settings::default();
+        let toml = toml::to_string(&s).unwrap();
+        assert!(toml.contains("ring_buffer_ms"), "missing ring_buffer_ms:\n{toml}");
+        let parsed: Settings = toml::from_str(&toml).unwrap();
+        assert_eq!(parsed.audio.ring_buffer_ms, RING_BUFFER_MS_DEFAULT);
+
+        let parsed: Settings = toml::from_str("[audio]\nring_buffer_ms = 250\n").unwrap();
+        assert_eq!(parsed.audio.ring_buffer_ms, 250);
+    }
+
+    #[test]
+    fn clamp_ring_buffer_ms_applies_bounds() {
+        assert_eq!(clamp_ring_buffer_ms(0), RING_BUFFER_MS_MIN);
+        assert_eq!(clamp_ring_buffer_ms(50), RING_BUFFER_MS_MIN);
+        assert_eq!(clamp_ring_buffer_ms(1500), 1500);
+        assert_eq!(clamp_ring_buffer_ms(20_000), RING_BUFFER_MS_MAX);
     }
 
     #[test]
