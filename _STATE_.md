@@ -12,11 +12,11 @@
 ## Итерационный трекер
 [x] Шаг 1: `worker.rs` — `RtShared` (атомики + геометрия) и `RtConsumer` (ring + scratch), `mod worker`. Проверка: `cargo test audio::worker` — 6 тестов зелёные.
 [x] Шаг 2: `PlaybackWorker` + `WorkerCmd` (Seek/SetVizTap/Stop) + `worker_loop` + seek-хендшейк/eof/viz-tap, `stop_requested` против дедлока join. Проверка: 7 тестов worker (E2E `worker_fills_ring_with_exact_frames`, seek) зелёные.
-[ ] Шаг 3: RT-колбэки `audio_callback_*_rt(&mut RtConsumer, data)` в `player.rs`: pull из ring, volume/mute/bit-perfect/dither/формат из `RtShared`; тесты форматирования из заранее наполненного ring. Проверка: `cargo test audio::player` зелёный.
-[ ] Шаг 4: `output.rs` — `build_stream_rt(spec, RtConsumer, error_flag)` и адаптация `probe_output`. Проверка: `cargo check` + тесты `audio::output`.
+[x] Шаг 3: RT-колбэки `audio_callback_*_rt(&mut RtConsumer, data)` в `player.rs`: pull из ring, volume/mute/bit-perfect/dither/формат из `RtShared`; тесты форматирования из заранее наполненного ring. Проверка: `cargo test audio::player` зелёный.
+[x] Шаг 4: `output.rs` — `build_stream_rt(spec, RtConsumer, error_flag)` и адаптация `probe_output`. Проверка: `cargo check` + тесты `audio::output`.
 [ ] Шаг 5: `Player` на worker+RtShared+RtConsumer; удалить `PlaybackCore` и старые колбэки; переписать player-тесты (включая zero-alloc детектор). Проверка: полный `cargo test` + clippy без новых предупреждений.
 
-- **Текущий шаг (current_step):** Шаг 3
-- **Следующий ход:** Добавить `audio_callback_*_rt` в `src/audio/player.rs`.
+- **Текущий шаг (current_step):** Шаг 5
+- **Следующий ход:** Перевести `Player` на `PlaybackWorker`+`RtShared`+`RtConsumer`, удалить `PlaybackCore`/старые колбэки и переписать player-тесты.
 - **Счетчик безуспешных компиляций:** 0/3
 - **Состояние:** in_progress

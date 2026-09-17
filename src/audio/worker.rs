@@ -241,6 +241,8 @@ pub struct RtConsumer {
     ring: rtrb::Consumer<f32>,
     shared: Arc<RtShared>,
     scratch: Vec<f32>,
+    /// Callback-local TPDF noise generator for the i16/u8/i32 quantisers.
+    tpdf: crate::audio::player::TpdfRng,
     /// Last seek generation reconciled with the worker.
     generation: u64,
 }
@@ -252,12 +254,22 @@ impl RtConsumer {
             ring,
             shared,
             scratch: vec![0.0f32; MAX_OUT_SAMPLES],
+            tpdf: crate::audio::player::TpdfRng::new(),
             generation,
         }
     }
 
     pub fn shared(&self) -> &Arc<RtShared> {
         &self.shared
+    }
+
+    /// Copy of the TPDF generator (cheap: one `u32` of state).
+    pub fn tpdf(&self) -> crate::audio::player::TpdfRng {
+        self.tpdf
+    }
+
+    pub fn set_tpdf(&mut self, tpdf: crate::audio::player::TpdfRng) {
+        self.tpdf = tpdf;
     }
 
     /// Reconcile a pending seek. Returns `true` when the ring is safe to read;

@@ -5,6 +5,7 @@ use cpal::traits::{DeviceTrait, HostTrait, StreamTrait};
 use cpal::{BufferSize, SampleFormat, StreamConfig, SupportedBufferSize};
 
 use crate::audio::player::PlaybackCore;
+use crate::audio::worker::{RtConsumer, RtShared};
 use crate::settings::ResamplerAlgorithm;
 
 /// How long the startup device probe holds the stream open (ms). Long enough
@@ -774,10 +775,22 @@ pub fn probe_output(preferred: Option<&str>) -> Result<String, String> {
         return Err(String::from("No audio output device found"));
     }
 
-    let spec = select_output(44100, 2, preferred)?;
-    let core = Arc::new(Mutex::new(PlaybackCore::new()));
+    let mut spec = select_output(44100, 2, preferred)?;
     let error_flag = Arc::new(AtomicBool::new(false));
-    let stream = build_stream(&spec, core, Some(error_flag.clone()))?;
+    let attempt = |cfg: &OutputSpec| -> Result<cpal::Stream, String> {
+        let shared = RtShared::new(cfg.config.sample_rate, cfg.config.channels as usize, false);
+        let (_producer, ring) = rtrb::RingBuffer::<f32>::new(2048);
+        let consumer = RtConsumer::new(ring, shared);
+        build_stream_rt(cfg, consumer, Some(error_flag.clone()))
+    };
+    let stream = match attempt(&spec) {
+        Ok(s) => s,
+        Err(_) if matches!(spec.config.buffer_size, BufferSize::Fixed(_)) => {
+            spec.config.buffer_size = BufferSize::Default;
+            attempt(&spec)?
+        }
+        Err(e) => return Err(e),
+    };
     stream
         .play()
         .map_err(|e| format!("Cannot start audio stream: {e}"))?;
@@ -900,6 +913,107 @@ pub fn build_stream(
         }
         Err(e) => Err(format!("Cannot build output stream: {e}")),
     }
+}
+
+/// Build the output stream for the Producer/Consumer engine (ТЗ A2.0 §5.3).
+/// The cpal real-time callback owns the [`RtConsumer`] and reads samples from
+/// the lock-free ring; unlike [`build_stream`] it never touches a `Mutex`.
+///
+/// The buffer-size fallback (Fixed → Default) is the caller's responsibility:
+/// on failure the consumer has been consumed, so a fresh ring/consumer must be
+/// created for the retry.
+pub fn build_stream_rt(
+    spec: &OutputSpec,
+    consumer: RtConsumer,
+    error_flag: Option<Arc<AtomicBool>>,
+) -> Result<cpal::Stream, String> {
+    match spec.sample_format {
+        SampleFormat::F32 | SampleFormat::I16 | SampleFormat::U8 | SampleFormat::I32 => {}
+        other => {
+            return Err(format!("Unsupported output sample format: {other:?}"));
+        }
+    }
+
+    let build = |cfg: StreamConfig,
+                 mut consumer: RtConsumer,
+                 ef: Option<Arc<AtomicBool>>|
+     -> Result<cpal::Stream, cpal::Error> {
+        match spec.sample_format {
+            SampleFormat::F32 => {
+                let ef = ef.clone();
+                spec.device.build_output_stream(
+                    cfg,
+                    move |data: &mut [f32], _| {
+                        crate::audio::player::audio_callback_f32_rt(&mut consumer, data);
+                    },
+                    move |e| {
+                        eprintln!("Audio stream error: {e}");
+                        if let Some(f) = ef.as_ref() {
+                            f.store(true, Ordering::Relaxed);
+                        }
+                    },
+                    None,
+                )
+            }
+            SampleFormat::I16 => {
+                let ef = ef.clone();
+                spec.device.build_output_stream(
+                    cfg,
+                    move |data: &mut [i16], _| {
+                        crate::audio::player::audio_callback_i16_rt(&mut consumer, data);
+                    },
+                    move |e| {
+                        eprintln!("Audio stream error: {e}");
+                        if let Some(f) = ef.as_ref() {
+                            f.store(true, Ordering::Relaxed);
+                        }
+                    },
+                    None,
+                )
+            }
+            SampleFormat::U8 => {
+                let ef = ef.clone();
+                spec.device.build_output_stream(
+                    cfg,
+                    move |data: &mut [u8], _| {
+                        crate::audio::player::audio_callback_u8_rt(&mut consumer, data);
+                    },
+                    move |e| {
+                        eprintln!("Audio stream error: {e}");
+                        if let Some(f) = ef.as_ref() {
+                            f.store(true, Ordering::Relaxed);
+                        }
+                    },
+                    None,
+                )
+            }
+            SampleFormat::I32 => {
+                let ef = ef.clone();
+                let is_dop = spec.is_dop;
+                spec.device.build_output_stream(
+                    cfg,
+                    move |data: &mut [i32], _| {
+                        if is_dop {
+                            crate::audio::player::audio_callback_i32_dop_rt(&mut consumer, data);
+                        } else {
+                            crate::audio::player::audio_callback_i32_pcm_rt(&mut consumer, data);
+                        }
+                    },
+                    move |e| {
+                        eprintln!("Audio stream error: {e}");
+                        if let Some(f) = ef.as_ref() {
+                            f.store(true, Ordering::Relaxed);
+                        }
+                    },
+                    None,
+                )
+            }
+            _other => unreachable!("sample format checked above"),
+        }
+    };
+
+    build(spec.config, consumer, error_flag)
+        .map_err(|e| format!("Cannot build output stream: {e}"))
 }
 
 #[cfg(test)]

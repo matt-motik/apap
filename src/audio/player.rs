@@ -8,6 +8,7 @@ use cpal::SampleFormat;
 use super::decoder::{AudioSource, Decoder, TrackInfo};
 use super::dsd::{DsdDecoder, DecodeMode};
 use super::output::{build_stream, select_output, Resampler};
+use super::worker::RtConsumer;
 use crate::settings::{DsdMode, ResamplerAlgorithm, ResamplerDither};
 
 /// Zero-allocation LCG PRNG for TPDF dithering in the real-time audio path.
@@ -982,6 +983,208 @@ impl Default for Player {
     }
 }
 
+// ---- Producer/Consumer callbacks (ТЗ A2.0 §5.3). ----
+//
+// The cpal real-time thread only touches the lock-free `RtConsumer` (ring +
+// atomics): no `Mutex`, no decoder, no allocation, no logging. Volume/mute/
+// bit-perfect/dither come from `RtShared`; samples come from the worker's ring.
+
+/// Dither applicability for the ring-consumer path (mirrors `dither_enabled`):
+/// skipped in a true bit-perfect passthrough, applied otherwise.
+fn dither_enabled_rt(bit_perfect: bool, resampler_enabled: bool, dither_idx: u8) -> bool {
+    if dither_idx == DITHER_INDEX_OFF {
+        return false;
+    }
+    if bit_perfect && !resampler_enabled {
+        return false;
+    }
+    true
+}
+
+/// At natural EOF (fewer samples than requested and the worker signalled end),
+/// stop the transport and flag the end for the playlist.
+#[inline]
+fn finish_if_eof(consumer: &RtConsumer, produced: usize, requested: usize) {
+    if produced < requested && consumer.shared().eof() {
+        let shared = consumer.shared();
+        shared.set_playing(false);
+        shared.set_finished(true);
+        shared.set_natural_end(true);
+    }
+}
+
+/// f32 consumer callback: pull straight into the device buffer.
+pub fn audio_callback_f32_rt(consumer: &mut RtConsumer, data: &mut [f32]) {
+    if !consumer.shared().is_playing() {
+        data.fill(0.0);
+        return;
+    }
+    if !consumer.reconcile_seek() {
+        data.fill(0.0);
+        return;
+    }
+    let bit_perfect = consumer.shared().bit_perfect();
+    let muted = consumer.shared().muted();
+    let volume = consumer.shared().volume();
+    let produced = consumer.pull_f32(data);
+    let vol = if bit_perfect {
+        1.0
+    } else if muted {
+        0.0
+    } else {
+        volume
+    };
+    if vol < 1.0 {
+        for s in data.iter_mut().take(produced) {
+            *s *= vol;
+        }
+    }
+    if produced < data.len() {
+        data[produced..].fill(0.0);
+        finish_if_eof(consumer, produced, data.len());
+    }
+}
+
+/// i16 consumer callback: pull into scratch, apply volume + optional TPDF.
+pub fn audio_callback_i16_rt(consumer: &mut RtConsumer, data: &mut [i16]) {
+    if !consumer.shared().is_playing() {
+        data.fill(0);
+        return;
+    }
+    if !consumer.reconcile_seek() {
+        data.fill(0);
+        return;
+    }
+    let bit_perfect = consumer.shared().bit_perfect();
+    let vol = if bit_perfect {
+        1.0
+    } else if consumer.shared().muted() {
+        0.0
+    } else {
+        consumer.shared().volume()
+    };
+    let dither_idx = consumer.shared().dither_index();
+    let apply_dither = dither_enabled_rt(bit_perfect, consumer.shared().resampler_enabled(), dither_idx);
+    let dither_amp = dither_amplitude(dither_idx);
+    let produced = consumer.pull_scratch(data.len());
+    let mut tpdf = consumer.tpdf();
+    for (dst, &src) in data.iter_mut().zip(consumer.scratch().iter()).take(produced) {
+        let mut x = src.clamp(-1.0, 1.0) * vol * 32767.0;
+        if apply_dither {
+            x += tpdf.next_tpdf() * dither_amp;
+        }
+        *dst = x.round().clamp(-32768.0, 32767.0) as i16;
+    }
+    consumer.set_tpdf(tpdf);
+    for s in data.iter_mut().skip(produced) {
+        *s = 0;
+    }
+    if produced < data.len() {
+        finish_if_eof(consumer, produced, data.len());
+    }
+}
+
+/// u8 consumer callback (silence = 128, samples centered at 0.5).
+pub fn audio_callback_u8_rt(consumer: &mut RtConsumer, data: &mut [u8]) {
+    if !consumer.shared().is_playing() {
+        data.fill(128);
+        return;
+    }
+    if !consumer.reconcile_seek() {
+        data.fill(128);
+        return;
+    }
+    let bit_perfect = consumer.shared().bit_perfect();
+    let vol = if bit_perfect {
+        1.0
+    } else if consumer.shared().muted() {
+        0.0
+    } else {
+        consumer.shared().volume()
+    };
+    let dither_idx = consumer.shared().dither_index();
+    let apply_dither = dither_enabled_rt(bit_perfect, consumer.shared().resampler_enabled(), dither_idx);
+    let dither_amp = dither_amplitude(dither_idx);
+    let produced = consumer.pull_scratch(data.len());
+    let mut tpdf = consumer.tpdf();
+    for (dst, &src) in data.iter_mut().zip(consumer.scratch().iter()).take(produced) {
+        let mut x = (src.clamp(-1.0, 1.0) * vol * 0.5 + 0.5) * 255.0;
+        if apply_dither {
+            x += tpdf.next_tpdf() * dither_amp;
+        }
+        *dst = x.round().clamp(0.0, 255.0) as u8;
+    }
+    consumer.set_tpdf(tpdf);
+    for s in data.iter_mut().skip(produced) {
+        *s = 128;
+    }
+    if produced < data.len() {
+        finish_if_eof(consumer, produced, data.len());
+    }
+}
+
+/// i32 PCM consumer callback (native-I32 hardware node), same as i16 scaled.
+pub fn audio_callback_i32_pcm_rt(consumer: &mut RtConsumer, data: &mut [i32]) {
+    if !consumer.shared().is_playing() {
+        data.fill(0);
+        return;
+    }
+    if !consumer.reconcile_seek() {
+        data.fill(0);
+        return;
+    }
+    let bit_perfect = consumer.shared().bit_perfect();
+    let vol = if bit_perfect {
+        1.0
+    } else if consumer.shared().muted() {
+        0.0
+    } else {
+        consumer.shared().volume()
+    };
+    let dither_idx = consumer.shared().dither_index();
+    let apply_dither = dither_enabled_rt(bit_perfect, consumer.shared().resampler_enabled(), dither_idx);
+    let dither_amp = dither_amplitude(dither_idx);
+    let produced = consumer.pull_scratch(data.len());
+    const I32_MAX: f64 = 2_147_483_647.0;
+    let mut tpdf = consumer.tpdf();
+    for (dst, &src) in data.iter_mut().zip(consumer.scratch().iter()).take(produced) {
+        let mut x = src.clamp(-1.0, 1.0) as f64 * vol as f64 * I32_MAX;
+        if apply_dither {
+            x += tpdf.next_tpdf() as f64 * dither_amp as f64;
+        }
+        *dst = x.round().clamp(-I32_MAX - 1.0, I32_MAX) as i32;
+    }
+    consumer.set_tpdf(tpdf);
+    for s in data.iter_mut().skip(produced) {
+        *s = 0;
+    }
+    if produced < data.len() {
+        finish_if_eof(consumer, produced, data.len());
+    }
+}
+
+/// i32 DoP consumer callback: left-align the 24-bit DoP word (`<< 8`), verbatim.
+pub fn audio_callback_i32_dop_rt(consumer: &mut RtConsumer, data: &mut [i32]) {
+    if !consumer.shared().is_playing() {
+        data.fill(0);
+        return;
+    }
+    if !consumer.reconcile_seek() {
+        data.fill(0);
+        return;
+    }
+    let produced = consumer.pull_scratch(data.len());
+    for (dst, &src) in data.iter_mut().zip(consumer.scratch().iter()).take(produced) {
+        *dst = ((src.clamp(0.0, 16_777_215.0) as u32) << 8) as i32;
+    }
+    for s in data.iter_mut().skip(produced) {
+        *s = 0;
+    }
+    if produced < data.len() {
+        finish_if_eof(consumer, produced, data.len());
+    }
+}
+
 #[cfg(test)]
 impl Player {
     /// Test-only: build a `Player` without touching the audio backend.
@@ -1064,6 +1267,7 @@ static GLOBAL_ALLOC: alloc_tracking::CountingAllocator = alloc_tracking::Countin
 mod tests {
     use super::*;
     use crate::audio::decoder::TrackInfo;
+    use crate::audio::worker::RtShared;
 
     /// Deterministic test source: mono PCM at 44100 Hz, constant amplitude.
     struct MockSource {
@@ -1572,5 +1776,62 @@ mod tests {
         // All output must stay within i16 bounds.
         let (lo, hi) = (i16::MIN, i16::MAX);
         assert!(buf.iter().all(|s| *s >= lo && *s <= hi));
+    }
+
+    // ---- Producer/Consumer callback tests (ТЗ A2.0 §5.3) ----
+
+    /// RtConsumer with a pre-filled ring and playing transport.
+    fn rt_consumer_with(samples: &[f32], out_ch: usize) -> RtConsumer {
+        let (mut prod, cons) = rtrb::RingBuffer::<f32>::new(4096);
+        let shared = RtShared::new(44100, out_ch, false);
+        for &s in samples {
+            let _ = prod.push(s);
+        }
+        let mut c = RtConsumer::new(cons, shared);
+        c.shared().set_playing(true);
+        c
+    }
+
+    #[test]
+    fn rt_f32_applies_volume_and_silences_when_paused() {
+        let mut c = rt_consumer_with(&[0.5, 0.5, 0.5, 0.5], 1);
+        c.shared().set_volume(0.5);
+        let mut data = [0.0f32; 4];
+        audio_callback_f32_rt(&mut c, &mut data);
+        assert_eq!(data, [0.25, 0.25, 0.25, 0.25]);
+
+        c.shared().set_playing(false);
+        let mut paused = [1.0f32; 2];
+        audio_callback_f32_rt(&mut c, &mut paused);
+        assert_eq!(paused, [0.0, 0.0], "paused consumer emits silence");
+    }
+
+    #[test]
+    fn rt_i16_scales_to_full_scale() {
+        let mut c = rt_consumer_with(&[1.0, 1.0], 1);
+        c.shared().set_volume(1.0);
+        c.shared().set_dither_index(DITHER_INDEX_OFF);
+        let mut data = [0i16; 2];
+        audio_callback_i16_rt(&mut c, &mut data);
+        assert_eq!(data, [32767, 32767]);
+    }
+
+    #[test]
+    fn rt_u8_uses_128_silence_center() {
+        let mut c = rt_consumer_with(&[0.0, 0.0], 1);
+        c.shared().set_dither_index(DITHER_INDEX_OFF);
+        let mut data = [0u8; 2];
+        audio_callback_u8_rt(&mut c, &mut data);
+        // 0.0 maps to the midpoint (~128).
+        assert!(data.iter().all(|s| (127..=128).contains(s)));
+    }
+
+    #[test]
+    fn rt_i32_dop_left_aligns_marker() {
+        let mut c = rt_consumer_with(&[16_777_215.0, 0.0], 1);
+        let mut data = [0i32; 2];
+        audio_callback_i32_dop_rt(&mut c, &mut data);
+        assert_eq!(data[0], (16_777_215u32 << 8) as i32);
+        assert_eq!(data[1], 0);
     }
 }
