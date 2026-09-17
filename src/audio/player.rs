@@ -971,6 +971,62 @@ impl Player {
 pub fn keep_alive(_s: &cpal::Stream) {}
 
 #[cfg(test)]
+mod alloc_tracking {
+    use std::alloc::{GlobalAlloc, Layout, System};
+    use std::cell::Cell;
+    use std::sync::atomic::{AtomicBool, Ordering};
+
+    /// Cranked up only while a zero-allocation test runs; keeps the thread-local
+    /// counter free of background churn from the parallel test harness.
+    pub static TRACKING: AtomicBool = AtomicBool::new(false);
+
+    thread_local! {
+        static ALLOC_COUNT: Cell<u64> = const { Cell::new(0) };
+    }
+
+    /// Total allocations on the current thread since the counter was armed.
+    pub fn alloc_count() -> u64 {
+        ALLOC_COUNT.with(|c| c.get())
+    }
+
+    pub fn reset_count() {
+        ALLOC_COUNT.with(|c| c.set(0));
+    }
+
+    /// Thin wrapper over `System` that counts allocations on the measuring
+    /// thread. Test-only: the real-time callbacks must allocate zero bytes
+    /// (ТЗ A2.0 §3.4).
+    pub struct CountingAllocator;
+
+    unsafe impl GlobalAlloc for CountingAllocator {
+        unsafe fn alloc(&self, layout: Layout) -> *mut u8 {
+            if TRACKING.load(Ordering::Relaxed) {
+                ALLOC_COUNT.with(|c| c.set(c.get() + 1));
+            }
+            // SAFETY: delegates to the underlying system allocator.
+            unsafe { System.alloc(layout) }
+        }
+
+        unsafe fn dealloc(&self, ptr: *mut u8, layout: Layout) {
+            // SAFETY: delegates to the underlying system allocator.
+            unsafe { System.dealloc(ptr, layout) }
+        }
+
+        unsafe fn realloc(&self, ptr: *mut u8, layout: Layout, new_size: usize) -> *mut u8 {
+            if TRACKING.load(Ordering::Relaxed) {
+                ALLOC_COUNT.with(|c| c.set(c.get() + 1));
+            }
+            // SAFETY: delegates to the underlying system allocator.
+            unsafe { System.realloc(ptr, layout, new_size) }
+        }
+    }
+}
+
+#[cfg(test)]
+#[global_allocator]
+static GLOBAL_ALLOC: alloc_tracking::CountingAllocator = alloc_tracking::CountingAllocator;
+
+#[cfg(test)]
 mod tests {
     use super::*;
     use crate::audio::decoder::TrackInfo;
@@ -1273,6 +1329,56 @@ mod tests {
                 "capacity dropped after callback cycle {i}"
             );
         }
+    }
+
+    /// Run `f` with allocation counting armed; returns the number of new
+    /// allocations performed on this thread during the call.
+    fn zero_alloc_run<F: FnOnce()>(f: F) -> u64 {
+        use super::alloc_tracking as at;
+        at::TRACKING.store(true, Ordering::SeqCst);
+        at::reset_count();
+        f();
+        let n = at::alloc_count();
+        at::TRACKING.store(false, Ordering::SeqCst);
+        n
+    }
+
+    #[test]
+    fn all_callbacks_perform_zero_allocations() {
+        let core = core_with_source(50_000);
+        {
+            let mut c = core.lock().unwrap();
+            c.prepare_scratch();
+            c.playing = true;
+            c.volume = 1.0;
+            c.dither.store(DITHER_INDEX_OFF, Ordering::Relaxed);
+        }
+        let mut b_f32 = vec![0.0f32; 4096];
+        let mut b_i16 = vec![0i16; 4096];
+        let mut b_u8 = vec![0u8; 4096];
+        let mut b_i32 = vec![0i32; 4096];
+        let mut b_dop = vec![0i32; 4096];
+        // Warm-up: any lazily-initialised state (iterator glue, TLS, etc.) must
+        // settle before the zero-allocation assertion (ТЗ A2.0 §3.4).
+        audio_callback_f32(&core, &mut b_f32);
+        audio_callback_i16(&core, &mut b_i16);
+        audio_callback_u8(&core, &mut b_u8);
+        audio_callback_i32_pcm(&core, &mut b_i32);
+        audio_callback_i32_dop(&core, &mut b_dop);
+
+        assert_eq!(zero_alloc_run(|| audio_callback_f32(&core, &mut b_f32)), 0, "f32");
+        assert_eq!(zero_alloc_run(|| audio_callback_i16(&core, &mut b_i16)), 0, "i16");
+        assert_eq!(zero_alloc_run(|| audio_callback_u8(&core, &mut b_u8)), 0, "u8");
+        assert_eq!(
+            zero_alloc_run(|| audio_callback_i32_pcm(&core, &mut b_i32)),
+            0,
+            "i32_pcm"
+        );
+        assert_eq!(
+            zero_alloc_run(|| audio_callback_i32_dop(&core, &mut b_dop)),
+            0,
+            "i32_dop"
+        );
     }
 
     #[test]
