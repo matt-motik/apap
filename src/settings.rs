@@ -1271,6 +1271,63 @@ mod tests {
     }
 
     #[test]
+    fn audio_resampler_defaults() {
+        let s = Settings::default();
+        assert_eq!(s.audio.resampler.mode, ResamplerMode::Auto, "A3.0 §11.1");
+        assert_eq!(s.audio.resampler.fixed_rate, 0, "A3.0 §11.1");
+        assert_eq!(s.audio.resampler.prefer_family, ClockFamily::Auto, "A3.0 §11.1");
+        assert_eq!(s.audio.resampler.fallback_rate, FallbackRatePolicy::Nearest, "A3.0 §11.1");
+    }
+
+    #[test]
+    fn audio_defaults_new_fields() {
+        let s = Settings::default();
+        assert_eq!(s.audio.exclusive, ExclusiveMode::Auto, "A3.0 §11.1");
+        assert_eq!(s.audio.fallback, FallbackPolicy::Nearest, "A3.0 §11.1");
+        assert!(!s.audio.filter_hardware_only, "A3.0 §11.1");
+        assert!(!s.audio.filter_stereo_only, "A3.0 §11.1");
+    }
+
+    #[test]
+    fn audio_toml_roundtrip_with_new_fields() {
+        let toml = "[audio]\nbit_perfect = true\nexclusive = \"strict\"\nfallback = \"fail\"\nfilter_hardware_only = true\nfilter_stereo_only = true\n\n[audio.resampler]\nmode = \"fixed\"\nfixed_rate = 48000\nprefer_family = \"family48k\"\nfallback_rate = \"never_downsample\"\n";
+        let s: Settings = toml::from_str(toml).unwrap();
+        assert_eq!(s.audio.bit_perfect, true);
+        assert_eq!(s.audio.exclusive, ExclusiveMode::Strict);
+        assert_eq!(s.audio.fallback, FallbackPolicy::Fail);
+        assert!(s.audio.filter_hardware_only);
+        assert!(s.audio.filter_stereo_only);
+        assert_eq!(s.audio.resampler.mode, ResamplerMode::Fixed);
+        assert_eq!(s.audio.resampler.fixed_rate, 48000);
+        assert_eq!(s.audio.resampler.prefer_family, ClockFamily::Family48k);
+        assert_eq!(
+            s.audio.resampler.fallback_rate,
+            FallbackRatePolicy::NeverDownsample
+        );
+
+        let re = toml::to_string(&s).unwrap();
+        let parsed: Settings = toml::from_str(&re).unwrap();
+        assert_eq!(parsed.audio, s.audio);
+    }
+
+    #[test]
+    fn audio_partial_config_preserves_existing() {
+        let toml = "[audio]\nbit_perfect = false\n";
+        let s: Settings = toml::from_str(toml).unwrap();
+        assert_eq!(s.audio.bit_perfect, false);
+        assert_eq!(s.audio.resampler.algorithm, ResamplerAlgorithm::SincMedium);
+        assert_eq!(s.audio.resampler.dither, ResamplerDither::Tpdf);
+        assert_eq!(s.audio.resampler.mode, ResamplerMode::Auto);
+        assert_eq!(s.audio.resampler.fixed_rate, 0);
+        assert_eq!(s.audio.resampler.prefer_family, ClockFamily::Auto);
+        assert_eq!(s.audio.resampler.fallback_rate, FallbackRatePolicy::Nearest);
+        assert_eq!(s.audio.exclusive, ExclusiveMode::Auto);
+        assert_eq!(s.audio.fallback, FallbackPolicy::Nearest);
+        assert!(!s.audio.filter_hardware_only);
+        assert!(!s.audio.filter_stereo_only);
+    }
+
+    #[test]
     fn audio_resampler_algorithm_overrides_default() {
         let toml = "[audio.resampler]\nalgorithm = \"cubic\"\n";
         let s: Settings = match toml::from_str(toml) {

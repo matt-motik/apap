@@ -3,6 +3,7 @@
 - **Задача из ROADMAP:** A3.1 — Модель настроек: `ExclusiveMode`, `FallbackPolicy`, `ResamplerMode`, `ClockFamily`, `FallbackRatePolicy`; расширение `AudioResamplerCfg` / `AudioCfg`; round-trip тесты
 - **Вайтлист файлов в работе (Изменяемые файлы):**
   - `src/settings.rs`
+  - `src/audio/fulltrack.rs` (расширен по согласованию: фикс теста `cache_key_dsd_params_change_key` после изменения `AudioResamplerCfg`)
 - **Критерий успеха (Definition of Done):** `cargo check` без ошибок, `cargo clippy` без новых предупреждений в файле, `cargo test settings` зелёный (включая 4 новых теста из §11.1 спеки)
 
 ## Итерационный трекер
@@ -12,9 +13,9 @@
 
 [x] Шаг 3: Расширить `AudioCfg` полями `exclusive`, `fallback`, `filter_hardware_only`, `filter_stereo_only` и кастомным `Default`. Проверка: `cargo check` без ошибок.
 
-[ ] Шаг 4: Добавить тесты §11.1: `audio_resampler_defaults`, `audio_defaults_new_fields`, `audio_toml_roundtrip_with_new_fields`, `audio_partial_config_preserves_existing`. Проверка: `cargo test settings` зелёный, `cargo clippy` без новых предупреждений.
+[x] Шаг 4: Добавить тесты §11.1: `audio_resampler_defaults`, `audio_defaults_new_fields`, `audio_toml_roundtrip_with_new_fields`, `audio_partial_config_preserves_existing`. Проверка: `cargo test settings` зелёный, `cargo clippy` без новых предупреждений.
 
 - **Текущий шаг (current_step):** Шаг 4
-- **Следующий ход:** Добавить тесты §11.1 в `mod tests` (`audio_resampler_defaults`, `audio_defaults_new_fields`, `audio_toml_roundtrip_with_new_fields`, `audio_partial_config_preserves_existing`), затем `cargo test settings` + `cargo clippy`
+- **Следующий ход:** Финальная верификация A3.1 выполнена (176 lib + 13 bin зелёные, clippy без новых). Коммит шага, затем закрытие сессии A3.1 → Шаг 5
 - **Счетчик безуспешных компиляций:** 0/3
 - **Состояние:** in_progress

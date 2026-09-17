@@ -636,7 +636,7 @@ mod tests {
                 audio: crate::settings::AudioCfg {
                     resampler: crate::settings::AudioResamplerCfg {
                         algorithm: algo,
-                        dither: crate::settings::ResamplerDither::Tpdf,
+                        ..crate::settings::AudioResamplerCfg::default()
                     },
                     ..crate::settings::AudioCfg::default()
                 },
