@@ -6,7 +6,7 @@ use cpal::{BufferSize, SampleFormat, StreamConfig, SupportedBufferSize};
 
 use crate::audio::worker::{RtConsumer, RtShared};
 use crate::settings::{
-    ClockFamily, ExclusiveMode, FallbackPolicy, FallbackRatePolicy, ResamplerAlgorithm,
+    ClockFamily, DsdMode, ExclusiveMode, FallbackPolicy, FallbackRatePolicy, ResamplerAlgorithm,
     ResamplerMode, Settings,
 };
 
@@ -1192,6 +1192,180 @@ pub fn select_output(
     })
 }
 
+/// Русская строка для `stream-desc` в bp-report и статус-баре (ТЗ A3.0 §3.5).
+/// Технические термины (`Exclusive`, `Shared`, `I32`, DoP, частоты) не
+/// переводятся — это международная нотация.
+///
+/// `"48000 Гц · I32 · Exclusive"`
+/// `"48000 Гц · I32 · Shared · ресемплинг из 96000"`
+pub fn describe_stream(chosen: &ChosenOutput) -> String {
+    let fmt = sample_format_label(&chosen.sample_format);
+    let access = if chosen.exclusive { "Exclusive" } else { "Shared" };
+    let mut s = format!("{} Гц · {} · {}", chosen.config.sample_rate, fmt, access);
+    if chosen.resampled {
+        s.push_str(&format!(" · ресемплинг из {}", chosen.source_rate));
+    }
+    s
+}
+
+/// Результат валидации конкретного «канонического» источника (ТЗ A3.0 §5.1).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Outcome {
+    /// Native rate + exclusive-доступ — сигнал не тронут.
+    BitPerfect,
+    /// Поток работает, но с деградацией (shared доступа / ресемплинг / DoP).
+    Degraded,
+    /// Источник не может быть воспроизведён при текущих настройках.
+    Unsupported,
+}
+
+/// Одна строка таблицы валидации настроек (ТЗ A3.0 §5.1).
+#[derive(Debug, Clone)]
+pub struct ValidationRow {
+    /// Канонический источник («96k PCM», «DSD64»).
+    pub source: String,
+    pub outcome: Outcome,
+    /// «native, exclusive access» / «resampled → 48 kHz» / «unsupported».
+    pub detail: String,
+}
+
+/// Чистая функция (без I/O и зависимостей от `MusicApp`): для 11 канонических
+/// источников (ТЗ A3.0 §5.2) классифицирует, как их сыграл бы текущий
+/// [`choose_output`]. Вызывается из UI-синхронизации с живыми настройками.
+///
+/// Источники: 8 PCM-строк (44.1k..384k) и 3 DSD (DoP-слот DSD64/128/256).
+pub fn validate_audio_settings(device: &DeviceInfo, settings: &Settings) -> Vec<ValidationRow> {
+    const PCM: [(u32, &str); 8] = [
+        (44_100, "44.1k PCM"),
+        (48_000, "48k PCM"),
+        (88_200, "88.2k PCM"),
+        (96_000, "96k PCM"),
+        (176_400, "176.4k PCM"),
+        (192_000, "192k PCM"),
+        (352_800, "352.8k PCM"),
+        (384_000, "384k PCM"),
+    ];
+    const DSD: [(u32, &str); 3] = [(176_400, "DSD64"), (352_800, "DSD128"), (705_600, "DSD256")];
+
+    // Политики берутся из настроек один раз; per-строка меняется только source
+    // через `with_source` (§5.3). Девайс пинуется явно: валидация идёт строго
+    // по переданному устройству (название/дефолт хоста ни при чём).
+    let base = OutputRequest {
+        track_rate: 44_100,
+        track_channels: 2,
+        preferred_device: Some(device.id.clone()),
+        exclusive: settings.audio.exclusive,
+        fallback: settings.audio.fallback,
+        resampler: settings.audio.resampler.mode,
+        fallback_rate: settings.audio.resampler.fallback_rate,
+        clock_family: settings.audio.resampler.prefer_family,
+        fixed_rate: settings.audio.resampler.fixed_rate,
+    };
+
+    let mut rows = Vec::with_capacity(11);
+    for (rate, label) in PCM {
+        rows.push(validate_pcm_row(device, &base.with_source(rate, 2), label));
+    }
+    for (rate, label) in DSD {
+        rows.push(validate_dsd_row(device, &base, rate, label, settings.dsd.mode));
+    }
+    rows
+}
+
+/// Результат для строки PCM: считаем `choose_output` на источнике и
+/// классифицируем (ТЗ A3.0 §5.3); ошибка отдаёт `Unsupported`.
+fn validate_pcm_row(device: &DeviceInfo, req: &OutputRequest, label: &str) -> ValidationRow {
+    match choose_output(std::slice::from_ref(device), None, req) {
+        Ok(chosen) => {
+            let (outcome, detail) = classify_chosen(&chosen);
+            ValidationRow { source: label.into(), outcome, detail }
+        }
+        Err(msg) => ValidationRow { source: label.into(), outcome: Outcome::Unsupported, detail: msg },
+    }
+}
+
+/// Результат для строки DSD: разворачиваем цепочку по `settings.dsd.mode`
+/// (Native → DoP → Pcm, см. §4.1) и берём первый успешный шаг.
+fn validate_dsd_row(
+    device: &DeviceInfo,
+    base: &OutputRequest,
+    rate: u32,
+    label: &str,
+    mode: DsdMode,
+) -> ValidationRow {
+    let chain: &[DsdMode] = match mode {
+        DsdMode::Native => &[DsdMode::Native, DsdMode::DoP, DsdMode::Pcm],
+        DsdMode::DoP => &[DsdMode::DoP, DsdMode::Pcm],
+        DsdMode::Pcm => &[DsdMode::Pcm],
+    };
+    for &mode in chain {
+        match mode {
+            // Backend Native пока не реализован — шаг всегда «неудачен».
+            DsdMode::Native => continue,
+            DsdMode::DoP => {
+                if device.dop_container_rate() != Some(rate) {
+                    continue;
+                }
+                // DoP-слот совпадает: поток — native на контейнерной частоте.
+                let req = base.with_source(rate, 2);
+                match choose_output(std::slice::from_ref(device), None, &req) {
+                    Ok(chosen) => {
+                        let exclusive = chosen.exclusive;
+                        let outcome = if !chosen.resampled && exclusive {
+                            Outcome::BitPerfect
+                        } else {
+                            Outcome::Degraded
+                        };
+                        let detail = if exclusive {
+                            String::from("DoP")
+                        } else {
+                            String::from("DoP, shared access")
+                        };
+                        return ValidationRow { source: label.into(), outcome, detail };
+                    }
+                    Err(_) => continue,
+                }
+            }
+            DsdMode::Pcm => {
+                // DSD → PCM через CIC-decimation: ×8 по частоте.
+                let req = base.with_source(rate / 8, 2);
+                match choose_output(std::slice::from_ref(device), None, &req) {
+                    Ok(chosen) => {
+                        let (outcome, _) = classify_chosen(&chosen);
+                        let mut detail = format!("PCM @ {}", chosen.config.sample_rate);
+                        if chosen.resampled {
+                            detail.push_str(" (resampled)");
+                        }
+                        return ValidationRow { source: label.into(), outcome, detail };
+                    }
+                    Err(_) => continue,
+                }
+            }
+        }
+    }
+    ValidationRow { source: label.into(), outcome: Outcome::Unsupported, detail: String::from("unsupported") }
+}
+
+/// Классификация выбранного потока в Outcome + detail (ТЗ A3.0 §5.3):
+/// bit-perfect = native + exclusive; иначе degraded; resampled-строка несёт
+/// причину cross-family при выходе за семейство клока.
+fn classify_chosen(chosen: &ChosenOutput) -> (Outcome, String) {
+    if !chosen.resampled && chosen.exclusive {
+        (Outcome::BitPerfect, String::from("native, exclusive access"))
+    } else if !chosen.resampled {
+        (Outcome::Degraded, String::from("native, shared access"))
+    } else {
+        let mut detail = format!("resampled → {} Hz", chosen.config.sample_rate);
+        if matches!(
+            chosen.fallback,
+            Some(FallbackReason::RateUnsupported { cross_family: true, .. })
+        ) {
+            detail.push_str(", cross-family");
+        }
+        (Outcome::Degraded, detail)
+    }
+}
+
 /// True when `name` is a software sound-server node (PipeWire/Pulse) that cpal
 /// surfaces as an ALSA "device". Such nodes proxy the stream through a server
 /// with implicit resampling and can never deliver bit-exact (DoP) output, so
@@ -2200,5 +2374,393 @@ mod tests {
         for v in &out {
             assert!((v - 0.5).abs() < 1e-3, "got {v}");
         }
+    }
+
+    // --- A3.0 §11.2: choose_output policies ---
+
+    fn req_off(track_rate: u32, track_channels: usize) -> OutputRequest {
+        OutputRequest {
+            track_rate,
+            track_channels,
+            preferred_device: None,
+            exclusive: ExclusiveMode::Off,
+            fallback: FallbackPolicy::Nearest,
+            resampler: ResamplerMode::Auto,
+            fallback_rate: FallbackRatePolicy::Nearest,
+            clock_family: ClockFamily::Auto,
+            fixed_rate: 0,
+        }
+    }
+
+    #[test]
+    fn choose_output_exclusive_strict_on_server_fails() {
+        // ТЗ §11.2: Strict на ноде звукового сервера (нет raw exclusive)
+        // → жёсткая ошибка, без деградации.
+        let server = mock_device_id("default", "PipeWire", 2, 48000, &[(2, 44100, 48000)]);
+        let req = OutputRequest {
+            exclusive: ExclusiveMode::Strict,
+            ..req_off(44100, 2)
+        };
+        let r = choose_output(&[server], Some("PipeWire"), &req);
+        assert_eq!(r.unwrap_err(), "Exclusive mode unavailable on this device");
+    }
+
+    #[test]
+    fn choose_output_exclusive_auto_on_server_degrades() {
+        // ТЗ §11.2: Auto на сервере → shared + явная причина ExclusiveUnavailable.
+        let server = mock_device_id("default", "PipeWire", 2, 48000, &[(2, 44100, 48000)]);
+        let req = OutputRequest {
+            exclusive: ExclusiveMode::Auto,
+            ..req_off(44100, 2)
+        };
+        let chosen = choose_output(&[server], Some("PipeWire"), &req).unwrap();
+        assert!(!chosen.exclusive);
+        assert_eq!(chosen.fallback, Some(FallbackReason::ExclusiveUnavailable));
+    }
+
+    #[test]
+    fn choose_output_fallback_fail_returns_error() {
+        // ТЗ §11.2: FallbackPolicy::Fail + несовпадение rate → Err.
+        let device = mock_device("DAC", 2, 44100, &[(2, 44100, 44100)]);
+        let req = OutputRequest {
+            track_rate: 192000,
+            fallback: FallbackPolicy::Fail,
+            ..req_off(192000, 2)
+        };
+        let r = choose_output(&[device], Some("DAC"), &req);
+        assert!(r.unwrap_err().contains("192000"));
+    }
+
+    #[test]
+    fn choose_output_device_default_ignores_track_rate() {
+        // ТЗ §11.2: DeviceDefault → дефолт устройства вне зависимости от трека.
+        let device = mock_device("DAC", 2, 44100, &[(2, 44100, 48000)]);
+        let req = OutputRequest {
+            fallback: FallbackPolicy::DeviceDefault,
+            ..req_off(192000, 2)
+        };
+        let chosen = choose_output(&[device], Some("DAC"), &req).unwrap();
+        assert_eq!(chosen.config.sample_rate, 44100);
+        assert!(chosen.resampled);
+    }
+
+    #[test]
+    fn choose_output_native_mode_requires_exact() {
+        // ТЗ §11.2: ResamplerMode::Native + недоступный rate → HARD FAIL.
+        let device = mock_device("DAC", 2, 44100, &[(2, 44100, 48000)]);
+        let req = OutputRequest {
+            resampler: ResamplerMode::Native,
+            ..req_off(96000, 2)
+        };
+        let err = choose_output(&[device], Some("DAC"), &req).unwrap_err();
+        assert!(err.contains("Native mode requires exact rate match"));
+        assert!(err.contains("96000"));
+    }
+
+    #[test]
+    fn choose_output_fixed_mode_uses_fixed_rate() {
+        // ТЗ §11.2: Fixed + поддерживаемый fixed_rate → ровно он, без фолбека.
+        let device = mock_device(
+            "DAC",
+            2,
+            44100,
+            &[(2, 44100, 48000), (2, 88200, 88200), (2, 96000, 192000)],
+        );
+        let req = OutputRequest {
+            resampler: ResamplerMode::Fixed,
+            fixed_rate: 88200,
+            ..req_off(88200, 2)
+        };
+        let chosen = choose_output(&[device], Some("DAC"), &req).unwrap();
+        assert_eq!(chosen.config.sample_rate, 88200);
+        assert!(!chosen.resampled);
+        assert_eq!(chosen.fallback, None);
+    }
+
+    #[test]
+    fn choose_output_fixed_mode_uses_family_if_zero() {
+        // ТЗ §11.2: Fixed + fixed_rate=0 → максимум предпочитаемого семейства
+        // (176400 — максимальная кратная 44100). Ресемплинг форсированный.
+        let device = mock_device(
+            "DAC",
+            2,
+            44100,
+            &[(2, 44100, 44100), (2, 88200, 88200), (2, 176400, 176400)],
+        );
+        let req = OutputRequest {
+            resampler: ResamplerMode::Fixed,
+            fixed_rate: 0,
+            clock_family: ClockFamily::Family44k,
+            ..req_off(44100, 2)
+        };
+        let chosen = choose_output(&[device], Some("DAC"), &req).unwrap();
+        assert_eq!(chosen.config.sample_rate, 176400);
+        assert!(chosen.resampled);
+        assert_eq!(
+            chosen.fallback,
+            Some(FallbackReason::ResamplerForced { requested: 44100 })
+        );
+    }
+
+    #[test]
+    fn choose_output_fixed_mode_unsupported_rate_falls_to_nearest() {
+        // ТЗ §11.2 (ревью §14 №20): Fixed + недоступный fixed_rate — интент,
+        // а не контракт: целевой = nearest, причина RateUnsupported{cross_family}.
+        let device = mock_device(
+            "DAC",
+            2,
+            44100,
+            &[(2, 44100, 44100), (2, 48000, 48000), (2, 96000, 96000)],
+        );
+        let req = OutputRequest {
+            resampler: ResamplerMode::Fixed,
+            fixed_rate: 88200,
+            ..req_off(44100, 2)
+        };
+        let chosen = choose_output(&[device], Some("DAC"), &req).unwrap();
+        assert_eq!(chosen.config.sample_rate, 96000);
+        assert_eq!(
+            chosen.fallback,
+            Some(FallbackReason::RateUnsupported {
+                requested: 88200,
+                chosen: 96000,
+                cross_family: true,
+            })
+        );
+    }
+
+    #[test]
+    fn choose_output_fixed_mode_auto_empty_family_falls_to_device_default() {
+        // ТЗ §11.2 (ревью §14 №2): Fixed + fixed_rate=0 + пустое семейство →
+        // DeviceDefault + явная причина ClockFamilyIncomplete.
+        let device = mock_device(
+            "DAC",
+            2,
+            48000,
+            &[(2, 48000, 48000), (2, 96000, 96000)],
+        );
+        let req = OutputRequest {
+            resampler: ResamplerMode::Fixed,
+            fixed_rate: 0,
+            clock_family: ClockFamily::Family44k,
+            ..req_off(88200, 2)
+        };
+        let chosen = choose_output(&[device], Some("DAC"), &req).unwrap();
+        assert_eq!(chosen.config.sample_rate, 48000);
+        assert_eq!(
+            chosen.fallback,
+            Some(FallbackReason::ClockFamilyIncomplete {
+                requested: 88200,
+                chosen: 48000,
+            })
+        );
+    }
+
+    #[test]
+    fn choose_output_fallback_rate_same_family() {
+        // ТЗ §11.2: 88.2k на {44.1, 48, 96, 192} + SameFamily → 44.1 (своё
+        // семейство, cross_family = false), а не 96k.
+        let device = mock_device(
+            "DAC",
+            2,
+            44100,
+            &[(2, 44100, 44100), (2, 48000, 48000), (2, 96000, 96000), (2, 192000, 192000)],
+        );
+        let req = OutputRequest {
+            fallback_rate: FallbackRatePolicy::SameFamily,
+            ..req_off(88200, 2)
+        };
+        let chosen = choose_output(&[device], Some("DAC"), &req).unwrap();
+        assert_eq!(chosen.config.sample_rate, 44100);
+        assert_eq!(
+            chosen.fallback,
+            Some(FallbackReason::RateUnsupported {
+                requested: 88200,
+                chosen: 44100,
+                cross_family: false,
+            })
+        );
+    }
+
+    #[test]
+    fn choose_output_fallback_rate_never_downsample() {
+        // ТЗ §11.2: 192k на {44.1, 48, 96} + NeverDownsample → нет rate ≥ 192k → Err.
+        let device = mock_device(
+            "DAC",
+            2,
+            44100,
+            &[(2, 44100, 44100), (2, 48000, 48000), (2, 96000, 96000)],
+        );
+        let req = OutputRequest {
+            fallback_rate: FallbackRatePolicy::NeverDownsample,
+            ..req_off(192000, 2)
+        };
+        let r = choose_output(&[device], Some("DAC"), &req);
+        assert!(r.unwrap_err().contains("192000"));
+    }
+
+    #[test]
+    fn describe_stream_includes_resampled_marker() {
+        fn chosen(resampled: bool, out_rate: u32, source_rate: u32) -> ChosenOutput {
+            ChosenOutput {
+                device_id: "hw:CARD=4,DEV=0".into(),
+                device_name: "ADI-2".into(),
+                config: StreamConfig {
+                    channels: 2,
+                    sample_rate: out_rate,
+                    buffer_size: BufferSize::Default,
+                },
+                sample_format: SampleFormat::I32,
+                exclusive: true,
+                resampled,
+                source_rate,
+                source_channels: 2,
+                fallback: None,
+            }
+        }
+        let s = describe_stream(&chosen(true, 48000, 96000));
+        assert!(s.contains("48000 Гц · I32 · Exclusive"));
+        assert!(s.contains("ресемплинг из 96000"));
+        let s = describe_stream(&chosen(false, 48000, 48000));
+        assert!(s.contains("48000 Гц · I32 · Exclusive"));
+        assert!(!s.contains("ресемплинг"));
+        let shared = ChosenOutput {
+            exclusive: false,
+            ..chosen(false, 48000, 48000)
+        };
+        assert!(describe_stream(&shared).contains("Shared"));
+    }
+
+    // --- A3.0 §11.3: validate_audio_settings ---
+
+    fn row_by_source<'a>(rows: &'a [ValidationRow], source: &str) -> &'a ValidationRow {
+        rows.iter().find(|r| r.source == source).expect("row present")
+    }
+
+    #[test]
+    fn validate_returns_11_rows() {
+        let device = mock_device("DAC", 2, 44100, &[(2, 44100, 192000)]);
+        let rows = validate_audio_settings(&device, &Settings::default());
+        assert_eq!(rows.len(), 11);
+    }
+
+    #[test]
+    fn validate_pcm_native_when_rate_supported() {
+        let mut s = Settings::default();
+        s.audio.resampler.mode = ResamplerMode::Native;
+        s.audio.exclusive = ExclusiveMode::Auto;
+        let hw = mock_device_id(
+            "hw:CARD=0,DEV=0",
+            "RME ADI-2",
+            2,
+            96000,
+            &[(2, 44100, 44100), (2, 48000, 48000), (2, 96000, 192000)],
+        );
+        let rows = validate_audio_settings(&hw, &s);
+        let row = row_by_source(&rows, "96k PCM");
+        assert_eq!(row.outcome, Outcome::BitPerfect);
+        assert_eq!(row.detail, "native, exclusive access");
+    }
+
+    #[test]
+    fn validate_pcm_degraded_when_nearest() {
+        let mut s = Settings::default();
+        s.audio.exclusive = ExclusiveMode::Off;
+        let server = mock_device_id("default", "PipeWire", 2, 48000, &[(2, 44100, 48000)]);
+        let rows = validate_audio_settings(&server, &s);
+        let row = row_by_source(&rows, "96k PCM");
+        assert_eq!(row.outcome, Outcome::Degraded);
+        assert!(row.detail.contains("resampled"), "{}", row.detail);
+    }
+
+    #[test]
+    fn validate_pcm_unsupported_when_fail() {
+        let mut s = Settings::default();
+        s.audio.fallback = FallbackPolicy::Fail;
+        s.audio.exclusive = ExclusiveMode::Off;
+        let server = mock_device_id("default", "PipeWire", 2, 48000, &[(2, 44100, 48000)]);
+        let rows = validate_audio_settings(&server, &s);
+        let row = row_by_source(&rows, "96k PCM");
+        assert_eq!(row.outcome, Outcome::Unsupported);
+        assert!(row.detail.contains("96000"), "{}", row.detail);
+    }
+
+    #[test]
+    fn validate_pcm_cross_family_detail() {
+        let mut s = Settings::default();
+        s.audio.exclusive = ExclusiveMode::Off;
+        let hw = mock_device(
+            "DAC",
+            2,
+            44100,
+            &[(2, 44100, 44100), (2, 48000, 48000), (2, 96000, 96000)],
+        );
+        let rows = validate_audio_settings(&hw, &s);
+        let row = row_by_source(&rows, "88.2k PCM");
+        assert_eq!(row.outcome, Outcome::Degraded);
+        assert!(row.detail.contains("cross-family"), "{}", row.detail);
+    }
+
+    #[test]
+    fn validate_pcm_native_bp_unsupported() {
+        // Ревью §14 №3: Native (ресемплер) + bit_perfect + несовпадение rate
+        // → HARD FAIL: строка Unsupported, detail про exact-rate.
+        let mut s = Settings::default();
+        s.audio.resampler.mode = ResamplerMode::Native;
+        s.audio.bit_perfect = true;
+        s.audio.exclusive = ExclusiveMode::Auto;
+        let hw = mock_device("DAC", 2, 44100, &[(2, 44100, 48000)]);
+        let rows = validate_audio_settings(&hw, &s);
+        let row = row_by_source(&rows, "96k PCM");
+        assert_eq!(row.outcome, Outcome::Unsupported);
+        assert!(row.detail.contains("Native mode requires exact rate match"), "{}", row.detail);
+    }
+
+    #[test]
+    fn validate_dsd_bitperfect_when_dop_slot_supported() {
+        // ТЗ §11.3: dsd_mode = Native, устройство с DoP-слотом 176400 →
+        // DSD64 BitPerfect, detail «DoP» (DoP сохраняет bit-perfect контейнер).
+        let mut s = Settings::default();
+        s.dsd.mode = DsdMode::Native;
+        s.audio.exclusive = ExclusiveMode::Auto;
+        let hw = mock_device_id(
+            "hw:CARD=0,DEV=1",
+            "ADI-2",
+            2,
+            176400,
+            &[(2, 44100, 44100), (2, 176400, 176400)],
+        );
+        let rows = validate_audio_settings(&hw, &s);
+        let row = row_by_source(&rows, "DSD64");
+        assert_eq!(row.outcome, Outcome::BitPerfect);
+        assert_eq!(row.detail, "DoP");
+    }
+
+    #[test]
+    fn validate_dsd_degraded_when_chain_falls_to_pcm() {
+        // ТЗ §11.3: dsd_mode = DoP без DoP-слота → PCM (CIC ×8): 176400/8 =
+        // 22050 → nearest 44100, строка Degraded.
+        let mut s = Settings::default();
+        s.dsd.mode = DsdMode::DoP;
+        s.audio.exclusive = ExclusiveMode::Off;
+        let server = mock_device_id("default", "PipeWire", 2, 44100, &[(2, 44100, 48000)]);
+        let rows = validate_audio_settings(&server, &s);
+        let row = row_by_source(&rows, "DSD64");
+        assert_eq!(row.outcome, Outcome::Degraded);
+        assert!(row.detail.contains("PCM @ 44100"), "{}", row.detail);
+    }
+
+    #[test]
+    fn validate_dsd_unsupported_when_fail() {
+        // ТЗ §11.3: Fallback = Fail — цепочка не спускается, строка Unsupported.
+        let mut s = Settings::default();
+        s.dsd.mode = DsdMode::Pcm;
+        s.audio.fallback = FallbackPolicy::Fail;
+        s.audio.exclusive = ExclusiveMode::Off;
+        let server = mock_device_id("default", "PipeWire", 2, 44100, &[(2, 44100, 48000)]);
+        let rows = validate_audio_settings(&server, &s);
+        let row = row_by_source(&rows, "DSD64");
+        assert_eq!(row.outcome, Outcome::Unsupported);
+        assert_eq!(row.detail, "unsupported");
     }
 }
