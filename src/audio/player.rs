@@ -190,6 +190,16 @@ pub struct Player {
     /// Политика фолбека при несовпадении параметров (ТЗ A3.0 §2.2); для DSD
     /// `Fail` останавливает цепочку на первом провале (§4.2).
     fallback_policy: FallbackPolicy,
+    /// Режим ресемплинга для новых потоков (ТЗ A3.0 §2.1). Раньше парсился
+    /// из пути (A2.0 §8.2) — теперь задаётся настройками (A3.5 §7.7).
+    resampler_mode: ResamplerMode,
+    /// Фиксированная частота выхода для `resampler_mode == Fixed` (Гц).
+    fixed_rate: u32,
+    /// Предпочтительное семейство клока при ресемплинге (ТЗ A3.0 §2.1).
+    prefer_family: ClockFamily,
+    /// Политика понижения частоты (ТЗ A3.0 §2.1); работает при
+    /// `resampler_mode == Auto`.
+    fallback_rate: FallbackRatePolicy,
     /// Описание последнего открытого потока (см. [`StreamDesc`]).
     stream_desc: Option<StreamDesc>,
     /// Test-only seam (§11.4) — см. [`TestHooks`].
@@ -227,6 +237,10 @@ impl Player {
             dsd_mode: DsdMode::Pcm,
             exclusive_mode: ExclusiveMode::Auto,
             fallback_policy: FallbackPolicy::Nearest,
+            resampler_mode: ResamplerMode::Auto,
+            fixed_rate: 0,
+            prefer_family: ClockFamily::Auto,
+            fallback_rate: FallbackRatePolicy::Nearest,
             stream_desc: None,
             #[cfg(test)]
             test_hooks: TestHooks::default(),
@@ -260,6 +274,30 @@ impl Player {
     /// DSD-цепочку: после первого провала шага следующие шаги не пробуются.
     pub fn set_fallback_policy(&mut self, policy: FallbackPolicy) {
         self.fallback_policy = policy;
+    }
+
+    /// Режим ресемплинга для новых потоков (ТЗ A3.0 §2.1, A3.5 §7.7)
+    /// — применяется на следующем `open`/смене устройства.
+    pub fn set_resampler_mode(&mut self, mode: ResamplerMode) {
+        self.resampler_mode = mode;
+    }
+
+    /// Фиксированная частота выхода для `resampler_mode == Fixed` (ТЗ A3.5
+    /// §7.7). Затрагивает только следующий `open`.
+    pub fn set_fixed_rate(&mut self, rate: u32) {
+        self.fixed_rate = rate;
+    }
+
+    /// Предпочтительное семейство клока при ресемплинге (ТЗ A3.0 §2.1,
+    /// A3.5 §7.7). Применяется на следующем `open`.
+    pub fn set_prefer_family(&mut self, family: ClockFamily) {
+        self.prefer_family = family;
+    }
+
+    /// Политика понижения частоты (ТЗ A3.0 §2.1, A3.5 §7.7); актуальна только
+    /// при `resampler_mode == Auto`. Применяется на следующем `open`.
+    pub fn set_fallback_rate(&mut self, policy: FallbackRatePolicy) {
+        self.fallback_rate = policy;
     }
 
     /// Описание последнего открытого потока (геометрия + деградации), либо
@@ -511,10 +549,10 @@ impl Player {
             preferred_device: self.preferred_device.clone(),
             exclusive: self.exclusive_mode,
             fallback: self.fallback_policy,
-            resampler: ResamplerMode::Auto,
-            fallback_rate: FallbackRatePolicy::Nearest,
-            clock_family: ClockFamily::Auto,
-            fixed_rate: 0,
+            resampler: self.resampler_mode,
+            fallback_rate: self.fallback_rate,
+            clock_family: self.prefer_family,
+            fixed_rate: self.fixed_rate,
         };
         let spec = select_output_for(&req)?;
         let out_rate = spec.config.sample_rate;
@@ -592,10 +630,10 @@ impl Player {
             preferred_device: self.preferred_device.clone(),
             exclusive: self.exclusive_mode,
             fallback: self.fallback_policy,
-            resampler: ResamplerMode::Auto,
-            fallback_rate: FallbackRatePolicy::Nearest,
-            clock_family: ClockFamily::Auto,
-            fixed_rate: 0,
+            resampler: self.resampler_mode,
+            fallback_rate: self.fallback_rate,
+            clock_family: self.prefer_family,
+            fixed_rate: self.fixed_rate,
         };
         let mut spec = select_output_for(&req)?;
 
@@ -1121,6 +1159,10 @@ impl Player {
             dsd_mode: DsdMode::Pcm,
             exclusive_mode: ExclusiveMode::Auto,
             fallback_policy: FallbackPolicy::Nearest,
+            resampler_mode: ResamplerMode::Auto,
+            fixed_rate: 0,
+            prefer_family: ClockFamily::Auto,
+            fallback_rate: FallbackRatePolicy::Nearest,
             stream_desc: None,
             #[cfg(test)]
             test_hooks: TestHooks::default(),
