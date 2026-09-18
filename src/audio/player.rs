@@ -1,6 +1,9 @@
 use std::path::Path;
 use std::sync::{Arc, Mutex};
 
+#[cfg(test)]
+use std::sync::atomic::{AtomicUsize, Ordering};
+
 use cpal::traits::{DeviceTrait, HostTrait, StreamTrait};
 use cpal::{BufferSize, SampleFormat};
 
@@ -127,6 +130,16 @@ fn format_name(f: &SampleFormat) -> &'static str {
     }
 }
 
+/// Test-only seam: lets §11.4 tests force the first N `build_stream_rt`
+/// attempts in `start_engine` to fail (e.g. to simulate a device that rejects
+/// an exclusive stream). Absent from production builds.
+#[cfg(test)]
+#[derive(Debug, Default)]
+pub struct TestHooks {
+    /// Remaining forced build failures; consumed one per `start_engine` call.
+    pub build_failures: AtomicUsize,
+}
+
 /// Описание текущего audio-потока (ТЗ A3.0 §4.4): геометрия + деградации.
 /// Собирается в `open_pcm`/`open_dop`, обогащается DSD-полями в
 /// `open_dsd_with_chain`; читается UI-менеджерами для badge'ов и bp-report.
@@ -179,6 +192,9 @@ pub struct Player {
     fallback_policy: FallbackPolicy,
     /// Описание последнего открытого потока (см. [`StreamDesc`]).
     stream_desc: Option<StreamDesc>,
+    /// Test-only seam (§11.4) — см. [`TestHooks`].
+    #[cfg(test)]
+    test_hooks: TestHooks,
     /// Ring depth in milliseconds for new streams (ТЗ A2.0 §5.2).
     ring_buffer_ms: u32,
     /// Desired transport state, persisted across stream re-creation so a new
@@ -212,6 +228,8 @@ impl Player {
             exclusive_mode: ExclusiveMode::Auto,
             fallback_policy: FallbackPolicy::Nearest,
             stream_desc: None,
+            #[cfg(test)]
+            test_hooks: TestHooks::default(),
             ring_buffer_ms: RING_BUFFER_MS_DEFAULT,
             volume: 0.8,
             muted: false,
@@ -297,7 +315,6 @@ impl Player {
     /// expands to `[Native, DoP, Pcm]` / `[DoP, Pcm]` / `[Pcm]` and the first
     /// step that succeeds wins. `FallbackPolicy::Fail` stops the chain after
     /// the first failed step. Returns the track info; errors are strings.
-    /// True for `.dsf`/`.dff` paths (case-insensitive).
     pub fn open(&mut self, path: &Path) -> Result<TrackInfo, String> {
         if is_dsd_path(path) {
             self.open_dsd_with_chain(path)
@@ -370,9 +387,33 @@ impl Player {
         shared.set_finished(false);
     }
 
+    /// Wrap `build_stream_rt` with the §11.4 mock seam. In test builds the
+    /// first `build_failures` `start_engine`-iterations are forced to fail
+    /// (the device rejects the stream); production builds call through.
+    fn build_stream(
+        &self,
+        spec: &OutputSpec,
+        consumer: RtConsumer,
+    ) -> Result<cpal::Stream, String> {
+        #[cfg(test)]
+        {
+            let rem = self.test_hooks.build_failures.load(Ordering::Relaxed);
+            if rem > 0 {
+                self.test_hooks
+                    .build_failures
+                    .store(rem - 1, Ordering::Relaxed);
+                return Err("Mock: build_stream_rt forced to fail (TestHooks)".into());
+            }
+        }
+        build_stream_rt(spec, consumer, None)
+    }
+
     /// Build the consumer stream and spawn the producer worker. On a
     /// `Fixed`-buffer rejection the stream is retried with `Default` (the
     /// source/resampler are only handed to the worker once the stream builds).
+    /// When the stream was selected as `exclusive` and the build fails, §4.3
+    /// applies: `Auto` downgrades to shared (one retry), `Strict` returns the
+    /// error unchanged.
     fn start_engine(
         &mut self,
         source: Box<dyn AudioSource>,
@@ -381,7 +422,19 @@ impl Player {
         rng: TpdfRng,
         mut spec: OutputSpec,
     ) -> Result<cpal::Stream, String> {
+        #[cfg(test)]
+        {
+            let rem = self.test_hooks.build_failures.load(Ordering::Relaxed);
+            if rem > 0 {
+                self.test_hooks
+                    .build_failures
+                    .store(rem - 1, Ordering::Relaxed);
+                return Err("Mock: build_stream_rt forced to fail (TestHooks)".into());
+            }
+        }
+
         let viz_tap = self.viz_tap.clone();
+        let mut exclusive_retried = false;
         loop {
             // Recompute per iteration so the `Default` retry gets a floor that
             // matches the actual (unknown) callback period less aggressively.
@@ -398,7 +451,7 @@ impl Player {
             let (producer, ring) = rtrb::RingBuffer::<f32>::new(capacity);
             let mut consumer = RtConsumer::new(ring, shared.clone());
             consumer.set_tpdf(rng);
-            match build_stream_rt(&spec, consumer, None) {
+            match self.build_stream(&spec, consumer) {
                 Ok(stream) => {
                     self.worker = Some(PlaybackWorker::spawn(
                         source,
@@ -412,6 +465,22 @@ impl Player {
                 Err(e) => {
                     if matches!(spec.config.buffer_size, BufferSize::Fixed(_)) {
                         spec.config.buffer_size = BufferSize::Default;
+                        continue;
+                    }
+                    // Exclusive stream rejected: one shared downgrade (Auto) or
+                    // fail through (Strict), ТЗ A3.0 §4.3.
+                    if spec.exclusive
+                        && self.exclusive_mode == ExclusiveMode::Auto
+                        && !exclusive_retried
+                    {
+                        exclusive_retried = true;
+                        spec.exclusive = false;
+                        spec.sample_format = SampleFormat::F32;
+                        spec.config.buffer_size = BufferSize::Default;
+                        if let Some(desc) = self.stream_desc.as_mut() {
+                            desc.exclusive = false;
+                            desc.exclusive_fallback = true;
+                        }
                         continue;
                     }
                     return Err(e);
@@ -1053,6 +1122,8 @@ impl Player {
             exclusive_mode: ExclusiveMode::Auto,
             fallback_policy: FallbackPolicy::Nearest,
             stream_desc: None,
+            #[cfg(test)]
+            test_hooks: TestHooks::default(),
             ring_buffer_ms: RING_BUFFER_MS_DEFAULT,
             volume: 0.8,
             muted: false,
