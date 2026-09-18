@@ -245,11 +245,7 @@ impl MusicApp {
             .audio_device_infos
             .iter()
             .filter(|d| {
-                (if s.audio.filter_hardware_only {
-                    d.category == DeviceCategory::Hardware
-                } else {
-                    true
-                }) && (if s.audio.filter_stereo_only { d.is_stereo() } else { true })
+                audio_filter_matches(d, s.audio.filter_hardware_only, s.audio.filter_stereo_only)
             })
             .collect();
 
@@ -688,6 +684,20 @@ impl MusicApp {
         self.ui
             .set_settings_audio_ring_buffer_ms(s.audio.ring_buffer_ms as i32);
     }
+}
+
+/// Проекция устройства через draft-фильтры вкладки Audio: hardware-only и
+/// stereo-only (ТЗ A3.0 §8.1). Чистая функция — тестируется без UI.
+pub(super) fn audio_filter_matches(
+    device: &DeviceInfo,
+    hardware_only: bool,
+    stereo_only: bool,
+) -> bool {
+    (if hardware_only {
+        device.category == DeviceCategory::Hardware
+    } else {
+        true
+    }) && (if stereo_only { device.is_stereo() } else { true })
 }
 
 /// Index of the pair matching `want` within an *arbitrary* `(id, label)` list.

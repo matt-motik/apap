@@ -1044,20 +1044,21 @@ impl MusicApp {
 
         // 25i. settings-set-audio-resampler-mode (ТЗ A3.0 §7.3/§7.7): при
         // выборе Fixed с активным Fallback = Fail принудительно сбрасываем
-        // fallback на Nearest — исходное сочетание невозможно.
+        // fallback на Nearest — исходное сочетание невозможно
+        // (`resampler_fixed_fallback_guard`).
         {
             let app = this.clone();
             ui.on_settings_set_audio_resampler_mode(move |i| {
                 eprintln!("[gui] settings_set_audio_resampler_mode idx={i}");
                 let mut a = app.borrow_mut();
                 let mode = ResamplerMode::from_index(i).unwrap_or(ResamplerMode::Auto);
-                let forced = mode == ResamplerMode::Fixed
-                    && a.settings_ref().audio.fallback == FallbackPolicy::Fail;
+                let guarded = resampler_fixed_fallback_guard(mode, a.settings_ref().audio.fallback);
+                let forced = guarded != a.settings_ref().audio.fallback;
                 {
                     let s = a.settings_mut();
                     s.audio.resampler.mode = mode;
                     if forced {
-                        s.audio.fallback = FallbackPolicy::Nearest;
+                        s.audio.fallback = guarded;
                     }
                 }
                 if forced {
@@ -1754,6 +1755,19 @@ fn visible_col_at_index(settings: &music_player_rs::settings::Settings, visible_
     visible_cols.get(visible_index as usize).copied()
 }
 
+/// Guard для авто-коррекции Advanced-настроек (ТЗ A3.0 §7.7): сочетание
+/// `ResamplerMode::Fixed` с `FallbackPolicy::Fail` невозможно — fixed-цепочка
+/// всегда должна иметь запасной путь. Возвращает политику fallback, которую
+/// следует применить после выбора режима: исходную во всех случаях, кроме
+/// Fixed+Fail (там — Nearest). Чистая функция, покрыта bin-тестами.
+fn resampler_fixed_fallback_guard(mode: ResamplerMode, fallback: FallbackPolicy) -> FallbackPolicy {
+    if mode == ResamplerMode::Fixed && fallback == FallbackPolicy::Fail {
+        FallbackPolicy::Nearest
+    } else {
+        fallback
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -1881,7 +1895,7 @@ mod tests {
 
     // ── A3.5: Audio-tab tests (ТЗ A3.0 §4.1, §7.3, §8.1) ──────────────
 
-    use crate::app::ui_manager::{build_capabilities, find_device_index_in};
+    use crate::app::ui_manager::{audio_filter_matches, build_capabilities, find_device_index_in};
     use cpal::{SampleFormat, SupportedBufferSize};
     use music_player_rs::audio::output::{DeviceCategory, DeviceInfo, RateRange};
 
@@ -2017,8 +2031,8 @@ mod tests {
         );
         let caps = build_capabilities(&d);
         assert_eq!(caps[0].value.as_str(), "Программное (сервер звука)");
-        // Каналы 99 → «99 (каналов)»
-        assert_eq!(caps[1].value.as_str(), "99 (каналов)");
+        // Каналы 99 → вне известных конфигураций (2..=8, 1) — просто число
+        assert_eq!(caps[1].value.as_str(), "99");
         // Exclusive не поддерживается
         assert!(!caps[4].ok);
         assert_eq!(caps[4].value.as_str(), "не поддерживается");
@@ -2030,6 +2044,41 @@ mod tests {
         let caps = build_capabilities(&d);
         let freq = caps.iter().find(|c| c.label.as_str() == "Частоты").unwrap();
         assert!(!freq.ok);
+    }
+
+    #[test]
+    fn audio_filter_hardware_only_keeps_hw_drops_software() {
+        let hw = mock_device("hw:PCH,0", "Intel HDA", 2, DeviceCategory::Hardware, vec![], vec![], true);
+        let sp = mock_device("pipewire", "PipeWire", 2, DeviceCategory::ServerProxy, vec![], vec![], false);
+        let virt = mock_device("dmix", "dmix", 2, DeviceCategory::Virtual, vec![], vec![], false);
+        assert!(audio_filter_matches(&hw, true, false));
+        assert!(!audio_filter_matches(&sp, true, false));
+        assert!(!audio_filter_matches(&virt, true, false));
+        // Фильтр выключен — проходят все категории.
+        assert!(audio_filter_matches(&hw, false, false));
+        assert!(audio_filter_matches(&sp, false, false));
+    }
+
+    #[test]
+    fn audio_filter_stereo_only_keeps_2ch_drops_multichannel() {
+        let stereo = mock_device("hw:PCH,0", "Intel HDA", 2, DeviceCategory::Hardware, vec![], vec![], true);
+        let surround = mock_device("hw:DAC,0", "HiFi DAC", 6, DeviceCategory::Hardware, vec![], vec![], true);
+        assert!(audio_filter_matches(&stereo, false, true));
+        assert!(!audio_filter_matches(&surround, false, true));
+        // Оба фильтра сразу: hw + стерео.
+        assert!(audio_filter_matches(&stereo, true, true));
+        assert!(!audio_filter_matches(&surround, true, true));
+        let virtual_mono = mock_device("dmix", "dmix", 1, DeviceCategory::Virtual, vec![], vec![], false);
+        assert!(!audio_filter_matches(&virtual_mono, false, true));
+        assert!(!audio_filter_matches(&virtual_mono, true, true));
+    }
+
+    #[test]
+    fn audio_filter_no_presets_accepts_anything() {
+        let hw = mock_device("hw:PCH,0", "Intel HDA", 2, DeviceCategory::Hardware, vec![], vec![], true);
+        let sp = mock_device("pipewire", "PipeWire", 99, DeviceCategory::ServerProxy, vec![], vec![], false);
+        assert!(audio_filter_matches(&hw, false, false));
+        assert!(audio_filter_matches(&sp, false, false));
     }
 
     #[test]
@@ -2098,7 +2147,7 @@ mod tests {
             FallbackPolicy::Fail,
         );
         assert_eq!(
-            g(ResamplerMode::Nearest, FallbackPolicy::Fail),
+            g(ResamplerMode::Native, FallbackPolicy::Fail),
             FallbackPolicy::Fail,
         );
     }

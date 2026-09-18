@@ -16,9 +16,9 @@
 [x] Шаг 3: `settings.slint` — structs `DeviceCapability`/`ValidationRow` + 14 properties + 10 callbacks (§7.2) + вёрстка вкладки Audio (§7.1/§7.3). Проверка: `cargo check`
 [x] Шаг 4: `app.slint` — root-свойства + forwarding блока Settings (новые props/callbacks). Проверка: `cargo check`
 [x] Шаг 5: `app/mod.rs` + `app/ui_manager.rs` — `audio_device_infos: Vec<DeviceInfo>`, `FIXED_RATES`, 10 draft-колбэков (§7.7, вкл. авто-коррекцию Fixed+Fail → Nearest + status), применение в `settings-save` (сеттеры player), `sync_audio_devices`/`drain_audio_devices` под `Vec<DeviceInfo>` + фильтры из draft + `apply_audio_filter`, `current_audio_device_info`, `sync_capabilities_and_validation`, `build_capabilities`, `sync_dsd_chain_desc`, `sync_audio_advanced`. Проверка: `cargo check` + `cargo clippy` 0 новых
-[ ] Шаг 6: bin-тесты в `app/mod.rs` (FIXED_RATES, build_capabilities, фильтры, авто-коррекция). Проверка: `cargo test` целиком зелёный
+[x] Шаг 6: bin-тесты в `app/mod.rs` (FIXED_RATES, build_capabilities, фильтры, авто-коррекция). Проверка: `cargo test` целиком зелёный
 
-- **Текущий шаг (current_step):** Шаг 6
-- **Следующий ход:** bin-тесты для `FIXED_RATES`/`build_capabilities`/фильтров/авто-коррекции в `app/mod.rs` + финальная зелёная верификация
+- **Текущий шаг (current_step):** Шаг 6 завершён — переход к Шагу 5 (Завершение сессии)
+- **Следующий ход:** Отметить A3.5 в ROADMAP как done, законсервировать _STATE_.md, финальный аудит git diff --stat
 - **Счетчик безуспешных компиляций:** 0/3
 - **Состояние:** in_progress
