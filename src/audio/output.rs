@@ -5,7 +5,10 @@ use cpal::traits::{DeviceTrait, HostTrait, StreamTrait};
 use cpal::{BufferSize, SampleFormat, StreamConfig, SupportedBufferSize};
 
 use crate::audio::worker::{RtConsumer, RtShared};
-use crate::settings::ResamplerAlgorithm;
+use crate::settings::{
+    ClockFamily, ExclusiveMode, FallbackPolicy, FallbackRatePolicy, ResamplerAlgorithm,
+    ResamplerMode, Settings,
+};
 
 /// How long the startup device probe holds the stream open (ms). Long enough
 /// for the backend to surface early ALSA errors, short enough to not delay UI.
@@ -526,6 +529,93 @@ pub struct ChosenOutput {
     pub device_name: String,
     pub config: StreamConfig,
     pub sample_format: SampleFormat,
+    /// Режим доступа к устройству (ТЗ A3.0 §3.4, шаг 2): `true` — raw-поток
+    /// без ОС-микшера. Влияет на выбор sample-формата (шаг 6).
+    pub exclusive: bool,
+    /// Выходной rate отличается от native-рейта источника.
+    pub resampled: bool,
+    /// Параметры источника (для bp-report / валидации §5).
+    pub source_rate: u32,
+    pub source_channels: usize,
+    /// Причина деградации относительно «идеала» (native + exclusive), если
+    /// какой-то из шагов §3.4 отклонился.
+    pub fallback: Option<FallbackReason>,
+}
+
+/// Причина, по которой выбранный поток деградировал относительно «идеала»
+/// (native rate + exclusive) — заполняется в [`choose_output`], показывается в
+/// bp-report и валидации (ТЗ A3.0 §3.3).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum FallbackReason {
+    /// Запрошенный rate (или fixed_rate) недоступен — выбран другой.
+    RateUnsupported {
+        requested: u32,
+        chosen: u32,
+        /// Выбор ушёл в другое частотное семейство (44.1k ↔ 48k).
+        cross_family: bool,
+    },
+    /// Число каналов источника не поддерживается напрямую — downmix.
+    ChannelsUnsupported { requested: usize, chosen: u16 },
+    /// Запрошен exclusive, но устройство его не даёт.
+    ExclusiveUnavailable,
+    /// Ресемплинг выполнен, потому что запрошен режим Fixed.
+    ResamplerForced { requested: u32 },
+    /// Запрошенное семейство клока пусто на устройстве — взят дефолт.
+    ClockFamilyIncomplete { requested: u32, chosen: u32 },
+}
+
+/// Параметры выхода, собранные из настроек (ТЗ A3.0 §3.4) — единый value-объект
+/// вместо позиционных аргументов. Значения по умолчанию — «деградирующая»
+/// конфигурация (shared, Auto/Nearest), эквивалентная поведению до A3.3.
+#[derive(Debug, Clone)]
+pub struct OutputRequest {
+    pub track_rate: u32,
+    pub track_channels: usize,
+    /// Желаемое устройство: пользовательское (`Settings.audio_device`) либо None.
+    pub preferred_device: Option<String>,
+    /// Режим exclusive-доступа (ТЗ A3.0 §2.2).
+    pub exclusive: ExclusiveMode,
+    /// Политика фолбека по параметрам трека (ТЗ A3.0 §2.2).
+    pub fallback: FallbackPolicy,
+    /// Режим ресемплера (ТЗ A3.0 §2.2).
+    pub resampler: ResamplerMode,
+    /// Политика выбора fallback-рейта при недоступности native (ТЗ A3.0 §2.2).
+    pub fallback_rate: FallbackRatePolicy,
+    /// Предпочитаемое частотное семейство (только для `resampler = Fixed`).
+    pub clock_family: ClockFamily,
+    /// Жёсткая частота ресемплера (0 = авто по семейству).
+    pub fixed_rate: u32,
+}
+
+impl OutputRequest {
+    /// Собрать запрос из настроек для конкретного источника.
+    pub fn from_settings(s: &Settings, track_rate: u32, track_channels: usize) -> Self {
+        Self {
+            track_rate,
+            track_channels,
+            preferred_device: if s.audio_device.is_empty() {
+                None
+            } else {
+                Some(s.audio_device.clone())
+            },
+            exclusive: s.audio.exclusive,
+            fallback: s.audio.fallback,
+            resampler: s.audio.resampler.mode,
+            fallback_rate: s.audio.resampler.fallback_rate,
+            clock_family: s.audio.resampler.prefer_family,
+            fixed_rate: s.audio.resampler.fixed_rate,
+        }
+    }
+
+    /// Клонировать запрос и сменить только параметры источника — для итераций
+    /// валидации (§5.3): `validate_audio_settings` строит запрос один раз и
+    /// переиспользует на 11 строках.
+    pub fn with_source(&self, track_rate: u32, track_channels: usize) -> Self {
+        let mut req = self.clone();
+        req.track_rate = track_rate;
+        req.track_channels = track_channels;
+        req
+    }
 }
 
 /// Abstraction over the audio backend (cpal in production, a mock in tests).
@@ -791,17 +881,62 @@ pub fn nearest_rate(ranges: &[RateRange], channels: u16, requested: u32) -> Opti
     best.map(|(_, rate)| rate)
 }
 
+/// Семейство клока для частоты: 44.1k-семейство (44100, 88200, 176400,
+/// 352800) или 48k (48000, 96000, 192000, 384000).
+fn clock_family_of(rate: u32) -> ClockFamily {
+    if rate.is_multiple_of(44100) {
+        ClockFamily::Family44k
+    } else {
+        ClockFamily::Family48k
+    }
+}
+
+/// True когда обе частоты принадлежат одному семейству клока.
+fn same_family(a: u32, b: u32) -> bool {
+    clock_family_of(a) == clock_family_of(b)
+}
+
+/// Конкретное семейство для запроса: `Auto` разрешается по источнику.
+fn resolve_family(prefer: ClockFamily, track_rate: u32) -> ClockFamily {
+    match prefer {
+        ClockFamily::Auto => clock_family_of(track_rate),
+        other => other,
+    }
+}
+
+/// Максимальная частота устройства, кратная базе семейства (`44k` → 44100,
+/// `48k` → 48000); `None` — в семействе нет ни одной поддерживаемой частоты
+/// («пустое семейство», §3.4 шаг 4).
+fn nearest_in_family(device: &DeviceInfo, family: ClockFamily) -> Option<u32> {
+    let base = match family {
+        ClockFamily::Family44k => 44100,
+        ClockFamily::Family48k => 48000,
+        ClockFamily::Auto => return None,
+    };
+    device
+        .supported_rates
+        .iter()
+        .copied()
+        .filter(|&r| r.is_multiple_of(base))
+        .max()
+}
+
+/// Минимальный поддерживаемый rate ≥ `requested` (для
+/// [`FallbackRatePolicy::NeverDownsample`]) из плоского списка границ.
+fn nearest_rate_at_least(device: &DeviceInfo, requested: u32) -> Option<u32> {
+    device.supported_rates.iter().copied().filter(|&r| r >= requested).min()
+}
+
 /// Decide which device/config to use for the given track parameters.
 ///
-/// Pure selection: no audio backend is touched, so it can be tested with a
-/// mock. Picks the requested device (or the host default), then a config
-/// close to the track's native sample rate/channels.
+/// Pure selection (ТЗ A3.0 §3.4): no audio backend is touched, so it can be
+/// tested with a mock. Follows the policy chain — exclusive, channels, sample
+/// rate (Auto/Native/Fixed + fallback policies), sample format, buffer size —
+/// and reports each degradation step in [`ChosenOutput::fallback`].
 pub fn choose_output(
     devices: &[DeviceInfo],
     default_name: Option<&str>,
-    track_rate: u32,
-    track_channels: usize,
-    preferred_name: Option<&str>,
+    req: &OutputRequest,
 ) -> Result<ChosenOutput, String> {
     if devices.is_empty() {
         return Err(String::from("No audio output device found"));
@@ -809,21 +944,160 @@ pub fn choose_output(
 
     // Resolve the requested device, falling back to the host default. `preferred`
     // may be a stable id (new settings) or a human name (legacy configs).
-    let preferred = preferred_name.filter(|n| !n.is_empty());
+    let preferred = req.preferred_device.as_deref().filter(|n| !n.is_empty());
     let device = preferred
         .and_then(|key| devices.iter().find(|d| d.id == key).or_else(|| devices.iter().find(|d| d.name == key)))
         .or_else(|| default_name.and_then(|d| devices.iter().find(|dev| dev.id == d).or_else(|| devices.iter().find(|dev| dev.name == d))))
         .ok_or_else(|| String::from("No audio output device found"))?;
 
-    // Prefer a config matching the source channels when the device supports it,
-    // otherwise fall back to the device default (usually 2ch).
-    let mut channels = track_channels.min(device.channels as usize) as u16;
-    if channels == 0 {
-        channels = 2;
+    let track_rate = req.track_rate;
+    let track_channels = req.track_channels;
+    let mut fallback: Option<FallbackReason> = None;
+
+    // §3.4 шаг 2: exclusive-доступ.
+    let exclusive = match req.exclusive {
+        ExclusiveMode::Off => false,
+        ExclusiveMode::Auto if !device.exclusive_capable => {
+            fallback = Some(FallbackReason::ExclusiveUnavailable);
+            false
+        }
+        ExclusiveMode::Auto => true,
+        ExclusiveMode::Strict if !device.exclusive_capable => {
+            return Err(String::from("Exclusive mode unavailable on this device"));
+        }
+        ExclusiveMode::Strict => true,
+    };
+
+    // §3.4 шаг 3: каналы. Fail — строгое совпадение (устройство обязано
+    // потянуть запрошенное число); иначе clamp в 1..=device.channels.
+    let channels = (track_channels.min(device.channels as usize) as u16).max(1);
+    if req.fallback == FallbackPolicy::Fail && track_channels as u16 > device.channels {
+        return Err(format!("device does not support {track_channels} channels"));
+    }
+    if channels != track_channels.max(1) as u16 {
+        fallback = Some(FallbackReason::ChannelsUnsupported {
+            requested: track_channels,
+            chosen: channels,
+        });
     }
 
-    // Prefer matching the source sample rate when supported.
-    let mut supported_rate: Option<u32> = None;
+    // §3.4 шаги 4–5: выбор частоты по режиму ресемплера.
+    let (out_rate, rate_reason): (u32, Option<FallbackReason>) = match req.resampler {
+        ResamplerMode::Native => {
+            if !device.supports_rate(track_rate) {
+                return Err(format!(
+                    "Native mode requires exact rate match; device lacks {track_rate} Hz"
+                ));
+            }
+            (track_rate, None)
+        }
+        ResamplerMode::Fixed => {
+            if req.fixed_rate != 0 {
+                if !device.supports_rate(req.fixed_rate) {
+                    // «Fixed» — интент, а не контракт: жёсткий Err запрещён
+                    // (ревью §14 №20). fallback_rate при Fixed игнорируется
+                    // (§2.3), поэтому «ближайший» = nearest_rate.
+                    let nearest = nearest_rate(&device.supported, channels, req.fixed_rate)
+                        .unwrap_or(device.sample_rate);
+                    let cross_family = !same_family(req.fixed_rate, nearest);
+                    (
+                        nearest,
+                        Some(FallbackReason::RateUnsupported {
+                            requested: req.fixed_rate,
+                            chosen: nearest,
+                            cross_family,
+                        }),
+                    )
+                } else {
+                    (req.fixed_rate, None)
+                }
+            } else {
+                // 0 = авто по семейству.
+                match nearest_in_family(device, resolve_family(req.clock_family, track_rate)) {
+                    Some(r) => (r, None),
+                    None => (
+                        device.sample_rate,
+                        Some(FallbackReason::ClockFamilyIncomplete {
+                            requested: track_rate,
+                            chosen: device.sample_rate,
+                        }),
+                    ),
+                }
+            }
+        }
+        ResamplerMode::Auto => {
+            if device.supports_rate(track_rate) {
+                (track_rate, None)
+            } else {
+                match req.fallback {
+                    FallbackPolicy::Fail => {
+                        return Err(format!("device does not support {track_rate} Hz"));
+                    }
+                    FallbackPolicy::DeviceDefault => (device.sample_rate, None),
+                    FallbackPolicy::Nearest => match req.fallback_rate {
+                        FallbackRatePolicy::Nearest => {
+                            let nearest = nearest_rate(&device.supported, channels, track_rate)
+                                .unwrap_or(device.sample_rate);
+                            let cross_family = !same_family(track_rate, nearest);
+                            (
+                                nearest,
+                                Some(FallbackReason::RateUnsupported {
+                                    requested: track_rate,
+                                    chosen: nearest,
+                                    cross_family,
+                                }),
+                            )
+                        }
+                        FallbackRatePolicy::SameFamily => {
+                            match nearest_in_family(device, clock_family_of(track_rate)) {
+                                Some(r) => (
+                                    r,
+                                    Some(FallbackReason::RateUnsupported {
+                                        requested: track_rate,
+                                        chosen: r,
+                                        cross_family: false,
+                                    }),
+                                ),
+                                None => {
+                                    let nearest =
+                                        nearest_rate(&device.supported, channels, track_rate)
+                                            .unwrap_or(device.sample_rate);
+                                    (
+                                        nearest,
+                                        Some(FallbackReason::RateUnsupported {
+                                            requested: track_rate,
+                                            chosen: nearest,
+                                            cross_family: true,
+                                        }),
+                                    )
+                                }
+                            }
+                        }
+                        FallbackRatePolicy::NeverDownsample => {
+                            match nearest_rate_at_least(device, track_rate) {
+                                Some(r) => (
+                                    r,
+                                    Some(FallbackReason::RateUnsupported {
+                                        requested: track_rate,
+                                        chosen: r,
+                                        cross_family: !same_family(track_rate, r),
+                                    }),
+                                ),
+                                None => {
+                                    return Err(format!(
+                                        "no supported rate at or above {track_rate} Hz"
+                                    ));
+                                }
+                            }
+                        }
+                    },
+                }
+            }
+        }
+    };
+
+    // §3.4 шаг 7: буфер — «лучшая» конфигурация среди диапазонов с нужным
+    // числом каналов (буфер по максимальному рейту диапазона).
     let mut chosen_buf = match device.buffer_size {
         SupportedBufferSize::Range { min, max } => {
             BufferSize::Fixed(target_buffer_frames(device.sample_rate, min, max))
@@ -834,21 +1108,35 @@ pub fn choose_output(
         if cfg.channels != channels {
             continue;
         }
-        if supported_rate.is_none() && track_rate >= cfg.min && track_rate <= cfg.max {
-            supported_rate = Some(track_rate);
-        }
         if let SupportedBufferSize::Range { min, max } = cfg.buffer_size {
             chosen_buf = BufferSize::Fixed(target_buffer_frames(cfg.max, min, max));
         }
     }
 
-    // ТЗ §8.5: если точный рейт не поддерживается — ближайший поддерживаемый
-    // ЦАП-рейт из capabilities; только при полном отсутствии диапазонов с
-    // нужным числом каналов — дефолтная частота устройства (последний резерв).
-    let nearest = supported_rate.or_else(|| nearest_rate(&device.supported, channels, track_rate));
-    let (out_rate, sample_format) = match nearest {
-        Some(r) => (r, device.sample_format),
-        None => (device.sample_rate, device.sample_format),
+    // §3.4 шаг 6: sample-формат. Exclusive → строгий приоритет I32→I24→I16→F32;
+    // shared → F32 (совместимо с ОС-микшером), резерв — дефолт устройства.
+    let sample_format = if exclusive {
+        [SampleFormat::I32, SampleFormat::I24, SampleFormat::I16, SampleFormat::F32]
+            .into_iter()
+            .find(|f| device.supports_format(*f))
+            .unwrap_or(device.sample_format)
+    } else if device.supports_format(SampleFormat::F32) {
+        SampleFormat::F32
+    } else {
+        device.sample_format
+    };
+
+    let resampled = out_rate != track_rate;
+    // Приоритет причины: специфичная rate-причина > более ранний фолбек
+    // (exclusive/каналы) > форсированный ресемплинг в режиме Fixed.
+    let fallback = if let Some(r) = rate_reason {
+        Some(r)
+    } else if let Some(f) = fallback {
+        Some(f)
+    } else if req.resampler == ResamplerMode::Fixed && resampled {
+        Some(FallbackReason::ResamplerForced { requested: track_rate })
+    } else {
+        None
     };
 
     Ok(ChosenOutput {
@@ -860,11 +1148,20 @@ pub fn choose_output(
             buffer_size: chosen_buf,
         },
         sample_format,
+        exclusive,
+        resampled,
+        source_rate: track_rate,
+        source_channels: track_channels,
+        fallback,
     })
 }
 
 /// Pick an output device and a stream config close to the track's native
 /// parameters. Resolves the config against the live cpal backend.
+///
+/// Плеер пока не прокидывает политики (§4 — A3.4), поэтому запрос собирается
+/// как «деградирующая» конфигурация по умолчанию (shared, Auto/Nearest) —
+/// поведение, идентичное выбору до A3.3.
 pub fn select_output(
     track_rate: u32,
     track_channels: usize,
@@ -872,13 +1169,18 @@ pub fn select_output(
 ) -> Result<OutputSpec, String> {
     let host = CpalHost;
     let default = host.default_name();
-    let chosen = choose_output(
-        &host.devices(),
-        default.as_deref(),
+    let req = OutputRequest {
         track_rate,
         track_channels,
-        preferred_name,
-    )?;
+        preferred_device: preferred_name.map(String::from),
+        exclusive: ExclusiveMode::Off,
+        fallback: FallbackPolicy::Nearest,
+        resampler: ResamplerMode::Auto,
+        fallback_rate: FallbackRatePolicy::Nearest,
+        clock_family: ClockFamily::Auto,
+        fixed_rate: 0,
+    };
+    let chosen = choose_output(&host.devices(), default.as_deref(), &req)?;
     let device = host.device_by_id(&chosen.device_id)?;
     Ok(OutputSpec {
         device,
@@ -1154,6 +1456,26 @@ mod tests {
         }
     }
 
+    /// Запрос с конфигурацией «по умолчанию» (shared, Auto/Nearest) —
+    /// эквивалент выбора до A3.3, используется старыми тестами.
+    fn req_defaults(
+        track_rate: u32,
+        track_channels: usize,
+        preferred: Option<&str>,
+    ) -> OutputRequest {
+        OutputRequest {
+            track_rate,
+            track_channels,
+            preferred_device: preferred.map(String::from),
+            exclusive: ExclusiveMode::Off,
+            fallback: FallbackPolicy::Nearest,
+            resampler: ResamplerMode::Auto,
+            fallback_rate: FallbackRatePolicy::Nearest,
+            clock_family: ClockFamily::Auto,
+            fixed_rate: 0,
+        }
+    }
+
     fn select_from_host(
         host: &dyn AudioHost,
         track_rate: u32,
@@ -1163,9 +1485,7 @@ mod tests {
         choose_output(
             &host.devices(),
             host.default_name().as_deref(),
-            track_rate,
-            track_channels,
-            preferred,
+            &req_defaults(track_rate, track_channels, preferred),
         )
     }
 
@@ -1212,7 +1532,7 @@ mod tests {
 
     #[test]
     fn choose_output_no_devices_errors() {
-        let r = choose_output(&[], None, 44100, 2, None);
+        let r = choose_output(&[], None, &req_defaults(44100, 2, None));
         assert_eq!(r.unwrap_err(), "No audio output device found");
     }
 
@@ -1280,7 +1600,7 @@ mod tests {
     #[test]
     fn choose_output_unknown_preferred_errors() {
         let device = mock_device("Speakers", 2, 48000, &[(2, 44100, 48000)]);
-        let r = choose_output(&[device], None, 44100, 2, Some("Missing"));
+        let r = choose_output(&[device], None, &req_defaults(44100, 2, Some("Missing")));
         assert!(r.is_err());
     }
 
@@ -1288,14 +1608,14 @@ mod tests {
     fn choose_output_preferred_drops_to_default_when_missing() {
         let device = mock_device("Speakers", 2, 48000, &[(2, 44100, 48000)]);
         let chosen =
-            choose_output(&[device], Some("Speakers"), 48000, 2, Some("Missing")).unwrap();
+            choose_output(&[device], Some("Speakers"), &req_defaults(48000, 2, Some("Missing"))).unwrap();
         assert_eq!(chosen.device_name, "Speakers");
     }
 
     #[test]
     fn choose_output_matches_track_rate_when_supported() {
         let device = mock_device("DAC", 2, 44100, &[(2, 44100, 48000), (2, 88200, 192000)]);
-        let chosen = choose_output(&[device], Some("DAC"), 96000, 2, None).unwrap();
+        let chosen = choose_output(&[device], Some("DAC"), &req_defaults(96000, 2, None)).unwrap();
         assert_eq!(chosen.config.sample_rate, 96000);
         // The matching supported range sets the buffer from its own max rate.
         assert_eq!(
@@ -1307,7 +1627,7 @@ mod tests {
     #[test]
     fn choose_output_falls_back_to_device_rate_when_unsupported() {
         let device = mock_device("DAC", 2, 44100, &[(2, 44100, 48000)]);
-        let chosen = choose_output(&[device], Some("DAC"), 384000, 1, None).unwrap();
+        let chosen = choose_output(&[device], Some("DAC"), &req_defaults(384000, 1, None)).unwrap();
         assert_eq!(chosen.config.sample_rate, 44100);
         assert_eq!(chosen.config.channels, 1);
     }
@@ -1322,7 +1642,7 @@ mod tests {
             44100,
             &[(2, 44100, 48000), (2, 176400, 352800)],
         );
-        let chosen = choose_output(&[device], Some("DAC"), 88200, 2, None).unwrap();
+        let chosen = choose_output(&[device], Some("DAC"), &req_defaults(88200, 2, None)).unwrap();
         assert_eq!(chosen.config.sample_rate, 48000);
     }
 
@@ -1335,14 +1655,14 @@ mod tests {
             44100,
             &[(2, 44100, 48000), (2, 88200, 96000)],
         );
-        let chosen = choose_output(&[device], Some("DAC"), 96000, 2, None).unwrap();
+        let chosen = choose_output(&[device], Some("DAC"), &req_defaults(96000, 2, None)).unwrap();
         assert_eq!(chosen.config.sample_rate, 96000);
     }
 
     #[test]
     fn choose_output_clamps_channels_to_device() {
         let mono = mock_device("Mono", 1, 44100, &[(1, 44100, 44100)]);
-        let chosen = choose_output(&[mono], Some("Mono"), 44100, 6, None).unwrap();
+        let chosen = choose_output(&[mono], Some("Mono"), &req_defaults(44100, 6, None)).unwrap();
         assert_eq!(chosen.config.channels, 1);
         assert_eq!(chosen.config.sample_rate, 44100);
     }
@@ -1350,7 +1670,7 @@ mod tests {
     #[test]
     fn choose_output_unknown_default_errors() {
         let device = mock_device("Speakers", 2, 48000, &[(2, 44100, 48000)]);
-        let r = choose_output(&[device], Some("Ghost"), 48000, 2, None);
+        let r = choose_output(&[device], Some("Ghost"), &req_defaults(48000, 2, None));
         assert!(r.is_err());
     }
 
