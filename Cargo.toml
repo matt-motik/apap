@@ -16,7 +16,13 @@ walkdir = "2"
 ksni = "0.3.6"
 tokio = { version = "1.53.1", features = ["rt", "macros", "sync"] }
 rand = "0.8"
-slint = { version = "1.17", default-features = false, features = ["std", "compat-1-2", "backend-winit-x11", "renderer-winit-skia"] }
+slint = { version = "1.17", default-features = false, features = [
+    "std", 
+    "compat-1-2", 
+    "backend-winit-x11",     # Оставляем для поддержки X11 сессий
+    "backend-winit-wayland", # КРИТИЧЕСКИ ВАЖНО: включает нативный Wayland
+    "renderer-winit-skia-opengl" # Гарантирует аппаратное GPU-ускорение через OpenGL
+] }
 rtrb = "0.4.0"
 rustfft = "6.4.1"
 image = { version = "0.25", default-features = false, features = ["png"] }
