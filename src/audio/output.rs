@@ -335,6 +335,19 @@ pub struct OutputSpec {
     /// pack DoP markers only on this path; plain PCM on an I32 node uses the
     /// normal PCM conversion instead.
     pub is_dop: bool,
+    /// Whether the stream runs with exclusive access (raw hw node, native
+    /// rate, hardware-preferred format). Filled from [`ChosenOutput::exclusive`]
+    /// by [`select_output_for`]; false for the legacy [`select_output`] path.
+    pub exclusive: bool,
+    /// Whether the sample rate required resampling (source != output rate).
+    pub resampled: bool,
+    /// Source (track) sample rate in Hz.
+    pub source_rate: u32,
+    /// Source (track) channel count.
+    pub source_channels: usize,
+    /// Деградация по пути выбора (ТЗ A3.0 §3.3) — для `StreamDesc` и
+    /// bp-report. `None` = каждая ступень политики прошла без потерь.
+    pub fallback: Option<FallbackReason>,
 }
 
 /// Backend-agnostic snapshot of an output device's capabilities, enough for
@@ -1159,16 +1172,15 @@ pub fn choose_output(
 /// Pick an output device and a stream config close to the track's native
 /// parameters. Resolves the config against the live cpal backend.
 ///
-/// Плеер пока не прокидывает политики (§4 — A3.4), поэтому запрос собирается
-/// как «деградирующая» конфигурация по умолчанию (shared, Auto/Nearest) —
-/// поведение, идентичное выбору до A3.3.
+/// Плеер пока не прокидывает политики через этот вход (§4 — A3.4 использует
+/// [`select_output_for`]), поэтому запрос собирается как «деградирующая»
+/// конфигурация по умолчанию (shared, Auto/Nearest) — поведение, идентичное
+/// выбору до A3.3.
 pub fn select_output(
     track_rate: u32,
     track_channels: usize,
     preferred_name: Option<&str>,
 ) -> Result<OutputSpec, String> {
-    let host = CpalHost;
-    let default = host.default_name();
     let req = OutputRequest {
         track_rate,
         track_channels,
@@ -1180,7 +1192,16 @@ pub fn select_output(
         clock_family: ClockFamily::Auto,
         fixed_rate: 0,
     };
-    let chosen = choose_output(&host.devices(), default.as_deref(), &req)?;
+    select_output_for(&req)
+}
+
+/// Полный выбор устройства/конфигурации по запросу политик (ТЗ A3.0 §3.4),
+/// против живого cpal-бэкенда. Используется плеером начиная с A3.4
+/// (`ExclusiveMode`, `FallbackPolicy`, `ResamplerMode` реально применяются).
+pub fn select_output_for(req: &OutputRequest) -> Result<OutputSpec, String> {
+    let host = CpalHost;
+    let default = host.default_name();
+    let chosen = choose_output(&host.devices(), default.as_deref(), req)?;
     let device = host.device_by_id(&chosen.device_id)?;
     Ok(OutputSpec {
         device,
@@ -1189,6 +1210,11 @@ pub fn select_output(
         device_id: chosen.device_id,
         device_name: chosen.device_name,
         is_dop: false,
+        exclusive: chosen.exclusive,
+        resampled: chosen.resampled,
+        source_rate: chosen.source_rate,
+        source_channels: chosen.source_channels,
+        fallback: chosen.fallback,
     })
 }
 
