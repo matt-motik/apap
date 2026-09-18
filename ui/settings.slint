@@ -23,6 +23,20 @@ export struct CoverSetting {
     pos: int,
 }
 
+// ТЗ A3.0 §7.2: возможности выбранного устройства (вкладка Audio).
+export struct DeviceCapability {
+    label: string,
+    value: string,
+    ok: bool,
+}
+
+// ТЗ A3.0 §7.2: одна строка превью валидации настроек.
+export struct ValidationRow {
+    source: string,
+    outcome: int,      // 0=BitPerfect, 1=Degraded, 2=Unsupported
+    detail: string,
+}
+
 component RowLabel inherits Text {
     in property <color> text-color: Colors.text-secondary;
     color: root.text-color;
@@ -54,6 +68,22 @@ export component Settings inherits Rectangle {
     // конфликта «DSD→PCM + bit-perfect».
     in property <int> dsd-mode: 0;
     in property <bool> dsd-bp-warn: false;
+    // ТЗ A3.0 §7.2: capabilities/валидация, фильтры списка, Advanced-панель.
+    in property <[DeviceCapability]> audio-caps: [];
+    in property <[ValidationRow]> audio-validation: [];
+    in property <bool> audio-filter-hardware: false;
+    in property <bool> audio-filter-stereo: false;
+    in property <bool> audio-advanced-open: false;
+    in property <bool> audio-exclusive-warn: false;
+    in property <bool> audio-fixed-fail-warn: false;
+    in property <string> audio-dsd-chain-desc: "Native \u{2192} DoP \u{2192} PCM";
+    in property <int> audio-exclusive-idx: 1;
+    in property <int> audio-fallback-idx: 0;
+    in property <int> audio-resampler-mode-idx: 0;
+    in property <int> audio-fixed-rate-idx: 0;
+    in property <int> audio-clock-family-idx: 0;
+    in property <int> audio-fallback-rate-idx: 0;
+    in property <int> audio-ring-buffer-ms: 1500;
     in property <[ColumnSetting]> columns-cfg: [];
     in-out property <int> selected-col: -1;
     in property <[CoverSetting]> covers: [];
@@ -115,6 +145,17 @@ export component Settings inherits Rectangle {
     callback refresh-devices();
     callback set-dsd-mode(int);
     callback set-bit-perfect(bool);
+    // ТЗ A3.0 §7.2: draft-only контролы вкладки Audio.
+    callback set-audio-filter-hardware(bool);
+    callback set-audio-filter-stereo(bool);
+    callback set-audio-toggle-advanced(bool);
+    callback set-audio-exclusive(int);
+    callback set-audio-fallback(int);
+    callback set-audio-resampler-mode(int);
+    callback set-audio-fixed-rate(int);
+    callback set-audio-clock-family(int);
+    callback set-audio-fallback-rate(int);
+    callback set-audio-ring-buffer-ms(int);
     callback toggle-column(int);
     callback reset-columns();
     callback move-col-up(int);
@@ -356,6 +397,31 @@ export component Settings inherits Rectangle {
                                             clicked => { root.refresh-devices(); }
                                         }
                                     }
+                                    // ТЗ A3.0 §8.1: фильтры списка устройств (превью из draft).
+                                    HorizontalLayout {
+                                        padding-left: 8px;
+                                        padding-right: 8px;
+                                        spacing: 4px;
+                                        RowLabel {
+                                            text: "Фильтр:";
+                                        }
+
+                                        CheckBox {
+                                            text: "Только железо";
+                                            checked: root.audio-filter-hardware;
+                                            toggled => { root.set-audio-filter-hardware(self.checked); }
+                                        }
+
+                                        CheckBox {
+                                            text: "Только стерео";
+                                            checked: root.audio-filter-stereo;
+                                            toggled => { root.set-audio-filter-stereo(self.checked); }
+                                        }
+
+                                        Rectangle {
+                                            horizontal-stretch: 1;
+                                        }
+                                    }
 
                                     HorizontalLayout {
                                         padding-left: 8px;
@@ -372,6 +438,57 @@ export component Settings inherits Rectangle {
                                         Rectangle {
                                             horizontal-stretch: 1;
                                         }
+                                    }
+                                    HorizontalLayout {
+                                        padding-left: 8px;
+                                        padding-right: 8px;
+                                        spacing: 4px;
+                                        RowLabel {
+                                            text: "Codec info:";
+                                        }
+                                        RowLabel {
+                                            text: root.codec-info;
+                                        }
+                                        Rectangle {
+                                            horizontal-stretch: 1;
+                                        }
+                                    }
+                                    HorizontalLayout {
+                                        padding-left: 8px;
+                                        padding-right: 8px;
+                                        spacing: 4px;
+                                        RowLabel {
+                                            color: Colors.text-error;
+                                            text: root.active-error;
+                                            visible: root.active-error != "";
+                                        }
+                                    }
+                                    // ТЗ A3.0 §7.1/§8.2: возможности выбранного устройства.
+                                    RowLabel {
+                                        padding-left: 8px;
+                                        text: "Возможности";
+                                        font-weight: 600;
+                                        text-color: Colors.text-primary;
+                                    }
+                                    for cap in root.audio-caps: HorizontalLayout {
+                                        padding-left: 8px;
+                                        padding-right: 8px;
+                                        spacing: 4px;
+                                        RowLabel {
+                                            text: cap.label + ":";
+                                        }
+                                        RowLabel {
+                                            text: cap.value;
+                                            text-color: cap.ok ? Colors.text-primary : Colors.text-tertiary;
+                                        }
+                                        Rectangle {
+                                            horizontal-stretch: 1;
+                                        }
+                                    }
+                                    if root.audio-caps.length == 0: RowLabel {
+                                        padding-left: 8px;
+                                        text: "\u{2014}";
+                                        color: Colors.text-dim;
                                     }
                                     // ТЗ §7.5/§8.6: bit-perfect (Direct Output).
                                     HorizontalLayout {
@@ -391,33 +508,16 @@ export component Settings inherits Rectangle {
                                             horizontal-stretch: 1;
                                         }
                                     }
-
-                                    HorizontalLayout {
+                                    // ТЗ A3.0 §7.1: bit-perfect на shared-выводе — осознанный компромисс.
+                                    RowLabel {
                                         padding-left: 8px;
                                         padding-right: 8px;
-                                        spacing: 4px;
-                                        RowLabel {
-                                            text: "Codec info:";
-                                        }
-                                        RowLabel {
-                                            text: root.codec-info;
-                                        }
-                                        Rectangle {
-                                            horizontal-stretch: 1;
-                                        }
+                                        text: "Для bit-perfect требуется exclusive \u{2014} включите Exclusive в «Дополнительно»";
+                                        color: Colors.text-warn;
+                                        wrap: word-wrap;
+                                        visible: root.audio-exclusive-warn;
                                     }
-
-                                    HorizontalLayout {
-                                        padding-left: 8px;
-                                        padding-right: 8px;
-                                        spacing: 4px;
-                                        RowLabel {
-                                            color: Colors.text-error;
-                                            text: root.active-error;
-                                            visible: root.active-error != "";
-                                        }
-                                    }
-
+                                    // ТЗ A3.0 §7.1/§8.3: DSD mode + цепочка фолбека.
                                     HorizontalLayout {
                                         padding-left: 8px;
                                         padding-right: 8px;
@@ -427,7 +527,7 @@ export component Settings inherits Rectangle {
                                         }
 
                                         ComboBox {
-                                            model: ["DSD \u{2192} PCM", "Native DSD", "DoP"];
+                                            model: ["PCM (CIC)", "Native DSD", "DoP"];
                                             current-index: root.dsd-mode;
                                             selected(s) => { root.set-dsd-mode(self.current-index); }
                                         }
@@ -436,15 +536,178 @@ export component Settings inherits Rectangle {
                                             horizontal-stretch: 1;
                                         }
                                     }
+                                    HorizontalLayout {
+                                        padding-left: 8px;
+                                        padding-right: 8px;
+                                        spacing: 4px;
+                                        RowLabel {
+                                            text: "Цепочка:";
+                                        }
+                                        RowLabel {
+                                            text: root.audio-dsd-chain-desc;
+                                            text-color: Colors.text-primary;
+                                        }
+                                        Rectangle {
+                                            horizontal-stretch: 1;
+                                        }
+                                    }
+                                    // ТЗ A3.0 §7.1: фолбек цепочки автоматический (FallbackPolicy).
+                                    RowLabel {
+                                        padding-left: 8px;
+                                        padding-right: 8px;
+                                        text: "\u{24D8} Фолбек автоматический. FallbackPolicy управляет провалом цепочки.";
+                                        text-color: Colors.text-dim;
+                                        wrap: word-wrap;
+                                    }
                                     // ТЗ §8.4: DSD→PCM конвертация нарушает bit-perfect для DSD.
                                     RowLabel {
+                                        padding-left: 8px;
+                                        padding-right: 8px;
                                         text: "DSD\u{2192}PCM несовместимо с bit-perfect для DSD";
                                         color: Colors.text-error;
                                         wrap: word-wrap;
                                         visible: root.dsd-bp-warn && root.dsd-mode == 0;
                                     }
-
-                                    Rectangle {
+                                    // ТЗ A3.0 §7.1/§5.4: превью валидации на выбранном устройстве.
+                                    RowLabel {
+                                        padding-left: 8px;
+                                        text: "Проверка";
+                                        font-weight: 600;
+                                        text-color: Colors.text-primary;
+                                    }
+                                    for v in root.audio-validation: HorizontalLayout {
+                                        padding-left: 8px;
+                                        padding-right: 8px;
+                                        spacing: 4px;
+                                        RowLabel {
+                                            text: v.source;
+                                            min-width: 80px;
+                                        }
+                                        RowLabel {
+                                            text: v.detail;
+                                            text-color: v.outcome == 0 ? Colors.text-primary : v.outcome == 1 ? Colors.text-warn : Colors.text-error;
+                                            wrap: word-wrap;
+                                        }
+                                        Rectangle {
+                                            horizontal-stretch: 1;
+                                        }
+                                    }
+                                    if root.audio-validation.length == 0: RowLabel {
+                                        padding-left: 8px;
+                                        text: "\u{2014}";
+                                        color: Colors.text-dim;
+                                    }
+                                    // ТЗ A3.0 §7.1: Advanced (draft-only), свёрнут по умолчанию.
+                                    HorizontalLayout {
+                                        padding-left: 8px;
+                                        padding-right: 8px;
+                                        spacing: 4px;
+                                        Button {
+                                            text: root.audio-advanced-open ? "\u{25BE} Дополнительно" : "\u{25B8} Дополнительно";
+                                            preferred-height: 20px;
+                                            clicked => { root.set-audio-toggle-advanced(!root.audio-advanced-open); }
+                                        }
+                                        Rectangle {
+                                            horizontal-stretch: 1;
+                                        }
+                                    }
+                                    if root.audio-advanced-open: VerticalLayout {
+                                        spacing: 10px;
+                                        // ТЗ A3.0 §7.1/§8.2: баннер конфликта Fixed + Fail.
+                                        RowLabel {
+                                            padding-left: 8px;
+                                            padding-right: 8px;
+                                            text: "\u{26A0} Fixed несовместим с Fail \u{2014} используется Nearest";
+                                            color: Colors.text-warn;
+                                            wrap: word-wrap;
+                                            visible: root.audio-fixed-fail-warn;
+                                        }
+                                        HorizontalLayout {
+                                            padding-left: 8px;
+                                            padding-right: 8px;
+                                            spacing: 4px;
+                                            RowLabel { text: "Exclusive"; min-width: 130px; }
+                                            ComboBox {
+                                                model: ["Выкл", "Авто", "Строгий"];
+                                                current-index: root.audio-exclusive-idx;
+                                                selected(s) => { root.set-audio-exclusive(self.current-index); }
+                                            }
+                                            Rectangle { horizontal-stretch: 1; }
+                                        }
+                                        HorizontalLayout {
+                                            padding-left: 8px;
+                                            padding-right: 8px;
+                                            spacing: 4px;
+                                            RowLabel { text: "Fallback policy"; min-width: 130px; }
+                                            ComboBox {
+                                                model: ["Ближайший", "Дефолт устройства", "Ошибка"];
+                                                current-index: root.audio-fallback-idx;
+                                                selected(s) => { root.set-audio-fallback(self.current-index); }
+                                            }
+                                            Rectangle { horizontal-stretch: 1; }
+                                        }
+                                        HorizontalLayout {
+                                            padding-left: 8px;
+                                            padding-right: 8px;
+                                            spacing: 4px;
+                                            RowLabel { text: "Resampler mode"; min-width: 130px; }
+                                            ComboBox {
+                                                model: ["Авто", "Native", "Фиксированная"];
+                                                current-index: root.audio-resampler-mode-idx;
+                                                selected(s) => { root.set-audio-resampler-mode(self.current-index); }
+                                            }
+                                            Rectangle { horizontal-stretch: 1; }
+                                        }
+                                        HorizontalLayout {
+                                            padding-left: 8px;
+                                            padding-right: 8px;
+                                            spacing: 4px;
+                                            RowLabel { text: "Fixed rate"; min-width: 130px; }
+                                            ComboBox {
+                                                model: ["Авто", "44.1k", "48k", "88.2k", "96k", "176.4k", "192k"];
+                                                current-index: root.audio-fixed-rate-idx;
+                                                enabled: root.audio-resampler-mode-idx == 2;
+                                                selected(s) => { root.set-audio-fixed-rate(self.current-index); }
+                                            }
+                                            RowLabel {
+                                                text: "\u{24D8} Безрезультатно вне режима Fixed";
+                                                text-color: Colors.text-dim;
+                                                visible: root.audio-resampler-mode-idx != 2;
+                                            }
+                                            Rectangle { horizontal-stretch: 1; }
+                                        }
+                                        HorizontalLayout {
+                                            padding-left: 8px;
+                                            padding-right: 8px;
+                                            spacing: 4px;
+                                            RowLabel { text: "Clock family"; min-width: 130px; }
+                                            ComboBox {
+                                                model: ["Авто", "Семейство 44.1", "Семейство 48"];
+                                                current-index: root.audio-clock-family-idx;
+                                                selected(s) => { root.set-audio-clock-family(self.current-index); }
+                                            }
+                                            Rectangle { horizontal-stretch: 1; }
+                                        }
+                                        HorizontalLayout {
+                                            padding-left: 8px;
+                                            padding-right: 8px;
+                                            spacing: 4px;
+                                            RowLabel { text: "Fallback rate"; min-width: 130px; }
+                                            ComboBox {
+                                                model: ["Ближайший", "То же семейство", "Не понижать"];
+                                                current-index: root.audio-fallback-rate-idx;
+                                                enabled: root.audio-resampler-mode-idx == 0;
+                                                selected(s) => { root.set-audio-fallback-rate(self.current-index); }
+                                            }
+                                            RowLabel {
+                                                text: "\u{24D8} Используется только при Авто";
+                                                text-color: Colors.text-dim;
+                                                visible: root.audio-resampler-mode-idx != 0;
+                                            }
+                                            Rectangle { horizontal-stretch: 1; }
+                                        }
+                                    }
+                                    if !root.audio-advanced-open: Rectangle {
                                         vertical-stretch: 1;
                                     }
                                 }
