@@ -1581,4 +1581,161 @@ mod tests {
             "i32_dop"
         );
     }
+
+    /// PCM file from the environment (ставится вручную, см. §11.4); пропускает
+    /// тест, если переменная не задана.
+    fn env_pcm_path() -> Option<std::path::PathBuf> {
+        let p = std::env::var_os("MUSIC_PCM_TEST_FILE")?;
+        Some(std::path::PathBuf::from(p))
+    }
+
+    /// DSD-файл (`.dsf`/`.dff`) из окружения; None → тест пропускается.
+    fn env_dsd_path() -> Option<std::path::PathBuf> {
+        let p = std::env::var_os("MUSIC_DSD_TEST_FILE")?;
+        Some(std::path::PathBuf::from(p))
+    }
+
+    /// Доступен ли на текущем устройстве по умолчанию exclusive (raw-нода).
+    /// `Strict`-запрос успешен с `exclusive == true` только на hardware-узле.
+    fn default_exclusive_capable() -> bool {
+        let req = OutputRequest {
+            track_rate: 44_100,
+            track_channels: 2,
+            preferred_device: None,
+            exclusive: ExclusiveMode::Strict,
+            fallback: FallbackPolicy::Nearest,
+            resampler: ResamplerMode::Auto,
+            fallback_rate: FallbackRatePolicy::Nearest,
+            clock_family: ClockFamily::Auto,
+            fixed_rate: 0,
+        };
+        match select_output_for(&req) {
+            Ok(spec) => spec.exclusive,
+            Err(_) => false,
+        }
+    }
+
+    /// Есть ли на текущем устройстве по умолчанию слот DoP для конкретного
+    /// трека (контейнерная частота = DSD rate × 4).
+    fn dop_slot_available_for(path: &std::path::Path) -> bool {
+        let Ok(dop) = DsdDecoder::open_with_mode(path, DecodeMode::Dop) else {
+            return false;
+        };
+        let dop_rate = dop.info().sample_rate * 4;
+        let ch = dop.info().channels;
+        let req = OutputRequest {
+            track_rate: dop_rate,
+            track_channels: ch,
+            preferred_device: None,
+            exclusive: ExclusiveMode::Off,
+            fallback: FallbackPolicy::Nearest,
+            resampler: ResamplerMode::Auto,
+            fallback_rate: FallbackRatePolicy::Nearest,
+            clock_family: ClockFamily::Auto,
+            fixed_rate: 0,
+        };
+        match select_output_for(&req) {
+            Ok(spec) => spec.config.sample_rate == dop_rate && spec.config.channels as usize == ch,
+            Err(_) => false,
+        }
+    }
+
+    /// `ExclusiveMode::Strict` никогда не делает retry: ровно одна попытка
+    /// сборки, затем Err (ТЗ A3.0 §4.3).
+    #[test]
+    fn open_with_exclusive_strict_on_server_fails() {
+        let Some(path) = env_pcm_path() else {
+            return;
+        };
+        let mut p = Player::test_new();
+        p.set_exclusive_mode(ExclusiveMode::Strict);
+        p.test_hooks.build_failures.store(999, Ordering::Relaxed);
+        assert!(p.open(&path).is_err());
+        let remaining = p.test_hooks.build_failures.load(Ordering::Relaxed);
+        assert!(999 - remaining <= 1, "Strict must not retry the build");
+    }
+
+    /// `ExclusiveMode::Auto` при отказе сборки делает один downgrade к shared
+    /// и открывает поток заново (§4.3). Требует exclusive-capable устройство.
+    #[test]
+    fn open_auto_falls_back_once_on_exclusive_failure() {
+        let Some(path) = env_pcm_path() else {
+            return;
+        };
+        if !default_exclusive_capable() {
+            eprintln!("skipped: default device is not exclusive-capable");
+            return;
+        }
+        let mut p = Player::test_new();
+        p.set_exclusive_mode(ExclusiveMode::Auto);
+        p.test_hooks.build_failures.store(1, Ordering::Relaxed);
+        assert!(p.open(&path).is_ok());
+        let desc = p.stream_desc().unwrap();
+        assert!(!desc.exclusive, "downgraded stream must be shared");
+        assert!(desc.exclusive_fallback, "fallback must be recorded");
+    }
+
+    /// Цепочка `Native → [Native, DoP, Pcm]`: Native не реализован, DoP
+    /// падает на сборке (mock), выигрывает PCM. ТЗ A3.0 §4.2.
+    #[test]
+    fn open_dsd_chain_native_prefers_dop_when_native_fails() {
+        let Some(path) = env_dsd_path() else {
+            return;
+        };
+        if !dop_slot_available_for(&path) {
+            eprintln!("skipped: device lacks the DoP slot for this file");
+            return;
+        }
+        let mut p = Player::test_new();
+        p.set_dsd_mode(DsdMode::Native);
+        p.set_exclusive_mode(ExclusiveMode::Off);
+        p.test_hooks.build_failures.store(1, Ordering::Relaxed);
+        assert!(p.open(&path).is_ok());
+        let desc = p.stream_desc().unwrap();
+        assert_eq!(desc.dsd_mode, Some(DsdMode::Pcm));
+        assert_eq!(desc.dsd_preferred, Some(DsdMode::Native));
+        assert!(desc.dsd_fallback_reason.is_some());
+    }
+
+    /// Цепочка `DoP → [DoP, Pcm]`: DoP падает, выигрывает PCM (§4.2).
+    #[test]
+    fn open_dsd_chain_dop_falls_to_pcm() {
+        let Some(path) = env_dsd_path() else {
+            return;
+        };
+        if !dop_slot_available_for(&path) {
+            eprintln!("skipped: device lacks the DoP slot for this file");
+            return;
+        }
+        let mut p = Player::test_new();
+        p.set_dsd_mode(DsdMode::DoP);
+        p.set_exclusive_mode(ExclusiveMode::Off);
+        p.test_hooks.build_failures.store(1, Ordering::Relaxed);
+        assert!(p.open(&path).is_ok());
+        let desc = p.stream_desc().unwrap();
+        assert_eq!(desc.dsd_mode, Some(DsdMode::Pcm));
+        assert_eq!(desc.dsd_preferred, Some(DsdMode::DoP));
+        assert!(desc.dsd_fallback_reason.is_some());
+    }
+
+    /// `FallbackPolicy::Fail` останавливает цепочку на первом провале — DoP
+    /// даже не пробуется (§4.1–4.2).
+    #[test]
+    fn open_dsd_chain_fail_policy_stops_chain() {
+        let Some(path) = env_dsd_path() else {
+            return;
+        };
+        let mut p = Player::test_new();
+        p.set_dsd_mode(DsdMode::Native);
+        p.set_exclusive_mode(ExclusiveMode::Off);
+        p.set_fallback_policy(FallbackPolicy::Fail);
+        p.test_hooks.build_failures.store(0, Ordering::Relaxed);
+        let err = p.open(&path).expect_err("Fail policy must reject the chain");
+        assert!(err.contains("Native"), "{err}");
+        assert_eq!(
+            p.test_hooks.build_failures.load(Ordering::Relaxed),
+            0,
+            "no step after the failed one may attempt a build"
+        );
+    }
 }

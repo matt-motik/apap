@@ -15,9 +15,9 @@
 
 [x] Шаг 4: player.rs — exclusive retry в `start_engine` (Auto→1 retry shared, Strict→Err), `stream_desc.exclusive_fallback` при запрошенном, но не выданном exclusive. Проверка: `cargo test audio::player` зелёный.
 
-[ ] Шаг 5: player.rs — `TestHooks { build_failures }` (cfg test) в `start_engine` + тесты §11.4 (env-gated: MUSIC_PCM_TEST_FILE/MUSIC_DSD_TEST_FILE/MUSIC_DFF_TEST_FILE). Проверка: `cargo test audio::player` + `cargo clippy` без новых.
+[x] Шаг 5: player.rs — `TestHooks { build_failures }` (cfg test) в `start_engine` + тесты §11.4 (env-gated: MUSIC_PCM_TEST_FILE/MUSIC_DSD_TEST_FILE/MUSIC_DFF_TEST_FILE). Проверка: `cargo test audio::player` + `cargo clippy` без новых.
 
-- **Текущий шаг (current_step):** Шаг 4
-- **Следующий ход:** exclusive retry в start_engine + exclusive_fallback в stream_desc
+- **Текущий шаг (current_step):** Шаг 5 (завершён)
+- **Следующий ход:** Финальная верификация и закрытие сессии (ROADMAP A3.4 → ✅, консервация _STATE_)
 - **Счетчик безуспешных компиляций:** 0/3
 - **Состояние:** in_progress
