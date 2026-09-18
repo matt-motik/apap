@@ -6,10 +6,13 @@ use cpal::{BufferSize, SampleFormat};
 
 use super::decoder::{AudioSource, Decoder, TrackInfo};
 use super::dsd::{DecodeMode, DsdDecoder};
-use super::output::{build_stream_rt, select_output, OutputSpec, Resampler};
+use super::output::{
+    build_stream_rt, select_output_for, FallbackReason, OutputRequest, OutputSpec, Resampler,
+};
 use super::worker::{PlaybackWorker, RtConsumer, RtShared, VizTap, WorkerCmd};
 use crate::settings::{
-    clamp_ring_buffer_ms, DsdMode, ResamplerAlgorithm, ResamplerDither, RING_BUFFER_MS_DEFAULT,
+    clamp_ring_buffer_ms, ClockFamily, DsdMode, ExclusiveMode, FallbackPolicy,
+    FallbackRatePolicy, ResamplerAlgorithm, ResamplerDither, ResamplerMode, RING_BUFFER_MS_DEFAULT,
 };
 
 /// Zero-allocation LCG PRNG for TPDF dithering in the real-time audio path.
@@ -103,6 +106,49 @@ fn ring_capacity(
     (samples as usize).max(buffer_floor).max(4096)
 }
 
+/// True for `.dsf`/`.dff` paths (case-insensitive).
+fn is_dsd_path(path: &Path) -> bool {
+    path.extension()
+        .and_then(|e| e.to_str())
+        .map(|e| e.eq_ignore_ascii_case("dsf") || e.eq_ignore_ascii_case("dff"))
+        .unwrap_or(false)
+}
+
+/// Короткое имя sample-формата для [`StreamDesc`] (⚠ не форматировать,
+/// используется как человекочитаемая метка в UI и bp-report).
+fn format_name(f: &SampleFormat) -> &'static str {
+    match f {
+        SampleFormat::F32 => "F32",
+        SampleFormat::I32 => "I32",
+        SampleFormat::I24 => "I24",
+        SampleFormat::I16 => "I16",
+        SampleFormat::U8 => "U8",
+        _ => "?",
+    }
+}
+
+/// Описание текущего audio-потока (ТЗ A3.0 §4.4): геометрия + деградации.
+/// Собирается в `open_pcm`/`open_dop`, обогащается DSD-полями в
+/// `open_dsd_with_chain`; читается UI-менеджерами для badge'ов и bp-report.
+#[derive(Debug, Clone, Default)]
+pub struct StreamDesc {
+    pub device: String,
+    pub rate: u32,
+    pub channels: u16,
+    pub format: &'static str,
+    pub exclusive: bool,
+    /// Exclusive был запрошен (политикой), но не выдан (серверный узел
+    /// или устройство отклонило поток) — см. `stream_desc.exclusive_fallback`.
+    pub exclusive_fallback: bool,
+    pub resampled: bool,
+    pub source_rate: u32,
+    pub source_channels: usize,
+    pub dsd_mode: Option<DsdMode>,
+    pub dsd_preferred: Option<DsdMode>,
+    pub dsd_fallback_reason: Option<String>,
+    pub fallback: Option<FallbackReason>,
+}
+
 /// Owns audio playback: a [`PlaybackWorker`] thread decoding into a lock-free
 /// ring and the cpal output stream whose real-time callback only consumes that
 /// ring through [`RtConsumer`]. All control happens on the caller's thread via
@@ -125,6 +171,14 @@ pub struct Player {
     resampler_algo: ResamplerAlgorithm,
     /// DSD output mode (Pcm / Native / DoP, ТЗ 5.1 §8.2).
     dsd_mode: DsdMode,
+    /// Политика exclusive-доступа (ТЗ A3.0 §2.2): Off / Auto (retry shared) /
+    /// Strict (без retry).
+    exclusive_mode: ExclusiveMode,
+    /// Политика фолбека при несовпадении параметров (ТЗ A3.0 §2.2); для DSD
+    /// `Fail` останавливает цепочку на первом провале (§4.2).
+    fallback_policy: FallbackPolicy,
+    /// Описание последнего открытого потока (см. [`StreamDesc`]).
+    stream_desc: Option<StreamDesc>,
     /// Ring depth in milliseconds for new streams (ТЗ A2.0 §5.2).
     ring_buffer_ms: u32,
     /// Desired transport state, persisted across stream re-creation so a new
@@ -155,6 +209,9 @@ impl Player {
             preferred_device: None,
             resampler_algo: ResamplerAlgorithm::SincMedium,
             dsd_mode: DsdMode::Pcm,
+            exclusive_mode: ExclusiveMode::Auto,
+            fallback_policy: FallbackPolicy::Nearest,
+            stream_desc: None,
             ring_buffer_ms: RING_BUFFER_MS_DEFAULT,
             volume: 0.8,
             muted: false,
@@ -168,10 +225,29 @@ impl Player {
         self.resampler_algo = algo;
     }
 
-    /// Set the DSD output mode (ТЗ 5.1 §8.2). `Native` makes `open` fail
-    /// (cpal has no native-DSD backend), `DoP` enables the raw-DSD/DoP path.
+    /// Set the DSD output mode (ТЗ 5.1 §8.2). With A3.4 the mode is a
+    /// *preference*: `open` expands it into a chain (§4.2) and falls back down
+    /// the chain instead of failing outright (Native → DoP → Pcm).
     pub fn set_dsd_mode(&mut self, mode: DsdMode) {
         self.dsd_mode = mode;
+    }
+
+    /// Политика exclusive-доступа (ТЗ A3.0 §2.2): `Strict` = без retry,
+    /// `Auto` = при отказе потока один общий retry, `Off` = всегда shared.
+    pub fn set_exclusive_mode(&mut self, mode: ExclusiveMode) {
+        self.exclusive_mode = mode;
+    }
+
+    /// Политика фолбека (ТЗ A3.0 §2.2). `Fail` дополнительно останавливает
+    /// DSD-цепочку: после первого провала шага следующие шаги не пробуются.
+    pub fn set_fallback_policy(&mut self, policy: FallbackPolicy) {
+        self.fallback_policy = policy;
+    }
+
+    /// Описание последнего открытого потока (геометрия + деградации), либо
+    /// `None`, если трек ещё не открывался (ТЗ A3.0 §4.4).
+    pub fn stream_desc(&self) -> Option<&StreamDesc> {
+        self.stream_desc.as_ref()
     }
 
     /// Ring depth in ms for streams opened from now on (ТЗ A2.0 §5.2).
@@ -216,29 +292,63 @@ impl Player {
         Ok(())
     }
 
-    /// Open `path` for playback: pick an output device/format via
-    /// [`select_output`](crate::audio::output::select_output), spawn the
-    /// producer worker and build the consumer stream. Returns the track info.
-    /// Errors (unsupported file, no device) are returned as strings.
+    /// Open `path` for playback. PCM files go through [`Player::open_pcm`];
+    /// DSD files are routed into the preference chain (§4.2): `dsd_mode`
+    /// expands to `[Native, DoP, Pcm]` / `[DoP, Pcm]` / `[Pcm]` and the first
+    /// step that succeeds wins. `FallbackPolicy::Fail` stops the chain after
+    /// the first failed step. Returns the track info; errors are strings.
+    /// True for `.dsf`/`.dff` paths (case-insensitive).
     pub fn open(&mut self, path: &Path) -> Result<TrackInfo, String> {
-        let is_dsd = path
-            .extension()
-            .and_then(|e| e.to_str())
-            .map(|e| e.eq_ignore_ascii_case("dsf") || e.eq_ignore_ascii_case("dff"))
-            .unwrap_or(false);
-
-        if is_dsd && self.dsd_mode == DsdMode::Native {
-            // cpal has no native-DSD device backend; fail loudly (ТЗ 5.1 §8.2)
-            // instead of silently decoding to PCM.
-            eprintln!("[audio] WARN: DSD native output is not supported by the cpal backend");
-            return Err("DSD native output not supported by cpal".into());
+        if is_dsd_path(path) {
+            self.open_dsd_with_chain(path)
+        } else {
+            self.open_pcm(path)
         }
+    }
 
-        if is_dsd && self.dsd_mode == DsdMode::DoP {
-            return self.open_dop(path);
+    /// DSD playback through the preference chain (ТЗ A3.0 §4.1–4.2).
+    fn open_dsd_with_chain(&mut self, path: &Path) -> Result<TrackInfo, String> {
+        let preferred = self.dsd_mode;
+        let chain: &[DsdMode] = match preferred {
+            DsdMode::Native => &[DsdMode::Native, DsdMode::DoP, DsdMode::Pcm],
+            DsdMode::DoP => &[DsdMode::DoP, DsdMode::Pcm],
+            DsdMode::Pcm => &[DsdMode::Pcm],
+        };
+        let strict = self.fallback_policy == FallbackPolicy::Fail;
+        let mut last_err: Option<String> = None;
+
+        for &mode in chain {
+            match self.try_open_dsd(path, mode) {
+                Ok(info) => {
+                    if let Some(desc) = self.stream_desc.as_mut() {
+                        desc.dsd_mode = Some(mode);
+                        desc.dsd_preferred = Some(preferred);
+                        if mode != preferred {
+                            desc.dsd_fallback_reason =
+                                Some(format!("{preferred:?} unavailable"));
+                        }
+                    }
+                    return Ok(info);
+                }
+                Err(e) => {
+                    last_err = Some(e);
+                    if strict {
+                        break;
+                    }
+                }
+            }
         }
+        Err(last_err.unwrap_or_else(|| "DSD playback failed".into()))
+    }
 
-        self.open_pcm(path)
+    /// One step of the DSD chain. `Native` has no cpal backend yet, so it is a
+    /// constant error (the chain accounts for it).
+    fn try_open_dsd(&mut self, path: &Path, mode: DsdMode) -> Result<TrackInfo, String> {
+        match mode {
+            DsdMode::Native => Err("Native DSD not supported by cpal backend".into()),
+            DsdMode::DoP => self.open_dop(path),
+            DsdMode::Pcm => self.open_pcm(path),
+        }
     }
 
     /// Publish the persisted control state onto a freshly created [`RtShared`].
@@ -310,8 +420,10 @@ impl Player {
         }
     }
 
-    /// Standard path (existing behaviour): PCM files or DSD decoded to PCM via
-    /// the CIC cascade, resampled to the device rate.
+    /// Standard path: PCM files or DSD decoded to PCM via the CIC cascade,
+    /// resampled to the device rate. The device/config are negotiated through
+    /// [`select_output_for`] so `ExclusiveMode`/`FallbackPolicy`/`ResamplerMode`
+    /// are applied (ТЗ A3.0 §2–§4).
     fn open_pcm(&mut self, path: &Path) -> Result<TrackInfo, String> {
         let src: Box<dyn AudioSource> = match path.extension().and_then(|e| e.to_str()) {
             Some(e) if e.eq_ignore_ascii_case("dsf") || e.eq_ignore_ascii_case("dff") => {
@@ -324,7 +436,18 @@ impl Player {
 
         self.teardown();
 
-        let spec = select_output(src_rate, src_ch, self.preferred_device.as_deref())?;
+        let req = OutputRequest {
+            track_rate: src_rate,
+            track_channels: src_ch,
+            preferred_device: self.preferred_device.clone(),
+            exclusive: self.exclusive_mode,
+            fallback: self.fallback_policy,
+            resampler: ResamplerMode::Auto,
+            fallback_rate: FallbackRatePolicy::Nearest,
+            clock_family: ClockFamily::Auto,
+            fixed_rate: 0,
+        };
+        let spec = select_output_for(&req)?;
         let out_rate = spec.config.sample_rate;
         let out_ch = spec.config.channels as usize;
         self.device_desc = spec.device_name.clone();
@@ -344,6 +467,22 @@ impl Player {
         // reproducible across runs for a given track path.
         let mut rng = TpdfRng::new();
         rng.reseed(track_seed(path));
+
+        self.stream_desc = Some(StreamDesc {
+            device: spec.device_name.clone(),
+            rate: out_rate,
+            channels: out_ch as u16,
+            format: format_name(&spec.sample_format),
+            exclusive: spec.exclusive,
+            exclusive_fallback: req.exclusive != ExclusiveMode::Off && !spec.exclusive,
+            resampled: resampler.is_enabled(),
+            source_rate: src_rate,
+            source_channels: src_ch,
+            dsd_mode: None,
+            dsd_preferred: None,
+            dsd_fallback_reason: None,
+            fallback: spec.fallback,
+        });
 
         let resampled = shared.bit_perfect_resampled();
         let stream = self.start_engine(src, resampler, shared.clone(), rng, spec)?;
@@ -366,8 +505,9 @@ impl Player {
 
     /// DoP (DSD over PCM) path: the decoder keeps the raw DSD bytes and packs
     /// them into 24-bit DoP words at the container rate (byte rate / 2, i.e.
-    /// two bytes per channel per frame). Any device mismatch (rate, channels or
-    /// stream build) falls back to a honest PCM (CIC) decoding with a WARN.
+    /// two bytes per channel per frame). Any slot mismatch or stream failure
+    /// is returned as `Err` — the DSD chain (§4.2) decides whether to fall
+    /// back to PCM (honest CIC decoding) without mislabelling the mode.
     fn open_dop(&mut self, path: &Path) -> Result<TrackInfo, String> {
         let dop = DsdDecoder::open_with_mode(path, DecodeMode::Dop)?;
         // DSD64: byte rate = dsd_rate / 8 = 352800; DoP carries 2 bytes per
@@ -377,16 +517,25 @@ impl Player {
         let info = dop.info().clone();
 
         self.teardown();
-        let mut spec = select_output(dop_rate, src_ch, self.preferred_device.as_deref())?;
+        let req = OutputRequest {
+            track_rate: dop_rate,
+            track_channels: src_ch,
+            preferred_device: self.preferred_device.clone(),
+            exclusive: self.exclusive_mode,
+            fallback: self.fallback_policy,
+            resampler: ResamplerMode::Auto,
+            fallback_rate: FallbackRatePolicy::Nearest,
+            clock_family: ClockFamily::Auto,
+            fixed_rate: 0,
+        };
+        let mut spec = select_output_for(&req)?;
 
         // DoP is bit-exact only when the device opens the exact container slot.
         if spec.config.sample_rate != dop_rate || spec.config.channels as usize != src_ch {
             let offered = format!("{} Hz × {} ch", spec.config.sample_rate, spec.config.channels);
-            eprintln!(
-                "[audio] WARN: device does not support the DoP slot {dop_rate} Hz × {src_ch} ch \
-                 (offers {offered}); falling back to PCM (CIC)"
-            );
-            return self.open_pcm(path);
+            return Err(format!(
+                "device does not offer the DoP slot {dop_rate} Hz × {src_ch} ch (offers {offered})"
+            ));
         }
         spec.sample_format = SampleFormat::I32;
         spec.is_dop = true;
@@ -408,13 +557,30 @@ impl Player {
         );
         let mut rng = TpdfRng::new();
         rng.reseed(track_seed(path));
+
+        self.stream_desc = Some(StreamDesc {
+            device: spec.device_name.clone(),
+            rate: dop_rate,
+            channels: src_ch as u16,
+            format: format_name(&spec.sample_format),
+            exclusive: spec.exclusive,
+            exclusive_fallback: req.exclusive != ExclusiveMode::Off && !spec.exclusive,
+            resampled: resampler.is_enabled(),
+            source_rate: dop_rate,
+            source_channels: src_ch,
+            dsd_mode: None,
+            dsd_preferred: None,
+            dsd_fallback_reason: None,
+            fallback: spec.fallback,
+        });
+
         let resampled = shared.bit_perfect_resampled();
 
         let stream = match self.start_engine(Box::new(dop), resampler, shared.clone(), rng, spec) {
             Ok(s) => s,
             Err(e) => {
-                eprintln!("[audio] WARN: cannot build DoP stream ({e}); falling back to PCM (CIC)");
-                return self.open_pcm(path);
+                eprintln!("[audio] WARN: cannot build DoP stream ({e})");
+                return Err(format!("cannot build DoP stream: {e}"));
             }
         };
         if resampled {
@@ -424,8 +590,8 @@ impl Player {
             );
         }
         if let Err(e) = stream.play() {
-            eprintln!("[audio] WARN: cannot start DoP stream ({e}); falling back to PCM (CIC)");
-            return self.open_pcm(path);
+            eprintln!("[audio] WARN: cannot start DoP stream ({e})");
+            return Err(format!("cannot start DoP stream: {e}"));
         }
         self.stream = Some(stream);
         self.shared = Some(shared);
@@ -884,6 +1050,9 @@ impl Player {
             preferred_device: None,
             resampler_algo: ResamplerAlgorithm::SincMedium,
             dsd_mode: DsdMode::Pcm,
+            exclusive_mode: ExclusiveMode::Auto,
+            fallback_policy: FallbackPolicy::Nearest,
+            stream_desc: None,
             ring_buffer_ms: RING_BUFFER_MS_DEFAULT,
             volume: 0.8,
             muted: false,
