@@ -130,8 +130,6 @@ fn fmt_num(num: u32, total: u32) -> SharedString {
         } else {
             format!("{num}").into()
         }
-    } else if total > 0 {
-        "—".into()
     } else {
         "—".into()
     }
@@ -1682,11 +1680,7 @@ impl MusicApp {
         let Some(rx) = self.tray_rx.take() else {
             return;
         };
-        loop {
-            let cmd = match rx.try_recv() {
-                Ok(cmd) => cmd,
-                Err(_) => break,
-            };
+        while let Ok(cmd) = rx.try_recv() {
             eprintln!("[tray] cmd={cmd:?}");
             match cmd {
                 TrayCmd::TogglePlay => {
@@ -2030,7 +2024,7 @@ mod tests {
         assert_eq!(FIXED_RATES[0], 0);
         // Остальные индексы — реальные (non-zero) частоты для Fixed-режима.
         for &hz in &FIXED_RATES[1..] {
-            assert!(hz >= 44_100 && hz <= 192_000);
+            assert!((44_100..=192_000).contains(&hz));
         }
     }
 

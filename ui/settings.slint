@@ -256,7 +256,7 @@ export component Settings inherits Rectangle {
                 }
                 VerticalLayout {
                     TabWidget {
-                        
+
                         vertical-stretch: 1;
 
                         // ===== General =====
@@ -281,11 +281,13 @@ export component Settings inherits Rectangle {
                                                 current-value: root.theme-current;
                                                 selected(s) => { debug("settings: theme combo selected"); root.settings-theme-selected(s); }
                                             }
+
                                             Text {
                                                 text: root.theme-name;
                                                 color: Colors.text-secondary;
                                                 font-size: 11px;
                                             }
+
                                             Text {
                                                 text: root.theme-description;
                                                 color: Colors.text-tertiary;
@@ -435,10 +437,12 @@ export component Settings inherits Rectangle {
                                             text: root.active-device;
                                             text-color: Colors.text-primary;
                                         }
+
                                         Rectangle {
                                             horizontal-stretch: 1;
                                         }
                                     }
+
                                     HorizontalLayout {
                                         padding-left: 8px;
                                         padding-right: 8px;
@@ -446,13 +450,16 @@ export component Settings inherits Rectangle {
                                         RowLabel {
                                             text: "Codec info:";
                                         }
+
                                         RowLabel {
                                             text: root.codec-info;
                                         }
+
                                         Rectangle {
                                             horizontal-stretch: 1;
                                         }
                                     }
+
                                     HorizontalLayout {
                                         padding-left: 8px;
                                         padding-right: 8px;
@@ -465,11 +472,11 @@ export component Settings inherits Rectangle {
                                     }
                                     // ТЗ A3.0 §7.1/§8.2: возможности выбранного устройства.
                                     RowLabel {
-                                        padding-left: 8px;
                                         text: "Возможности";
                                         font-weight: 600;
                                         text-color: Colors.text-primary;
                                     }
+
                                     for cap in root.audio-caps: HorizontalLayout {
                                         padding-left: 8px;
                                         padding-right: 8px;
@@ -477,16 +484,17 @@ export component Settings inherits Rectangle {
                                         RowLabel {
                                             text: cap.label + ":";
                                         }
+
                                         RowLabel {
                                             text: cap.value;
                                             text-color: cap.ok ? Colors.text-primary : Colors.text-tertiary;
                                         }
+
                                         Rectangle {
                                             horizontal-stretch: 1;
                                         }
                                     }
                                     if root.audio-caps.length == 0: RowLabel {
-                                        padding-left: 8px;
                                         text: "\u{2014}";
                                         color: Colors.text-dim;
                                     }
@@ -510,8 +518,6 @@ export component Settings inherits Rectangle {
                                     }
                                     // ТЗ A3.0 §7.1: bit-perfect на shared-выводе — осознанный компромисс.
                                     RowLabel {
-                                        padding-left: 8px;
-                                        padding-right: 8px;
                                         text: "Для bit-perfect требуется exclusive \u{2014} включите Exclusive в «Дополнительно»";
                                         color: Colors.text-warn;
                                         wrap: word-wrap;
@@ -536,6 +542,7 @@ export component Settings inherits Rectangle {
                                             horizontal-stretch: 1;
                                         }
                                     }
+
                                     HorizontalLayout {
                                         padding-left: 8px;
                                         padding-right: 8px;
@@ -543,26 +550,24 @@ export component Settings inherits Rectangle {
                                         RowLabel {
                                             text: "Цепочка:";
                                         }
+
                                         RowLabel {
                                             text: root.audio-dsd-chain-desc;
                                             text-color: Colors.text-primary;
                                         }
+
                                         Rectangle {
                                             horizontal-stretch: 1;
                                         }
                                     }
                                     // ТЗ A3.0 §7.1: фолбек цепочки автоматический (FallbackPolicy).
                                     RowLabel {
-                                        padding-left: 8px;
-                                        padding-right: 8px;
                                         text: "\u{24D8} Фолбек автоматический. FallbackPolicy управляет провалом цепочки.";
                                         text-color: Colors.text-dim;
                                         wrap: word-wrap;
                                     }
                                     // ТЗ §8.4: DSD→PCM конвертация нарушает bit-perfect для DSD.
                                     RowLabel {
-                                        padding-left: 8px;
-                                        padding-right: 8px;
                                         text: "DSD\u{2192}PCM несовместимо с bit-perfect для DSD";
                                         color: Colors.text-error;
                                         wrap: word-wrap;
@@ -570,11 +575,11 @@ export component Settings inherits Rectangle {
                                     }
                                     // ТЗ A3.0 §7.1/§5.4: превью валидации на выбранном устройстве.
                                     RowLabel {
-                                        padding-left: 8px;
                                         text: "Проверка";
                                         font-weight: 600;
                                         text-color: Colors.text-primary;
                                     }
+
                                     for v in root.audio-validation: HorizontalLayout {
                                         padding-left: 8px;
                                         padding-right: 8px;
@@ -583,17 +588,18 @@ export component Settings inherits Rectangle {
                                             text: v.source;
                                             min-width: 80px;
                                         }
+
                                         RowLabel {
                                             text: v.detail;
                                             text-color: v.outcome == 0 ? Colors.text-primary : v.outcome == 1 ? Colors.text-warn : Colors.text-error;
                                             wrap: word-wrap;
                                         }
+
                                         Rectangle {
                                             horizontal-stretch: 1;
                                         }
                                     }
                                     if root.audio-validation.length == 0: RowLabel {
-                                        padding-left: 8px;
                                         text: "\u{2014}";
                                         color: Colors.text-dim;
                                     }
@@ -607,104 +613,154 @@ export component Settings inherits Rectangle {
                                             preferred-height: 20px;
                                             clicked => { root.set-audio-toggle-advanced(!root.audio-advanced-open); }
                                         }
+
                                         Rectangle {
                                             horizontal-stretch: 1;
                                         }
                                     }
+
                                     if root.audio-advanced-open: VerticalLayout {
                                         spacing: 10px;
                                         // ТЗ A3.0 §7.1/§8.2: баннер конфликта Fixed + Fail.
                                         RowLabel {
-                                            padding-left: 8px;
-                                            padding-right: 8px;
                                             text: "\u{26A0} Fixed несовместим с Fail \u{2014} используется Nearest";
                                             color: Colors.text-warn;
                                             wrap: word-wrap;
                                             visible: root.audio-fixed-fail-warn;
                                         }
+
                                         HorizontalLayout {
                                             padding-left: 8px;
                                             padding-right: 8px;
                                             spacing: 4px;
-                                            RowLabel { text: "Exclusive"; min-width: 130px; }
+                                            RowLabel {
+                                                text: "Exclusive";
+                                                min-width: 130px;
+                                            }
+
                                             ComboBox {
                                                 model: ["Выкл", "Авто", "Строгий"];
                                                 current-index: root.audio-exclusive-idx;
                                                 selected(s) => { root.set-audio-exclusive(self.current-index); }
                                             }
-                                            Rectangle { horizontal-stretch: 1; }
+
+                                            Rectangle {
+                                                horizontal-stretch: 1;
+                                            }
                                         }
+
                                         HorizontalLayout {
                                             padding-left: 8px;
                                             padding-right: 8px;
                                             spacing: 4px;
-                                            RowLabel { text: "Fallback policy"; min-width: 130px; }
+                                            RowLabel {
+                                                text: "Fallback policy";
+                                                min-width: 130px;
+                                            }
+
                                             ComboBox {
                                                 model: ["Ближайший", "Дефолт устройства", "Ошибка"];
                                                 current-index: root.audio-fallback-idx;
                                                 selected(s) => { root.set-audio-fallback(self.current-index); }
                                             }
-                                            Rectangle { horizontal-stretch: 1; }
+
+                                            Rectangle {
+                                                horizontal-stretch: 1;
+                                            }
                                         }
+
                                         HorizontalLayout {
                                             padding-left: 8px;
                                             padding-right: 8px;
                                             spacing: 4px;
-                                            RowLabel { text: "Resampler mode"; min-width: 130px; }
+                                            RowLabel {
+                                                text: "Resampler mode";
+                                                min-width: 130px;
+                                            }
+
                                             ComboBox {
                                                 model: ["Авто", "Native", "Фиксированная"];
                                                 current-index: root.audio-resampler-mode-idx;
                                                 selected(s) => { root.set-audio-resampler-mode(self.current-index); }
                                             }
-                                            Rectangle { horizontal-stretch: 1; }
+
+                                            Rectangle {
+                                                horizontal-stretch: 1;
+                                            }
                                         }
+
                                         HorizontalLayout {
                                             padding-left: 8px;
                                             padding-right: 8px;
                                             spacing: 4px;
-                                            RowLabel { text: "Fixed rate"; min-width: 130px; }
+                                            RowLabel {
+                                                text: "Fixed rate";
+                                                min-width: 130px;
+                                            }
+
                                             ComboBox {
                                                 model: ["Авто", "44.1k", "48k", "88.2k", "96k", "176.4k", "192k"];
                                                 current-index: root.audio-fixed-rate-idx;
                                                 enabled: root.audio-resampler-mode-idx == 2;
                                                 selected(s) => { root.set-audio-fixed-rate(self.current-index); }
                                             }
+
                                             RowLabel {
                                                 text: "\u{24D8} Безрезультатно вне режима Fixed";
                                                 text-color: Colors.text-dim;
                                                 visible: root.audio-resampler-mode-idx != 2;
                                             }
-                                            Rectangle { horizontal-stretch: 1; }
+
+                                            Rectangle {
+                                                horizontal-stretch: 1;
+                                            }
                                         }
+
                                         HorizontalLayout {
                                             padding-left: 8px;
                                             padding-right: 8px;
                                             spacing: 4px;
-                                            RowLabel { text: "Clock family"; min-width: 130px; }
+                                            RowLabel {
+                                                text: "Clock family";
+                                                min-width: 130px;
+                                            }
+
                                             ComboBox {
                                                 model: ["Авто", "Семейство 44.1", "Семейство 48"];
                                                 current-index: root.audio-clock-family-idx;
                                                 selected(s) => { root.set-audio-clock-family(self.current-index); }
                                             }
-                                            Rectangle { horizontal-stretch: 1; }
+
+                                            Rectangle {
+                                                horizontal-stretch: 1;
+                                            }
                                         }
+
                                         HorizontalLayout {
                                             padding-left: 8px;
                                             padding-right: 8px;
                                             spacing: 4px;
-                                            RowLabel { text: "Fallback rate"; min-width: 130px; }
+                                            RowLabel {
+                                                text: "Fallback rate";
+                                                min-width: 130px;
+                                            }
+
                                             ComboBox {
                                                 model: ["Ближайший", "То же семейство", "Не понижать"];
                                                 current-index: root.audio-fallback-rate-idx;
                                                 enabled: root.audio-resampler-mode-idx == 0;
                                                 selected(s) => { root.set-audio-fallback-rate(self.current-index); }
                                             }
+
                                             RowLabel {
                                                 text: "\u{24D8} Используется только при Авто";
                                                 text-color: Colors.text-dim;
                                                 visible: root.audio-resampler-mode-idx != 0;
                                             }
-                                            Rectangle { horizontal-stretch: 1; }
+
+                                            Rectangle {
+                                                horizontal-stretch: 1;
+                                            }
                                         }
                                     }
                                     if !root.audio-advanced-open: Rectangle {
@@ -749,7 +805,6 @@ export component Settings inherits Rectangle {
                                                     text: col.label;
                                                     color: Colors.text-primary;
                                                     font-size: 14px;
-                                                    padding-left: 8px;
                                                     vertical-alignment: center;
                                                     horizontal-alignment: left;
                                                 }
@@ -765,7 +820,6 @@ export component Settings inherits Rectangle {
                                                     font-size: 14px;
                                                     vertical-alignment: center;
                                                     horizontal-alignment: right;
-                                                    padding-right: 8px;
                                                     min-width: 40px;
                                                 }
                                             }
@@ -918,7 +972,9 @@ export component Settings inherits Rectangle {
                                             selected(s) => { root.set-viz-mode(self.current-index); }
                                         }
 
-                                        Rectangle { horizontal-stretch: 1; }
+                                        Rectangle {
+                                            horizontal-stretch: 1;
+                                        }
                                     }
 
                                     HorizontalLayout {
@@ -1430,7 +1486,7 @@ export component Settings inherits Rectangle {
 
                                         // ----- Анализатор спектра -----
                                         if root.viz-mode == 3: VerticalLayout {
-                                            
+
                                             spacing: 8px;
                                             RowLabel {
                                                 text: "Settings: Spectrum";

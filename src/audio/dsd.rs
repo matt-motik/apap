@@ -323,10 +323,8 @@ fn parse_dff(file: &mut BufReader<File>) -> Result<(DsdHeader, u64), String> {
                             };
                             channels = ch;
                         }
-                        b"CMPR" => {
-                            if data.len() >= 4 && &data[..4] != b"DSD " {
-                                return Err("DFF: DST-encoded data not supported".into());
-                            }
+                        b"CMPR" if data.len() >= 4 && &data[..4] != b"DSD " => {
+                            return Err("DFF: DST-encoded data not supported".into());
                         }
                         _ => {}
                     }
@@ -397,19 +395,25 @@ fn extract_text(data: &[u8]) -> String {
         1 => {
             if text.len() >= 2 && text[0] == 0xFF && text[1] == 0xFE {
                 let units: Vec<u16> = text[2..]
-                    .chunks_exact(2)
+                    .as_chunks::<2>()
+                    .0
+                    .iter()
                     .map(|c| u16::from_le_bytes([c[0], c[1]]))
                     .collect();
                 decode_utf16(&units).trim().to_string()
             } else if text.len() >= 2 && text[0] == 0xFE && text[1] == 0xFF {
                 let units: Vec<u16> = text[2..]
-                    .chunks_exact(2)
+                    .as_chunks::<2>()
+                    .0
+                    .iter()
                     .map(|c| u16::from_be_bytes([c[0], c[1]]))
                     .collect();
                 decode_utf16(&units).trim().to_string()
             } else {
                 let units: Vec<u16> = text
-                    .chunks_exact(2)
+                    .as_chunks::<2>()
+                    .0
+                    .iter()
                     .map(|c| u16::from_le_bytes([c[0], c[1]]))
                     .collect();
                 decode_utf16(&units).trim().to_string()
@@ -418,7 +422,9 @@ fn extract_text(data: &[u8]) -> String {
         // UTF-16BE (no BOM).
         2 => {
             let units: Vec<u16> = text
-                .chunks_exact(2)
+                .as_chunks::<2>()
+                .0
+                .iter()
                 .map(|c| u16::from_be_bytes([c[0], c[1]]))
                 .collect();
             decode_utf16(&units).trim().to_string()

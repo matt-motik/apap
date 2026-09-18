@@ -361,7 +361,7 @@ impl Decoder {
         let secs = secs.max(0.0);
         let whole = secs.floor() as i64;
         let frac = (secs.fract() * 1e9).round();
-        let nanos = frac.min(999_999_999.0).max(0.0) as u32;
+        let nanos = frac.clamp(0.0, 999_999_999.0) as u32;
         let time = Time::try_new(whole, nanos).unwrap_or(Time::ZERO);
         self.format
             .seek(

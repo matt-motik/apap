@@ -202,11 +202,8 @@ impl MusicApp {
         }
         let mut latest: Option<Option<std::path::PathBuf>> = None;
         let mut latest_id = 0u64;
-        loop {
-            let msg = match &self.cover_rx {
-                Some(rx) => rx.try_recv(),
-                None => break,
-            };
+        while let Some(rx) = &self.cover_rx {
+            let msg = rx.try_recv();
             match msg {
                 Ok(done) => {
                     latest_id = done.id;

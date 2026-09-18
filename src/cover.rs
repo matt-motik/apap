@@ -388,8 +388,8 @@ mod tests {
     fn cover_cache_size_sums_subdir_tree() {
         let parent = std::env::temp_dir().join(format!("mp_cover_size_{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&parent);
-        std::fs::create_dir_all(&parent.join("4c")).unwrap();
-        std::fs::create_dir_all(&parent.join("50")).unwrap();
+        std::fs::create_dir_all(parent.join("4c")).unwrap();
+        std::fs::create_dir_all(parent.join("50")).unwrap();
         std::fs::write(parent.join("4c/a.jpg"), vec![0u8; 100]).unwrap();
         std::fs::write(parent.join("50/b.png"), vec![0u8; 200]).unwrap();
         std::fs::write(parent.join("legacy.jpg"), vec![0u8; 50]).unwrap();

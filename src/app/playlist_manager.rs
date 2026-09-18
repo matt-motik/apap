@@ -27,13 +27,9 @@ impl MusicApp {
     pub(super) fn drain_scan(&mut self) {
         let mut finished = false;
         if self.scan_rx.is_some() {
-            loop {
-                let msg = match &self.scan_rx {
-                    Some(rx) => rx.try_recv(),
-                    None => break,
-                };
+            while let Some(msg) = self.scan_rx.as_ref().and_then(|rx| rx.try_recv().ok()) {
                 match msg {
-                    Ok(ScanMsg::Batch(tracks)) => {
+                    ScanMsg::Batch(tracks) => {
                         let mut added = 0;
                         for t in tracks {
                             if self.known_paths.insert(t.path.clone()) {
@@ -48,7 +44,7 @@ impl MusicApp {
                                 format!("Scanning\u{2026} {} tracks", self.scan_pending.len()).into();
                         }
                     }
-                    Ok(ScanMsg::Done(total)) => {
+                    ScanMsg::Done(total) => {
                         let n = self.scan_pending.len();
                         if n > 0 {
                             let added: Vec<Track> = std::mem::take(&mut self.scan_pending);
@@ -62,12 +58,14 @@ impl MusicApp {
                         }
                         finished = true;
                     }
-                    Err(TryRecvError::Empty) => break,
-                    Err(TryRecvError::Disconnected) => {
-                        finished = true;
-                        break;
-                    }
                 }
+            }
+            if self
+                .scan_rx
+                .as_ref()
+                .is_some_and(|rx| matches!(rx.try_recv(), Err(TryRecvError::Disconnected)))
+            {
+                finished = true;
             }
         }
         if finished {

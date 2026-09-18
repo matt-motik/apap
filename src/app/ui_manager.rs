@@ -51,12 +51,12 @@ impl MusicApp {
         ordered
             .iter()
             .map(|c| {
-                let mut cs = ColumnSetting::default();
-                cs.index = ordered.iter().position(|x| x == c).unwrap_or(0) as i32;
-                cs.label = s.column_title(*c).into();
-                cs.visible = s.column_visible(*c);
-                cs.width_pct = s.column_width_pct(*c);
-                cs
+                ColumnSetting {
+                    index: ordered.iter().position(|x| x == c).unwrap_or(0) as i32,
+                    label: s.column_title(*c).into(),
+                    visible: s.column_visible(*c),
+                    width_pct: s.column_width_pct(*c),
+                }
             })
             .collect()
     }
@@ -154,10 +154,10 @@ impl MusicApp {
             .iter()
             .enumerate()
             .map(|(i, c)| {
-                let mut cs = CoverSetting::default();
-                cs.label = c.label().into();
-                cs.pos = i as i32;
-                cs
+                CoverSetting {
+                    label: c.label().into(),
+                    pos: i as i32,
+                }
             })
             .collect();
         self.ui.set_settings_covers(ModelRc::from(covers.as_slice()));
@@ -288,7 +288,7 @@ impl MusicApp {
         } else if !saved.is_empty() {
             Some(saved.clone())
         } else {
-            default_device_name().map(|n| n.into())
+            default_device_name()
         };
 
         // The ComboBox model holds *labels*; selection is matched back to the
@@ -477,7 +477,7 @@ impl MusicApp {
 
     /// Resolve the visible `TableColumn`s with current pixel widths.
     fn build_table_columns(&self) -> Vec<TableColumn> {
-        let view_w = self.ui.get_playlist_view_width().max(100.0) as f32;
+        let view_w = self.ui.get_playlist_view_width().max(100.0);
 
         let ids = self.visible_col_ids();
         let ratios: Vec<f32> = ids
@@ -495,7 +495,7 @@ impl MusicApp {
             .map(|(c, w)| {
                 let mut tc = TableColumn::default();
                 tc.title = self.settings.settings.column_title(*c).into();
-                tc.width = w.into();
+                tc.width = w;
                 tc.sort_order = if Some(*c) == self.settings.settings.sorted_col {
                     if self.settings.settings.sort_desc {
                         SortOrder::Descending
