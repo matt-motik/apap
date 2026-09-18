@@ -538,8 +538,10 @@ mod tests {
 
     #[test]
     fn visualizer_settings_serde_round_trip() {
-        let mut v = VisualizerSettings::default();
-        v.mode = VisualizationMode::Spectrum;
+        let mut v = VisualizerSettings {
+            mode: VisualizationMode::Spectrum,
+            ..Default::default()
+        };
         v.spectrum.bands = 64;
         v.spectrogram.palette = Palette::Viridis;
         let s = toml::to_string(&v).unwrap();

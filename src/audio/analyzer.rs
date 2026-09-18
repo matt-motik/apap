@@ -494,9 +494,9 @@ mod tests {
         let a = sine(rate, 440.0, n, 0.0);
         let mut samples = Vec::with_capacity(n * 2);
         // L и R одинаковые → моно-усреднение (разницы нет); просто проверяем длину.
-        for i in 0..n {
-            samples.push(a[i]);
-            samples.push(a[i]);
+        for value in a.iter().take(n) {
+            samples.push(*value);
+            samples.push(*value);
         }
         let out = run_engine(&samples, 2, &cfg, rate);
         assert_eq!(out.len(), cfg.bands as usize);

@@ -33,6 +33,7 @@ use music_player_rs::tray::{self, TrayCmd};
 /// индекс ComboBox («Авто», «44.1k» … «192k») → Гц. «Авто» (0) → 0 = не задано.
 const FIXED_RATES: [u32; 7] = [0, 44_100, 48_000, 88_200, 96_000, 176_400, 192_000];
 
+pub mod bp_report;
 pub mod events;
 pub mod fulltrack_manager;
 pub mod playback_manager;
@@ -252,6 +253,7 @@ pub struct MusicApp {
     /// window size.
     playlist_cols: Rc<VecModel<TableColumn>>,
     current: Option<usize>,
+    stream_desc: Option<music_player_rs::audio::player::StreamDesc>,
     scan_rx: Option<Receiver<ScanMsg>>,
     /// Tracks buffered by `drain_scan` while a background scan runs; committed
     /// to `tracks` atomically when `ScanMsg::Done` arrives.
@@ -440,6 +442,7 @@ impl MusicApp {
             playlist_rows,
             playlist_cols,
             current: None,
+            stream_desc: None,
             scan_rx: None,
             scan_pending: Vec::new(),
             known_paths,
@@ -535,6 +538,30 @@ impl MusicApp {
 
     fn settings_mut(&mut self) -> &mut Settings {
         self.settings_draft.as_mut().unwrap_or(&mut self.settings.settings)
+    }
+
+    fn push_bp_report_to_ui(&self, report: bp_report::BpReport) {
+        self.ui.set_bp_stream_desc(report.stream_desc.into());
+        self.ui.set_bp_source_desc(report.source_desc.into());
+
+        let reasons: Vec<BpReason> = report
+            .reasons
+            .into_iter()
+            .map(|r| BpReason {
+                title: r.title.into(),
+                detail: r.detail.into(),
+                action_id: r.action_id,
+                action_label: r.action_label.into(),
+                severity: match r.severity {
+                    bp_report::Severity::Warning => 0,
+                    bp_report::Severity::Info => 1,
+                },
+            })
+            .collect();
+        self.ui.set_bp_reasons(ModelRc::from(reasons.as_slice()));
+
+        let positives: Vec<SharedString> = report.positives.into_iter().map(SharedString::from).collect();
+        self.ui.set_bp_positives(ModelRc::from(positives.as_slice()));
     }
 
     // ---------------- Тема: состояние диалога настроек (T1.0) ----------------
@@ -1015,6 +1042,46 @@ impl MusicApp {
             let app = this.clone();
             ui.on_settings_set_audio_toggle_advanced(move |open| {
                 app.borrow().ui.set_settings_audio_advanced_open(open);
+            });
+        }
+
+        // 25f-b. bit-perfect badge -> report dialog
+        {
+            let app = this.clone();
+            ui.on_bp_clicked(move || {
+                let a = app.borrow_mut();
+                a.ui.set_bp_report_open(true);
+                let report = bp_report::build_bp_report(&a);
+                a.push_bp_report_to_ui(report);
+            });
+        }
+
+        {
+            let app = this.clone();
+            ui.on_bp_report_close(move || {
+                app.borrow().ui.set_bp_report_open(false);
+            });
+        }
+
+        {
+            let app = this.clone();
+            ui.on_bp_report_action(move |id| {
+                let mut a = app.borrow_mut();
+                bp_report::apply_action(&mut a, id);
+                let report = bp_report::build_bp_report(&a);
+                a.push_bp_report_to_ui(report);
+            });
+        }
+
+        {
+            let app = this.clone();
+            ui.on_bp_report_open_settings(move || {
+                let mut a = app.borrow_mut();
+                a.ui.set_bp_report_open(false);
+                a.ui.set_settings_open(true);
+                a.settings_draft = Some(a.settings.settings.clone());
+                a.sync_audio_devices();
+                a.sync_audio_advanced();
             });
         }
 
@@ -1525,6 +1592,10 @@ impl MusicApp {
         self.handle_auto_advance();
         self.sync_playback_state_to_ui();
         self.sync_dsd_status_ui();
+        if self.ui.get_bp_report_open() {
+            let report = bp_report::build_bp_report(self);
+            self.push_bp_report_to_ui(report);
+        }
         // §10.5: пока диалог открыт, обновлять размеры кэша (билды полнотрековых
         // изображений и LRU-вытеснение меняют их в реальном времени).
         if self.ui.get_settings_open() {

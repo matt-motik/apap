@@ -254,8 +254,10 @@ pub fn default_column_width(id: ColumnId) -> f32 {
 }
 
 /// Default column configurations (title, priority, limits, visibility).
+type ColumnDef = (ColumnId, &'static str, f32, f32, Option<f32>, Option<f32>, bool, Option<&'static str>);
+
 pub fn default_columns() -> std::collections::HashMap<String, ColumnCfg> {
-    let defs: Vec<(ColumnId, &str, f32, f32, Option<f32>, Option<f32>, bool, Option<&str>)> = vec![
+    let defs: Vec<ColumnDef> = vec![
         (ColumnId::NowPlaying,  "\u{25B6}",    0.01,  24.0, Some(36.0),  None,                   true,  Some("now-playing")),
         (ColumnId::TrackNumber, "\u{2116}",    0.03,  44.0, Some(84.0),  None,                   true,  None),
         (ColumnId::Title,       "Название",    0.22, 120.0, None,        Some(0.60),             true,  None),
@@ -1292,7 +1294,7 @@ mod tests {
     fn audio_toml_roundtrip_with_new_fields() {
         let toml = "[audio]\nbit_perfect = true\nexclusive = \"strict\"\nfallback = \"fail\"\nfilter_hardware_only = true\nfilter_stereo_only = true\n\n[audio.resampler]\nmode = \"fixed\"\nfixed_rate = 48000\nprefer_family = \"family48k\"\nfallback_rate = \"never_downsample\"\n";
         let s: Settings = toml::from_str(toml).unwrap();
-        assert_eq!(s.audio.bit_perfect, true);
+        assert!(s.audio.bit_perfect);
         assert_eq!(s.audio.exclusive, ExclusiveMode::Strict);
         assert_eq!(s.audio.fallback, FallbackPolicy::Fail);
         assert!(s.audio.filter_hardware_only);
@@ -1314,7 +1316,7 @@ mod tests {
     fn audio_partial_config_preserves_existing() {
         let toml = "[audio]\nbit_perfect = false\n";
         let s: Settings = toml::from_str(toml).unwrap();
-        assert_eq!(s.audio.bit_perfect, false);
+        assert!(!s.audio.bit_perfect);
         assert_eq!(s.audio.resampler.algorithm, ResamplerAlgorithm::SincMedium);
         assert_eq!(s.audio.resampler.dither, ResamplerDither::Tpdf);
         assert_eq!(s.audio.resampler.mode, ResamplerMode::Auto);
@@ -1359,8 +1361,10 @@ mod tests {
 
     #[test]
     fn ordered_columns_uses_stored_order_and_appends_new() {
-        let mut s = Settings::default();
-        s.column_order = vec!["title".into(), "genre".into(), "artist".into()];
+        let s = Settings {
+            column_order: vec!["title".into(), "genre".into(), "artist".into()],
+            ..Default::default()
+        };
         let ord = s.ordered_columns();
         assert_eq!(ord[0], ColumnId::Title);
         assert_eq!(ord[1], ColumnId::Genre);
@@ -1378,13 +1382,15 @@ mod tests {
 
     #[test]
     fn move_column_reorders_stored_keys() {
-        let mut s = Settings::default();
-        s.column_order = vec![
-            "title".into(),
-            "genre".into(),
-            "artist".into(),
-            "year".into(),
-        ];
+        let mut s = Settings {
+            column_order: vec![
+                "title".into(),
+                "genre".into(),
+                "artist".into(),
+                "year".into(),
+            ],
+            ..Default::default()
+        };
         s.move_column(0, 2); // title -> position 2
                              // The full canonical order is materialised; the reorder is reflected
                              // in the leading positions.
@@ -1442,8 +1448,10 @@ mod tests {
 
     #[test]
     fn cover_priority_filters_unknown_and_appends_missing() {
-        let mut s = Settings::default();
-        s.cover_priority = vec!["internet".into(), "bogus".into()];
+        let s = Settings {
+            cover_priority: vec!["internet".into(), "bogus".into()],
+            ..Default::default()
+        };
         let ord = s.cover_priority_ordered();
         assert_eq!(ord[0], CoverSource::Internet);
         // Missing canonical sources appended in canonical order.
@@ -1469,13 +1477,17 @@ mod tests {
         assert_eq!(s.cover_folder_names_list(), default_cover_folder_names());
         assert_eq!(default_cover_folder_names().len(), 17);
 
-        let mut s = Settings::default();
-        s.cover_folder_names = vec!["front.jpg".into(), "   ".into(), "art.png".into()];
+        let s = Settings {
+            cover_folder_names: vec!["front.jpg".into(), "   ".into(), "art.png".into()],
+            ..Default::default()
+        };
         assert_eq!(s.cover_folder_names_list(), vec!["front.jpg", "art.png"]);
 
         // All-blank stored names fall back to the default list.
-        let mut s = Settings::default();
-        s.cover_folder_names = vec![" ".into()];
+        let s = Settings {
+            cover_folder_names: vec![" ".into()],
+            ..Default::default()
+        };
         assert_eq!(s.cover_folder_names_list(), default_cover_folder_names());
     }
 

@@ -92,7 +92,7 @@ impl MusicApp {
                 self.ui.set_info_sample_rate(num_str(t.sample_rate, " Hz"));
                 self.ui.set_info_channels(num_str(t.channels, " ch"));
 
-                let mut parts: Vec<String> = Vec::new();
+                        let mut parts: Vec<String> = Vec::new();
                 if !t.format.is_empty() {
                     parts.push(t.format.clone());
                 }
@@ -103,7 +103,7 @@ impl MusicApp {
                     parts.push(format!("{} Hz", t.sample_rate));
                 }
                 if t.bitrate > 0 {
-                    parts.push({ format!("{} kbps", t.bitrate).into() })
+                    parts.push(format!("{} kbps", t.bitrate));
                 }
                 if t.channels > 0 {
                     parts.push(format!("{} ch", t.channels));
@@ -248,6 +248,7 @@ impl MusicApp {
                 self.tracks[index].album = info.tags.album.clone();
                 self.tracks[index].genre = info.tags.genre.clone();
                 self.tracks[index].year = info.tags.year.clone().unwrap_or_default();
+                self.stream_desc = self.player.stream_desc().cloned();
                 if info.tags.track_number > 0 || self.tracks[index].track_number == 0 {
                     self.tracks[index].track_number = info.tags.track_number;
                 }

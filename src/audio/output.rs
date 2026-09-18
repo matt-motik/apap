@@ -217,9 +217,9 @@ impl Resampler {
                 break;
             }
             let frac = (p - left as f64) as f32;
-            let rel = (left - self.base as i64) as i64;
+            let rel = left - self.base as i64;
             let enough = rel >= self.behind as i64
-                && rel + self.ahead as i64 + 1 <= self.frames_in_buf as i64;
+                && rel + (self.ahead as i64) < self.frames_in_buf as i64;
             if !enough && !eof_mode {
                 break;
             }

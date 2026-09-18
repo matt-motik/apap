@@ -5,7 +5,22 @@ export { FluentPalette }
 import { TopPanel } from "top_panel.slint";
 import { Playlist } from "playlist.slint";
 import { StatusBar } from "status.slint";
-import { Settings, ColumnSetting, CoverSetting, DeviceCapability, ValidationRow } from "settings.slint";
+import {
+    Settings,
+    ColumnSetting,
+    CoverSetting,
+    DeviceCapability,
+    ValidationRow,
+} from "settings.slint";
+import { Button, ScrollView } from "std-widgets.slint";
+
+export struct BpReason {
+    title: string,
+    detail: string,
+    action-id: int,
+    action-label: string,
+    severity: int,
+}
 
 component MenuButton inherits Rectangle {
     in property <string> text: "";
@@ -58,16 +73,34 @@ component AppMenuBar inherits Rectangle {
             enabled: !root.busy;
             clicked => { root.add-files(); }
         }
+
         MenuButton {
             text: "Add Folder";
             enabled: !root.busy;
             clicked => { root.add-folder(); }
         }
-        MenuButton { text: "Save"; clicked => { root.save-playlist(); } }
-        MenuButton { text: "Open"; clicked => { root.load-playlist(); } }
+
+        MenuButton {
+            text: "Save";
+            clicked => { root.save-playlist(); }
+        }
+
+        MenuButton {
+            text: "Open";
+            clicked => { root.load-playlist(); }
+        }
+
         Rectangle { }
-        MenuButton { text: "About"; clicked => { root.show-about(); } }
-        MenuButton { text: "Settings"; clicked => { root.open-settings(); } }
+
+        MenuButton {
+            text: "About";
+            clicked => { root.show-about(); }
+        }
+
+        MenuButton {
+            text: "Settings";
+            clicked => { root.open-settings(); }
+        }
     }
 }
 
@@ -87,20 +120,25 @@ export component AppWindow inherits Window {
                 title: "Добавить файлы";
                 activated => { root.add-files(); }
             }
+
             MenuItem {
                 title: "Добавить папку";
                 activated => { root.add-folder(); }
             }
-            MenuSeparator {}
+
+            MenuSeparator { }
+
             MenuItem {
                 title: "Сохранить плейлист";
                 activated => { root.save-playlist(); }
             }
+
             MenuItem {
                 title: "Загрузить плейлист";
                 activated => { root.load-playlist(); }
             }
         }
+
         Menu {
             title: "Визуализация";
             MenuItem {
@@ -109,18 +147,21 @@ export component AppWindow inherits Window {
                 enabled: !root.settings-open;
                 activated => { root.menu-select-viz(0); }
             }
+
             MenuItem {
                 title: "Осциллограмма";
                 checked: root.settings-viz-mode == 1;
                 enabled: !root.settings-open;
                 activated => { root.menu-select-viz(1); }
             }
+
             MenuItem {
                 title: "Спектрограмма";
                 checked: root.settings-viz-mode == 2;
                 enabled: !root.settings-open;
                 activated => { root.menu-select-viz(2); }
             }
+
             MenuItem {
                 title: "Анализатор спектра";
                 checked: root.settings-viz-mode == 3;
@@ -128,13 +169,16 @@ export component AppWindow inherits Window {
                 activated => { root.menu-select-viz(3); }
             }
         }
+
         Menu {
             title: "Настройки";
             MenuItem {
                 title: "Параметры";
                 activated => { root.open-settings(); }
             }
-            MenuSeparator {}
+
+            MenuSeparator { }
+
             MenuItem {
                 title: "О программе";
                 activated => { root.show-about(); }
@@ -182,7 +226,21 @@ export component AppWindow inherits Window {
     in property <string> info-sample-rate: "—";
     in property <string> info-channels: "—";
 
-    in property <[string]> info-labels: ["Artist", "Track", "Title", "Duration", "Year", "Album", "Disc", "Genre", "Format", "Bitrate", "Bit depth", "Sample rate", "Channels"];
+    in property <[string]> info-labels: [
+        "Artist",
+        "Track",
+        "Title",
+        "Duration",
+        "Year",
+        "Album",
+        "Disc",
+        "Genre",
+        "Format",
+        "Bitrate",
+        "Bit depth",
+        "Sample rate",
+        "Channels"
+    ];
 
     in property <int> viz-mode: 0;
     in property <float> build-progress: 0.0;
@@ -196,14 +254,17 @@ export component AppWindow inherits Window {
     in property <float> bar-radius: 2;
     in property <bool> gradient: true;
 
-    in property <[[StandardListViewItem]]> playlist-rows: [
-        [{ text: "No tracks" }]
-    ];
+    in property <[[StandardListViewItem]]> playlist-rows: [[{ text: "No tracks" }]];
     in-out property <[TableColumn]> playlist-cols: [{ title: "Title", width: 200px }];
     in property <int> current-row: -1;
     out property <length> playlist-view-width: playlist_view_width.view-width;
 
     in property <bool> settings-open: false;
+    in property <bool> bp-report-open: false;
+    in property <string> bp-stream-desc: "";
+    in property <string> bp-source-desc: "";
+    in property <[BpReason]> bp-reasons: [];
+    in property <[string]> bp-positives: [];
     // T1.0 §7: палитра стандартных виджетов/иконок (0=dark, 1=light).
     in property <int> theme-palette: 0;
     // T1.0 §5: список тем и состояние UI выбора темы в диалоге.
@@ -286,6 +347,10 @@ export component AppWindow inherits Window {
     callback settings-set-audio-clock-family(int);
     callback settings-set-audio-fallback-rate(int);
     callback settings-set-audio-ring-buffer-ms(int);
+    callback bp-clicked();
+    callback bp-report-close();
+    callback bp-report-action(int);
+    callback bp-report-open-settings();
     callback settings-toggle-col(int);
     callback settings-reset-cols();
     callback settings-move-col-up(int);
@@ -404,90 +469,216 @@ export component AppWindow inherits Window {
             activated => { root.cycle-viz(); }
         }
 
-    VerticalLayout {
-        spacing: 0;
+        VerticalLayout {
+            spacing: 0;
 
-        main-top := TopPanel {
-            horizontal-stretch: 1;
-            max-height: root.cover-size *1px + 50px;
-            theme-palette: root.theme-palette;
-            cover-size: root.cover-size;
-            col-info-w: root.col-info-w;
-            col-gap: root.col-gap;
-            cover-art: root.cover-art;
-            playing: root.playing;
-            repeat: root.repeat;
-            repeat-one: root.repeat-one;
-            shuffle: root.shuffle;
-            muted: root.muted;
-            volume: root.volume;
-            bit-perfect: root.bit-perfect;
-            seek-fraction: root.seek-fraction;
-            pos: root.pos;
-            dur: root.dur;
-            info-artist: root.info-artist;
-            info-track: root.info-track;
-            info-title: root.info-title;
-            info-duration: root.info-duration;
-            info-year: root.info-year;
-            info-album: root.info-album;
-            info-disc: root.info-disc;
-            info-genre: root.info-genre;
-            info-format: root.info-format;
-            info-bitrate: root.info-bitrate;
-            info-bit-depth: root.info-bit-depth;
-            info-sample-rate: root.info-sample-rate;
-            info-channels: root.info-channels;
-            info-labels: root.info-labels;
-            viz-mode: root.viz-mode;
-            build-progress: root.build-progress;
-            osc-image: root.osc-image;
-            osc-ready: root.osc-ready;
-            disabled-text: root.disabled-text;
-            spectrum-l: root.spectrum-l;
-            spectrum-r: root.spectrum-r;
-            viz-channels: root.viz-channels;
-            bar-gap: root.bar-gap;
-            bar-radius: root.bar-radius;
-            gradient: root.gradient;
-            play-pause => { root.play-pause(); }
-            stop => { root.stop(); }
-            prev-track => { root.prev-track(); }
-            next-track => { root.next-track(); }
-            toggle-repeat => { root.toggle-repeat(); }
-            toggle-shuffle => { root.toggle-shuffle(); }
-            seek(v) => { root.seek(v); }
-            seek-commit(v) => { root.seek-commit(v); }
-            volume-changed(v) => { root.volume-changed(v); }
-            toggle-mute => { root.toggle-mute(); }
-        }
-        HorizontalLayout {
-            Rectangle {
-                height: 6px;
+            main-top := TopPanel {
+                horizontal-stretch: 1;
+                max-height: root.cover-size * 1px + 50px;
+                theme-palette: root.theme-palette;
+                cover-size: root.cover-size;
+                col-info-w: root.col-info-w;
+                col-gap: root.col-gap;
+                cover-art: root.cover-art;
+                playing: root.playing;
+                repeat: root.repeat;
+                repeat-one: root.repeat-one;
+                shuffle: root.shuffle;
+                muted: root.muted;
+                volume: root.volume;
+                bit-perfect: root.bit-perfect;
+                seek-fraction: root.seek-fraction;
+                pos: root.pos;
+                dur: root.dur;
+                info-artist: root.info-artist;
+                info-track: root.info-track;
+                info-title: root.info-title;
+                info-duration: root.info-duration;
+                info-year: root.info-year;
+                info-album: root.info-album;
+                info-disc: root.info-disc;
+                info-genre: root.info-genre;
+                info-format: root.info-format;
+                info-bitrate: root.info-bitrate;
+                info-bit-depth: root.info-bit-depth;
+                info-sample-rate: root.info-sample-rate;
+                info-channels: root.info-channels;
+                info-labels: root.info-labels;
+                viz-mode: root.viz-mode;
+                build-progress: root.build-progress;
+                osc-image: root.osc-image;
+                osc-ready: root.osc-ready;
+                disabled-text: root.disabled-text;
+                spectrum-l: root.spectrum-l;
+                spectrum-r: root.spectrum-r;
+                viz-channels: root.viz-channels;
+                bar-gap: root.bar-gap;
+                bar-radius: root.bar-radius;
+                gradient: root.gradient;
+                play-pause => { root.play-pause(); }
+                stop => { root.stop(); }
+                prev-track => { root.prev-track(); }
+                next-track => { root.next-track(); }
+                toggle-repeat => { root.toggle-repeat(); }
+                toggle-shuffle => { root.toggle-shuffle(); }
+                seek(v) => { root.seek(v); }
+                seek-commit(v) => { root.seek-commit(v); }
+                volume-changed(v) => { root.volume-changed(v); }
+                toggle-mute => { root.toggle-mute(); }
+            }
+
+            HorizontalLayout {
+                Rectangle {
+                    height: 6px;
+                }
+            }
+
+            playlist_view_width := Playlist {
+                horizontal-stretch: 1;
+                vertical-stretch: 1;
+                rows: root.playlist-rows;
+                cols: root.playlist-cols;
+                current-row: root.current-row;
+                play-track(i) => { root.play-track(i); }
+                sort-ascending(c) => { root.sort-ascending(c); }
+                sort-descending(c) => { root.sort-descending(c); }
+            }
+
+            StatusBar {
+                status-text: root.status-text;
+                track-info: root.track-info;
+                track-count: root.track-count;
+                busy: root.busy;
+                bp-active: root.bit-perfect;
+                dsd-not-bp: root.status-dsd-not-bp;
+                bp-resample: root.status-bp-resample;
+                bp-clicked => { root.bp-clicked(); }
             }
         }
-
-        playlist_view_width := Playlist {
-            horizontal-stretch: 1;
-            vertical-stretch: 1;
-            rows: root.playlist-rows;
-            cols: root.playlist-cols;
-            current-row: root.current-row;
-            play-track(i) => { root.play-track(i); }
-            sort-ascending(c) => { root.sort-ascending(c); }
-            sort-descending(c) => { root.sort-descending(c); }
-        }
-
-        StatusBar {
-            status-text: root.status-text;
-            track-info: root.track-info;
-            track-count: root.track-count;
-            busy: root.busy;
-            bp-active: root.bit-perfect;
-            dsd-not-bp: root.status-dsd-not-bp;
-            bp-resample: root.status-bp-resample;
-        }
     }
+
+    Rectangle {
+        visible: root.bp-report-open;
+        width: 100%;
+        height: 100%;
+        background: Colors.bg-overlay;
+
+        Rectangle {
+            width: 520px;
+            height: 420px;
+            x: (parent.width - self.width) / 2;
+            y: (parent.height - self.height) / 2;
+            background: Colors.bg-surface;
+            border-radius: 8px;
+            border-width: 1px;
+            border-color: Colors.border-default;
+
+            VerticalLayout {
+                padding: 16px;
+                spacing: 12px;
+
+                Text {
+                    text: root.bit-perfect ? "Статус bit-perfect" : "Bit-perfect выключен";
+                    color: Colors.text-primary;
+                    font-size: 16px;
+                }
+
+                HorizontalLayout {
+                    spacing: 6px;
+                    Text {
+                        text: "Поток:";
+                        color: Colors.text-tertiary;
+                        font-size: 12px;
+                    }
+
+                    Text {
+                        text: root.bp-stream-desc;
+                        color: Colors.text-primary;
+                        font-size: 12px;
+                    }
+                }
+
+                HorizontalLayout {
+                    spacing: 6px;
+                    Text {
+                        text: "Источник:";
+                        color: Colors.text-tertiary;
+                        font-size: 12px;
+                    }
+
+                    Text {
+                        text: root.bp-source-desc;
+                        color: Colors.text-primary;
+                        font-size: 12px;
+                    }
+                }
+
+                Rectangle {
+                    vertical-stretch: 1;
+                    background: Colors.bg-window;
+                    border-radius: 4px;
+                    ScrollView {
+                        VerticalLayout {
+                            padding: 8px;
+                            spacing: 8px;
+                            for reason[i] in root.bp-reasons: Rectangle {
+                                background: Colors.surface-hover;
+                                border-radius: 4px;
+                                VerticalLayout {
+                                    padding: 8px;
+                                    spacing: 2px;
+                                    Text {
+                                        text: reason.title;
+                                        color: reason.severity == 0 ? Colors.text-warn : Colors.text-secondary;
+                                        font-size: 13px;
+                                    }
+
+                                    Text {
+                                        text: reason.detail;
+                                        color: Colors.text-secondary;
+                                        font-size: 11px;
+                                    }
+
+                                    if reason.action-id > 0: HorizontalLayout {
+                                        alignment: end;
+                                        Button {
+                                            text: reason.action-label;
+                                            preferred-height: 22px;
+                                            clicked => { root.bp-report-action(reason.action-id); }
+                                        }
+                                    }
+                                }
+                            }
+                            for p in root.bp-positives: Text {
+                                text: "✓ " + p;
+                                color: Colors.text-tertiary;
+                                font-size: 11px;
+                            }
+                        }
+                    }
+                }
+
+                HorizontalLayout {
+                    spacing: 8px;
+                    alignment: end;
+                    Rectangle {
+                        horizontal-stretch: 1;
+                    }
+
+                    Button {
+                        text: "Настройки аудио";
+                        preferred-height: 28px;
+                        clicked => { root.bp-report-open-settings(); }
+                    }
+
+                    Button {
+                        text: "Закрыть";
+                        preferred-height: 28px;
+                        clicked => { root.bp-report-close(); }
+                    }
+                }
+            }
+        }
     }
 
     Settings {

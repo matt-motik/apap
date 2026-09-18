@@ -5,6 +5,7 @@ export component StatusBar inherits Rectangle {
     in property <string> track-info: "";
     in property <string> track-count: "0 tracks";
     in property <bool> busy: false;
+    callback bp-clicked();
     // ТЗ §7.5: bit-perfect-режим активен — значок-индикатор в статус-баре.
     in property <bool> bp-active: false;
     // ТЗ §7.5: активен bit-perfect, но DSD выводится конверсией в PCM — для
@@ -69,6 +70,10 @@ export component StatusBar inherits Rectangle {
                 border-width: 1px;
                 border-color: Colors.accent;
                 border-radius: 4px;
+                touch_bitperfect := TouchArea {
+                    clicked => { root.bp-clicked(); }
+                }
+
                 VerticalLayout {
                     padding-left: 4px;
                     padding-right: 4px;
@@ -80,7 +85,7 @@ export component StatusBar inherits Rectangle {
                     }
                 }
             }
-        }    
+        }
         // DSD→PCM warning badge
         if root.bp-active && root.dsd-not-bp:  VerticalLayout {
             padding: 2px;
@@ -88,6 +93,10 @@ export component StatusBar inherits Rectangle {
                 border-width: 1px;
                 border-color: Colors.text-error;
                 border-radius: 4px;
+                touch_dsd := TouchArea {
+                    clicked => { root.bp-clicked(); }
+                }
+
                 VerticalLayout {
                     padding-left: 4px;
                     padding-right: 4px;
@@ -108,6 +117,10 @@ export component StatusBar inherits Rectangle {
                 border-width: 1px;
                 border-color: Colors.text-warn;
                 border-radius: 4px;
+                touch_resample := TouchArea {
+                    clicked => { root.bp-clicked(); }
+                }
+
                 VerticalLayout {
                     padding-left: 4px;
                     padding-right: 4px;

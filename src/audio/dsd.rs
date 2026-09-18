@@ -169,10 +169,10 @@ fn read_u64_be(buf: &[u8]) -> u64 {
 }
 
 fn dsd_rate_label(rate: u32) -> String {
-    let base = if rate % 2822400 == 0 {
-        2822400
+    let base = if rate.is_multiple_of(2_822_400) {
+        2_822_400
     } else {
-        3072000
+        3_072_000
     };
     let mult = rate / base;
     match mult {
@@ -232,7 +232,7 @@ fn parse_dsf(file: &mut BufReader<File>) -> Result<(DsdHeader, u64), String> {
             "DSF: unsupported bits per sample {bits_per_sample}"
         ));
     }
-    if dsd_rate == 0 || dsd_rate % 64 != 0 {
+    if dsd_rate == 0 || !dsd_rate.is_multiple_of(64) {
         return Err(format!("DSF: unsupported sample rate {dsd_rate}"));
     }
     let per_ch_bytes = sample_count.div_ceil(8);
@@ -349,7 +349,7 @@ fn parse_dff(file: &mut BufReader<File>) -> Result<(DsdHeader, u64), String> {
             }
         }
     };
-    if dsd_rate == 0 || dsd_rate % 64 != 0 {
+    if dsd_rate == 0 || !dsd_rate.is_multiple_of(64) {
         return Err(format!("DFF: unsupported sample rate {dsd_rate}"));
     }
     let header = DsdHeader {
@@ -675,7 +675,7 @@ impl DsdDecoder {
         let info = TrackInfo {
             sample_rate: pcm_rate,
             channels: header.channels,
-            num_frames: Some(pcm_frames_total as u64),
+            num_frames: Some(pcm_frames_total),
             format_name: dsd_rate_label(header.dsd_rate),
             bitrate,
             bits: None,
@@ -738,9 +738,8 @@ impl DsdDecoder {
             }
             let _read = read_all(&mut self.file, &mut self.raw[..take]);
             let valid_per_ch = take / ch;
-            for chn in 0..ch {
+            for (chn, o) in per_ch.iter_mut().enumerate().take(ch) {
                 let base = chn * valid_per_ch;
-                let o = &mut per_ch[chn];
                 for &byte in &self.raw[base..base + valid_per_ch] {
                     // LSB-first: bit 0 is the earliest sample.
                     for b in 0..8 {
@@ -761,10 +760,9 @@ impl DsdDecoder {
             let read = read_all(&mut self.file, &mut self.raw[..take]);
             let n = read / ch;
             for pos in 0..n {
-                for chn in 0..ch {
+                for (chn, o) in per_ch.iter_mut().enumerate().take(ch) {
                     let byte = self.raw[pos * ch + chn];
                     // MSB-first: bit 7 is the earliest sample.
-                    let o = &mut per_ch[chn];
                     for b in 0..8 {
                         let x = if (byte >> (7 - b)) & 1 == 1 {
                             1i128
@@ -782,8 +780,8 @@ impl DsdDecoder {
         self.pcm.clear();
         self.pcm.reserve(frames * ch);
         for f in 0..frames {
-            for chn in 0..ch {
-                self.pcm.push(per_ch[chn][f]);
+            for channel in per_ch.iter().take(ch) {
+                self.pcm.push(channel[f]);
             }
         }
         self.pcm_frames = frames;
@@ -863,11 +861,9 @@ fn read_all<R: Read>(r: &mut R, buf: &mut [u8]) -> usize {
 
 impl AudioSource for DsdDecoder {
     fn next_frames(&mut self) -> Option<&[f32]> {
-        if self.pcm_frames == 0 {
-            if self.decode_group() == 0 {
-                self.eof = true;
-                return None;
-            }
+        if self.pcm_frames == 0 && self.decode_group() == 0 {
+            self.eof = true;
+            return None;
         }
         let ch = self.header.channels;
         let n = self.pcm_frames * ch;

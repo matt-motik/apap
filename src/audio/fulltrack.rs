@@ -527,10 +527,8 @@ fn clear_disk_cache_in(dir: &Path) -> usize {
     };
     let mut removed = 0usize;
     for entry in rd.flatten() {
-        if entry.path().is_file() {
-            if fs::remove_file(entry.path()).is_ok() {
-                removed += 1;
-            }
+        if entry.path().is_file() && fs::remove_file(entry.path()).is_ok() {
+            removed += 1;
         }
     }
     removed

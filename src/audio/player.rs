@@ -1272,7 +1272,7 @@ mod tests {
         for &s in samples {
             let _ = prod.push(s);
         }
-        let mut c = RtConsumer::new(cons, shared);
+        let c = RtConsumer::new(cons, shared);
         c.shared().set_playing(true);
         c
     }
@@ -1284,7 +1284,7 @@ mod tests {
         for _ in 0..n {
             let _ = prod.push(0.5);
         }
-        let mut c = RtConsumer::new(cons, shared);
+        let c = RtConsumer::new(cons, shared);
         c.shared().set_playing(true);
         c
     }
