@@ -1446,16 +1446,29 @@ pub fn label_device_names(names: &[impl AsRef<str>]) -> Vec<(String, String)> {
     hw
 }
 
-/// Enumerate usable output devices as `(id, label)` pairs.
+/// Enumerate all output devices as full [`DeviceInfo`] structs.
 ///
-/// The first element is the stable, backend-openable key (ALSA pcm id, e.g.
-/// `hw:CARD=4,DEV=0`) persisted in settings and passed back to
-/// `select_output`; the second is the deduplicated, grouped human-readable
-/// label shown in the settings dialog (see [`label_device_names`]).
-pub fn output_devices() -> Vec<(String, String)> {
-    let infos = CpalHost.devices();
-    let ids: std::collections::HashMap<&str, &str> =
-        infos.iter().map(|d| (d.name.as_str(), d.id.as_str())).collect();
+/// One entry per human-readable name (cpal's ALSA backend exposes several
+/// handles with the same description; `collapse_same_name` keeps the raw
+/// `hw:*` node). Consumed by the settings dialog to build capabilities and
+/// to preview the validation table (ТЗ A3.0 §8.1).
+pub fn output_device_infos() -> Vec<DeviceInfo> {
+    CpalHost.devices()
+}
+
+/// Build the settings-dialog device list `(id, label)` from full infos
+/// (see the doc on [`output_devices`] for the semantics of the two elements).
+pub fn device_pairs_from_infos(infos: &[DeviceInfo]) -> Vec<(String, String)> {
+    let mut ids: std::collections::HashMap<&str, &str> = std::collections::HashMap::new();
+    for d in infos {
+        // Keep the *first* id per name: cpal's ALSA backend exposes several
+        // handles with the same description, and the first one (the raw `hw:*`
+        // node, which `collapse_same_name` also prefers) is the one
+        // `device_by_name` resolves at open time.
+        if let std::collections::hash_map::Entry::Vacant(e) = ids.entry(d.name.as_str()) {
+            e.insert(d.id.as_str());
+        }
+    }
     let names: Vec<String> = infos.iter().map(|d| d.name.clone()).collect();
     label_device_names(&names)
         .into_iter()
@@ -1464,6 +1477,16 @@ pub fn output_devices() -> Vec<(String, String)> {
             (id, label)
         })
         .collect()
+}
+
+/// Enumerate usable output devices as `(id, label)` pairs.
+///
+/// The first element is the stable, backend-openable key (ALSA pcm id, e.g.
+/// `hw:CARD=4,DEV=0`) persisted in settings and passed back to
+/// `select_output`; the second is the deduplicated, grouped human-readable
+/// label shown in the settings dialog (see [`label_device_names`]).
+pub fn output_devices() -> Vec<(String, String)> {
+    device_pairs_from_infos(&output_device_infos())
 }
 
 /// Name of the host's default output device, if any.
@@ -1968,6 +1991,41 @@ mod tests {
         assert!(pairs[2].1.contains("(software, resamples)"), "{}", pairs[2].1);
         assert_eq!(pairs[3].0, "Default Audio Device");
         assert!(pairs[3].1.contains("(software, resamples)"), "{}", pairs[3].1);
+    }
+
+    #[test]
+    fn device_pairs_from_infos_dedupe_group_and_map_stable_ids() {
+        let infos = vec![
+            mock_device_id("hw:CARD=4,DEV=0", "ADI-2 DAC (56680121), USB Audio", 2, 48000, &[(2, 44100, 192000)]),
+            mock_device_id("hw:CARD=4,DEV=1", "ADI-2 DAC (56680121), USB Audio", 2, 48000, &[(2, 44100, 192000)]),
+            mock_device_id("pulse", "PipeWire Sound Server", 2, 48000, &[(2, 4000, 4294967295)]),
+        ];
+        let pairs = device_pairs_from_infos(&infos);
+        // Two ALSA handles with the same description collapse into one pair;
+        // the *first* id per name wins (the raw `hw:*` node).
+        assert_eq!(pairs.len(), 2);
+        assert_eq!(pairs[0].0, "hw:CARD=4,DEV=0");
+        assert_eq!(pairs[0].1, "ADI-2 DAC (56680121), USB Audio");
+        // Server nodes last: raw id preserved, label carries the hint.
+        assert_eq!(pairs[1].0, "pulse");
+        assert!(pairs[1].1.contains("(software, resamples)"), "{}", pairs[1].1);
+    }
+
+    #[test]
+    fn device_pairs_from_infos_maps_id_identical_to_name() {
+        // Server proxies resolve with id == name; the stable key must survive.
+        let infos = vec![mock_device_id(
+            "default",
+            "Default Audio Device",
+            2,
+            48000,
+            &[(2, 4000, 4294967295)],
+        )];
+        let mut pairs = device_pairs_from_infos(&infos);
+        assert_eq!(pairs.len(), 1);
+        assert_eq!(pairs[0].0, "default");
+        let name = pairs.pop().unwrap().1;
+        assert!(name.contains("(software, resamples)"), "{name}");
     }
 
     #[test]
