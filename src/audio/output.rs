@@ -1604,6 +1604,145 @@ mod tests {
         assert_eq!(classify_device("", ""), DeviceCategory::Unknown);
     }
 
+    #[test]
+    fn supported_rates_sorted_unique() {
+        // Дискретные записи + непрерывные диапазоны (добавляют границы):
+        // дубликаты схлопываются, порядок строго возрастающий.
+        let ranges = vec![
+            rate_range(2, 48000, 48000),
+            rate_range(2, 44100, 88200),
+            rate_range(2, 96000, 192000),
+            rate_range(2, 48000, 48000),
+        ];
+        let rates = expand_supported_rates(&ranges);
+        assert_eq!(rates, vec![44100, 48000, 88200, 96000, 192000]);
+        for w in rates.windows(2) {
+            assert!(w[0] < w[1], "not strictly sorted: {w:?}");
+        }
+    }
+
+    #[test]
+    fn rates_desc_formats_khz_list() {
+        let dev = mock_device_id(
+            "hw:CARD=1,DEV=0",
+            "ADI-2",
+            2,
+            48000,
+            &[
+                (2, 44100, 44100),
+                (2, 48000, 48000),
+                (2, 88200, 88200),
+                (2, 96000, 96000),
+                (2, 176400, 176400),
+                (2, 192000, 192000),
+            ],
+        );
+        assert_eq!(dev.rates_desc(), "44.1 · 48 · 88.2 · 96 · 176.4 · 192 kHz");
+    }
+
+    #[test]
+    fn formats_desc_joins_uppercase_labels() {
+        let mut dev = mock_device("USB DAC", 2, 48000, &[(2, 44100, 192000)]);
+        dev.supported_formats = vec![
+            SampleFormat::I16,
+            SampleFormat::I24,
+            SampleFormat::I32,
+            SampleFormat::F32,
+        ];
+        assert_eq!(dev.formats_desc(), "I16 · I24 · I32 · F32");
+    }
+
+    #[test]
+    fn formats_dedup_keeps_first_order() {
+        let formats = [
+            SampleFormat::F32,
+            SampleFormat::I32,
+            SampleFormat::F32,
+            SampleFormat::I24,
+            SampleFormat::I32,
+        ];
+        assert_eq!(
+            dedup_formats(&formats),
+            vec![SampleFormat::F32, SampleFormat::I32, SampleFormat::I24]
+        );
+    }
+
+    #[test]
+    fn device_info_capability_flags() {
+        let stereo = mock_device("USB DAC", 2, 48000, &[(2, 44100, 44100), (2, 88200, 88200)]);
+        assert!(stereo.is_stereo());
+        assert!(stereo.supports_rate(44100));
+        assert!(stereo.supports_rate(88200));
+        assert!(!stereo.supports_rate(96000));
+        assert!(stereo.supports_format(SampleFormat::F32));
+        assert!(!stereo.supports_format(SampleFormat::I32));
+
+        let mono = mock_device("Mono", 1, 44100, &[(1, 44100, 44100)]);
+        assert!(!mono.is_stereo());
+
+        // Непрерывный plughw-диапазон покрывает промежуточные частоты,
+        // которых нет в плоском списке.
+        let plughw =
+            mock_device_id("plughw:CARD=2,DEV=0", "PipeWire", 2, 48000, &[(2, 4000, 4294967295)]);
+        assert!(plughw.supports_rate(44100));
+        assert!(plughw.supports_rate(88200));
+        assert!(plughw.supports_rate(192000));
+    }
+
+    #[test]
+    fn clock_families_desc_partial_and_full() {
+        let dev = mock_device_id(
+            "hw:CARD=1,DEV=0",
+            "ADI-2",
+            2,
+            48000,
+            &[
+                (2, 44100, 44100),
+                (2, 88200, 88200),
+                (2, 176400, 176400),
+                (2, 48000, 48000),
+                (2, 96000, 96000),
+            ],
+        );
+        assert_eq!(
+            dev.clock_families_desc(),
+            "44k full (44.1, 88.2, 176.4) · 48k partial (48, 96)"
+        );
+    }
+
+    #[test]
+    fn clock_families_desc_omits_empty_family() {
+        // 44k-семейства нет вовсе — в списке остаётся только 48k.
+        let dev = mock_device("DAC", 2, 48000, &[(2, 48000, 48000), (2, 192000, 192000)]);
+        assert_eq!(dev.clock_families_desc(), "48k partial (48, 192)");
+        // Без семейных частот вообще.
+        let dev = mock_device("PCM-only", 2, 48000, &[(2, 200000, 200000)]);
+        assert_eq!(dev.clock_families_desc(), "—");
+    }
+
+    #[test]
+    fn dop_container_rate_picks_first_supported() {
+        let dev = mock_device("DAC", 2, 48000, &[(2, 176400, 176400)]);
+        assert_eq!(dev.dop_container_rate(), Some(176400));
+        // Предпочтение отдаётся младшей из штатных контейнерных частот.
+        let dev = mock_device("DAC", 2, 48000, &[(2, 352800, 352800), (2, 176400, 176400)]);
+        assert_eq!(dev.dop_container_rate(), Some(176400));
+        let dev = mock_device("DAC", 2, 48000, &[(2, 705600, 705600)]);
+        assert_eq!(dev.dop_container_rate(), Some(705600));
+        // Устройство без DoP-частот.
+        let dev = mock_device("DAC", 2, 48000, &[(2, 44100, 44100), (2, 96000, 96000)]);
+        assert_eq!(dev.dop_container_rate(), None);
+    }
+
+    #[test]
+    fn desc_methods_empty_device_use_em_dash() {
+        let mut dev = mock_device("DAC", 2, 48000, &[]);
+        dev.supported_formats = vec![];
+        assert_eq!(dev.rates_desc(), "—");
+        assert_eq!(dev.formats_desc(), "—");
+        assert_eq!(dev.clock_families_desc(), "—");
+    }
+
     /// Drain a whole resampler: feed a full block, then pull with `eof_mode`
     /// until it stops producing, collecting every output frame.
     fn run_resampler(
