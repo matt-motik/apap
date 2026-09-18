@@ -363,6 +363,121 @@ pub struct DeviceInfo {
     pub exclusive_capable: bool,
 }
 
+/// Короткая метка sample-формата для UI («I32», «F32», …). Верхний регистр —
+/// в отличие от cpal's `Display` («i32»), и совпадает с §3.2 спеки.
+fn sample_format_label(f: &SampleFormat) -> &'static str {
+    match f {
+        SampleFormat::I8 => "I8",
+        SampleFormat::I16 => "I16",
+        SampleFormat::I24 => "I24",
+        SampleFormat::I32 => "I32",
+        SampleFormat::I64 => "I64",
+        SampleFormat::U8 => "U8",
+        SampleFormat::U16 => "U16",
+        SampleFormat::U24 => "U24",
+        SampleFormat::U32 => "U32",
+        SampleFormat::U64 => "U64",
+        SampleFormat::F32 => "F32",
+        SampleFormat::F64 => "F64",
+        SampleFormat::DsdU8 => "DSD8",
+        SampleFormat::DsdU16 => "DSD16",
+        SampleFormat::DsdU32 => "DSD32",
+        _ => "?",
+    }
+}
+
+/// Форматирует частоту в кГц для UI: 48000 → «48», 176400 → «176.4».
+fn format_rate_khz(rate: u32) -> String {
+    if rate.is_multiple_of(1000) {
+        format!("{}", rate / 1000)
+    } else {
+        format!("{:.1}", rate as f64 / 1000.0)
+    }
+}
+
+impl DeviceInfo {
+    pub fn is_stereo(&self) -> bool {
+        self.channels == 2
+    }
+
+    /// True когда устройство может работать на `rate`.
+    ///
+    /// Опирается на raw-диапазоны `supported`, а не на плоский
+    /// `supported_rates`: непрерывный диапазон (например plughw
+    /// 4000..4294967295) покрывает промежуточные частоты, которых нет в
+    /// плоском списке границ.
+    pub fn supports_rate(&self, rate: u32) -> bool {
+        self.supported.iter().any(|r| (r.min..=r.max).contains(&rate))
+    }
+
+    pub fn supports_format(&self, f: SampleFormat) -> bool {
+        self.supported_formats.contains(&f)
+    }
+
+    /// DoP-контейнерная частота для DSD64/128/256 = byte_rate / 2.
+    /// Возвращает первую поддерживаемую из {176400, 352800, 705600}, либо
+    /// None (устройство не умеет DoP на штатных контейнерных частотах).
+    pub fn dop_container_rate(&self) -> Option<u32> {
+        [176400u32, 352800, 705600]
+            .into_iter()
+            .find(|&r| self.supports_rate(r))
+    }
+
+    /// Плоский список поддерживаемых частот в кГц через « · » — «44.1 · 48
+    /// · 88.2 · 96 · 176.4 · 192 kHz».
+    pub fn rates_desc(&self) -> String {
+        if self.supported_rates.is_empty() {
+            return String::from("—");
+        }
+        let parts: Vec<String> = self.supported_rates.iter().map(|&r| format_rate_khz(r)).collect();
+        format!("{} kHz", parts.join(" · "))
+    }
+
+    /// Список поддерживаемых sample-форматов через « · » — «I16 · I24 · I32
+    /// · F32».
+    pub fn formats_desc(&self) -> String {
+        if self.supported_formats.is_empty() {
+            return String::from("—");
+        }
+        let parts: Vec<String> = self
+            .supported_formats
+            .iter()
+            .map(sample_format_label)
+            .map(String::from)
+            .collect();
+        parts.join(" · ")
+    }
+
+    /// Семейства клока (ТЗ §3.2) и их полнота — «44k partial (44.1, 176.4) · 48k
+    /// full (48, 96, 192)». Семейство полностью выводится в списке только если
+    /// устройство поддерживает хотя бы одну из его частот; полнота — наличие
+    /// всех трёх {base, 2·base, 4·base}.
+    pub fn clock_families_desc(&self) -> String {
+        let families: [(&str, [u32; 3]); 2] = [
+            ("44k", [44100, 88200, 176400]),
+            ("48k", [48000, 96000, 192000]),
+        ];
+        let mut entries = Vec::new();
+        for (label, rates) in families {
+            let present: Vec<u32> = rates
+                .iter()
+                .copied()
+                .filter(|&r| self.supports_rate(r))
+                .collect();
+            if present.is_empty() {
+                continue;
+            }
+            let status = if present.len() == rates.len() { "full" } else { "partial" };
+            let list: Vec<String> = present.into_iter().map(format_rate_khz).collect();
+            entries.push(format!("{label} {status} ({})", list.join(", ")));
+        }
+        if entries.is_empty() {
+            return String::from("—");
+        }
+        entries.join(" · ")
+    }
+}
+
 /// Собирает плоский сортированный (без дубликатов) список семпловых частот из
 /// набора диапазонов. Дискретные конфиги (`min == max`) дают ровно одну
 /// частоту; непрерывные диапазоны отдают границы `min`/`max` — на реальном
