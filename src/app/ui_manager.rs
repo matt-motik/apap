@@ -694,7 +694,7 @@ impl MusicApp {
 /// `want` is either a stable device id or a human-readable name; for server
 /// nodes the name matches the label with the "software, resamples" suffix
 /// stripped.
-fn find_device_index_in(pairs: &[(String, String)], want: &str) -> Option<usize> {
+pub(super) fn find_device_index_in(pairs: &[(String, String)], want: &str) -> Option<usize> {
     pairs
         .iter()
         .position(|(raw, _)| raw == want)

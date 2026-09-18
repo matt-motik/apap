@@ -1878,4 +1878,228 @@ mod tests {
         assert_eq!(data.colors.accent, "#6750a4");
         assert!(!dir.join("settings.toml").exists(), "resolve не должен писать на диск");
     }
+
+    // ── A3.5: Audio-tab tests (ТЗ A3.0 §4.1, §7.3, §8.1) ──────────────
+
+    use crate::app::ui_manager::{build_capabilities, find_device_index_in};
+    use cpal::{SampleFormat, SupportedBufferSize};
+    use music_player_rs::audio::output::{DeviceCategory, DeviceInfo, RateRange};
+
+    /// Minimal mock for [`DeviceInfo`]. Only the fields actually consumed by
+    /// `build_capabilities` and the filter projection are varied per test;
+    /// the rest get safe defaults.
+    fn mock_device(
+        id: &str,
+        name: &str,
+        channels: u16,
+        category: DeviceCategory,
+        rates: Vec<u32>,
+        formats: Vec<SampleFormat>,
+        exclusive_capable: bool,
+    ) -> DeviceInfo {
+        let ranges = rates
+            .iter()
+            .map(|&r| RateRange {
+                channels,
+                min: r,
+                max: r,
+                buffer_size: SupportedBufferSize::Range { min: 64, max: 4096 },
+            })
+            .collect();
+        let mut seen_fmt = Vec::new();
+        let mut dedup_fmt = Vec::new();
+        for f in formats {
+            if !seen_fmt.contains(&f) {
+                seen_fmt.push(f);
+                dedup_fmt.push(f);
+            }
+        }
+        DeviceInfo {
+            id: id.to_string(),
+            name: name.to_string(),
+            channels,
+            sample_rate: rates.first().copied().unwrap_or(44100),
+            sample_format: dedup_fmt.first().copied().unwrap_or(SampleFormat::I32),
+            buffer_size: SupportedBufferSize::Range { min: 64, max: 4096 },
+            supported: ranges,
+            category,
+            supported_rates: rates,
+            supported_formats: dedup_fmt,
+            exclusive_capable,
+        }
+    }
+
+    #[test]
+    fn fixed_rates_mapping_exact() {
+        assert_eq!(
+            FIXED_RATES,
+            [0, 44_100, 48_000, 88_200, 96_000, 176_400, 192_000]
+        );
+    }
+
+    #[test]
+    fn fixed_rates_has_same_count_as_settings_combo_options() {
+        // «Авто» + 6 частот (44.1k, 48k, 88.2k, 96k, 176.4k, 192k) → 7
+        assert_eq!(FIXED_RATES.len(), 7);
+        // «Авто» (index 0) maps to 0 Hz (auto).
+        assert_eq!(FIXED_RATES[0], 0);
+        // Остальные индексы — реальные (non-zero) частоты для Fixed-режима.
+        for &hz in &FIXED_RATES[1..] {
+            assert!(hz >= 44_100 && hz <= 192_000);
+        }
+    }
+
+    #[test]
+    fn build_capabilities_hw_stereo_marks_all_ok() {
+        let d = mock_device(
+            "hw:PCH,0",
+            "Intel HDA",
+            2,
+            DeviceCategory::Hardware,
+            vec![44100, 48000, 96000],
+            vec![SampleFormat::I32],
+            true,
+        );
+        let caps = build_capabilities(&d);
+        assert_eq!(caps.len(), 6, "rovisions must have exactly 6 rows");
+        // Row 0: Тип — hardware → ok
+        assert_eq!(caps[0].label.as_str(), "Тип устройства");
+        assert!(caps[0].ok);
+        assert_eq!(caps[0].value.as_str(), "Аппаратное (hw:*)");
+        // Row 1: Каналы — 2 → «стерео»
+        assert_eq!(caps[1].label.as_str(), "Каналы");
+        assert!(caps[1].ok);
+        assert_eq!(caps[1].value.as_str(), "2 (стерео)");
+        // Row 2: Частоты — non-empty → ok
+        assert_eq!(caps[2].label.as_str(), "Частоты");
+        assert!(caps[2].ok);
+        // Row 3: Форматы — ok
+        assert_eq!(caps[3].label.as_str(), "Форматы");
+        assert!(caps[3].ok);
+        // Row 4: Exclusive — capable
+        assert_eq!(caps[4].label.as_str(), "Exclusive");
+        assert!(caps[4].ok);
+        assert_eq!(caps[4].value.as_str(), "поддерживается");
+        // Row 5: DSD (DoP) — Intel HDA без DoP → ok=false
+        assert_eq!(caps[5].label.as_str(), "DSD (DoP)");
+        assert!(!caps[5].ok);
+        assert_eq!(caps[5].value.as_str(), "—");
+    }
+
+    #[test]
+    fn build_capabilities_dop_device_shows_container_rate() {
+        let d = mock_device(
+            "hw:DAC,0",
+            "HiFi DAC",
+            2,
+            DeviceCategory::Hardware,
+            // DoP container rates: 176400 → supported.
+            vec![44100, 48000, 176400],
+            vec![SampleFormat::I32],
+            true,
+        );
+        let caps = build_capabilities(&d);
+        let dop = caps.iter().find(|c| c.label.as_str() == "DSD (DoP)").unwrap();
+        assert!(dop.ok, "device supports 176400 → DoP must be ok");
+        assert_eq!(dop.value.as_str(), "176.4 kHz");
+    }
+
+    #[test]
+    fn build_capabilities_server_proxy_marks_not_hardware() {
+        let d = mock_device(
+            "pipewire",
+            "PipeWire (Software)",
+            99,
+            DeviceCategory::ServerProxy,
+            vec![],
+            vec![],
+            false,
+        );
+        let caps = build_capabilities(&d);
+        assert_eq!(caps[0].value.as_str(), "Программное (сервер звука)");
+        // Каналы 99 → «99 (каналов)»
+        assert_eq!(caps[1].value.as_str(), "99 (каналов)");
+        // Exclusive не поддерживается
+        assert!(!caps[4].ok);
+        assert_eq!(caps[4].value.as_str(), "не поддерживается");
+    }
+
+    #[test]
+    fn build_capabilities_empty_rates_marks_freq_not_ok() {
+        let d = mock_device("dmix", "dmix", 2, DeviceCategory::Virtual, vec![], vec![], false);
+        let caps = build_capabilities(&d);
+        let freq = caps.iter().find(|c| c.label.as_str() == "Частоты").unwrap();
+        assert!(!freq.ok);
+    }
+
+    #[test]
+    fn find_device_index_in_matches_raw_id() {
+        let pairs = vec![
+            ("hw:PCH,0".into(), "Intel HDA".into()),
+            ("pipewire".into(), "PipeWire (Software)".into()),
+        ];
+        assert_eq!(find_device_index_in(&pairs, "hw:PCH,0"), Some(0));
+        assert_eq!(find_device_index_in(&pairs, "pipewire"), Some(1));
+    }
+
+    #[test]
+    fn find_device_index_in_matches_label() {
+        let pairs = vec![(
+            "hw:DAC,0".into(),
+            "HiFi DAC".into(),
+        )];
+        // Label «HiFi DAC» matches the label itself.
+        assert_eq!(find_device_index_in(&pairs, "HiFi DAC"), Some(0));
+    }
+
+    #[test]
+    fn find_device_index_in_strips_server_suffix() {
+        let suffix = music_player_rs::audio::output::SERVER_NODE_SUFFIX;
+        let pairs = vec![(
+            "default".into(),
+            format!("default{suffix}"),
+        )];
+        // Raw id «default» should match stripped label.
+        assert_eq!(find_device_index_in(&pairs, "default"), Some(0));
+        // Full label (with suffix) also matches.
+        assert_eq!(
+            find_device_index_in(&pairs, &format!("default{suffix}")),
+            Some(0),
+        );
+    }
+
+    #[test]
+    fn find_device_index_in_returns_none_when_absent() {
+        let pairs = vec![("hw:A,0".into(), "Device A".into())];
+        assert_eq!(find_device_index_in(&pairs, "hw:B,0"), None);
+        assert_eq!(find_device_index_in(&pairs, "ghost"), None);
+    }
+
+    #[test]
+    fn resampler_fixed_fallback_guard() {
+        // When mode == Fixed && fallback == Fail → forced Nearest.
+        let g = |m, fb| super::resampler_fixed_fallback_guard(m, fb);
+        use music_player_rs::settings::{FallbackPolicy, ResamplerMode};
+        assert_eq!(
+            g(ResamplerMode::Fixed, FallbackPolicy::Fail),
+            FallbackPolicy::Nearest
+        );
+        // Fallback unchanged for other combinations.
+        assert_eq!(
+            g(ResamplerMode::Fixed, FallbackPolicy::Nearest),
+            FallbackPolicy::Nearest,
+        );
+        assert_eq!(
+            g(ResamplerMode::Fixed, FallbackPolicy::DeviceDefault),
+            FallbackPolicy::DeviceDefault,
+        );
+        assert_eq!(
+            g(ResamplerMode::Auto, FallbackPolicy::Fail),
+            FallbackPolicy::Fail,
+        );
+        assert_eq!(
+            g(ResamplerMode::Nearest, FallbackPolicy::Fail),
+            FallbackPolicy::Fail,
+        );
+    }
 }
