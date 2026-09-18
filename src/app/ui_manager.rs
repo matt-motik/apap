@@ -3,6 +3,7 @@
 
 use super::*;
 
+use music_player_rs::audio::output::DeviceCategory;
 use music_player_rs::theme::StandardPalette;
 
 impl MusicApp {
@@ -176,18 +177,24 @@ impl MusicApp {
         self.ui.set_settings_active_device(active.into());
         let err = self.audio_error.clone().unwrap_or_default();
         self.ui.set_settings_active_error(err.into());
+        // Отразить фильтры из текущего draft-снапшота (ТЗ A3.0 §8.1): тумблеры
+        // в диалоге — live-превью, показывают то, что применено к списку.
+        self.ui
+            .set_settings_audio_filter_hardware(self.settings_ref().audio.filter_hardware_only);
+        self.ui
+            .set_settings_audio_filter_stereo(self.settings_ref().audio.filter_stereo_only);
 
         if self.audio_devices_rx.is_some() {
             return;
         }
-        let (tx, rx): (
-            std::sync::mpsc::Sender<Vec<(String, String)>>,
-            _,
-        ) = channel();
+        // Воркер отдаёт полные инфосы один раз; из них диалог строит и пары
+        // `(id, label)` для ComboBox, и превью capabilities/validation. Тогглы
+        // фильтров при этом никогда не ходят к бэкенду заново.
+        let (tx, rx): (std::sync::mpsc::Sender<Vec<DeviceInfo>>, _) = channel();
         self.audio_devices_rx = Some(rx);
         thread::spawn(move || {
-            let pairs: Vec<(String, String)> = music_player_rs::audio::output::output_devices();
-            let _ = tx.send(pairs);
+            let infos = music_player_rs::audio::output::output_device_infos();
+            let _ = tx.send(infos);
         });
         // Show a placeholder on the very first enumeration; on reopen keep the
         // previous list visible until the fresh one lands (no "first item"
@@ -202,10 +209,10 @@ impl MusicApp {
     /// Finish `sync_audio_devices`: apply the device list once the worker
     /// thread has produced it. Polled from the UI tick loop.
     pub(super) fn drain_audio_devices(&mut self) {
-        let pairs = {
+        let infos = {
             let Some(rx) = &self.audio_devices_rx else { return };
             match rx.try_recv() {
-                Ok(pairs) => pairs,
+                Ok(infos) => infos,
                 Err(TryRecvError::Empty) => return,
                 Err(TryRecvError::Disconnected) => {
                     self.audio_devices_rx = None;
@@ -217,19 +224,68 @@ impl MusicApp {
         // Keep the previously-known listing when a transient enumeration comes
         // back empty (a DAC briefly busy with a probe/another stream must not
         // "disappear" between two Refreshes).
-        let pairs = if pairs.is_empty() && !self.audio_devices_pairs.is_empty() {
+        if infos.is_empty() && !self.audio_device_infos.is_empty() {
             eprintln!("[audio] enumeration returned no devices; keeping previous list");
-            self.audio_devices_pairs.clone()
         } else {
-            pairs
-        };
-        self.audio_devices_pairs = pairs;
+            self.audio_device_infos = infos;
+            self.audio_devices_pairs =
+                music_player_rs::audio::output::device_pairs_from_infos(&self.audio_device_infos);
+        }
+        self.apply_audio_device_listing();
+    }
+
+    /// Re-project the *already fetched* device list through the current draft
+    /// filters and refresh the ComboBox model/highlight plus the capabilities
+    /// and validation preview (ТЗ A3.0 §8.1). Synchronous — called when an
+    /// enumeration lands and on every filter toggle, so flipping a filter never
+    /// needs a backend requery.
+    fn apply_audio_device_listing(&mut self) {
+        let s = self.settings_ref();
+        let filtered: Vec<&DeviceInfo> = self
+            .audio_device_infos
+            .iter()
+            .filter(|d| {
+                (if s.audio.filter_hardware_only {
+                    d.category == DeviceCategory::Hardware
+                } else {
+                    true
+                }) && (if s.audio.filter_stereo_only { d.is_stereo() } else { true })
+            })
+            .collect();
+
+        // Пустой результат после фильтров: вместо молчаливого пустого списка
+        // показываем плейсхолдер и обнуляем превью, чтобы диалог не держал
+        // устаревшие данные скрытого устройства (ТЗ A3.0 §8.1).
+        if filtered.is_empty() {
+            self.ui.set_settings_devices(
+                ModelRc::from(
+                    [SharedString::from("(нет устройств, удовлетворяющих фильтру)")].as_slice(),
+                ),
+            );
+            self.ui.set_settings_device_idx(-1);
+            self.ui.set_settings_audio_caps(ModelRc::from(&[][..]));
+            self.ui.set_settings_audio_validation(ModelRc::from(&[][..]));
+            return;
+        }
+
+        // Локальная проекция отфильтрованных имён в пары `(id, label)` — те же
+        // правила, что у `device_pairs_from_infos` (первый id на имя,
+        // SERVER_NODE_SUFFIX). Ярлыки — подмножество полного списка, поэтому
+        // `resolve_device_label` продолжает корректно мапить их на id.
+        let names: Vec<&str> = filtered.iter().map(|d| d.name.as_str()).collect();
+        let pairs = music_player_rs::audio::output::label_device_names(&names)
+            .into_iter()
+            .map(|(name, label)| {
+                let id = filtered
+                    .iter()
+                    .find(|d| d.name == name)
+                    .map(|d| d.id.as_str())
+                    .unwrap_or(name.as_str());
+                (id.to_string(), label)
+            })
+            .collect::<Vec<_>>();
 
         let saved = self.settings_ref().audio_device.clone();
-
-        // Highlight the device actually in use right now; fall back to the
-        // configured preference; finally defer to the host default so a fresh
-        // install lands on the active device.
         let active = self.active_device.clone();
         let want = if !active.is_empty() {
             Some(active)
@@ -241,35 +297,22 @@ impl MusicApp {
 
         // The ComboBox model holds *labels*; selection is matched back to the
         // stable device id on the Rust side (`resolve_device_label`).
-        let mut model: Vec<SharedString> =
-            Vec::with_capacity(self.audio_devices_pairs.len() + 1);
-        let sel: i32 = if self.audio_devices_pairs.is_empty() {
+        let mut model: Vec<SharedString> = Vec::with_capacity(pairs.len() + 1);
+        let sel: i32 = if pairs.is_empty() {
             model.push("(no devices \u{2014} retry Refresh)".into());
             0
         } else if let Some(w) = want {
-            if let Some(i) = self.find_device_index(&w) {
-                model.extend(
-                    self.audio_devices_pairs
-                        .iter()
-                        .map(|(_, label)| SharedString::from(label.as_str())),
-                );
+            if let Some(i) = find_device_index_in(&pairs, &w) {
+                model.extend(pairs.iter().map(|(_, label)| SharedString::from(label.as_str())));
                 i as i32
             } else {
                 model.push("(select device)".into());
-                model.extend(
-                    self.audio_devices_pairs
-                        .iter()
-                        .map(|(_, label)| SharedString::from(label.as_str())),
-                );
+                model.extend(pairs.iter().map(|(_, label)| SharedString::from(label.as_str())));
                 0
             }
         } else {
             model.push("(select device)".into());
-            model.extend(
-                self.audio_devices_pairs
-                    .iter()
-                    .map(|(_, label)| SharedString::from(label.as_str())),
-            );
+            model.extend(pairs.iter().map(|(_, label)| SharedString::from(label.as_str())));
             0
         };
 
@@ -280,6 +323,7 @@ impl MusicApp {
         // value, so the combo ends up highlighting the active device.
         self.ui.set_settings_device_idx(sel);
         self.ui.set_settings_devices(ModelRc::from(model.as_slice()));
+        self.sync_capabilities_and_validation();
     }
 
     /// Translate a ComboBox *label* (the deduplicated/grouped display string,
@@ -292,24 +336,6 @@ impl MusicApp {
             .find(|(_, l)| l == label)
             .map(|(raw, _)| raw.clone())
             .unwrap_or_default()
-    }
-
-    /// Index of the pair matching `want`, which is either a stable device id
-    /// (new settings) or a human-readable name (the active device, legacy
-    /// configs). For server nodes the name matches the label with the
-    /// "software, resamples" suffix stripped.
-    fn find_device_index(&self, want: &str) -> Option<usize> {
-        self.audio_devices_pairs
-            .iter()
-            .position(|(raw, _)| raw == want)
-            .or_else(|| self.audio_devices_pairs.iter().position(|(_, label)| label == want))
-            .or_else(|| {
-                self.audio_devices_pairs.iter().position(|(_, label)| {
-                    label
-                        .strip_suffix(music_player_rs::audio::output::SERVER_NODE_SUFFIX)
-                        .is_some_and(|stripped| stripped == want)
-                })
-            })
     }
 
     /// Human-readable display label for a stable device id (the grid label
@@ -565,4 +591,196 @@ impl MusicApp {
         }
         // Persisted at exit (save-at-exit).
     }
+
+    /// Re-apply the current filters from the draft synchronously. A filter
+    /// toggle needs no backend requery — the listing is already in memory
+    /// (`audio_device_infos`), so the dialog just re-projects it (ТЗ A3.0 §8.1).
+    pub(super) fn apply_audio_filter(&mut self) {
+        if !self.audio_device_infos.is_empty() {
+            self.apply_audio_device_listing();
+        }
+    }
+
+    /// Проецирует выбор диалога на конкретное [`DeviceInfo`] для превью
+    /// capabilities/validation (ТЗ A3.0 §8.4): приоритет — draft-превью
+    /// (`settings.audio_device`), затем реально активное устройство, затем
+    /// первое из списка как дефолт.
+    fn current_audio_device_info(&self) -> Option<&DeviceInfo> {
+        let want = {
+            let s = self.settings_ref();
+            if !s.audio_device.is_empty() {
+                Some(s.audio_device.clone())
+            } else if !self.active_device.is_empty() {
+                Some(self.active_device.clone())
+            } else {
+                None
+            }
+        };
+        match want {
+            Some(w) => self
+                .audio_device_infos
+                .iter()
+                .find(|d| d.id == w || d.name == w)
+                .or_else(|| self.audio_device_infos.first()),
+            None => self.audio_device_infos.first(),
+        }
+    }
+
+    /// Push the device-capabilities and validation rows to the dialog. Either
+    /// the whole device list is empty (preview blocks cleared) or the preview
+    /// is built for exactly one device: the draft/active one (ТЗ A3.0 §8.1).
+    pub(super) fn sync_capabilities_and_validation(&mut self) {
+        let Some(device) = self.current_audio_device_info() else {
+            self.ui.set_settings_audio_caps(ModelRc::from(&[][..]));
+            self.ui.set_settings_audio_validation(ModelRc::from(&[][..]));
+            return;
+        };
+
+        let caps = build_capabilities(device);
+        self.ui.set_settings_audio_caps(ModelRc::from(caps.as_slice()));
+
+        let rows =
+            music_player_rs::audio::output::validate_audio_settings(device, self.settings_ref());
+        let model: Vec<ValidationRow> = rows
+            .into_iter()
+            .map(|r| ValidationRow {
+                source: r.source.into(),
+                outcome: match r.outcome {
+                    music_player_rs::audio::output::Outcome::BitPerfect => 0,
+                    music_player_rs::audio::output::Outcome::Degraded => 1,
+                    music_player_rs::audio::output::Outcome::Unsupported => 2,
+                },
+                detail: r.detail.into(),
+            })
+            .collect();
+        self.ui.set_settings_audio_validation(ModelRc::from(model.as_slice()));
+    }
+
+    /// Цепочка DSD по выбранному режиму (ТЗ A3.0 §4.1) — строка под combo.
+    pub(super) fn sync_dsd_chain_desc(&self) {
+        let chain = match self.settings_ref().dsd.mode {
+            DsdMode::Native => "Native → DoP → PCM",
+            DsdMode::DoP => "DoP → PCM",
+            DsdMode::Pcm => "PCM only",
+        };
+        self.ui.set_settings_audio_dsd_chain_desc(chain.into());
+    }
+
+    /// Синхронизация Advanced-панели из текущих настроек (draft): индексы
+    /// ComboBox, фиксированная частота, глубина ring-буфера (ТЗ A3.0 §7.3).
+    pub(super) fn sync_audio_advanced(&self) {
+        let s = self.settings_ref();
+        self.ui.set_settings_audio_exclusive_idx(s.audio.exclusive.index());
+        self.ui.set_settings_audio_fallback_idx(s.audio.fallback.index());
+        self.ui
+            .set_settings_audio_resampler_mode_idx(s.audio.resampler.mode.index());
+        self.ui
+            .set_settings_audio_fixed_rate_idx(
+                super::FIXED_RATES
+                    .iter()
+                    .position(|&r| r == s.audio.resampler.fixed_rate)
+                    .unwrap_or(0) as i32,
+            );
+        self.ui
+            .set_settings_audio_clock_family_idx(s.audio.resampler.prefer_family.index());
+        self.ui
+            .set_settings_audio_fallback_rate_idx(s.audio.resampler.fallback_rate.index());
+        self.ui
+            .set_settings_audio_ring_buffer_ms(s.audio.ring_buffer_ms as i32);
+    }
+}
+
+/// Index of the pair matching `want` within an *arbitrary* `(id, label)` list.
+/// `want` is either a stable device id or a human-readable name; for server
+/// nodes the name matches the label with the "software, resamples" suffix
+/// stripped.
+fn find_device_index_in(pairs: &[(String, String)], want: &str) -> Option<usize> {
+    pairs
+        .iter()
+        .position(|(raw, _)| raw == want)
+        .or_else(|| pairs.iter().position(|(_, label)| label == want))
+        .or_else(|| {
+            pairs.iter().position(|(_, label)| {
+                label
+                    .strip_suffix(music_player_rs::audio::output::SERVER_NODE_SUFFIX)
+                    .is_some_and(|stripped| stripped == want)
+            })
+        })
+}
+
+/// Частота в кГц для UI: 48000 → «48», 176400 → «176.4».
+fn khz(rate: u32) -> String {
+    if rate.is_multiple_of(1000) {
+        format!("{}", rate / 1000)
+    } else {
+        format!("{:.1}", rate as f64 / 1000.0)
+    }
+}
+
+/// Таблица «Возможности устройства» для панели предпросмотра: тип, каналы,
+/// частоты, форматы, exclusive и DoP-слот (ТЗ A3.0 §4.1/§8.1). Чистая
+/// функция; `ok` управляет подсветкой строки (текст основной vs приглушённый).
+pub(super) fn build_capabilities(
+    device: &music_player_rs::audio::output::DeviceInfo,
+) -> Vec<DeviceCapability> {
+    let kind = match device.category {
+        DeviceCategory::Hardware => "Аппаратное (hw:*)",
+        DeviceCategory::ServerProxy => "Программное (сервер звука)",
+        DeviceCategory::Virtual => "Виртуальное (dmix и т.п.)",
+        DeviceCategory::Loopback => "Loopback",
+        DeviceCategory::Unknown => "Неизвестное",
+    };
+    let channels = if device.channels >= 2 && device.channels <= 8 {
+        let label = match device.channels {
+            2 => "стерео",
+            6 => "5.1",
+            8 => "7.1",
+            _ => "каналов",
+        };
+        format!("{} ({label})", device.channels)
+    } else if device.channels == 1 {
+        "1 (моно)".into()
+    } else {
+        device.channels.to_string()
+    };
+    let dop = device.dop_container_rate();
+    let dop_value = dop.map_or_else(|| "—".into(), |r| format!("{} kHz", khz(r)));
+
+    let rows = vec![
+        DeviceCapability {
+            label: "Тип устройства".into(),
+            value: kind.into(),
+            ok: true,
+        },
+        DeviceCapability {
+            label: "Каналы".into(),
+            value: channels.into(),
+            ok: true,
+        },
+        DeviceCapability {
+            label: "Частоты".into(),
+            value: device.rates_desc().into(),
+            ok: !device.supported_rates.is_empty(),
+        },
+        DeviceCapability {
+            label: "Форматы".into(),
+            value: device.formats_desc().into(),
+            ok: !device.supported_formats.is_empty(),
+        },
+        DeviceCapability {
+            label: "Exclusive".into(),
+            value: if device.exclusive_capable {
+                "поддерживается".into()
+            } else {
+                "не поддерживается".into()
+            },
+            ok: device.exclusive_capable,
+        },
+        DeviceCapability {
+            label: "DSD (DoP)".into(),
+            value: dop_value.into(),
+            ok: dop.is_some(),
+        },
+    ];
+    rows
 }

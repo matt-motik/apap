@@ -12,19 +12,26 @@ use slint::{ComponentHandle, Model, ModelRc, SharedString, StandardListViewItem,
 use slint::language::{SortOrder, TableColumn};
 
 use music_player_rs::audio::analyzer::TAP_CAPACITY;
-use music_player_rs::audio::output::{default_device_name, probe_output};
+use music_player_rs::audio::output::{default_device_name, probe_output, DeviceInfo};
 use music_player_rs::audio::player::Player;
 use music_player_rs::audio::visualizer::{
     FreqScale, LevelScale, VisualizerConfig,
 };
 use music_player_rs::cover::{self, CoverDone, CoverJob};
 use music_player_rs::playlist::{self, ScanMsg, Track};
-use music_player_rs::settings::{ColumnId, DsdMode, RepeatMode, Settings, SettingsStore};
+use music_player_rs::settings::{
+    ClockFamily, ColumnId, DsdMode, ExclusiveMode, FallbackPolicy, FallbackRatePolicy, RepeatMode,
+    ResamplerMode, Settings, SettingsStore,
+};
 use music_player_rs::theme::{
     ColorsData, ThemeData, ThemeError, DEFAULT_LIGHT_TOML, create_default_themes, parse_hex,
     scan_themes_dir,
 };
 use music_player_rs::tray::{self, TrayCmd};
+
+/// Фиксированные частоты выхода для `ResamplerMode::Fixed` (ТЗ A3.0 §7.3):
+/// индекс ComboBox («Авто», «44.1k» … «192k») → Гц. «Авто» (0) → 0 = не задано.
+const FIXED_RATES: [u32; 7] = [0, 44_100, 48_000, 88_200, 96_000, 176_400, 192_000];
 
 pub mod events;
 pub mod fulltrack_manager;
@@ -282,12 +289,19 @@ pub struct MusicApp {
     cover_rx: Option<Receiver<CoverDone>>,
     cover_gen: u64,
     /// In-flight async enumeration of output devices for the Settings dialog.
-    audio_devices_rx: Option<Receiver<Vec<(String, String)>>>,
+    /// The worker sends full [`DeviceInfo`] structs; the dialog consumes both
+    /// the `(id, label)` pairs (ComboBox) and the raw info list
+    /// (capabilities + validation, ТЗ A3.0 §8.1).
+    audio_devices_rx: Option<Receiver<Vec<DeviceInfo>>>,
     /// Last device listing as `(id, label)` pairs; the label is what the
     /// ComboBox shows, the id is the stable backend key (ALSA pcm id) that gets
     /// persisted and matched by the audio backend, so selection must translate
     /// label -> id.
     audio_devices_pairs: Vec<(String, String)>,
+    /// Full device info list from the *last* enumeration (kept across filter
+    /// toggles so the dialog never re-queries the backend for a filter preview,
+    /// ТЗ A3.0 §8.1). Consumed by capabilities/validation sync.
+    audio_device_infos: Vec<DeviceInfo>,
     /// Async startup playlist load: yields the persisted track list once it
     /// has been read off disk (avoids blocking UI init on large playlists).
     startup_tracks_rx: Option<Receiver<Vec<Track>>>,
@@ -455,6 +469,7 @@ impl MusicApp {
             cover_gen: 0,
             audio_devices_rx: None,
             audio_devices_pairs: Vec::new(),
+            audio_device_infos: Vec::new(),
             startup_tracks_rx: Some(startup_tracks_rx),
             events_tx,
             events_rx,
@@ -782,6 +797,8 @@ impl MusicApp {
                 a.sync_settings_to_ui();
                 a.sync_viz_settings_to_ui();
                 a.sync_audio_devices();
+                a.sync_audio_advanced();
+                a.sync_dsd_chain_desc();
                 a.sync_cover_settings_to_ui();
                 a.sync_cache_stats_to_ui();
                 a.ui.set_settings_open(true);
@@ -955,6 +972,9 @@ impl MusicApp {
                 // Live-обновление предупреждения в диалоге: при выборе
                 // Native/DoP конфликт исчезает немедленно.
                 a.sync_dsd_settings_to_ui();
+                // Цепочка DSD (Native → DoP → PCM и т.д.) меняется вместе с
+                // режимом (ТЗ A3.0 §4.1/§8.3).
+                a.sync_dsd_chain_desc();
             });
         }
 
@@ -967,6 +987,134 @@ impl MusicApp {
                 a.settings_mut().audio.bit_perfect = enabled;
                 // Live-обновление предупреждения DSD в диалоге.
                 a.sync_dsd_settings_to_ui();
+            });
+        }
+
+        // 25d-25m. Audio-tab draft-only controls (ТЗ A3.0 §7.1/§7.7): колбэки
+        // пишут только в draft; реальные сеттеры Player применяются в Save.
+        // 25d. settings-set-audio-filter-hardware (ТЗ A3.0 §8.1, draft-only)
+        {
+            let app = this.clone();
+            ui.on_settings_set_audio_filter_hardware(move |enabled| {
+                app.borrow_mut().settings_mut().audio.filter_hardware_only = enabled;
+                app.borrow_mut().apply_audio_filter();
+            });
+        }
+
+        // 25e. settings-set-audio-filter-stereo (ТЗ A3.0 §8.1, draft-only)
+        {
+            let app = this.clone();
+            ui.on_settings_set_audio_filter_stereo(move |enabled| {
+                app.borrow_mut().settings_mut().audio.filter_stereo_only = enabled;
+                app.borrow_mut().apply_audio_filter();
+            });
+        }
+
+        // 25f. settings-set-audio-toggle-advanced — чисто верстка коллапса.
+        {
+            let app = this.clone();
+            ui.on_settings_set_audio_toggle_advanced(move |open| {
+                app.borrow().ui.set_settings_audio_advanced_open(open);
+            });
+        }
+
+        // 25g. settings-set-audio-exclusive (ТЗ A3.0 §7.3, draft-only)
+        {
+            let app = this.clone();
+            ui.on_settings_set_audio_exclusive(move |i| {
+                eprintln!("[gui] settings_set_audio_exclusive idx={i}");
+                let mut a = app.borrow_mut();
+                a.settings_mut().audio.exclusive =
+                    ExclusiveMode::from_index(i).unwrap_or(ExclusiveMode::Auto);
+                a.sync_capabilities_and_validation();
+            });
+        }
+
+        // 25h. settings-set-audio-fallback (ТЗ A3.0 §7.3, draft-only)
+        {
+            let app = this.clone();
+            ui.on_settings_set_audio_fallback(move |i| {
+                eprintln!("[gui] settings_set_audio_fallback idx={i}");
+                let mut a = app.borrow_mut();
+                a.settings_mut().audio.fallback =
+                    FallbackPolicy::from_index(i).unwrap_or(FallbackPolicy::Nearest);
+                a.sync_capabilities_and_validation();
+            });
+        }
+
+        // 25i. settings-set-audio-resampler-mode (ТЗ A3.0 §7.3/§7.7): при
+        // выборе Fixed с активным Fallback = Fail принудительно сбрасываем
+        // fallback на Nearest — исходное сочетание невозможно.
+        {
+            let app = this.clone();
+            ui.on_settings_set_audio_resampler_mode(move |i| {
+                eprintln!("[gui] settings_set_audio_resampler_mode idx={i}");
+                let mut a = app.borrow_mut();
+                let mode = ResamplerMode::from_index(i).unwrap_or(ResamplerMode::Auto);
+                let forced = mode == ResamplerMode::Fixed
+                    && a.settings_ref().audio.fallback == FallbackPolicy::Fail;
+                {
+                    let s = a.settings_mut();
+                    s.audio.resampler.mode = mode;
+                    if forced {
+                        s.audio.fallback = FallbackPolicy::Nearest;
+                    }
+                }
+                if forced {
+                    a.sync_audio_advanced();
+                    a.ui.set_status_text(
+                        "Resampler = Fixed несовместим с Fallback = Fail: переключено на Nearest"
+                            .into(),
+                    );
+                }
+                a.sync_capabilities_and_validation();
+            });
+        }
+
+        // 25j. settings-set-audio-fixed-rate (ТЗ A3.0 §7.3, draft-only)
+        {
+            let app = this.clone();
+            ui.on_settings_set_audio_fixed_rate(move |i| {
+                eprintln!("[gui] settings_set_audio_fixed_rate idx={i}");
+                let mut a = app.borrow_mut();
+                a.settings_mut().audio.resampler.fixed_rate =
+                    FIXED_RATES.get(i as usize).copied().unwrap_or_default();
+                a.sync_capabilities_and_validation();
+            });
+        }
+
+        // 25k. settings-set-audio-clock-family (ТЗ A3.0 §7.3, draft-only)
+        {
+            let app = this.clone();
+            ui.on_settings_set_audio_clock_family(move |i| {
+                eprintln!("[gui] settings_set_audio_clock_family idx={i}");
+                let mut a = app.borrow_mut();
+                a.settings_mut().audio.resampler.prefer_family =
+                    ClockFamily::from_index(i).unwrap_or(ClockFamily::Auto);
+                a.sync_capabilities_and_validation();
+            });
+        }
+
+        // 25l. settings-set-audio-fallback-rate (ТЗ A3.0 §7.3, draft-only)
+        {
+            let app = this.clone();
+            ui.on_settings_set_audio_fallback_rate(move |i| {
+                eprintln!("[gui] settings_set_audio_fallback_rate idx={i}");
+                let mut a = app.borrow_mut();
+                a.settings_mut().audio.resampler.fallback_rate =
+                    FallbackRatePolicy::from_index(i).unwrap_or(FallbackRatePolicy::Nearest);
+                a.sync_capabilities_and_validation();
+            });
+        }
+
+        // 25m. settings-set-audio-ring-buffer-ms (ТЗ A3.0 §7.3, draft-only)
+        {
+            let app = this.clone();
+            ui.on_settings_set_audio_ring_buffer_ms(move |ms| {
+                eprintln!("[gui] settings_set_audio_ring_buffer_ms ms={ms}");
+                let mut a = app.borrow_mut();
+                a.settings_mut().audio.ring_buffer_ms =
+                    music_player_rs::settings::clamp_ring_buffer_ms(ms.max(0) as u32);
             });
         }
 
@@ -1078,6 +1226,19 @@ impl MusicApp {
                 // letting the stale clone overwrite fresh values.
                 let old_bp = a.settings.settings.audio.bit_perfect;
                 let old_viz_ram_mb = a.settings.settings.visualization.viz_max_ram_mb;
+                // ТЗ A3.0 §7.7: старые (до присваивания draft) политики вывода —
+                // по ним решаем, нужен ли рестарт текущего потока на Save.
+                let old_resample = (
+                    a.settings.settings.audio.resampler.algorithm,
+                    a.settings.settings.audio.resampler.dither,
+                    a.settings.settings.audio.resampler.mode,
+                    a.settings.settings.audio.resampler.fixed_rate,
+                    a.settings.settings.audio.resampler.prefer_family,
+                    a.settings.settings.audio.resampler.fallback_rate,
+                    a.settings.settings.audio.ring_buffer_ms,
+                    a.settings.settings.audio.exclusive,
+                    a.settings.settings.audio.fallback,
+                );
                 let live = {
                     let l = &a.settings.settings;
                     (
@@ -1137,6 +1298,39 @@ impl MusicApp {
                     a.settings.save();
                     a.emit(AppEvent::BitPerfectChanged);
                     eprintln!("[gui] settings_save: bit_perfect applied -> {bp}");
+                }
+                // ТЗ A3.0 §7.7: применять политики вывода/ресемплера из диалога.
+                // Сеттеры идемпотентны; рестарт текущего трека (аналогично DSD)
+                // переоткрывает поток с новым `OutputRequest`.
+                let (algo, dither, mode, fixed_rate, prefer_family, fallback_rate, ring_ms, excl, fb) = {
+                    let s = &a.settings.settings;
+                    (
+                        s.audio.resampler.algorithm,
+                        s.audio.resampler.dither,
+                        s.audio.resampler.mode,
+                        s.audio.resampler.fixed_rate,
+                        s.audio.resampler.prefer_family,
+                        s.audio.resampler.fallback_rate,
+                        s.audio.ring_buffer_ms,
+                        s.audio.exclusive,
+                        s.audio.fallback,
+                    )
+                };
+                a.player.set_resampler_algorithm(algo);
+                a.player.set_dither(dither);
+                a.player.set_resampler_mode(mode);
+                a.player.set_fixed_rate(fixed_rate);
+                a.player.set_prefer_family(prefer_family);
+                a.player.set_fallback_rate(fallback_rate);
+                a.player.set_ring_buffer_ms(ring_ms);
+                a.player.set_exclusive_mode(excl);
+                a.player.set_fallback_policy(fb);
+                let new_resample = (algo, dither, mode, fixed_rate, prefer_family, fallback_rate, ring_ms, excl, fb);
+                if new_resample != old_resample {
+                    if let Some(idx) = a.current {
+                        eprintln!("[gui] settings_save: restarting current track {idx} with new audio policies");
+                        a.play_track(idx);
+                    }
                 }
                 // ТЗ §8.4: применить выбранный DSD-режим к плееру. Если в этот
                 // момент играет DSD-трек — перезапустить его, чтобы новый
