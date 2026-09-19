@@ -10,10 +10,10 @@
 
 ## Итерационный трекер
 [x] Шаг 1: Поля `win_fullscreen`/`win_maximized` в `Settings` (+ `serde`/`Default`) + roundtrip-тест в settings.rs. Проверка: `cargo test` — тест зелёный
-[ ] Шаг 2: `save_window_geometry` — запись флагов `is_fullscreen()`/`is_maximized()`; размер/позицию сохранять только из обычного состояния. Проверка: `cargo check`
-[ ] Шаг 3: `apply_window_geometry` — восстановление `set_maximized`/`set_fullscreen` после размера/позиции. Проверка: `cargo check` + `cargo clippy` + `cargo test` целиком зелёные
+[x] Шаг 2: `save_window_geometry` — запись флагов `is_fullscreen()`/`is_maximized()`; размер/позицию сохранять только из обычного состояния. Проверка: `cargo check`
+[x] Шаг 3: `apply_window_geometry` — восстановление `set_maximized`/`set_fullscreen` после размера/позиции. Проверка: `cargo check` + `cargo clippy` + `cargo test` целиком зелёные
 
-- **Текущий шаг (current_step):** Шаг 2
-- **Следующий ход:** Обновить save_window_geometry в src/app/ui_manager.rs
+- **Текущий шаг (current_step):** Шаг 3 завершён — переход к Шагу 5 (Завершение сессии)
+- **Следующий ход:** Отметить V5.1-B4 в ROADMAP как done, законсервировать _STATE_.md, финальный аудит
 - **Счетчик безуспешных компиляций:** 0/3
 - **Состояние:** in_progress

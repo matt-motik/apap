@@ -29,17 +29,35 @@ impl MusicApp {
                 .window()
                 .set_position(slint::WindowPosition::Physical(slint::PhysicalPosition::new(x, y)));
         }
+        // Восстанавливаем состояние окна поверх обычной геометрии: сначала
+        // нормальный размер/позиция, затем максимизация и fullscreen.
+        if s.win_maximized {
+            self.ui.window().set_maximized(true);
+        }
+        if s.win_fullscreen {
+            self.ui.window().set_fullscreen(true);
+        }
     }
 
-    /// Persist the current window size/position for the next run.
+    /// Persist the current window size/position for the next run, together with
+    /// the fullscreen/maximized state flags.
     pub(super) fn save_window_geometry(&mut self) {
-        let size = self.ui.window().size();
-        let pos = self.ui.window().position();
+        let w = self.ui.window();
         let s = &mut self.settings.settings;
-        s.win_w = Some(size.width);
-        s.win_h = Some(size.height);
-        s.win_x = Some(pos.x);
-        s.win_y = Some(pos.y);
+        s.win_fullscreen = w.is_fullscreen();
+        s.win_maximized = w.is_maximized();
+        // Размер/позицию сохраняем только из обычного состояния окна: в
+        // fullscreen/maximized `size()` возвращает размер во весь экран,
+        // который нельзя восстанавливать как размер окна. Последний «нормальный»
+        // размер из settings сохраняется нетронутым.
+        if !s.win_fullscreen && !s.win_maximized {
+            let size = w.size();
+            let pos = w.position();
+            s.win_w = Some(size.width);
+            s.win_h = Some(size.height);
+            s.win_x = Some(pos.x);
+            s.win_y = Some(pos.y);
+        }
         self.settings.save();
     }
 
