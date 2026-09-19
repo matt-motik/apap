@@ -1,4 +1,4 @@
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex};
 
 #[cfg(test)]
@@ -179,6 +179,9 @@ pub struct Player {
     pub last_error: Option<String>,
     /// Current track info (duration/rate), kept for `snapshot`.
     info: Option<TrackInfo>,
+    /// Path of the currently loaded track: lets `play()`/`toggle()` rebuild the
+    /// engine after an idle exclusive stream was released (V5.1-B5).
+    current_path: Option<PathBuf>,
     preferred_device: Option<String>,
     /// Resampling algorithm used by every new stream (ТЗ 5.1 §8.3).
     resampler_algo: ResamplerAlgorithm,
@@ -232,6 +235,7 @@ impl Player {
             device_desc,
             last_error: None,
             info: None,
+            current_path: None,
             preferred_device: None,
             resampler_algo: ResamplerAlgorithm::SincMedium,
             dsd_mode: DsdMode::Pcm,
@@ -324,6 +328,30 @@ impl Player {
         self.stream = None;
         self.worker = None;
         self.shared = None;
+    }
+
+    /// True when the current stream holds an exclusive raw-`hw:` ALSA node
+    /// (the only case releasing it is required to unblock the system mixer).
+    fn exclusive_held(desc: Option<&StreamDesc>) -> bool {
+        desc.map(|d| d.exclusive).unwrap_or(false)
+    }
+
+    /// Release the cpal stream and the worker while keeping the shared
+    /// transport state (position/flags) so the UI does not reset. The ALSA
+    /// `hw:*` PCM is snd_pcm_close'd on Drop → the node returns to the
+    /// PipeWire/wireplumber graph (V5.1-B5).
+    pub fn release_engine(&mut self) {
+        self.stream = None;
+        self.worker = None;
+    }
+
+    /// Idle hook: drop the engine only when an exclusive raw node was open.
+    /// Shared (pipeline) devices are left running to avoid churning the mixer
+    /// on every stop.
+    pub fn release_if_exclusive(&mut self) {
+        if Self::exclusive_held(self.stream_desc.as_ref()) {
+            self.release_engine();
+        }
     }
 
     /// Change the output device. When `path` is given the current track is
@@ -607,6 +635,7 @@ impl Player {
         self.stream = Some(stream);
         self.shared = Some(shared);
         self.info = Some(info.clone());
+        self.current_path = Some(path.to_path_buf());
         Ok(info)
     }
 
@@ -703,6 +732,7 @@ impl Player {
         self.stream = Some(stream);
         self.shared = Some(shared);
         self.info = Some(info.clone());
+        self.current_path = Some(path.to_path_buf());
         self.last_error = None;
         Ok(info)
     }
@@ -720,8 +750,26 @@ impl Player {
         shared.set_natural_end(false);
     }
 
-    /// Start/resume playback. A finished track is rewound and replayed.
+    /// Rebuild a released engine (idle exclusive stream, V5.1-B5): reopen the
+    /// saved current track so `play()`/`toggle()` can resume from scratch.
+    fn reopen_current(&mut self) -> Result<(), String> {
+        let Some(path) = self.current_path.clone() else {
+            return Err("no track loaded".into());
+        };
+        self.open(&path)?;
+        Ok(())
+    }
+
+    /// Start/resume playback. A finished track is rewound and replayed. When
+    /// the engine was released (idle exclusive stream, V5.1-B5) the current
+    /// track is reopened from the saved path first.
     pub fn play(&mut self) {
+        if self.stream.is_none() && self.current_path.is_some() {
+            if let Err(e) = self.reopen_current() {
+                self.last_error = Some(e);
+                return;
+            }
+        }
         let Some(shared) = self.shared.clone() else {
             self.last_error = Some("no track loaded".into());
             return;
@@ -738,8 +786,15 @@ impl Player {
         self.shared.is_some()
     }
 
-    /// Pause/resume the current track (rewinds if it had finished).
+    /// Pause/resume the current track (rewinds if it had finished). A released
+    /// exclusive engine is rebuilt before resuming (V5.1-B5).
     pub fn toggle(&mut self) {
+        if self.stream.is_none() && self.current_path.is_some() {
+            if let Err(e) = self.reopen_current() {
+                self.last_error = Some(e);
+                return;
+            }
+        }
         let Some(shared) = self.shared.clone() else {
             return;
         };
@@ -756,6 +811,10 @@ impl Player {
 
     /// Stop playback, mark the track as finished and rewind to the start.
     pub fn stop(&mut self) {
+        // Free an exclusive raw-`hw:` node: while the cpal stream is open the
+        // ALSA PCM stays exclusively locked and disappears from the
+        // PipeWire/wireplumber mixer (V5.1-B5).
+        self.release_if_exclusive();
         let Some(shared) = self.shared.clone() else {
             return;
         };
@@ -1154,6 +1213,7 @@ impl Player {
             device_desc: String::from("test"),
             last_error: None,
             info: None,
+            current_path: None,
             preferred_device: None,
             resampler_algo: ResamplerAlgorithm::SincMedium,
             dsd_mode: DsdMode::Pcm,
@@ -1695,6 +1755,59 @@ mod tests {
         assert!(p.open(&path).is_err());
         let remaining = p.test_hooks.build_failures.load(Ordering::Relaxed);
         assert!(999 - remaining <= 1, "Strict must not retry the build");
+    }
+
+    /// Решение «освободить движок» принимается строго по флагу exclusive
+    /// (V5.1-B5): shared-потоки и пустой descriptor не трогаем.
+    #[test]
+    fn release_decision_uses_exclusive_flag() {
+        let shared_desc = StreamDesc {
+            exclusive: false,
+            ..Default::default()
+        };
+        assert!(!Player::exclusive_held(Some(&shared_desc)));
+        let excl_desc = StreamDesc {
+            exclusive: true,
+            ..Default::default()
+        };
+        assert!(Player::exclusive_held(Some(&excl_desc)));
+        assert!(!Player::exclusive_held(None));
+    }
+
+    /// `stop()` на exclusive-узле дропает stream+worker и возвращает узел
+    /// системному микшеру, сохраняя transport-состояние; `play()`/`toggle()`
+    /// переоткрывают движок по сохранённому пути (V5.1-B5). Требует
+    /// exclusive-capable устройство по умолчанию и env `PCM_PATH`.
+    #[test]
+    fn stop_releases_exclusive_engine_and_play_reopens() {
+        let Some(path) = env_pcm_path() else {
+            return;
+        };
+        if !default_exclusive_capable() {
+            eprintln!("skipped: default device is not exclusive-capable");
+            return;
+        }
+        let mut p = Player::test_new();
+        p.set_exclusive_mode(ExclusiveMode::Strict);
+        assert!(p.open(&path).is_ok());
+        let desc = p.stream_desc().unwrap();
+        assert!(desc.exclusive, "this test needs an exclusive stream");
+        assert!(p.stream.is_some());
+        assert_eq!(p.current_path.as_deref(), Some(path.as_path()));
+
+        p.stop();
+        assert!(p.stream.is_none(), "exclusive stream must be released on stop");
+        assert!(p.worker.is_none(), "worker must be released on stop");
+        assert!(p.has_decoder(), "transport state kept for the loaded track");
+        assert_eq!(p.current_path.as_deref(), Some(path.as_path()));
+        assert!(!p.is_playing());
+
+        p.play();
+        assert!(p.stream.is_some(), "play() must rebuild the engine");
+        assert!(p.is_playing());
+
+        p.stop();
+        assert!(p.stream.is_none());
     }
 
     /// `ExclusiveMode::Auto` при отказе сборки делает один downgrade к shared

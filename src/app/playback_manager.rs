@@ -163,6 +163,10 @@ impl MusicApp {
                         Some(idx) => self.play_track(idx),
                         None => {
                             self.player.clear_end();
+                            // End of playlist: free an exclusive raw-`hw:` node
+                            // so the device returns to the system mixer
+                            // (V5.1-B5).
+                            self.player.release_if_exclusive();
                             self.emit(AppEvent::PlaybackStopped);
                         }
                     }
