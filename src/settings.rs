@@ -784,6 +784,13 @@ pub struct Settings {
     pub win_w: Option<u32>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub win_h: Option<u32>,
+    /// Флаги состояния окна: было ли оно развёрнуто на весь экран / максимизировано
+    /// на момент последнего сохранения геометрии. Восстанавливаются через
+    /// `set_fullscreen`/`set_maximized` при старте.
+    #[serde(default)]
+    pub win_fullscreen: bool,
+    #[serde(default)]
+    pub win_maximized: bool,
     /// Источники обложек в порядке приоритета (ключи `CoverSource::key`).
     /// Пусто — дефолтный порядок (диск → встроенная → интернет).
     #[serde(default)]
@@ -833,6 +840,8 @@ impl Default for Settings {
             win_y: None,
             win_w: None,
             win_h: None,
+            win_fullscreen: false,
+            win_maximized: false,
             cover_priority: default_cover_priority(),
             cover_folder_names: default_cover_folder_names(),
             cover_online: true,
@@ -1236,6 +1245,23 @@ mod tests {
 
         let parsed: Settings = toml::from_str("[audio]\nring_buffer_ms = 250\n").unwrap();
         assert_eq!(parsed.audio.ring_buffer_ms, 250);
+    }
+
+    #[test]
+    fn window_state_flags_roundtrip() {
+        let mut s = Settings::default();
+        s.win_fullscreen = true;
+        s.win_maximized = true;
+        let toml = toml::to_string(&s).unwrap();
+        assert!(toml.contains("win_fullscreen = true"), "missing win_fullscreen:\n{toml}");
+        assert!(toml.contains("win_maximized = true"), "missing win_maximized:\n{toml}");
+        let parsed: Settings = toml::from_str(&toml).unwrap();
+        assert!(parsed.win_fullscreen);
+        assert!(parsed.win_maximized);
+
+        let parsed: Settings = toml::from_str("").unwrap();
+        assert!(!parsed.win_fullscreen);
+        assert!(!parsed.win_maximized);
     }
 
     #[test]
