@@ -68,6 +68,11 @@ fn main() {
     );
 
     ui.show().unwrap();
+    // Размер/позиция окна применимы только после создания поверхности:
+    // winit игнорирует `set_size`/`set_position` до `show()`, и окно могло бы
+    // схлопнуться до минимального размера контента. Повторно применяем
+    // сохранённую геометрию (V5.1-B7) из видимого состояния.
+    app.borrow().apply_window_geometry();
     slint::run_event_loop_until_quit().unwrap();
     drop(viz_timer);
     drop(ref_timer);

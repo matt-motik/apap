@@ -8,7 +8,9 @@ use music_player_rs::theme::StandardPalette;
 
 impl MusicApp {
     /// Restore the saved window size/position (if any) before the window is shown.
-    pub(super) fn apply_window_geometry(&self) {
+    /// Also re-applied from `main` after `show()` (surface exists) so winit
+    /// does not collapse the window to its content minimum (V5.1-B7).
+    pub(crate) fn apply_window_geometry(&self) {
         let s = &self.settings.settings;
         if let (Some(w), Some(h)) = (s.win_w, s.win_h) {
             if (200..=8000).contains(&w) && (200..=8000).contains(&h) {
@@ -59,6 +61,50 @@ impl MusicApp {
             s.win_y = Some(pos.y);
         }
         self.settings.save();
+        self.win_geom_dirty = false;
+        self.win_geom_changed = None;
+    }
+
+    /// Debounce-сохранение геометрии окна из `tick` (V5.1-B7): запись на диск
+    /// выполняется не чаще одного раза в ~2 c после последнего изменения
+    /// размера/позиции/состояния. Гарантирует, что размер и положение окна
+    /// сохраняются даже при аварийном завершении или если close-запрос не
+    /// пришёл (WM-килл, suspend), а не только на close/quit-путях выхода.
+    pub(super) fn track_window_geometry(&mut self) {
+        const SAVE_GEOM_DEBOUNCE: std::time::Duration = std::time::Duration::from_secs(2);
+        let w = self.ui.window();
+        if !w.is_visible() {
+            return;
+        }
+        let size = w.size();
+        let pos = w.position();
+        let max = w.is_maximized();
+        let full = w.is_fullscreen();
+        let s = &self.settings.settings;
+        let normal = !max && !full;
+        let matches = s.win_maximized == max
+            && s.win_fullscreen == full
+            && (!normal
+                || (s.win_w == Some(size.width)
+                    && s.win_h == Some(size.height)
+                    && s.win_x == Some(pos.x)
+                    && s.win_y == Some(pos.y)));
+        if matches {
+            self.win_geom_dirty = false;
+            self.win_geom_changed = None;
+            return;
+        }
+        if !self.win_geom_dirty {
+            self.win_geom_dirty = true;
+            self.win_geom_changed = Some(std::time::Instant::now());
+            return;
+        }
+        let ready = self
+            .win_geom_changed
+            .is_none_or(|t| t.elapsed() >= SAVE_GEOM_DEBOUNCE);
+        if ready {
+            self.save_window_geometry();
+        }
     }
 
     /// Build the dialog's column-list model (visibility/order/width display)

@@ -340,6 +340,10 @@ pub struct MusicApp {
     /// Debounce перестроения полнотрековых при изменении параметров из диалога
     /// (ТЗ §9.2: 500 мс): (момент последнего изменения, целевой (path, key)).
     viz_debounce: Option<(Instant, Option<(PathBuf, String)>)>,
+    /// Окно: геометрия изменилась и ждёт сохранения (debounce в `tick`, V5.1-B7).
+    win_geom_dirty: bool,
+    /// Момент последнего изменения геометрии окна (для дебаунса записи).
+    win_geom_changed: Option<Instant>,
 }
 
 impl MusicApp {
@@ -489,6 +493,8 @@ impl MusicApp {
             fulltrack_cache: clru::CLruCache::new(cache_max_entries),
             fulltrack_mode: None,
             viz_debounce: None,
+            win_geom_dirty: false,
+            win_geom_changed: None,
         };
         app.setup_fulltrack();
         app.setup_visualizer(viz_cfg, viz_prod, viz_cons);
@@ -1569,6 +1575,9 @@ impl MusicApp {
                     if a.playlist_dirty {
                         a.save_playlist();
                     }
+                    // Free an exclusive raw-`hw:` node before the event loop
+                    // quits (V5.1-B6).
+                    a.player.release_engine();
                     let _ = slint::quit_event_loop();
                     slint::CloseRequestResponse::KeepWindowShown
                 }
@@ -1589,6 +1598,7 @@ impl MusicApp {
         self.drain_audio_devices();
         self.handle_auto_advance();
         self.sync_playback_state_to_ui();
+        self.track_window_geometry();
         self.sync_dsd_status_ui();
         if self.ui.get_bp_report_open() {
             let report = bp_report::build_bp_report(self);
@@ -1700,6 +1710,10 @@ impl MusicApp {
                 TrayCmd::ShowHide => {
                     let visible = self.ui.window().is_visible();
                     let res = if visible {
+                        // Window hides into the tray: free an exclusive raw-`hw:`
+                        // node so the device is usable by other apps while the
+                        // player waits in the background (V5.1-B6).
+                        self.player.release_if_exclusive();
                         self.ui.hide()
                     } else {
                         self.ui.show()
@@ -1713,6 +1727,10 @@ impl MusicApp {
                     if self.playlist_dirty {
                         self.save_playlist();
                     }
+                    // Drop the stream so an exclusive raw-`hw:` node returns to
+                    // the system mixer even if the process lingers during quit
+                    // teardown (V5.1-B6).
+                    self.player.release_engine();
                     let _ = slint::quit_event_loop();
                 }
                 TrayCmd::Wheel(delta) => {

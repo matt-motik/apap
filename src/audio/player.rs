@@ -750,22 +750,38 @@ impl Player {
         shared.set_natural_end(false);
     }
 
-    /// Rebuild a released engine (idle exclusive stream, V5.1-B5): reopen the
-    /// saved current track so `play()`/`toggle()` can resume from scratch.
-    fn reopen_current(&mut self) -> Result<(), String> {
+    /// Rebuild a released engine (idle exclusive stream, V5.1-B6): reopen the
+    /// saved current track so `play()`/`toggle()` can resume. `secs` is
+    /// applied as a seek afterwards (0 = start), preserving transport state.
+    fn reopen_and_seek(&mut self, secs: f64) -> Result<(), String> {
         let Some(path) = self.current_path.clone() else {
             return Err("no track loaded".into());
         };
         self.open(&path)?;
+        if secs > 0.0 {
+            self.seek(secs);
+        }
         Ok(())
     }
 
+    /// Current playback position in seconds (used to restore resume position
+    /// after an idle exclusive engine was released).
+    fn resume_pos_secs(&self) -> f64 {
+        self.shared
+            .as_ref()
+            .map(|s| s.pos_frames() as f64 / s.out_rate().max(1) as f64)
+            .unwrap_or(0.0)
+    }
+
     /// Start/resume playback. A finished track is rewound and replayed. When
-    /// the engine was released (idle exclusive stream, V5.1-B5) the current
-    /// track is reopened from the saved path first.
+    /// the engine was released (the exclusive node is freed on stop/pause,
+    /// V5.1-B6) the current track is reopened and seeked to the saved position
+    /// before the transport flags are raised.
     pub fn play(&mut self) {
         if self.stream.is_none() && self.current_path.is_some() {
-            if let Err(e) = self.reopen_current() {
+            let finished = self.shared.as_ref().map(|s| s.finished()).unwrap_or(false);
+            let target = if finished { 0.0 } else { self.resume_pos_secs() };
+            if let Err(e) = self.reopen_and_seek(target) {
                 self.last_error = Some(e);
                 return;
             }
@@ -786,26 +802,37 @@ impl Player {
         self.shared.is_some()
     }
 
-    /// Pause/resume the current track (rewinds if it had finished). A released
-    /// exclusive engine is rebuilt before resuming (V5.1-B5).
+    /// Pause/resume the current track (rewinds if it had finished). Pausing
+    /// releases an exclusive raw-`hw:` node immediately so the device returns
+    /// to the system mixer; resuming rebuilds the engine and restores the
+    /// playback position (V5.1-B6). A fresh reopen also re-broadcasts the DoP
+    /// marker preludes, which a plain pause/resume of the same stream loses.
     pub fn toggle(&mut self) {
-        if self.stream.is_none() && self.current_path.is_some() {
-            if let Err(e) = self.reopen_current() {
-                self.last_error = Some(e);
-                return;
+        let was_playing = self
+            .shared
+            .as_ref()
+            .map(|s| s.is_playing())
+            .unwrap_or(false);
+        if was_playing {
+            if let Some(shared) = &self.shared {
+                shared.set_playing(false);
             }
-        }
-        let Some(shared) = self.shared.clone() else {
-            return;
-        };
-        if shared.is_playing() {
-            shared.set_playing(false);
+            self.release_if_exclusive();
         } else {
-            if shared.finished() {
-                self.rewind(&shared);
+            if self.stream.is_none() && self.current_path.is_some() {
+                let target = self.resume_pos_secs();
+                if let Err(e) = self.reopen_and_seek(target) {
+                    self.last_error = Some(e);
+                    return;
+                }
             }
-            shared.set_natural_end(false);
-            shared.set_playing(true);
+            if let Some(shared) = self.shared.clone() {
+                if shared.finished() {
+                    self.rewind(&shared);
+                }
+                shared.set_natural_end(false);
+                shared.set_playing(true);
+            }
         }
     }
 
@@ -1808,6 +1835,44 @@ mod tests {
 
         p.stop();
         assert!(p.stream.is_none());
+    }
+
+    /// Пауза на exclusive-узле освобождает движок (устройство возвращается в
+    /// системный микшер немедленно); ресюм переоткрывает поток и
+    /// восстанавливает позицию воспроизведения (V5.1-B6). Требует
+    /// exclusive-capable устройство по умолчанию и env `PCM_PATH`.
+    #[test]
+    fn pause_releases_exclusive_and_resume_restores_position() {
+        let Some(path) = env_pcm_path() else {
+            return;
+        };
+        if !default_exclusive_capable() {
+            eprintln!("skipped: default device is not exclusive-capable");
+            return;
+        }
+        let mut p = Player::test_new();
+        p.set_exclusive_mode(ExclusiveMode::Strict);
+        assert!(p.open(&path).is_ok());
+        assert!(p.stream_desc().unwrap().exclusive);
+        p.play();
+        assert!(p.is_playing());
+        p.seek(10.0);
+
+        p.toggle();
+        assert!(!p.is_playing());
+        assert!(p.stream.is_none(), "pause must release the exclusive engine");
+        assert!(p.has_decoder(), "transport state kept for the loaded track");
+
+        p.toggle();
+        assert!(p.is_playing());
+        assert!(p.stream.is_some(), "resume must rebuild the engine");
+        let (_, pos, _) = p.snapshot();
+        assert!(
+            (pos - 10.0).abs() < 1.0,
+            "resume must restore the paused position, pos = {pos}"
+        );
+
+        p.stop();
     }
 
     /// `ExclusiveMode::Auto` при отказе сборки делает один downgrade к shared
