@@ -925,4 +925,4 @@ DsdPathPreference без единого разрешённого пути
 
 ### Удаляются после утверждения
 
-`_TODO_/spec_audio_integrity_v4.0.md`, `_TODO_/docs_spec_audio_integrity_v4.1.md`, `_TODO_/APAP_architecture_spec_v5.0_PlaybackPolicy_PathPlanner_SignalPath_BackendEndpoint.md`, `_TODO_/APAP_architecture_spec_v5.0_addendum_AdvancedPreferences_2026-09-22.md`, `_TODO_/wiggly-baking-rivest.md`; судьба ревью в `docs/reviews/` — по решению пользователя.
+каталог `_TODO_/done/ap5.0-sources/` целиком (v4.0, v4.1, базовая v5.0, дополнение «Advanced Preferences», план `wiggly-baking-rivest.md`; лежат в `done/`, чтобы Шаг 2 AGENTS.md не разбирал их как новые задачи); судьба ревью в `docs/reviews/` — по решению пользователя.
