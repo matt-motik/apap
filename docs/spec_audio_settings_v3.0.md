@@ -1359,13 +1359,13 @@ pub(crate) struct TestHooks {
 
 | Этап | Содержание | Файлы | Оценка |
 |---|---|---|---|
-| **A3.1** | Модель настроек: `ExclusiveMode`, `FallbackPolicy`, `ResamplerMode`, `ClockFamily`, `FallbackRatePolicy`; расширение `AudioResamplerCfg` / `AudioCfg`; тесты round-trip. | `settings.rs` | 0.5 дня |
-| **A3.2** | `DeviceInfo` расширение, `classify_device`, `supported_rates` / `supported_formats`, `exclusive_capable`, `rates_desc` / `formats_desc` / `clock_families_desc`, `dop_container_rate`. | `audio/output.rs` | 1 день |
-| **A3.3** | `choose_output` под новые политики, `FallbackReason`, `describe_stream`, `ChosenOutput`; `validate_audio_settings` + тесты. | `audio/output.rs` | 1.5 дня |
-| **A3.4** | `Player`: рефакторинг `open`, DSD chain, exclusive retry, `StreamDesc`, `try_open_dsd`, `TestHooks`. | `audio/player.rs` | 1 день |
-| **A3.5** | Вкладка Audio в `settings.slint`: capabilities, validation, фильтры, Advanced (draft-only); `sync_capabilities_and_validation`, `sync_dsd_chain_desc`. | `ui/settings.slint`, `app/ui_manager.rs`, `app/mod.rs` | 2 дня |
-| **A3.6** | `BpReportDialog`, `app/bp_report.rs`, badge click, `stream_desc` в `MusicApp`. | `ui/bp_report.slint`, `ui/main.slint`, `ui/status.slint`, `app/bp_report.rs`, `app/playback_manager.rs`, `app/mod.rs` | 1.5 дня |
-| **A3.7** | Ручной smoke, правка дефолтов, документирование в `AGENTS.md`. | — | 0.5 дня |
+| **A3.0-1** | Модель настроек: `ExclusiveMode`, `FallbackPolicy`, `ResamplerMode`, `ClockFamily`, `FallbackRatePolicy`; расширение `AudioResamplerCfg` / `AudioCfg`; тесты round-trip. | `settings.rs` | 0.5 дня |
+| **A3.0-2** | `DeviceInfo` расширение, `classify_device`, `supported_rates` / `supported_formats`, `exclusive_capable`, `rates_desc` / `formats_desc` / `clock_families_desc`, `dop_container_rate`. | `audio/output.rs` | 1 день |
+| **A3.0-3** | `choose_output` под новые политики, `FallbackReason`, `describe_stream`, `ChosenOutput`; `validate_audio_settings` + тесты. | `audio/output.rs` | 1.5 дня |
+| **A3.0-4** | `Player`: рефакторинг `open`, DSD chain, exclusive retry, `StreamDesc`, `try_open_dsd`, `TestHooks`. | `audio/player.rs` | 1 день |
+| **A3.0-5** | Вкладка Audio в `settings.slint`: capabilities, validation, фильтры, Advanced (draft-only); `sync_capabilities_and_validation`, `sync_dsd_chain_desc`. | `ui/settings.slint`, `app/ui_manager.rs`, `app/mod.rs` | 2 дня |
+| **A3.0-6** | `BpReportDialog`, `app/bp_report.rs`, badge click, `stream_desc` в `MusicApp`. | `ui/bp_report.slint`, `ui/main.slint`, `ui/status.slint`, `app/bp_report.rs`, `app/playback_manager.rs`, `app/mod.rs` | 1.5 дня |
+| **A3.0-7** | Ручной smoke, правка дефолтов, документирование в `AGENTS.md`. | — | 0.5 дня |
 
 **Итого: ~8 рабочих дней.**
 

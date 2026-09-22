@@ -23,4 +23,11 @@ if ! "$PY" tools/state_tool.py check-whitelist; then
     exit 1
 fi
 
+echo "[pre-commit] checking SPEC <-> ROADMAP traceability ..."
+if ! "$PY" tools/traceability_tool.py check; then
+    echo ""
+    echo "[pre-commit] traceability check failed — see above."
+    exit 1
+fi
+
 echo "[pre-commit] OK"
