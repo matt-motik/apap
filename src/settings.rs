@@ -1249,9 +1249,11 @@ mod tests {
 
     #[test]
     fn window_state_flags_roundtrip() {
-        let mut s = Settings::default();
-        s.win_fullscreen = true;
-        s.win_maximized = true;
+        let s = Settings {
+            win_fullscreen: true,
+            win_maximized: true,
+            ..Default::default()
+        };
         let toml = toml::to_string(&s).unwrap();
         assert!(toml.contains("win_fullscreen = true"), "missing win_fullscreen:\n{toml}");
         assert!(toml.contains("win_maximized = true"), "missing win_maximized:\n{toml}");
