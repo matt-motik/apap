@@ -1,0 +1,22 @@
+# Источник истины для текущей микро-сессии (AGENTS.md, Шаг 0/3/4).
+# _STATE_.md генерируется из этого файла — не редактировать его руками.
+# Редактируйте этот файл, затем: python tools/state_tool.py render
+
+status: done
+
+task:
+  roadmap_id: null
+  title: null
+
+whitelist: []
+
+dod: null
+
+steps: []
+
+current_step: null
+next_action: null
+
+fail_counter: 0
+fail_counter_max: 3
+failed_attempts: []

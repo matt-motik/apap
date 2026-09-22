@@ -1,0 +1,33 @@
+#!/bin/sh
+# Fast pre-commit checks (AGENTS.md tooling, item 1/8: STATE schema).
+# Installed via: python tools/setup_dev.py  (sets core.hooksPath)
+set -e
+
+PY="$(git config --get apap.pythonPath || true)"
+if [ -z "$PY" ]; then
+    PY="python"
+fi
+
+echo "[pre-commit] validating _STATE_.yaml / _STATE_.md ..."
+if ! "$PY" tools/state_tool.py check; then
+    echo ""
+    echo "[pre-commit] _STATE_.yaml/_STATE_.md check failed — see above."
+    echo "[pre-commit] Fix _STATE_.yaml, then: python tools/state_tool.py render"
+    exit 1
+fi
+
+echo "[pre-commit] checking changed files against _STATE_.yaml whitelist ..."
+if ! "$PY" tools/state_tool.py check-whitelist; then
+    echo ""
+    echo "[pre-commit] whitelist check failed — see above."
+    exit 1
+fi
+
+echo "[pre-commit] checking SPEC <-> ROADMAP traceability ..."
+if ! "$PY" tools/traceability_tool.py check; then
+    echo ""
+    echo "[pre-commit] traceability check failed — see above."
+    exit 1
+fi
+
+echo "[pre-commit] OK"

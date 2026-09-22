@@ -14,9 +14,9 @@ use music_player_rs::audio::analyzer::LiveWorker;
 use music_player_rs::audio::visualizer::{
     ChannelMode, VisualizationMode, VisualizerConfig,
 };
-
-/// Период быстрого таймера визуализации (ms), обновляет полосы ~30 FPS.
-pub const VIZ_PUSH_INTERVAL_MS: u64 = 33;
+/// Re-exported from `audio::visualizer` (the canonical source, reachable
+/// from lib-based integration tests) — see its doc comment.
+pub use music_player_rs::audio::visualizer::VIZ_PUSH_INTERVAL_MS;
 
 /// Распад полос на паузе/стопе за один push (короче не обновляется всё равно).
 const VIZ_PAUSE_DECAY: f32 = 0.80;
