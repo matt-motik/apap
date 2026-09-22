@@ -9,6 +9,7 @@
 > | `docs/spec_theme_v1.0.md`          | `T1.0`  |
 > | `docs/spec_audio_core_v2.0.md`     | `A2.0`  |
 > | `docs/spec_audio_settings_v3.0.md` | `A3.0`  |
+> | `docs/spec_audio_pipeline_v5.0.md`  | `AP5.0` |
 >
 > Формат ссылки: `[§X.Y](docs/spec_visualizer_v5.1.md#xy-якорь)`.
 >
