@@ -16,4 +16,11 @@ if ! "$PY" tools/state_tool.py check; then
     exit 1
 fi
 
+echo "[pre-commit] checking changed files against _STATE_.yaml whitelist ..."
+if ! "$PY" tools/state_tool.py check-whitelist; then
+    echo ""
+    echo "[pre-commit] whitelist check failed — see above."
+    exit 1
+fi
+
 echo "[pre-commit] OK"

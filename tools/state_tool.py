@@ -7,17 +7,26 @@ rendering of it — it must never be hand-edited; `render` regenerates it and
 `check` fails if it has drifted from what `render` would produce.
 
 Usage:
-    python tools/state_tool.py render   # (re)generate _STATE_.md from _STATE_.yaml
-    python tools/state_tool.py check    # validate schema + business rules,
-                                         # fail if _STATE_.md is stale
+    python tools/state_tool.py render            # (re)generate _STATE_.md from _STATE_.yaml
+    python tools/state_tool.py check              # validate schema + business rules,
+                                                   # fail if _STATE_.md is stale
+    python tools/state_tool.py check-whitelist    # fail if any changed file (git status)
+                                                   # is outside _STATE_.yaml's whitelist
 """
 from __future__ import annotations
 
+import subprocess
 import sys
 from pathlib import Path
 
 import yaml
 from jsonschema import Draft7Validator
+
+# Files that are part of the workflow bookkeeping itself, not "code" — they
+# legitimately change on nearly every commit regardless of the task's
+# whitelist (see AGENTS.md Шаг 4.4: _STATE_.md is committed together with
+# the code on every successful step; ROADMAP.md is patched at Шаг 5).
+WHITELIST_EXEMPT = {"_STATE_.md", "_STATE_.yaml", "ROADMAP.md"}
 
 ROOT = Path(__file__).resolve().parent.parent
 STATE_YAML = ROOT / "_STATE_.yaml"
@@ -145,6 +154,67 @@ def render_markdown(data: dict) -> str:
     return "\n".join(lines)
 
 
+def git_changed_files() -> set[str]:
+    """Paths with any working-tree/index change (modified, added, deleted,
+    untracked, renamed), repo-relative with forward slashes. Uses `-z` for
+    robust parsing (handles spaces/unicode without shell-quoting ambiguity).
+    """
+    proc = subprocess.run(
+        ["git", "status", "--porcelain=v1", "-z"],
+        cwd=ROOT,
+        capture_output=True,
+        check=True,
+    )
+    tokens = proc.stdout.split(b"\0")
+    files: set[str] = set()
+    i = 0
+    while i < len(tokens):
+        entry = tokens[i]
+        i += 1
+        if not entry:
+            continue
+        status_code = entry[:2].decode("utf-8", "replace")
+        path = entry[3:].decode("utf-8", "replace").replace("\\", "/")
+        files.add(path)
+        if status_code[0] in ("R", "C"):
+            # Rename/copy: the next NUL-separated token is the orig path.
+            i += 1
+    return files
+
+
+def cmd_check_whitelist() -> int:
+    data = load_state()
+    errors = validate_schema(data) + validate_business_rules(data)
+    if errors:
+        for e in errors:
+            print(e, file=sys.stderr)
+        return 1
+
+    if data.get("status") != "in_progress":
+        print(f"status == {data.get('status')!r} — whitelist check skipped (nothing to constrain).")
+        return 0
+
+    whitelist = {p.replace("\\", "/") for p in data.get("whitelist", [])}
+    changed = git_changed_files()
+    offenders = sorted(f for f in changed if f not in whitelist and f not in WHITELIST_EXEMPT)
+
+    if offenders:
+        print("Изменены файлы вне вайтлиста _STATE_.yaml:", file=sys.stderr)
+        for f in offenders:
+            print(f"  {f}", file=sys.stderr)
+        print(f"\nВайтлист ({data['task']['roadmap_id']}): {sorted(whitelist) or '[]'}", file=sys.stderr)
+        print(
+            "\nЛибо верните файл(ы) в исходное состояние, либо расширьте "
+            "whitelist в _STATE_.yaml, либо запросите разрешение пользователя "
+            "(AGENTS.md Шаг 4.1, СТРОГОЕ ТАБУ).",
+            file=sys.stderr,
+        )
+        return 1
+
+    print(f"OK — все изменённые файлы ({len(changed)}) входят в whitelist или исключены из проверки.")
+    return 0
+
+
 def cmd_render() -> int:
     data = load_state()
     errors = validate_schema(data) + validate_business_rules(data)
@@ -178,12 +248,31 @@ def cmd_check() -> int:
     return 0
 
 
+COMMANDS = {
+    "render": cmd_render,
+    "check": cmd_check,
+    "check-whitelist": cmd_check_whitelist,
+}
+
+
+def _force_utf8_console() -> None:
+    # Windows terminals (cmd.exe, some PowerShell hosts) default to a legacy
+    # codepage that mangles Cyrillic output; force UTF-8 regardless of host.
+    for stream in (sys.stdout, sys.stderr):
+        if getattr(stream, "encoding", "").lower() != "utf-8":
+            try:
+                stream.reconfigure(encoding="utf-8")
+            except (AttributeError, OSError):
+                pass
+
+
 def main(argv: list[str]) -> int:
-    if len(argv) != 1 or argv[0] not in ("render", "check"):
+    _force_utf8_console()
+    if len(argv) != 1 or argv[0] not in COMMANDS:
         print(__doc__)
         return 2
     try:
-        return cmd_render() if argv[0] == "render" else cmd_check()
+        return COMMANDS[argv[0]]()
     except StateError as e:
         print(f"error: {e}", file=sys.stderr)
         return 1
