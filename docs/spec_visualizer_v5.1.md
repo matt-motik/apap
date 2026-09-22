@@ -764,9 +764,3 @@ viz_max_ram_mb = 64
 - Синхронизация курсора с реальным DAC-буфером (для точного соответствия слышимому).
 - Визуализация DSD-шума выше 20 кГц (для native DSD, через параллельный декодер — если заказчик передумает).
 - Поддержка пользовательских импульсных характеристик для ресемплера (FIR-фильтры).
-
-
-
-Дополнительные материалы к ТЗ
-/home/bakirov-ma/VSCode/pet/apap/_DRAFTS_/ui_visualizer_placeholder_diff.slint
-/home/bakirov-ma/VSCode/pet/apap/_DRAFTS_/slintfft.example

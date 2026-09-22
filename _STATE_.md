@@ -15,7 +15,7 @@ _Источник: чат с пользователем (ноутбук), нач
 [x] 3. Автоматическая traceability-проверка SPEC ↔ ROADMAP — 1fefed3
 [x] 4. Verification scripts для performance requirements (≤5% CPU, ≤50 ms, 0 allocations, DSD512 no OOM) — 06db033, 89ce5b8, 6a4f747; провал DSD512 CPU-бюджета вынесен в ROADMAP V5.1-11.1
 [ ] 5. CI-проверка acceptance criteria
-[ ] 6. Убрать ссылки из docs/ на запрещённый _DRAFTS_ — docs/spec_visualizer_v5.1.md:771-772
+[x] 6. Убрать ссылки из docs/ на запрещённый _DRAFTS_ — ссылки удалены; traceability_tool.py check #6 не даёт вернуть
 [~] 7. Сделать ROADMAP автоматически валидируемым — уникальность префиксов и task → anchor покрыты в 1fefed3
 [ ] 8. Затем — продолжать V5.1-7.4
 

@@ -22,6 +22,10 @@ Validates, from ROADMAP.md and docs/spec_*.md, without touching either file:
      Rows explicitly marked "в рабочем дереве" / "подтверждено пользователем"
      (no commit expected) are exempted; anything else with ✅ and no
      hash-like token is a warning, not a hard error (pre-existing rows).
+  6. No file under docs/ and not ROADMAP.md mentions `_DRAFTS_/`: the
+     agent is forbidden to read that directory (AGENTS.md), so a spec that
+     points into it is a reference that can never be followed
+     (executable-workflow plan item 6).
 
 Usage:
     python tools/traceability_tool.py check
@@ -40,6 +44,7 @@ REGISTRY_ROW_RE = re.compile(r"^>\s*\|\s*`(docs/[^`]+)`\s*\|\s*`([^`]+)`\s*\|\s*
 SELF_PREFIX_RE = re.compile(r"Префикс[^`\n]*`([^`]+)`", re.IGNORECASE)
 DOC_LINK_RE = re.compile(r"\[[^\]]*\]\((docs/[^)#\s]+)(#[^)\s]+)?\)")
 HASH_TOKEN_RE = re.compile(r"`?\b([0-9a-f]{7,40})\b`?")
+DRAFTS_RE = re.compile(r"_DRAFTS_")
 NO_COMMIT_EXPECTED_RE = re.compile(r"рабочем дереве|подтверждено пользователем", re.IGNORECASE)
 ID_RE = re.compile(r"^([A-Za-z][A-Za-z0-9]*\.[0-9]+)-([0-9]+(?:\.[0-9]+)*|B[0-9]+)$")
 
@@ -231,6 +236,14 @@ def check_microfix_table(res: Result, rows: list[list[str]]) -> None:
             res.error(f"{context}: commit '{m.group(1)}' does not exist in this repo's history")
 
 
+def check_no_drafts_refs(res: Result) -> None:
+    for path in [ROADMAP, *sorted((ROOT / "docs").rglob("*.md"))]:
+        rel = path.relative_to(ROOT).as_posix()
+        for lineno, line in enumerate(path.read_text(encoding="utf-8").splitlines(), 1):
+            if DRAFTS_RE.search(line):
+                res.error(f"{rel}:{lineno}: reference to forbidden _DRAFTS_/ directory")
+
+
 def cmd_check() -> int:
     res = Result()
     registry = parse_registry(res)
@@ -240,6 +253,8 @@ def cmd_check() -> int:
     for table in find_tables(text):
         check_task_table(res, table, registry)
         check_microfix_table(res, table)
+
+    check_no_drafts_refs(res)
 
     for w in res.warnings:
         print(f"WARN  {w}")

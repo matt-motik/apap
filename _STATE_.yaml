@@ -48,8 +48,8 @@ plan:
       status: todo
     - id: 6
       description: "Убрать ссылки из docs/ на запрещённый _DRAFTS_"
-      status: todo
-      note: "docs/spec_visualizer_v5.1.md:771-772"
+      status: done
+      note: "ссылки удалены; traceability_tool.py check #6 не даёт вернуть"
     - id: 7
       description: "Сделать ROADMAP автоматически валидируемым"
       status: partial
