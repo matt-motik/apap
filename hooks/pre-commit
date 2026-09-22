@@ -1,0 +1,19 @@
+#!/bin/sh
+# Fast pre-commit checks (AGENTS.md tooling, item 1/8: STATE schema).
+# Installed via: python tools/setup_dev.py  (sets core.hooksPath)
+set -e
+
+PY="$(git config --get apap.pythonPath || true)"
+if [ -z "$PY" ]; then
+    PY="python"
+fi
+
+echo "[pre-commit] validating _STATE_.yaml / _STATE_.md ..."
+if ! "$PY" tools/state_tool.py check; then
+    echo ""
+    echo "[pre-commit] _STATE_.yaml/_STATE_.md check failed — see above."
+    echo "[pre-commit] Fix _STATE_.yaml, then: python tools/state_tool.py render"
+    exit 1
+fi
+
+echo "[pre-commit] OK"

@@ -1,0 +1,72 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "apap://schema/state.schema.json",
+  "title": "APAP _STATE_.yaml",
+  "description": "Source of truth for the current micro-session. _STATE_.md is generated from this file by tools/state_tool.py render — never edit _STATE_.md by hand.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["status", "task", "whitelist", "dod", "steps", "fail_counter", "fail_counter_max", "failed_attempts"],
+  "properties": {
+    "status": {
+      "type": "string",
+      "enum": ["in_progress", "done"]
+    },
+    "task": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["roadmap_id", "title"],
+      "properties": {
+        "roadmap_id": {
+          "type": ["string", "null"],
+          "description": "ROADMAP.md task ID this session is working, e.g. 'A3.5'. Null only when status == done."
+        },
+        "title": {
+          "type": ["string", "null"]
+        }
+      }
+    },
+    "whitelist": {
+      "type": "array",
+      "description": "Repo-relative paths this micro-session is allowed to write to. Enforced against `git status` by tools/state_tool.py check-whitelist.",
+      "items": { "type": "string" }
+    },
+    "dod": {
+      "type": ["string", "null"],
+      "description": "Definition of Done for the active task, e.g. 'cargo check без ошибок; cargo test audio:: зелёный'."
+    },
+    "steps": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["id", "description", "done"],
+        "properties": {
+          "id": { "type": "integer", "minimum": 1 },
+          "description": { "type": "string" },
+          "done": { "type": "boolean" }
+        }
+      }
+    },
+    "current_step": {
+      "type": ["integer", "null"],
+      "description": "id of the step currently in progress; must reference an existing steps[].id."
+    },
+    "next_action": {
+      "type": ["string", "null"]
+    },
+    "fail_counter": {
+      "type": "integer",
+      "minimum": 0
+    },
+    "fail_counter_max": {
+      "type": "integer",
+      "minimum": 1,
+      "default": 3
+    },
+    "failed_attempts": {
+      "type": "array",
+      "description": "Тезисы неудачных подходов текущего шага, записываются перед откатом при fail_counter == fail_counter_max (см. AGENTS.md Шаг 4, сценарий Б).",
+      "items": { "type": "string" }
+    }
+  }
+}
