@@ -14,6 +14,13 @@ use serde::{Deserialize, Serialize};
 
 use crate::settings::{ResamplerAlgorithm, TargetBitDepth, TargetSampleRate};
 
+/// Период публикации живых полос анализатора спектра (ms), ТЗ §11.1
+/// (задержка отрисовки ≤50мс, 30-60 FPS). Канонический источник для
+/// `app::visualizer_manager` (re-export) и для тестов бюджетов
+/// производительности, которым нужен доступ без зависимости от бинарного
+/// `app`-модуля.
+pub const VIZ_PUSH_INTERVAL_MS: u64 = 33;
+
 /// Режим визуализации.
 ///
 /// Сериализуется в нижнем регистре (`off`/`oscilloscope`/`spectrogram`/
