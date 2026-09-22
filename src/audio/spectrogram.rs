@@ -225,6 +225,10 @@ pub struct Spectrogram {
     /// Переиспользуемые буферы (не аллоцируются на каждую колонку×канал).
     wbuf: Vec<Complex<f32>>,
     mags: Vec<f32>,
+    /// Scratch для `Fft::process_with_scratch` — `Fft::process` аллоцирует
+    /// свежий `Vec` на каждый вызов, что на полном треке означает тысячи
+    /// аллокаций и реально бьёт по бюджету построения (ТЗ §11.1).
+    fft_scratch: Vec<Complex<f32>>,
 }
 
 impl Spectrogram {
@@ -292,6 +296,7 @@ impl Spectrogram {
                     .collect::<Vec<_>>(),
             ),
         };
+        let fft_scratch_len = fft.get_inplace_scratch_len();
         Ok(Spectrogram {
             cfg: cfg.clone(),
             dst_ch,
@@ -313,6 +318,7 @@ impl Spectrogram {
             solid_rgb,
             wbuf: vec![Complex::default(); fft_size],
             mags: vec![0.0; fft_size / 2 + 1],
+            fft_scratch: vec![Complex::default(); fft_scratch_len],
         })
     }
 
@@ -404,7 +410,7 @@ impl Spectrogram {
                     im: 0.0,
                 };
             }
-            self.fft.process(&mut self.wbuf);
+            self.fft.process_with_scratch(&mut self.wbuf, &mut self.fft_scratch);
 
             for i in 0..=half {
                 let re = self.wbuf[i].re;

@@ -83,6 +83,10 @@ pub struct SpectrumEngine {
     window_fn: Vec<f32>,
     ffts: Vec<Arc<dyn Fft<f32>>>,
     work: Vec<Complex<f32>>,
+    /// Preallocated scratch for `Fft::process_with_scratch` — `Fft::process`
+    /// allocates a fresh `Vec` internally on every call, which would violate
+    /// the "0 аллокаций в горячем цикле" budget (ТЗ §11.1).
+    fft_scratch: Vec<Complex<f32>>,
     /// Для каждой полосы — диапазон бинов `[start, end)` (бина 0 нет).
     band_ranges: Vec<(usize, usize)>,
     /// Аккумулятор мощностей по полосам (переиспользуется на кадре).
@@ -113,6 +117,7 @@ impl SpectrumEngine {
         let ffts = (0..proc_ch)
             .map(|_| planner.plan_fft_forward(fft_size))
             .collect::<Vec<_>>();
+        let scratch_len = ffts.iter().map(|f| f.get_inplace_scratch_len()).max().unwrap_or(0);
         Self {
             in_ch: in_ch.max(1),
             proc_ch,
@@ -126,6 +131,7 @@ impl SpectrumEngine {
             window_fn: hann(fft_size),
             ffts,
             work: vec![Complex::default(); fft_size],
+            fft_scratch: vec![Complex::default(); scratch_len],
             band_ranges,
             band_power: vec![0.0; bands],
             smoothed: vec![0.0; n_bands],
@@ -204,7 +210,7 @@ impl SpectrumEngine {
                 let v = self.window[c + i * self.proc_ch] * self.window_fn[i];
                 self.work[i] = Complex::new(v, 0.0);
             }
-            self.ffts[c].process(&mut self.work);
+            self.ffts[c].process_with_scratch(&mut self.work, &mut self.fft_scratch);
             self.band_power.fill(0.0);
             for b in 0..self.bands {
                 let (s, e) = self.band_ranges[b];
