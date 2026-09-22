@@ -113,7 +113,41 @@ def validate_business_rules(data: dict) -> list[str]:
                 "should have rolled back before this was committed"
             )
 
+    errors += validate_plan(data.get("plan"))
     return errors
+
+
+def validate_plan(plan: dict | None) -> list[str]:
+    if not plan:
+        return []
+    errors: list[str] = []
+    ids = [i["id"] for i in plan["items"]]
+    if len(ids) != len(set(ids)):
+        errors.append("business: plan.items[].id must be unique")
+    active = [i["id"] for i in plan["items"] if i["status"] == "in_progress"]
+    if len(active) > 1:
+        errors.append(f"business: plan has several in_progress items {active} — at most one allowed")
+    return errors
+
+
+PLAN_MARKS = {"done": "x", "partial": "~", "in_progress": ">", "todo": " "}
+
+
+def render_plan(plan: dict | None) -> str:
+    if not plan:
+        return ""
+    lines = ["", f"## План: {plan['title']}"]
+    if plan.get("source"):
+        lines.append(f"_Источник: {plan['source']}_")
+    lines.append("")
+    for item in plan["items"]:
+        line = f"[{PLAN_MARKS[item['status']]}] {item['id']}. {item['description']}"
+        if item.get("note"):
+            line += f" — {item['note']}"
+        lines.append(line)
+    lines.append("")
+    lines.append("Легенда: [x] сделано · [~] частично · [>] в работе · [ ] не начато")
+    return "\n".join(lines) + "\n"
 
 
 def render_markdown(data: dict) -> str:
@@ -124,6 +158,7 @@ def render_markdown(data: dict) -> str:
             + "\n# Состояние сессии\n\n"
             + "- **Текущая задача:** Нет (все шаги завершены)\n"
             + "- **Состояние:** done\n"
+            + render_plan(data.get("plan"))
         )
 
     task = data["task"]
@@ -151,7 +186,7 @@ def render_markdown(data: dict) -> str:
             lines.append(f"  - {attempt}")
     lines.append(f"- **Состояние:** {status}")
     lines.append("")
-    return "\n".join(lines)
+    return "\n".join(lines) + render_plan(data.get("plan"))
 
 
 def git_changed_files() -> set[str]:

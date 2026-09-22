@@ -20,3 +20,40 @@ next_action: null
 fail_counter: 0
 fail_counter_max: 3
 failed_attempts: []
+
+# Многошаговый план поверх микро-сессий. Переживает status: done и смену
+# машины — единственное место, где план живёт вне чата.
+plan:
+  title: "Executable workflow: правила AGENTS.md → исполняемые механизмы"
+  source: "чат с пользователем (ноутбук), начат в 67686ce; перенесён в репо 2026-09-22"
+  items:
+    - id: 1
+      description: "_STATE_.md → schema/YAML + generated Markdown"
+      status: done
+      note: "436a681"
+    - id: 2
+      description: "Автоматическая проверка STATE ↔ Git whitelist"
+      status: done
+      note: "3f0cfaf"
+    - id: 3
+      description: "Автоматическая traceability-проверка SPEC ↔ ROADMAP"
+      status: done
+      note: "1fefed3"
+    - id: 4
+      description: "Verification scripts для performance requirements (≤5% CPU, ≤50 ms, 0 allocations, DSD512 no OOM)"
+      status: done
+      note: "06db033, 89ce5b8, 6a4f747; провал DSD512 CPU-бюджета вынесен в ROADMAP V5.1-11.1"
+    - id: 5
+      description: "CI-проверка acceptance criteria"
+      status: todo
+    - id: 6
+      description: "Убрать ссылки из docs/ на запрещённый _DRAFTS_"
+      status: todo
+      note: "docs/spec_visualizer_v5.1.md:771-772"
+    - id: 7
+      description: "Сделать ROADMAP автоматически валидируемым"
+      status: partial
+      note: "уникальность префиксов и task → anchor покрыты в 1fefed3"
+    - id: 8
+      description: "Затем — продолжать V5.1-7.4"
+      status: todo

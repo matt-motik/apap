@@ -1,3 +1,4 @@
 /target
 /releases/
 /.vs/
+.venv/

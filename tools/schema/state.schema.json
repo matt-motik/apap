@@ -67,6 +67,37 @@
       "type": "array",
       "description": "Тезисы неудачных подходов текущего шага, записываются перед откатом при fail_counter == fail_counter_max (см. AGENTS.md Шаг 4, сценарий Б).",
       "items": { "type": "string" }
+    },
+    "plan": {
+      "type": ["object", "null"],
+      "description": "Многошаговый план поверх микро-сессий: переживает status == done и переход между машинами (контекст чата/сессии в git не попадает). Необязательное поле: отсутствие == null.",
+      "additionalProperties": false,
+      "required": ["title", "items"],
+      "properties": {
+        "title": { "type": "string" },
+        "source": {
+          "type": ["string", "null"],
+          "description": "Откуда план (чат, дата)."
+        },
+        "items": {
+          "type": "array",
+          "minItems": 1,
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["id", "description", "status"],
+            "properties": {
+              "id": { "type": "integer", "minimum": 1 },
+              "description": { "type": "string" },
+              "status": { "type": "string", "enum": ["todo", "in_progress", "partial", "done"] },
+              "note": {
+                "type": ["string", "null"],
+                "description": "Коммиты, остаток работы, ссылки на ROADMAP."
+              }
+            }
+          }
+        }
+      }
     }
   }
 }
