@@ -15,6 +15,7 @@ Usage:
 """
 from __future__ import annotations
 
+import re
 import subprocess
 import sys
 from pathlib import Path
@@ -27,6 +28,9 @@ from jsonschema import Draft7Validator
 # whitelist (see AGENTS.md Шаг 4.4: _STATE_.md is committed together with
 # the code on every successful step; ROADMAP.md is patched at Шаг 5).
 WHITELIST_EXEMPT = {"_STATE_.md", "_STATE_.yaml", "ROADMAP.md"}
+# Acceptance results are written and committed by tools/acceptance.py run,
+# which may happen while an unrelated micro-session is in progress.
+WHITELIST_EXEMPT_RE = re.compile(r"^docs/acceptance/[^/]+/results-[a-z]+\.yaml$")
 
 ROOT = Path(__file__).resolve().parent.parent
 STATE_YAML = ROOT / "_STATE_.yaml"
@@ -231,7 +235,10 @@ def cmd_check_whitelist() -> int:
 
     whitelist = {p.replace("\\", "/") for p in data.get("whitelist", [])}
     changed = git_changed_files()
-    offenders = sorted(f for f in changed if f not in whitelist and f not in WHITELIST_EXEMPT)
+    offenders = sorted(
+        f for f in changed
+        if f not in whitelist and f not in WHITELIST_EXEMPT and not WHITELIST_EXEMPT_RE.match(f)
+    )
 
     if offenders:
         print("Изменены файлы вне вайтлиста _STATE_.yaml:", file=sys.stderr)

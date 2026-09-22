@@ -30,4 +30,11 @@ if ! "$PY" tools/traceability_tool.py check; then
     exit 1
 fi
 
+echo "[pre-commit] validating acceptance packages (docs/acceptance/) ..."
+if ! "$PY" tools/acceptance.py check; then
+    echo ""
+    echo "[pre-commit] acceptance package check failed — see above."
+    exit 1
+fi
+
 echo "[pre-commit] OK"

@@ -1,0 +1,9 @@
+# Скопируйте в tools/acceptance.local.yaml (не коммитится) и укажите пути
+# к трекам-образцам на ЭТОЙ машине. Без них тесты декодеров/плеера молча
+# выходят с ok, и acceptance.py помечает такие критерии как pending.
+# Переменная окружения с тем же именем имеет приоритет над файлом.
+env:
+  MUSIC_TEST_FILE: ""        # любой PCM-трек (FLAC/MP3/WAV), ≥ 40 с — decoder seek-тест
+  MUSIC_PCM_TEST_FILE: ""    # PCM-трек для тестов Player (exclusive/pause/stop)
+  MUSIC_DSD_TEST_FILE: ""    # .dsf, ≥ 40 с (тест делает seek на 30 с)
+  MUSIC_DFF_TEST_FILE: ""    # .dff

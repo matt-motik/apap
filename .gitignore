@@ -2,3 +2,4 @@
 /releases/
 /.vs/
 .venv/
+tools/acceptance.local.yaml

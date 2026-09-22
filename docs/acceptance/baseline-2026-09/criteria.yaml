@@ -1,0 +1,254 @@
+# Пакет приёмки: закрытие спек V5.1, T1.0, A2.0, A3.0 одним прогоном на
+# текущем состоянии кода (решение пользователя 2026-09-22: тесты-доказательства
+# сформированы сейчас, отдельные прогоны по старым спекам не нужны).
+# Регламент и формат — docstring tools/acceptance.py.
+#   python tools/acceptance.py run baseline-2026-09
+#   python tools/acceptance.py status baseline-2026-09
+
+title: "Базовая приёмка V5.1 + T1.0 + A2.0 + A3.0 (состояние кода 2026-09)"
+specs: [V5.1, T1.0, A2.0, A3.0]
+platforms: [linux, windows]   # macos — добавить, когда появится машина
+
+# Изменение любого из путей после прогона делает прогон устаревшим.
+code_paths: [src/, tests/, ui/, build.rs, Cargo.toml, Cargo.lock]
+
+suites:
+  state:
+    cmd: ["{python}", tools/state_tool.py, check]
+  traceability:
+    cmd: ["{python}", tools/traceability_tool.py, check]
+  clippy:
+    cmd: [cargo, clippy, --all-targets, --, -D, warnings]
+  debug:
+    cmd: [cargo, test]
+  release:
+    # Бюджеты производительности имеют смысл только в release (в debug тесты
+    # делают SKIP). --include-ignored — чтобы известные нарушения (DSD512)
+    # тоже замерялись; --show-output — чтобы замеры попали в отчёт.
+    cmd: [cargo, test, --release,
+          --test, perf_budgets, --test, dsd512_playback_cpu_budget,
+          --test, fulltrack_memory_budget, --test, rt_zero_alloc,
+          --test, live_worker_zero_alloc,
+          --, --include-ignored, --show-output]
+
+criteria:
+  # ------------------------------------------------------------ общие
+  - id: GEN-1
+    text: "Инструменты workflow: _STATE_ валиден, SPEC ↔ ROADMAP трассируемы"
+    suites: [state, traceability]
+  - id: GEN-2
+    text: "cargo test — все тесты зелёные; cargo clippy --all-targets — 0 предупреждений (A2.0 §6)"
+    suites: [debug, clippy]
+
+  # ------------------------------------------------------------ V5.1 §15
+  - id: V5.1-15.1
+    text: "Три типа визуализации + «Отключено» работают"
+    tests: ["audio::visualizer::tests::mode_*"]
+    manual:
+      ask: "Переключить по очереди осциллограмму, спектрограмму, анализатор спектра и «Отключено» на PCM-треке — каждый режим рисуется, «Отключено» убирает визуализацию"
+  - id: V5.1-15.2
+    text: "Осциллограмма и спектрограмма строятся на весь трек и кэшируются"
+    tests: ["audio::fulltrack::tests::*", "audio::spectrogram::tests::*"]
+    manual:
+      ask: "PCM-трек: осциллограмма и спектрограмма строятся на весь трек; повторное открытие того же трека — сразу из кэша, без прогресс-бара"
+  - id: V5.1-15.3
+    text: "Анализатор спектра работает в реальном времени"
+    tests: ["audio::analyzer::tests::*"]
+    manual:
+      ask: "Анализатор спектра двигается в такт музыке, без заметных рывков и задержки"
+  - id: V5.1-15.4
+    text: "DSD → PCM: живая визуализация как для PCM; полнотрековая для DSD отключена (§6.4 skip_fulltrack_for_dsd)"
+    manual:
+      ask: "DSD-трек в режиме DSD→PCM: анализатор спектра работает; осциллограмма/спектрограмма показывают плейсхолдер «недоступно для DSD»"
+  - id: V5.1-15.5
+    text: "DSD native / DoP: визуализация отключена, плейсхолдер"
+    manual:
+      scope: any
+      ask: "DSD-трек в режиме DoP на DSD-ЦАП: визуализация отключена, виден плейсхолдер"
+  - id: V5.1-15.6
+    text: "В bit-perfect PCM визуализация работает (tap), громкость отключена"
+    tests: ["audio::player::tests::rt_bit_perfect_*"]
+    manual:
+      ask: "Включить bit-perfect, PCM-трек: визуализация работает, регулятор громкости не влияет на звук/заблокирован"
+  - id: V5.1-15.7
+    text: "В bit-perfect DSD→PCM показывается предупреждение о несовместимости"
+    tests: ["settings::tests::dsd_pcm_breaks_bit_perfect_detects_conflict"]
+    manual:
+      ask: "Включить bit-perfect и режим DSD→PCM — в настройках видно предупреждение о несовместимости"
+  - id: V5.1-15.8
+    text: "Настройки DSD→PCM (битность, частота) и ресемплера работают"
+    tests: ["audio::output::tests::resampler_*", "settings::tests::audio_resampler_*",
+            "settings::tests::audio_and_dsd_*", "settings::tests::resampler_algorithm_sinc_taps"]
+  - id: V5.1-15.9
+    text: "Настройки каждого типа визуализации сохраняются и загружаются независимо"
+    tests: ["audio::visualizer::tests::*round_trip*", "audio::visualizer::tests::partial_config_falls_back_to_defaults",
+            "app::viz_settings_manager::tests::*"]
+  - id: V5.1-15.10
+    text: "Вкладка «Визуализация» содержит все поля из §5"
+    manual:
+      ask: "Открыть настройки → «Визуализация»: есть все поля из spec_visualizer_v5.1.md §5 (для каждого из трёх типов)"
+  - id: V5.1-15.11
+    text: "Вкладки «DSD» и «Звук» содержат все поля из §8"
+    manual:
+      ask: "Открыть настройки → «DSD» и «Звук»: есть все поля из spec_visualizer_v5.1.md §8"
+  - id: V5.1-15.12
+    text: "Стерео и Моно работают для всех трёх типов"
+    tests: ["audio::analyzer::tests::mono_averages_stereo_channels", "audio::analyzer::tests::stereo_rows_split_l_and_r",
+            "audio::spectrogram::tests::spectrogram_stereo_separates",
+            "audio::fulltrack::tests::render_rgba_stereo_draws_both_channels", "audio::fulltrack::tests::envelope_min_max_mono"]
+    manual:
+      ask: "Для каждого из трёх типов переключить Стерео/Моно — отображение меняется корректно (два канала / один)"
+  - id: V5.1-15.13
+    text: "Аудио-callback не блокируется (нет Mutex/try_lock в RT-пути)"
+    review:
+      evidence: "A2.0-3 (archive_v0.5.md): Mutex удалён из колбэка, RtShared на атомиках; code-review-audio-realtime.md §«Вердикт по архитектуре»"
+  - id: V5.1-15.14
+    text: "FPS ≥ 30, задержка отрисовки ≤ 50 мс (VIZ_PUSH_INTERVAL_MS)"
+    class: perf
+    tests: ["release/viz_push_interval_meets_latency_and_fps_budget"]
+  - id: V5.1-15.15
+    text: "Нагрузка live-worker (FFT) ≤ 5% одного ядра"
+    class: perf
+    tests: ["release/live_worker_fft_cpu_budget"]
+  - id: V5.1-15.16
+    text: "Нет аллокаций в горячем цикле (RT-колбэки, LiveWorker)"
+    tests: ["rt_callbacks_are_zero_alloc", "spectrum_engine_consume_is_zero_alloc_after_warmup",
+            "audio::player::tests::all_callbacks_perform_zero_allocations",
+            "release/rt_callbacks_are_zero_alloc", "release/spectrum_engine_consume_is_zero_alloc_after_warmup"]
+  - id: V5.1-15.17
+    text: "Клик/драг для seek работает на осциллограмме и спектрограмме"
+    manual:
+      ask: "Клик и перетаскивание по осциллограмме и по спектрограмме перематывают трек в указанное место"
+  - id: V5.1-15.18
+    text: "Отмена построения при смене трека/настроек работает"
+    manual:
+      ask: "Во время построения спектрограммы длинного трека переключить трек, затем поменять nfft — старое построение прерывается, строится новое, без зависаний"
+  - id: V5.1-15.19
+    text: "Кэш на диске переиспользуется, лимиты RAM/Disk соблюдаются"
+    tests: ["audio::fulltrack::tests::*cache*", "audio::visualizer::tests::*max*",
+            "fulltrack_builders_stay_within_memory_budget"]
+  - id: V5.1-15.20
+    text: "Конфиг читается/пишется без потерь"
+    tests: ["settings::tests::*roundtrip*", "settings::tests::audio_partial_config_preserves_existing",
+            "audio::visualizer::tests::visualizer_settings_serde_round_trip"]
+  - id: V5.1-15.21
+    text: "Юнит-тесты: FFT, частотный маппинг, суммирование каналов, сглаживание, сериализация, CIC-компенсация, ресемплеры, дизеринг"
+    tests: ["audio::analyzer::tests::*", "audio::spectrogram::tests::cic_compensation_behavior",
+            "audio::output::tests::resampler_*", "audio::player::tests::tpdf_*",
+            "audio::player::tests::rt_tpdf_dither_adds_noise_to_quantization"]
+  - id: V5.1-15.22
+    text: "Тест DSD→PCM: выходной PCM не содержит NaN, не тишина, peak в разумных пределах"
+    tests: ["audio::dsd::tests::dsf_decode_headless", "audio::dsd::tests::dff_decode_headless",
+            "audio::dsd::tests::dsf_dop_raw_headless"]
+    requires_env: [MUSIC_DSD_TEST_FILE, MUSIC_DFF_TEST_FILE]
+  - id: V5.1-15.23
+    text: "DSD512 не вызывает OOM (потоковая децимация); peak RAM построения ≤ 128 МБ"
+    tests: ["fulltrack_builders_stay_within_memory_budget", "release/fulltrack_builders_stay_within_memory_budget"]
+
+  # ------------------------------------------------------------ V5.1 §11.1 бюджеты
+  - id: V5.1-11.1-osc
+    text: "Построение осциллограммы (5 мин) ≤ 1 с"
+    class: perf
+    tests: ["release/oscillogram_build_time_budget"]
+  - id: V5.1-11.1-spec
+    text: "Построение спектрограммы (5 мин, nfft=2048) ≤ 2 с"
+    class: perf
+    tests: ["release/spectrogram_build_time_budget"]
+  - id: V5.1-11.1-dsd512
+    text: "Общая нагрузка на воспроизведение DSD512 ≤ 20% одного ядра"
+    class: perf
+    known_issue: V5.1-11.1
+    tests: ["release/dsd512_playback_cpu_budget"]
+
+  # ------------------------------------------------------------ T1.0 «Критерии готовности»
+  - id: T1.0-1
+    text: "Темы загружаются из TOML-файлов"
+    tests: ["theme::tests::test_load_default_*", "theme::tests::test_parse_hex_*", "theme::tests::test_missing_color_field"]
+  - id: T1.0-2
+    text: "Пользователь может добавить тему файлом в themes/ — она появляется в списке"
+    tests: ["theme::tests::test_scan_themes_dir_ignores_subdirs"]
+    manual:
+      ask: "Скопировать themes/dark.toml в themes/my.toml, поменять name — после перезапуска тема видна в списке"
+  - id: T1.0-3
+    text: "dark/light восстанавливаются при отсутствии и не перезаписываются при наличии"
+    tests: ["theme::tests::test_create_default_themes_no_overwrite"]
+  - id: T1.0-4
+    text: "Выбор темы сохраняется в settings.toml (theme = \"<имя>\")"
+    manual:
+      ask: "Выбрать тему, закрыть приложение — в settings.toml записано theme = \"<имя>\", при запуске тема та же"
+  - id: T1.0-5
+    text: "UI отображает список тем + name/description выбранной"
+    manual:
+      ask: "В настройках виден список тем, у выбранной — name и description"
+  - id: T1.0-6
+    text: "Хардкод цветов удалён из apply_theme(), цвета из ThemeData"
+    review:
+      evidence: "T1.0 (archive_v0.4.md, технический паспорт ЭТАПА 7)"
+  - id: T1.0-7
+    text: "Иконки следуют за standard_palette; переключение без перезапуска"
+    manual:
+      ask: "Переключить тему dark ↔ light — цвета и иконки меняются сразу, без перезапуска"
+  - id: T1.0-8
+    text: "Сбой загрузки темы на старте не ломает приложение (Light + тултип), выбор сохраняется"
+    tests: ["app::tests::test_startup_fallback_missing_file", "app::tests::test_validate_colors_*"]
+
+  # ------------------------------------------------------------ A2.0 §6
+  - id: A2.0-6.2
+    text: "В audio_callback_* нет Mutex/Vec::resize/unwrap/логирования; 0 аллокаций (тест §3.4) во всех ветках"
+    tests: ["rt_callbacks_are_zero_alloc", "audio::player::tests::all_callbacks_perform_zero_allocations",
+            "audio::player::tests::rt_*"]
+  - id: A2.0-6.3
+    text: "UI-бейдж показывает честное состояние софтверного тракта"
+    tests: ["audio::player::tests::bit_perfect_resampled_flag_updates_on_toggle",
+            "audio::worker::tests::bit_perfect_resampled_tracks_resampler"]
+    manual:
+      ask: "Бейдж Bit-perfect: горит при совпадении частоты трека и устройства, гаснет/меняется при ресемплинге или громкости ≠ 100%"
+  - id: A2.0-6.4
+    text: "Воспроизведение PCM / DSD→PCM / DoP, seek, пауза, смена устройства — без регрессий и щелчков"
+    tests: ["audio::worker::tests::*", "audio::decoder::tests::decode_and_seek_headless",
+            "audio::player::tests::seek_moves_position", "audio::player::tests::toggle_pauses_and_resumes"]
+    requires_env: [MUSIC_TEST_FILE]
+    manual:
+      ask: "Проиграть PCM и DSD→PCM: seek, пауза/продолжение, смена устройства вывода в настройках — без щелчков, зависаний и тишины"
+
+  # ------------------------------------------------------------ A3.0 §13
+  - id: A3.0-13.1
+    text: "Все тесты §11.1–11.5 зелёные (settings, output, validate, player seam, bp_report)"
+    tests: ["settings::tests::audio_*", "audio::output::tests::*", "audio::player::tests::open_*",
+            "audio::player::tests::*releases_exclusive*", "app::bp_report::tests::*",
+            "app::tests::build_capabilities_*", "app::tests::audio_filter_*"]
+    requires_env: [MUSIC_PCM_TEST_FILE, MUSIC_DSD_TEST_FILE]
+  - id: A3.0-13.2
+    text: "Ручной smoke §11.6 на ADI-2 (USB) и PipeWire-ноде"
+    platforms: [linux]
+    manual:
+      scope: any
+      evidence: "A3.0-7 — подтверждено пользователем 2026-09-19 (ROADMAP)"
+  - id: A3.0-13.3
+    text: "Существующие тесты output.rs (nearest_rate, collapse_same_name, label_device_names) зелёные"
+    tests: ["audio::output::tests::nearest_rate_*", "audio::output::tests::collapse_same_name_*",
+            "audio::output::tests::device_labels_*"]
+  - id: A3.0-13.4
+    text: "Zero-allocation тесты player.rs зелёные — RT-колбэки не тронуты"
+    tests: ["audio::player::tests::all_callbacks_perform_zero_allocations"]
+  - id: A3.0-13.5
+    text: "validate_audio_settings — чистая функция, без I/O и зависимостей от MusicApp"
+    tests: ["audio::output::tests::validate_*"]
+    review:
+      evidence: "A3.0-3 (5c1dd81): тесты validate_* вызывают её без устройства и без MusicApp"
+  - id: A3.0-13.6
+    text: "BpReport собирается за < 1 ms (косвенно: tick не деградирует)"
+    review:
+      evidence: "спека §13.6 задаёт косвенную проверку; A3.0-6 + ручной smoke A3.0-7"
+  - id: A3.0-13.7
+    text: "Новые поля settings.toml не ломают парсинг старого конфига"
+    tests: ["settings::tests::audio_partial_config_preserves_existing", "settings::tests::migrate_legacy_columns_merges_old_fields",
+            "audio::visualizer::tests::partial_config_falls_back_to_defaults"]
+  - id: A3.0-13.8
+    text: "Новые контролы Audio — draft-only: без «Сохранить» ничего не применяется"
+    manual:
+      ask: "Изменить параметры во вкладке Audio (в т.ч. Advanced) и закрыть без «Сохранить» — после перезапуска значения прежние"
+  - id: A3.0-13.9
+    text: "Все новые UI-строки — русские"
+    review:
+      evidence: "A3.0-5/A3.0-6, решение §14 п.7 (локализация); ручной smoke A3.0-7"

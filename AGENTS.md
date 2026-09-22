@@ -310,6 +310,7 @@ cargo test           # юнит-тесты: 101 lib (cover, settings, playlist, 
 cargo test <name>    # один тест по фильтру
 cargo test audio::   # запуск только тестов аудио-подсистемы
 cargo clippy         # линт (0 новых варнингов в измененных файлах)
+python tools/acceptance.py status  # кросс-ОС приёмка спеки: отдельный этап при закрытии спеки, НЕ после каждой задачи (регламент — docstring скрипта)
 ```
 
 Сборка **требует** системные пакеты: `g++` и `libstdc++-dev` (Skia GPU-рендер Slint).

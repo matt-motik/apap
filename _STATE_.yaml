@@ -44,8 +44,9 @@ plan:
       status: done
       note: "06db033, 89ce5b8, 6a4f747; провал DSD512 CPU-бюджета вынесен в ROADMAP V5.1-11.1"
     - id: 5
-      description: "CI-проверка acceptance criteria"
-      status: todo
+      description: "Кросс-ОС приёмка спеки (вместо CI): tools/acceptance.py run/status, результаты по ОС в git, прогон при закрытии спеки, не на каждой задаче"
+      status: partial
+      note: "инструмент готов; ждёт прогонов пакета baseline-2026-09 на linux и windows (python tools/acceptance.py status)"
     - id: 6
       description: "Убрать ссылки из docs/ на запрещённый _DRAFTS_"
       status: done
