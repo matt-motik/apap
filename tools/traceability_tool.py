@@ -26,6 +26,16 @@ Validates, from ROADMAP.md and docs/spec_*.md, without touching either file:
      agent is forbidden to read that directory (AGENTS.md), so a spec that
      points into it is a reference that can never be followed
      (executable-workflow plan item 6).
+  7. Task tables are well-formed: every row has the header's column count
+     (a stray `|` inside a cell used to make the row silently skipped) and
+     a non-empty ID.
+  8. Task IDs are unique across the whole ROADMAP.
+  9. Статус starts with a known marker (✅ done, 🔄 in progress/partial,
+     ⬜ open); Приоритет is one of the known levels.
+ 10. Cross-references into ROADMAP resolve: _STATE_.yaml task.roadmap_id
+     (when in_progress) names an existing, not-✅ task; every known_issue in
+     docs/acceptance/*/criteria.yaml names an existing task (a ✅ one is a
+     warning — the issue is fixed, drop known_issue and re-run acceptance).
 
 Usage:
     python tools/traceability_tool.py check
@@ -37,6 +47,8 @@ import subprocess
 import sys
 from pathlib import Path
 
+import yaml
+
 ROOT = Path(__file__).resolve().parent.parent
 ROADMAP = ROOT / "ROADMAP.md"
 
@@ -45,6 +57,8 @@ SELF_PREFIX_RE = re.compile(r"Префикс[^`\n]*`([^`]+)`", re.IGNORECASE)
 DOC_LINK_RE = re.compile(r"\[[^\]]*\]\((docs/[^)#\s]+)(#[^)\s]+)?\)")
 HASH_TOKEN_RE = re.compile(r"`?\b([0-9a-f]{7,40})\b`?")
 DRAFTS_RE = re.compile(r"_DRAFTS_")
+STATUS_MARKERS = ("✅", "🔄", "⬜")
+PRIORITIES = {"🔴 Критический", "🟡 Высокий", "🟢 Средний", "🔵 Низкий", "—"}
 NO_COMMIT_EXPECTED_RE = re.compile(r"рабочем дереве|подтверждено пользователем", re.IGNORECASE)
 ID_RE = re.compile(r"^([A-Za-z][A-Za-z0-9]*\.[0-9]+)-([0-9]+(?:\.[0-9]+)*|B[0-9]+)$")
 
@@ -191,7 +205,10 @@ def find_tables(text: str) -> list[list[list[str]]]:
     return tables
 
 
-def check_task_table(res: Result, rows: list[list[str]], registry: dict[str, str]) -> None:
+def check_task_table(
+    res: Result, rows: list[list[str]], registry: dict[str, str], tasks: dict[str, str]
+) -> None:
+    """tasks: {id: status} accumulated across all task tables (for #8/#10)."""
     header = rows[0]
     try:
         id_idx = header.index("ID")
@@ -199,11 +216,27 @@ def check_task_table(res: Result, rows: list[list[str]], registry: dict[str, str
         tz_idx = header.index("ТЗ")
     except ValueError:
         return  # not a task table
+    prio_idx = header.index("Приоритет") if "Приоритет" in header else None
     for row in rows[1:]:
-        if len(row) <= max(id_idx, status_idx, tz_idx):
+        if len(row) != len(header):
+            first = row[0] if row else "?"
+            res.error(
+                f"ROADMAP task row '{first}': {len(row)} cells, header has {len(header)} "
+                "(unescaped '|' inside a cell?)"
+            )
             continue
         task_id, status, tz = row[id_idx], row[status_idx], row[tz_idx]
+        if not task_id:
+            res.error("ROADMAP task table: row with empty ID")
+            continue
         context = f"ROADMAP task {task_id}"
+        if task_id in tasks:
+            res.error(f"{context}: duplicate task ID")
+        tasks[task_id] = status
+        if not status.startswith(STATUS_MARKERS):
+            res.error(f"{context}: Статус must start with one of {' '.join(STATUS_MARKERS)} — got '{status[:40]}'")
+        if prio_idx is not None and row[prio_idx] not in PRIORITIES:
+            res.error(f"{context}: unknown Приоритет '{row[prio_idx]}' (allowed: {', '.join(sorted(PRIORITIES))})")
         m = ID_RE.match(task_id)
         if not m:
             res.error(f"{context}: ID does not match '<PREFIX>-<paragraph>[.sub]' or '<PREFIX>-B<n>'")
@@ -236,6 +269,30 @@ def check_microfix_table(res: Result, rows: list[list[str]]) -> None:
             res.error(f"{context}: commit '{m.group(1)}' does not exist in this repo's history")
 
 
+def check_cross_refs(res: Result, tasks: dict[str, str]) -> None:
+    state_path = ROOT / "_STATE_.yaml"
+    if state_path.exists():
+        state = yaml.safe_load(state_path.read_text(encoding="utf-8")) or {}
+        rid = (state.get("task") or {}).get("roadmap_id")
+        if state.get("status") == "in_progress" and rid:
+            if rid not in tasks:
+                res.error(f"_STATE_.yaml: task.roadmap_id '{rid}' is not a task in ROADMAP.md")
+            elif tasks[rid].startswith("✅"):
+                res.error(f"_STATE_.yaml: task.roadmap_id '{rid}' is already ✅ in ROADMAP.md")
+    acc_dir = ROOT / "docs" / "acceptance"
+    for crit_path in sorted(acc_dir.glob("*/criteria.yaml")) if acc_dir.exists() else []:
+        rel = crit_path.relative_to(ROOT).as_posix()
+        pkg = yaml.safe_load(crit_path.read_text(encoding="utf-8")) or {}
+        for c in pkg.get("criteria") or []:
+            ki = c.get("known_issue")
+            if not ki:
+                continue
+            if ki not in tasks:
+                res.error(f"{rel}: {c.get('id')}: known_issue '{ki}' is not a task in ROADMAP.md")
+            elif tasks[ki].startswith("✅"):
+                res.warn(f"{rel}: {c.get('id')}: known_issue '{ki}' is ✅ — drop known_issue and re-run acceptance")
+
+
 def check_no_drafts_refs(res: Result) -> None:
     for path in [ROADMAP, *sorted((ROOT / "docs").rglob("*.md"))]:
         rel = path.relative_to(ROOT).as_posix()
@@ -250,10 +307,12 @@ def cmd_check() -> int:
     check_self_declared_prefixes(res, registry)
 
     text = ROADMAP.read_text(encoding="utf-8")
+    tasks: dict[str, str] = {}
     for table in find_tables(text):
-        check_task_table(res, table, registry)
+        check_task_table(res, table, registry, tasks)
         check_microfix_table(res, table)
 
+    check_cross_refs(res, tasks)
     check_no_drafts_refs(res)
 
     for w in res.warnings:

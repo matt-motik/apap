@@ -53,8 +53,8 @@ plan:
       note: "ссылки удалены; traceability_tool.py check #6 не даёт вернуть"
     - id: 7
       description: "Сделать ROADMAP автоматически валидируемым"
-      status: partial
-      note: "уникальность префиксов и task → anchor покрыты в 1fefed3"
+      status: done
+      note: "1fefed3 (префиксы, якоря, коммиты) + проверки #7-10 traceability_tool: форма таблиц, уникальные ID, словарь статусов/приоритетов, ссылки из _STATE_ и acceptance known_issue"
     - id: 8
       description: "Затем — продолжать V5.1-7.4"
       status: todo
