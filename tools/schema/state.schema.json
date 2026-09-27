@@ -18,7 +18,7 @@
       "properties": {
         "roadmap_id": {
           "type": ["string", "null"],
-          "description": "ROADMAP.md task ID this session is working, e.g. 'A3.5'. Null only when status == done."
+          "description": "ROADMAP.md task ID this session is working, e.g. 'AM1.0-8.0'. Null only when status == done."
         },
         "title": {
           "type": ["string", "null"]
@@ -89,7 +89,7 @@
             "properties": {
               "id": { "type": "integer", "minimum": 1 },
               "description": { "type": "string" },
-              "status": { "type": "string", "enum": ["todo", "in_progress", "partial", "done"] },
+              "status": { "type": "string", "enum": ["todo", "in_progress", "partial", "done", "canceled"] },
               "note": {
                 "type": ["string", "null"],
                 "description": "Коммиты, остаток работы, ссылки на ROADMAP."

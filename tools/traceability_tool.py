@@ -4,7 +4,8 @@
 two bullets: "every task -> valid spec anchor", "every spec prefix ->
 unique").
 
-Validates, from ROADMAP.md and docs/spec_*.md, without touching either file:
+Validates, from ROADMAP.md and the specs it registers under docs/, without
+touching either:
 
   1. Every prefix in the registry table (ROADMAP.md header) is unique and
      points at a docs/ file that exists.
@@ -22,10 +23,11 @@ Validates, from ROADMAP.md and docs/spec_*.md, without touching either file:
      Rows explicitly marked "в рабочем дереве" / "подтверждено пользователем"
      (no commit expected) are exempted; anything else with ✅ and no
      hash-like token is a warning, not a hard error (pre-existing rows).
-  6. No file under docs/ and not ROADMAP.md mentions `_DRAFTS_/`: the
-     agent is forbidden to read that directory (AGENTS.md), so a spec that
-     points into it is a reference that can never be followed
-     (executable-workflow plan item 6).
+  6. Neither ROADMAP.md nor any file under docs/ (except the docs/_canceled/
+     archive) references a file inside `_DRAFTS_/`: the agent is forbidden
+     to read that directory (AGENTS.md), so a spec that points into it is a
+     reference that can never be followed (executable-workflow plan item 6).
+     Naming the directory itself (e.g. a prompt forbidding it) is allowed.
   7. Task tables are well-formed: every row has the header's column count
      (a stray `|` inside a cell used to make the row silently skipped) and
      a non-empty ID.
@@ -56,7 +58,9 @@ REGISTRY_ROW_RE = re.compile(r"^>\s*\|\s*`(docs/[^`]+)`\s*\|\s*`([^`]+)`\s*\|\s*
 SELF_PREFIX_RE = re.compile(r"Префикс[^`\n]*`([^`]+)`", re.IGNORECASE)
 DOC_LINK_RE = re.compile(r"\[[^\]]*\]\((docs/[^)#\s]+)(#[^)\s]+)?\)")
 HASH_TOKEN_RE = re.compile(r"`?\b([0-9a-f]{7,40})\b`?")
-DRAFTS_RE = re.compile(r"_DRAFTS_")
+# A path *into* _DRAFTS_/ (a file reference), not a bare mention of the dir.
+DRAFTS_RE = re.compile(r"_DRAFTS_/[^\s`'\")\]*,;:]")
+CANCELED_DIR = ROOT / "docs" / "_canceled"
 STATUS_MARKERS = ("✅", "🔄", "⬜")
 PRIORITIES = {"🔴 Критический", "🟡 Высокий", "🟢 Средний", "🔵 Низкий", "—"}
 NO_COMMIT_EXPECTED_RE = re.compile(r"рабочем дереве|подтверждено пользователем", re.IGNORECASE)
@@ -294,11 +298,12 @@ def check_cross_refs(res: Result, tasks: dict[str, str]) -> None:
 
 
 def check_no_drafts_refs(res: Result) -> None:
-    for path in [ROADMAP, *sorted((ROOT / "docs").rglob("*.md"))]:
+    docs = [p for p in sorted((ROOT / "docs").rglob("*.md")) if CANCELED_DIR not in p.parents]
+    for path in [ROADMAP, *docs]:
         rel = path.relative_to(ROOT).as_posix()
         for lineno, line in enumerate(path.read_text(encoding="utf-8").splitlines(), 1):
             if DRAFTS_RE.search(line):
-                res.error(f"{rel}:{lineno}: reference to forbidden _DRAFTS_/ directory")
+                res.error(f"{rel}:{lineno}: reference to a file in the forbidden _DRAFTS_/ directory")
 
 
 def cmd_check() -> int:

@@ -134,7 +134,7 @@ def validate_plan(plan: dict | None) -> list[str]:
     return errors
 
 
-PLAN_MARKS = {"done": "x", "partial": "~", "in_progress": ">", "todo": " "}
+PLAN_MARKS = {"done": "x", "partial": "~", "in_progress": ">", "todo": " ", "canceled": "-"}
 
 
 def render_plan(plan: dict | None) -> str:
@@ -150,7 +150,7 @@ def render_plan(plan: dict | None) -> str:
             line += f" — {item['note']}"
         lines.append(line)
     lines.append("")
-    lines.append("Легенда: [x] сделано · [~] частично · [>] в работе · [ ] не начато")
+    lines.append("Легенда: [x] сделано · [~] частично · [>] в работе · [ ] не начато · [-] отменено")
     return "\n".join(lines) + "\n"
 
 

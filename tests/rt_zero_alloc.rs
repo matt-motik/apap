@@ -1,4 +1,4 @@
-//! Machine-checkable proof of docs/spec_audio_core_v2.0.md §3.4 ("Тест-детектор
+//! Machine-checkable proof of docs/_canceled/spec_audio_core_v2.0.md §3.4 ("Тест-детектор
 //! аллокаций в колбэке" — a hard RT requirement, §8 budget table: "Аллокации в
 //! колбэке: 0, жёсткое требование") and §11.1 of spec_visualizer_v5.1.md
 //! ("Аллокации в горячем цикле: 0" for the LiveWorker path).

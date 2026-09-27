@@ -1,0 +1,8 @@
+{
+  "permissions": {
+    "deny": [
+      "Read(./docs/_canceled/**)",
+      "Read(./_DRAFTS_/**)"
+    ]
+  }
+}

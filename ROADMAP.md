@@ -3,15 +3,21 @@
 > **Нумерация задач:** ID = `<Префикс-спеки>-<параграф ТЗ>[.номер подзадачи]`, где
 > префикс уникально объявляется в шапке спеки в `docs/`. Реестр префиксов:
 >
-> | Спека                              | Префикс |
-> | ---------------------------------- | ------- |
-> | `docs/spec_visualizer_v5.1.md`     | `V5.1`  |
-> | `docs/spec_theme_v1.0.md`          | `T1.0`  |
-> | `docs/spec_audio_core_v2.0.md`     | `A2.0`  |
-> | `docs/spec_audio_settings_v3.0.md` | `A3.0`  |
-> | `docs/spec_audio_pipeline_v5.0.md`  | `AP5.0` |
+> | Спека                                          | Префикс |
+> | ---------------------------------------------- | ------- |
+> | `docs/01_audio_modes_v1.0/03_spec.md`          | `AM1.0` |
+> | `docs/spec_visualizer_v5.1.md`                 | `V5.1`  |
+> | `docs/spec_theme_v1.0.md`                      | `T1.0`  |
+> | `docs/_canceled/spec_audio_core_v2.0.md`       | `A2.0`  |
+> | `docs/_canceled/spec_audio_settings_v3.0.md`   | `A3.0`  |
+> | `docs/_canceled/spec_audio_pipeline_v5.0.md`   | `AP5.0` |
 >
-> Формат ссылки: `[§X.Y](docs/spec_visualizer_v5.1.md#xy-якорь)`.
+> `A2.0`, `A3.0` — выполнены, спеки в архиве `docs/_canceled/`; `AP5.0` —
+> отменена 2026-09-25 (не утверждалась), заменена `docs/01_audio_modes_v1.0/`.
+> Этапы внедрения: ID `<Префикс>-8.<N>` = этап СN таблицы §8 спецификации.
+> Структура документации — `docs/README.md`.
+>
+> Формат ссылки: `[§X.Y](docs/01_audio_modes_v1.0/03_spec.md#xy-якорь)`.
 >
 > История реализации: Этапы 1–5 + визуализатор — в
 > `_TODO_/history/archive_v0.2.md`; ЭТАП 6 + сессия R1–R3 + релиз v0.3 — в
@@ -37,14 +43,42 @@ DoP `V5.1-8.6.2`, подтверждённую пользователем на �
 архивирован** — система тем из TOML-файлов полностью реализована
 (технический паспорт — в `_TODO_/history/archive_v0.4.md`).
 
-**Спека A2.0 (`docs/spec_audio_core_v2.0.md`, префикс `A2.0`) выполнена и
+**Спека A2.0 (`docs/_canceled/spec_audio_core_v2.0.md`, префикс `A2.0`) выполнена и
 архивирована** — RT-харденинг: 0 аллокаций, честная индикация bit-perfect,
 Producer/Consumer (Worker → ring → RtConsumer, seek-хендшейк, DoP,
 `ring_buffer_ms`) (технический паспорт — в `_TODO_/history/archive_v0.5.md`).
 
 Релизы: `v0.1`, `v0.2` (тег на `a01c1bf`), **`v0.3`** — собран в `releases/v0.3/` (R1).
 
-Активная задача: нет (спека A2.0 закрыта; открытые пункты — раздел V5.1 ниже).
+**Аудио-тракт v1.0 (`docs/01_audio_modes_v1.0/`, префикс `AM1.0`)** — ТЗ и
+спецификация утверждены 2026-09-25; заменяют A2.0, A3.0 и отменённую AP5.0.
+
+Активная задача: `AM1.0-8.0` — этап С0 «Основа приёмки» (раздел AM1.0 ниже).
+
+## 🎯 АУДИО-ТРАКТ AM1.0 (три режима воспроизведения) — 🔄 реализация
+
+> Документация: [`docs/01_audio_modes_v1.0/`](docs/01_audio_modes_v1.0/03_spec.md) — ТЗ
+> `02_tz.md` (ТЗ-N), спецификация `03_spec.md` (ADR-N, этапы С0…С11), префикс `AM1.0`.
+> Этапы выполняются строго по порядку таблицы [§8](docs/01_audio_modes_v1.0/03_spec.md#8-этапы-внедрения);
+> после каждого — общие условия §8 (build/test/clippy зелёные, играет в Совместимом
+> режиме, нет «Bit-perfect» без ТЗ-52). Содержание этапа — в строке §8, здесь кратко.
+
+| ID | Задача | Приоритет | Статус | ТЗ |
+| -- | ------ | --------- | ------ | -- |
+| AM1.0-8.0 | С0. Основа приёмки: типы §2.1/§2.4, трейты `EngineDeps` и фейки, генераторы сигналов (ТЗ-114 каркас, ТЗ-100, ТЗ-101) | 🔴 Критический | 🔄 активный этап (микро-сессия не начата) | [§8 С0](docs/01_audio_modes_v1.0/03_spec.md#8-этапы-внедрения) |
+| AM1.0-8.1 | С1. P0 в текущем тракте и резервирование `org.freedesktop.ReserveDevice1` (ТЗ-1, 2, 3, 17, 92, 100, 101, 52; 48, 118–120, 122 в объёме старого пути) | 🔴 Критический | ⬜ открыто | [§8 С1](docs/01_audio_modes_v1.0/03_spec.md#8-этапы-внедрения) |
+| AM1.0-8.2 | С2. Новый формат блоков и колбэк: `SampleBlock`, `ExactI32`, типизированный ring, `PcmRender`/`DopRender` (ТЗ-4…10, 98, 99, 100) | 🟡 Высокий | ⬜ открыто | [§8 С2](docs/01_audio_modes_v1.0/03_spec.md#8-этапы-внедрения) |
+| AM1.0-8.3 | С3. Поток движка `apap-engine`, `EngineCmd`/`EngineEvent`, `EventSink`, `UiAudioState` (ТЗ-103, 104, 105, 86–88, 102, 45, 91, 60) | 🟡 Высокий | ⬜ открыто | [§8 С3](docs/01_audio_modes_v1.0/03_spec.md#8-этапы-внедрения) |
+| AM1.0-8.4 | С4. Модель режимов и настроек: `ModeSettings`, `PARAMS`, `load_mode_settings` без миграции (ТЗ-18, 19, 93–97, 124, 109–111, 128–131) | 🟡 Высокий | ⬜ открыто | [§8 С4](docs/01_audio_modes_v1.0/03_spec.md#8-этапы-внедрения) |
+| AM1.0-8.5 | С5. Путь сигнала, бейдж, окно: `plan()`, `SignalPath`, `verdict`, `recommend` (ТЗ-21–23, 25, 35–40, 52–57, 59, 60, 70–84, 106) | 🟡 Высокий | ⬜ открыто | [§8 С5](docs/01_audio_modes_v1.0/03_spec.md#8-этапы-внедрения) |
+| AM1.0-8.6 | С6. ALSA Exclusive, замок: `AlsaExclusiveBackend`, `acquire`/`configure` (ТЗ-48, 117–123, 42–47, 49–51, 112, 113, 125, 126, 30, 32, 131, 76) | 🟡 Высокий | ⬜ открыто | [§8 С6](docs/01_audio_modes_v1.0/03_spec.md#8-этапы-внедрения) |
+| AM1.0-8.7 | С7. DSP-корректность: полифазный SRC, DSD→PCM, дизеринг (ТЗ-11–13, 16, 22, 28, 29, 31, 33, 128–130, 132, 133) | 🟡 Высокий | ⬜ открыто | [§8 С7](docs/01_audio_modes_v1.0/03_spec.md#8-этапы-внедрения) |
+| AM1.0-8.8 | С8. Режимы полностью и пропуск треков: `Sequencer`, `SkipSeries`, смена режима на ходу (ТЗ-20, 24, 26–28, 34, 41, 85, 89–91, 127, 116) | 🟡 Высокий | ⬜ открыто | [§8 С8](docs/01_audio_modes_v1.0/03_spec.md#8-этапы-внедрения) |
+| AM1.0-8.9 | С9. «Тест», MD5, underrun и xrun: `apap-verify`, `TestSlot`, MD5 FLAC (ТЗ-61…69, 58, 75, 81) | 🟡 Высокий | ⬜ открыто | [§8 С9](docs/01_audio_modes_v1.0/03_spec.md#8-этапы-внедрения) |
+| AM1.0-8.10 | С10. P2: качество и производительность — замеры и оптимизации (ТЗ-99, 14, 15, 64, 104, 106–108, 73) | 🟢 Средний | ⬜ открыто | [§8 С10](docs/01_audio_modes_v1.0/03_spec.md#8-этапы-внедрения) |
+| AM1.0-8.11 | С11. Приёмка: таблица ТЗ-115 закрыта, ручные сценарии §7.6 на Linux и Windows, пакет `docs/acceptance/<name>/` (ТЗ-115, 116) | 🟡 Высокий | ⬜ открыто | [§8 С11](docs/01_audio_modes_v1.0/03_spec.md#8-этапы-внедрения) |
+
+---
 
 ## 🔴 БАГ-РАУНД (критические, из реальной эксплуатации)
 
@@ -62,7 +96,7 @@ Producer/Consumer (Worker → ring → RtConsumer, seek-хендшейк, DoP,
 
 | Дата       | Коммит         | Описание                                                                                                                                                                                                                                                                                                                                                     | Спека                                                                          |
 | ---------- | -------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ | ------------------------------------------------------------------------------ |
-| 2026-09-19 | рабочее дерево | Багфикс `ui/app.slint`: корректная передача callback-событий окна bit-perfect report и открытия настроек                                                                                                                                                                                                                                                     | [§6](docs/spec_audio_settings_v3.0.md#6-bit-perfect-report)                    |
+| 2026-09-19 | рабочее дерево | Багфикс `ui/app.slint`: корректная передача callback-событий окна bit-perfect report и открытия настроек                                                                                                                                                                                                                                                     | [§6](docs/_canceled/spec_audio_settings_v3.0.md#6-bit-perfect-report)                    |
 | 2026-09-16 | `a878506`      | Устойчивость списка устройств: `CpalHost::devices()` больше не выбрасывает карту при транзиентном сбое `default_output_config()` (фолбэк на первый 2ch-supported конфиг) — ЦАП не «пропадает» из списка при Refresh; `drain_audio_devices` не затирает прежний список пустым результатом энумерации; пустой список помечается «(no devices — retry Refresh)» | —                                                                              |
 | 2026-09-16 | `38774f0`      | Выбор аудио-устройства в окне настроек вводит пользователя в заблуждение: дубликаты имён (несколько «ADI-2 DAC…»), серверные узлы PipeWire/Pulse выглядят как аппаратные. Фикс: дедупликация списка, группировка (прямые hw-узлы сверху, серверные снизу с пометкой «(software, resamples)»), label→raw-маппинг при выборе                                   | —                                                                              |
 | 2026-09-16 | `97c859c`      | Упрощено сообщение «визуализация недоступна для DSD»: убран путь к файлу, текст компактнее; `vertical-alignment: bottom` для плейсхолдера                                                                                                                                                                                                                    | [§6.4](docs/spec_visualizer_v5.1.md#64-оптимизация-для-dsd-skip_fulltrack_for_dsd) |
@@ -88,27 +122,27 @@ Producer/Consumer (Worker → ring → RtConsumer, seek-хендшейк, DoP,
 
 ## 🎯 СПЕКА A2.0 (Real-Time аудио-ядро) — ✅ выполнена
 
-> Спека: [`docs/spec_audio_core_v2.0.md`](docs/spec_audio_core_v2.0.md), префикс `A2.0`.
+> Спека (архив): [`docs/_canceled/spec_audio_core_v2.0.md`](docs/_canceled/spec_audio_core_v2.0.md), префикс `A2.0`.
 > Все подзадачи A2.0-3 / A2.0-4 / A2.0-5 закрыты ✅ в `main` (полная таблица
 > шагов и технический паспорт — в `_TODO_/history/archive_v0.5.md`).
 
 ---
 
-## 🎯 СПЕКА A3.0 (Audio Settings Rework) — ⬜ в бэклоге
+## 🎯 СПЕКА A3.0 (Audio Settings Rework) — ✅ выполнена, спека в архиве
 
-> Спека: [`docs/spec_audio_settings_v3.0.md`](docs/spec_audio_settings_v3.0.md), префикс `A3.0`.
+> Спека (архив): [`docs/_canceled/spec_audio_settings_v3.0.md`](docs/_canceled/spec_audio_settings_v3.0.md), префикс `A3.0`.
 > Устройства/Capabilities/Validation, DSD preference chain, bit-perfect report.
-> Внедрение стадиями из [§12](docs/spec_audio_settings_v3.0.md#12-этапы-внедрения) — A3.0-1 → A3.0-7.
+> Внедрение стадиями из [§12](docs/_canceled/spec_audio_settings_v3.0.md#12-этапы-внедрения) — A3.0-1 → A3.0-7.
 
 | ID   | Задача                                                                                                                                                                  | Приоритет  | Статус                                                | ТЗ                                                                                                                                                                                                                          |
 | ---- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ---------- | ----------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| A3.0-1 | Модель настроек: `ExclusiveMode`, `FallbackPolicy`, `ResamplerMode`, `ClockFamily`, `FallbackRatePolicy`; расширение `AudioResamplerCfg` / `AudioCfg`; round-trip тесты | 🟡 Высокий | ✅ сделано в `95f0a3d` (ветка `main`)                 | [§2](docs/spec_audio_settings_v3.0.md#2-модель-данных-rust)                                                                                                                                                                 |
-| A3.0-2 | Backend: `DeviceCategory`/`classify_device`, расширение `DeviceInfo` (rates/formats/exclusive_capable/desc), `dop_container_rate`                                       | 🟢 Средний | ✅ сделано в `9a84b39` (ветка `main`)                 | [§3.1](docs/spec_audio_settings_v3.0.md#31-devicecategory) · [§3.2](docs/spec_audio_settings_v3.0.md#32-deviceinfo--расширение)                                                                                             |
-| A3.0-3 | Backend: `choose_output` по политикам, `FallbackReason`, `ChosenOutput`, `describe_stream`; `validate_audio_settings` (11 строк) + тесты                                | 🟡 Высокий | ✅ сделано в `5c1dd81` (ветка `main`)                 | [§3.3](docs/spec_audio_settings_v3.0.md#33-chosenoutput--расширение) · [§3.4](docs/spec_audio_settings_v3.0.md#34-choose_output--обновлённый-алгоритм) · [§5](docs/spec_audio_settings_v3.0.md#5-validation-чистая-функция) |
-| A3.0-4 | `Player`: DSD preference chain, exclusive retry, `StreamDesc`, `try_open_dsd`, `TestHooks` (scoped seam)                                                                | 🟡 Высокий | ✅ сделано в `1e02f53` (ветка main)                   | [§4](docs/spec_audio_settings_v3.0.md#4-dsd-preference-chain)                                                                                                                                                               |
-| A3.0-5 | UI вкладки Audio: capabilities, validation, фильтры, Advanced (draft-only) + `sync_capabilities_and_validation`/`sync_dsd_chain_desc`                                   | 🟢 Средний | ✅ сделано в `74d5fcb` (ветка `main`)                 | [§7](docs/spec_audio_settings_v3.0.md#7-ui) · [§8](docs/spec_audio_settings_v3.0.md#8-appui_managerrs--расширения)                                                                                                          |
-| A3.0-6 | Bit-perfect report: `bp_report.rs` + `bp_report.slint`, badge click, `stream_desc` в `MusicApp`                                                                         | 🟡 Высокий | ✅ сделано в рабочем дереве (cargo check/clippy/test) | [§6](docs/spec_audio_settings_v3.0.md#6-bit-perfect-report) · [§9](docs/spec_audio_settings_v3.0.md#9-appbp_reportrs--новый-модуль) · [§10](docs/spec_audio_settings_v3.0.md#10-appplayback_managerrs--stream_desc)         |
-| A3.0-7 | Ручной smoke (ADI-2/PipeWire), правка дефолтов, документирование в `AGENTS.md`                                                                                          | 🟢 Средний | ✅ подтверждено пользователем 2026-09-19              | [§11.6](docs/spec_audio_settings_v3.0.md#116-ручной-smoke)                                                                                                                                                                  |
+| A3.0-1 | Модель настроек: `ExclusiveMode`, `FallbackPolicy`, `ResamplerMode`, `ClockFamily`, `FallbackRatePolicy`; расширение `AudioResamplerCfg` / `AudioCfg`; round-trip тесты | 🟡 Высокий | ✅ сделано в `95f0a3d` (ветка `main`)                 | [§2](docs/_canceled/spec_audio_settings_v3.0.md#2-модель-данных-rust)                                                                                                                                                                 |
+| A3.0-2 | Backend: `DeviceCategory`/`classify_device`, расширение `DeviceInfo` (rates/formats/exclusive_capable/desc), `dop_container_rate`                                       | 🟢 Средний | ✅ сделано в `9a84b39` (ветка `main`)                 | [§3.1](docs/_canceled/spec_audio_settings_v3.0.md#31-devicecategory) · [§3.2](docs/_canceled/spec_audio_settings_v3.0.md#32-deviceinfo--расширение)                                                                                             |
+| A3.0-3 | Backend: `choose_output` по политикам, `FallbackReason`, `ChosenOutput`, `describe_stream`; `validate_audio_settings` (11 строк) + тесты                                | 🟡 Высокий | ✅ сделано в `5c1dd81` (ветка `main`)                 | [§3.3](docs/_canceled/spec_audio_settings_v3.0.md#33-chosenoutput--расширение) · [§3.4](docs/_canceled/spec_audio_settings_v3.0.md#34-choose_output--обновлённый-алгоритм) · [§5](docs/_canceled/spec_audio_settings_v3.0.md#5-validation-чистая-функция) |
+| A3.0-4 | `Player`: DSD preference chain, exclusive retry, `StreamDesc`, `try_open_dsd`, `TestHooks` (scoped seam)                                                                | 🟡 Высокий | ✅ сделано в `1e02f53` (ветка main)                   | [§4](docs/_canceled/spec_audio_settings_v3.0.md#4-dsd-preference-chain)                                                                                                                                                               |
+| A3.0-5 | UI вкладки Audio: capabilities, validation, фильтры, Advanced (draft-only) + `sync_capabilities_and_validation`/`sync_dsd_chain_desc`                                   | 🟢 Средний | ✅ сделано в `74d5fcb` (ветка `main`)                 | [§7](docs/_canceled/spec_audio_settings_v3.0.md#7-ui) · [§8](docs/_canceled/spec_audio_settings_v3.0.md#8-appui_managerrs--расширения)                                                                                                          |
+| A3.0-6 | Bit-perfect report: `bp_report.rs` + `bp_report.slint`, badge click, `stream_desc` в `MusicApp`                                                                         | 🟡 Высокий | ✅ сделано в рабочем дереве (cargo check/clippy/test) | [§6](docs/_canceled/spec_audio_settings_v3.0.md#6-bit-perfect-report) · [§9](docs/_canceled/spec_audio_settings_v3.0.md#9-appbp_reportrs--новый-модуль) · [§10](docs/_canceled/spec_audio_settings_v3.0.md#10-appplayback_managerrs--stream_desc)         |
+| A3.0-7 | Ручной smoke (ADI-2/PipeWire), правка дефолтов, документирование в `AGENTS.md`                                                                                          | 🟢 Средний | ✅ подтверждено пользователем 2026-09-19              | [§11.6](docs/_canceled/spec_audio_settings_v3.0.md#116-ручной-smoke)                                                                                                                                                                  |
 
 ---
 
@@ -116,4 +150,5 @@ Producer/Consumer (Worker → ring → RtConsumer, seek-хендшейк, DoP,
 
 > FUTURE-БЛОК удалён (R2): идеи (tracing, хоткеи, Builder Pattern, SIMD/GPU,
 > тесты менеджеров, Tray/Cover Service) хранятся у пользователя вне ROADMAP,
-> чтобы не путать агента. Для возврата любой идеи — заново через `_TODO_/`.
+> чтобы не путать агента. Для возврата любой идеи — заново через чат
+> (новая задача — по `docs/_template/process.md`).
