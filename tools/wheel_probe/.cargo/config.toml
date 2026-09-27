@@ -1,0 +1,3 @@
+# Тот же стиль виджетов, что у плеера (build.rs: with_style("fluent")).
+[env]
+SLINT_STYLE = "fluent"

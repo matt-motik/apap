@@ -1,0 +1,31 @@
+[package]
+name = "wheel_probe"
+version = "0.1.0"
+edition = "2021"
+publish = false
+description = "Эксперимент задачи 02: сырые дельты колёсика/тачпада над ползунком Slint и над иконкой трея"
+
+# Самостоятельный крейт: не часть корневого пакета плеера.
+[workspace]
+
+[dependencies]
+# Та же версия, что в корневом Cargo.lock (slint 1.17.1). Бэкенд winit — как у плеера;
+# рендерер программный (без Skia): на события ввода не влияет, собирается везде.
+# unstable-winit-030 — доступ к сырым WindowEvent::MouseWheel winit.
+slint = { version = "=1.17.1", default-features = false, features = [
+    "std",
+    "compat-1-2",
+    "backend-winit",
+    "backend-winit-x11",
+    "backend-winit-wayland",
+    "renderer-software",
+    "unstable-winit-030",
+] }
+
+# Трей плеера существует только как StatusNotifierItem (ksni, D-Bus); версии — как в корневом Cargo.lock.
+[target.'cfg(target_os = "linux")'.dependencies]
+ksni = "=0.3.6"
+tokio = { version = "=1.53.1", features = ["rt"] }
+
+[profile.release]
+opt-level = 3
