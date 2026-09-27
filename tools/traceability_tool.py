@@ -59,7 +59,7 @@ SELF_PREFIX_RE = re.compile(r"Префикс[^`\n]*`([^`]+)`", re.IGNORECASE)
 DOC_LINK_RE = re.compile(r"\[[^\]]*\]\((docs/[^)#\s]+)(#[^)\s]+)?\)")
 HASH_TOKEN_RE = re.compile(r"`?\b([0-9a-f]{7,40})\b`?")
 # A path *into* _DRAFTS_/ (a file reference), not a bare mention of the dir.
-DRAFTS_RE = re.compile(r"_DRAFTS_/[^\s`'\")\]*,;:]")
+DRAFTS_RE = re.compile(r"_DRAFTS_/[^\s`'\")\]*,;:.]")
 CANCELED_DIR = ROOT / "docs" / "_canceled"
 STATUS_MARKERS = ("✅", "🔄", "⬜")
 PRIORITIES = {"🔴 Критический", "🟡 Высокий", "🟢 Средний", "🔵 Низкий", "—"}
