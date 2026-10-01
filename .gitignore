@@ -3,3 +3,4 @@
 /.vs/
 .venv/
 tools/acceptance.local.yaml
+opencode.exe
