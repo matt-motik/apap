@@ -302,7 +302,8 @@ mod tests {
     #[test]
     fn classify_os_errors() {
         use WriteErrorClass::*;
-        let cases: [(&[(i32, WriteErrorClass)], &[(i32, WriteErrorClass)]); 3] = [
+        type Table = &'static [(i32, WriteErrorClass)];
+        let cases: [(Table, Table); 3] = [
             (LINUX_CODES, &[(28, NoSpace), (122, NoSpace), (13, NoAccess), (1, NoAccess), (30, ReadOnlyFs), (5, Io)]),
             (MACOS_CODES, &[(28, NoSpace), (69, NoSpace), (13, NoAccess), (1, NoAccess), (30, ReadOnlyFs), (122, Io)]),
             (
