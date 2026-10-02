@@ -1102,8 +1102,13 @@ impl SettingsStore {
     /// Read settings from `config_dir()/settings.toml` (or defaults if
     /// missing/corrupt), migrate legacy fields and write the result back.
     pub fn load() -> Self {
-        let dir = config_dir();
-        let path = dir.join("settings.toml");
+        Self::load_from(config_dir().join("settings.toml"))
+    }
+
+    /// Read settings from `path` (or defaults if missing/corrupt), migrate
+    /// legacy fields and write the result back. Путь приходит из `main`
+    /// (`ConfigPaths`), каталог пользователя здесь не ищется (ADR-19, ТЗ-49).
+    pub fn load_from(path: PathBuf) -> Self {
         let raw = fs::read_to_string(&path).ok();
         let mut settings = match &raw {
             Some(contents) => toml::from_str(contents).unwrap_or_default(),

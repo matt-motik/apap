@@ -25,7 +25,7 @@ steps:
     done: true
   - id: 2
     description: "SettingsStore::load_from(path) в src/settings.rs; load() пока делегирует (ADR-19). Проверка: cargo check"
-    done: false
+    done: true
   - id: 3
     description: "main.rs: config_dir() → ConfigPaths, создание файлов тем; MusicApp::new(ui, paths) хранит пути и грузит настройки через load_from (ADR-19, ADR-23). Файлы: src/main.rs, src/app/mod.rs. Проверка: cargo check"
     done: false
@@ -42,8 +42,8 @@ steps:
     description: "Финальная верификация: cargo test, cargo clippy (фильтр по вайтлисту), grep 'config_dir()' только в src/main.rs и определении. Проверка: всё зелёное"
     done: false
 
-current_step: 2
-next_action: "Добавить SettingsStore::load_from(path) в src/settings.rs"
+current_step: 3
+next_action: "main.rs строит ConfigPaths и темы; MusicApp::new(ui, paths)"
 
 fail_counter: 0
 fail_counter_max: 3
