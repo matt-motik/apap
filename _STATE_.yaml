@@ -65,5 +65,5 @@ plan:
       description: "Реализация AM1.0 + SP1.0 по сквозному порядку (ROADMAP.md): docs/01_audio_modes_v1.0/ (С0…С11) и docs/02_settings_persistence_v1.0/ (С0…С12) — ТЕКУЩАЯ ОСНОВНАЯ ЗАДАЧА"
       status: in_progress
       note: >-
-        Закрыты SP1.0-8.0 (С0, f3a4c55) и SP1.0-8.1 (С1 «Модуль ФС и журнал», c6b6d32). Следующий этап — третий пункт „Сквозного порядка“ ROADMAP.md, микро-сессия не начата. Отложено из С1: MemStore::delay_write/next_wake и ManualClock — в С4; сборка на Windows/macOS проверена только ревью (rustup нет) — проверить cargo build на Windows-ноутбуке; ручной strace ТЗ-19 — в С12.
+        Закрыты SP1.0-8.0 (С0, f3a4c55) и SP1.0-8.1 (С1 «Модуль ФС и журнал», 479bd2e). Следующий этап по сквозному порядку: AM1.0-8.0 (С0 «Основа приёмки», docs/01_audio_modes_v1.0), микро-сессия не начата. Отложено из С1: MemStore::delay_write/next_wake и ManualClock — в С4; сборка на Windows/macOS проверена только ревью (rustup нет) — проверить cargo build на Windows-ноутбуке; ручной strace ТЗ-19 — в С12.
         Старт этапа — AGENTS.md Шаги 2–3: прочитать строку этапа §8 и все относящиеся разделы (ТЗ-N, ADR-N, §2–§3, §5, §6, §7).
