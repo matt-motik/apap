@@ -477,9 +477,8 @@ impl Player {
     /// Build the consumer stream and spawn the producer worker. On a
     /// `Fixed`-buffer rejection the stream is retried with `Default` (the
     /// source/resampler are only handed to the worker once the stream builds).
-    /// When the stream was selected as `exclusive` and the build fails, §4.3
-    /// applies: `Auto` downgrades to shared (one retry), `Strict` returns the
-    /// error unchanged.
+    /// Отказ сборки Exclusive-потока возвращается как ошибка: отката в Shared
+    /// нет ни при каком `ExclusiveMode` (ТЗ-119, ТЗ-122; DoP — ТЗ-1).
     fn start_engine(
         &mut self,
         source: Box<dyn AudioSource>,
@@ -500,7 +499,6 @@ impl Player {
         }
 
         let viz_tap = self.viz_tap.clone();
-        let mut exclusive_retried = false;
         loop {
             // Recompute per iteration so the `Default` retry gets a floor that
             // matches the actual (unknown) callback period less aggressively.
@@ -531,22 +529,6 @@ impl Player {
                 Err(e) => {
                     if matches!(spec.config.buffer_size, BufferSize::Fixed(_)) {
                         spec.config.buffer_size = BufferSize::Default;
-                        continue;
-                    }
-                    // Exclusive stream rejected: one shared downgrade (Auto) or
-                    // fail through (Strict), ТЗ A3.0 §4.3.
-                    if spec.exclusive
-                        && self.exclusive_mode == ExclusiveMode::Auto
-                        && !exclusive_retried
-                    {
-                        exclusive_retried = true;
-                        spec.exclusive = false;
-                        spec.sample_format = SampleFormat::F32;
-                        spec.config.buffer_size = BufferSize::Default;
-                        if let Some(desc) = self.stream_desc.as_mut() {
-                            desc.exclusive = false;
-                            desc.exclusive_fallback = true;
-                        }
                         continue;
                     }
                     return Err(e);
@@ -666,6 +648,8 @@ impl Player {
         };
         let mut spec = select_output_for(&req)?;
 
+        // DoP только в Exclusive (ТЗ-1): в Shared цепочка DSD переходит к PCM.
+        dop_requires_exclusive(spec.exclusive)?;
         // DoP is bit-exact only when the device opens the exact container slot.
         if spec.config.sample_rate != dop_rate || spec.config.channels as usize != src_ch {
             let offered = format!("{} Hz × {} ch", spec.config.sample_rate, spec.config.channels);
@@ -1193,6 +1177,16 @@ pub fn audio_callback_i32_pcm_rt(consumer: &mut RtConsumer, data: &mut [i32]) {
     }
     if produced < data.len() {
         finish_if_eof(consumer, produced, data.len());
+    }
+}
+
+/// DoP допустим только на Exclusive-выходе (ТЗ-1). Ошибка ведёт цепочку DSD
+/// к следующему шагу (DSD→PCM).
+fn dop_requires_exclusive(exclusive: bool) -> Result<(), String> {
+    if exclusive {
+        Ok(())
+    } else {
+        Err("DoP недоступен: выход открыт не в Exclusive (ТЗ-1)".into())
     }
 }
 
@@ -1958,24 +1952,12 @@ mod tests {
         p.stop();
     }
 
-    /// `ExclusiveMode::Auto` при отказе сборки делает один downgrade к shared
-    /// и открывает поток заново (§4.3). Требует exclusive-capable устройство.
+    /// ТЗ-1, И-Т3 (в объёме старого пути): DoP-поток не строится на выходе,
+    /// открытом не в Exclusive.
     #[test]
-    fn open_auto_falls_back_once_on_exclusive_failure() {
-        let Some(path) = env_pcm_path() else {
-            return;
-        };
-        if !default_exclusive_capable() {
-            eprintln!("skipped: default device is not exclusive-capable");
-            return;
-        }
-        let mut p = Player::test_new();
-        p.set_exclusive_mode(ExclusiveMode::Auto);
-        p.test_hooks.build_failures.store(1, Ordering::Relaxed);
-        assert!(p.open(&path).is_ok());
-        let desc = p.stream_desc().unwrap();
-        assert!(!desc.exclusive, "downgraded stream must be shared");
-        assert!(desc.exclusive_fallback, "fallback must be recorded");
+    fn old_path_dop_requires_exclusive() {
+        assert!(dop_requires_exclusive(false).is_err());
+        assert!(dop_requires_exclusive(true).is_ok());
     }
 
     /// Цепочка `Native → [Native, DoP, Pcm]`: Native не реализован, DoP

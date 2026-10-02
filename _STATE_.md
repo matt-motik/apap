@@ -35,7 +35,7 @@
 ## Итерационный трекер
 [x] Шаг 1: DoPFramer::reset и сброс упаковщика DoP при seek в DsdDecoder (R-24, ADR-12, ТЗ-2). Файлы: src/audio/dop.rs, src/audio/dsd.rs. Проверка: cargo test dop
 [x] Шаг 2: DoP-колбэк старого пути: маркер по собственному счётчику фазы колбэка, нагрузка 0x6969 в паузе/seek/underrun (ADR-12 Б, ТЗ-2, ТЗ-3). Файлы: src/audio/player.rs, src/audio/worker.rs. Проверка: cargo test dop_markers_continuous_through_pause_seek_underrun dop_silence_payload_is_6969
-[ ] Шаг 3: DoP только в Exclusive в старом пути: open_dop отклоняет Shared, Exclusive-поток без отката в Shared (ТЗ-1). Файл: src/audio/player.rs. Проверка: cargo test old_path_dop_requires_exclusive
+[x] Шаг 3: DoP только в Exclusive в старом пути: open_dop отклоняет Shared, Exclusive-поток без отката в Shared (ТЗ-1). Файл: src/audio/player.rs. Проверка: cargo test old_path_dop_requires_exclusive
 [ ] Шаг 4: ТЗ-17: clamp в текущем квантовании колбэков i16/u8/i32 (без wrap-around). Файл: src/audio/player.rs. Проверка: cargo test no_wraparound
 [ ] Шаг 5: Лимиты разбора DSF/DFF §6.29 (channels 1..=8, block 1..=65536, checked-арифметика, offset ≤ file_len, буферы по min(заявлено, file_len)) (ТЗ-92). Файл: src/audio/dsd.rs. Проверка: cargo test dsf_corrupt_headers_error_not_panic dff_chunk_size_overflow_error truncated_files_error
 [ ] Шаг 6: Фаззинг разборщиков: tests/parsers_survive_mutations.rs, 10 000 итераций, счётчик аллокаций ≤ file_len + 16 МиБ, APAP_FUZZ_ITERS только увеличивает (ТЗ-92, И-Р15). Проверка: cargo test --test parsers_survive_mutations
@@ -49,8 +49,8 @@
 [ ] Шаг 14: Приложение: опрос резервирования на тике 100 мс, продолжение воспроизведения после Held, ошибка захвата и NameLost — стоп и сообщение. Файлы: src/app/playback_manager.rs, src/app/mod.rs. Проверка: cargo build; запуск
 [ ] Шаг 15: Финальная верификация: cargo build/test/clippy; ручные сценарии ТЗ-1/2/48/118/119/120/122 — пользователю. Проверка: всё зелёное
 
-- **Текущий шаг (current_step):** Шаг 3
-- **Следующий ход:** DoP только в Exclusive в старом пути
+- **Текущий шаг (current_step):** Шаг 4
+- **Следующий ход:** ТЗ-17: clamp в квантовании колбэков
 - **Счетчик безуспешных компиляций:** 0/3
 - **Состояние:** in_progress
 

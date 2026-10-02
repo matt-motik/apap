@@ -44,7 +44,7 @@ steps:
     done: true
   - id: 3
     description: "DoP только в Exclusive в старом пути: open_dop отклоняет Shared, Exclusive-поток без отката в Shared (ТЗ-1). Файл: src/audio/player.rs. Проверка: cargo test old_path_dop_requires_exclusive"
-    done: false
+    done: true
   - id: 4
     description: "ТЗ-17: clamp в текущем квантовании колбэков i16/u8/i32 (без wrap-around). Файл: src/audio/player.rs. Проверка: cargo test no_wraparound"
     done: false
@@ -82,8 +82,8 @@ steps:
     description: "Финальная верификация: cargo build/test/clippy; ручные сценарии ТЗ-1/2/48/118/119/120/122 — пользователю. Проверка: всё зелёное"
     done: false
 
-current_step: 3
-next_action: "DoP только в Exclusive в старом пути"
+current_step: 4
+next_action: "ТЗ-17: clamp в квантовании колбэков"
 
 fail_counter: 0
 fail_counter_max: 3
