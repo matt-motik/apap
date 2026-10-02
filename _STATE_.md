@@ -23,11 +23,11 @@
   - tests/data/
   - tools/check_rt_imports.py
   - hooks/pre-commit
-- **Критерий успеха (Definition of Done):** cargo build/test/clippy зелёные; новые модули С0 с #![deny(unwrap_used, expect_used, unreachable)] без нарушений; [lints.clippy] warn для старого кода, код Slint обёрнут allow; tests/data сгенерированы скриптом; check_rt_imports в pre-commit. Решения пользователя 2026-10-02: EngineDeps по этапам (таблица под §8), Container с Adts.
+- **Критерий успеха (Definition of Done):** Линтер: до обёртки Slint 3248 предупреждений (3231 в коде Slint), после — 17 в старом коде (С1). cargo build/test/clippy зелёные; новые модули С0 с #![deny(unwrap_used, expect_used, unreachable)] без нарушений; [lints.clippy] warn для старого кода, код Slint обёрнут allow; tests/data сгенерированы скриптом; check_rt_imports в pre-commit. Решения пользователя 2026-10-02: EngineDeps по этапам (таблица под §8), Container с Adts.
 
 ## Итерационный трекер
 [x] Шаг 1: Правки 03_spec.md по решению пользователя 2026-10-02 (шапка, Container в §2.1, С0/С3 в §8, таблица «Трейт → этап») + ROADMAP 🔄. Проверка: traceability_tool check
-[ ] Шаг 2: Линтер §7.7: [lints.clippy] unwrap_used/expect_used/unreachable = warn; slint::include_modules! в модуле с allow (ТЗ-101). Файлы: Cargo.toml, src/app/mod.rs. Проверка: cargo clippy, число предупреждений до/после
+[x] Шаг 2: Линтер §7.7: [lints.clippy] unwrap_used/expect_used/unreachable = warn; slint::include_modules! в модуле с allow (ТЗ-101). Файлы: Cargo.toml, src/app/mod.rs. Проверка: cargo clippy, число предупреждений до/после
 [ ] Шаг 3: audio/format.rs: типы §2.1 + Container, конструкторы с проверкой, field_bits, RateFamily (ТЗ-12, ТЗ-74, ТЗ-101); smallvec прямой зависимостью. Файлы: src/audio/format.rs, src/audio/mod.rs, Cargo.toml. Проверка: cargo test audio::format
 [ ] Шаг 4: audio/error.rs: Incompatibility, CaptureFailure, FileError, CorruptKind, StreamFault, EngineFault, ErrorClass, DeviceChoiceKind; RateSet в audio/backend/mod.rs (§2.3, §2.4). Проверка: cargo test audio::error
 [ ] Шаг 5: audio/clock.rs: Clock, ClockInstant, MonotonicClock (ADR-20, ОВС-10 п. 7). Проверка: cargo test audio::clock
@@ -36,8 +36,8 @@
 [ ] Шаг 8: tools/check_rt_imports.py (§7.7, ТЗ-98, ТЗ-102) + вызов в hooks/pre-commit. Проверка: скрипт на audio/render/** (пока нет) — OK; на тестовом нарушении — ошибка
 [ ] Шаг 9: Финальная верификация: cargo build/test/clippy; отчёт о числе предупреждений старого кода. Проверка: всё зелёное
 
-- **Текущий шаг (current_step):** Шаг 2
-- **Следующий ход:** Линтер: [lints.clippy] warn + обёртка include_modules
+- **Текущий шаг (current_step):** Шаг 3
+- **Следующий ход:** audio/format.rs: типы §2.1 + Container
 - **Счетчик безуспешных компиляций:** 0/3
 - **Состояние:** in_progress
 

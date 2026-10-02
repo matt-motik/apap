@@ -26,7 +26,7 @@ whitelist:
   - tools/check_rt_imports.py
   - hooks/pre-commit
 
-dod: "cargo build/test/clippy зелёные; новые модули С0 с #![deny(unwrap_used, expect_used, unreachable)] без нарушений; [lints.clippy] warn для старого кода, код Slint обёрнут allow; tests/data сгенерированы скриптом; check_rt_imports в pre-commit. Решения пользователя 2026-10-02: EngineDeps по этапам (таблица под §8), Container с Adts."
+dod: "Линтер: до обёртки Slint 3248 предупреждений (3231 в коде Slint), после — 17 в старом коде (С1). cargo build/test/clippy зелёные; новые модули С0 с #![deny(unwrap_used, expect_used, unreachable)] без нарушений; [lints.clippy] warn для старого кода, код Slint обёрнут allow; tests/data сгенерированы скриптом; check_rt_imports в pre-commit. Решения пользователя 2026-10-02: EngineDeps по этапам (таблица под §8), Container с Adts."
 
 steps:
   - id: 1
@@ -34,7 +34,7 @@ steps:
     done: true
   - id: 2
     description: "Линтер §7.7: [lints.clippy] unwrap_used/expect_used/unreachable = warn; slint::include_modules! в модуле с allow (ТЗ-101). Файлы: Cargo.toml, src/app/mod.rs. Проверка: cargo clippy, число предупреждений до/после"
-    done: false
+    done: true
   - id: 3
     description: "audio/format.rs: типы §2.1 + Container, конструкторы с проверкой, field_bits, RateFamily (ТЗ-12, ТЗ-74, ТЗ-101); smallvec прямой зависимостью. Файлы: src/audio/format.rs, src/audio/mod.rs, Cargo.toml. Проверка: cargo test audio::format"
     done: false
@@ -57,8 +57,8 @@ steps:
     description: "Финальная верификация: cargo build/test/clippy; отчёт о числе предупреждений старого кода. Проверка: всё зелёное"
     done: false
 
-current_step: 2
-next_action: "Линтер: [lints.clippy] warn + обёртка include_modules"
+current_step: 3
+next_action: "audio/format.rs: типы §2.1 + Container"
 
 fail_counter: 0
 fail_counter_max: 3

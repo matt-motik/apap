@@ -120,7 +120,13 @@ struct VizSig {
     dsd_cic_compensation: bool,
 }
 
-slint::include_modules!();
+/// Сгенерированный код Slint: `unwrap`/`expect` в нём не наши, поэтому линтер
+/// прод-кода (AM1.0 §7.7, ТЗ-101) для этого модуля отключён.
+#[allow(clippy::unwrap_used, clippy::expect_used, clippy::unreachable)]
+mod slint_generated {
+    slint::include_modules!();
+}
+pub use slint_generated::*;
 
 pub fn create_ui() -> Result<AppWindow, slint::PlatformError> {
     AppWindow::new()
