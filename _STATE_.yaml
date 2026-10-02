@@ -2,20 +2,80 @@
 # _STATE_.md генерируется из этого файла — не редактировать его руками.
 # Редактируйте этот файл, затем: python tools/state_tool.py render
 
-status: done
+status: in_progress
 
 task:
-  roadmap_id: null
-  title: null
+  roadmap_id: SP1.0-8.1
+  title: "С1. Модуль ФС и журнал (ТЗ-18, 19, 20 (классы, журнал), 54 п. 2)"
 
-whitelist: []
+whitelist:
+  - ROADMAP.md
+  - Cargo.toml
+  - Cargo.lock
+  - src/lib.rs
+  - src/platform/mod.rs
+  - src/platform/fs/mod.rs
+  - src/platform/fs/linux.rs
+  - src/platform/fs/macos.rs
+  - src/platform/fs/windows.rs
+  - src/platform/fs/mem.rs
+  - src/platform/fs/engine_store.rs
+  - src/persist/mod.rs
+  - src/journal.rs
+  - src/settings.rs
+  - src/playlist.rs
+  - src/main.rs
+  - src/app/mod.rs
+  - src/app/ui_manager.rs
+  - src/app/viz_settings_manager.rs
+  - src/app/playback_manager.rs
+  - src/app/playlist_manager.rs
 
-dod: null
+dod: "cargo build/test/clippy зелёные (0 новых варнингов в изменённых файлах); settings.toml и playlist.m3u пишутся через FileWriter (ADR-4: tmp → sync → rename → sync каталога), ошибки — в Journal (apap.log + stderr), fs::write/eprintln этих путей удалены; cfg(target_os) только в src/platform/. Ручные проверки — strace (ТЗ-19, Linux), сборка на Windows — пользователь."
 
-steps: []
+steps:
+  - id: 1
+    description: "platform/fs/mod.rs: ReadError, WriteError, классы, WriteStep, classify по таблицам кодов ОС, трейты FileReader/FileWriter; pub mod platform (ADR-4, ADR-6, §2.8, ТЗ-20, ТЗ-54). Файлы: src/lib.rs, src/platform/mod.rs, src/platform/fs/mod.rs. Проверка: cargo test classify_os_errors"
+    done: true
+  - id: 2
+    description: "OsFs: последовательность §6.7 + примитивы Linux (linux.rs), os_fs() (ADR-4, ТЗ-18, ТЗ-19). Файлы: src/platform/fs/mod.rs, src/platform/fs/linux.rs, Cargo.toml. Проверка: cargo test platform::fs (запись во временный каталог)"
+    done: false
+  - id: 3
+    description: "Примитивы macOS: F_FULLFSYNC → fsync для файла и каталога (ADR-4). Файл: src/platform/fs/macos.rs. Проверка: cargo check; ревью против таблицы ADR-4"
+    done: false
+  - id: 4
+    description: "Примитивы Windows: MoveFileExW(REPLACE_EXISTING|WRITE_THROUGH), без sync каталога (ADR-4). Файлы: src/platform/fs/windows.rs, Cargo.toml. Проверка: cargo check; ревью против таблицы ADR-4"
+    done: false
+  - id: 5
+    description: "MemStore: файлы в памяти, шаги ADR-4, fail_write/crash, fail_read, counts, calls (§2.8, §6.7, ADR-19). Файл: src/platform/fs/mem.rs. Проверка: cargo test atomic_write_interrupted_at_each_step"
+    done: false
+  - id: 6
+    description: "PersistStore, EngineFile, FsPersistStore (§2.8, ADR-19). Файл: src/platform/fs/engine_store.rs. Проверка: cargo test engine_store"
+    done: false
+  - id: 7
+    description: "WorkFile, ConfigFile в persist/mod.rs (§2.2). Проверка: cargo check"
+    done: false
+  - id: 8
+    description: "journal.rs: Journal, JournalRecord (варианты С1), WriteTarget, VecJournal, формат строки (ADR-21, §2.9). Файлы: src/journal.rs, src/lib.rs. Проверка: cargo test journal::"
+    done: false
+  - id: 9
+    description: "FileJournal: поток apap-log, ротация 3 файлов, лимит 1 МиБ, отключение при ошибке, flush, время civil_from_days (ADR-21, §6.16, ОВС-4 б). Файл: src/journal.rs. Проверка: cargo test file_journal"
+    done: false
+  - id: 10
+    description: "main.rs: os_fs() + FileJournal::start(paths.journal); MusicApp хранит FileWriter рабочих файлов и Journal (ADR-19). Файлы: src/main.rs, src/app/mod.rs. Проверка: cargo check"
+    done: false
+  - id: 11
+    description: "SettingsStore::save через FileWriter → Result; ошибка — JournalRecord::WriteFailed; load_from без записи, запись при запуске — из MusicApp::new (прежний момент) (ТЗ-18, ТЗ-20). Файлы: src/settings.rs + механическая замена вызовов в src/app/*. Проверка: cargo test settings"
+    done: false
+  - id: 12
+    description: "save_track_list через FileWriter → Result; ошибка — журнал; тест на MemStore (ТЗ-18, ТЗ-20). Файлы: src/playlist.rs, src/app/playlist_manager.rs. Проверка: cargo test playlist"
+    done: false
+  - id: 13
+    description: "Финальная верификация: cargo test, cargo clippy (фильтр по вайтлисту), grep cfg(target_os вне src/platform пуст, fs::write в settings/playlist нет. Проверка: всё зелёное"
+    done: false
 
-current_step: null
-next_action: null
+current_step: 2
+next_action: "OsFs: последовательность §6.7 и примитивы Linux, os_fs()"
 
 fail_counter: 0
 fail_counter_max: 3
@@ -65,5 +125,5 @@ plan:
       description: "Реализация AM1.0 + SP1.0 по сквозному порядку (ROADMAP.md): docs/01_audio_modes_v1.0/ (С0…С11) и docs/02_settings_persistence_v1.0/ (С0…С12) — ТЕКУЩАЯ ОСНОВНАЯ ЗАДАЧА"
       status: in_progress
       note: >-
-        Закрыт SP1.0-8.0 (С0 «Изоляция тестов», f3a4c55). Следующий этап по сквозному порядку: SP1.0-8.1 (С1 «Модуль ФС и журнал»), микро-сессия не начата; порядок — раздел „Сквозной порядок“ ROADMAP.md.
+        Закрыт SP1.0-8.0 (С0 «Изоляция тестов», f3a4c55). В работе SP1.0-8.1 (С1 «Модуль ФС и журнал»), микро-шаги — в steps; порядок — раздел „Сквозной порядок“ ROADMAP.md.
         Старт этапа — AGENTS.md Шаги 2–3: прочитать строку этапа §8 и все относящиеся разделы (ТЗ-N, ADR-N, §2–§3, §5, §6, §7).
