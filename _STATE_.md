@@ -31,13 +31,13 @@
 [x] Шаг 3: audio/format.rs: типы §2.1 + Container, конструкторы с проверкой, field_bits, RateFamily (ТЗ-12, ТЗ-74, ТЗ-101); smallvec прямой зависимостью. Файлы: src/audio/format.rs, src/audio/mod.rs, Cargo.toml. Проверка: cargo test audio::format
 [x] Шаг 4: audio/error.rs: Incompatibility, CaptureFailure, FileError, CorruptKind, StreamFault, EngineFault, ErrorClass, DeviceChoiceKind; RateSet в audio/backend/mod.rs (§2.3, §2.4). Проверка: cargo test audio::error
 [x] Шаг 5: audio/clock.rs: Clock, ClockInstant, MonotonicClock (ADR-20, ОВС-10 п. 7). Проверка: cargo test audio::clock
-[ ] Шаг 6: audio/testing: ManualClock (mod.rs) и генераторы signals.rs — поток-счётчик, 16-бит полный, 24-бит ТЗ-4, 32-бит ТЗ-5, синус, свип, импульс в последнем кадре (§7.1). Проверка: cargo test audio::testing
+[x] Шаг 6: audio/testing: ManualClock (mod.rs) и генераторы signals.rs — поток-счётчик, 16-бит полный, 24-бит ТЗ-4, 32-бит ТЗ-5, синус, свип, импульс в последнем кадре (§7.1). Проверка: cargo test audio::testing
 [ ] Шаг 7: tools/gen_test_audio.py и tests/data/: FLAC с MD5 / изменённый байт / нулевой MD5 / повреждённый кадр, DSF 1 кГц/20 кГц, обрезанные и повреждённые DSF/DFF, MP3 (§7.1). Проверка: скрипт детерминирован, ffprobe открывает корректные файлы
 [ ] Шаг 8: tools/check_rt_imports.py (§7.7, ТЗ-98, ТЗ-102) + вызов в hooks/pre-commit. Проверка: скрипт на audio/render/** (пока нет) — OK; на тестовом нарушении — ошибка
 [ ] Шаг 9: Финальная верификация: cargo build/test/clippy; отчёт о числе предупреждений старого кода. Проверка: всё зелёное
 
-- **Текущий шаг (current_step):** Шаг 6
-- **Следующий ход:** audio/testing: ManualClock и генераторы signals.rs
+- **Текущий шаг (current_step):** Шаг 7
+- **Следующий ход:** tools/gen_test_audio.py и tests/data/
 - **Счетчик безуспешных компиляций:** 0/3
 - **Состояние:** in_progress
 

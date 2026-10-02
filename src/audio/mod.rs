@@ -9,6 +9,7 @@ pub mod format;
 pub mod fulltrack;
 pub mod palettes;
 pub mod spectrogram;
+pub mod testing;
 pub mod output;
 pub mod player;
 pub mod visualizer;
