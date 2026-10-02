@@ -70,13 +70,13 @@ steps:
     done: true
   - id: 8
     description: "tools/check_rt_imports.py (§7.7, ТЗ-98, ТЗ-102) + вызов в hooks/pre-commit. Проверка: скрипт на audio/render/** (пока нет) — OK; на тестовом нарушении — ошибка"
-    done: false
+    done: true
   - id: 9
     description: "Финальная верификация: cargo build/test/clippy; отчёт о числе предупреждений старого кода. Проверка: всё зелёное"
     done: false
 
-current_step: 8
-next_action: "tools/check_rt_imports.py + pre-commit"
+current_step: 9
+next_action: "Финальная верификация"
 
 fail_counter: 0
 fail_counter_max: 3

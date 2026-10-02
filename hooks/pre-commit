@@ -37,4 +37,11 @@ if ! "$PY" tools/acceptance.py check; then
     exit 1
 fi
 
+echo "[pre-commit] checking forbidden constructs in audio callback (src/audio/render/) ..."
+if ! "$PY" tools/check_rt_imports.py; then
+    echo ""
+    echo "[pre-commit] audio callback check failed — see above (AM1.0 §7.7)."
+    exit 1
+fi
+
 echo "[pre-commit] OK"

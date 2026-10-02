@@ -51,11 +51,11 @@
 [x] Шаг 5: audio/clock.rs: Clock, ClockInstant, MonotonicClock (ADR-20, ОВС-10 п. 7). Проверка: cargo test audio::clock
 [x] Шаг 6: audio/testing: ManualClock (mod.rs) и генераторы signals.rs — поток-счётчик, 16-бит полный, 24-бит ТЗ-4, 32-бит ТЗ-5, синус, свип, импульс в последнем кадре (§7.1). Проверка: cargo test audio::testing
 [x] Шаг 7: tools/gen_test_audio.py и tests/data/: FLAC с MD5 / изменённый байт / нулевой MD5 / повреждённый кадр, DSF 1 кГц/20 кГц, обрезанные и повреждённые DSF/DFF, MP3 (§7.1). Проверка: скрипт детерминирован, ffprobe открывает корректные файлы
-[ ] Шаг 8: tools/check_rt_imports.py (§7.7, ТЗ-98, ТЗ-102) + вызов в hooks/pre-commit. Проверка: скрипт на audio/render/** (пока нет) — OK; на тестовом нарушении — ошибка
+[x] Шаг 8: tools/check_rt_imports.py (§7.7, ТЗ-98, ТЗ-102) + вызов в hooks/pre-commit. Проверка: скрипт на audio/render/** (пока нет) — OK; на тестовом нарушении — ошибка
 [ ] Шаг 9: Финальная верификация: cargo build/test/clippy; отчёт о числе предупреждений старого кода. Проверка: всё зелёное
 
-- **Текущий шаг (current_step):** Шаг 8
-- **Следующий ход:** tools/check_rt_imports.py + pre-commit
+- **Текущий шаг (current_step):** Шаг 9
+- **Следующий ход:** Финальная верификация
 - **Счетчик безуспешных компиляций:** 0/3
 - **Состояние:** in_progress
 
