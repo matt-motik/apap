@@ -2,20 +2,48 @@
 # _STATE_.md генерируется из этого файла — не редактировать его руками.
 # Редактируйте этот файл, затем: python tools/state_tool.py render
 
-status: done
+status: in_progress
 
 task:
-  roadmap_id: null
-  title: null
+  roadmap_id: SP1.0-8.0
+  title: "С0. Изоляция тестов (ТЗ-49, 51 (`bp_report_marks_volume_issue`))"
 
-whitelist: []
+whitelist:
+  - src/persist/mod.rs
+  - src/lib.rs
+  - src/settings.rs
+  - src/main.rs
+  - src/app/mod.rs
+  - src/app/playlist_manager.rs
+  - src/app/bp_report.rs
 
-dod: null
+dod: "cargo build/test/clippy зелёные (0 новых варнингов в изменённых файлах); config_dir() вызывается только в src/main.rs; ни один тест не создаёт MusicApp; плеер запускается, играет, настройки сохраняются как раньше. Ручная проверка ТЗ-49 — пользователь."
 
-steps: []
+steps:
+  - id: 1
+    description: "ConfigPaths (dir, settings, state, playlist, journal; in_dir) в src/persist/mod.rs + pub mod persist в lib.rs (§2.2, ADR-19, ТЗ-49). Проверка: cargo check; cargo test persist:: зелёный"
+    done: true
+  - id: 2
+    description: "SettingsStore::load_from(path) в src/settings.rs; load() пока делегирует (ADR-19). Проверка: cargo check"
+    done: false
+  - id: 3
+    description: "main.rs: config_dir() → ConfigPaths, создание файлов тем; MusicApp::new(ui, paths) хранит пути и грузит настройки через load_from (ADR-19, ADR-23). Файлы: src/main.rs, src/app/mod.rs. Проверка: cargo check"
+    done: false
+  - id: 4
+    description: "Оставшиеся config_dir()/playlist_path() в src/app/mod.rs и src/app/playlist_manager.rs → self.paths (ТЗ-49). Проверка: cargo check; grep config_dir src/app пусто"
+    done: false
+  - id: 5
+    description: "Удалить SettingsStore::load() и playlist_path() из src/settings.rs (ADR-19). Проверка: cargo check"
+    done: false
+  - id: 6
+    description: "build_bp_report по данным (BpInputs), тест bp_report_marks_volume_issue без MusicApp::new (ТЗ-51, ТЗ-49). Файлы: src/app/bp_report.rs, src/app/mod.rs. Проверка: cargo test bp_report зелёный"
+    done: false
+  - id: 7
+    description: "Финальная верификация: cargo test, cargo clippy (фильтр по вайтлисту), grep 'config_dir()' только в src/main.rs и определении. Проверка: всё зелёное"
+    done: false
 
-current_step: null
-next_action: null
+current_step: 2
+next_action: "Добавить SettingsStore::load_from(path) в src/settings.rs"
 
 fail_counter: 0
 fail_counter_max: 3

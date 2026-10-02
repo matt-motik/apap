@@ -2,10 +2,33 @@
      Source of truth: _STATE_.yaml — edit that, then run:
      python tools/state_tool.py render -->
 
-# Состояние сессии
 
-- **Текущая задача:** Нет (все шаги завершены)
-- **Состояние:** done
+# Текущая микро-сессия
+
+- **Задача из ROADMAP:** SP1.0-8.0 — С0. Изоляция тестов (ТЗ-49, 51 (`bp_report_marks_volume_issue`))
+- **Вайтлист файлов в работе (Изменяемые файлы):**
+  - src/persist/mod.rs
+  - src/lib.rs
+  - src/settings.rs
+  - src/main.rs
+  - src/app/mod.rs
+  - src/app/playlist_manager.rs
+  - src/app/bp_report.rs
+- **Критерий успеха (Definition of Done):** cargo build/test/clippy зелёные (0 новых варнингов в изменённых файлах); config_dir() вызывается только в src/main.rs; ни один тест не создаёт MusicApp; плеер запускается, играет, настройки сохраняются как раньше. Ручная проверка ТЗ-49 — пользователь.
+
+## Итерационный трекер
+[x] Шаг 1: ConfigPaths (dir, settings, state, playlist, journal; in_dir) в src/persist/mod.rs + pub mod persist в lib.rs (§2.2, ADR-19, ТЗ-49). Проверка: cargo check; cargo test persist:: зелёный
+[ ] Шаг 2: SettingsStore::load_from(path) в src/settings.rs; load() пока делегирует (ADR-19). Проверка: cargo check
+[ ] Шаг 3: main.rs: config_dir() → ConfigPaths, создание файлов тем; MusicApp::new(ui, paths) хранит пути и грузит настройки через load_from (ADR-19, ADR-23). Файлы: src/main.rs, src/app/mod.rs. Проверка: cargo check
+[ ] Шаг 4: Оставшиеся config_dir()/playlist_path() в src/app/mod.rs и src/app/playlist_manager.rs → self.paths (ТЗ-49). Проверка: cargo check; grep config_dir src/app пусто
+[ ] Шаг 5: Удалить SettingsStore::load() и playlist_path() из src/settings.rs (ADR-19). Проверка: cargo check
+[ ] Шаг 6: build_bp_report по данным (BpInputs), тест bp_report_marks_volume_issue без MusicApp::new (ТЗ-51, ТЗ-49). Файлы: src/app/bp_report.rs, src/app/mod.rs. Проверка: cargo test bp_report зелёный
+[ ] Шаг 7: Финальная верификация: cargo test, cargo clippy (фильтр по вайтлисту), grep 'config_dir()' только в src/main.rs и определении. Проверка: всё зелёное
+
+- **Текущий шаг (current_step):** Шаг 2
+- **Следующий ход:** Добавить SettingsStore::load_from(path) в src/settings.rs
+- **Счетчик безуспешных компиляций:** 0/3
+- **Состояние:** in_progress
 
 ## План: Executable workflow: правила AGENTS.md → исполняемые механизмы
 _Источник: чат с пользователем (ноутбук), начат в 67686ce; перенесён в репо 2026-09-22_

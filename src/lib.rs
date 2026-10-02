@@ -3,6 +3,7 @@
 pub mod audio;
 pub mod cover;
 pub mod meta;
+pub mod persist;
 pub mod playlist;
 pub mod playlist_layout;
 pub mod settings;
