@@ -20,7 +20,25 @@
   - src/audio/testing/mod.rs
   - src/audio/testing/signals.rs
   - tools/gen_test_audio.py
-  - tests/data/
+  - tests/data/dff_bad_header.dff
+  - tests/data/dff_chunk_size_overflow.dff
+  - tests/data/dff_dsd64_1k.dff
+  - tests/data/dff_truncated.dff
+  - tests/data/dff_zero_channels.dff
+  - tests/data/dsf_bad_header.dsf
+  - tests/data/dsf_block_size_out_of_range.dsf
+  - tests/data/dsf_chunk_size_overflow.dsf
+  - tests/data/dsf_dsd64_1k.dsf
+  - tests/data/dsf_dsd64_20k.dsf
+  - tests/data/dsf_offset_beyond_eof.dsf
+  - tests/data/dsf_truncated.dsf
+  - tests/data/dsf_zero_channels.dsf
+  - tests/data/flac_16_44k1_md5.flac
+  - tests/data/flac_corrupt_frame.flac
+  - tests/data/flac_md5_mismatch.flac
+  - tests/data/flac_md5_zero.flac
+  - tests/data/mp3_44k1_stereo.mp3
+  - tests/data/README.md
   - tools/check_rt_imports.py
   - hooks/pre-commit
 - **Критерий успеха (Definition of Done):** Линтер: до обёртки Slint 3248 предупреждений (3231 в коде Slint), после — 17 в старом коде (С1). cargo build/test/clippy зелёные; новые модули С0 с #![deny(unwrap_used, expect_used, unreachable)] без нарушений; [lints.clippy] warn для старого кода, код Slint обёрнут allow; tests/data сгенерированы скриптом; check_rt_imports в pre-commit. Решения пользователя 2026-10-02: EngineDeps по этапам (таблица под §8), Container с Adts.
@@ -32,12 +50,12 @@
 [x] Шаг 4: audio/error.rs: Incompatibility, CaptureFailure, FileError, CorruptKind, StreamFault, EngineFault, ErrorClass, DeviceChoiceKind; RateSet в audio/backend/mod.rs (§2.3, §2.4). Проверка: cargo test audio::error
 [x] Шаг 5: audio/clock.rs: Clock, ClockInstant, MonotonicClock (ADR-20, ОВС-10 п. 7). Проверка: cargo test audio::clock
 [x] Шаг 6: audio/testing: ManualClock (mod.rs) и генераторы signals.rs — поток-счётчик, 16-бит полный, 24-бит ТЗ-4, 32-бит ТЗ-5, синус, свип, импульс в последнем кадре (§7.1). Проверка: cargo test audio::testing
-[ ] Шаг 7: tools/gen_test_audio.py и tests/data/: FLAC с MD5 / изменённый байт / нулевой MD5 / повреждённый кадр, DSF 1 кГц/20 кГц, обрезанные и повреждённые DSF/DFF, MP3 (§7.1). Проверка: скрипт детерминирован, ffprobe открывает корректные файлы
+[x] Шаг 7: tools/gen_test_audio.py и tests/data/: FLAC с MD5 / изменённый байт / нулевой MD5 / повреждённый кадр, DSF 1 кГц/20 кГц, обрезанные и повреждённые DSF/DFF, MP3 (§7.1). Проверка: скрипт детерминирован, ffprobe открывает корректные файлы
 [ ] Шаг 8: tools/check_rt_imports.py (§7.7, ТЗ-98, ТЗ-102) + вызов в hooks/pre-commit. Проверка: скрипт на audio/render/** (пока нет) — OK; на тестовом нарушении — ошибка
 [ ] Шаг 9: Финальная верификация: cargo build/test/clippy; отчёт о числе предупреждений старого кода. Проверка: всё зелёное
 
-- **Текущий шаг (current_step):** Шаг 7
-- **Следующий ход:** tools/gen_test_audio.py и tests/data/
+- **Текущий шаг (current_step):** Шаг 8
+- **Следующий ход:** tools/check_rt_imports.py + pre-commit
 - **Счетчик безуспешных компиляций:** 0/3
 - **Состояние:** in_progress
 

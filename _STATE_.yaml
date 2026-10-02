@@ -22,7 +22,25 @@ whitelist:
   - src/audio/testing/mod.rs
   - src/audio/testing/signals.rs
   - tools/gen_test_audio.py
-  - tests/data/
+  - tests/data/dff_bad_header.dff
+  - tests/data/dff_chunk_size_overflow.dff
+  - tests/data/dff_dsd64_1k.dff
+  - tests/data/dff_truncated.dff
+  - tests/data/dff_zero_channels.dff
+  - tests/data/dsf_bad_header.dsf
+  - tests/data/dsf_block_size_out_of_range.dsf
+  - tests/data/dsf_chunk_size_overflow.dsf
+  - tests/data/dsf_dsd64_1k.dsf
+  - tests/data/dsf_dsd64_20k.dsf
+  - tests/data/dsf_offset_beyond_eof.dsf
+  - tests/data/dsf_truncated.dsf
+  - tests/data/dsf_zero_channels.dsf
+  - tests/data/flac_16_44k1_md5.flac
+  - tests/data/flac_corrupt_frame.flac
+  - tests/data/flac_md5_mismatch.flac
+  - tests/data/flac_md5_zero.flac
+  - tests/data/mp3_44k1_stereo.mp3
+  - tests/data/README.md
   - tools/check_rt_imports.py
   - hooks/pre-commit
 
@@ -49,7 +67,7 @@ steps:
     done: true
   - id: 7
     description: "tools/gen_test_audio.py и tests/data/: FLAC с MD5 / изменённый байт / нулевой MD5 / повреждённый кадр, DSF 1 кГц/20 кГц, обрезанные и повреждённые DSF/DFF, MP3 (§7.1). Проверка: скрипт детерминирован, ffprobe открывает корректные файлы"
-    done: false
+    done: true
   - id: 8
     description: "tools/check_rt_imports.py (§7.7, ТЗ-98, ТЗ-102) + вызов в hooks/pre-commit. Проверка: скрипт на audio/render/** (пока нет) — OK; на тестовом нарушении — ошибка"
     done: false
@@ -57,8 +75,8 @@ steps:
     description: "Финальная верификация: cargo build/test/clippy; отчёт о числе предупреждений старого кода. Проверка: всё зелёное"
     done: false
 
-current_step: 7
-next_action: "tools/gen_test_audio.py и tests/data/"
+current_step: 8
+next_action: "tools/check_rt_imports.py + pre-commit"
 
 fail_counter: 0
 fail_counter_max: 3
