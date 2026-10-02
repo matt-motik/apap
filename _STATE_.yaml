@@ -42,7 +42,7 @@ steps:
     done: true
   - id: 3
     description: "journal.rs: Journal, JournalRecord (варианты С1), WriteTarget, VecJournal, формат строки (ADR-21, §2.9). Файлы: src/journal.rs, src/lib.rs. Проверка: cargo test journal::"
-    done: false
+    done: true
   - id: 4
     description: "OsFs: последовательность §6.7 + примитивы Linux (linux.rs), os_fs() (ADR-4, ТЗ-18, ТЗ-19). Файлы: src/platform/fs/mod.rs, src/platform/fs/linux.rs, Cargo.toml. Проверка: cargo test platform::fs (запись во временный каталог)"
     done: false
@@ -74,8 +74,8 @@ steps:
     description: "Финальная верификация: cargo test, cargo clippy (фильтр по вайтлисту), grep cfg(target_os вне src/platform пуст, fs::write в settings/playlist нет. Проверка: всё зелёное"
     done: false
 
-current_step: 3
-next_action: "journal.rs: Journal, JournalRecord, WriteTarget, VecJournal, формат строки"
+current_step: 4
+next_action: "OsFs: последовательность §6.7 и примитивы Linux, os_fs()"
 
 fail_counter: 0
 fail_counter_max: 3

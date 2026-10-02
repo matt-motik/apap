@@ -2,6 +2,7 @@
 
 pub mod audio;
 pub mod cover;
+pub mod journal;
 pub mod meta;
 pub mod persist;
 pub mod platform;
