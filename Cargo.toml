@@ -32,6 +32,10 @@ clru = "0.6"
 [target.'cfg(unix)'.dependencies]
 libc = "0.2"
 
+# `MoveFileExW` с `MOVEFILE_WRITE_THROUGH` (ADR-4).
+[target.'cfg(windows)'.dependencies]
+windows-sys = { version = "0.61", features = ["Win32_Storage_FileSystem"] }
+
 [build-dependencies]
 slint-build = "1.17"
 

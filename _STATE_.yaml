@@ -51,7 +51,7 @@ steps:
     done: true
   - id: 6
     description: "Примитивы Windows: MoveFileExW(REPLACE_EXISTING|WRITE_THROUGH), без sync каталога (ADR-4). Файлы: src/platform/fs/windows.rs, Cargo.toml. Проверка: cargo check; ревью против таблицы ADR-4"
-    done: false
+    done: true
   - id: 7
     description: "MemStore: файлы в памяти, шаги ADR-4, fail_write/crash, fail_read, counts, calls (§2.8, §6.7, ADR-19). Файл: src/platform/fs/mem.rs. Проверка: cargo test atomic_write_interrupted_at_each_step"
     done: false
@@ -74,8 +74,8 @@ steps:
     description: "Финальная верификация: cargo test, cargo clippy (фильтр по вайтлисту), grep cfg(target_os вне src/platform пуст, fs::write в settings/playlist нет. Проверка: всё зелёное"
     done: false
 
-current_step: 6
-next_action: "Примитивы Windows: MoveFileExW (windows.rs), windows-sys в Cargo.toml"
+current_step: 7
+next_action: "MemStore (mem.rs): файлы в памяти по шагам ADR-4, тест atomic_write_interrupted_at_each_step"
 
 fail_counter: 0
 fail_counter_max: 3
