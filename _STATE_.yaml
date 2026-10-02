@@ -57,7 +57,7 @@ steps:
     done: true
   - id: 8
     description: "PersistStore, EngineFile, FsPersistStore (§2.8, ADR-19). Файл: src/platform/fs/engine_store.rs. Проверка: cargo test engine_store"
-    done: false
+    done: true
   - id: 9
     description: "FileJournal: поток apap-log, ротация 3 файлов, лимит 1 МиБ, отключение при ошибке, flush, время civil_from_days (ADR-21, §6.16, ОВС-4 б). Файл: src/journal.rs. Проверка: cargo test file_journal"
     done: false
@@ -74,8 +74,8 @@ steps:
     description: "Финальная верификация: cargo test, cargo clippy (фильтр по вайтлисту), grep cfg(target_os вне src/platform пуст, fs::write в settings/playlist нет. Проверка: всё зелёное"
     done: false
 
-current_step: 8
-next_action: "PersistStore, EngineFile, FsPersistStore (engine_store.rs)"
+current_step: 9
+next_action: "FileJournal: поток apap-log, ротация, лимит 1 МиБ, flush"
 
 fail_counter: 0
 fail_counter_max: 3

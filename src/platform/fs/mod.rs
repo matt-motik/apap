@@ -10,7 +10,9 @@ use std::io::{self, Write};
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
+mod engine_store;
 mod mem;
+pub use engine_store::{EngineFile, FsPersistStore, PersistStore};
 pub use mem::{FsCall, FsOp, MemStore, OpCounts};
 
 #[cfg(not(any(target_os = "macos", target_os = "windows")))]
