@@ -53,7 +53,7 @@ steps:
     done: true
   - id: 6
     description: "Фаззинг разборщиков: tests/parsers_survive_mutations.rs, 10 000 итераций, счётчик аллокаций ≤ file_len + 16 МиБ, APAP_FUZZ_ITERS только увеличивает (ТЗ-92, И-Р15). Проверка: cargo test --test parsers_survive_mutations"
-    done: false
+    done: true
   - id: 7
     description: "Удалить unwrap/expect/unreachable из прод-кода библиотеки: dsd.rs, fulltrack.rs, output.rs (ТЗ-101, §6.29). Проверка: cargo clippy без предупреждений в этих файлах"
     done: false
@@ -82,8 +82,8 @@ steps:
     description: "Финальная верификация: cargo build/test/clippy; ручные сценарии ТЗ-1/2/48/118/119/120/122 — пользователю. Проверка: всё зелёное"
     done: false
 
-current_step: 6
-next_action: "Фаззинг tests/parsers_survive_mutations.rs"
+current_step: 7
+next_action: "Удалить unwrap/expect/unreachable из прод-кода библиотеки"
 
 fail_counter: 0
 fail_counter_max: 3

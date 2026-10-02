@@ -38,7 +38,7 @@
 [x] Шаг 3: DoP только в Exclusive в старом пути: open_dop отклоняет Shared, Exclusive-поток без отката в Shared (ТЗ-1). Файл: src/audio/player.rs. Проверка: cargo test old_path_dop_requires_exclusive
 [x] Шаг 4: ТЗ-17: clamp в текущем квантовании колбэков i16/u8/i32 (без wrap-around). Файл: src/audio/player.rs. Проверка: cargo test no_wraparound
 [x] Шаг 5: Лимиты разбора DSF/DFF §6.29 (channels 1..=8, block 1..=65536, checked-арифметика, offset ≤ file_len, буферы по min(заявлено, file_len)) (ТЗ-92). Файл: src/audio/dsd.rs. Проверка: cargo test dsf_corrupt_headers_error_not_panic dff_chunk_size_overflow_error truncated_files_error
-[ ] Шаг 6: Фаззинг разборщиков: tests/parsers_survive_mutations.rs, 10 000 итераций, счётчик аллокаций ≤ file_len + 16 МиБ, APAP_FUZZ_ITERS только увеличивает (ТЗ-92, И-Р15). Проверка: cargo test --test parsers_survive_mutations
+[x] Шаг 6: Фаззинг разборщиков: tests/parsers_survive_mutations.rs, 10 000 итераций, счётчик аллокаций ≤ file_len + 16 МиБ, APAP_FUZZ_ITERS только увеличивает (ТЗ-92, И-Р15). Проверка: cargo test --test parsers_survive_mutations
 [ ] Шаг 7: Удалить unwrap/expect/unreachable из прод-кода библиотеки: dsd.rs, fulltrack.rs, output.rs (ТЗ-101, §6.29). Проверка: cargo clippy без предупреждений в этих файлах
 [ ] Шаг 8: Удалить unwrap/expect из бинарника и build.rs: viz_settings_manager.rs, app/mod.rs, main.rs, build.rs; [lints.clippy] → deny (ТЗ-101, §6.29). Проверка: cargo clippy 0 предупреждений
 [ ] Шаг 9: Бейдж старого пути: bp-active всегда false, текст «Не bit-perfect: проверка недоступна» (ТЗ-52, §8 С1). Файлы: src/app/bp_report.rs, ui/status.slint (+ app.slint привязка). Проверка: cargo test bp_report
@@ -49,8 +49,8 @@
 [ ] Шаг 14: Приложение: опрос резервирования на тике 100 мс, продолжение воспроизведения после Held, ошибка захвата и NameLost — стоп и сообщение. Файлы: src/app/playback_manager.rs, src/app/mod.rs. Проверка: cargo build; запуск
 [ ] Шаг 15: Финальная верификация: cargo build/test/clippy; ручные сценарии ТЗ-1/2/48/118/119/120/122 — пользователю. Проверка: всё зелёное
 
-- **Текущий шаг (current_step):** Шаг 6
-- **Следующий ход:** Фаззинг tests/parsers_survive_mutations.rs
+- **Текущий шаг (current_step):** Шаг 7
+- **Следующий ход:** Удалить unwrap/expect/unreachable из прод-кода библиотеки
 - **Счетчик безуспешных компиляций:** 0/3
 - **Состояние:** in_progress
 

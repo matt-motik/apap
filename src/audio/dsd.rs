@@ -457,6 +457,19 @@ fn parse_dff<R: Read + Seek>(file: &mut R) -> Result<(DsdHeader, u64), FileError
     Ok((header, 0))
 }
 
+/// Разбор заголовка DSD-контейнера из произвольного источника — вход
+/// фаззинг-теста разборщиков (§6.29, ТЗ-92). Прочие контейнеры — `Unsupported`.
+pub fn parse_container_header<R: Read + Seek>(
+    reader: &mut R,
+    container: super::format::Container,
+) -> Result<(), FileError> {
+    match container {
+        super::format::Container::Dsf => parse_dsf(reader).map(|_| ()),
+        super::format::Container::Dff => parse_dff(reader).map(|_| ()),
+        other => Err(FileError::Unsupported { codec: format!("{other:?}") }),
+    }
+}
+
 fn decode_utf16(units: &[u16]) -> String {
     let mut preceded_surrogate: Option<u16> = None;
     let mut out = String::new();
