@@ -35,7 +35,7 @@
 [x] Шаг 2: WorkFile, ConfigFile в persist/mod.rs (§2.2). Проверка: cargo check
 [x] Шаг 3: journal.rs: Journal, JournalRecord (варианты С1), WriteTarget, VecJournal, формат строки (ADR-21, §2.9). Файлы: src/journal.rs, src/lib.rs. Проверка: cargo test journal::
 [x] Шаг 4: OsFs: последовательность §6.7 + примитивы Linux (linux.rs), os_fs() (ADR-4, ТЗ-18, ТЗ-19). Файлы: src/platform/fs/mod.rs, src/platform/fs/linux.rs, Cargo.toml. Проверка: cargo test platform::fs (запись во временный каталог)
-[ ] Шаг 5: Примитивы macOS: F_FULLFSYNC → fsync для файла и каталога (ADR-4). Файл: src/platform/fs/macos.rs. Проверка: cargo check; ревью против таблицы ADR-4
+[x] Шаг 5: Примитивы macOS: F_FULLFSYNC → fsync для файла и каталога (ADR-4). Файл: src/platform/fs/macos.rs. Проверка: cargo check; ревью против таблицы ADR-4
 [ ] Шаг 6: Примитивы Windows: MoveFileExW(REPLACE_EXISTING|WRITE_THROUGH), без sync каталога (ADR-4). Файлы: src/platform/fs/windows.rs, Cargo.toml. Проверка: cargo check; ревью против таблицы ADR-4
 [ ] Шаг 7: MemStore: файлы в памяти, шаги ADR-4, fail_write/crash, fail_read, counts, calls (§2.8, §6.7, ADR-19). Файл: src/platform/fs/mem.rs. Проверка: cargo test atomic_write_interrupted_at_each_step
 [ ] Шаг 8: PersistStore, EngineFile, FsPersistStore (§2.8, ADR-19). Файл: src/platform/fs/engine_store.rs. Проверка: cargo test engine_store
@@ -45,8 +45,8 @@
 [ ] Шаг 12: save_track_list через FileWriter → Result; ошибка — журнал; тест на MemStore (ТЗ-18, ТЗ-20). Файлы: src/playlist.rs, src/app/playlist_manager.rs. Проверка: cargo test playlist
 [ ] Шаг 13: Финальная верификация: cargo test, cargo clippy (фильтр по вайтлисту), grep cfg(target_os вне src/platform пуст, fs::write в settings/playlist нет. Проверка: всё зелёное
 
-- **Текущий шаг (current_step):** Шаг 5
-- **Следующий ход:** Примитивы macOS: F_FULLFSYNC → fsync (macos.rs)
+- **Текущий шаг (current_step):** Шаг 6
+- **Следующий ход:** Примитивы Windows: MoveFileExW (windows.rs), windows-sys в Cargo.toml
 - **Счетчик безуспешных компиляций:** 0/3
 - **Состояние:** in_progress
 

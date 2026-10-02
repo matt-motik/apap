@@ -48,7 +48,7 @@ steps:
     done: true
   - id: 5
     description: "Примитивы macOS: F_FULLFSYNC → fsync для файла и каталога (ADR-4). Файл: src/platform/fs/macos.rs. Проверка: cargo check; ревью против таблицы ADR-4"
-    done: false
+    done: true
   - id: 6
     description: "Примитивы Windows: MoveFileExW(REPLACE_EXISTING|WRITE_THROUGH), без sync каталога (ADR-4). Файлы: src/platform/fs/windows.rs, Cargo.toml. Проверка: cargo check; ревью против таблицы ADR-4"
     done: false
@@ -74,8 +74,8 @@ steps:
     description: "Финальная верификация: cargo test, cargo clippy (фильтр по вайтлисту), grep cfg(target_os вне src/platform пуст, fs::write в settings/playlist нет. Проверка: всё зелёное"
     done: false
 
-current_step: 5
-next_action: "Примитивы macOS: F_FULLFSYNC → fsync (macos.rs)"
+current_step: 6
+next_action: "Примитивы Windows: MoveFileExW (windows.rs), windows-sys в Cargo.toml"
 
 fail_counter: 0
 fail_counter_max: 3
