@@ -37,13 +37,13 @@ steps:
     done: true
   - id: 6
     description: "build_bp_report по данным (BpInputs), тест bp_report_marks_volume_issue без MusicApp::new (ТЗ-51, ТЗ-49). Файлы: src/app/bp_report.rs, src/app/mod.rs. Проверка: cargo test bp_report зелёный"
-    done: false
+    done: true
   - id: 7
     description: "Финальная верификация: cargo test, cargo clippy (фильтр по вайтлисту), grep 'config_dir()' только в src/main.rs и определении. Проверка: всё зелёное"
     done: false
 
-current_step: 6
-next_action: "build_bp_report по данным BpInputs; переписать bp_report_marks_volume_issue без MusicApp::new"
+current_step: 7
+next_action: "Финальная верификация: cargo test, cargo clippy, grep config_dir"
 
 fail_counter: 0
 fail_counter_max: 3

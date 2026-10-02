@@ -1054,7 +1054,7 @@ impl MusicApp {
             ui.on_bp_clicked(move || {
                 let a = app.borrow_mut();
                 a.ui.set_bp_report_open(true);
-                let report = bp_report::build_bp_report(&a);
+                let report = bp_report::build_bp_report(&bp_report::bp_inputs(&a));
                 a.push_bp_report_to_ui(report);
             });
         }
@@ -1071,7 +1071,7 @@ impl MusicApp {
             ui.on_bp_report_action(move |id| {
                 let mut a = app.borrow_mut();
                 bp_report::apply_action(&mut a, id);
-                let report = bp_report::build_bp_report(&a);
+                let report = bp_report::build_bp_report(&bp_report::bp_inputs(&a));
                 a.push_bp_report_to_ui(report);
             });
         }
@@ -1600,7 +1600,7 @@ impl MusicApp {
         self.track_window_geometry();
         self.sync_dsd_status_ui();
         if self.ui.get_bp_report_open() {
-            let report = bp_report::build_bp_report(self);
+            let report = bp_report::build_bp_report(&bp_report::bp_inputs(self));
             self.push_bp_report_to_ui(report);
         }
         // §10.5: пока диалог открыт, обновлять размеры кэша (билды полнотрековых

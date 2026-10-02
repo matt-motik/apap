@@ -1,4 +1,32 @@
+use music_player_rs::audio::player::StreamDesc;
+use music_player_rs::playlist::Track;
 use music_player_rs::settings::{DsdMode, ResamplerDither};
+
+/// Данные для отчёта bit-perfect. Отчёт строится по ним, а не по `MusicApp`,
+/// чтобы тест не создавал приложение с файлами пользователя (ТЗ-49, ТЗ-51).
+#[derive(Debug, Clone, Copy)]
+pub struct BpInputs<'a> {
+    pub bit_perfect: bool,
+    pub stream: Option<&'a StreamDesc>,
+    pub track: Option<&'a Track>,
+    pub track_is_dsd: bool,
+    pub volume: f32,
+    pub muted: bool,
+    pub dither: ResamplerDither,
+}
+
+/// Снимок данных отчёта из состояния приложения.
+pub fn bp_inputs(app: &super::MusicApp) -> BpInputs<'_> {
+    BpInputs {
+        bit_perfect: app.player.bit_perfect(),
+        stream: app.player.stream_desc(),
+        track: app.current.and_then(|i| app.tracks.get(i)),
+        track_is_dsd: app.current_track_is_dsd(),
+        volume: app.player.volume(),
+        muted: app.player.muted(),
+        dither: app.settings_ref().audio.resampler.dither,
+    }
+}
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Severity {
@@ -24,7 +52,7 @@ pub struct BpReport {
     pub positives: Vec<String>,
 }
 
-fn describe_stream_desc(desc: Option<&music_player_rs::audio::player::StreamDesc>) -> String {
+fn describe_stream_desc(desc: Option<&StreamDesc>) -> String {
     let Some(desc) = desc else {
         return "Нет активного потока".to_string();
     };
@@ -37,11 +65,8 @@ fn describe_stream_desc(desc: Option<&music_player_rs::audio::player::StreamDesc
     s
 }
 
-fn current_source_desc(app: &super::MusicApp) -> String {
-    let Some(i) = app.current else {
-        return "Нет трека".to_string();
-    };
-    let Some(track) = app.tracks.get(i) else {
+fn current_source_desc(track: Option<&Track>) -> String {
+    let Some(track) = track else {
         return "Нет трека".to_string();
     };
 
@@ -65,19 +90,19 @@ fn current_source_desc(app: &super::MusicApp) -> String {
     }
 }
 
-pub fn build_bp_report(app: &super::MusicApp) -> BpReport {
+pub fn build_bp_report(inp: &BpInputs<'_>) -> BpReport {
     let mut report = BpReport {
-        bp_active: app.player.bit_perfect(),
-        stream_desc: describe_stream_desc(app.player.stream_desc()),
-        source_desc: current_source_desc(app),
+        bp_active: inp.bit_perfect,
+        stream_desc: describe_stream_desc(inp.stream),
+        source_desc: current_source_desc(inp.track),
         reasons: Vec::new(),
         positives: Vec::new(),
     };
 
-    let volume = app.player.volume();
-    let muted = app.player.muted();
-    let dither = app.settings_ref().audio.resampler.dither;
-    let stream = app.player.stream_desc();
+    let volume = inp.volume;
+    let muted = inp.muted;
+    let dither = inp.dither;
+    let stream = inp.stream;
 
     if volume < 1.0 {
         report.reasons.push(BpReason {
@@ -125,7 +150,7 @@ pub fn build_bp_report(app: &super::MusicApp) -> BpReport {
                 action_label: String::new(),
             });
         }
-        if desc.dsd_mode == Some(DsdMode::Pcm) && app.current_track_is_dsd() {
+        if desc.dsd_mode == Some(DsdMode::Pcm) && inp.track_is_dsd {
             report.reasons.push(BpReason {
                 severity: Severity::Warning,
                 title: "Конвертация DSD → PCM".into(),
@@ -171,11 +196,11 @@ pub fn build_bp_report(app: &super::MusicApp) -> BpReport {
     if volume >= 1.0 && !muted {
         report.positives.push("✓ Программная громкость не применяется".into());
     }
-    if app.player.stream_desc().is_some() {
+    if stream.is_some() {
         report.positives.push("✓ Обнаружено устройство с поддержкой exclusive".into());
     }
 
-    report.bp_active = app.player.bit_perfect() && report.reasons.is_empty();
+    report.bp_active = inp.bit_perfect && report.reasons.is_empty();
     report
 }
 
@@ -201,9 +226,20 @@ pub fn apply_action(app: &mut super::MusicApp, action_id: i32) {
 mod tests {
     use super::*;
 
+    /// Отчёт строится по данным в памяти: без `MusicApp::new`, окна,
+    /// трея и файлов пользователя (ТЗ-49, ТЗ-51).
     #[test]
     fn bp_report_marks_volume_issue() {
-        let report = build_bp_report(&super::super::MusicApp::new(super::super::create_ui().unwrap()));
-        assert!(!report.reasons.is_empty());
+        let report = build_bp_report(&BpInputs {
+            bit_perfect: true,
+            stream: None,
+            track: None,
+            track_is_dsd: false,
+            volume: 0.5,
+            muted: false,
+            dither: ResamplerDither::Off,
+        });
+        assert!(report.reasons.iter().any(|r| r.action_id == 1));
+        assert!(!report.bp_active);
     }
 }
