@@ -94,7 +94,7 @@ impl MusicApp {
     pub(super) fn save_playlist(&mut self) {
         // The on-disk playlist always reflects `disk_tracks` (original load +
         // scanned additions), never the on-screen sort order.
-        if playlist::save_track_list(&music_player_rs::settings::playlist_path(), &self.disk_tracks) {
+        if playlist::save_track_list(&self.paths.playlist, &self.disk_tracks) {
             self.playlist_dirty = false;
         }
     }

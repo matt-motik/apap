@@ -31,7 +31,7 @@ steps:
     done: true
   - id: 4
     description: "Оставшиеся config_dir()/playlist_path() в src/app/mod.rs и src/app/playlist_manager.rs → self.paths (ТЗ-49). Проверка: cargo check; grep config_dir src/app пусто"
-    done: false
+    done: true
   - id: 5
     description: "Удалить SettingsStore::load() и playlist_path() из src/settings.rs (ADR-19). Проверка: cargo check"
     done: false
@@ -42,8 +42,8 @@ steps:
     description: "Финальная верификация: cargo test, cargo clippy (фильтр по вайтлисту), grep 'config_dir()' только в src/main.rs и определении. Проверка: всё зелёное"
     done: false
 
-current_step: 4
-next_action: "Заменить config_dir()/playlist_path() в src/app/mod.rs и playlist_manager.rs на self.paths. Тест bp_report не собирается до шага 6 (старая сигнатура MusicApp::new) — ожидаемо"
+current_step: 5
+next_action: "Удалить SettingsStore::load() и playlist_path() из src/settings.rs"
 
 fail_counter: 0
 fail_counter_max: 3

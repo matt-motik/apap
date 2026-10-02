@@ -509,7 +509,7 @@ impl MusicApp {
     pub fn init(this: &Rc<RefCell<Self>>) {
         {
             let mut app = this.borrow_mut();
-            let themes_dir = music_player_rs::settings::config_dir().join("themes");
+            let themes_dir = app.paths.dir.join("themes");
             let theme_name = app.settings.settings.theme.clone();
             let (theme, was_fallback) = resolve_startup_theme(&theme_name, &themes_dir);
             app.apply_theme(&theme);
@@ -606,7 +606,7 @@ impl MusicApp {
     /// Текущая тема может быть удалена (не найдена → Save заблокирован,
     /// §5.1) или сломана (структура/HEX → Save заблокирован, §5.2).
     fn populate_theme_ui(&mut self) {
-        let themes_dir = music_player_rs::settings::config_dir().join("themes");
+        let themes_dir = self.paths.dir.join("themes");
         let entries = scan_themes_dir(&themes_dir);
         let names: Vec<SharedString> = entries.iter().map(|e| e.file_stem.clone().into()).collect();
         self.ui.set_theme_list_model(ModelRc::from(names.as_slice()));
@@ -630,7 +630,7 @@ impl MusicApp {
     /// Обработчик выбора темы в ComboBox (§5.4/§6.3): в draft/settings не
     /// пишет — показывает метаданные и запоминает имя в `theme_selection`.
     fn on_settings_theme_selected(&mut self, name: &str) {
-        let themes_dir = music_player_rs::settings::config_dir().join("themes");
+        let themes_dir = self.paths.dir.join("themes");
         let meta = Self::load_theme_meta(name, &themes_dir).or(Some(ThemeMeta {
             name: String::new(),
             description: None,
@@ -1423,7 +1423,7 @@ impl MusicApp {
                 }
                 a.apply_theme(&resolve_startup_theme(
                     &a.settings.settings.theme,
-                    &music_player_rs::settings::config_dir().join("themes"),
+                    &a.paths.dir.join("themes"),
                 )
                 .0);
                 a.ui.set_cover_size(a.settings.settings.cover_size);
