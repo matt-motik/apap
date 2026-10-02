@@ -1099,12 +1099,6 @@ struct LegacySettings {
 }
 
 impl SettingsStore {
-    /// Read settings from `config_dir()/settings.toml` (or defaults if
-    /// missing/corrupt), migrate legacy fields and write the result back.
-    pub fn load() -> Self {
-        Self::load_from(config_dir().join("settings.toml"))
-    }
-
     /// Read settings from `path` (or defaults if missing/corrupt), migrate
     /// legacy fields and write the result back. Путь приходит из `main`
     /// (`ConfigPaths`), каталог пользователя здесь не ищется (ADR-19, ТЗ-49).
@@ -1194,6 +1188,8 @@ fn migrate_legacy_columns(settings: &mut Settings, legacy: &LegacySettings) {
 
 /// Resolve (and cache) the per-user config directory: `$XDG_CONFIG_HOME/
 /// music_player` (or `./music_player` when no config dir exists).
+/// Вызывается только в `main` (ТЗ-49, ADR-19): остальной код получает пути
+/// из `persist::ConfigPaths`.
 pub fn config_dir() -> PathBuf {
     static DIR: std::sync::OnceLock<PathBuf> = std::sync::OnceLock::new();
     DIR.get_or_init(|| {
@@ -1202,11 +1198,6 @@ pub fn config_dir() -> PathBuf {
             .join("music_player")
     })
     .clone()
-}
-
-/// Playlist file lives next to `settings.toml`.
-pub fn playlist_path() -> PathBuf {
-    config_dir().join("playlist.m3u")
 }
 
 #[cfg(test)]
