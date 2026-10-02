@@ -18,6 +18,7 @@ use std::path::Path;
 
 use super::decoder::{AudioSource, Tags, TrackInfo};
 use super::dop::DoPFramer;
+use super::error::{CorruptKind, FileError};
 
 /// DSD decode path selected at open time (ТЗ 5.1 §8.2 / этап 6.8).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -148,24 +149,35 @@ struct DsdHeader {
     block_size: usize,
 }
 
+/// Чтение целого из фиксированного буфера заголовка по смещению. Буферы
+/// заголовков имеют постоянную длину, поэтому выход за границы означает
+/// ошибку в константах; вместо паники читаются нули (ТЗ-101).
+fn field<const N: usize>(buf: &[u8], at: usize) -> [u8; N] {
+    let mut out = [0u8; N];
+    if let Some(src) = at.checked_add(N).and_then(|end| buf.get(at..end)) {
+        out.copy_from_slice(src);
+    }
+    out
+}
+
 fn read_u16_be(buf: &[u8]) -> u16 {
-    u16::from_be_bytes([buf[0], buf[1]])
+    u16::from_be_bytes(field(buf, 0))
 }
 
 fn read_u32_le(buf: &[u8]) -> u32 {
-    u32::from_le_bytes(buf[..4].try_into().unwrap())
+    u32::from_le_bytes(field(buf, 0))
 }
 
 fn read_u32_be(buf: &[u8]) -> u32 {
-    u32::from_be_bytes(buf[..4].try_into().unwrap())
+    u32::from_be_bytes(field(buf, 0))
 }
 
 fn read_u64_le(buf: &[u8]) -> u64 {
-    u64::from_le_bytes(buf[..8].try_into().unwrap())
+    u64::from_le_bytes(field(buf, 0))
 }
 
 fn read_u64_be(buf: &[u8]) -> u64 {
-    u64::from_be_bytes(buf[..8].try_into().unwrap())
+    u64::from_be_bytes(field(buf, 0))
 }
 
 fn dsd_rate_label(rate: u32) -> String {
@@ -203,156 +215,240 @@ fn dsd_bitrate(path: &Path, dsd_rate: u32, channels: usize) -> u32 {
     ((meta.len() as f64 * 8.0) / (duration * 1000.0)) as u32
 }
 
-/// Parse a DSF ("DSD Stream File") header. `buf` covers file bytes 0..92.
-fn parse_dsf(file: &mut BufReader<File>) -> Result<(DsdHeader, u64), String> {
-    let mut buf = [0u8; 92];
-    file.read_exact(&mut buf)
-        .map_err(|e| format!("Cannot read DSF header: {e}"))?;
-    if &buf[0..4] != b"DSD " {
-        return Err("Not a DSF file".into());
+/// Лимиты разбора DSF/DFF (§6.29, ТЗ-92): число каналов.
+const MAX_CHANNELS: usize = 8;
+/// Лимиты разбора DSF (§6.29): размер блока на канал.
+const MAX_BLOCK_SIZE: usize = 65_536;
+
+fn corrupt(kind: CorruptKind) -> FileError {
+    FileError::Corrupt(kind)
+}
+
+/// Ошибка чтения заголовка: конец файла — обрезанный файл, иначе ввод-вывод.
+fn read_err(e: &std::io::Error) -> FileError {
+    if e.kind() == std::io::ErrorKind::UnexpectedEof {
+        corrupt(CorruptKind::Truncated)
+    } else {
+        FileError::Io(e.kind())
     }
-    // DSD chunk: file size @12, metadata (ID3) offset @20.
+}
+
+/// Текст ошибки разбора для прежнего строкового API декодера.
+fn file_error_text(e: &FileError) -> String {
+    match e {
+        FileError::Corrupt(kind) => format!("DSD: файл повреждён ({kind:?})"),
+        FileError::Unsupported { codec } => format!("DSD: не поддерживается: {codec}"),
+        FileError::Io(kind) => format!("DSD: ошибка чтения ({kind:?})"),
+        FileError::ReadDuringPlayback { at_frame, kind } => {
+            format!("DSD: ошибка чтения на кадре {at_frame} ({kind:?})")
+        }
+    }
+}
+
+/// Число каналов в пределах §6.29.
+fn check_channels(channels: usize) -> Result<usize, FileError> {
+    match channels {
+        0 => Err(corrupt(CorruptKind::ZeroChannels)),
+        1..=MAX_CHANNELS => Ok(channels),
+        _ => Err(corrupt(CorruptKind::BadHeader)),
+    }
+}
+
+/// Частота DSD: ноль — повреждённый заголовок, некратная 64 — не поддерживается.
+fn check_dsd_rate(rate: u32) -> Result<u32, FileError> {
+    if rate == 0 {
+        Err(corrupt(CorruptKind::BadHeader))
+    } else if !rate.is_multiple_of(64) {
+        Err(FileError::Unsupported { codec: format!("DSD с частотой {rate} Гц") })
+    } else {
+        Ok(rate)
+    }
+}
+
+/// Длина файла под читателем; позиция восстанавливается.
+fn stream_len<R: Seek>(r: &mut R) -> Result<u64, FileError> {
+    let pos = r.stream_position().map_err(|e| FileError::Io(e.kind()))?;
+    let len = r.seek(SeekFrom::End(0)).map_err(|e| FileError::Io(e.kind()))?;
+    r.seek(SeekFrom::Start(pos)).map_err(|e| FileError::Io(e.kind()))?;
+    Ok(len)
+}
+
+/// Разбор заголовка DSF ("DSD Stream File"), байты 0..92, с лимитами §6.29
+/// (ТЗ-92): каналы 1..=8, блок 1..=65 536, размеры через checked-арифметику
+/// и не больше длины файла, указатель метаданных не за концом файла.
+fn parse_dsf<R: Read + Seek>(file: &mut R) -> Result<(DsdHeader, u64), FileError> {
+    let file_len = stream_len(file)?;
+    let mut buf = [0u8; 92];
+    file.read_exact(&mut buf).map_err(|e| read_err(&e))?;
+    if buf.get(0..4) != Some(b"DSD ".as_slice()) || buf.get(28..32) != Some(b"fmt ".as_slice()) {
+        return Err(corrupt(CorruptKind::BadHeader));
+    }
+    // DSD chunk: metadata (ID3) offset @20; 0 — метаданных нет.
     let metadata_offset = read_u64_le(&buf[20..28]);
-    // fmt chunk starts at file offset 28.
-    if &buf[28..32] != b"fmt " {
-        return Err("DSF: missing fmt chunk".into());
+    if metadata_offset > file_len {
+        return Err(corrupt(CorruptKind::OffsetBeyondEof));
     }
     let format_id = read_u32_le(&buf[44..48]);
-    let channels = read_u32_le(&buf[52..56]) as usize;
+    let channels = usize::try_from(read_u32_le(&buf[52..56])).unwrap_or(usize::MAX);
     let dsd_rate = read_u32_le(&buf[56..60]);
     let bits_per_sample = read_u32_le(&buf[60..64]);
     let sample_count = read_u64_le(&buf[64..72]);
-    let block_size = read_u32_le(&buf[72..76]) as usize;
+    let block_size = usize::try_from(read_u32_le(&buf[72..76])).unwrap_or(usize::MAX);
+    if buf.get(80..84) != Some(b"data".as_slice()) {
+        return Err(corrupt(CorruptKind::BadHeader));
+    }
+    let data_chunk = read_u64_le(&buf[84..92]);
 
     if format_id != 0 {
-        return Err("DSF: DST-encoded data not supported".into());
+        return Err(FileError::Unsupported { codec: "DSF DST".into() });
     }
     if bits_per_sample != 1 {
-        return Err(format!(
-            "DSF: unsupported bits per sample {bits_per_sample}"
-        ));
+        return Err(FileError::Unsupported { codec: format!("DSF {bits_per_sample} бит на сэмпл") });
     }
-    if dsd_rate == 0 || !dsd_rate.is_multiple_of(64) {
-        return Err(format!("DSF: unsupported sample rate {dsd_rate}"));
+    let channels = check_channels(channels)?;
+    let dsd_rate = check_dsd_rate(dsd_rate)?;
+    if !(1..=MAX_BLOCK_SIZE).contains(&block_size) {
+        return Err(corrupt(CorruptKind::BlockSizeOutOfRange));
     }
+    // Чанк data начинается со смещения 80 и включает свой 12-байтный заголовок.
+    let data_end = 80u64.checked_add(data_chunk).ok_or(corrupt(CorruptKind::ChunkSizeOverflow))?;
     let per_ch_bytes = sample_count.div_ceil(8);
-    let audio_bytes = per_ch_bytes * channels as u64;
+    let ch = u64::try_from(channels).unwrap_or(u64::MAX);
+    let audio_bytes = per_ch_bytes.checked_mul(ch).ok_or(corrupt(CorruptKind::ChunkSizeOverflow))?;
+    let audio_end = 92u64.checked_add(audio_bytes).ok_or(corrupt(CorruptKind::ChunkSizeOverflow))?;
+    if audio_end > data_end || data_end > file_len {
+        return Err(corrupt(CorruptKind::Truncated));
+    }
     let header = DsdHeader {
         dsd_rate,
         channels,
         data_offset: 92,
         audio_bytes,
         planar: true,
-        block_size: if block_size > 0 { block_size } else { 4096 },
+        block_size,
     };
     Ok((header, metadata_offset))
 }
 
-/// Parse a DSDIFF (DFF) container.
-fn parse_dff(file: &mut BufReader<File>) -> Result<(DsdHeader, u64), String> {
-    file.seek(SeekFrom::Start(0)).map_err(|e| e.to_string())?;
+/// Размер чанка DSDIFF с выравниванием до чётного; переполнение — повреждение.
+fn dff_padded(size: u64) -> Result<u64, FileError> {
+    size.checked_add(size & 1).ok_or(corrupt(CorruptKind::ChunkSizeOverflow))
+}
+
+/// Пропустить `n` байт, не выходя за конец файла.
+fn dff_skip<R: Read + Seek>(file: &mut R, n: u64, file_len: u64) -> Result<(), FileError> {
+    let pos = file.stream_position().map_err(|e| FileError::Io(e.kind()))?;
+    let to = pos.checked_add(n).ok_or(corrupt(CorruptKind::ChunkSizeOverflow))?;
+    if to > file_len {
+        return Err(corrupt(CorruptKind::Truncated));
+    }
+    file.seek(SeekFrom::Start(to)).map_err(|e| FileError::Io(e.kind()))?;
+    Ok(())
+}
+
+/// Число каналов из данных CHNL: некоторые писатели ставят перед ним
+/// 4-байтную версию, поэтому пробуются оба смещения.
+fn dff_channels(data: &[u8]) -> usize {
+    let v1 = if data.len() >= 2 { usize::from(read_u16_be(data)) } else { 0 };
+    let v2 = data.get(4..6).map_or(0, |d| usize::from(read_u16_be(d)));
+    if (1..=MAX_CHANNELS).contains(&v1) {
+        v1
+    } else if (1..=MAX_CHANNELS).contains(&v2) {
+        v2
+    } else if v1 == 0 && v2 == 0 {
+        0
+    } else {
+        MAX_CHANNELS + 1
+    }
+}
+
+/// Разбор контейнера DSDIFF (DFF) с лимитами §6.29 (ТЗ-92): размеры чанков
+/// складываются через checked-арифметику и не превышают длины файла; данные
+/// подчанков читаются не больше их заявленного размера.
+fn parse_dff<R: Read + Seek>(file: &mut R) -> Result<(DsdHeader, u64), FileError> {
+    let file_len = stream_len(file)?;
+    file.seek(SeekFrom::Start(0)).map_err(|e| FileError::Io(e.kind()))?;
     let mut buf = [0u8; 12];
-    file.read_exact(&mut buf)
-        .map_err(|e| format!("Cannot read DFF header: {e}"))?;
-    if &buf[0..4] != b"FRM8" {
-        return Err("Not a DFF file".into());
+    file.read_exact(&mut buf).map_err(|e| read_err(&e))?;
+    if buf.get(0..4) != Some(b"FRM8".as_slice()) {
+        return Err(corrupt(CorruptKind::BadHeader));
     }
     // FRM8 is followed by a 4-byte form type (not a chunk header).
     let mut form = [0u8; 4];
-    file.read_exact(&mut form)
-        .map_err(|_| "DFF: bad form type")?;
+    file.read_exact(&mut form).map_err(|e| read_err(&e))?;
     if &form != b"DSD " {
-        return Err("DFF: unsupported form type".into());
+        return Err(corrupt(CorruptKind::BadHeader));
     }
 
     let mut dsd_rate = 0u32;
-    let mut channels = 0usize;
+    let mut channels: Option<usize> = None;
 
-    let (data_offset, audio_bytes) = 'outer: loop {
-        file.read_exact(&mut buf)
-            .map_err(|_| "DFF: bad chunk header")?;
-        let id = &buf[0..4];
+    let (data_offset, audio_bytes) = loop {
+        file.read_exact(&mut buf).map_err(|e| read_err(&e))?;
         let size = read_u64_be(&buf[4..12]);
-        let padded = size + (size & 1);
-        match id {
+        let padded = dff_padded(size)?;
+        match buf.get(0..4).unwrap_or_default() {
             b"PROP" => {
+                if size < 4 {
+                    return Err(corrupt(CorruptKind::BadHeader));
+                }
                 let mut p = [0u8; 4];
-                file.read_exact(&mut p).map_err(|_| "DFF: bad PROP")?;
+                file.read_exact(&mut p).map_err(|e| read_err(&e))?;
                 if &p != b"SND " {
-                    file.seek(SeekFrom::Current(padded.saturating_sub(4) as i64))
-                        .map_err(|e| format!("DFF: {e}"))?;
+                    dff_skip(file, padded - 4, file_len)?;
                     continue;
                 }
                 let mut remaining = size - 4;
                 while remaining >= 12 {
-                    file.read_exact(&mut buf)
-                        .map_err(|_| "DFF: bad PROP child")?;
-                    let sid = &buf[0..4];
+                    file.read_exact(&mut buf).map_err(|e| read_err(&e))?;
                     let ssize = read_u64_be(&buf[4..12]);
-                    let spadded = ssize + (ssize & 1);
-                    if remaining < 12 + spadded {
-                        break;
+                    let spadded = dff_padded(ssize)?;
+                    let child = spadded.checked_add(12).ok_or(corrupt(CorruptKind::ChunkSizeOverflow))?;
+                    if child > remaining {
+                        return Err(corrupt(CorruptKind::ChunkSizeOverflow));
                     }
-                    let mut data = vec![0u8; ssize as usize];
-                    file.read_exact(&mut data)
-                        .map_err(|_| "DFF: bad PROP child data")?;
-                    match sid {
-                        b"FS  " => {
-                            if data.len() >= 4 {
-                                dsd_rate = read_u32_be(&data);
-                            }
-                        }
-                        b"CHNL" => {
-                            // Some writers prepend a 4-byte version field.
-                            let v1 = if data.len() >= 2 {
-                                usize::from(read_u16_be(&data))
-                            } else {
-                                0
-                            };
-                            let v2 = if data.len() >= 6 {
-                                usize::from(read_u16_be(&data[4..6]))
-                            } else {
-                                0
-                            };
-                            let ch = if (1..=6).contains(&v1) {
-                                v1
-                            } else if (1..=6).contains(&v2) {
-                                v2
-                            } else {
-                                2
-                            };
-                            channels = ch;
-                        }
-                        b"CMPR" if data.len() >= 4 && &data[..4] != b"DSD " => {
-                            return Err("DFF: DST-encoded data not supported".into());
+                    // Буфер — по заявленному размеру, только если данные есть в файле (§6.29).
+                    let pos = file.stream_position().map_err(|e| FileError::Io(e.kind()))?;
+                    if pos.checked_add(ssize).is_none_or(|end| end > file_len) {
+                        return Err(corrupt(CorruptKind::Truncated));
+                    }
+                    let len = usize::try_from(ssize).map_err(|_| corrupt(CorruptKind::ChunkSizeOverflow))?;
+                    let mut data = vec![0u8; len];
+                    file.read_exact(&mut data).map_err(|e| read_err(&e))?;
+                    dff_skip(file, spadded - ssize, file_len)?;
+                    match buf.get(0..4).unwrap_or_default() {
+                        b"FS  " if data.len() >= 4 => dsd_rate = read_u32_be(&data),
+                        b"CHNL" => channels = Some(dff_channels(&data)),
+                        b"CMPR" if data.len() >= 4 && data.get(..4) != Some(b"DSD ".as_slice()) => {
+                            return Err(FileError::Unsupported { codec: "DFF DST".into() });
                         }
                         _ => {}
                     }
-                    remaining = remaining.saturating_sub(12 + spadded);
+                    remaining -= child;
                 }
-                if remaining > 0 {
-                    file.seek(SeekFrom::Current(remaining as i64))
-                        .map_err(|e| format!("DFF: {e}"))?;
-                }
+                dff_skip(file, remaining, file_len)?;
             }
             b"DSD " => {
-                break 'outer (file.stream_position().map_err(|e| e.to_string())?, size);
+                let pos = file.stream_position().map_err(|e| FileError::Io(e.kind()))?;
+                let end = pos.checked_add(size).ok_or(corrupt(CorruptKind::ChunkSizeOverflow))?;
+                if end > file_len {
+                    return Err(corrupt(CorruptKind::Truncated));
+                }
+                break (pos, size);
             }
             _ => {
                 if size == 0 {
-                    return Err("DFF: zero-sized unknown chunk".into());
+                    return Err(corrupt(CorruptKind::BadHeader));
                 }
-                file.seek(SeekFrom::Current(padded as i64))
-                    .map_err(|e| format!("DFF: {e}"))?;
+                dff_skip(file, padded, file_len)?;
             }
         }
     };
-    if dsd_rate == 0 || !dsd_rate.is_multiple_of(64) {
-        return Err(format!("DFF: unsupported sample rate {dsd_rate}"));
-    }
+    let dsd_rate = check_dsd_rate(dsd_rate)?;
+    let channels = check_channels(channels.ok_or(corrupt(CorruptKind::BadHeader))?)?;
     let header = DsdHeader {
         dsd_rate,
-        channels: if channels == 0 { 2 } else { channels },
+        channels,
         data_offset,
         audio_bytes,
         planar: false,
@@ -668,8 +764,8 @@ impl DsdDecoder {
         let mut file =
             BufReader::new(File::open(path).map_err(|e| format!("Cannot open file: {e}"))?);
         let (header, meta_offset) = match path.extension().and_then(|e| e.to_str()) {
-            Some(e) if e.eq_ignore_ascii_case("dsf") => parse_dsf(&mut file)?,
-            Some(e) if e.eq_ignore_ascii_case("dff") => parse_dff(&mut file)?,
+            Some(e) if e.eq_ignore_ascii_case("dsf") => parse_dsf(&mut file).map_err(|e| file_error_text(&e))?,
+            Some(e) if e.eq_ignore_ascii_case("dff") => parse_dff(&mut file).map_err(|e| file_error_text(&e))?,
             _ => return Err("Not a DSD file".into()),
         };
         let pcm_rate = header.dsd_rate / 64;
@@ -1099,5 +1195,81 @@ mod tests {
         assert_eq!(tags.artist.as_deref(), Some("Genesis"), "{:?}", tags);
         assert_eq!(tags.title.as_deref(), Some("Invisible Touch"), "{:?}", tags);
         assert_eq!(tags.album.as_deref(), Some("Invisible Touch"), "{:?}", tags);
+    }
+
+    fn data(name: &str) -> Vec<u8> {
+        let path = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("tests/data").join(name);
+        std::fs::read(&path).unwrap_or_else(|e| panic!("{}: {e}", path.display()))
+    }
+
+    fn dsf(bytes: Vec<u8>) -> Result<(DsdHeader, u64), FileError> {
+        parse_dsf(&mut std::io::Cursor::new(bytes))
+    }
+
+    fn dff(bytes: Vec<u8>) -> Result<(DsdHeader, u64), FileError> {
+        parse_dff(&mut std::io::Cursor::new(bytes))
+    }
+
+    #[test]
+    fn reference_dsd_files_parse() {
+        let (h, _) = dsf(data("dsf_dsd64_1k.dsf")).expect("dsf");
+        assert_eq!((h.dsd_rate, h.channels, h.block_size), (2_822_400, 2, 4096));
+        let (h, _) = dff(data("dff_dsd64_1k.dff")).expect("dff");
+        assert_eq!((h.dsd_rate, h.channels), (2_822_400, 2));
+        assert_eq!(h.audio_bytes, 2 * 2_822_400 / 4 / 8);
+    }
+
+    /// ТЗ-92: повреждённые заголовки DSF → `Corrupt`, без паники.
+    #[test]
+    fn dsf_corrupt_headers_error_not_panic() {
+        let c = |k| Err::<(), _>(FileError::Corrupt(k));
+        assert_eq!(dsf(data("dsf_zero_channels.dsf")).map(|_| ()), c(CorruptKind::ZeroChannels));
+        assert_eq!(dsf(data("dsf_bad_header.dsf")).map(|_| ()), c(CorruptKind::BadHeader));
+        assert_eq!(dsf(data("dsf_block_size_out_of_range.dsf")).map(|_| ()), c(CorruptKind::BlockSizeOutOfRange));
+        assert_eq!(dsf(data("dsf_chunk_size_overflow.dsf")).map(|_| ()), c(CorruptKind::ChunkSizeOverflow));
+        assert_eq!(dsf(data("dsf_offset_beyond_eof.dsf")).map(|_| ()), c(CorruptKind::OffsetBeyondEof));
+        // block_size = 0xFFFF_FFFF и 0 (ТЗ-92, §6.29: 1..=65 536).
+        for bs in [0xFFFF_FFFFu32, 0] {
+            let mut b = data("dsf_dsd64_1k.dsf");
+            b[72..76].copy_from_slice(&bs.to_le_bytes());
+            assert_eq!(dsf(b).map(|_| ()), c(CorruptKind::BlockSizeOutOfRange), "{bs:#x}");
+        }
+        // Девять каналов — за лимитом 1..=8.
+        let mut b = data("dsf_dsd64_1k.dsf");
+        b[52..56].copy_from_slice(&9u32.to_le_bytes());
+        assert_eq!(dsf(b).map(|_| ()), c(CorruptKind::BadHeader));
+        // Число сэмплов, умноженное на каналы, переполняет u64.
+        let mut b = data("dsf_dsd64_1k.dsf");
+        b[64..72].copy_from_slice(&u64::MAX.to_le_bytes());
+        assert!(matches!(dsf(b), Err(FileError::Corrupt(_))));
+    }
+
+    /// ТЗ-92: размеры чанков DFF, переполняющие `12 + spadded`, → `Corrupt`.
+    #[test]
+    fn dff_chunk_size_overflow_error() {
+        assert_eq!(dff(data("dff_chunk_size_overflow.dff")).map(|_| ()), Err(FileError::Corrupt(CorruptKind::ChunkSizeOverflow)));
+        assert_eq!(dff(data("dff_bad_header.dff")).map(|_| ()), Err(FileError::Corrupt(CorruptKind::BadHeader)));
+        assert_eq!(dff(data("dff_zero_channels.dff")).map(|_| ()), Err(FileError::Corrupt(CorruptKind::ZeroChannels)));
+        // Подчанк FS с размером u64::MAX внутри PROP: 12 + spadded переполняется.
+        let mut b = data("dff_dsd64_1k.dff");
+        let fs = b.windows(4).position(|w| w == b"FS  ").expect("FS chunk");
+        b[fs + 4..fs + 12].copy_from_slice(&u64::MAX.to_be_bytes());
+        assert_eq!(dff(b).map(|_| ()), Err(FileError::Corrupt(CorruptKind::ChunkSizeOverflow)));
+        // Подчанк размером больше PROP — тоже переполнение, без аллокации по заявке.
+        let mut b = data("dff_dsd64_1k.dff");
+        b[fs + 4..fs + 12].copy_from_slice(&(1u64 << 40).to_be_bytes());
+        assert!(matches!(dff(b), Err(FileError::Corrupt(_))));
+    }
+
+    /// ТЗ-92: обрезанные DSF/DFF → `Corrupt(Truncated)`.
+    #[test]
+    fn truncated_files_error() {
+        assert_eq!(dsf(data("dsf_truncated.dsf")).map(|_| ()), Err(FileError::Corrupt(CorruptKind::Truncated)));
+        assert_eq!(dff(data("dff_truncated.dff")).map(|_| ()), Err(FileError::Corrupt(CorruptKind::Truncated)));
+        // Обрезка внутри заголовка.
+        let b = data("dsf_dsd64_1k.dsf");
+        assert_eq!(dsf(b[..50].to_vec()).map(|_| ()), Err(FileError::Corrupt(CorruptKind::Truncated)));
+        let b = data("dff_dsd64_1k.dff");
+        assert_eq!(dff(b[..30].to_vec()).map(|_| ()), Err(FileError::Corrupt(CorruptKind::Truncated)));
     }
 }
