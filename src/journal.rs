@@ -4,7 +4,10 @@
 
 use crate::persist::{ConfigFile, WorkFile};
 use crate::platform::fs::{ReadError, WriteError};
-use std::path::PathBuf;
+use std::fs::{self, File, OpenOptions};
+use std::io::{self, Write};
+use std::path::{Path, PathBuf};
+use std::sync::mpsc::{self, Receiver, Sender};
 use std::sync::Mutex;
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
@@ -129,6 +132,120 @@ fn civil_from_days(days: i64) -> (i64, i64, i64) {
     (y, m, d)
 }
 
+/// Лимит файла журнала: 1 МиБ = 1 048 576 байт (ОВС-4 б; Т-журнал, §10).
+pub const JOURNAL_FILE_LIMIT: u64 = 1 << 20;
+
+/// Сообщение потоку `apap-log` (§6.16).
+enum LogMsg {
+    Line(String),
+    Flush(Sender<()>),
+}
+
+/// Приёмник журнала по умолчанию (ADR-21, ОВС-4 б): каждая запись — строка в
+/// stderr сразу в потоке вызывающего и дозапись в `apap.log` фоновым потоком
+/// `apap-log`. Вызывающий только кладёт строку в канал (ТЗ-22).
+pub struct FileJournal {
+    tx: Sender<LogMsg>,
+}
+
+impl FileJournal {
+    /// Запускает `apap-log`; ротация — в потоке до первой строки (§6.16).
+    /// Если поток не запустился, журнал пишет только в stderr.
+    pub fn start(path: PathBuf) -> FileJournal {
+        let (tx, rx) = mpsc::channel();
+        let spawned = std::thread::Builder::new()
+            .name("apap-log".into())
+            .spawn(move || log_thread(&path, &rx));
+        if let Err(e) = spawned {
+            eprintln!("журнал: поток apap-log не запущен, файл журнала отключён: {e}");
+        }
+        FileJournal { tx }
+    }
+}
+
+impl Journal for FileJournal {
+    fn record(&self, rec: JournalRecord) {
+        let line = format_line(&rec, SystemTime::now());
+        eprintln!("{line}");
+        let _ = self.tx.send(LogMsg::Line(line));
+    }
+
+    fn flush(&self, budget: Duration) -> bool {
+        let (ack_tx, ack_rx) = mpsc::channel();
+        if self.tx.send(LogMsg::Flush(ack_tx)).is_err() {
+            return false;
+        }
+        ack_rx.recv_timeout(budget).is_ok()
+    }
+}
+
+/// Путь ротации `apap.<n>.log` рядом с `apap.log` (ADR-21).
+fn rotated_path(path: &Path, n: u32) -> PathBuf {
+    let stem = path.file_stem().map(|s| s.to_string_lossy().into_owned()).unwrap_or_default();
+    let name = match path.extension() {
+        Some(ext) => format!("{stem}.{n}.{}", ext.to_string_lossy()),
+        None => format!("{stem}.{n}"),
+    };
+    path.with_file_name(name)
+}
+
+/// Отсутствие файла при ротации — не ошибка.
+fn ignore_not_found(r: io::Result<()>) -> io::Result<()> {
+    match r {
+        Err(e) if e.kind() == io::ErrorKind::NotFound => Ok(()),
+        other => other,
+    }
+}
+
+/// Ротация «один файл на запуск, всего 3 файла» и открытие `apap.log` (ADR-21).
+fn rotate_and_open(path: &Path) -> io::Result<File> {
+    let first = rotated_path(path, 1);
+    let second = rotated_path(path, 2);
+    ignore_not_found(fs::remove_file(&second))?;
+    ignore_not_found(fs::rename(&first, &second))?;
+    ignore_not_found(fs::rename(path, &first))?;
+    OpenOptions::new().create(true).append(true).open(path)
+}
+
+/// Тело потока `apap-log` (§6.16). Ротация и запись — без `fsync` и без
+/// атомарной записи (ОВС-4 б); любая ошибка отключает файл до конца сеанса,
+/// stderr продолжает работать.
+fn log_thread(path: &Path, rx: &Receiver<LogMsg>) {
+    let mut file = match rotate_and_open(path) {
+        Ok(f) => Some(f),
+        Err(e) => {
+            eprintln!("журнал: файл {} отключён: {e}", path.display());
+            None
+        }
+    };
+    let mut size: u64 = 0;
+    for msg in rx {
+        match msg {
+            LogMsg::Line(line) => {
+                let Some(f) = file.as_mut() else { continue };
+                let len = u64::try_from(line.len()).unwrap_or(u64::MAX).saturating_add(1);
+                if size.saturating_add(len) > JOURNAL_FILE_LIMIT {
+                    let note = format!("{} журнал обрезан: достигнут лимит 1 МБ\n", utc_timestamp(SystemTime::now()));
+                    let _ = f.write_all(note.as_bytes());
+                    file = None;
+                    continue;
+                }
+                match f.write_all(line.as_bytes()).and_then(|()| f.write_all(b"\n")) {
+                    Ok(()) => size += len,
+                    Err(e) => {
+                        eprintln!("журнал: запись в {} отключена: {e}", path.display());
+                        file = None;
+                    }
+                }
+            }
+            LogMsg::Flush(ack) => {
+                // Строки уже записаны: запись без буфера в пространстве пользователя.
+                let _ = ack.send(());
+            }
+        }
+    }
+}
+
 /// Подмена для автотестов (ADR-21): накапливает записи.
 #[derive(Default)]
 pub struct VecJournal {
@@ -187,6 +304,84 @@ mod tests {
             "1970-01-01T00:00:00.000Z ошибка записи: state.toml: нет места на диске, шаг WriteData: \
              No space left on device (код ОС 28); путь /cfg/state.toml.tmp"
         );
+    }
+
+    /// Временный каталог теста (не каталог пользователя, ТЗ-49).
+    fn test_dir(name: &str) -> PathBuf {
+        let dir = std::env::temp_dir().join(format!("apap-journal-{}-{name}", std::process::id()));
+        let _ = fs::remove_dir_all(&dir);
+        fs::create_dir_all(&dir).expect("test dir");
+        dir
+    }
+
+    fn note(text: &str) -> JournalRecord {
+        JournalRecord::TempRemoveFailed { err: WriteError::serialize(text, Path::new("/x")) }
+    }
+
+    fn run_once(path: &Path, text: &str) {
+        let j = FileJournal::start(path.to_path_buf());
+        j.record(note(text));
+        assert!(j.flush(Duration::from_secs(5)));
+    }
+
+    fn read(path: &Path) -> String {
+        fs::read_to_string(path).unwrap_or_default()
+    }
+
+    #[test]
+    fn file_journal_rotation_three_files() {
+        let dir = test_dir("rotation");
+        let log = dir.join("apap.log");
+        run_once(&log, "run-1");
+        run_once(&log, "run-2");
+        run_once(&log, "run-3");
+        assert!(read(&log).contains("run-3"));
+        assert!(read(&dir.join("apap.1.log")).contains("run-2"));
+        assert!(read(&dir.join("apap.2.log")).contains("run-1"));
+        run_once(&log, "run-4");
+        assert!(read(&log).contains("run-4"));
+        assert!(read(&dir.join("apap.1.log")).contains("run-3"));
+        assert!(read(&dir.join("apap.2.log")).contains("run-2"));
+        assert_eq!(fs::read_dir(&dir).expect("dir").count(), 3);
+        let _ = fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn file_journal_limit_truncates() {
+        let dir = test_dir("limit");
+        let log = dir.join("apap.log");
+        let j = FileJournal::start(log.clone());
+        let chunk = "x".repeat(4096);
+        for _ in 0..300 {
+            j.record(note(&chunk));
+        }
+        assert!(j.flush(Duration::from_secs(5)));
+        let text = read(&log);
+        let last = text.lines().last().unwrap_or_default();
+        assert!(last.ends_with(" журнал обрезан: достигнут лимит 1 МБ"), "{last}");
+        let before = text.lines().count();
+        let body = u64::try_from(text.len() - last.len() - 1).unwrap_or(u64::MAX);
+        assert!(body <= JOURNAL_FILE_LIMIT);
+        j.record(note("after limit"));
+        assert!(j.flush(Duration::from_secs(5)));
+        assert_eq!(read(&log).lines().count(), before);
+        let _ = fs::remove_dir_all(&dir);
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn file_journal_error_no_window() {
+        use std::os::unix::fs::PermissionsExt;
+        let dir = test_dir("noperm");
+        fs::set_permissions(&dir, fs::Permissions::from_mode(0o555)).expect("chmod");
+        let log = dir.join("apap.log");
+        let j = FileJournal::start(log.clone());
+        j.record(note("lost"));
+        // Ошибка открытия не роняет журнал: flush отвечает, файла нет.
+        assert!(j.flush(Duration::from_secs(5)));
+        assert!(!log.exists());
+        let _ = fs::set_permissions(&dir, fs::Permissions::from_mode(0o755));
+        let _ = fs::remove_dir_all(&dir);
     }
 
     #[test]

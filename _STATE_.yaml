@@ -60,7 +60,7 @@ steps:
     done: true
   - id: 9
     description: "FileJournal: поток apap-log, ротация 3 файлов, лимит 1 МиБ, отключение при ошибке, flush, время civil_from_days (ADR-21, §6.16, ОВС-4 б). Файл: src/journal.rs. Проверка: cargo test file_journal"
-    done: false
+    done: true
   - id: 10
     description: "main.rs: os_fs() + FileJournal::start(paths.journal); MusicApp хранит FileWriter рабочих файлов и Journal (ADR-19). Файлы: src/main.rs, src/app/mod.rs. Проверка: cargo check"
     done: false
@@ -74,8 +74,8 @@ steps:
     description: "Финальная верификация: cargo test, cargo clippy (фильтр по вайтлисту), grep cfg(target_os вне src/platform пуст, fs::write в settings/playlist нет. Проверка: всё зелёное"
     done: false
 
-current_step: 9
-next_action: "FileJournal: поток apap-log, ротация, лимит 1 МиБ, flush"
+current_step: 10
+next_action: "main.rs: os_fs() + FileJournal; MusicApp хранит FileWriter и Journal"
 
 fail_counter: 0
 fail_counter_max: 3

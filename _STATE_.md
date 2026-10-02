@@ -39,14 +39,14 @@
 [x] Шаг 6: Примитивы Windows: MoveFileExW(REPLACE_EXISTING|WRITE_THROUGH), без sync каталога (ADR-4). Файлы: src/platform/fs/windows.rs, Cargo.toml. Проверка: cargo check; ревью против таблицы ADR-4
 [x] Шаг 7: MemStore: файлы в памяти, шаги ADR-4, fail_write/crash, fail_read, counts, calls (§2.8, §6.7, ADR-19). Файл: src/platform/fs/mem.rs. Проверка: cargo test atomic_write_interrupted_at_each_step
 [x] Шаг 8: PersistStore, EngineFile, FsPersistStore (§2.8, ADR-19). Файл: src/platform/fs/engine_store.rs. Проверка: cargo test engine_store
-[ ] Шаг 9: FileJournal: поток apap-log, ротация 3 файлов, лимит 1 МиБ, отключение при ошибке, flush, время civil_from_days (ADR-21, §6.16, ОВС-4 б). Файл: src/journal.rs. Проверка: cargo test file_journal
+[x] Шаг 9: FileJournal: поток apap-log, ротация 3 файлов, лимит 1 МиБ, отключение при ошибке, flush, время civil_from_days (ADR-21, §6.16, ОВС-4 б). Файл: src/journal.rs. Проверка: cargo test file_journal
 [ ] Шаг 10: main.rs: os_fs() + FileJournal::start(paths.journal); MusicApp хранит FileWriter рабочих файлов и Journal (ADR-19). Файлы: src/main.rs, src/app/mod.rs. Проверка: cargo check
 [ ] Шаг 11: SettingsStore::save через FileWriter → Result; ошибка — JournalRecord::WriteFailed; load_from без записи, запись при запуске — из MusicApp::new (прежний момент) (ТЗ-18, ТЗ-20). Файлы: src/settings.rs + механическая замена вызовов в src/app/*. Проверка: cargo test settings
 [ ] Шаг 12: save_track_list через FileWriter → Result; ошибка — журнал; тест на MemStore (ТЗ-18, ТЗ-20). Файлы: src/playlist.rs, src/app/playlist_manager.rs. Проверка: cargo test playlist
 [ ] Шаг 13: Финальная верификация: cargo test, cargo clippy (фильтр по вайтлисту), grep cfg(target_os вне src/platform пуст, fs::write в settings/playlist нет. Проверка: всё зелёное
 
-- **Текущий шаг (current_step):** Шаг 9
-- **Следующий ход:** FileJournal: поток apap-log, ротация, лимит 1 МиБ, flush
+- **Текущий шаг (current_step):** Шаг 10
+- **Следующий ход:** main.rs: os_fs() + FileJournal; MusicApp хранит FileWriter и Journal
 - **Счетчик безуспешных компиляций:** 0/3
 - **Состояние:** in_progress
 
