@@ -38,7 +38,7 @@ dod: "cargo build/test/clippy зелёные, clippy unwrap/expect/unreachable =
 steps:
   - id: 1
     description: "DoPFramer::reset и сброс упаковщика DoP при seek в DsdDecoder (R-24, ADR-12, ТЗ-2). Файлы: src/audio/dop.rs, src/audio/dsd.rs. Проверка: cargo test dop"
-    done: false
+    done: true
   - id: 2
     description: "DoP-колбэк старого пути: маркер по собственному счётчику фазы колбэка, нагрузка 0x6969 в паузе/seek/underrun (ADR-12 Б, ТЗ-2, ТЗ-3). Файлы: src/audio/player.rs, src/audio/worker.rs. Проверка: cargo test dop_markers_continuous_through_pause_seek_underrun dop_silence_payload_is_6969"
     done: false
@@ -82,8 +82,8 @@ steps:
     description: "Финальная верификация: cargo build/test/clippy; ручные сценарии ТЗ-1/2/48/118/119/120/122 — пользователю. Проверка: всё зелёное"
     done: false
 
-current_step: 1
-next_action: "DoPFramer::reset и вызов в DsdDecoder::seek"
+current_step: 2
+next_action: "DoP-колбэк: маркер по фазе колбэка, тишина 0x6969"
 
 fail_counter: 0
 fail_counter_max: 3

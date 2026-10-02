@@ -33,7 +33,7 @@
 - **Критерий успеха (Definition of Done):** cargo build/test/clippy зелёные, clippy unwrap/expect/unreachable = deny без нарушений; DoP только в Exclusive, маркеры непрерывны, тишина 0x6969; DSF/DFF без паник (фаззинг 10 000); бейдж не зелёный; hw: только после резервирования. Отклонения старого пути (до С6): повтор EBUSY — на тике 100 мс вместо 50 мс; ожидание резервирования — опрос на тике; ExclusiveMode::Auto больше не откатывается в Shared.
 
 ## Итерационный трекер
-[ ] Шаг 1: DoPFramer::reset и сброс упаковщика DoP при seek в DsdDecoder (R-24, ADR-12, ТЗ-2). Файлы: src/audio/dop.rs, src/audio/dsd.rs. Проверка: cargo test dop
+[x] Шаг 1: DoPFramer::reset и сброс упаковщика DoP при seek в DsdDecoder (R-24, ADR-12, ТЗ-2). Файлы: src/audio/dop.rs, src/audio/dsd.rs. Проверка: cargo test dop
 [ ] Шаг 2: DoP-колбэк старого пути: маркер по собственному счётчику фазы колбэка, нагрузка 0x6969 в паузе/seek/underrun (ADR-12 Б, ТЗ-2, ТЗ-3). Файлы: src/audio/player.rs, src/audio/worker.rs. Проверка: cargo test dop_markers_continuous_through_pause_seek_underrun dop_silence_payload_is_6969
 [ ] Шаг 3: DoP только в Exclusive в старом пути: open_dop отклоняет Shared, Exclusive-поток без отката в Shared (ТЗ-1). Файл: src/audio/player.rs. Проверка: cargo test old_path_dop_requires_exclusive
 [ ] Шаг 4: ТЗ-17: clamp в текущем квантовании колбэков i16/u8/i32 (без wrap-around). Файл: src/audio/player.rs. Проверка: cargo test no_wraparound
@@ -49,8 +49,8 @@
 [ ] Шаг 14: Приложение: опрос резервирования на тике 100 мс, продолжение воспроизведения после Held, ошибка захвата и NameLost — стоп и сообщение. Файлы: src/app/playback_manager.rs, src/app/mod.rs. Проверка: cargo build; запуск
 [ ] Шаг 15: Финальная верификация: cargo build/test/clippy; ручные сценарии ТЗ-1/2/48/118/119/120/122 — пользователю. Проверка: всё зелёное
 
-- **Текущий шаг (current_step):** Шаг 1
-- **Следующий ход:** DoPFramer::reset и вызов в DsdDecoder::seek
+- **Текущий шаг (current_step):** Шаг 2
+- **Следующий ход:** DoP-колбэк: маркер по фазе колбэка, тишина 0x6969
 - **Счетчик безуспешных компиляций:** 0/3
 - **Состояние:** in_progress
 

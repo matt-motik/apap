@@ -899,6 +899,8 @@ impl AudioSource for DsdDecoder {
         for c in self.cic.iter_mut() {
             c.reset();
         }
+        // Упаковщик DoP — по новой позиции (R-24, ADR-12).
+        self.framer.reset();
         self.pcm_frames = 0;
         self.pcm.clear();
         self.eof = false;

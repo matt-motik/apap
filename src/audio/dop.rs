@@ -89,6 +89,14 @@ impl DoPFramer {
         words
     }
 
+    /// Сброс упаковщика при seek (R-24, ADR-12): половина кадра, оставшаяся
+    /// от прежней позиции, не должна склеиться с данными новой позиции.
+    /// Ёмкость буфера переноса сохраняется — без аллокаций.
+    pub fn reset(&mut self) {
+        self.leftover.clear();
+        self.marker_phase = false;
+    }
+
     /// Byte at stream index `i` counting from the start of the concatenation
     /// `[leftover, raw]` (the leftover buffer is never empty here because the
     /// callers only use full frames, but the guard keeps the indexing sound).
@@ -145,6 +153,21 @@ mod tests {
         assert_eq!(out2[0], ((DOP_MARKER_ODD as u32) << 16) | (0x55 << 8) | 0x77);
         assert_eq!(out2[1], ((DOP_MARKER_ODD as u32) << 16) | (0x66 << 8) | 0x88);
         assert!(!f.marker_phase); // two emitted frames toggled odd -> even
+    }
+
+    #[test]
+    fn dop_framer_reset_drops_carried_half_frame() {
+        let mut f = DoPFramer::new();
+        f.with_channels(2);
+        let mut out = [0u32; 2];
+        f.frame(&[0x11, 0x22, 0x33, 0x44, 0x55, 0x66], 2, &mut out);
+        assert_eq!(f.leftover.len(), 2);
+        f.reset();
+        assert!(f.leftover.is_empty());
+        // После сброса пара собирается только из новых байтов.
+        let n = f.frame(&[0x77, 0x88, 0x99, 0xAA], 2, &mut out);
+        assert_eq!(n, 2);
+        assert_eq!(out[0], ((DOP_MARKER_EVEN as u32) << 16) | (0x77 << 8) | 0x99);
     }
 
     #[test]
