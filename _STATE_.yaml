@@ -54,7 +54,7 @@ steps:
     done: true
   - id: 7
     description: "MemStore: файлы в памяти, шаги ADR-4, fail_write/crash, fail_read, counts, calls (§2.8, §6.7, ADR-19). Файл: src/platform/fs/mem.rs. Проверка: cargo test atomic_write_interrupted_at_each_step"
-    done: false
+    done: true
   - id: 8
     description: "PersistStore, EngineFile, FsPersistStore (§2.8, ADR-19). Файл: src/platform/fs/engine_store.rs. Проверка: cargo test engine_store"
     done: false
@@ -74,8 +74,8 @@ steps:
     description: "Финальная верификация: cargo test, cargo clippy (фильтр по вайтлисту), grep cfg(target_os вне src/platform пуст, fs::write в settings/playlist нет. Проверка: всё зелёное"
     done: false
 
-current_step: 7
-next_action: "MemStore (mem.rs): файлы в памяти по шагам ADR-4, тест atomic_write_interrupted_at_each_step"
+current_step: 8
+next_action: "PersistStore, EngineFile, FsPersistStore (engine_store.rs)"
 
 fail_counter: 0
 fail_counter_max: 3
