@@ -27,6 +27,7 @@ rtrb = "0.4.0"
 rustfft = "6.4.1"
 image = { version = "0.25", default-features = false, features = ["png"] }
 clru = "0.6"
+smallvec = "1.16"
 
 # Системные вызовы модуля ФС (ADR-4, ADR-6): `O_DIRECTORY`, `F_FULLFSYNC`.
 [target.'cfg(unix)'.dependencies]

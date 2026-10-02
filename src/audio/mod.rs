@@ -2,6 +2,7 @@ pub mod analyzer;
 pub mod decoder;
 pub mod dop;
 pub mod dsd;
+pub mod format;
 pub mod fulltrack;
 pub mod palettes;
 pub mod spectrogram;

@@ -37,7 +37,7 @@ steps:
     done: true
   - id: 3
     description: "audio/format.rs: типы §2.1 + Container, конструкторы с проверкой, field_bits, RateFamily (ТЗ-12, ТЗ-74, ТЗ-101); smallvec прямой зависимостью. Файлы: src/audio/format.rs, src/audio/mod.rs, Cargo.toml. Проверка: cargo test audio::format"
-    done: false
+    done: true
   - id: 4
     description: "audio/error.rs: Incompatibility, CaptureFailure, FileError, CorruptKind, StreamFault, EngineFault, ErrorClass, DeviceChoiceKind; RateSet в audio/backend/mod.rs (§2.3, §2.4). Проверка: cargo test audio::error"
     done: false
@@ -57,8 +57,8 @@ steps:
     description: "Финальная верификация: cargo build/test/clippy; отчёт о числе предупреждений старого кода. Проверка: всё зелёное"
     done: false
 
-current_step: 3
-next_action: "audio/format.rs: типы §2.1 + Container"
+current_step: 4
+next_action: "audio/error.rs + RateSet в audio/backend/mod.rs"
 
 fail_counter: 0
 fail_counter_max: 3

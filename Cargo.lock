@@ -2749,6 +2749,7 @@ dependencies = [
  "serde_json",
  "slint",
  "slint-build",
+ "smallvec",
  "symphonia",
  "tokio",
  "toml",
