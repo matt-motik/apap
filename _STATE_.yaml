@@ -43,7 +43,7 @@ steps:
     done: true
   - id: 5
     description: "audio/clock.rs: Clock, ClockInstant, MonotonicClock (ADR-20, ОВС-10 п. 7). Проверка: cargo test audio::clock"
-    done: false
+    done: true
   - id: 6
     description: "audio/testing: ManualClock (mod.rs) и генераторы signals.rs — поток-счётчик, 16-бит полный, 24-бит ТЗ-4, 32-бит ТЗ-5, синус, свип, импульс в последнем кадре (§7.1). Проверка: cargo test audio::testing"
     done: false
@@ -57,8 +57,8 @@ steps:
     description: "Финальная верификация: cargo build/test/clippy; отчёт о числе предупреждений старого кода. Проверка: всё зелёное"
     done: false
 
-current_step: 5
-next_action: "audio/clock.rs: Clock, ClockInstant, MonotonicClock"
+current_step: 6
+next_action: "audio/testing: ManualClock и генераторы signals.rs"
 
 fail_counter: 0
 fail_counter_max: 3

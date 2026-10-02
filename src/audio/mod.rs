@@ -1,5 +1,6 @@
 pub mod analyzer;
 pub mod backend;
+pub mod clock;
 pub mod decoder;
 pub mod dop;
 pub mod dsd;
