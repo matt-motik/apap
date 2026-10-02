@@ -1196,24 +1196,33 @@ pub fn audio_callback_i32_pcm_rt(consumer: &mut RtConsumer, data: &mut [i32]) {
     }
 }
 
-/// i32 DoP consumer callback: left-align the 24-bit DoP word (`<< 8`), verbatim.
+/// DSD-тишина в нагрузке DoP-слова (ТЗ-3).
+pub const DOP_SILENCE_PAYLOAD: u32 = 0x6969;
+
+/// i32 DoP consumer callback (ADR-12 Б, ТЗ-2, ТЗ-3): из слова декодера берётся
+/// только 16-битная DSD-нагрузка, маркер `0x05`/`0xFA` в битах 31..24 ставит
+/// колбэк по своему счётчику фазы — для данных и для тишины одинаково. Нет
+/// данных (пауза, seek, underrun) — нагрузка `0x6969`, маркеры не прерываются.
 pub fn audio_callback_i32_dop_rt(consumer: &mut RtConsumer, data: &mut [i32]) {
-    if !consumer.shared().is_playing() {
-        data.fill(0);
-        return;
+    let ready = consumer.shared().is_playing() && consumer.reconcile_seek();
+    let produced = if ready { consumer.pull_scratch(data.len()) } else { 0 };
+    let ch = consumer.shared().out_ch().max(1);
+    let mut phase = consumer.dop_phase();
+    let scratch = consumer.scratch();
+    for (i, dst) in data.iter_mut().enumerate() {
+        let payload = match scratch.get(i) {
+            Some(&w) if i < produced => (w.clamp(0.0, 16_777_215.0) as u32) & 0xFFFF,
+            _ => DOP_SILENCE_PAYLOAD,
+        };
+        let marker = if phase { super::dop::DOP_MARKER_ODD } else { super::dop::DOP_MARKER_EVEN };
+        let word = (u32::from(marker) << 24) | (payload << 8);
+        *dst = i32::from_ne_bytes(word.to_ne_bytes());
+        if (i + 1) % ch == 0 {
+            phase = !phase;
+        }
     }
-    if !consumer.reconcile_seek() {
-        data.fill(0);
-        return;
-    }
-    let produced = consumer.pull_scratch(data.len());
-    for (dst, &src) in data.iter_mut().zip(consumer.scratch().iter()).take(produced) {
-        *dst = ((src.clamp(0.0, 16_777_215.0) as u32) << 8) as i32;
-    }
-    for s in data.iter_mut().skip(produced) {
-        *s = 0;
-    }
-    if produced < data.len() {
+    consumer.set_dop_phase(phase);
+    if ready && produced < data.len() {
         finish_if_eof(consumer, produced, data.len());
     }
 }
@@ -1580,13 +1589,87 @@ mod tests {
         assert!(data[0] > 0 && data[0] != 0x4000_0000_i32, "DoP packing leaked");
     }
 
+    /// Слово DoP-выхода → (маркер, нагрузка).
+    fn dop_split(w: i32) -> (u8, u32) {
+        let u = u32::from_ne_bytes(w.to_ne_bytes());
+        ((u >> 24) as u8, (u >> 8) & 0xFFFF)
+    }
+
+    /// Стерео-слова декодера: нагрузка `p`, маркер декодера намеренно один и
+    /// тот же (колбэк обязан ставить свой).
+    fn dop_words(frames: usize, payload: u32) -> Vec<f32> {
+        (0..frames * 2).map(|_| ((0x05u32 << 16) | payload) as f32).collect()
+    }
+
     #[test]
-    fn rt_i32_dop_left_aligns_marker() {
-        let mut c = rt_consumer_with(&[16_777_215.0, 0.0], 1);
+    fn rt_i32_dop_left_aligns_payload_under_callback_marker() {
+        let mut c = rt_consumer_with(&dop_words(1, 0xABCD), 2);
         let mut data = [0i32; 2];
         audio_callback_i32_dop_rt(&mut c, &mut data);
-        assert_eq!(data[0], (16_777_215u32 << 8) as i32);
-        assert_eq!(data[1], 0);
+        assert_eq!(dop_split(data[0]), (0x05, 0xABCD));
+        assert_eq!(dop_split(data[1]), (0x05, 0xABCD));
+    }
+
+    /// ТЗ-2, И-Р3: играть → пауза → resume → seek ×10 → underrun → resume;
+    /// каждое слово несёт маркер, соседние кадры канала — разные маркеры.
+    #[test]
+    fn dop_markers_continuous_through_pause_seek_underrun() {
+        let (mut prod, cons) = rtrb::RingBuffer::<f32>::new(1 << 16);
+        let shared = RtShared::new(176_400, 2, false);
+        let mut c = RtConsumer::new(cons, shared.clone());
+        shared.set_playing(true);
+        let mut out: Vec<i32> = Vec::new();
+        let mut buf = [0i32; 64];
+        let mut run = |c: &mut RtConsumer, out: &mut Vec<i32>| {
+            audio_callback_i32_dop_rt(c, &mut buf);
+            out.extend_from_slice(&buf);
+        };
+        for w in dop_words(100, 0x1234) {
+            let _ = prod.push(w);
+        }
+        run(&mut c, &mut out); // воспроизведение
+        shared.set_playing(false);
+        run(&mut c, &mut out); // пауза
+        shared.set_playing(true);
+        run(&mut c, &mut out); // resume
+        for _ in 0..10 {
+            shared.begin_seek(0); // seek не подтверждён воркером — тишина
+            run(&mut c, &mut out);
+        }
+        // Воркер подтвердил последний seek, ring пуст — underrun.
+        shared.publish_seek_done_for_test(shared.seek_generation());
+        run(&mut c, &mut out);
+        for w in dop_words(40, 0x4321) {
+            let _ = prod.push(w);
+        }
+        run(&mut c, &mut out); // resume с данными
+        let frames: Vec<u8> = out.chunks(2).map(|f| dop_split(f[0]).0).collect();
+        for f in out.chunks(2) {
+            assert_eq!(dop_split(f[0]).0, dop_split(f[1]).0, "оба канала кадра — один маркер");
+        }
+        assert!(frames.iter().all(|m| *m == 0x05 || *m == 0xFA));
+        assert!(frames.windows(2).all(|w| w[0] != w[1]), "маркеры чередуются без разрыва");
+    }
+
+    /// ТЗ-3: в паузе, seek и underrun нагрузка каждого DoP-слова — `0x6969`.
+    #[test]
+    fn dop_silence_payload_is_6969() {
+        let (_prod, cons) = rtrb::RingBuffer::<f32>::new(1024);
+        let shared = RtShared::new(176_400, 2, false);
+        let mut c = RtConsumer::new(cons, shared.clone());
+        let mut buf = [0i32; 32];
+        // Пауза.
+        audio_callback_i32_dop_rt(&mut c, &mut buf);
+        assert!(buf.iter().all(|w| dop_split(*w).1 == 0x6969));
+        // Seek до подтверждения.
+        shared.set_playing(true);
+        shared.begin_seek(0);
+        audio_callback_i32_dop_rt(&mut c, &mut buf);
+        assert!(buf.iter().all(|w| dop_split(*w).1 == 0x6969));
+        // Underrun: seek подтверждён, ring пуст.
+        shared.publish_seek_done_for_test(shared.seek_generation());
+        audio_callback_i32_dop_rt(&mut c, &mut buf);
+        assert!(buf.iter().all(|w| dop_split(*w).1 == 0x6969));
     }
 
     #[test]

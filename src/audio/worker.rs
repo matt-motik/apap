@@ -217,6 +217,12 @@ impl RtShared {
             .store(generation, Ordering::Release);
     }
 
+    /// Подтвердить seek вместо воркера — для тестов колбэка.
+    #[cfg(test)]
+    pub(crate) fn publish_seek_done_for_test(&self, generation: u64) {
+        self.publish_seek_done(generation);
+    }
+
     pub fn viz_tap_active(&self) -> bool {
         self.viz_tap_active.load(Ordering::Relaxed)
     }
@@ -245,6 +251,10 @@ pub struct RtConsumer {
     tpdf: crate::audio::player::TpdfRng,
     /// Last seek generation reconciled with the worker.
     generation: u64,
+    /// Фаза DoP-маркера следующего кадра (false — `0x05`, true — `0xFA`).
+    /// Её хранит только колбэк, поэтому чередование не рвётся на паузе,
+    /// seek и underrun (ADR-12 Б, ТЗ-2).
+    dop_phase: bool,
 }
 
 impl RtConsumer {
@@ -256,6 +266,7 @@ impl RtConsumer {
             scratch: vec![0.0f32; MAX_OUT_SAMPLES],
             tpdf: crate::audio::player::TpdfRng::new(),
             generation,
+            dop_phase: false,
         }
     }
 
@@ -270,6 +281,15 @@ impl RtConsumer {
 
     pub fn set_tpdf(&mut self, tpdf: crate::audio::player::TpdfRng) {
         self.tpdf = tpdf;
+    }
+
+    /// Фаза DoP-маркера следующего кадра (ADR-12 Б).
+    pub fn dop_phase(&self) -> bool {
+        self.dop_phase
+    }
+
+    pub fn set_dop_phase(&mut self, phase: bool) {
+        self.dop_phase = phase;
     }
 
     /// Reconcile a pending seek. Returns `true` when the ring is safe to read;
