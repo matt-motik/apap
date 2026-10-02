@@ -38,25 +38,25 @@ steps:
     description: "platform/fs/mod.rs: ReadError, WriteError, классы, WriteStep, classify по таблицам кодов ОС, трейты FileReader/FileWriter; pub mod platform (ADR-4, ADR-6, §2.8, ТЗ-20, ТЗ-54). Файлы: src/lib.rs, src/platform/mod.rs, src/platform/fs/mod.rs. Проверка: cargo test classify_os_errors"
     done: true
   - id: 2
-    description: "OsFs: последовательность §6.7 + примитивы Linux (linux.rs), os_fs() (ADR-4, ТЗ-18, ТЗ-19). Файлы: src/platform/fs/mod.rs, src/platform/fs/linux.rs, Cargo.toml. Проверка: cargo test platform::fs (запись во временный каталог)"
-    done: false
+    description: "WorkFile, ConfigFile в persist/mod.rs (§2.2). Проверка: cargo check"
+    done: true
   - id: 3
-    description: "Примитивы macOS: F_FULLFSYNC → fsync для файла и каталога (ADR-4). Файл: src/platform/fs/macos.rs. Проверка: cargo check; ревью против таблицы ADR-4"
+    description: "journal.rs: Journal, JournalRecord (варианты С1), WriteTarget, VecJournal, формат строки (ADR-21, §2.9). Файлы: src/journal.rs, src/lib.rs. Проверка: cargo test journal::"
     done: false
   - id: 4
-    description: "Примитивы Windows: MoveFileExW(REPLACE_EXISTING|WRITE_THROUGH), без sync каталога (ADR-4). Файлы: src/platform/fs/windows.rs, Cargo.toml. Проверка: cargo check; ревью против таблицы ADR-4"
+    description: "OsFs: последовательность §6.7 + примитивы Linux (linux.rs), os_fs() (ADR-4, ТЗ-18, ТЗ-19). Файлы: src/platform/fs/mod.rs, src/platform/fs/linux.rs, Cargo.toml. Проверка: cargo test platform::fs (запись во временный каталог)"
     done: false
   - id: 5
-    description: "MemStore: файлы в памяти, шаги ADR-4, fail_write/crash, fail_read, counts, calls (§2.8, §6.7, ADR-19). Файл: src/platform/fs/mem.rs. Проверка: cargo test atomic_write_interrupted_at_each_step"
+    description: "Примитивы macOS: F_FULLFSYNC → fsync для файла и каталога (ADR-4). Файл: src/platform/fs/macos.rs. Проверка: cargo check; ревью против таблицы ADR-4"
     done: false
   - id: 6
-    description: "PersistStore, EngineFile, FsPersistStore (§2.8, ADR-19). Файл: src/platform/fs/engine_store.rs. Проверка: cargo test engine_store"
+    description: "Примитивы Windows: MoveFileExW(REPLACE_EXISTING|WRITE_THROUGH), без sync каталога (ADR-4). Файлы: src/platform/fs/windows.rs, Cargo.toml. Проверка: cargo check; ревью против таблицы ADR-4"
     done: false
   - id: 7
-    description: "WorkFile, ConfigFile в persist/mod.rs (§2.2). Проверка: cargo check"
+    description: "MemStore: файлы в памяти, шаги ADR-4, fail_write/crash, fail_read, counts, calls (§2.8, §6.7, ADR-19). Файл: src/platform/fs/mem.rs. Проверка: cargo test atomic_write_interrupted_at_each_step"
     done: false
   - id: 8
-    description: "journal.rs: Journal, JournalRecord (варианты С1), WriteTarget, VecJournal, формат строки (ADR-21, §2.9). Файлы: src/journal.rs, src/lib.rs. Проверка: cargo test journal::"
+    description: "PersistStore, EngineFile, FsPersistStore (§2.8, ADR-19). Файл: src/platform/fs/engine_store.rs. Проверка: cargo test engine_store"
     done: false
   - id: 9
     description: "FileJournal: поток apap-log, ротация 3 файлов, лимит 1 МиБ, отключение при ошибке, flush, время civil_from_days (ADR-21, §6.16, ОВС-4 б). Файл: src/journal.rs. Проверка: cargo test file_journal"
@@ -74,8 +74,8 @@ steps:
     description: "Финальная верификация: cargo test, cargo clippy (фильтр по вайтлисту), grep cfg(target_os вне src/platform пуст, fs::write в settings/playlist нет. Проверка: всё зелёное"
     done: false
 
-current_step: 2
-next_action: "OsFs: последовательность §6.7 и примитивы Linux, os_fs()"
+current_step: 3
+next_action: "journal.rs: Journal, JournalRecord, WriteTarget, VecJournal, формат строки"
 
 fail_counter: 0
 fail_counter_max: 3

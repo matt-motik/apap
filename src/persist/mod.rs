@@ -1,6 +1,43 @@
 //! Хранение настроек, состояния и плейлиста (`docs/02_settings_persistence_v1.0/`).
 
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
+
+/// Рабочий файл единственного писателя (ТЗ-3, §2.2). Порядок вариантов =
+/// порядок записи на пути выхода (ТЗ-14).
+#[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Debug)]
+pub enum WorkFile {
+    Playlist,
+    State,
+    Settings,
+}
+
+impl WorkFile {
+    /// Имя файла в каталоге настроек.
+    pub const fn file_name(self) -> &'static str {
+        match self {
+            WorkFile::Playlist => "playlist.m3u",
+            WorkFile::State => "state.toml",
+            WorkFile::Settings => "settings.toml",
+        }
+    }
+}
+
+/// Файл, разбираемый по ключам (ТЗ-5, §2.2).
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub enum ConfigFile {
+    Settings,
+    State,
+}
+
+impl ConfigFile {
+    /// Тот же файл как рабочий файл писателя.
+    pub const fn work(self) -> WorkFile {
+        match self {
+            ConfigFile::Settings => WorkFile::Settings,
+            ConfigFile::State => WorkFile::State,
+        }
+    }
+}
 
 /// Пути файлов приложения (§2.2, ADR-19). Строится только в `main` из
 /// `settings::config_dir()`; остальной код получает пути отсюда и сам каталог
@@ -23,12 +60,26 @@ impl ConfigPaths {
     /// Пути всех файлов внутри каталога `dir`.
     pub fn in_dir(dir: PathBuf) -> ConfigPaths {
         ConfigPaths {
-            settings: dir.join("settings.toml"),
-            state: dir.join("state.toml"),
-            playlist: dir.join("playlist.m3u"),
+            settings: dir.join(WorkFile::Settings.file_name()),
+            state: dir.join(WorkFile::State.file_name()),
+            playlist: dir.join(WorkFile::Playlist.file_name()),
             journal: dir.join("apap.log"),
             dir,
         }
+    }
+
+    /// Путь рабочего файла.
+    pub fn work(&self, f: WorkFile) -> &Path {
+        match f {
+            WorkFile::Playlist => &self.playlist,
+            WorkFile::State => &self.state,
+            WorkFile::Settings => &self.settings,
+        }
+    }
+
+    /// «<имя>.bad» рядом с файлом: одна копия на файл (ТЗ-6, ТЗ-21, НФ-7).
+    pub fn bad_copy(&self, f: WorkFile) -> PathBuf {
+        self.dir.join(format!("{}.bad", f.file_name()))
     }
 }
 
@@ -45,5 +96,17 @@ mod tests {
         assert_eq!(p.state, dir.join("state.toml"));
         assert_eq!(p.playlist, dir.join("playlist.m3u"));
         assert_eq!(p.journal, dir.join("apap.log"));
+    }
+
+    #[test]
+    fn config_paths_work_and_bad_copy() {
+        let dir = PathBuf::from("/cfg/music_player");
+        let p = ConfigPaths::in_dir(dir.clone());
+        assert_eq!(p.work(WorkFile::Settings), p.settings.as_path());
+        assert_eq!(p.work(WorkFile::State), p.state.as_path());
+        assert_eq!(p.work(WorkFile::Playlist), p.playlist.as_path());
+        assert_eq!(p.bad_copy(WorkFile::Settings), dir.join("settings.toml.bad"));
+        assert_eq!(p.bad_copy(ConfigFile::State.work()), dir.join("state.toml.bad"));
+        assert_eq!(p.bad_copy(WorkFile::Playlist), dir.join("playlist.m3u.bad"));
     }
 }

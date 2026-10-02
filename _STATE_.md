@@ -32,21 +32,21 @@
 
 ## Итерационный трекер
 [x] Шаг 1: platform/fs/mod.rs: ReadError, WriteError, классы, WriteStep, classify по таблицам кодов ОС, трейты FileReader/FileWriter; pub mod platform (ADR-4, ADR-6, §2.8, ТЗ-20, ТЗ-54). Файлы: src/lib.rs, src/platform/mod.rs, src/platform/fs/mod.rs. Проверка: cargo test classify_os_errors
-[ ] Шаг 2: OsFs: последовательность §6.7 + примитивы Linux (linux.rs), os_fs() (ADR-4, ТЗ-18, ТЗ-19). Файлы: src/platform/fs/mod.rs, src/platform/fs/linux.rs, Cargo.toml. Проверка: cargo test platform::fs (запись во временный каталог)
-[ ] Шаг 3: Примитивы macOS: F_FULLFSYNC → fsync для файла и каталога (ADR-4). Файл: src/platform/fs/macos.rs. Проверка: cargo check; ревью против таблицы ADR-4
-[ ] Шаг 4: Примитивы Windows: MoveFileExW(REPLACE_EXISTING|WRITE_THROUGH), без sync каталога (ADR-4). Файлы: src/platform/fs/windows.rs, Cargo.toml. Проверка: cargo check; ревью против таблицы ADR-4
-[ ] Шаг 5: MemStore: файлы в памяти, шаги ADR-4, fail_write/crash, fail_read, counts, calls (§2.8, §6.7, ADR-19). Файл: src/platform/fs/mem.rs. Проверка: cargo test atomic_write_interrupted_at_each_step
-[ ] Шаг 6: PersistStore, EngineFile, FsPersistStore (§2.8, ADR-19). Файл: src/platform/fs/engine_store.rs. Проверка: cargo test engine_store
-[ ] Шаг 7: WorkFile, ConfigFile в persist/mod.rs (§2.2). Проверка: cargo check
-[ ] Шаг 8: journal.rs: Journal, JournalRecord (варианты С1), WriteTarget, VecJournal, формат строки (ADR-21, §2.9). Файлы: src/journal.rs, src/lib.rs. Проверка: cargo test journal::
+[x] Шаг 2: WorkFile, ConfigFile в persist/mod.rs (§2.2). Проверка: cargo check
+[ ] Шаг 3: journal.rs: Journal, JournalRecord (варианты С1), WriteTarget, VecJournal, формат строки (ADR-21, §2.9). Файлы: src/journal.rs, src/lib.rs. Проверка: cargo test journal::
+[ ] Шаг 4: OsFs: последовательность §6.7 + примитивы Linux (linux.rs), os_fs() (ADR-4, ТЗ-18, ТЗ-19). Файлы: src/platform/fs/mod.rs, src/platform/fs/linux.rs, Cargo.toml. Проверка: cargo test platform::fs (запись во временный каталог)
+[ ] Шаг 5: Примитивы macOS: F_FULLFSYNC → fsync для файла и каталога (ADR-4). Файл: src/platform/fs/macos.rs. Проверка: cargo check; ревью против таблицы ADR-4
+[ ] Шаг 6: Примитивы Windows: MoveFileExW(REPLACE_EXISTING|WRITE_THROUGH), без sync каталога (ADR-4). Файлы: src/platform/fs/windows.rs, Cargo.toml. Проверка: cargo check; ревью против таблицы ADR-4
+[ ] Шаг 7: MemStore: файлы в памяти, шаги ADR-4, fail_write/crash, fail_read, counts, calls (§2.8, §6.7, ADR-19). Файл: src/platform/fs/mem.rs. Проверка: cargo test atomic_write_interrupted_at_each_step
+[ ] Шаг 8: PersistStore, EngineFile, FsPersistStore (§2.8, ADR-19). Файл: src/platform/fs/engine_store.rs. Проверка: cargo test engine_store
 [ ] Шаг 9: FileJournal: поток apap-log, ротация 3 файлов, лимит 1 МиБ, отключение при ошибке, flush, время civil_from_days (ADR-21, §6.16, ОВС-4 б). Файл: src/journal.rs. Проверка: cargo test file_journal
 [ ] Шаг 10: main.rs: os_fs() + FileJournal::start(paths.journal); MusicApp хранит FileWriter рабочих файлов и Journal (ADR-19). Файлы: src/main.rs, src/app/mod.rs. Проверка: cargo check
 [ ] Шаг 11: SettingsStore::save через FileWriter → Result; ошибка — JournalRecord::WriteFailed; load_from без записи, запись при запуске — из MusicApp::new (прежний момент) (ТЗ-18, ТЗ-20). Файлы: src/settings.rs + механическая замена вызовов в src/app/*. Проверка: cargo test settings
 [ ] Шаг 12: save_track_list через FileWriter → Result; ошибка — журнал; тест на MemStore (ТЗ-18, ТЗ-20). Файлы: src/playlist.rs, src/app/playlist_manager.rs. Проверка: cargo test playlist
 [ ] Шаг 13: Финальная верификация: cargo test, cargo clippy (фильтр по вайтлисту), grep cfg(target_os вне src/platform пуст, fs::write в settings/playlist нет. Проверка: всё зелёное
 
-- **Текущий шаг (current_step):** Шаг 2
-- **Следующий ход:** OsFs: последовательность §6.7 и примитивы Linux, os_fs()
+- **Текущий шаг (current_step):** Шаг 3
+- **Следующий ход:** journal.rs: Journal, JournalRecord, WriteTarget, VecJournal, формат строки
 - **Счетчик безуспешных компиляций:** 0/3
 - **Состояние:** in_progress
 
