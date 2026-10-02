@@ -40,7 +40,7 @@ steps:
     done: true
   - id: 4
     description: "audio/error.rs: Incompatibility, CaptureFailure, FileError, CorruptKind, StreamFault, EngineFault, ErrorClass, DeviceChoiceKind; RateSet в audio/backend/mod.rs (§2.3, §2.4). Проверка: cargo test audio::error"
-    done: false
+    done: true
   - id: 5
     description: "audio/clock.rs: Clock, ClockInstant, MonotonicClock (ADR-20, ОВС-10 п. 7). Проверка: cargo test audio::clock"
     done: false
@@ -57,8 +57,8 @@ steps:
     description: "Финальная верификация: cargo build/test/clippy; отчёт о числе предупреждений старого кода. Проверка: всё зелёное"
     done: false
 
-current_step: 4
-next_action: "audio/error.rs + RateSet в audio/backend/mod.rs"
+current_step: 5
+next_action: "audio/clock.rs: Clock, ClockInstant, MonotonicClock"
 
 fail_counter: 0
 fail_counter_max: 3

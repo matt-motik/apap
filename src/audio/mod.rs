@@ -1,7 +1,9 @@
 pub mod analyzer;
+pub mod backend;
 pub mod decoder;
 pub mod dop;
 pub mod dsd;
+pub mod error;
 pub mod format;
 pub mod fulltrack;
 pub mod palettes;
