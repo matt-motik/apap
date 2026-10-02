@@ -28,6 +28,10 @@ rustfft = "6.4.1"
 image = { version = "0.25", default-features = false, features = ["png"] }
 clru = "0.6"
 
+# Системные вызовы модуля ФС (ADR-4, ADR-6): `O_DIRECTORY`, `F_FULLFSYNC`.
+[target.'cfg(unix)'.dependencies]
+libc = "0.2"
+
 [build-dependencies]
 slint-build = "1.17"
 

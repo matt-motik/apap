@@ -2740,6 +2740,7 @@ dependencies = [
  "dirs",
  "image",
  "ksni",
+ "libc",
  "rand 0.8.8",
  "rfd",
  "rtrb",

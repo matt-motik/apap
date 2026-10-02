@@ -3,8 +3,25 @@
 //! ТЗ-19, ТЗ-20). Трейты и типы — здесь без `cfg`; системные вызовы по ОС —
 //! в `linux.rs`, `macos.rs`, `windows.rs`.
 
-use std::io;
+use crate::journal::{Journal, JournalRecord};
+use std::ffi::OsString;
+use std::fs::{self, OpenOptions};
+use std::io::{self, Write};
 use std::path::{Path, PathBuf};
+use std::sync::Arc;
+
+#[cfg(not(any(target_os = "macos", target_os = "windows")))]
+mod linux;
+#[cfg(not(any(target_os = "macos", target_os = "windows")))]
+use linux as os;
+#[cfg(target_os = "macos")]
+mod macos;
+#[cfg(target_os = "macos")]
+use macos as os;
+#[cfg(target_os = "windows")]
+mod windows;
+#[cfg(target_os = "windows")]
+use windows as os;
 
 /// Чтение файлов: загрузка при запуске и поток загрузки плейлиста (§2.8).
 pub trait FileReader: Send + Sync {
@@ -20,6 +37,91 @@ pub trait FileWriter: Send {
     /// Переименование с заменой и сбросом каталога (ADR-5): шаги `Replace` и
     /// `SyncDir` последовательности ADR-4.
     fn rename_replace(&mut self, from: &Path, to: &Path) -> Result<(), WriteError>;
+}
+
+/// Реализация ОС: шаги ADR-4. Возвращает читателя, писателя рабочих файлов и
+/// писателя хранилища движка (§2.8). Ошибки удаления временного файла
+/// уходят в `journal` (ADR-4).
+pub fn os_fs(journal: Arc<dyn Journal>) -> (Arc<dyn FileReader>, Box<dyn FileWriter>, Box<dyn FileWriter>) {
+    (
+        Arc::new(OsFs { journal: journal.clone() }),
+        Box::new(OsFs { journal: journal.clone() }),
+        Box::new(OsFs { journal }),
+    )
+}
+
+/// Файловая система ОС: последовательность §6.7, системные вызовы — в
+/// модуле `os` по `cfg(target_os)`.
+struct OsFs {
+    journal: Arc<dyn Journal>,
+}
+
+impl FileReader for OsFs {
+    fn read(&self, path: &Path) -> Result<Vec<u8>, ReadError> {
+        fs::read(path).map_err(|e| ReadError::from_io(&e, path))
+    }
+}
+
+impl FileWriter for OsFs {
+    fn write_atomic(&mut self, path: &Path, bytes: &[u8]) -> Result<(), WriteError> {
+        let dir = parent_dir(path);
+        let tmp = temp_path(path);
+        fs::create_dir_all(dir).map_err(|e| WriteError::from_io(&e, WriteStep::CreateDir, path))?;
+        if let Err(err) = write_and_replace(&tmp, path, bytes) {
+            self.remove_temp(&tmp, path);
+            return Err(err);
+        }
+        os::sync_dir(dir).map_err(|e| WriteError::from_io(&e, WriteStep::SyncDir, path))
+    }
+
+    fn rename_replace(&mut self, from: &Path, to: &Path) -> Result<(), WriteError> {
+        os::replace(from, to).map_err(|e| WriteError::from_io(&e, WriteStep::Replace, to))?;
+        os::sync_dir(parent_dir(to)).map_err(|e| WriteError::from_io(&e, WriteStep::SyncDir, to))
+    }
+}
+
+impl OsFs {
+    /// Удалить временный файл после ошибки; неудача — только в журнал (ADR-4).
+    fn remove_temp(&self, tmp: &Path, path: &Path) {
+        match fs::remove_file(tmp) {
+            Ok(()) => {}
+            Err(e) if e.kind() == io::ErrorKind::NotFound => {}
+            Err(e) => self.journal.record(JournalRecord::TempRemoveFailed {
+                err: WriteError::from_io(&e, WriteStep::RemoveTemp, path),
+            }),
+        }
+    }
+}
+
+/// Шаги 2–4 ADR-4: данные во временный файл, сброс файла, замена.
+fn write_and_replace(tmp: &Path, path: &Path, bytes: &[u8]) -> Result<(), WriteError> {
+    let mut f = OpenOptions::new()
+        .write(true)
+        .create(true)
+        .truncate(true)
+        .open(tmp)
+        .map_err(|e| WriteError::from_io(&e, WriteStep::OpenTemp, path))?;
+    f.write_all(bytes).map_err(|e| WriteError::from_io(&e, WriteStep::WriteData, path))?;
+    os::sync_file(&f).map_err(|e| WriteError::from_io(&e, WriteStep::SyncFile, path))?;
+    // Закрыть до замены: на Windows открытый файл не переместить.
+    drop(f);
+    os::replace(tmp, path).map_err(|e| WriteError::from_io(&e, WriteStep::Replace, path))
+}
+
+/// Каталог файла; для пути без каталога — текущий.
+fn parent_dir(path: &Path) -> &Path {
+    match path.parent() {
+        Some(p) if !p.as_os_str().is_empty() => p,
+        _ => Path::new("."),
+    }
+}
+
+/// Временный файл `<имя>.tmp` в каталоге целевого файла (ADR-4): читатели его
+/// не открывают, следующая запись перезаписывает.
+pub fn temp_path(path: &Path) -> PathBuf {
+    let mut name: OsString = path.file_name().map(OsString::from).unwrap_or_default();
+    name.push(".tmp");
+    path.with_file_name(name)
 }
 
 /// Ошибка чтения: класс, код и текст ОС, путь (§2.8).
@@ -224,6 +326,63 @@ mod tests {
         assert_eq!(WriteErrorClass::NoAccess.text(), "нет доступа");
         assert_eq!(WriteErrorClass::ReadOnlyFs.text(), "файловая система только для чтения");
         assert_eq!(WriteErrorClass::Io.text(), "ошибка ввода-вывода");
+    }
+
+    /// Уникальный временный каталог теста (не каталог пользователя, ТЗ-49).
+    fn test_dir(name: &str) -> PathBuf {
+        let dir = std::env::temp_dir().join(format!("apap-fs-{}-{name}", std::process::id()));
+        let _ = fs::remove_dir_all(&dir);
+        dir
+    }
+
+    #[test]
+    fn os_fs_write_atomic_replaces_and_leaves_no_tmp() {
+        let dir = test_dir("atomic");
+        let journal = Arc::new(crate::journal::VecJournal::default());
+        let (reader, mut writer, _) = os_fs(journal.clone());
+        let target = dir.join("sub").join("state.toml");
+        writer.write_atomic(&target, b"old").expect("first write");
+        writer.write_atomic(&target, b"new").expect("second write");
+        assert_eq!(reader.read(&target).expect("read"), b"new");
+        assert!(!temp_path(&target).exists());
+        // Оставшийся после сбоя .tmp не мешает следующей записи (ТЗ-18).
+        fs::write(temp_path(&target), b"garbage").expect("stale tmp");
+        writer.write_atomic(&target, b"third").expect("write over stale tmp");
+        assert_eq!(reader.read(&target).expect("read"), b"third");
+        assert!(!temp_path(&target).exists());
+        assert!(journal.records().is_empty());
+        let _ = fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn os_fs_errors_keep_target_and_classify() {
+        let dir = test_dir("errors");
+        let (reader, mut writer, _) = os_fs(Arc::new(crate::journal::VecJournal::default()));
+        fs::create_dir_all(&dir).expect("dir");
+        // Родитель — обычный файл: каталог не создать.
+        let blocker = dir.join("file");
+        fs::write(&blocker, b"x").expect("blocker");
+        let err = writer.write_atomic(&blocker.join("state.toml"), b"v").expect_err("create dir must fail");
+        assert_eq!(err.step, WriteStep::CreateDir);
+        assert_eq!(err.path, blocker.join("state.toml"));
+        // Нет файла → NotFound при чтении.
+        let missing = reader.read(&dir.join("none")).expect_err("missing");
+        assert_eq!(missing.class, ReadErrorClass::NotFound);
+        // rename_replace переносит файл с заменой.
+        let a = dir.join("a");
+        let b = dir.join("b");
+        fs::write(&a, b"A").expect("a");
+        fs::write(&b, b"B").expect("b");
+        writer.rename_replace(&a, &b).expect("rename");
+        assert!(!a.exists());
+        assert_eq!(fs::read(&b).expect("b"), b"A");
+        let _ = fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn temp_path_is_name_dot_tmp() {
+        assert_eq!(temp_path(Path::new("/c/settings.toml")), PathBuf::from("/c/settings.toml.tmp"));
+        assert_eq!(temp_path(Path::new("playlist.m3u")), PathBuf::from("playlist.m3u.tmp"));
     }
 
     #[test]
