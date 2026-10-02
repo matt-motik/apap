@@ -3,6 +3,8 @@
 mod app;
 
 use app::MusicApp;
+use music_player_rs::persist::ConfigPaths;
+use music_player_rs::theme::create_default_themes;
 use slint::ComponentHandle;
 use std::cell::RefCell;
 use std::rc::Rc;
@@ -21,8 +23,17 @@ const REF_INTERVAL_MS: u64 = 16;
 const VIZ_PUSH_INTERVAL_MS: u64 = app::visualizer_manager::VIZ_PUSH_INTERVAL_MS;
 
 fn main() {
+    // Каталог настроек пользователя ищется только здесь (ТЗ-49, ADR-19):
+    // остальной код получает пути из `ConfigPaths`.
+    let paths = ConfigPaths::in_dir(music_player_rs::settings::config_dir());
+    // T1.0 §1/§8.2: гарантировать `themes/` + `dark.toml`/`light.toml`.
+    // Существующие файлы не перезаписываются (воссоздаются только
+    // отсутствующие, в т.ч. после ручного удаления).
+    if let Err(e) = create_default_themes(&paths.dir.join("themes")) {
+        eprintln!("[theme] create_default_themes failed: {e}");
+    }
     let ui = app::create_ui().expect("Failed to create Slint UI");
-    let app = Rc::new(RefCell::new(MusicApp::new(ui.clone_strong())));
+    let app = Rc::new(RefCell::new(MusicApp::new(ui.clone_strong(), paths)));
     MusicApp::init(&app);
 
     let weak = ui.as_weak();

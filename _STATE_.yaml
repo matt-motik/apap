@@ -28,7 +28,7 @@ steps:
     done: true
   - id: 3
     description: "main.rs: config_dir() → ConfigPaths, создание файлов тем; MusicApp::new(ui, paths) хранит пути и грузит настройки через load_from (ADR-19, ADR-23). Файлы: src/main.rs, src/app/mod.rs. Проверка: cargo check"
-    done: false
+    done: true
   - id: 4
     description: "Оставшиеся config_dir()/playlist_path() в src/app/mod.rs и src/app/playlist_manager.rs → self.paths (ТЗ-49). Проверка: cargo check; grep config_dir src/app пусто"
     done: false
@@ -42,8 +42,8 @@ steps:
     description: "Финальная верификация: cargo test, cargo clippy (фильтр по вайтлисту), grep 'config_dir()' только в src/main.rs и определении. Проверка: всё зелёное"
     done: false
 
-current_step: 3
-next_action: "main.rs строит ConfigPaths и темы; MusicApp::new(ui, paths)"
+current_step: 4
+next_action: "Заменить config_dir()/playlist_path() в src/app/mod.rs и playlist_manager.rs на self.paths. Тест bp_report не собирается до шага 6 (старая сигнатура MusicApp::new) — ожидаемо"
 
 fail_counter: 0
 fail_counter_max: 3

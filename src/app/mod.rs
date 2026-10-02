@@ -18,13 +18,14 @@ use music_player_rs::audio::visualizer::{
     FreqScale, LevelScale, VisualizerConfig,
 };
 use music_player_rs::cover::{self, CoverDone, CoverJob};
+use music_player_rs::persist::ConfigPaths;
 use music_player_rs::playlist::{self, ScanMsg, Track};
 use music_player_rs::settings::{
     ClockFamily, ColumnId, DsdMode, ExclusiveMode, FallbackPolicy, FallbackRatePolicy, RepeatMode,
     ResamplerMode, Settings, SettingsStore,
 };
 use music_player_rs::theme::{
-    ColorsData, ThemeData, ThemeError, DEFAULT_LIGHT_TOML, create_default_themes, parse_hex,
+    ColorsData, ThemeData, ThemeError, DEFAULT_LIGHT_TOML, parse_hex,
     scan_themes_dir,
 };
 use music_player_rs::tray::{self, TrayCmd};
@@ -233,6 +234,8 @@ fn num_str(v: u32, suffix: &str) -> SharedString {
 
 pub struct MusicApp {
     ui: AppWindow,
+    /// Пути файлов настроек, состояния, плейлиста и журнала (ADR-19).
+    paths: ConfigPaths,
     settings: SettingsStore,
     player: Player,
     tracks: Vec<Track>,
@@ -347,15 +350,10 @@ pub struct MusicApp {
 }
 
 impl MusicApp {
-    pub fn new(ui: AppWindow) -> Self {
-        let settings = SettingsStore::load();
-        // T1.0 §1/§8.2: гарантировать `themes/` + `dark.toml`/`light.toml`.
-        // Существующие файлы не перезаписываются (воссоздаются только
-        // отсутствующие, в т.ч. после ручного удаления).
-        let themes_dir = music_player_rs::settings::config_dir().join("themes");
-        if let Err(e) = create_default_themes(&themes_dir) {
-            eprintln!("[theme] create_default_themes failed: {e}");
-        }
+    /// `paths` строит `main` (ADR-19): приложение не ищет каталог настроек
+    /// пользователя само, поэтому тесты его не трогают (ТЗ-49).
+    pub fn new(ui: AppWindow, paths: ConfigPaths) -> Self {
+        let settings = SettingsStore::load_from(paths.settings.clone());
         let mut player = Player::new();
         player.set_volume(settings.settings.volume);
         player.set_muted(settings.settings.muted);
@@ -371,7 +369,7 @@ impl MusicApp {
         // Load the persisted playlist in the background so a large library
         // doesn't block window construction; `tick()` applies it on arrival.
         let (startup_tx, startup_tracks_rx) = channel::<Vec<Track>>();
-        let startup_path = music_player_rs::settings::playlist_path();
+        let startup_path = paths.playlist.clone();
         thread::spawn(move || {
             let tracks = playlist::load_track_list(&startup_path);
             let _ = startup_tx.send(tracks);
@@ -438,6 +436,7 @@ impl MusicApp {
 
         let mut app = Self {
             ui: ui.clone_strong(),
+            paths,
             settings,
             player,
             tracks,

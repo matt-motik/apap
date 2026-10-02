@@ -19,14 +19,14 @@
 ## Итерационный трекер
 [x] Шаг 1: ConfigPaths (dir, settings, state, playlist, journal; in_dir) в src/persist/mod.rs + pub mod persist в lib.rs (§2.2, ADR-19, ТЗ-49). Проверка: cargo check; cargo test persist:: зелёный
 [x] Шаг 2: SettingsStore::load_from(path) в src/settings.rs; load() пока делегирует (ADR-19). Проверка: cargo check
-[ ] Шаг 3: main.rs: config_dir() → ConfigPaths, создание файлов тем; MusicApp::new(ui, paths) хранит пути и грузит настройки через load_from (ADR-19, ADR-23). Файлы: src/main.rs, src/app/mod.rs. Проверка: cargo check
+[x] Шаг 3: main.rs: config_dir() → ConfigPaths, создание файлов тем; MusicApp::new(ui, paths) хранит пути и грузит настройки через load_from (ADR-19, ADR-23). Файлы: src/main.rs, src/app/mod.rs. Проверка: cargo check
 [ ] Шаг 4: Оставшиеся config_dir()/playlist_path() в src/app/mod.rs и src/app/playlist_manager.rs → self.paths (ТЗ-49). Проверка: cargo check; grep config_dir src/app пусто
 [ ] Шаг 5: Удалить SettingsStore::load() и playlist_path() из src/settings.rs (ADR-19). Проверка: cargo check
 [ ] Шаг 6: build_bp_report по данным (BpInputs), тест bp_report_marks_volume_issue без MusicApp::new (ТЗ-51, ТЗ-49). Файлы: src/app/bp_report.rs, src/app/mod.rs. Проверка: cargo test bp_report зелёный
 [ ] Шаг 7: Финальная верификация: cargo test, cargo clippy (фильтр по вайтлисту), grep 'config_dir()' только в src/main.rs и определении. Проверка: всё зелёное
 
-- **Текущий шаг (current_step):** Шаг 3
-- **Следующий ход:** main.rs строит ConfigPaths и темы; MusicApp::new(ui, paths)
+- **Текущий шаг (current_step):** Шаг 4
+- **Следующий ход:** Заменить config_dir()/playlist_path() в src/app/mod.rs и playlist_manager.rs на self.paths. Тест bp_report не собирается до шага 6 (старая сигнатура MusicApp::new) — ожидаемо
 - **Счетчик безуспешных компиляций:** 0/3
 - **Состояние:** in_progress
 
