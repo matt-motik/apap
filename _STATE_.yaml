@@ -56,7 +56,7 @@ steps:
     done: true
   - id: 7
     description: "Удалить unwrap/expect/unreachable из прод-кода библиотеки: dsd.rs, fulltrack.rs, output.rs (ТЗ-101, §6.29). Проверка: cargo clippy без предупреждений в этих файлах"
-    done: false
+    done: true
   - id: 8
     description: "Удалить unwrap/expect из бинарника и build.rs: viz_settings_manager.rs, app/mod.rs, main.rs, build.rs; [lints.clippy] → deny (ТЗ-101, §6.29). Проверка: cargo clippy 0 предупреждений"
     done: false
@@ -82,8 +82,8 @@ steps:
     description: "Финальная верификация: cargo build/test/clippy; ручные сценарии ТЗ-1/2/48/118/119/120/122 — пользователю. Проверка: всё зелёное"
     done: false
 
-current_step: 7
-next_action: "Удалить unwrap/expect/unreachable из прод-кода библиотеки"
+current_step: 8
+next_action: "unwrap/expect в бинарнике и build.rs; lints → deny"
 
 fail_counter: 0
 fail_counter_max: 3

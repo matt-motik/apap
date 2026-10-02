@@ -367,7 +367,7 @@ pub fn fulltrack_cache_max_entries(viz_max_ram_mb: u32) -> NonZeroUsize {
     let budget = usize::try_from(viz_max_ram_mb).unwrap_or(0).saturating_mul(1024 * 1024);
     let entries = budget / AVG_FULLTRACK_RGBA_BYTES;
     // Минимум 1 запись: пустой кэш бесполезен, но NonZero обязателен.
-    NonZeroUsize::new(entries.max(1)).expect("cache capacity is always >= 1")
+    NonZeroUsize::new(entries).unwrap_or(NonZeroUsize::MIN)
 }
 
 /// Путь к PNG-файлу кэша для данного ключа.

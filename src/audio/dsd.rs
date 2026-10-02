@@ -583,7 +583,7 @@ fn parse_id3(buf: &[u8]) -> Tags {
         let mut pos = 0usize;
         while pos + 10 <= body.len() {
             let frame_len_field = if ver == 3 {
-                u32::from_be_bytes(body[pos + 4..pos + 8].try_into().unwrap()) as usize
+                u32::from_be_bytes(field(body, pos + 4)) as usize
             } else {
                 let f4 = &body[pos + 4..pos + 8];
                 ((f4[0] as usize & 0x7f) << 21)

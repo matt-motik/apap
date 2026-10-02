@@ -1652,7 +1652,8 @@ pub fn build_stream_rt(
                     None,
                 )
             }
-            _other => unreachable!("sample format checked above"),
+            // Формат проверен выше; иной формат — отказ сборки, не паника (ТЗ-101).
+            _other => Err(cpal::Error::with_message(cpal::ErrorKind::InvalidInput, "unsupported sample format")),
         }
     };
 
