@@ -9,6 +9,8 @@
 - **Вайтлист файлов в работе (Изменяемые файлы):**
   - ROADMAP.md
   - Cargo.toml
+  - clippy.toml
+  - docs/01_audio_modes_v1.0/03_spec.md
   - Cargo.lock
   - build.rs
   - src/main.rs
@@ -28,6 +30,7 @@
   - src/audio/reservation/dbus.rs
   - src/audio/testing/mod.rs
   - tests/parsers_survive_mutations.rs
+  - tests/dsd512_playback_cpu_budget.rs
   - ui/status.slint
   - ui/app.slint
 - **Критерий успеха (Definition of Done):** cargo build/test/clippy зелёные, clippy unwrap/expect/unreachable = deny без нарушений; DoP только в Exclusive, маркеры непрерывны, тишина 0x6969; DSF/DFF без паник (фаззинг 10 000); бейдж не зелёный; hw: только после резервирования. Отклонения старого пути (до С6): повтор EBUSY — на тике 100 мс вместо 50 мс; ожидание резервирования — опрос на тике; ExclusiveMode::Auto больше не откатывается в Shared.
@@ -50,7 +53,7 @@
 [ ] Шаг 15: Финальная верификация: cargo build/test/clippy; ручные сценарии ТЗ-1/2/48/118/119/120/122 — пользователю. Проверка: всё зелёное
 
 - **Текущий шаг (current_step):** Шаг 8
-- **Следующий ход:** unwrap/expect в бинарнике и build.rs; lints → deny
+- **Следующий ход:** Шаг 8 почти готов (unwrap/expect убраны из bin и build.rs, clippy.toml, [lints.clippy]=deny, cargo clippy --all-targets чистый; фикстура DSD512 дописывает чанк data). Осталось: обновить §6.29 03_spec.md и строку «Обновление 2026-10-02» в шапке по решению пользователя (clippy.toml вместо cfg_attr), полный cargo test, отметить шаг 8. Наблюдение: dsd512_playback_cpu_budget (#[ignore], V5.1-11.1) теперь проходит, RTF 0.119 ≤ 0.2 — проверить и снять ignore отдельной задачей.
 - **Счетчик безуспешных компиляций:** 0/3
 - **Состояние:** in_progress
 

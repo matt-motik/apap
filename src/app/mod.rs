@@ -208,9 +208,11 @@ fn validate_colors(colors: &ColorsData) -> Result<(), ThemeError> {
 /// Разрешает стартовую тему без GUI (§8.2/§6.1).
 ///
 /// Цепочка fallback: `<name>.toml` (структура + HEX) → `light.toml` →
-/// `DEFAULT_LIGHT_TOML`. Возвращает `(данные_темы, was_fallback)`.
+/// `DEFAULT_LIGHT_TOML`. Возвращает `(данные_темы, was_fallback)`; `None` —
+/// не разобралась даже встроенная тема (тогда остаётся палитра по умолчанию
+/// из `theme.slint`, без паники, ТЗ-101).
 /// `settings.toml` не пишет — намерение пользователя сохраняется.
-fn resolve_startup_theme(name: &str, themes_dir: &std::path::Path) -> (ThemeData, bool) {
+fn resolve_startup_theme(name: &str, themes_dir: &std::path::Path) -> Option<(ThemeData, bool)> {
     let try_file = |p: &std::path::Path| -> Option<ThemeData> {
         let data = ThemeData::load_from_file(p).ok()?;
         if validate_colors(&data.colors).is_ok() {
@@ -221,18 +223,13 @@ fn resolve_startup_theme(name: &str, themes_dir: &std::path::Path) -> (ThemeData
     };
 
     if let Some(data) = try_file(&themes_dir.join(format!("{name}.toml"))) {
-        return (data, false);
+        return Some((data, false));
     }
 
     match try_file(&themes_dir.join("light.toml")) {
-        Some(data) => (data, true),
-        None => (
-            toml::from_str(DEFAULT_LIGHT_TOML).expect(
-                "DEFAULT_LIGHT_TOML — константа с фиксированным набором HEX, \
-                 покрыта test_load_default_light",
-            ),
-            true,
-        ),
+        Some(data) => Some((data, true)),
+        // Константа покрыта test_load_default_light.
+        None => toml::from_str(DEFAULT_LIGHT_TOML).ok().map(|data| (data, true)),
     }
 }
 
@@ -536,8 +533,13 @@ impl MusicApp {
             let mut app = this.borrow_mut();
             let themes_dir = app.paths.dir.join("themes");
             let theme_name = app.settings.settings.theme.clone();
-            let (theme, was_fallback) = resolve_startup_theme(&theme_name, &themes_dir);
-            app.apply_theme(&theme);
+            let (theme, was_fallback) = match resolve_startup_theme(&theme_name, &themes_dir) {
+                Some((theme, was_fallback)) => (Some(theme), was_fallback),
+                None => (None, true),
+            };
+            if let Some(theme) = &theme {
+                app.apply_theme(theme);
+            }
             // T1.0 §6.1: падение загрузки темы → Light визуально для текущего
             // запуска + тултип трея. Значение `theme` в settings.toml НЕ
             // перезаписывается (resolve_startup_theme чистая, намерение
@@ -1446,11 +1448,11 @@ impl MusicApp {
                 if let Some(sel) = a.theme_selection.take() {
                     a.settings.settings.theme = sel;
                 }
-                a.apply_theme(&resolve_startup_theme(
-                    &a.settings.settings.theme,
-                    &a.paths.dir.join("themes"),
-                )
-                .0);
+                if let Some((theme, _)) =
+                    resolve_startup_theme(&a.settings.settings.theme, &a.paths.dir.join("themes"))
+                {
+                    a.apply_theme(&theme);
+                }
                 a.ui.set_cover_size(a.settings.settings.cover_size);
                 a.ui.set_col_info_w(a.settings.settings.col_info_w);
                 a.ui.set_col_gap(a.settings.settings.col_gap);
@@ -1993,7 +1995,7 @@ mod tests {
         let _ = std::fs::remove_dir_all(&dir);
         std::fs::create_dir_all(&dir).unwrap();
 
-        let (data, was_fallback) = resolve_startup_theme("ghost", &dir);
+        let (data, was_fallback) = resolve_startup_theme("ghost", &dir).expect("built-in light theme");
         assert!(was_fallback);
         assert_eq!(data.standard_palette, music_player_rs::theme::StandardPalette::Light);
         assert_eq!(data.colors.accent, "#6750a4");

@@ -11,6 +11,8 @@ task:
 whitelist:
   - ROADMAP.md
   - Cargo.toml
+  - clippy.toml
+  - docs/01_audio_modes_v1.0/03_spec.md
   - Cargo.lock
   - build.rs
   - src/main.rs
@@ -30,6 +32,7 @@ whitelist:
   - src/audio/reservation/dbus.rs
   - src/audio/testing/mod.rs
   - tests/parsers_survive_mutations.rs
+  - tests/dsd512_playback_cpu_budget.rs
   - ui/status.slint
   - ui/app.slint
 
@@ -83,7 +86,7 @@ steps:
     done: false
 
 current_step: 8
-next_action: "unwrap/expect в бинарнике и build.rs; lints → deny"
+next_action: "Шаг 8 почти готов (unwrap/expect убраны из bin и build.rs, clippy.toml, [lints.clippy]=deny, cargo clippy --all-targets чистый; фикстура DSD512 дописывает чанк data). Осталось: обновить §6.29 03_spec.md и строку «Обновление 2026-10-02» в шапке по решению пользователя (clippy.toml вместо cfg_attr), полный cargo test, отметить шаг 8. Наблюдение: dsd512_playback_cpu_budget (#[ignore], V5.1-11.1) теперь проходит, RTF 0.119 ≤ 0.2 — проверить и снять ignore отдельной задачей."
 
 fail_counter: 0
 fail_counter_max: 3

@@ -1,0 +1,4 @@
+# Линтер прод-кода (AM1.0 §6.29, ТЗ-101): unwrap/expect запрещены вне тестов
+# ([lints.clippy] = deny в Cargo.toml); в #[test] и #[cfg(test)] — разрешены.
+allow-unwrap-in-tests = true
+allow-expect-in-tests = true

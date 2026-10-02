@@ -43,6 +43,9 @@ fn write_u64_le(buf: &mut [u8], off: usize, v: u64) {
 /// against src/audio/dsd.rs::parse_dsf. The actual bit content is an
 /// arbitrary varied byte pattern — CIC decode cost doesn't depend on the
 /// signal, only on the byte count, so it doesn't need to encode real audio.
+// Вспомогательный тестовый код вне #[test]: ошибка ввода-вывода фикстуры —
+// провал теста (AM1.0 §6.29).
+#[allow(clippy::unwrap_used, clippy::expect_used)]
 fn write_synthetic_dsf(
     dir: &std::path::Path,
     seconds: f64,
@@ -68,6 +71,9 @@ fn write_synthetic_dsf(
     write_u32_le(&mut header, 60, 1); // bits per sample
     write_u64_le(&mut header, 64, sample_count);
     write_u32_le(&mut header, 72, block_size);
+    // Заголовок чанка data (смещение 80): разборщик проверяет его (AM1.0 §6.29).
+    header[80..84].copy_from_slice(b"data");
+    write_u64_le(&mut header, 84, 12 + audio_bytes);
 
     let path = dir.join(format!("synthetic_dsd512_{seconds}s.dsf"));
     let mut f = std::fs::File::create(&path).expect("create synthetic dsf fixture");

@@ -42,7 +42,14 @@ fn main() {
     // Журнал и модуль ФС собираются только здесь (ADR-19, ADR-21).
     let journal: Arc<dyn Journal> = Arc::new(FileJournal::start(paths.journal.clone()));
     let (_reader, work_fs, _engine_fs) = os_fs(journal.clone());
-    let ui = app::create_ui().expect("Failed to create Slint UI");
+    let ui = match app::create_ui() {
+        Ok(ui) => ui,
+        Err(e) => {
+            eprintln!("не удалось создать окно Slint: {e}");
+            journal.flush(JOURNAL_FLUSH_BUDGET);
+            return;
+        }
+    };
     let app = Rc::new(RefCell::new(MusicApp::new(ui.clone_strong(), paths, work_fs, journal.clone())));
     MusicApp::init(&app);
 
@@ -88,13 +95,19 @@ fn main() {
         },
     );
 
-    ui.show().unwrap();
+    if let Err(e) = ui.show() {
+        eprintln!("не удалось показать окно: {e}");
+        journal.flush(JOURNAL_FLUSH_BUDGET);
+        return;
+    }
     // Размер/позиция окна применимы только после создания поверхности:
     // winit игнорирует `set_size`/`set_position` до `show()`, и окно могло бы
     // схлопнуться до минимального размера контента. Повторно применяем
     // сохранённую геометрию (V5.1-B7) из видимого состояния.
     app.borrow().apply_window_geometry();
-    slint::run_event_loop_until_quit().unwrap();
+    if let Err(e) = slint::run_event_loop_until_quit() {
+        eprintln!("цикл событий завершился с ошибкой: {e}");
+    }
     drop(viz_timer);
     drop(ref_timer);
     drop(timer);

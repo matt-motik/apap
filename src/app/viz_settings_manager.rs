@@ -260,16 +260,15 @@ impl MusicApp {
             .trim()
             .to_string();
 
-        let fmin = fmin_t.parse::<u32>().ok();
-        let fmax = fmax_t.parse::<u32>().ok();
-        let bands = bands_t.parse::<u32>().ok();
+        // Только значения в допустимых диапазонах; дальше — без unwrap (ТЗ-101).
+        let fmin = fmin_t.parse::<u32>().ok().filter(|v| (1..=22_050).contains(v));
+        let fmax = fmax_t.parse::<u32>().ok().filter(|v| (1..=22_050).contains(v));
+        let bands = bands_t.parse::<u32>().ok().filter(|v| (4..=128).contains(v));
 
-        let fmin_num_ok = matches!(fmin, Some(v) if (1..=22_050).contains(&v));
-        let fmax_num_ok = matches!(fmax, Some(v) if (1..=22_050).contains(&v));
-        let bands_ok = matches!(bands, Some(v) if (4..=128).contains(&v));
-        let cross_ok = !(fmin_num_ok && fmax_num_ok && fmin.unwrap() >= fmax.unwrap());
-        let fmin_invalid = !fmin_num_ok || !cross_ok;
-        let fmax_invalid = !fmax_num_ok || !cross_ok;
+        let bands_ok = bands.is_some();
+        let cross_ok = !matches!((fmin, fmax), (Some(lo), Some(hi)) if lo >= hi);
+        let fmin_invalid = fmin.is_none() || !cross_ok;
+        let fmax_invalid = fmax.is_none() || !cross_ok;
 
         let mut err = Vec::new();
         if fmin_invalid {
@@ -283,23 +282,14 @@ impl MusicApp {
         }
 
         // Применяем только валидные значения (запись в draft при открытом диалоге).
-        if fmin_num_ok && cross_ok {
-            self.settings_mut()
-                .visualization
-                .spectrogram
-                .freq_min = fmin.unwrap();
+        if let (Some(v), true) = (fmin, cross_ok) {
+            self.settings_mut().visualization.spectrogram.freq_min = v;
         }
-        if fmax_num_ok && cross_ok {
-            self.settings_mut()
-                .visualization
-                .spectrogram
-                .freq_max = fmax.unwrap();
+        if let (Some(v), true) = (fmax, cross_ok) {
+            self.settings_mut().visualization.spectrogram.freq_max = v;
         }
-        if bands_ok {
-            self.settings_mut()
-                .visualization
-                .spectrum
-                .bands = bands.unwrap();
+        if let Some(v) = bands {
+            self.settings_mut().visualization.spectrum.bands = v;
         }
 
         self.ui
