@@ -1048,10 +1048,10 @@ pub fn audio_callback_f32_rt(consumer: &mut RtConsumer, data: &mut [f32]) {
     } else {
         volume
     };
-    if vol < 1.0 {
-        for s in data.iter_mut().take(produced) {
-            *s *= vol;
-        }
+    // Границы формата F32 — [-1, 1]: межсэмпловые пики SRC и сумма downmix
+    // ограничиваются, а не уходят в устройство (ТЗ-17).
+    for s in data.iter_mut().take(produced) {
+        *s = (*s * vol).clamp(-1.0, 1.0);
     }
     if produced < data.len() {
         data[produced..].fill(0.0);
@@ -1954,6 +1954,81 @@ mod tests {
 
     /// ТЗ-1, И-Т3 (в объёме старого пути): DoP-поток не строится на выходе,
     /// открытом не в Exclusive.
+    /// ТЗ-17 (в объёме старого пути): ±full scale, downmix 5.1→2, SRC синуса
+    /// 0.99·fs/2 амплитуды 1.0 (44,1 → 192 кГц) → во всех форматах значения в
+    /// границах и нет соседних сэмплов с разностью > 2^N − 2^(N−2).
+    #[test]
+    fn no_wraparound_under_full_scale_processing() {
+        let src_rate = 44_100u32;
+        let frames = 4_096usize;
+        let f = 0.99 * f64::from(src_rate) / 2.0;
+        let mut input = Vec::with_capacity(frames * 6);
+        for n in 0..frames {
+            // Первая половина — синус у Найквиста, вторая — блоки ±full scale.
+            let v = if n < frames / 2 {
+                (std::f64::consts::TAU * f * n as f64 / f64::from(src_rate)).sin() as f32
+            } else if (n / 256) % 2 == 0 {
+                1.0
+            } else {
+                -1.0
+            };
+            input.extend(std::iter::repeat_n(v, 6));
+        }
+        let mut rs = Resampler::with_algo(src_rate, 192_000, 6, 2, ResamplerAlgorithm::SincSlow);
+        let mut processed = Vec::new();
+        let mut pos = 0;
+        let mut out = vec![0.0f32; 8_192];
+        while pos < input.len() {
+            let pushed = rs.push(&input[pos..]) * 6;
+            pos += pushed;
+            let n = rs.pull(&mut out, 4_096, false);
+            processed.extend_from_slice(&out[..n * 2]);
+            assert!(pushed > 0 || n > 0, "ресемплер не продвигается");
+        }
+        loop {
+            let n = rs.pull(&mut out, 4_096, true);
+            if n == 0 {
+                break;
+            }
+            processed.extend_from_slice(&out[..n * 2]);
+        }
+        assert!(processed.iter().any(|x| x.abs() > 1.0), "вход должен давать выбросы за full scale");
+        let len = processed.len() / 2 * 2;
+
+        fn check<T: Copy + Into<f64>>(name: &str, out: &[T], bits: u32, lo: f64, hi: f64) {
+            let limit = 2f64.powi(bits as i32) - 2f64.powi(bits as i32 - 2);
+            for (i, v) in out.iter().enumerate() {
+                let x: f64 = (*v).into();
+                assert!(x >= lo && x <= hi, "{name}: значение {x} вне границ");
+                if i >= 2 {
+                    let prev: f64 = out[i - 2].into();
+                    assert!((x - prev).abs() <= limit, "{name}: скачок {prev} → {x} (переход через знак)");
+                }
+            }
+        }
+        let mut f32_out = vec![0.0f32; len];
+        audio_callback_f32_rt(&mut rt_consumer_with(&processed[..len], 2), &mut f32_out);
+        let scaled: Vec<f64> = f32_out.iter().map(|x| f64::from(*x) * 32_768.0).collect();
+        check("f32", &scaled, 16, -32_768.0, 32_768.0);
+        for dither in [DITHER_INDEX_OFF, 1] {
+            let mut c = rt_consumer_with(&processed[..len], 2);
+            c.shared().set_dither_index(dither);
+            let mut o = vec![0i16; len];
+            audio_callback_i16_rt(&mut c, &mut o);
+            check("i16", &o, 16, f64::from(i16::MIN), f64::from(i16::MAX));
+            let mut c = rt_consumer_with(&processed[..len], 2);
+            c.shared().set_dither_index(dither);
+            let mut o = vec![0u8; len];
+            audio_callback_u8_rt(&mut c, &mut o);
+            check("u8", &o, 8, 0.0, 255.0);
+            let mut c = rt_consumer_with(&processed[..len], 2);
+            c.shared().set_dither_index(dither);
+            let mut o = vec![0i32; len];
+            audio_callback_i32_pcm_rt(&mut c, &mut o);
+            check("i32", &o, 32, f64::from(i32::MIN), f64::from(i32::MAX));
+        }
+    }
+
     #[test]
     fn old_path_dop_requires_exclusive() {
         assert!(dop_requires_exclusive(false).is_err());

@@ -47,7 +47,7 @@ steps:
     done: true
   - id: 4
     description: "ТЗ-17: clamp в текущем квантовании колбэков i16/u8/i32 (без wrap-around). Файл: src/audio/player.rs. Проверка: cargo test no_wraparound"
-    done: false
+    done: true
   - id: 5
     description: "Лимиты разбора DSF/DFF §6.29 (channels 1..=8, block 1..=65536, checked-арифметика, offset ≤ file_len, буферы по min(заявлено, file_len)) (ТЗ-92). Файл: src/audio/dsd.rs. Проверка: cargo test dsf_corrupt_headers_error_not_panic dff_chunk_size_overflow_error truncated_files_error"
     done: false
@@ -82,8 +82,8 @@ steps:
     description: "Финальная верификация: cargo build/test/clippy; ручные сценарии ТЗ-1/2/48/118/119/120/122 — пользователю. Проверка: всё зелёное"
     done: false
 
-current_step: 4
-next_action: "ТЗ-17: clamp в квантовании колбэков"
+current_step: 5
+next_action: "Лимиты разбора DSF/DFF §6.29"
 
 fail_counter: 0
 fail_counter_max: 3
