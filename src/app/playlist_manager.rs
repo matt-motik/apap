@@ -94,8 +94,13 @@ impl MusicApp {
     pub(super) fn save_playlist(&mut self) {
         // The on-disk playlist always reflects `disk_tracks` (original load +
         // scanned additions), never the on-screen sort order.
-        if playlist::save_track_list(&self.paths.playlist, &self.disk_tracks) {
-            self.playlist_dirty = false;
+        // Ошибка записи — в журнал, флаг остаётся взведённым (ТЗ-20).
+        match playlist::save_track_list(self.fs.as_mut(), &self.paths.playlist, &self.disk_tracks) {
+            Ok(()) => self.playlist_dirty = false,
+            Err(err) => {
+                let target = WriteTarget::Work(WorkFile::Playlist);
+                self.journal.record(JournalRecord::WriteFailed { target, err });
+            }
         }
     }
 

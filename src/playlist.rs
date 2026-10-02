@@ -3,6 +3,7 @@ use std::sync::mpsc::Sender;
 
 use walkdir::WalkDir;
 
+use crate::platform::fs::{FileWriter, WriteError};
 use crate::settings::ColumnId;
 
 pub const SUPPORTED_EXTENSIONS: &[&str] = &[
@@ -222,22 +223,15 @@ pub fn load_track_list(path: &Path) -> Vec<Track> {
         .collect()
 }
 
-/// Save the playlist as a plain M3U file (atomically via a temp file).
-pub fn save_track_list(path: &Path, tracks: &[Track]) -> bool {
+/// Save the playlist as a plain M3U file: атомарная долговечная запись через
+/// модуль ФС (ТЗ-18, ТЗ-19); ошибка — вызывающему для журнала (ТЗ-20).
+pub fn save_track_list(fs: &mut dyn FileWriter, path: &Path, tracks: &[Track]) -> Result<(), WriteError> {
     let mut out = String::new();
     for t in tracks {
         out.push_str(&t.path.to_string_lossy());
         out.push('\n');
     }
-    let parent = path.parent().unwrap_or(path);
-    if std::fs::create_dir_all(parent).is_err() {
-        return false;
-    }
-    let tmp = path.with_extension("m3u.tmp");
-    if std::fs::write(&tmp, out).is_err() {
-        return false;
-    }
-    std::fs::rename(&tmp, path).is_ok()
+    fs.write_atomic(path, out.as_bytes())
 }
 
 /// Display text for a track cell in a given column ("", "0", "24 bit", ...).
@@ -326,6 +320,21 @@ pub fn sort_rows_compare(a: &Track, b: &Track, col: ColumnId) -> std::cmp::Order
 mod tests {
     use super::*;
 
+    /// ТЗ-18, ТЗ-20: запись через модуль ФС; ошибка не меняет файл на диске.
+    #[test]
+    fn save_track_list_via_file_writer() {
+        use crate::platform::fs::{MemStore, WriteErrorClass, WriteStep};
+        let path = Path::new("/cfg/playlist.m3u");
+        let mut mem = MemStore::new();
+        let tracks = vec![track_for_path(Path::new("/music/a.flac"))];
+        save_track_list(&mut mem, path, &tracks).expect("save");
+        assert_eq!(mem.get(path).as_deref(), Some(&b"/music/a.flac\n"[..]));
+        mem.fail_write(path, WriteStep::SyncFile, WriteErrorClass::ReadOnlyFs, 1);
+        let err = save_track_list(&mut mem, path, &[]).expect_err("injected");
+        assert_eq!(err.class, WriteErrorClass::ReadOnlyFs);
+        assert_eq!(mem.get(path).as_deref(), Some(&b"/music/a.flac\n"[..]));
+    }
+
     #[test]
     fn playlist_save_load_roundtrip() {
         let dir = std::env::temp_dir().join("music_player_rs_test");
@@ -334,7 +343,9 @@ mod tests {
             track_for_path(Path::new("/music/a.flac")),
             track_for_path(Path::new("/music/b.wav")),
         ];
-        assert!(save_track_list(&path, &tracks));
+        let journal = std::sync::Arc::new(crate::journal::VecJournal::default());
+        let (_, mut fs, _) = crate::platform::fs::os_fs(journal);
+        save_track_list(fs.as_mut(), &path, &tracks).expect("save");
         let loaded = load_track_list(&path);
         assert_eq!(loaded.len(), 2);
         assert_eq!(loaded[0].path, PathBuf::from("/music/a.flac"));

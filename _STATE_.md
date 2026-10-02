@@ -42,11 +42,11 @@
 [x] Шаг 9: FileJournal: поток apap-log, ротация 3 файлов, лимит 1 МиБ, отключение при ошибке, flush, время civil_from_days (ADR-21, §6.16, ОВС-4 б). Файл: src/journal.rs. Проверка: cargo test file_journal
 [x] Шаг 10: main.rs: os_fs() + FileJournal::start(paths.journal); MusicApp хранит FileWriter рабочих файлов и Journal (ADR-19). Файлы: src/main.rs, src/app/mod.rs. Проверка: cargo check
 [x] Шаг 11: SettingsStore::save через FileWriter → Result; ошибка — JournalRecord::WriteFailed; load_from без записи, запись при запуске — из MusicApp::new (прежний момент) (ТЗ-18, ТЗ-20). Файлы: src/settings.rs + механическая замена вызовов в src/app/*. Проверка: cargo test settings
-[ ] Шаг 12: save_track_list через FileWriter → Result; ошибка — журнал; тест на MemStore (ТЗ-18, ТЗ-20). Файлы: src/playlist.rs, src/app/playlist_manager.rs. Проверка: cargo test playlist
+[x] Шаг 12: save_track_list через FileWriter → Result; ошибка — журнал; тест на MemStore (ТЗ-18, ТЗ-20). Файлы: src/playlist.rs, src/app/playlist_manager.rs. Проверка: cargo test playlist
 [ ] Шаг 13: Финальная верификация: cargo test, cargo clippy (фильтр по вайтлисту), grep cfg(target_os вне src/platform пуст, fs::write в settings/playlist нет. Проверка: всё зелёное
 
-- **Текущий шаг (current_step):** Шаг 12
-- **Следующий ход:** save_track_list через FileWriter → Result; журнал; тест на MemStore
+- **Текущий шаг (current_step):** Шаг 13
+- **Следующий ход:** Финальная верификация: cargo test, clippy, grep cfg(target_os / fs::write
 - **Счетчик безуспешных компиляций:** 0/3
 - **Состояние:** in_progress
 

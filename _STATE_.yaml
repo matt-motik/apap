@@ -69,13 +69,13 @@ steps:
     done: true
   - id: 12
     description: "save_track_list через FileWriter → Result; ошибка — журнал; тест на MemStore (ТЗ-18, ТЗ-20). Файлы: src/playlist.rs, src/app/playlist_manager.rs. Проверка: cargo test playlist"
-    done: false
+    done: true
   - id: 13
     description: "Финальная верификация: cargo test, cargo clippy (фильтр по вайтлисту), grep cfg(target_os вне src/platform пуст, fs::write в settings/playlist нет. Проверка: всё зелёное"
     done: false
 
-current_step: 12
-next_action: "save_track_list через FileWriter → Result; журнал; тест на MemStore"
+current_step: 13
+next_action: "Финальная верификация: cargo test, clippy, grep cfg(target_os / fs::write"
 
 fail_counter: 0
 fail_counter_max: 3
