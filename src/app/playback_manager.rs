@@ -375,7 +375,7 @@ impl MusicApp {
             return;
         }
         self.settings.settings.audio_device = name.clone();
-        self.settings.save();
+        self.save_settings();
 
         let path = self
             .current

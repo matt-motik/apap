@@ -137,7 +137,7 @@ impl MusicApp {
         let current = self.settings.settings.visualization.mode;
         let next = VisualizationMode::from_index(current.index() + 1);
         self.settings.settings.visualization.mode = next;
-        self.settings.save();
+        self.save_settings();
         self.sync_viz_settings_to_ui();
         eprintln!("[viz] cycle: {:?} -> {:?}", current, next);
     }
@@ -153,7 +153,7 @@ impl MusicApp {
         let cur = self.settings.settings.visualization.mode;
         let next = if picked == cur { VisualizationMode::Off } else { picked };
         self.settings.settings.visualization.mode = next;
-        self.settings.save();
+        self.save_settings();
         self.sync_viz_settings_to_ui();
         eprintln!("[viz] menu select {i} -> {:?}", next);
     }

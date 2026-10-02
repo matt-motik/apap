@@ -60,7 +60,7 @@ impl MusicApp {
             s.win_x = Some(pos.x);
             s.win_y = Some(pos.y);
         }
-        self.settings.save();
+        self.save_settings();
         self.win_geom_dirty = false;
         self.win_geom_changed = None;
     }

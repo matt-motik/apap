@@ -3,6 +3,8 @@ use std::path::PathBuf;
 
 use serde::{Deserialize, Serialize};
 
+use crate::platform::fs::{FileWriter, WriteError};
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
 pub enum RepeatMode {
     #[default]
@@ -1099,9 +1101,10 @@ struct LegacySettings {
 }
 
 impl SettingsStore {
-    /// Read settings from `path` (or defaults if missing/corrupt), migrate
-    /// legacy fields and write the result back. Путь приходит из `main`
-    /// (`ConfigPaths`), каталог пользователя здесь не ищется (ADR-19, ТЗ-49).
+    /// Read settings from `path` (or defaults if missing/corrupt) and migrate
+    /// legacy fields. Путь приходит из `main` (`ConfigPaths`), каталог
+    /// пользователя здесь не ищется (ADR-19, ТЗ-49). Запись результата — у
+    /// владельца писателя (`MusicApp::new`).
     pub fn load_from(path: PathBuf) -> Self {
         let raw = fs::read_to_string(&path).ok();
         let mut settings = match &raw {
@@ -1130,20 +1133,15 @@ impl SettingsStore {
         if settings.column_order.is_empty() {
             settings.column_order = ColumnId::ALL.iter().map(|c| c.key().to_string()).collect();
         }
-        let store = Self { settings, path };
-        // Persist migration results back to disk.
-        let mut s = store;
-        s.save();
-        s
+        Self { settings, path }
     }
 
-    /// Persist the current settings to disk.
-    pub fn save(&mut self) {
-        if let Ok(contents) = toml::to_string(&self.settings) {
-            if fs::create_dir_all(self.path.parent().unwrap_or(&self.path)).is_ok() {
-                let _ = fs::write(&self.path, contents);
-            }
-        }
+    /// Записать настройки атомарно и долговечно через модуль ФС (ТЗ-18,
+    /// ТЗ-19); ошибка возвращается вызывающему для журнала (ТЗ-20).
+    pub fn save(&self, fs: &mut dyn FileWriter) -> Result<(), WriteError> {
+        let contents =
+            toml::to_string(&self.settings).map_err(|e| WriteError::serialize(&e.to_string(), &self.path))?;
+        fs.write_atomic(&self.path, contents.as_bytes())
     }
 }
 
@@ -1565,5 +1563,25 @@ mod tests {
         assert_eq!(s.info_label("channels"), "Channels");
         // Unknown key: raw key as last resort.
         assert_eq!(s.info_label("bogus"), "bogus");
+    }
+
+    /// ТЗ-18, ТЗ-20: запись через модуль ФС; ошибка не меняет файл на диске.
+    #[test]
+    fn settings_store_save_goes_through_file_writer() {
+        use crate::platform::fs::{MemStore, WriteErrorClass, WriteStep};
+        let path = PathBuf::from("/cfg/settings.toml");
+        let mut mem = MemStore::new();
+        let mut store = SettingsStore { settings: Settings::default(), path: path.clone() };
+        store.save(&mut mem).expect("save");
+        let first = mem.get(&path).expect("written");
+        let parsed: Settings = toml::from_str(std::str::from_utf8(&first).expect("utf8")).expect("toml");
+        assert_eq!(parsed.cover_size, store.settings.cover_size);
+        assert_eq!(mem.counts(&path).writes, 1);
+
+        store.settings.cover_size += 10.0;
+        mem.fail_write(&path, WriteStep::Replace, WriteErrorClass::NoSpace, 1);
+        let err = store.save(&mut mem).expect_err("injected");
+        assert_eq!(err.class, WriteErrorClass::NoSpace);
+        assert_eq!(mem.get(&path), Some(first));
     }
 }

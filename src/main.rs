@@ -3,11 +3,15 @@
 mod app;
 
 use app::MusicApp;
+use music_player_rs::journal::{FileJournal, Journal};
 use music_player_rs::persist::ConfigPaths;
+use music_player_rs::platform::fs::os_fs;
 use music_player_rs::theme::create_default_themes;
 use slint::ComponentHandle;
 use std::cell::RefCell;
 use std::rc::Rc;
+use std::sync::Arc;
+use std::time::Duration;
 
 /// UI update period: pulls tray commands, scan/cover results and playback
 /// state into the window. Also bounds responsiveness of transport controls.
@@ -22,6 +26,9 @@ const REF_INTERVAL_MS: u64 = 16;
 /// tick — the bar data needs an animation-rate refresh.
 const VIZ_PUSH_INTERVAL_MS: u64 = app::visualizer_manager::VIZ_PUSH_INTERVAL_MS;
 
+/// Срок дозаписи журнала при выходе; полный путь выхода — С4 (ADR-7, ADR-21).
+const JOURNAL_FLUSH_BUDGET: Duration = Duration::from_secs(1);
+
 fn main() {
     // Каталог настроек пользователя ищется только здесь (ТЗ-49, ADR-19):
     // остальной код получает пути из `ConfigPaths`.
@@ -32,8 +39,11 @@ fn main() {
     if let Err(e) = create_default_themes(&paths.dir.join("themes")) {
         eprintln!("[theme] create_default_themes failed: {e}");
     }
+    // Журнал и модуль ФС собираются только здесь (ADR-19, ADR-21).
+    let journal: Arc<dyn Journal> = Arc::new(FileJournal::start(paths.journal.clone()));
+    let (_reader, work_fs, _engine_fs) = os_fs(journal.clone());
     let ui = app::create_ui().expect("Failed to create Slint UI");
-    let app = Rc::new(RefCell::new(MusicApp::new(ui.clone_strong(), paths)));
+    let app = Rc::new(RefCell::new(MusicApp::new(ui.clone_strong(), paths, work_fs, journal.clone())));
     MusicApp::init(&app);
 
     let weak = ui.as_weak();
@@ -88,4 +98,6 @@ fn main() {
     drop(viz_timer);
     drop(ref_timer);
     drop(timer);
+    // Дописать строки журнала до выхода процесса (ADR-21).
+    journal.flush(JOURNAL_FLUSH_BUDGET);
 }

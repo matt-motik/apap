@@ -18,7 +18,9 @@ use music_player_rs::audio::visualizer::{
     FreqScale, LevelScale, VisualizerConfig,
 };
 use music_player_rs::cover::{self, CoverDone, CoverJob};
-use music_player_rs::persist::ConfigPaths;
+use music_player_rs::journal::{Journal, JournalRecord, WriteTarget};
+use music_player_rs::persist::{ConfigPaths, WorkFile};
+use music_player_rs::platform::fs::FileWriter;
 use music_player_rs::playlist::{self, ScanMsg, Track};
 use music_player_rs::settings::{
     ClockFamily, ColumnId, DsdMode, ExclusiveMode, FallbackPolicy, FallbackRatePolicy, RepeatMode,
@@ -236,6 +238,11 @@ pub struct MusicApp {
     ui: AppWindow,
     /// Пути файлов настроек, состояния, плейлиста и журнала (ADR-19).
     paths: ConfigPaths,
+    /// Писатель рабочих файлов (ADR-4, ТЗ-18, ТЗ-19). До писателя `apap-persist`
+    /// (С4) пишет в UI-потоке в прежние моменты.
+    fs: Box<dyn FileWriter>,
+    /// Журнал (ADR-21): ошибки записи рабочих файлов (ТЗ-20).
+    journal: Arc<dyn Journal>,
     settings: SettingsStore,
     player: Player,
     tracks: Vec<Track>,
@@ -350,9 +357,9 @@ pub struct MusicApp {
 }
 
 impl MusicApp {
-    /// `paths` строит `main` (ADR-19): приложение не ищет каталог настроек
-    /// пользователя само, поэтому тесты его не трогают (ТЗ-49).
-    pub fn new(ui: AppWindow, paths: ConfigPaths) -> Self {
+    /// `paths`, модуль ФС и журнал строит `main` (ADR-19): приложение не ищет
+    /// каталог настроек пользователя само, поэтому тесты его не трогают (ТЗ-49).
+    pub fn new(ui: AppWindow, paths: ConfigPaths, fs: Box<dyn FileWriter>, journal: Arc<dyn Journal>) -> Self {
         let settings = SettingsStore::load_from(paths.settings.clone());
         let mut player = Player::new();
         player.set_volume(settings.settings.volume);
@@ -437,6 +444,8 @@ impl MusicApp {
         let mut app = Self {
             ui: ui.clone_strong(),
             paths,
+            fs,
+            journal,
             settings,
             player,
             tracks,
@@ -503,7 +512,17 @@ impl MusicApp {
             app.apply_sort(col, desc);
         }
         app.apply_window_geometry();
+        // Прежний момент записи при запуске (результат миграции); убирается в С3 (ТЗ-4).
+        app.save_settings();
         app
+    }
+
+    /// Записать `settings.toml` через модуль ФС; ошибка — в журнал (ТЗ-18, ТЗ-20).
+    pub(super) fn save_settings(&mut self) {
+        if let Err(err) = self.settings.save(self.fs.as_mut()) {
+            let target = WriteTarget::Work(WorkFile::Settings);
+            self.journal.record(JournalRecord::WriteFailed { target, err });
+        }
     }
 
     pub fn init(this: &Rc<RefCell<Self>>) {
@@ -1339,7 +1358,7 @@ impl MusicApp {
                 s.win_y = live.8;
                 s.win_w = live.9;
                 s.win_h = live.10;
-                a.settings.save();
+                a.save_settings();
                 // ТЗ §10.4: лимит RAM-кэша визуализации менялся в диалоге →
                 // горячий `resize` существующего LRU (лишние записи вытесняются
                 // по LRU внутри `CLruCache::resize`).
@@ -1366,7 +1385,7 @@ impl MusicApp {
                         // на момент включения Direct Output.
                         a.set_tray_notice(tray::BP_NOTICE_TEXT.to_string());
                     }
-                    a.settings.save();
+                    a.save_settings();
                     a.emit(AppEvent::BitPerfectChanged);
                     eprintln!("[gui] settings_save: bit_perfect applied -> {bp}");
                 }
