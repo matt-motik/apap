@@ -4,5 +4,6 @@
       "Read(./docs/_canceled/**)",
       "Read(./_DRAFTS_/**)"
     ]
-  }
+  },
+  "autoCompactWindow": 150000
 }
