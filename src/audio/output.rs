@@ -4,7 +4,14 @@ use std::sync::Arc;
 use cpal::traits::{DeviceTrait, HostTrait, StreamTrait};
 use cpal::{BufferSize, SampleFormat, StreamConfig, SupportedBufferSize};
 
-use crate::audio::worker::{RtConsumer, RtShared};
+use crate::audio::render::dop::DopRender;
+use crate::audio::render::gain::{GainStage, NoGain};
+use crate::audio::render::out::{F32Le, OutFormat, S16Le, S24Le, S32Le};
+use crate::audio::render::pcm::{PcmRender, PcmSample};
+use crate::audio::render::tpdf::Tpdf;
+use crate::audio::render::RenderCore;
+use crate::audio::session::{RingPayload, SessionShared};
+use crate::audio::worker::RtConsumer;
 use crate::audio::reservation::gate::PcmOpenError;
 use crate::settings::{
     ClockFamily, DsdMode, ExclusiveMode, FallbackPolicy, FallbackRatePolicy, ResamplerAlgorithm,
@@ -1529,10 +1536,13 @@ pub fn probe_output(preferred: Option<&str>) -> Result<String, String> {
     let mut spec = select_output(44100, 2, preferred)?;
     let error_flag = Arc::new(AtomicBool::new(false));
     let attempt = |cfg: &OutputSpec| -> Result<cpal::Stream, String> {
-        let shared = RtShared::new(cfg.config.sample_rate, cfg.config.channels as usize, false);
+        // Пустой ring и `playing = false`: колбэк пишет тишину формата (§6.14).
+        let channels = usize::from(cfg.config.channels);
         let (_producer, ring) = rtrb::RingBuffer::<f32>::new(2048);
-        let consumer = RtConsumer::new(ring, shared);
-        build_stream_rt(cfg, consumer, Some(error_flag.clone())).map_err(|e| e.message)
+        let core = RenderCore::new(ring, Arc::new(SessionShared::new()), channels, 0);
+        let render = pcm_render_for::<f32, NoGain>(cfg.sample_format, core, RingPayload::F32, Tpdf::off())
+            .ok_or_else(|| format!("Unsupported output sample format: {:?}", cfg.sample_format))?;
+        build_output_stream_raw(cfg, render, Some(error_flag.clone())).map_err(|e| e.message)
     };
     let stream = match attempt(&spec) {
         Ok(s) => s,
@@ -1700,6 +1710,128 @@ pub fn build_stream_rt(
         open: classify_pcm_error(e.kind()),
         message: format!("Cannot build output stream: {e}"),
     })
+}
+
+// ---------------------------------------------------------------------------
+// Вывод нового тракта (§6.14, §6.15, ADR-03): колбэк пишет байты формата
+// устройства через `build_output_stream_raw` + `Data::bytes_mut`.
+// ---------------------------------------------------------------------------
+
+/// Рендер периода в байты выходного формата: `PcmRender` или `DopRender`.
+pub trait RawRender: Send + 'static {
+    fn render(&mut self, out: &mut [u8]);
+}
+
+impl<P: PcmSample, O: OutFormat, G: GainStage> RawRender for PcmRender<P, O, G> {
+    #[inline]
+    fn render(&mut self, out: &mut [u8]) {
+        PcmRender::render(self, out);
+    }
+}
+
+impl<O: OutFormat> RawRender for DopRender<O> {
+    #[inline]
+    fn render(&mut self, out: &mut [u8]) {
+        DopRender::render(self, out);
+    }
+}
+
+impl RawRender for Box<dyn RawRender> {
+    #[inline]
+    fn render(&mut self, out: &mut [u8]) {
+        (**self).render(out);
+    }
+}
+
+/// Формат выхода колбэка по формату cpal (ALSA): `I16→S16_LE`, `I24→S24_LE`
+/// (4 байта, ОВ-32), `I32→S32_LE`, `F32→FLOAT_LE`. Прочие форматы не открываются.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum RawFormat {
+    S16,
+    S24,
+    S32,
+    F32,
+}
+
+impl RawFormat {
+    pub fn from_sample_format(f: SampleFormat) -> Option<RawFormat> {
+        match f {
+            SampleFormat::I16 => Some(RawFormat::S16),
+            SampleFormat::I24 => Some(RawFormat::S24),
+            SampleFormat::I32 => Some(RawFormat::S32),
+            SampleFormat::F32 => Some(RawFormat::F32),
+            _ => None,
+        }
+    }
+
+    /// Байт на сэмпл в буфере cpal.
+    pub fn bytes(self) -> usize {
+        match self {
+            RawFormat::S16 => S16Le::BYTES,
+            RawFormat::S24 => S24Le::BYTES,
+            RawFormat::S32 => S32Le::BYTES,
+            RawFormat::F32 => F32Le::BYTES,
+        }
+    }
+}
+
+/// `PcmRender` под формат устройства: мономорфизация по `O` выбирается один раз
+/// при сборке потока (§6.14). `None` — формат не поддерживается.
+pub fn pcm_render_for<P: PcmSample, G: GainStage>(
+    format: SampleFormat,
+    core: RenderCore<P>,
+    payload: RingPayload,
+    tpdf: Tpdf,
+) -> Option<Box<dyn RawRender>> {
+    Some(match RawFormat::from_sample_format(format)? {
+        RawFormat::S16 => Box::new(PcmRender::<P, S16Le, G>::new(core, payload, tpdf)),
+        RawFormat::S24 => Box::new(PcmRender::<P, S24Le, G>::new(core, payload, tpdf)),
+        RawFormat::S32 => Box::new(PcmRender::<P, S32Le, G>::new(core, payload, tpdf)),
+        RawFormat::F32 => Box::new(PcmRender::<P, F32Le, G>::new(core, payload, tpdf)),
+    })
+}
+
+/// `DopRender` под формат устройства (§6.15): DoP несут только 24/32-битные
+/// целые контейнеры. `None` для `S16`/`F32` и прочих.
+pub fn dop_render_for(format: SampleFormat, core: RenderCore<i32>) -> Option<Box<dyn RawRender>> {
+    match RawFormat::from_sample_format(format)? {
+        RawFormat::S24 => Some(Box::new(DopRender::<S24Le>::new(core))),
+        RawFormat::S32 => Some(Box::new(DopRender::<S32Le>::new(core))),
+        RawFormat::S16 | RawFormat::F32 => None,
+    }
+}
+
+/// Поток вывода нового тракта: колбэк отдаёт `bytes_mut()` рендеру (§6.14).
+/// В колбэке нет блокировок, логирования и аллокаций (ТЗ-98, ТЗ-102); ошибка
+/// потока только поднимает `error_flag`.
+pub fn build_output_stream_raw<R: RawRender>(
+    spec: &OutputSpec,
+    mut render: R,
+    error_flag: Option<Arc<AtomicBool>>,
+) -> Result<cpal::Stream, StreamBuildError> {
+    if RawFormat::from_sample_format(spec.sample_format).is_none() {
+        return Err(StreamBuildError::refused(format!(
+            "Unsupported output sample format: {:?}",
+            spec.sample_format
+        )));
+    }
+    spec.device
+        .build_output_stream_raw(
+            spec.config,
+            spec.sample_format,
+            move |data: &mut cpal::Data, _| render.render(data.bytes_mut()),
+            move |e| {
+                eprintln!("Audio stream error: {e}");
+                if let Some(f) = error_flag.as_ref() {
+                    f.store(true, Ordering::Relaxed);
+                }
+            },
+            None,
+        )
+        .map_err(|e| StreamBuildError {
+            open: classify_pcm_error(e.kind()),
+            message: format!("Cannot build output stream: {e}"),
+        })
 }
 
 #[cfg(test)]
@@ -2888,5 +3020,55 @@ mod tests {
         let row = row_by_source(&rows, "DSD64");
         assert_eq!(row.outcome, Outcome::Unsupported);
         assert_eq!(row.detail, "unsupported");
+    }
+
+    fn core_i32(channels: usize) -> (rtrb::Producer<i32>, RenderCore<i32>) {
+        let (p, c) = rtrb::RingBuffer::<i32>::new(64);
+        (p, RenderCore::new(c, Arc::new(SessionShared::new()), channels, 0))
+    }
+
+    #[test]
+    fn raw_format_maps_alsa_formats() {
+        assert_eq!(RawFormat::from_sample_format(SampleFormat::I16), Some(RawFormat::S16));
+        assert_eq!(RawFormat::from_sample_format(SampleFormat::I24), Some(RawFormat::S24));
+        assert_eq!(RawFormat::from_sample_format(SampleFormat::I32), Some(RawFormat::S32));
+        assert_eq!(RawFormat::from_sample_format(SampleFormat::F32), Some(RawFormat::F32));
+        assert_eq!(RawFormat::from_sample_format(SampleFormat::U8), None);
+        // I24 у cpal — 4 байта (S24_LE), как у `S24Le` (ОВ-32).
+        assert_eq!(RawFormat::S24.bytes(), SampleFormat::I24.sample_size());
+        assert_eq!(RawFormat::S16.bytes(), SampleFormat::I16.sample_size());
+    }
+
+    #[test]
+    fn render_selection_by_format() {
+        let payload = RingPayload::ExactI32 { valid_bits: crate::audio::format::BitDepth::new(24).unwrap() };
+        for f in [SampleFormat::I16, SampleFormat::I24, SampleFormat::I32, SampleFormat::F32] {
+            let (_p, c) = core_i32(2);
+            assert!(pcm_render_for::<i32, NoGain>(f, c, payload, Tpdf::off()).is_some());
+        }
+        let (_p, c) = core_i32(2);
+        assert!(pcm_render_for::<i32, NoGain>(SampleFormat::U8, c, payload, Tpdf::off()).is_none());
+        for (f, ok) in [
+            (SampleFormat::I24, true),
+            (SampleFormat::I32, true),
+            (SampleFormat::I16, false),
+            (SampleFormat::F32, false),
+        ] {
+            let (_p, c) = core_i32(2);
+            assert_eq!(dop_render_for(f, c).is_some(), ok, "{f:?}");
+        }
+    }
+
+    #[test]
+    fn boxed_raw_render_writes_silence_when_paused() {
+        let (mut p, c) = core_i32(2);
+        for _ in 0..8 {
+            p.push(0x1234_5600).unwrap();
+        }
+        let payload = RingPayload::ExactI32 { valid_bits: crate::audio::format::BitDepth::new(24).unwrap() };
+        let mut r = pcm_render_for::<i32, NoGain>(SampleFormat::I32, c, payload, Tpdf::off()).unwrap();
+        let mut buf = [0xAAu8; 32];
+        RawRender::render(&mut r, &mut buf);
+        assert!(buf.iter().all(|&b| b == 0));
     }
 }
