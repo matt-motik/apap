@@ -14,6 +14,7 @@
 )]
 
 pub mod out;
+pub mod tpdf;
 
 use std::sync::atomic::Ordering;
 use std::sync::Arc;

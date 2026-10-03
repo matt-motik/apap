@@ -47,7 +47,7 @@ steps:
     done: true
   - id: 4
     description: "TPDF xorshift32 с фиксируемым seed (ТЗ-8, §6.14) в render/tpdf.rs. Проверка: cargo test render::tpdf"
-    done: false
+    done: true
   - id: 5
     description: "GainStage: NoGain/AtomicGain (§2.9, ОВС-18, ТЗ-7) в render/gain.rs. Проверка: cargo test render::gain"
     done: false
@@ -85,8 +85,8 @@ steps:
     description: "Финальная верификация: cargo build/test/clippy, python tools/check_rt_imports.py, traceability_tool (§7.7, §8 общие условия). Проверка: всё зелёное"
     done: false
 
-current_step: 4
-next_action: "render/tpdf.rs: xorshift32 TPDF d=(u1-u2)·2^-32 LSB, фиксированное и задаваемое зерно"
+current_step: 5
+next_action: "render/gain.rs: GainStage (load раз в период → Unity|Scaled(f)|Muted), NoGain читает только muted, AtomicGain — gain_bits и muted"
 
 fail_counter: 0
 fail_counter_max: 3

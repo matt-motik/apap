@@ -32,7 +32,7 @@
 [x] Шаг 1: SessionShared — атомики сессии (§2.9, ТЗ-98, ТЗ-99, ТЗ-100) в src/audio/session.rs. Проверка: cargo check; cargo test session:: зелёный
 [x] Шаг 2: Каркас src/audio/render/mod.rs: deny-линты §7.7, RingSample для i32/f32, хелперы фазы 3 seek и priming (§6.14, §6.16, ТЗ-99). Проверка: cargo check; cargo clippy без варнингов по render/
 [x] Шаг 3: OutFormat-писатели S16/S24_3LE/S24_LE/S32/F32 + quantize (§6.14 таблица усиления, ТЗ-4, ТЗ-5, ТЗ-6) в render/out.rs. Проверка: cargo test render::out (zero_pad_layout_per_format, s24le_is_right_aligned_with_sign_extension, quantize_f32_symmetric_roundtrip)
-[ ] Шаг 4: TPDF xorshift32 с фиксируемым seed (ТЗ-8, §6.14) в render/tpdf.rs. Проверка: cargo test render::tpdf
+[x] Шаг 4: TPDF xorshift32 с фиксируемым seed (ТЗ-8, §6.14) в render/tpdf.rs. Проверка: cargo test render::tpdf
 [ ] Шаг 5: GainStage: NoGain/AtomicGain (§2.9, ОВС-18, ТЗ-7) в render/gain.rs. Проверка: cargo test render::gain
 [ ] Шаг 6: PcmRender<P, O, G>: фаза 3 seek, priming, underrun, eof→ended, тишина при паузе (§6.14, §6.16, §6.17, ТЗ-9, ТЗ-10, ТЗ-99, ТЗ-100, ТЗ-138) в render/pcm.rs. Проверка: cargo test render::pcm (passthrough_*, optimal_unity_gain_*, dither_*, underrun_*, priming_ends_at_eof_short_track, strict_mute_*)
 [ ] Шаг 7: DopRender<O>: непрерывные маркеры, payload 0x6969 при тишине, расход ring при muted (§6.15, ТЗ-98) в render/dop.rs. Проверка: cargo test render::dop (priming_dop_emits_marked_silence, dop_markers_continuous_*, dop_silence_payload_is_6969)
@@ -46,8 +46,8 @@
 [ ] Шаг 15: tests/rt_zero_alloc.rs: callback_zero_alloc_all_formats_and_states для новых рендеров (§7.2, ТЗ-10). Проверка: cargo test --test rt_zero_alloc
 [ ] Шаг 16: Финальная верификация: cargo build/test/clippy, python tools/check_rt_imports.py, traceability_tool (§7.7, §8 общие условия). Проверка: всё зелёное
 
-- **Текущий шаг (current_step):** Шаг 4
-- **Следующий ход:** render/tpdf.rs: xorshift32 TPDF d=(u1-u2)·2^-32 LSB, фиксированное и задаваемое зерно
+- **Текущий шаг (current_step):** Шаг 5
+- **Следующий ход:** render/gain.rs: GainStage (load раз в период → Unity|Scaled(f)|Muted), NoGain читает только muted, AtomicGain — gain_bits и muted
 - **Счетчик безуспешных компиляций:** 0/3
 - **Состояние:** in_progress
 
