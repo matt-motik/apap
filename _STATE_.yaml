@@ -74,7 +74,7 @@ steps:
     done: true
   - id: 12
     description: "DbusReservation (zbus blocking, cfg linux), реальный AudioServerProbe, номер карты по /proc/asound; zbus прямой зависимостью Linux (ADR-08, §6.6). Файлы: src/audio/reservation/dbus.rs, Cargo.toml. Проверка: cargo check; ручной сценарий busctl"
-    done: false
+    done: true
   - id: 13
     description: "Player: exclusive-открытие только через ExclusiveGate (ожидание резервирования не блокирует; отказ — ошибка без Shared). Файл: src/audio/player.rs. Проверка: cargo test audio::player"
     done: false
@@ -85,8 +85,8 @@ steps:
     description: "Финальная верификация: cargo build/test/clippy; ручные сценарии ТЗ-1/2/48/118/119/120/122 — пользователю. Проверка: всё зелёное"
     done: false
 
-current_step: 12
-next_action: "Шаг 12: src/audio/reservation/dbus.rs (cfg linux) — DbusReservation: ReserveBus поверх zbus::blocking (экспорт org.freedesktop.ReserveDevice1 на /org/freedesktop/ReserveDevice1/Audio<N>, RequestName/ReleaseName через org.freedesktop.DBus, Get ApplicationName владельца 500 мс, RequestRelease 5 с, подписка NameLost); реальный AudioServerProbe ($DBUS_SESSION_BUS_ADDRESS / сокеты $XDG_RUNTIME_DIR/pipewire-0, pulse/native); номер карты по имени устройства через /proc/asound. zbus — [target.'cfg(target_os = \"linux\")'.dependencies]. Готово в шаге 11: gate.rs — ExclusiveGate {begin, poll, try_open, release, status, unreserved}, PcmOpenError {Busy, Disconnected, Refused}, OpenOutcome, GateEvent, EBUSY_RETRY_WINDOW; testing: FakePcm, BusCall::PcmOpen/PcmClose, FakeReserveBus::open_pcm. Классификация ошибок cpal для шага 13: ErrorKind::DeviceBusy → Busy, DeviceNotAvailable → Disconnected (cpal-0.18.2 alsa/mod.rs:1716). Наблюдение: dsd512_playback_cpu_budget (#[ignore], V5.1-11.1) проходит вручную, RTF 0.119 ≤ 0.2 — повторный замер и снятие ignore отдельной задачей."
+current_step: 13
+next_action: "Шаг 13: src/audio/player.rs — exclusive-открытие (open_pcm/open_dop при spec.exclusive) только через ExclusiveGate: begin(card по alsa_card_index(device_id)) → poll на тике → try_open(now, ...) с классификацией cpal ErrorKind::DeviceBusy → Busy, DeviceNotAvailable → Disconnected; ожидание не блокирует, отказ — ошибка без отката в Shared; teardown/release_if_exclusive → gate.release (PCM до ReleaseName). Готово в шаге 12: reservation/dbus.rs — DbusReserveBus (zbus blocking на собственном tokio-рантайме 1 worker; экспорт ReserveDevice1, RequestName/ReleaseName, ApplicationName 500 мс, RequestRelease 5 с, поток NameLost с отсевом устаревших), SystemServerProbe (шина: DBUS_SESSION_BUS_ADDRESS / $XDG_RUNTIME_DIR/bus; сервер: сокеты pipewire-0, pulse/native), alsa_card_index(device_id) через /proc/asound/cards; живой тест reservation_live_session_bus (#[ignore]) зелёный. Наблюдение: dsd512_playback_cpu_budget (#[ignore], V5.1-11.1) — повторный замер и снятие ignore отдельной задачей."
 
 fail_counter: 0
 fail_counter_max: 3

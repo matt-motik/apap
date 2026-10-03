@@ -33,6 +33,13 @@ smallvec = "1.16"
 [target.'cfg(unix)'.dependencies]
 libc = "0.2"
 
+# Резервирование ReserveDevice1 через сессионную шину (ADR-08, §6.6).
+# zbus собирается с бэкендом tokio (feature-унификация через ksni): диспетчер
+# объектов запускается на собственном рантайме службы (rt-multi-thread).
+[target.'cfg(target_os = "linux")'.dependencies]
+zbus = "5.19"
+tokio = { version = "1.53.1", features = ["rt-multi-thread"] }
+
 # `MoveFileExW` с `MOVEFILE_WRITE_THROUGH` (ADR-4).
 [target.'cfg(windows)'.dependencies]
 windows-sys = { version = "0.61", features = ["Win32_Storage_FileSystem"] }
