@@ -56,7 +56,7 @@ steps:
     done: true
   - id: 7
     description: "DopRender<O>: непрерывные маркеры, payload 0x6969 при тишине, расход ring при muted (§6.15, ТЗ-98) в render/dop.rs. Проверка: cargo test render::dop (priming_dop_emits_marked_silence, dop_markers_continuous_*, dop_silence_payload_is_6969)"
-    done: false
+    done: true
   - id: 8
     description: "Decoder::next_block — ExactI32 по разрядности + lossy-округление с lossy_clipped, F32 для float-PCM (§6.10, ТЗ-4, ТЗ-5) в decoder.rs. Проверка: cargo test decoder::"
     done: false
@@ -85,8 +85,8 @@ steps:
     description: "Финальная верификация: cargo build/test/clippy, python tools/check_rt_imports.py, traceability_tool (§7.7, §8 общие условия). Проверка: всё зелёное"
     done: false
 
-current_step: 7
-next_action: "render/dop.rs: DopRender<G>::render(&mut [u8]) — DoP-маркеры с фазой на кадр, DoP-тишина 0x69 при паузе/seek/priming/mute (§6.15, ADR-12); тесты priming_dop_emits_marked_silence, dop_markers_continuous_*, dop_silence_payload_is_6969"
+current_step: 8
+next_action: "decoder.rs: Decoder::next_block — ring-блок ExactI32 (целые источники, valid_bits) или F32 (lossy/float), счётчик lossy_clipped (§6.10, ADR-03, ТЗ-4…ТЗ-6)"
 
 fail_counter: 0
 fail_counter_max: 3

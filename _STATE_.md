@@ -35,7 +35,7 @@
 [x] Шаг 4: TPDF xorshift32 с фиксируемым seed (ТЗ-8, §6.14) в render/tpdf.rs. Проверка: cargo test render::tpdf
 [x] Шаг 5: GainStage: NoGain/AtomicGain (§2.9, ОВС-18, ТЗ-7) в render/gain.rs. Проверка: cargo test render::gain
 [x] Шаг 6: PcmRender<P, O, G>: фаза 3 seek, priming, underrun, eof→ended, тишина при паузе (§6.14, §6.16, §6.17, ТЗ-9, ТЗ-10, ТЗ-99, ТЗ-100, ТЗ-138) в render/pcm.rs. Проверка: cargo test render::pcm (passthrough_*, optimal_unity_gain_*, dither_*, underrun_*, priming_ends_at_eof_short_track, strict_mute_*)
-[ ] Шаг 7: DopRender<O>: непрерывные маркеры, payload 0x6969 при тишине, расход ring при muted (§6.15, ТЗ-98) в render/dop.rs. Проверка: cargo test render::dop (priming_dop_emits_marked_silence, dop_markers_continuous_*, dop_silence_payload_is_6969)
+[x] Шаг 7: DopRender<O>: непрерывные маркеры, payload 0x6969 при тишине, расход ring при muted (§6.15, ТЗ-98) в render/dop.rs. Проверка: cargo test render::dop (priming_dop_emits_marked_silence, dop_markers_continuous_*, dop_silence_payload_is_6969)
 [ ] Шаг 8: Decoder::next_block — ExactI32 по разрядности + lossy-округление с lossy_clipped, F32 для float-PCM (§6.10, ТЗ-4, ТЗ-5) в decoder.rs. Проверка: cargo test decoder::
 [ ] Шаг 9: DsdDecoder::next_block — F32 для CIC, ExactI32 с payload в битах 23..8 для DoP (§6.10, §6.15) в dsd.rs. Проверка: cargo test dsd::
 [ ] Шаг 10: Перевод внешних потребителей на next_block (fulltrack_manager.rs, tests/dsd512_playback_cpu_budget.rs) и удаление next_frames из AudioSource (§8 С2 «удаляется»). Проверка: cargo check --all-targets
@@ -46,8 +46,8 @@
 [ ] Шаг 15: tests/rt_zero_alloc.rs: callback_zero_alloc_all_formats_and_states для новых рендеров (§7.2, ТЗ-10). Проверка: cargo test --test rt_zero_alloc
 [ ] Шаг 16: Финальная верификация: cargo build/test/clippy, python tools/check_rt_imports.py, traceability_tool (§7.7, §8 общие условия). Проверка: всё зелёное
 
-- **Текущий шаг (current_step):** Шаг 7
-- **Следующий ход:** render/dop.rs: DopRender<G>::render(&mut [u8]) — DoP-маркеры с фазой на кадр, DoP-тишина 0x69 при паузе/seek/priming/mute (§6.15, ADR-12); тесты priming_dop_emits_marked_silence, dop_markers_continuous_*, dop_silence_payload_is_6969
+- **Текущий шаг (current_step):** Шаг 8
+- **Следующий ход:** decoder.rs: Decoder::next_block — ring-блок ExactI32 (целые источники, valid_bits) или F32 (lossy/float), счётчик lossy_clipped (§6.10, ADR-03, ТЗ-4…ТЗ-6)
 - **Счетчик безуспешных компиляций:** 0/3
 - **Состояние:** in_progress
 
