@@ -9,8 +9,12 @@ use cpal::{BufferSize, SampleFormat};
 
 use super::decoder::{AudioSource, Decoder, TrackInfo};
 use super::dsd::{DecodeMode, DsdDecoder};
+use super::clock::{Clock, ClockInstant, MonotonicClock};
+use super::error::CaptureFailure;
+use super::reservation::gate::{ExclusiveGate, GateEvent, GateStatus, OpenOutcome};
 use super::output::{
     build_stream_rt, select_output_for, FallbackReason, OutputRequest, OutputSpec, Resampler,
+    StreamBuildError,
 };
 use super::worker::{PlaybackWorker, RtConsumer, RtShared, VizTap, WorkerCmd};
 use crate::settings::{
@@ -162,6 +166,104 @@ pub struct StreamDesc {
     pub fallback: Option<FallbackReason>,
 }
 
+/// Открытие трека, отложенное до резервирования карты: намерения транспорта,
+/// поступившие во время ожидания, применяются после открытия (ТЗ-119).
+#[derive(Debug, Clone)]
+struct PendingOpen {
+    path: PathBuf,
+    play: bool,
+    seek: f64,
+}
+
+/// Итог опроса резервирования на тике приложения (§8 С1).
+#[derive(Debug, Clone, PartialEq)]
+pub enum ReservationEvent {
+    /// Резервирование получено, поток открыт.
+    Opened,
+    /// Захват не удался: воспроизведение остановлено, отката в Shared нет (ТЗ-122).
+    Failed(String),
+    /// `NameLost`: PCM закрыт немедленно (И-Р20).
+    Lost(String),
+}
+
+/// Текст отказа захвата для строки состояния.
+pub fn capture_message(f: &CaptureFailure) -> String {
+    match f {
+        CaptureFailure::ReservationDenied { owner: Some(app) } => {
+            format!("Устройство занято: {app} не освобождает его")
+        }
+        CaptureFailure::ReservationDenied { owner: None } => "Устройство занято другим приложением".into(),
+        CaptureFailure::OwnerNotResponding => "Владелец устройства не отвечает".into(),
+        CaptureFailure::NoSessionBus => "Нет сессионной шины D-Bus: резервирование устройства невозможно".into(),
+        CaptureFailure::BusyOutsideProtocol => "Устройство занято вне протокола резервирования".into(),
+        CaptureFailure::DriverRefused { errno } => format!("Драйвер отказал в открытии устройства (errno {errno})"),
+        CaptureFailure::LostOnReopen => "Устройство потеряно при переоткрытии".into(),
+        CaptureFailure::DeviceDisconnected => "Устройство отключено".into(),
+        CaptureFailure::ReservationLost => "Резервирование перехвачено".into(),
+        CaptureFailure::PlatformUnsupported => "Монопольный режим не поддерживается на этой платформе".into(),
+    }
+}
+
+/// Ворота резервирования поверх сессионной шины (ADR-08).
+#[cfg(target_os = "linux")]
+fn system_gate() -> Option<ExclusiveGate> {
+    use super::reservation::dbus::{DbusReserveBus, SystemServerProbe};
+    use super::reservation::{BusReservationService, ReserveBus};
+    let (tx, rx) = std::sync::mpsc::channel();
+    let bus: Arc<dyn ReserveBus> = Arc::new(DbusReserveBus::new());
+    let service = BusReservationService::new(bus, Box::new(SystemServerProbe), tx);
+    Some(ExclusiveGate::new(Box::new(service), rx))
+}
+
+#[cfg(not(target_os = "linux"))]
+fn system_gate() -> Option<ExclusiveGate> {
+    None
+}
+
+/// Карта ALSA, которую нужно зарезервировать перед открытием (`hw:` в Exclusive).
+fn reserved_card(spec: &OutputSpec) -> Option<u32> {
+    if !spec.exclusive {
+        return None;
+    }
+    #[cfg(target_os = "linux")]
+    {
+        super::reservation::dbus::alsa_card_index(&spec.device_id)
+    }
+    #[cfg(not(target_os = "linux"))]
+    {
+        None
+    }
+}
+
+/// Открытие `hw:` только при удерживаемом резервировании карты (ТЗ-48, §6.6).
+/// `Ok(None)` — ждать ответа службы или повторить `EBUSY` на следующем тике
+/// (ТЗ-119, ТЗ-122); ошибка — без отката в Shared.
+fn gated_build<P>(
+    gate: &mut ExclusiveGate,
+    card: u32,
+    device_name: &str,
+    now: ClockInstant,
+    build: impl FnOnce() -> Result<P, StreamBuildError>,
+) -> Result<Option<P>, String> {
+    match gate.begin(card, device_name) {
+        Some(GateEvent::Ready) => {}
+        Some(GateEvent::Failed(f)) => return Err(capture_message(&f)),
+        Some(GateEvent::Lost) | None => return Ok(None),
+    }
+    let mut message = String::new();
+    let outcome = gate.try_open(now, || {
+        build().map_err(|e| {
+            message = e.message;
+            e.open
+        })
+    });
+    match outcome {
+        OpenOutcome::Opened(p) => Ok(Some(p)),
+        OpenOutcome::Retry | OpenOutcome::NotHeld => Ok(None),
+        OpenOutcome::Failed(f) => Err(format!("{}: {message}", capture_message(&f))),
+    }
+}
+
 /// Owns audio playback: a [`PlaybackWorker`] thread decoding into a lock-free
 /// ring and the cpal output stream whose real-time callback only consumes that
 /// ring through [`RtConsumer`]. All control happens on the caller's thread via
@@ -175,6 +277,13 @@ pub struct Player {
     /// `open` (the producer itself is not cloneable).
     viz_tap: VizTap,
     pub stream: Option<cpal::Stream>,
+    /// Ворота exclusive-открытия `hw:` (ТЗ-48, §6.6). Объявлены после `stream`:
+    /// при drop плеера PCM закрывается раньше `ReleaseName` (И-Р1). `None` —
+    /// платформа без ReserveDevice1: открытие без резервирования.
+    gate: Option<ExclusiveGate>,
+    /// Открытие, ждущее резервирования или повтора `EBUSY` (опрос на тике, §8 С1).
+    pending: Option<PendingOpen>,
+    clock: MonotonicClock,
     pub device_desc: String,
     pub last_error: Option<String>,
     /// Current track info (duration/rate), kept for `snapshot`.
@@ -232,6 +341,9 @@ impl Player {
             worker: None,
             viz_tap: Arc::new(Mutex::new(None)),
             stream: None,
+            gate: system_gate(),
+            pending: None,
+            clock: MonotonicClock::new(),
             device_desc,
             last_error: None,
             info: None,
@@ -341,15 +453,24 @@ impl Player {
     /// `hw:*` PCM is snd_pcm_close'd on Drop → the node returns to the
     /// PipeWire/wireplumber graph (V5.1-B5).
     pub fn release_engine(&mut self) {
-        self.stream = None;
+        self.pending = None;
+        self.release_stream();
         self.worker = None;
+    }
+
+    /// Закрыть PCM, затем снять резервирование (И-Р1).
+    fn release_stream(&mut self) {
+        match self.gate.as_mut() {
+            Some(gate) => gate.release(&mut self.stream),
+            None => self.stream = None,
+        }
     }
 
     /// Idle hook: drop the engine only when an exclusive raw node was open.
     /// Shared (pipeline) devices are left running to avoid churning the mixer
     /// on every stop.
     pub fn release_if_exclusive(&mut self) {
-        if Self::exclusive_held(self.stream_desc.as_ref()) {
+        if Self::exclusive_held(self.stream_desc.as_ref()) || self.pending.is_some() {
             self.release_engine();
         }
     }
@@ -382,6 +503,7 @@ impl Player {
     /// step that succeeds wins. `FallbackPolicy::Fail` stops the chain after
     /// the first failed step. Returns the track info; errors are strings.
     pub fn open(&mut self, path: &Path) -> Result<TrackInfo, String> {
+        self.pending = None;
         if is_dsd_path(path) {
             self.open_dsd_with_chain(path)
         } else {
@@ -460,7 +582,7 @@ impl Player {
         &self,
         spec: &OutputSpec,
         consumer: RtConsumer,
-    ) -> Result<cpal::Stream, String> {
+    ) -> Result<cpal::Stream, StreamBuildError> {
         #[cfg(test)]
         {
             let rem = self.test_hooks.build_failures.load(Ordering::Relaxed);
@@ -468,17 +590,18 @@ impl Player {
                 self.test_hooks
                     .build_failures
                     .store(rem - 1, Ordering::Relaxed);
-                return Err("Mock: build_stream_rt forced to fail (TestHooks)".into());
+                return Err(StreamBuildError::refused("Mock: build_stream_rt forced to fail (TestHooks)".into()));
             }
         }
         build_stream_rt(spec, consumer, None)
     }
 
-    /// Build the consumer stream and spawn the producer worker. On a
-    /// `Fixed`-buffer rejection the stream is retried with `Default` (the
-    /// source/resampler are only handed to the worker once the stream builds).
-    /// Отказ сборки Exclusive-потока возвращается как ошибка: отката в Shared
-    /// нет ни при каком `ExclusiveMode` (ТЗ-119, ТЗ-122; DoP — ТЗ-1).
+    /// Build the consumer stream and spawn the producer worker. `hw:` в
+    /// Exclusive открывается только через [`ExclusiveGate`] (ТЗ-48); `Ok(None)` —
+    /// открытие отложено до резервирования или повтора `EBUSY` (опрос
+    /// [`Player::poll_reservation`]). Отказ сборки Exclusive-потока возвращается
+    /// как ошибка: отката в Shared нет ни при каком `ExclusiveMode` (ТЗ-119,
+    /// ТЗ-122; DoP — ТЗ-1).
     fn start_engine(
         &mut self,
         source: Box<dyn AudioSource>,
@@ -486,19 +609,48 @@ impl Player {
         shared: Arc<RtShared>,
         rng: TpdfRng,
         mut spec: OutputSpec,
-    ) -> Result<cpal::Stream, String> {
-        #[cfg(test)]
-        {
-            let rem = self.test_hooks.build_failures.load(Ordering::Relaxed);
-            if rem > 0 {
-                self.test_hooks
-                    .build_failures
-                    .store(rem - 1, Ordering::Relaxed);
-                return Err("Mock: build_stream_rt forced to fail (TestHooks)".into());
+    ) -> Result<Option<cpal::Stream>, String> {
+        let card = reserved_card(&spec);
+        let now = self.clock.now();
+        let mut gate = self.gate.take();
+        let built = match (gate.as_mut(), card) {
+            (Some(g), Some(card)) => {
+                let name = spec.device_name.clone();
+                gated_build(g, card, &name, now, || self.build_engine_stream(&shared, rng, &mut spec))
             }
-        }
+            (g, _) => {
+                // Shared или не `hw:`: резервирование не нужно, удерживаемое снимается.
+                if let Some(g) = g {
+                    g.release(&mut None::<cpal::Stream>);
+                }
+                self.build_engine_stream(&shared, rng, &mut spec)
+                    .map(Some)
+                    .map_err(|e| e.message)
+            }
+        };
+        self.gate = gate;
+        let Some((stream, producer)) = built? else {
+            return Ok(None);
+        };
+        self.worker = Some(PlaybackWorker::spawn(
+            source,
+            resampler,
+            producer,
+            shared,
+            self.viz_tap.clone(),
+        ));
+        Ok(Some(stream))
+    }
 
-        let viz_tap = self.viz_tap.clone();
+    /// Ring + consumer + cpal stream. On a `Fixed`-buffer rejection the stream
+    /// is retried with `Default` (the source/resampler are only handed to the
+    /// worker once the stream builds).
+    fn build_engine_stream(
+        &self,
+        shared: &Arc<RtShared>,
+        rng: TpdfRng,
+        spec: &mut OutputSpec,
+    ) -> Result<(cpal::Stream, rtrb::Producer<f32>), StreamBuildError> {
         loop {
             // Recompute per iteration so the `Default` retry gets a floor that
             // matches the actual (unknown) callback period less aggressively.
@@ -515,19 +667,13 @@ impl Player {
             let (producer, ring) = rtrb::RingBuffer::<f32>::new(capacity);
             let mut consumer = RtConsumer::new(ring, shared.clone());
             consumer.set_tpdf(rng);
-            match self.build_stream(&spec, consumer) {
-                Ok(stream) => {
-                    self.worker = Some(PlaybackWorker::spawn(
-                        source,
-                        resampler,
-                        producer,
-                        shared,
-                        viz_tap,
-                    ));
-                    return Ok(stream);
-                }
+            match self.build_stream(spec, consumer) {
+                Ok(stream) => return Ok((stream, producer)),
                 Err(e) => {
-                    if matches!(spec.config.buffer_size, BufferSize::Fixed(_)) {
+                    // `EBUSY` не лечится сменой буфера: решают ворота (ТЗ-122).
+                    if matches!(spec.config.buffer_size, BufferSize::Fixed(_))
+                        && e.open != super::reservation::gate::PcmOpenError::Busy
+                    {
                         spec.config.buffer_size = BufferSize::Default;
                         continue;
                     }
@@ -535,6 +681,69 @@ impl Player {
                 }
             }
         }
+    }
+
+    /// Открытие отложено (ожидание резервирования / повтор `EBUSY`): трек
+    /// загружен, поток будет открыт из [`Player::poll_reservation`].
+    fn defer_open(&mut self, path: &Path, info: &TrackInfo) {
+        self.pending = Some(PendingOpen { path: path.to_path_buf(), play: false, seek: 0.0 });
+        self.info = Some(info.clone());
+        self.current_path = Some(path.to_path_buf());
+        self.last_error = None;
+    }
+
+    /// True while the open waits for the device reservation (UI: «захват…», ТЗ-119).
+    pub fn reservation_pending(&self) -> bool {
+        self.pending.is_some()
+    }
+
+    /// Опрос резервирования на тике приложения (§8 С1): не блокирует.
+    /// Получено — отложенное открытие выполняется и применяет намерения
+    /// транспорта; отказ или `NameLost` — поток закрыт, воспроизведение
+    /// остановлено, отката в Shared нет (ТЗ-119, ТЗ-122, И-Р20).
+    pub fn poll_reservation(&mut self) -> Option<ReservationEvent> {
+        let event = self.gate.as_mut()?.poll();
+        match event {
+            Some(GateEvent::Lost) => {
+                if let Some(shared) = &self.shared {
+                    shared.set_playing(false);
+                }
+                self.release_engine();
+                let msg = capture_message(&CaptureFailure::ReservationLost);
+                self.last_error = Some(msg.clone());
+                return Some(ReservationEvent::Lost(msg));
+            }
+            Some(GateEvent::Failed(f)) => {
+                self.pending.take()?;
+                let msg = capture_message(&f);
+                self.last_error = Some(msg.clone());
+                return Some(ReservationEvent::Failed(msg));
+            }
+            Some(GateEvent::Ready) | None => {}
+        }
+        let held = self.gate.as_ref().is_some_and(|g| g.status() == GateStatus::Held);
+        if !held {
+            return None;
+        }
+        let intent = self.pending.take()?;
+        if let Err(e) = self.open(&intent.path) {
+            self.release_stream();
+            self.last_error = Some(e.clone());
+            return Some(ReservationEvent::Failed(e));
+        }
+        if let Some(again) = self.pending.as_mut() {
+            // `EBUSY` в пределах окна: повтор на следующем тике.
+            again.play = intent.play;
+            again.seek = intent.seek;
+            return None;
+        }
+        if intent.seek > 0.0 {
+            self.seek(intent.seek);
+        }
+        if intent.play {
+            self.play();
+        }
+        Some(ReservationEvent::Opened)
     }
 
     /// Standard path: PCM files or DSD decoded to PCM via the CIC cascade,
@@ -602,7 +811,10 @@ impl Player {
         });
 
         let resampled = shared.bit_perfect_resampled();
-        let stream = self.start_engine(src, resampler, shared.clone(), rng, spec)?;
+        let Some(stream) = self.start_engine(src, resampler, shared.clone(), rng, spec)? else {
+            self.defer_open(path, &info);
+            return Ok(info);
+        };
         if resampled {
             eprintln!(
                 "[audio] WARN: device does not support native rate {src_rate} Hz, \
@@ -697,7 +909,11 @@ impl Player {
         let resampled = shared.bit_perfect_resampled();
 
         let stream = match self.start_engine(Box::new(dop), resampler, shared.clone(), rng, spec) {
-            Ok(s) => s,
+            Ok(Some(s)) => s,
+            Ok(None) => {
+                self.defer_open(path, &info);
+                return Ok(info);
+            }
             Err(e) => {
                 eprintln!("[audio] WARN: cannot build DoP stream ({e})");
                 return Err(format!("cannot build DoP stream: {e}"));
@@ -762,11 +978,19 @@ impl Player {
     /// V5.1-B6) the current track is reopened and seeked to the saved position
     /// before the transport flags are raised.
     pub fn play(&mut self) {
+        if let Some(pending) = self.pending.as_mut() {
+            pending.play = true;
+            return;
+        }
         if self.stream.is_none() && self.current_path.is_some() {
             let finished = self.shared.as_ref().map(|s| s.finished()).unwrap_or(false);
             let target = if finished { 0.0 } else { self.resume_pos_secs() };
             if let Err(e) = self.reopen_and_seek(target) {
                 self.last_error = Some(e);
+                return;
+            }
+            if let Some(pending) = self.pending.as_mut() {
+                pending.play = true;
                 return;
             }
         }
@@ -792,6 +1016,10 @@ impl Player {
     /// playback position (V5.1-B6). A fresh reopen also re-broadcasts the DoP
     /// marker preludes, which a plain pause/resume of the same stream loses.
     pub fn toggle(&mut self) {
+        if let Some(pending) = self.pending.as_mut() {
+            pending.play = !pending.play;
+            return;
+        }
         let was_playing = self
             .shared
             .as_ref()
@@ -807,6 +1035,10 @@ impl Player {
                 let target = self.resume_pos_secs();
                 if let Err(e) = self.reopen_and_seek(target) {
                     self.last_error = Some(e);
+                    return;
+                }
+                if let Some(pending) = self.pending.as_mut() {
+                    pending.play = true;
                     return;
                 }
             }
@@ -845,6 +1077,10 @@ impl Player {
     /// Seek to `secs` (clamped to >= 0). The position is re-based optimistically
     /// and finalised by the consumer once the worker acknowledges the seek.
     pub fn seek(&mut self, secs: f64) {
+        if let Some(pending) = self.pending.as_mut() {
+            pending.seek = secs.max(0.0);
+            return;
+        }
         let Some(shared) = self.shared.clone() else {
             return;
         };
@@ -1240,6 +1476,9 @@ impl Player {
             worker: None,
             viz_tap: Arc::new(Mutex::new(None)),
             stream: None,
+            gate: None,
+            pending: None,
+            clock: MonotonicClock::new(),
             device_desc: String::from("test"),
             last_error: None,
             info: None,
@@ -2097,5 +2336,94 @@ mod tests {
             0,
             "no step after the failed one may attempt a build"
         );
+    }
+
+    mod gated {
+        use super::super::{capture_message, gated_build};
+        use crate::audio::clock::{Clock, ClockInstant};
+        use crate::audio::output::StreamBuildError;
+        use crate::audio::reservation::gate::{ExclusiveGate, GateEvent, PcmOpenError};
+        use crate::audio::reservation::{BusReservationService, ReserveBus};
+        use crate::audio::testing::{BusCall, FakeOwner, FakeReserveBus, FakeServerProbe, ManualClock};
+        use std::sync::{mpsc, Arc};
+        use std::time::{Duration, Instant};
+
+        fn gate(fake: &FakeReserveBus) -> ExclusiveGate {
+            let (tx, rx) = mpsc::channel();
+            let bus: Arc<dyn ReserveBus> = Arc::new(fake.clone());
+            let service = BusReservationService::new(bus, Box::new(FakeServerProbe::desktop()), tx);
+            ExclusiveGate::new(Box::new(service), rx)
+        }
+
+        fn wait(g: &mut ExclusiveGate) -> GateEvent {
+            let start = Instant::now();
+            loop {
+                if let Some(ev) = g.poll() {
+                    return ev;
+                }
+                assert!(start.elapsed() < Duration::from_secs(5), "служба не ответила");
+                std::thread::sleep(Duration::from_millis(1));
+            }
+        }
+
+        fn has_open(fake: &FakeReserveBus) -> bool {
+            fake.calls().iter().any(|c| matches!(c, BusCall::PcmOpen { .. }))
+        }
+
+        /// ТЗ-48, И-Р1: `hw:` не открывается до резервирования; ожидание не блокирует.
+        #[test]
+        fn exclusive_open_waits_for_reservation() {
+            let fake = FakeReserveBus::new(ManualClock::new(), FakeOwner::Free);
+            let mut g = gate(&fake);
+            let first = gated_build(&mut g, 1, "DAC", ClockInstant::START, || Ok(fake.open_pcm(1)));
+            assert!(matches!(first, Ok(None)));
+            assert!(!has_open(&fake), "PCM открыт до резервирования");
+            assert_eq!(wait(&mut g), GateEvent::Ready);
+            let opened = gated_build(&mut g, 1, "DAC", ClockInstant::START, || Ok(fake.open_pcm(1)));
+            assert!(matches!(opened, Ok(Some(_))));
+            let calls = fake.calls();
+            let req = calls.iter().position(|c| matches!(c, BusCall::RequestName { .. })).unwrap();
+            let open = calls.iter().position(|c| matches!(c, BusCall::PcmOpen { .. })).unwrap();
+            assert!(req < open, "{calls:?}");
+        }
+
+        /// ТЗ-122: `EBUSY` при удерживаемом резервировании повторяется ≤ 1 с,
+        /// затем — ошибка без отката в Shared.
+        #[test]
+        fn exclusive_open_ebusy_retries_then_fails() {
+            let clock = ManualClock::new();
+            let fake = FakeReserveBus::new(clock.clone(), FakeOwner::Free);
+            let mut g = gate(&fake);
+            assert!(matches!(gated_build::<()>(&mut g, 0, "DAC", clock.now(), || panic!("сборка до резервирования")), Ok(None)));
+            assert_eq!(wait(&mut g), GateEvent::Ready);
+            let busy = || Err::<(), _>(StreamBuildError { open: PcmOpenError::Busy, message: "busy".into() });
+            let mut retries = 0;
+            let err = loop {
+                match gated_build(&mut g, 0, "DAC", clock.now(), busy) {
+                    Ok(None) => {
+                        retries += 1;
+                        clock.advance(Duration::from_millis(100));
+                    }
+                    Ok(Some(())) => panic!("открыто при EBUSY"),
+                    Err(e) => break e,
+                }
+                assert!(retries < 100);
+            };
+            assert!(retries >= 9, "повторов {retries}");
+            assert!(err.contains("вне протокола"), "{err}");
+            assert!(!has_open(&fake));
+        }
+
+        /// ТЗ-118, ТЗ-122: отказ владельца — ошибка, PCM не открывается.
+        #[test]
+        fn exclusive_open_denied_does_not_open() {
+            let owner = FakeOwner::Denies { app: Some("PipeWire".into()) };
+            let fake = FakeReserveBus::new(ManualClock::new(), owner);
+            let mut g = gate(&fake);
+            assert!(matches!(gated_build::<()>(&mut g, 0, "DAC", ClockInstant::START, || panic!("сборка до резервирования")), Ok(None)));
+            let GateEvent::Failed(f) = wait(&mut g) else { panic!("ожидался отказ") };
+            assert!(capture_message(&f).contains("PipeWire"), "{}", capture_message(&f));
+            assert!(!has_open(&fake));
+        }
     }
 }

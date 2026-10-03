@@ -5,6 +5,7 @@ use cpal::traits::{DeviceTrait, HostTrait, StreamTrait};
 use cpal::{BufferSize, SampleFormat, StreamConfig, SupportedBufferSize};
 
 use crate::audio::worker::{RtConsumer, RtShared};
+use crate::audio::reservation::gate::PcmOpenError;
 use crate::settings::{
     ClockFamily, DsdMode, ExclusiveMode, FallbackPolicy, FallbackRatePolicy, ResamplerAlgorithm,
     ResamplerMode, Settings,
@@ -1531,7 +1532,7 @@ pub fn probe_output(preferred: Option<&str>) -> Result<String, String> {
         let shared = RtShared::new(cfg.config.sample_rate, cfg.config.channels as usize, false);
         let (_producer, ring) = rtrb::RingBuffer::<f32>::new(2048);
         let consumer = RtConsumer::new(ring, shared);
-        build_stream_rt(cfg, consumer, Some(error_flag.clone()))
+        build_stream_rt(cfg, consumer, Some(error_flag.clone())).map_err(|e| e.message)
     };
     let stream = match attempt(&spec) {
         Ok(s) => s,
@@ -1566,15 +1567,53 @@ pub fn probe_output(preferred: Option<&str>) -> Result<String, String> {
 /// The buffer-size fallback (Fixed → Default) is the caller's responsibility:
 /// on failure the consumer has been consumed, so a fresh ring/consumer must be
 /// created for the retry.
+/// Отказ сборки потока: класс ошибки открытия PCM для ворот резервирования
+/// (§6.6 OPEN: `EBUSY` повторяется, прочие — без повтора; ТЗ-122) и текст.
+#[derive(Clone, PartialEq, Eq, Debug)]
+pub struct StreamBuildError {
+    pub open: PcmOpenError,
+    pub message: String,
+}
+
+impl StreamBuildError {
+    /// Отказ без errno (формат, тестовый шов): не повторяется.
+    pub fn refused(message: String) -> StreamBuildError {
+        StreamBuildError { open: PcmOpenError::Refused { errno: 0 }, message }
+    }
+}
+
+impl std::fmt::Display for StreamBuildError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str(&self.message)
+    }
+}
+
+/// Класс ошибки cpal → [`PcmOpenError`]. cpal сводит `EBUSY`/`EAGAIN` к
+/// `DeviceBusy`, `ENODEV`/`ENOENT` — к `DeviceNotAvailable` (alsa `From<alsa::Error>`);
+/// errno прочих восстанавливается по классу.
+pub fn classify_pcm_error(kind: cpal::ErrorKind) -> PcmOpenError {
+    const EACCES: i32 = 13;
+    const EINVAL: i32 = 22;
+    const ENOSYS: i32 = 38;
+    match kind {
+        cpal::ErrorKind::DeviceBusy => PcmOpenError::Busy,
+        cpal::ErrorKind::DeviceNotAvailable => PcmOpenError::Disconnected,
+        cpal::ErrorKind::PermissionDenied => PcmOpenError::Refused { errno: EACCES },
+        cpal::ErrorKind::UnsupportedConfig | cpal::ErrorKind::InvalidInput => PcmOpenError::Refused { errno: EINVAL },
+        cpal::ErrorKind::UnsupportedOperation => PcmOpenError::Refused { errno: ENOSYS },
+        _ => PcmOpenError::Refused { errno: 0 },
+    }
+}
+
 pub fn build_stream_rt(
     spec: &OutputSpec,
     consumer: RtConsumer,
     error_flag: Option<Arc<AtomicBool>>,
-) -> Result<cpal::Stream, String> {
+) -> Result<cpal::Stream, StreamBuildError> {
     match spec.sample_format {
         SampleFormat::F32 | SampleFormat::I16 | SampleFormat::U8 | SampleFormat::I32 => {}
         other => {
-            return Err(format!("Unsupported output sample format: {other:?}"));
+            return Err(StreamBuildError::refused(format!("Unsupported output sample format: {other:?}")));
         }
     }
 
@@ -1657,8 +1696,10 @@ pub fn build_stream_rt(
         }
     };
 
-    build(spec.config, consumer, error_flag)
-        .map_err(|e| format!("Cannot build output stream: {e}"))
+    build(spec.config, consumer, error_flag).map_err(|e| StreamBuildError {
+        open: classify_pcm_error(e.kind()),
+        message: format!("Cannot build output stream: {e}"),
+    })
 }
 
 #[cfg(test)]

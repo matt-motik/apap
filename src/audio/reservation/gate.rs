@@ -101,10 +101,9 @@ impl ExclusiveGate {
     /// вызывающим через `release`.
     pub fn begin(&mut self, card: u32, device_name: &str) -> Option<GateEvent> {
         match &mut self.state {
-            State::Held { card: held, busy_since, .. } if *held == card => {
-                *busy_since = None;
-                return Some(GateEvent::Ready);
-            }
+            // Окно повтора `EBUSY` не сбрасывается: повтор идёт через `begin` +
+            // `try_open` на тике, и сброс сделал бы его бесконечным (ТЗ-122).
+            State::Held { card: held, .. } if *held == card => return Some(GateEvent::Ready),
             State::Pending { card: pending, .. } if *pending == card => return None,
             _ => {}
         }
