@@ -11,7 +11,6 @@ use crate::audio::render::pcm::{PcmRender, PcmSample};
 use crate::audio::render::tpdf::Tpdf;
 use crate::audio::render::RenderCore;
 use crate::audio::session::{RingPayload, SessionShared};
-use crate::audio::worker::RtConsumer;
 use crate::audio::reservation::gate::PcmOpenError;
 use crate::settings::{
     ClockFamily, DsdMode, ExclusiveMode, FallbackPolicy, FallbackRatePolicy, ResamplerAlgorithm,
@@ -1570,13 +1569,6 @@ pub fn probe_output(preferred: Option<&str>) -> Result<String, String> {
     Ok(spec.device_name)
 }
 
-/// Build the output stream for the Producer/Consumer engine (ТЗ A2.0 §5.3).
-/// The cpal real-time callback owns the [`RtConsumer`] and reads samples from
-/// the lock-free ring; it never touches a `Mutex`.
-///
-/// The buffer-size fallback (Fixed → Default) is the caller's responsibility:
-/// on failure the consumer has been consumed, so a fresh ring/consumer must be
-/// created for the retry.
 /// Отказ сборки потока: класс ошибки открытия PCM для ворот резервирования
 /// (§6.6 OPEN: `EBUSY` повторяется, прочие — без повтора; ТЗ-122) и текст.
 #[derive(Clone, PartialEq, Eq, Debug)]
@@ -1613,103 +1605,6 @@ pub fn classify_pcm_error(kind: cpal::ErrorKind) -> PcmOpenError {
         cpal::ErrorKind::UnsupportedOperation => PcmOpenError::Refused { errno: ENOSYS },
         _ => PcmOpenError::Refused { errno: 0 },
     }
-}
-
-pub fn build_stream_rt(
-    spec: &OutputSpec,
-    consumer: RtConsumer,
-    error_flag: Option<Arc<AtomicBool>>,
-) -> Result<cpal::Stream, StreamBuildError> {
-    match spec.sample_format {
-        SampleFormat::F32 | SampleFormat::I16 | SampleFormat::U8 | SampleFormat::I32 => {}
-        other => {
-            return Err(StreamBuildError::refused(format!("Unsupported output sample format: {other:?}")));
-        }
-    }
-
-    let build = |cfg: StreamConfig,
-                 mut consumer: RtConsumer,
-                 ef: Option<Arc<AtomicBool>>|
-     -> Result<cpal::Stream, cpal::Error> {
-        match spec.sample_format {
-            SampleFormat::F32 => {
-                let ef = ef.clone();
-                spec.device.build_output_stream(
-                    cfg,
-                    move |data: &mut [f32], _| {
-                        crate::audio::player::audio_callback_f32_rt(&mut consumer, data);
-                    },
-                    move |e| {
-                        eprintln!("Audio stream error: {e}");
-                        if let Some(f) = ef.as_ref() {
-                            f.store(true, Ordering::Relaxed);
-                        }
-                    },
-                    None,
-                )
-            }
-            SampleFormat::I16 => {
-                let ef = ef.clone();
-                spec.device.build_output_stream(
-                    cfg,
-                    move |data: &mut [i16], _| {
-                        crate::audio::player::audio_callback_i16_rt(&mut consumer, data);
-                    },
-                    move |e| {
-                        eprintln!("Audio stream error: {e}");
-                        if let Some(f) = ef.as_ref() {
-                            f.store(true, Ordering::Relaxed);
-                        }
-                    },
-                    None,
-                )
-            }
-            SampleFormat::U8 => {
-                let ef = ef.clone();
-                spec.device.build_output_stream(
-                    cfg,
-                    move |data: &mut [u8], _| {
-                        crate::audio::player::audio_callback_u8_rt(&mut consumer, data);
-                    },
-                    move |e| {
-                        eprintln!("Audio stream error: {e}");
-                        if let Some(f) = ef.as_ref() {
-                            f.store(true, Ordering::Relaxed);
-                        }
-                    },
-                    None,
-                )
-            }
-            SampleFormat::I32 => {
-                let ef = ef.clone();
-                let is_dop = spec.is_dop;
-                spec.device.build_output_stream(
-                    cfg,
-                    move |data: &mut [i32], _| {
-                        if is_dop {
-                            crate::audio::player::audio_callback_i32_dop_rt(&mut consumer, data);
-                        } else {
-                            crate::audio::player::audio_callback_i32_pcm_rt(&mut consumer, data);
-                        }
-                    },
-                    move |e| {
-                        eprintln!("Audio stream error: {e}");
-                        if let Some(f) = ef.as_ref() {
-                            f.store(true, Ordering::Relaxed);
-                        }
-                    },
-                    None,
-                )
-            }
-            // Формат проверен выше; иной формат — отказ сборки, не паника (ТЗ-101).
-            _other => Err(cpal::Error::with_message(cpal::ErrorKind::InvalidInput, "unsupported sample format")),
-        }
-    };
-
-    build(spec.config, consumer, error_flag).map_err(|e| StreamBuildError {
-        open: classify_pcm_error(e.kind()),
-        message: format!("Cannot build output stream: {e}"),
-    })
 }
 
 // ---------------------------------------------------------------------------

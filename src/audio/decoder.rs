@@ -42,10 +42,6 @@ pub trait AudioSource: Send {
     /// `Ok(None)` at end of stream, `Err` on a corrupt stream or a read error.
     fn next_block(&mut self) -> Result<Option<SampleBlock<'_>>, FileError>;
 
-    /// Next interleaved f32 block, or `None` at end of stream / on error.
-    /// Old pipeline only: removed together with the f32 worker (§8 С2).
-    fn next_frames(&mut self) -> Option<&[f32]>;
-
     /// Seek the source to `secs` (0.0 = start). Default: unsupported.
     fn seek(&mut self, _secs: f64) -> Result<(), String> {
         Err("Seek is not supported by this audio source".into())
@@ -309,7 +305,6 @@ pub struct Decoder {
     track_id: u32,
     pub info: TrackInfo,
     pub eof: bool,
-    scratch: Vec<f32>,
     /// Буфер `ExactI32` (§6.10), выделен при открытии: `max_frames_per_packet × каналы`.
     buf_i32: Vec<i32>,
     /// Буфер `F32` для float-PCM (ОВС-1).
@@ -409,7 +404,6 @@ impl Decoder {
                 tags,
             },
             eof: false,
-            scratch: Vec::new(),
             buf_i32: if float_pcm { Vec::new() } else { vec![0; block_cap] },
             buf_f32: if float_pcm { vec![0.0; block_cap] } else { Vec::new() },
             buf_lossy: Vec::new(),
@@ -560,47 +554,6 @@ impl Decoder {
         self.eof
     }
 
-    /// Decode the next packet into `out` (interleaved f32) and return the number of
-    /// source frames written. Returns `None` at end of stream or on unrecoverable error.
-    pub fn next_frames(&mut self) -> Option<&[f32]> {
-        if self.eof {
-            return None;
-        }
-        loop {
-            match self.format.next_packet() {
-                Ok(Some(packet)) => {
-                    if packet.track_id != self.track_id {
-                        continue;
-                    }
-                    match self.decoder.decode(&packet) {
-                        Ok(buf) => {
-                            let total = buf.samples_interleaved();
-                            if total == 0 {
-                                continue;
-                            }
-                            self.scratch.resize(total, 0.0);
-                            buf.copy_to_slice_interleaved(&mut self.scratch);
-                            return Some(self.scratch.as_slice());
-                        }
-                        Err(SymError::DecodeError(_)) => continue,
-                        Err(_) => {
-                            self.eof = true;
-                            return None;
-                        }
-                    }
-                }
-                Ok(None) => {
-                    self.eof = true;
-                    return None;
-                }
-                Err(_) => {
-                    self.eof = true;
-                    return None;
-                }
-            }
-        }
-    }
-
     pub fn seek(&mut self, secs: f64) -> Result<(), String> {
         let secs = secs.max(0.0);
         let whole = secs.floor() as i64;
@@ -636,9 +589,6 @@ pub(crate) fn compute_bitrate(sample_rate: u32, channels: usize, bits: Option<u3
 impl AudioSource for Decoder {
     fn next_block(&mut self) -> Result<Option<SampleBlock<'_>>, FileError> {
         Decoder::next_block(self)
-    }
-    fn next_frames(&mut self) -> Option<&[f32]> {
-        Decoder::next_frames(self)
     }
     fn seek(&mut self, secs: f64) -> Result<(), String> {
         Decoder::seek(self, secs)
@@ -691,15 +641,17 @@ mod tests {
         let mut total = 0usize;
         let mut finite = true;
         for _ in 0..200 {
-            match dec.next_frames() {
-                Some(buf) => {
-                    total += buf.len() / ch;
-                    finite &= buf.iter().all(|s| s.is_finite());
-                    if total >= rate as usize {
-                        break;
-                    }
+            match dec.next_block().expect("decode") {
+                Some(SampleBlock::ExactI32 { data, .. }) => total += data.len() / ch,
+                Some(SampleBlock::F32 { data }) => {
+                    total += data.len() / ch;
+                    finite &= data.iter().all(|s| s.is_finite());
                 }
+                Some(SampleBlock::DsdBytes { .. }) => panic!("PCM decoder returned DSD"),
                 None => break,
+            }
+            if total >= rate as usize {
+                break;
             }
         }
         assert!(total > 0, "no audio produced");
@@ -708,11 +660,15 @@ mod tests {
         dec.seek(30.0).expect("seek");
         let mut saw = false;
         for _ in 0..100 {
-            if let Some(buf) = dec.next_frames() {
-                if !buf.is_empty() {
-                    saw = true;
-                    break;
-                }
+            let len = match dec.next_block().expect("decode") {
+                Some(SampleBlock::ExactI32 { data, .. }) => data.len(),
+                Some(SampleBlock::F32 { data }) => data.len(),
+                Some(SampleBlock::DsdBytes { data }) => data.len(),
+                None => 0,
+            };
+            if len > 0 {
+                saw = true;
+                break;
             }
         }
         assert!(saw, "no audio after seek");
@@ -834,9 +790,6 @@ mod tests {
         impl AudioSource for NoSeek {
             fn next_block(&mut self) -> Result<Option<SampleBlock<'_>>, FileError> {
                 Ok(None)
-            }
-            fn next_frames(&mut self) -> Option<&[f32]> {
-                None
             }
             fn info(&self) -> &TrackInfo {
                 &self.info

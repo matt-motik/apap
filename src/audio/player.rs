@@ -25,63 +25,16 @@ use super::render::{prime_frames, RenderCore};
 use super::session::{RingPayload, SessionShared};
 use super::worker::{
     start_fill_frames, DecodeConfig, DecodeEvent, DecodeLoop, DecodeWorker, ExactFeed, FloatFeed,
-    RtConsumer, VizTap,
+    VizTap,
 };
 use crate::settings::{
     clamp_ring_buffer_ms, ClockFamily, DsdMode, ExclusiveMode, FallbackPolicy,
     FallbackRatePolicy, ResamplerAlgorithm, ResamplerDither, ResamplerMode, RING_BUFFER_MS_DEFAULT,
 };
 
-/// Zero-allocation LCG PRNG for TPDF dithering in the real-time audio path.
-///
-/// TPDF (triangular probability density function) dither is generated as the
-/// sum of two independent uniforms, producing a triangular distribution over
-/// [-1, 1). It runs inside the cpal callback, so it must never allocate or
-/// block — which is why `rand::thread_rng()` is forbidden here (TЗ/AGENTS).
-#[derive(Debug, Clone, Copy)]
-pub struct TpdfRng {
-    state: u32,
-}
-
-impl TpdfRng {
-    pub fn new() -> Self {
-        Self { state: 0x9E37_79B9 }
-    }
-
-    /// (Re)seed the generator. Called per-track in `Player::open` so each
-    /// track starts with a fresh, deterministic-but-random noise sequence.
-    pub fn reseed(&mut self, seed: u32) {
-        self.state = seed | 1;
-    }
-
-    /// Uniform sample in [0, 1): xorshift32, 24 mantissa bits (zero-alloc).
-    #[inline]
-    fn next_uniform(&mut self) -> f32 {
-        let mut x = self.state;
-        x ^= x << 13;
-        x ^= x >> 17;
-        x ^= x << 5;
-        self.state = x;
-        (x >> 8) as f32 / 16_777_216.0
-    }
-
-    /// TPDF sample in (-1, 1): `u1 + u2 - 1`.
-    #[inline]
-    pub fn next_tpdf(&mut self) -> f32 {
-        self.next_uniform() + self.next_uniform() - 1.0
-    }
-}
-
-impl Default for TpdfRng {
-    fn default() -> Self {
-        Self::new()
-    }
-}
-
-/// Dither-mode index stored in [`RtShared`] (maps from [`ResamplerDither`];
-/// kept as a plain u8 so the audio callback can read it through an
-/// [`std::sync::atomic::AtomicU8`] with a single relaxed load).
-pub(crate) const DITHER_INDEX_TPDF: u8 = 0;
+/// Индекс режима дизеринга из [`ResamplerDither`]; фиксируется при сборке
+/// рендера (seed TPDF, ТЗ-8).
+const DITHER_INDEX_TPDF: u8 = 0;
 const DITHER_INDEX_TRIANGULAR: u8 = 1;
 const DITHER_INDEX_OFF: u8 = 2;
 
@@ -1370,189 +1323,6 @@ impl Default for Player {
     }
 }
 
-// ---- Producer/Consumer callbacks (ТЗ A2.0 §5.3). ----
-//
-// The cpal real-time thread only touches the lock-free `RtConsumer` (ring +
-// atomics): no `Mutex`, no decoder, no allocation, no logging. Volume/mute/
-// bit-perfect/dither come from `RtShared`; samples come from the worker's ring.
-
-/// Dither applicability for the ring-consumer path: skipped in a true
-/// bit-perfect passthrough, applied otherwise.
-fn dither_enabled_rt(bit_perfect: bool, resampler_enabled: bool, dither_idx: u8) -> bool {
-    if dither_idx == DITHER_INDEX_OFF {
-        return false;
-    }
-    if bit_perfect && !resampler_enabled {
-        return false;
-    }
-    true
-}
-
-/// At natural EOF (fewer samples than requested and the worker signalled end),
-/// stop the transport and flag the end for the playlist.
-#[inline]
-fn finish_if_eof(consumer: &RtConsumer, produced: usize, requested: usize) {
-    if produced < requested && consumer.shared().eof() {
-        let shared = consumer.shared();
-        shared.set_playing(false);
-        shared.set_finished(true);
-        shared.set_natural_end(true);
-    }
-}
-
-/// f32 consumer callback: pull straight into the device buffer.
-pub fn audio_callback_f32_rt(consumer: &mut RtConsumer, data: &mut [f32]) {
-    if !consumer.shared().is_playing() {
-        data.fill(0.0);
-        return;
-    }
-    if !consumer.reconcile_seek() {
-        data.fill(0.0);
-        return;
-    }
-    let bit_perfect = consumer.shared().bit_perfect();
-    let muted = consumer.shared().muted();
-    let volume = consumer.shared().volume();
-    let produced = consumer.pull_f32(data);
-    let vol = if bit_perfect {
-        1.0
-    } else if muted {
-        0.0
-    } else {
-        volume
-    };
-    // Границы формата F32 — [-1, 1]: межсэмпловые пики SRC и сумма downmix
-    // ограничиваются, а не уходят в устройство (ТЗ-17).
-    for s in data.iter_mut().take(produced) {
-        *s = (*s * vol).clamp(-1.0, 1.0);
-    }
-    if produced < data.len() {
-        data[produced..].fill(0.0);
-        finish_if_eof(consumer, produced, data.len());
-    }
-}
-
-/// i16 consumer callback: pull into scratch, apply volume + optional TPDF.
-pub fn audio_callback_i16_rt(consumer: &mut RtConsumer, data: &mut [i16]) {
-    if !consumer.shared().is_playing() {
-        data.fill(0);
-        return;
-    }
-    if !consumer.reconcile_seek() {
-        data.fill(0);
-        return;
-    }
-    let bit_perfect = consumer.shared().bit_perfect();
-    let vol = if bit_perfect {
-        1.0
-    } else if consumer.shared().muted() {
-        0.0
-    } else {
-        consumer.shared().volume()
-    };
-    let dither_idx = consumer.shared().dither_index();
-    let apply_dither =
-        dither_enabled_rt(bit_perfect, consumer.shared().resampler_enabled(), dither_idx);
-    let dither_amp = dither_amplitude(dither_idx);
-    let produced = consumer.pull_scratch(data.len());
-    let mut tpdf = consumer.tpdf();
-    for (dst, &src) in data.iter_mut().zip(consumer.scratch().iter()).take(produced) {
-        let mut x = src.clamp(-1.0, 1.0) * vol * 32767.0;
-        if apply_dither {
-            x += tpdf.next_tpdf() * dither_amp;
-        }
-        *dst = x.round().clamp(-32768.0, 32767.0) as i16;
-    }
-    consumer.set_tpdf(tpdf);
-    for s in data.iter_mut().skip(produced) {
-        *s = 0;
-    }
-    if produced < data.len() {
-        finish_if_eof(consumer, produced, data.len());
-    }
-}
-
-/// u8 consumer callback (silence = 128, samples centered at 0.5).
-pub fn audio_callback_u8_rt(consumer: &mut RtConsumer, data: &mut [u8]) {
-    if !consumer.shared().is_playing() {
-        data.fill(128);
-        return;
-    }
-    if !consumer.reconcile_seek() {
-        data.fill(128);
-        return;
-    }
-    let bit_perfect = consumer.shared().bit_perfect();
-    let vol = if bit_perfect {
-        1.0
-    } else if consumer.shared().muted() {
-        0.0
-    } else {
-        consumer.shared().volume()
-    };
-    let dither_idx = consumer.shared().dither_index();
-    let apply_dither =
-        dither_enabled_rt(bit_perfect, consumer.shared().resampler_enabled(), dither_idx);
-    let dither_amp = dither_amplitude(dither_idx);
-    let produced = consumer.pull_scratch(data.len());
-    let mut tpdf = consumer.tpdf();
-    for (dst, &src) in data.iter_mut().zip(consumer.scratch().iter()).take(produced) {
-        let mut x = (src.clamp(-1.0, 1.0) * vol * 0.5 + 0.5) * 255.0;
-        if apply_dither {
-            x += tpdf.next_tpdf() * dither_amp;
-        }
-        *dst = x.round().clamp(0.0, 255.0) as u8;
-    }
-    consumer.set_tpdf(tpdf);
-    for s in data.iter_mut().skip(produced) {
-        *s = 128;
-    }
-    if produced < data.len() {
-        finish_if_eof(consumer, produced, data.len());
-    }
-}
-
-/// i32 PCM consumer callback (native-I32 hardware node), same as i16 scaled.
-pub fn audio_callback_i32_pcm_rt(consumer: &mut RtConsumer, data: &mut [i32]) {
-    if !consumer.shared().is_playing() {
-        data.fill(0);
-        return;
-    }
-    if !consumer.reconcile_seek() {
-        data.fill(0);
-        return;
-    }
-    let bit_perfect = consumer.shared().bit_perfect();
-    let vol = if bit_perfect {
-        1.0
-    } else if consumer.shared().muted() {
-        0.0
-    } else {
-        consumer.shared().volume()
-    };
-    let dither_idx = consumer.shared().dither_index();
-    let apply_dither =
-        dither_enabled_rt(bit_perfect, consumer.shared().resampler_enabled(), dither_idx);
-    let dither_amp = dither_amplitude(dither_idx);
-    let produced = consumer.pull_scratch(data.len());
-    const I32_MAX: f64 = 2_147_483_647.0;
-    let mut tpdf = consumer.tpdf();
-    for (dst, &src) in data.iter_mut().zip(consumer.scratch().iter()).take(produced) {
-        let mut x = src.clamp(-1.0, 1.0) as f64 * vol as f64 * I32_MAX;
-        if apply_dither {
-            x += tpdf.next_tpdf() as f64 * dither_amp as f64;
-        }
-        *dst = x.round().clamp(-I32_MAX - 1.0, I32_MAX) as i32;
-    }
-    consumer.set_tpdf(tpdf);
-    for s in data.iter_mut().skip(produced) {
-        *s = 0;
-    }
-    if produced < data.len() {
-        finish_if_eof(consumer, produced, data.len());
-    }
-}
-
 /// DoP допустим только на Exclusive-выходе (ТЗ-1). Ошибка ведёт цепочку DSD
 /// к следующему шагу (DSD→PCM).
 fn dop_requires_exclusive(exclusive: bool) -> Result<(), String> {
@@ -1560,47 +1330,6 @@ fn dop_requires_exclusive(exclusive: bool) -> Result<(), String> {
         Ok(())
     } else {
         Err("DoP недоступен: выход открыт не в Exclusive (ТЗ-1)".into())
-    }
-}
-
-/// DSD-тишина в нагрузке DoP-слова (ТЗ-3).
-pub const DOP_SILENCE_PAYLOAD: u32 = 0x6969;
-
-/// i32 DoP consumer callback (ADR-12 Б, ТЗ-2, ТЗ-3): из слова декодера берётся
-/// только 16-битная DSD-нагрузка, маркер `0x05`/`0xFA` в битах 31..24 ставит
-/// колбэк по своему счётчику фазы — для данных и для тишины одинаково. Нет
-/// данных (пауза, seek, underrun) — нагрузка `0x6969`, маркеры не прерываются.
-pub fn audio_callback_i32_dop_rt(consumer: &mut RtConsumer, data: &mut [i32]) {
-    let ready = consumer.shared().is_playing() && consumer.reconcile_seek();
-    let produced = if ready { consumer.pull_scratch(data.len()) } else { 0 };
-    let ch = consumer.shared().out_ch().max(1);
-    let mut phase = consumer.dop_phase();
-    let scratch = consumer.scratch();
-    for (i, dst) in data.iter_mut().enumerate() {
-        let payload = match scratch.get(i) {
-            Some(&w) if i < produced => (w.clamp(0.0, 16_777_215.0) as u32) & 0xFFFF,
-            _ => DOP_SILENCE_PAYLOAD,
-        };
-        let marker = if phase { super::dop::DOP_MARKER_ODD } else { super::dop::DOP_MARKER_EVEN };
-        let word = (u32::from(marker) << 24) | (payload << 8);
-        *dst = i32::from_ne_bytes(word.to_ne_bytes());
-        if (i + 1) % ch == 0 {
-            phase = !phase;
-        }
-    }
-    consumer.set_dop_phase(phase);
-    if ready && produced < data.len() {
-        finish_if_eof(consumer, produced, data.len());
-    }
-}
-
-/// Per-sample dither amplitude for the two supported PDF shapes:
-/// full TPDF peak = 1 LSB, triangular peak = 0.5 LSB (half-amplitude).
-fn dither_amplitude(idx: u8) -> f32 {
-    if idx == DITHER_INDEX_TRIANGULAR {
-        0.5
-    } else {
-        1.0
     }
 }
 
@@ -1645,73 +1374,10 @@ impl Player {
     }
 }
 
-// Keep stream alive (no-op guard used by the main loop).
-#[allow(dead_code)]
-/// Keep the stream object alive for its intended lifetime (used by the
-/// startup probe, which must hold the stream until the device is checked).
-pub fn keep_alive(_s: &cpal::Stream) {}
-
-#[cfg(test)]
-mod alloc_tracking {
-    use std::alloc::{GlobalAlloc, Layout, System};
-    use std::cell::Cell;
-    use std::sync::atomic::{AtomicBool, Ordering};
-
-    /// Cranked up only while a zero-allocation test runs; keeps the thread-local
-    /// counter free of background churn from the parallel test harness.
-    pub static TRACKING: AtomicBool = AtomicBool::new(false);
-
-    thread_local! {
-        static ALLOC_COUNT: Cell<u64> = const { Cell::new(0) };
-    }
-
-    /// Total allocations on the current thread since the counter was armed.
-    pub fn alloc_count() -> u64 {
-        ALLOC_COUNT.with(|c| c.get())
-    }
-
-    pub fn reset_count() {
-        ALLOC_COUNT.with(|c| c.set(0));
-    }
-
-    /// Thin wrapper over `System` that counts allocations on the measuring
-    /// thread. Test-only: the real-time callbacks must allocate zero bytes
-    /// (ТЗ A2.0 §3.4).
-    pub struct CountingAllocator;
-
-    unsafe impl GlobalAlloc for CountingAllocator {
-        unsafe fn alloc(&self, layout: Layout) -> *mut u8 {
-            if TRACKING.load(Ordering::Relaxed) {
-                ALLOC_COUNT.with(|c| c.set(c.get() + 1));
-            }
-            // SAFETY: delegates to the underlying system allocator.
-            unsafe { System.alloc(layout) }
-        }
-
-        unsafe fn dealloc(&self, ptr: *mut u8, layout: Layout) {
-            // SAFETY: delegates to the underlying system allocator.
-            unsafe { System.dealloc(ptr, layout) }
-        }
-
-        unsafe fn realloc(&self, ptr: *mut u8, layout: Layout, new_size: usize) -> *mut u8 {
-            if TRACKING.load(Ordering::Relaxed) {
-                ALLOC_COUNT.with(|c| c.set(c.get() + 1));
-            }
-            // SAFETY: delegates to the underlying system allocator.
-            unsafe { System.realloc(ptr, layout, new_size) }
-        }
-    }
-}
-
-#[cfg(test)]
-#[global_allocator]
-static GLOBAL_ALLOC: alloc_tracking::CountingAllocator = alloc_tracking::CountingAllocator;
-
 #[cfg(test)]
 mod tests {
     use super::*;
     use crate::audio::decoder::TrackInfo;
-    use crate::audio::worker::{RtShared, MAX_OUT_SAMPLES};
 
     fn track_info(frames: usize) -> TrackInfo {
         TrackInfo {
@@ -1734,30 +1400,6 @@ mod tests {
         p.out_ch = 1;
         p.info = Some(track_info(frames));
         p
-    }
-
-    /// `RtConsumer` with a pre-filled ring and playing transport.
-    fn rt_consumer_with(samples: &[f32], out_ch: usize) -> RtConsumer {
-        let (mut prod, cons) = rtrb::RingBuffer::<f32>::new(samples.len().max(64) + 1024);
-        let shared = RtShared::new(44100, out_ch, false);
-        for &s in samples {
-            let _ = prod.push(s);
-        }
-        let c = RtConsumer::new(cons, shared);
-        c.shared().set_playing(true);
-        c
-    }
-
-    /// `RtConsumer` with `n` constant `0.5` samples queued.
-    fn rt_consumer_filled(n: usize, out_ch: usize) -> RtConsumer {
-        let (mut prod, cons) = rtrb::RingBuffer::<f32>::new(n + 1024);
-        let shared = RtShared::new(44100, out_ch, false);
-        for _ in 0..n {
-            let _ = prod.push(0.5);
-        }
-        let c = RtConsumer::new(cons, shared);
-        c.shared().set_playing(true);
-        c
     }
 
     #[test]
@@ -1861,235 +1503,6 @@ mod tests {
     }
 
     #[test]
-    fn tpdf_samples_stay_in_unit_range() {
-        let mut rng = TpdfRng::new();
-        rng.reseed(1);
-        for _ in 0..100_000 {
-            let s = rng.next_tpdf();
-            assert!(s > -1.0 && s < 1.0, "TPDF sample out of range: {s}");
-        }
-    }
-
-    #[test]
-    fn tpdf_mean_is_zero() {
-        let mut rng = TpdfRng::new();
-        rng.reseed(2);
-        const N: i64 = 10_000_000;
-        let mut sum = 0.0f64;
-        for _ in 0..N {
-            sum += rng.next_tpdf() as f64;
-        }
-        let mean = sum / N as f64;
-        assert!(mean.abs() < 1e-3, "TPDF mean not centred: {mean}");
-    }
-
-    // ---- Producer/Consumer callback tests (ТЗ A2.0 §5.3) ----
-
-    #[test]
-    fn rt_f32_applies_volume_and_silences_when_paused() {
-        let mut c = rt_consumer_with(&[0.5, 0.5, 0.5, 0.5], 1);
-        c.shared().set_volume(0.5);
-        let mut data = [0.0f32; 4];
-        audio_callback_f32_rt(&mut c, &mut data);
-        assert_eq!(data, [0.25, 0.25, 0.25, 0.25]);
-
-        c.shared().set_playing(false);
-        let mut paused = [1.0f32; 2];
-        audio_callback_f32_rt(&mut c, &mut paused);
-        assert_eq!(paused, [0.0, 0.0], "paused consumer emits silence");
-    }
-
-    #[test]
-    fn rt_callback_advances_position_by_frames() {
-        let mut c = rt_consumer_filled(1024, 1);
-        let mut data = [0.0f32; 256];
-        audio_callback_f32_rt(&mut c, &mut data);
-        assert_eq!(c.shared().pos_frames(), 256);
-    }
-
-    #[test]
-    fn rt_callback_marks_natural_end_at_eof() {
-        let mut c = rt_consumer_with(&[0.5, 0.5], 1);
-        c.shared().set_eof(true);
-        let mut data = [0.0f32; 8];
-        audio_callback_f32_rt(&mut c, &mut data);
-        assert!(!c.shared().is_playing(), "EOF must stop playback");
-        assert!(c.shared().finished());
-        assert!(c.shared().natural_end());
-    }
-
-    #[test]
-    fn rt_i16_scales_to_full_scale() {
-        let mut c = rt_consumer_with(&[1.0, 1.0], 1);
-        c.shared().set_volume(1.0);
-        c.shared().set_dither_index(DITHER_INDEX_OFF);
-        let mut data = [0i16; 2];
-        audio_callback_i16_rt(&mut c, &mut data);
-        assert_eq!(data, [32767, 32767]);
-    }
-
-    #[test]
-    fn rt_i16_clamps_and_scales_volume() {
-        let mut c = rt_consumer_with(&[0.25; 256], 1);
-        c.shared().set_volume(0.5);
-        c.shared().set_dither_index(DITHER_INDEX_OFF);
-        let mut data = [0i16; 256];
-        audio_callback_i16_rt(&mut c, &mut data);
-        let expected = (0.25f32 * 0.5 * 32767.0).round() as i16;
-        assert!(data.iter().all(|s| *s == expected), "got {:?}", &data[..4]);
-    }
-
-    #[test]
-    fn rt_u8_uses_128_silence_center() {
-        let mut c = rt_consumer_with(&[0.0, 0.0], 1);
-        c.shared().set_dither_index(DITHER_INDEX_OFF);
-        let mut data = [0u8; 2];
-        audio_callback_u8_rt(&mut c, &mut data);
-        // 0.0 maps to the midpoint (~128).
-        assert!(data.iter().all(|s| (127..=128).contains(s)));
-    }
-
-    #[test]
-    fn rt_i32_pcm_is_not_dop_packed() {
-        // The ADI-2 regression: the old i32 callback was the DoP packer
-        // (`(src << 8)`), producing silence for plain PCM. A positive sample
-        // must come out as a positive i32 value, not a left-shifted byte.
-        let mut c = rt_consumer_with(&[0.25; 64], 1);
-        c.shared().set_volume(1.0);
-        c.shared().set_dither_index(DITHER_INDEX_OFF);
-        let mut data = [0i32; 64];
-        audio_callback_i32_pcm_rt(&mut c, &mut data);
-        let expected = (0.25f32 * 2_147_483_647.0).round() as i32;
-        assert_eq!(data[0], expected);
-        assert!(data[0] > 0 && data[0] != 0x4000_0000_i32, "DoP packing leaked");
-    }
-
-    /// Слово DoP-выхода → (маркер, нагрузка).
-    fn dop_split(w: i32) -> (u8, u32) {
-        let u = u32::from_ne_bytes(w.to_ne_bytes());
-        ((u >> 24) as u8, (u >> 8) & 0xFFFF)
-    }
-
-    /// Стерео-слова декодера: нагрузка `p`, маркер декодера намеренно один и
-    /// тот же (колбэк обязан ставить свой).
-    fn dop_words(frames: usize, payload: u32) -> Vec<f32> {
-        (0..frames * 2).map(|_| ((0x05u32 << 16) | payload) as f32).collect()
-    }
-
-    #[test]
-    fn rt_i32_dop_left_aligns_payload_under_callback_marker() {
-        let mut c = rt_consumer_with(&dop_words(1, 0xABCD), 2);
-        let mut data = [0i32; 2];
-        audio_callback_i32_dop_rt(&mut c, &mut data);
-        assert_eq!(dop_split(data[0]), (0x05, 0xABCD));
-        assert_eq!(dop_split(data[1]), (0x05, 0xABCD));
-    }
-
-    /// ТЗ-2, И-Р3: играть → пауза → resume → seek ×10 → underrun → resume;
-    /// каждое слово несёт маркер, соседние кадры канала — разные маркеры.
-    #[test]
-    fn dop_markers_continuous_through_pause_seek_underrun() {
-        let (mut prod, cons) = rtrb::RingBuffer::<f32>::new(1 << 16);
-        let shared = RtShared::new(176_400, 2, false);
-        let mut c = RtConsumer::new(cons, shared.clone());
-        shared.set_playing(true);
-        let mut out: Vec<i32> = Vec::new();
-        let mut buf = [0i32; 64];
-        let mut run = |c: &mut RtConsumer, out: &mut Vec<i32>| {
-            audio_callback_i32_dop_rt(c, &mut buf);
-            out.extend_from_slice(&buf);
-        };
-        for w in dop_words(100, 0x1234) {
-            let _ = prod.push(w);
-        }
-        run(&mut c, &mut out); // воспроизведение
-        shared.set_playing(false);
-        run(&mut c, &mut out); // пауза
-        shared.set_playing(true);
-        run(&mut c, &mut out); // resume
-        for _ in 0..10 {
-            shared.begin_seek(0); // seek не подтверждён воркером — тишина
-            run(&mut c, &mut out);
-        }
-        // Воркер подтвердил последний seek, ring пуст — underrun.
-        shared.publish_seek_done_for_test(shared.seek_generation());
-        run(&mut c, &mut out);
-        for w in dop_words(40, 0x4321) {
-            let _ = prod.push(w);
-        }
-        run(&mut c, &mut out); // resume с данными
-        let frames: Vec<u8> = out.chunks(2).map(|f| dop_split(f[0]).0).collect();
-        for f in out.chunks(2) {
-            assert_eq!(dop_split(f[0]).0, dop_split(f[1]).0, "оба канала кадра — один маркер");
-        }
-        assert!(frames.iter().all(|m| *m == 0x05 || *m == 0xFA));
-        assert!(frames.windows(2).all(|w| w[0] != w[1]), "маркеры чередуются без разрыва");
-    }
-
-    /// ТЗ-3: в паузе, seek и underrun нагрузка каждого DoP-слова — `0x6969`.
-    #[test]
-    fn dop_silence_payload_is_6969() {
-        let (_prod, cons) = rtrb::RingBuffer::<f32>::new(1024);
-        let shared = RtShared::new(176_400, 2, false);
-        let mut c = RtConsumer::new(cons, shared.clone());
-        let mut buf = [0i32; 32];
-        // Пауза.
-        audio_callback_i32_dop_rt(&mut c, &mut buf);
-        assert!(buf.iter().all(|w| dop_split(*w).1 == 0x6969));
-        // Seek до подтверждения.
-        shared.set_playing(true);
-        shared.begin_seek(0);
-        audio_callback_i32_dop_rt(&mut c, &mut buf);
-        assert!(buf.iter().all(|w| dop_split(*w).1 == 0x6969));
-        // Underrun: seek подтверждён, ring пуст.
-        shared.publish_seek_done_for_test(shared.seek_generation());
-        audio_callback_i32_dop_rt(&mut c, &mut buf);
-        assert!(buf.iter().all(|w| dop_split(*w).1 == 0x6969));
-    }
-
-    #[test]
-    fn rt_bit_perfect_bypasses_software_volume() {
-        let mut c = rt_consumer_with(&[0.25; 256], 1);
-        c.shared().set_volume(0.5);
-        c.shared().set_bit_perfect(true);
-        let mut data = [0.0f32; 256];
-        audio_callback_f32_rt(&mut c, &mut data);
-        assert!(data.iter().all(|s| (*s - 0.25).abs() < 1e-6));
-    }
-
-    #[test]
-    fn rt_bit_perfect_ignores_mute() {
-        let mut c = rt_consumer_with(&[0.25; 64], 1);
-        c.shared().set_volume(0.3);
-        c.shared().set_muted(true);
-        c.shared().set_bit_perfect(true);
-        let mut data = [0.0f32; 64];
-        audio_callback_f32_rt(&mut c, &mut data);
-        assert!(data.iter().any(|s| *s != 0.0), "mute must be ignored");
-        assert!(data.iter().all(|s| (*s - 0.25).abs() < 1e-6));
-    }
-
-    #[test]
-    fn rt_tpdf_dither_adds_noise_to_quantization() {
-        let mut c = rt_consumer_with(&[0.25; 256], 1);
-        c.shared().set_volume(1.0);
-        c.shared().set_dither_index(DITHER_INDEX_TPDF);
-        let mut data = [0i16; 256];
-        audio_callback_i16_rt(&mut c, &mut data);
-        let unique: std::collections::BTreeSet<i16> = data.iter().copied().collect();
-        assert!(unique.len() > 1, "dithering must make quantized samples vary");
-    }
-
-    #[test]
-    fn rt_scratch_is_pinned_and_clamped() {
-        let mut c = rt_consumer_filled(MAX_OUT_SAMPLES + 512, 1);
-        assert_eq!(c.scratch_capacity(), MAX_OUT_SAMPLES);
-        let n = c.pull_scratch(MAX_OUT_SAMPLES + 256);
-        assert!(n <= MAX_OUT_SAMPLES, "oversized pull must clamp to the pool");
-        assert_eq!(c.scratch_capacity(), MAX_OUT_SAMPLES, "pool must not grow");
-    }
-
-    #[test]
     fn bit_perfect_resampled_flag_updates_on_toggle() {
         let mut p = Player::test_new();
         // Identity resampler: native-rate match, resampling is unnecessary.
@@ -2107,67 +1520,6 @@ mod tests {
         // Switching bit-perfect off clears the badge even while resampling.
         p.set_bit_perfect(false);
         assert!(!p.bit_perfect_resampled());
-    }
-
-    // ---- Zero-allocation detector (ТЗ A2.0 §3.4) ----
-
-    /// Run `f` with allocation counting armed; returns the number of new
-    /// allocations performed on this thread during the call.
-    fn zero_alloc_run<F: FnOnce()>(f: F) -> u64 {
-        use super::alloc_tracking as at;
-        at::TRACKING.store(true, std::sync::atomic::Ordering::SeqCst);
-        at::reset_count();
-        f();
-        let n = at::alloc_count();
-        at::TRACKING.store(false, std::sync::atomic::Ordering::SeqCst);
-        n
-    }
-
-    #[test]
-    fn all_callbacks_perform_zero_allocations() {
-        let mut c_f32 = rt_consumer_filled(32768, 1);
-        let mut c_i16 = rt_consumer_filled(32768, 1);
-        let mut c_u8 = rt_consumer_filled(32768, 1);
-        let mut c_i32 = rt_consumer_filled(32768, 1);
-        let mut c_dop = rt_consumer_filled(32768, 1);
-        let mut b_f32 = vec![0.0f32; 4096];
-        let mut b_i16 = vec![0i16; 4096];
-        let mut b_u8 = vec![0u8; 4096];
-        let mut b_i32 = vec![0i32; 4096];
-        let mut b_dop = vec![0i32; 4096];
-        // Warm-up: any lazily-initialised state (iterator glue, TLS, etc.) must
-        // settle before the zero-allocation assertion (ТЗ A2.0 §3.4).
-        audio_callback_f32_rt(&mut c_f32, &mut b_f32);
-        audio_callback_i16_rt(&mut c_i16, &mut b_i16);
-        audio_callback_u8_rt(&mut c_u8, &mut b_u8);
-        audio_callback_i32_pcm_rt(&mut c_i32, &mut b_i32);
-        audio_callback_i32_dop_rt(&mut c_dop, &mut b_dop);
-
-        assert_eq!(
-            zero_alloc_run(|| audio_callback_f32_rt(&mut c_f32, &mut b_f32)),
-            0,
-            "f32"
-        );
-        assert_eq!(
-            zero_alloc_run(|| audio_callback_i16_rt(&mut c_i16, &mut b_i16)),
-            0,
-            "i16"
-        );
-        assert_eq!(
-            zero_alloc_run(|| audio_callback_u8_rt(&mut c_u8, &mut b_u8)),
-            0,
-            "u8"
-        );
-        assert_eq!(
-            zero_alloc_run(|| audio_callback_i32_pcm_rt(&mut c_i32, &mut b_i32)),
-            0,
-            "i32_pcm"
-        );
-        assert_eq!(
-            zero_alloc_run(|| audio_callback_i32_dop_rt(&mut c_dop, &mut b_dop)),
-            0,
-            "i32_dop"
-        );
     }
 
     /// PCM file from the environment (ставится вручную, см. §11.4); пропускает
@@ -2388,27 +1740,47 @@ mod tests {
                 }
             }
         }
-        let mut f32_out = vec![0.0f32; len];
-        audio_callback_f32_rt(&mut rt_consumer_with(&processed[..len], 2), &mut f32_out);
-        let scaled: Vec<f64> = f32_out.iter().map(|x| f64::from(*x) * 32_768.0).collect();
-        check("f32", &scaled, 16, -32_768.0, 32_768.0);
-        for dither in [DITHER_INDEX_OFF, 1] {
-            let mut c = rt_consumer_with(&processed[..len], 2);
-            c.shared().set_dither_index(dither);
-            let mut o = vec![0i16; len];
-            audio_callback_i16_rt(&mut c, &mut o);
-            check("i16", &o, 16, f64::from(i16::MIN), f64::from(i16::MAX));
-            let mut c = rt_consumer_with(&processed[..len], 2);
-            c.shared().set_dither_index(dither);
-            let mut o = vec![0u8; len];
-            audio_callback_u8_rt(&mut c, &mut o);
-            check("u8", &o, 8, 0.0, 255.0);
-            let mut c = rt_consumer_with(&processed[..len], 2);
-            c.shared().set_dither_index(dither);
-            let mut o = vec![0i32; len];
-            audio_callback_i32_pcm_rt(&mut c, &mut o);
-            check("i32", &o, 32, f64::from(i32::MIN), f64::from(i32::MAX));
+        let samples = &processed[..len];
+        for dither in [None, Some(1)] {
+            let f32_out: Vec<f64> = render_bytes(SampleFormat::F32, samples, dither)
+                .as_chunks::<4>()
+                .0
+                .iter()
+                .map(|&b| f64::from(f32::from_le_bytes(b)) * 32_768.0)
+                .collect();
+            check("f32", &f32_out, 16, -32_768.0, 32_768.0);
+            let i16_out: Vec<i16> = render_bytes(SampleFormat::I16, samples, dither)
+                .as_chunks::<2>()
+                .0
+                .iter()
+                .map(|&b| i16::from_le_bytes(b))
+                .collect();
+            check("i16", &i16_out, 16, f64::from(i16::MIN), f64::from(i16::MAX));
+            let i32_out: Vec<i32> = render_bytes(SampleFormat::I32, samples, dither)
+                .as_chunks::<4>()
+                .0
+                .iter()
+                .map(|&b| i32::from_le_bytes(b))
+                .collect();
+            check("i32", &i32_out, 32, f64::from(i32::MIN), f64::from(i32::MAX));
         }
+    }
+
+    /// Один период `PcmRender` над f32-ring со стереосигналом `samples` (§6.14).
+    fn render_bytes(format: SampleFormat, samples: &[f32], dither: Option<u32>) -> Vec<u8> {
+        let (mut producer, consumer) = rtrb::RingBuffer::<f32>::new(samples.len().max(1));
+        for &x in samples {
+            assert!(producer.push(x).is_ok());
+        }
+        let shared = Arc::new(SessionShared::new());
+        shared.playing.store(true, Ordering::Release);
+        let core = RenderCore::new(consumer, shared, 2, 0);
+        let tpdf = dither.map_or_else(Tpdf::off, Tpdf::with_seed);
+        let mut render = pcm_render_for::<f32, NoGain>(format, core, RingPayload::F32, tpdf)
+            .expect("рендер для формата");
+        let mut out = vec![0u8; samples.len() * format.sample_size()];
+        render.render(&mut out);
+        out
     }
 
     #[test]
@@ -2569,4 +1941,214 @@ mod tests {
             assert!(!has_open(&fake));
         }
     }
+
+    // --- Сквозные тесты тракта декодер → ring → колбэк (§7.2) ---------------
+
+    use crate::audio::error::FileError;
+    use crate::audio::format::BitDepth;
+    use crate::audio::worker::{Feed, Step};
+
+    const E2E_PERIOD: usize = 256;
+    const E2E_CHUNK: u64 = 64;
+    const E2E_CAP: usize = 4096;
+    const E2E_TOTAL: u64 = 1 << 22;
+
+    /// Значение кадра `f` счётчика: ненулевое, ExactI32 с 24 значащими битами.
+    fn counter_word(f: u64) -> i32 {
+        i32::try_from((f + 1) << 8).expect("счётчик в пределах i32")
+    }
+
+    /// Моно-счётчик кадров; после seek `stall` порций приходят пустыми
+    /// (медленный источник, §6.17).
+    struct E2eFeed {
+        pos: u64,
+        stall_after_seek: usize,
+        stall_left: usize,
+    }
+
+    impl Feed<i32> for E2eFeed {
+        fn refill(&mut self, out: &mut Vec<i32>) -> Result<bool, FileError> {
+            if self.stall_left > 0 {
+                self.stall_left -= 1;
+                return Ok(true);
+            }
+            if self.pos >= E2E_TOTAL {
+                return Ok(false);
+            }
+            let end = (self.pos + E2E_CHUNK).min(E2E_TOTAL);
+            out.extend((self.pos..end).map(counter_word));
+            self.pos = end;
+            Ok(true)
+        }
+        fn seek(&mut self, frame: u64) {
+            self.pos = frame;
+            self.stall_left = self.stall_after_seek;
+        }
+    }
+
+    /// Декодер и колбэк I32/`NoGain` над общим ring: выход — исходные слова.
+    struct E2e {
+        lp: DecodeLoop<i32, E2eFeed>,
+        render: Box<dyn RawRender>,
+        shared: Arc<SessionShared>,
+        _rx: std::sync::mpsc::Receiver<DecodeEvent>,
+        buf: Vec<u8>,
+    }
+
+    impl E2e {
+        fn new(prime: usize, stall_after_seek: usize) -> Self {
+            let shared = Arc::new(SessionShared::new());
+            let (producer, consumer) = rtrb::RingBuffer::<i32>::new(E2E_CAP);
+            let (tx, rx) = std::sync::mpsc::channel();
+            let feed = E2eFeed { pos: 0, stall_after_seek, stall_left: stall_after_seek };
+            let cfg = DecodeConfig { channels: 1, start_frame: 0, start_fill: 0, tail_samples: 64 };
+            let lp = DecodeLoop::new(feed, producer, shared.clone(), cfg, tx, None);
+            let core = RenderCore::new(consumer, shared.clone(), 1, prime);
+            let payload = RingPayload::ExactI32 { valid_bits: BitDepth::new(24).expect("24 бита") };
+            let render = pcm_render_for::<i32, NoGain>(SampleFormat::I32, core, payload, Tpdf::off())
+                .expect("рендер I32");
+            shared.playing.store(true, Ordering::Release);
+            Self { lp, render, shared, _rx: rx, buf: vec![0u8; E2E_PERIOD * 4] }
+        }
+
+        /// До `steps` итераций декодера (останов на заполненном ring).
+        fn pump(&mut self, steps: usize) {
+            for _ in 0..steps {
+                match self.lp.step() {
+                    Step::Wrote(_) => {}
+                    Step::RingFull | Step::WaitAck | Step::Ended => break,
+                }
+            }
+        }
+
+        /// Один период колбэка; слова выхода.
+        fn period(&mut self) -> Vec<i32> {
+            self.render.render(&mut self.buf);
+            self.buf
+                .as_chunks::<4>()
+                .0
+                .iter()
+                .map(|&b| i32::from_le_bytes(b))
+                .collect()
+        }
+
+        fn underruns(&self) -> u32 {
+            self.shared.underruns.load(Ordering::Relaxed)
+        }
+    }
+
+    /// Слова без тишины — непрерывный счётчик от кадра `first`.
+    fn assert_continuous_from(words: &[i32], first: u64) {
+        let data: Vec<i32> = words.iter().copied().filter(|&w| w != 0).collect();
+        assert!(!data.is_empty(), "нет данных");
+        for (i, &w) in data.iter().enumerate() {
+            assert_eq!(w, counter_word(first + i as u64), "разрыв на позиции {i}");
+        }
+    }
+
+    /// Детерминированный LCG для кадров seek.
+    fn lcg(state: &mut u64) -> u64 {
+        *state = state.wrapping_mul(6_364_136_223_846_793_005).wrapping_add(1_442_695_040_888_963_407);
+        *state >> 33
+    }
+
+    #[test]
+    fn pause_resume_100x_counter_stream_is_continuous() {
+        let mut e = E2e::new(0, 0);
+        let mut words = Vec::new();
+        for _ in 0..100 {
+            e.pump(usize::MAX);
+            for _ in 0..3 {
+                words.extend(e.period());
+            }
+            e.shared.playing.store(false, Ordering::Release);
+            for _ in 0..3 {
+                let silent = e.period();
+                assert!(silent.iter().all(|&w| w == 0), "пауза выдаёт тишину");
+                words.extend(silent);
+            }
+            e.shared.playing.store(true, Ordering::Release);
+        }
+        assert_continuous_from(&words, 0);
+        assert_eq!(words.iter().filter(|&&w| w != 0).count(), 100 * 3 * E2E_PERIOD);
+        assert_eq!(e.underruns(), 0);
+    }
+
+    /// Seek на `target`: фаза 1, фаза 2 в декодере, фаза 3 в колбэке, затем
+    /// данные до первого ненулевого слова. Возвращает слова после seek.
+    fn seek_and_play(e: &mut E2e, target: u64, periods: usize) -> Vec<i32> {
+        e.shared.request_seek(target);
+        assert_eq!(e.lp.step(), Step::WaitAck);
+        assert!(e.period().iter().all(|&w| w == 0), "фаза 3 — тишина");
+        let mut words = Vec::new();
+        for _ in 0..periods {
+            e.pump(8);
+            words.extend(e.period());
+        }
+        words
+    }
+
+    #[test]
+    fn seek_1000x_first_sample_is_target() {
+        let mut e = E2e::new(512, 0);
+        let mut rng = 7u64;
+        for _ in 0..1000 {
+            let target = lcg(&mut rng) % (E2E_TOTAL - (1 << 16));
+            let words = seek_and_play(&mut e, target, 6);
+            let first = words.iter().copied().find(|&w| w != 0).expect("данные после seek");
+            assert_eq!(first, counter_word(target));
+            assert_continuous_from(&words, target);
+        }
+        assert_eq!(e.underruns(), 0);
+    }
+
+    #[test]
+    fn no_false_underrun_after_seek_and_start() {
+        // Медленный источник: 20 пустых порций после старта и каждого seek.
+        let mut e = E2e::new(512, 20);
+        let mut words = Vec::new();
+        for _ in 0..8 {
+            e.pump(8);
+            words.extend(e.period());
+        }
+        assert_eq!(words[0], 0, "до набора prime_frames — тишина");
+        assert_continuous_from(&words, 0);
+        let mut rng = 11u64;
+        for _ in 0..1000 {
+            let target = lcg(&mut rng) % (E2E_TOTAL - (1 << 16));
+            let words = seek_and_play(&mut e, target, 8);
+            assert_eq!(words[0], 0, "до набора prime_frames после seek — тишина");
+            assert_continuous_from(&words, target);
+        }
+        assert_eq!(e.underruns(), 0);
+    }
+
+    #[test]
+    fn real_starvation_after_priming_counts() {
+        let mut e = E2e::new(512, 0);
+        let mut words = Vec::new();
+        for _ in 0..4 {
+            e.pump(8);
+            words.extend(e.period());
+        }
+        assert_eq!(e.underruns(), 0);
+        // Декодер встаёт: ring исчерпывается, затем ровно 3 голодных периода.
+        let mut starved = 0;
+        while starved < 3 {
+            let p = e.period();
+            if p.contains(&0) {
+                starved += 1;
+            }
+            words.extend(p);
+        }
+        assert_eq!(e.underruns(), 3);
+        // Декодер вернулся: поток продолжается без пропусков, счётчик не растёт.
+        for _ in 0..4 {
+            e.pump(8);
+            words.extend(e.period());
+        }
+        assert_continuous_from(&words, 0);
+        assert_eq!(e.underruns(), 3);
+    }
 }
+

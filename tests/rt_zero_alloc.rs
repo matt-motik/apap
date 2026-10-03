@@ -1,17 +1,11 @@
-//! Machine-checkable proof of docs/_canceled/spec_audio_core_v2.0.md §3.4 ("Тест-детектор
-//! аллокаций в колбэке" — a hard RT requirement, §8 budget table: "Аллокации в
-//! колбэке: 0, жёсткое требование") and §11.1 of spec_visualizer_v5.1.md
-//! ("Аллокации в горячем цикле: 0" for the LiveWorker path).
+//! Тест-детектор аллокаций в колбэке вывода (AM1.0 §7.2, ТЗ-75: «0 аллокаций в
+//! колбэке»). Каждый рендер (`PcmRender` i32/f32 × I16/I24/I32/F32 ×
+//! `NoGain`/`AtomicGain` × TPDF вкл/выкл, `DopRender` I24/I32) прогоняется через
+//! все состояния колбэка: воспроизведение, пауза, priming, seek (фаза 3),
+//! underrun — контракт должен держаться на каждом пути (§6.14–§6.17).
 //!
-//! This is a *separate* Cargo integration test binary (each file under
-//! tests/ is its own crate root), so the `#[global_allocator]` declared here
-//! only instruments this test binary — it never touches the real app binary
-//! or `cargo build`.
-//!
-//! Every RT callback variant is exercised through every branch it has
-//! (playing/not-playing, full ring, underrun, pending-seek) because the
-//! zero-allocation contract has to hold on *every* path, not just the happy
-//! one — that's the whole point of measuring instead of trusting a review.
+//! Отдельный бинарник интеграционного теста: `#[global_allocator]` ниже
+//! инструментирует только его, а не приложение.
 
 use std::alloc::{GlobalAlloc, Layout, System};
 use std::sync::atomic::{AtomicUsize, Ordering};
@@ -60,102 +54,142 @@ fn assert_zero_alloc<F: FnMut()>(name: &str, iterations: usize, mut f: F) {
     );
 }
 
-use music_player_rs::audio::player::{
-    audio_callback_f32_rt, audio_callback_i16_rt, audio_callback_i32_dop_rt,
-    audio_callback_i32_pcm_rt, audio_callback_u8_rt,
-};
-use music_player_rs::audio::worker::{RtConsumer, RtShared};
+use std::sync::Arc;
 
-const OUT_RATE: u32 = 44_100;
+use cpal::SampleFormat;
+use music_player_rs::audio::format::BitDepth;
+use music_player_rs::audio::output::{dop_render_for, pcm_render_for, RawRender};
+use music_player_rs::audio::render::gain::{AtomicGain, GainStage, NoGain};
+use music_player_rs::audio::render::pcm::PcmSample;
+use music_player_rs::audio::render::tpdf::Tpdf;
+use music_player_rs::audio::render::{RenderCore, RingSample};
+use music_player_rs::audio::session::{RingPayload, SessionShared};
+
 const OUT_CH: usize = 2;
 const RING_CAP_SAMPLES: usize = 8192;
 const CALLBACK_FRAMES: usize = 512;
+const PRIME_FRAMES: usize = 1024;
 
-/// A consumer wired to a ring pre-filled with `fill_frames` frames of dummy
-/// PCM and marked playing — the "steady state" a real cpal callback sees.
-fn playing_consumer(fill_frames: usize) -> RtConsumer {
-    let shared = RtShared::new(OUT_RATE, OUT_CH, false);
-    let (mut producer, ring) = rtrb::RingBuffer::<f32>::new(RING_CAP_SAMPLES);
-    for i in 0..(fill_frames * OUT_CH).min(RING_CAP_SAMPLES) {
-        let _ = producer.push(((i % 200) as f32 / 200.0) - 0.5);
-    }
-    shared.set_playing(true);
-    shared.set_finished(false);
-    RtConsumer::new(ring, shared)
+const EXACT_24: RingPayload = RingPayload::ExactI32 {
+    valid_bits: match BitDepth::new(24) {
+        Some(bits) => bits,
+        None => panic!("24 бита — допустимая разрядность"),
+    },
+};
+
+/// Состояние колбэка, в котором меряется рендер (§6.14–§6.17).
+#[derive(Debug, Clone, Copy)]
+enum State {
+    /// Воспроизведение, ring полон на много периодов.
+    Playing,
+    /// Ring меньше, чем съедят вызовы: частичное чтение + тишина + underrun.
+    Underrun,
+    /// `playing == false`: тишина без чтения ring.
+    Paused,
+    /// Ring ниже порога priming, конец трека неизвестен: тишина.
+    Priming,
+    /// Декодер подтвердил остановку: фаза 3 seek (сброс ring) и тишина.
+    Seek,
 }
 
-fn idle_consumer() -> RtConsumer {
-    let shared = RtShared::new(OUT_RATE, OUT_CH, false);
-    let (_producer, ring) = rtrb::RingBuffer::<f32>::new(RING_CAP_SAMPLES);
-    // playing left false: exercises the early-return silence branch.
-    RtConsumer::new(ring, shared)
-}
+const STATES: [State; 5] = [
+    State::Playing,
+    State::Underrun,
+    State::Paused,
+    State::Priming,
+    State::Seek,
+];
 
-/// A consumer with a seek published but not yet acknowledged by the worker
-/// — exercises `reconcile_seek`'s "not ready yet" branch.
-fn pending_seek_consumer(fill_frames: usize) -> RtConsumer {
-    let consumer = playing_consumer(fill_frames);
-    consumer.shared().begin_seek(1000);
-    consumer
-}
-
-// All checks run from a single #[test] (see below) rather than one #[test]
-// per callback: cargo test runs #[test] fns in parallel threads by default,
-// and ALLOC_COUNT/DEALLOC_COUNT are process-global — concurrent tests would
-// pollute each other's measurement window with unrelated allocations. A
-// single test function serializes everything onto one thread, which is the
-// only way this counter is meaningful.
-macro_rules! zero_alloc_check {
-    ($fn_name:ident, $callback:ident, $sample_ty:ty, $fill:expr) => {
-        fn $fn_name() {
-            let mut data = vec![<$sample_ty>::default(); CALLBACK_FRAMES * OUT_CH];
-
-            // Steady-state playing, ring full enough for many calls.
-            let mut c = playing_consumer($fill);
-            $callback(&mut c, &mut data); // warm-up: first branch dispatch, cache lines, etc.
-            assert_zero_alloc(concat!(stringify!($callback), " (playing, steady)"), 500, || {
-                $callback(&mut c, &mut data);
-            });
-
-            // Ring smaller than what 500 calls would consume: forces the
-            // underrun/partial-pull-then-silence-fill branch repeatedly.
-            let mut c = playing_consumer(CALLBACK_FRAMES / 4);
-            $callback(&mut c, &mut data);
-            assert_zero_alloc(concat!(stringify!($callback), " (underrun)"), 500, || {
-                $callback(&mut c, &mut data);
-            });
-
-            // Not playing: early-return silence-fill branch.
-            let mut c = idle_consumer();
-            $callback(&mut c, &mut data);
-            assert_zero_alloc(concat!(stringify!($callback), " (idle)"), 200, || {
-                $callback(&mut c, &mut data);
-            });
-
-            // Seek published, worker hasn't acked yet: reconcile_seek's
-            // false branch (drain + silence-fill).
-            let mut c = pending_seek_consumer($fill);
-            $callback(&mut c, &mut data);
-            assert_zero_alloc(concat!(stringify!($callback), " (pending seek)"), 200, || {
-                $callback(&mut c, &mut data);
-            });
-        }
+/// Ring сэмплов `value`, заполненный под состояние, и ядро рендера над ним.
+fn core_for<P: RingSample>(state: State, value: P) -> (RenderCore<P>, Arc<SessionShared>) {
+    let shared = Arc::new(SessionShared::new());
+    let fill_frames = match state {
+        State::Underrun => CALLBACK_FRAMES / 4,
+        State::Priming => PRIME_FRAMES / 2,
+        _ => RING_CAP_SAMPLES / OUT_CH,
     };
+    let (mut producer, consumer) = rtrb::RingBuffer::<P>::new(RING_CAP_SAMPLES);
+    for _ in 0..fill_frames * OUT_CH {
+        assert!(producer.push(value).is_ok());
+    }
+    shared.playing.store(!matches!(state, State::Paused), Ordering::Release);
+    let prime = match state {
+        State::Priming => PRIME_FRAMES,
+        _ => 0,
+    };
+    if let State::Seek = state {
+        let generation = shared.request_seek(1000);
+        shared.decoder_stopped.store(generation, Ordering::Release);
+    }
+    // Рукопожатие seek после фазы 3 оставляем незавершённым: каждое
+    // следующее поколение снова уводит колбэк в ветку сброса.
+    (RenderCore::new(consumer, Arc::clone(&shared), OUT_CH, prime), shared)
 }
 
-zero_alloc_check!(check_f32, audio_callback_f32_rt, f32, RING_CAP_SAMPLES / OUT_CH);
-zero_alloc_check!(check_i16, audio_callback_i16_rt, i16, RING_CAP_SAMPLES / OUT_CH);
-zero_alloc_check!(check_u8, audio_callback_u8_rt, u8, RING_CAP_SAMPLES / OUT_CH);
-zero_alloc_check!(check_i32_pcm, audio_callback_i32_pcm_rt, i32, RING_CAP_SAMPLES / OUT_CH);
-zero_alloc_check!(check_i32_dop, audio_callback_i32_dop_rt, i32, RING_CAP_SAMPLES / OUT_CH);
+/// Прогрев (первый вызов) и замер `iterations` вызовов рендера.
+fn check_render(name: &str, render: &mut dyn RawRender, out: &mut [u8], seek: Option<&SessionShared>) {
+    render.render(out);
+    assert_zero_alloc(name, 300, || {
+        if let Some(shared) = seek {
+            let generation = shared.request_seek(1000);
+            shared.decoder_stopped.store(generation, Ordering::Release);
+        }
+        render.render(out);
+    });
+}
 
-/// Single test: see the note on `zero_alloc_check!` above for why this
-/// isn't five separate #[test] fns.
+// Тестовый код вне #[test]: отказ сборки рендера — провал теста (AM1.0 §6.29).
+#[allow(clippy::expect_used)]
+fn check_pcm<P: PcmSample, G: GainStage>(ring: &str, value: P, payload: RingPayload) {
+    let formats = [
+        SampleFormat::I16,
+        SampleFormat::I24,
+        SampleFormat::I32,
+        SampleFormat::F32,
+    ];
+    let mut out = vec![0u8; CALLBACK_FRAMES * OUT_CH * 4];
+    for format in formats {
+        for dither in [None, Some(1u32)] {
+            for state in STATES {
+                let (core, shared) = core_for(state, value);
+                let tpdf = dither.map_or_else(Tpdf::off, Tpdf::with_seed);
+                let mut render = pcm_render_for::<P, G>(format, core, payload, tpdf)
+                    .expect("PCM-рендер для формата");
+                let len = CALLBACK_FRAMES * OUT_CH * format.sample_size();
+                let name = format!(
+                    "PcmRender<{ring}, {}> {format:?} dither={dither:?} {state:?}",
+                    std::any::type_name::<G>()
+                );
+                let seek = matches!(state, State::Seek).then_some(&*shared);
+                check_render(&name, render.as_mut(), &mut out[..len], seek);
+            }
+        }
+    }
+}
+
+// Тестовый код вне #[test]: отказ сборки рендера — провал теста (AM1.0 §6.29).
+#[allow(clippy::expect_used)]
+fn check_dop() {
+    let mut out = vec![0u8; CALLBACK_FRAMES * OUT_CH * 4];
+    for format in [SampleFormat::I24, SampleFormat::I32] {
+        for state in STATES {
+            let (core, shared) = core_for(state, 0x0069_6900_i32);
+            let mut render = dop_render_for(format, core).expect("DoP-рендер для формата");
+            let len = CALLBACK_FRAMES * OUT_CH * format.sample_size();
+            let name = format!("DopRender {format:?} {state:?}");
+            let seek = matches!(state, State::Seek).then_some(&*shared);
+            check_render(&name, render.as_mut(), &mut out[..len], seek);
+        }
+    }
+}
+
+/// Один `#[test]`: счётчики аллокатора глобальны для процесса, а параллельные
+/// тесты загрязнили бы окно замера чужими аллокациями.
 #[test]
-fn rt_callbacks_are_zero_alloc() {
-    check_f32();
-    check_i16();
-    check_u8();
-    check_i32_pcm();
-    check_i32_dop();
+fn callback_zero_alloc_all_formats_and_states() {
+    check_pcm::<i32, NoGain>("i32", 0x1234_5600, EXACT_24);
+    check_pcm::<i32, AtomicGain>("i32", 0x1234_5600, EXACT_24);
+    check_pcm::<f32, NoGain>("f32", 0.25, RingPayload::F32);
+    check_pcm::<f32, AtomicGain>("f32", 0.25, RingPayload::F32);
+    check_dop();
 }

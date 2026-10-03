@@ -107,9 +107,10 @@ impl OutFormat for F32Le {
         }
     }
 
+    /// Значения за пределами формата ограничиваются `[−1, 1]` (ТЗ-17).
     #[inline]
     fn write_float(dst: &mut [u8], x: f64, _d: f64) {
-        for (d, b) in dst.iter_mut().zip((x as f32).to_le_bytes()) {
+        for (d, b) in dst.iter_mut().zip((x.clamp(-1.0, 1.0) as f32).to_le_bytes()) {
             *d = b;
         }
     }

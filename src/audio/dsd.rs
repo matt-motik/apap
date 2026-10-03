@@ -1059,17 +1059,6 @@ impl AudioSource for DsdDecoder {
         DsdDecoder::next_block(self)
     }
 
-    fn next_frames(&mut self) -> Option<&[f32]> {
-        if self.pcm_frames == 0 && self.decode_group() == 0 {
-            self.eof = true;
-            return None;
-        }
-        let ch = self.header.channels;
-        let n = self.pcm_frames * ch;
-        self.pcm_frames = 0;
-        Some(&self.pcm[..n])
-    }
-
     fn seek(&mut self, secs: f64) -> Result<(), String> {
         let secs = secs.max(0.0);
         let ch = self.header.channels as u64;
@@ -1150,8 +1139,8 @@ mod tests {
         let mut nzi = 0usize;
         let mut peak = 0.0f32;
         for _ in 0..100_000 {
-            match dec.next_frames() {
-                Some(buf) => {
+            match dec.next_block().expect("decode") {
+                Some(SampleBlock::F32 { data: buf }) => {
                     total += buf.len() / ch;
                     finite &= buf.iter().all(|s| s.is_finite());
                     nzi += buf.iter().take(ch * 16).filter(|s| s.abs() > 1e-6).count();
@@ -1160,6 +1149,7 @@ mod tests {
                         break;
                     }
                 }
+                Some(_) => panic!("CIC mode must yield F32 blocks"),
                 None => break,
             }
         }
@@ -1181,8 +1171,8 @@ mod tests {
         dec.seek(30.0).expect("seek");
         let mut saw = false;
         for _ in 0..100_000 {
-            if let Some(buf) = dec.next_frames() {
-                if !buf.is_empty() {
+            if let Some(SampleBlock::F32 { data }) = dec.next_block().expect("decode") {
+                if !data.is_empty() {
                     saw = true;
                     break;
                 }
@@ -1203,37 +1193,28 @@ mod tests {
         // DoP container rate = byte rate / 2 = (sample_rate * 8) / 2.
         let target = (dec.info.sample_rate * 4) as usize; // one second at the DoP rate
         let mut frames = 0usize;
-        let mut phase_even = true;
-        let mut marker_ok = true;
+        let mut layout_ok = true;
         let mut data_nonzero = 0u64;
         for _ in 0..100_000 {
-            let Some(buf) = dec.next_frames() else { break };
-            let n = buf.len() / ch;
-            for f in 0..n {
-                let want = if phase_even {
-                    crate::audio::dop::DOP_MARKER_EVEN
-                } else {
-                    crate::audio::dop::DOP_MARKER_ODD
-                };
-                for c in 0..ch {
-                    let w = buf[f * ch + c] as i64;
-                    // 24-bit word: marker in bits 23-16, two DSD bytes in 15-0.
-                    if ((w >> 16) & 0xFF) as u8 != want {
-                        marker_ok = false;
-                    }
-                    if w & 0xFFFF != 0 {
-                        data_nonzero += 1;
-                    }
+            let Some(SampleBlock::ExactI32 { data, valid_bits }) = dec.next_block().expect("decode")
+            else {
+                break;
+            };
+            assert_eq!(valid_bits, DOP_VALID_BITS);
+            // Маркеры ставит `DopRender`; декодер отдаёт только нагрузку в битах 23..8.
+            for &w in data {
+                layout_ok &= w & !0x00FF_FF00 == 0;
+                if w != 0 {
+                    data_nonzero += 1;
                 }
-                phase_even = !phase_even;
             }
-            frames += n;
+            frames += data.len() / ch;
             if frames >= target {
                 break;
             }
         }
         assert!(frames > 0, "no DoP frames produced");
-        assert!(marker_ok, "DoP marker phase broken");
+        assert!(layout_ok, "DoP payload outside bits 23..8");
         assert!(data_nonzero > 0, "DoP stream carries no DSD data bytes");
     }
 
@@ -1248,8 +1229,8 @@ mod tests {
         dec.seek(30.0).expect("seek");
         let mut saw = false;
         for _ in 0..100_000 {
-            if let Some(buf) = dec.next_frames() {
-                if !buf.is_empty() {
+            if let Some(SampleBlock::F32 { data }) = dec.next_block().expect("decode") {
+                if !data.is_empty() {
                     saw = true;
                     break;
                 }

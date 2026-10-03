@@ -27,9 +27,15 @@ use std::time::Instant;
 
 use music_player_rs::audio::format::SampleBlock;
 use music_player_rs::audio::dsd::{DecodeMode, DsdDecoder};
-use music_player_rs::audio::output::Resampler;
-use music_player_rs::audio::player::audio_callback_f32_rt;
-use music_player_rs::audio::worker::{RtConsumer, RtShared};
+use std::sync::atomic::Ordering;
+use std::sync::Arc;
+
+use cpal::SampleFormat;
+use music_player_rs::audio::output::{pcm_render_for, RawRender, Resampler};
+use music_player_rs::audio::render::gain::AtomicGain;
+use music_player_rs::audio::render::tpdf::Tpdf;
+use music_player_rs::audio::render::RenderCore;
+use music_player_rs::audio::session::{RingPayload, SessionShared};
 
 fn write_u32_le(buf: &mut [u8], off: usize, v: u32) {
     buf[off..off + 4].copy_from_slice(&v.to_le_bytes());
@@ -165,28 +171,35 @@ fn dsd512_playback_cpu_budget() {
     let _ = std::fs::remove_file(&path);
 
     // Phase 2: drain the decoded+resampled PCM through the *real* RT
-    // callback (audio_callback_f32_rt) in device-buffer-sized chunks — the
-    // "callback" third of the budget. A single-shot ring sized to hold the
-    // whole buffer avoids interleaving-complexity while still measuring the
-    // callback's real per-sample cost.
-    let shared = RtShared::new(OUT_RATE, CHANNELS as usize, true);
+    // render (`PcmRender` over the f32 ring, F32 output with gain, §6.14) in
+    // device-buffer-sized chunks — the "callback" third of the budget. A
+    // single-shot ring sized to hold the whole buffer avoids interleaving
+    // complexity while still measuring the callback's real per-sample cost.
+    let shared = Arc::new(SessionShared::new());
     let ring_capacity = resampled_all.len() + 4096;
     let (mut producer, ring) = rtrb::RingBuffer::<f32>::new(ring_capacity);
     for &s in &resampled_all {
         producer.push(s).expect("ring sized to hold the whole decoded buffer");
     }
-    let mut consumer = RtConsumer::new(ring, shared.clone());
-    shared.set_playing(true);
-    shared.set_finished(false);
+    shared.playing.store(true, Ordering::Release);
+    let core = RenderCore::new(ring, shared, CHANNELS as usize, 0);
+    let mut render = pcm_render_for::<f32, AtomicGain>(
+        SampleFormat::F32,
+        core,
+        RingPayload::F32,
+        Tpdf::off(),
+    )
+    .expect("F32 render over the f32 ring");
 
-    let mut cb_buf = vec![0.0f32; 1024 * CHANNELS as usize];
+    const PERIOD_FRAMES: usize = 1024;
+    let mut cb_buf = vec![0u8; PERIOD_FRAMES * CHANNELS as usize * 4];
     let total_frames = resampled_all.len() / CHANNELS as usize;
     let mut frames_done = 0usize;
 
     let callback_start = Instant::now();
     while frames_done < total_frames {
-        audio_callback_f32_rt(&mut consumer, &mut cb_buf);
-        frames_done += cb_buf.len() / CHANNELS as usize;
+        RawRender::render(&mut render, &mut cb_buf);
+        frames_done += PERIOD_FRAMES;
     }
     let callback_elapsed = callback_start.elapsed();
 
