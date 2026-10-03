@@ -41,7 +41,7 @@ steps:
     done: true
   - id: 2
     description: "Каркас src/audio/render/mod.rs: deny-линты §7.7, RingSample для i32/f32, хелперы фазы 3 seek и priming (§6.14, §6.16, ТЗ-99). Проверка: cargo check; cargo clippy без варнингов по render/"
-    done: false
+    done: true
   - id: 3
     description: "OutFormat-писатели S16/S24_3LE/S24_LE/S32/F32 + quantize (§6.14 таблица усиления, ТЗ-4, ТЗ-5, ТЗ-6) в render/out.rs. Проверка: cargo test render::out (zero_pad_layout_per_format, s24le_is_right_aligned_with_sign_extension, quantize_f32_symmetric_roundtrip)"
     done: false
@@ -85,8 +85,8 @@ steps:
     description: "Финальная верификация: cargo build/test/clippy, python tools/check_rt_imports.py, traceability_tool (§7.7, §8 общие условия). Проверка: всё зелёное"
     done: false
 
-current_step: 2
-next_action: "Создать src/audio/render/mod.rs: deny-линты §7.7, RingSample (i32/f32), хелперы фазы 3 seek и priming; зарегистрировать модуль"
+current_step: 3
+next_action: "render/out.rs: OutFormat S16/S24_3LE/S24_LE/S32/F32 + quantize, тесты zero_pad_layout_per_format, s24le_*, quantize_f32_symmetric_roundtrip"
 
 fail_counter: 0
 fail_counter_max: 3
