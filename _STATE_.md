@@ -29,7 +29,7 @@
 - **Критерий успеха (Definition of Done):** Тракт PCM/DoP работает через SampleBlock → типизированный ring (ExactI32/F32) → PcmRender/DopRender поверх текущего cpal-потока (build_output_stream_raw); удалены next_frames -> &[f32], RingBuffer<f32>, цикл слива ring, ×32767, rt_*-тесты по §7.4; тесты §7.2 этапа С2 зелёные; cargo build/test/clippy без новых варнингов; tools/check_rt_imports.py чист; плеер играет в Совместимом режиме.
 
 ## Итерационный трекер
-[ ] Шаг 1: SessionShared — атомики сессии (§2.9, ТЗ-98, ТЗ-99, ТЗ-100) в src/audio/session.rs. Проверка: cargo check; cargo test session:: зелёный
+[x] Шаг 1: SessionShared — атомики сессии (§2.9, ТЗ-98, ТЗ-99, ТЗ-100) в src/audio/session.rs. Проверка: cargo check; cargo test session:: зелёный
 [ ] Шаг 2: Каркас src/audio/render/mod.rs: deny-линты §7.7, RingSample для i32/f32, хелперы фазы 3 seek и priming (§6.14, §6.16, ТЗ-99). Проверка: cargo check; cargo clippy без варнингов по render/
 [ ] Шаг 3: OutFormat-писатели S16/S24_3LE/S24_LE/S32/F32 + quantize (§6.14 таблица усиления, ТЗ-4, ТЗ-5, ТЗ-6) в render/out.rs. Проверка: cargo test render::out (zero_pad_layout_per_format, s24le_is_right_aligned_with_sign_extension, quantize_f32_symmetric_roundtrip)
 [ ] Шаг 4: TPDF xorshift32 с фиксируемым seed (ТЗ-8, §6.14) в render/tpdf.rs. Проверка: cargo test render::tpdf
@@ -46,8 +46,8 @@
 [ ] Шаг 15: tests/rt_zero_alloc.rs: callback_zero_alloc_all_formats_and_states для новых рендеров (§7.2, ТЗ-10). Проверка: cargo test --test rt_zero_alloc
 [ ] Шаг 16: Финальная верификация: cargo build/test/clippy, python tools/check_rt_imports.py, traceability_tool (§7.7, §8 общие условия). Проверка: всё зелёное
 
-- **Текущий шаг (current_step):** Шаг 1
-- **Следующий ход:** Создать src/audio/session.rs с SessionShared по §2.9 и зарегистрировать модуль в src/audio/mod.rs
+- **Текущий шаг (current_step):** Шаг 2
+- **Следующий ход:** Создать src/audio/render/mod.rs: deny-линты §7.7, RingSample (i32/f32), хелперы фазы 3 seek и priming; зарегистрировать модуль
 - **Счетчик безуспешных компиляций:** 0/3
 - **Состояние:** in_progress
 
