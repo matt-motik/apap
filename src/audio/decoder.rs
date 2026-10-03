@@ -63,6 +63,17 @@ pub trait AudioSource: Send {
 
     /// True once the source has delivered its last frame (natural end).
     fn eof(&self) -> bool;
+
+    /// Skipped corrupt packets (ТЗ-75, ТЗ-87); the decode thread publishes it.
+    fn decode_errors(&self) -> u64 {
+        0
+    }
+
+    /// Lossy samples clamped to 24 bits (ОВС-11, §6.10); published to
+    /// `SessionShared::lossy_clipped` by the decode thread.
+    fn lossy_clipped(&self) -> u64 {
+        0
+    }
 }
 
 #[derive(Debug, Clone, Default)]
@@ -618,6 +629,14 @@ impl AudioSource for Decoder {
 
     fn eof(&self) -> bool {
         Decoder::eof(self)
+    }
+
+    fn decode_errors(&self) -> u64 {
+        Decoder::decode_errors(self)
+    }
+
+    fn lossy_clipped(&self) -> u64 {
+        Decoder::lossy_clipped(self)
     }
 }
 
