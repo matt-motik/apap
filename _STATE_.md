@@ -43,7 +43,7 @@
 [x] Шаг 5: Лимиты разбора DSF/DFF §6.29 (channels 1..=8, block 1..=65536, checked-арифметика, offset ≤ file_len, буферы по min(заявлено, file_len)) (ТЗ-92). Файл: src/audio/dsd.rs. Проверка: cargo test dsf_corrupt_headers_error_not_panic dff_chunk_size_overflow_error truncated_files_error
 [x] Шаг 6: Фаззинг разборщиков: tests/parsers_survive_mutations.rs, 10 000 итераций, счётчик аллокаций ≤ file_len + 16 МиБ, APAP_FUZZ_ITERS только увеличивает (ТЗ-92, И-Р15). Проверка: cargo test --test parsers_survive_mutations
 [x] Шаг 7: Удалить unwrap/expect/unreachable из прод-кода библиотеки: dsd.rs, fulltrack.rs, output.rs (ТЗ-101, §6.29). Проверка: cargo clippy без предупреждений в этих файлах
-[ ] Шаг 8: Удалить unwrap/expect из бинарника и build.rs: viz_settings_manager.rs, app/mod.rs, main.rs, build.rs; [lints.clippy] → deny (ТЗ-101, §6.29). Проверка: cargo clippy 0 предупреждений
+[x] Шаг 8: Удалить unwrap/expect из бинарника и build.rs: viz_settings_manager.rs, app/mod.rs, main.rs, build.rs; [lints.clippy] → deny (ТЗ-101, §6.29). Проверка: cargo clippy 0 предупреждений
 [ ] Шаг 9: Бейдж старого пути: bp-active всегда false, текст «Не bit-perfect: проверка недоступна» (ТЗ-52, §8 С1). Файлы: src/app/bp_report.rs, ui/status.slint (+ app.slint привязка). Проверка: cargo test bp_report
 [ ] Шаг 10: Резервирование: ReservationService, Reservation, ReservationGuard, AudioServerProbe, ReservationMsg, трейт ReserveBus и acquire() по §6.6 (до OPEN); FakeReserveBus/FakeServerProbe (ADR-08, ТЗ-48, 118, 119; ОВ-33..35). Файлы: src/audio/reservation/mod.rs, src/audio/testing/mod.rs. Проверка: cargo test reservation
 [ ] Шаг 11: ExclusiveGate старого пути: Pending → Held → открытие с повтором EBUSY ≤ 1 с → BusyOutsideProtocol; освобождение PCM → ReleaseName; NameLost → закрыть PCM (И-Р1, И-Р20, И-Р21, ТЗ-122). Файл: src/audio/reservation/gate.rs. Проверка: cargo test reservation_before_pcm_order ebusy name_lost
@@ -52,8 +52,8 @@
 [ ] Шаг 14: Приложение: опрос резервирования на тике 100 мс, продолжение воспроизведения после Held, ошибка захвата и NameLost — стоп и сообщение. Файлы: src/app/playback_manager.rs, src/app/mod.rs. Проверка: cargo build; запуск
 [ ] Шаг 15: Финальная верификация: cargo build/test/clippy; ручные сценарии ТЗ-1/2/48/118/119/120/122 — пользователю. Проверка: всё зелёное
 
-- **Текущий шаг (current_step):** Шаг 8
-- **Следующий ход:** Шаг 8 почти готов (unwrap/expect убраны из bin и build.rs, clippy.toml, [lints.clippy]=deny, cargo clippy --all-targets чистый; фикстура DSD512 дописывает чанк data). Осталось: обновить §6.29 03_spec.md и строку «Обновление 2026-10-02» в шапке по решению пользователя (clippy.toml вместо cfg_attr), полный cargo test, отметить шаг 8. Наблюдение: dsd512_playback_cpu_budget (#[ignore], V5.1-11.1) теперь проходит, RTF 0.119 ≤ 0.2 — проверить и снять ignore отдельной задачей.
+- **Текущий шаг (current_step):** Шаг 9
+- **Следующий ход:** Шаг 9: бейдж старого пути — bp-active всегда false, текст «Не bit-perfect: проверка недоступна» (ТЗ-52, §8 С1); src/app/bp_report.rs, ui/status.slint, ui/app.slint. Наблюдение: dsd512_playback_cpu_budget (#[ignore], V5.1-11.1) проходит вручную, RTF 0.119 ≤ 0.2 — повторный замер и снятие ignore отдельной задачей.
 - **Счетчик безуспешных компиляций:** 0/3
 - **Состояние:** in_progress
 

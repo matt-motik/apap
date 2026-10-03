@@ -14,6 +14,8 @@
 
 Обновление 2026-10-02: С0 — трейты `EngineDeps` по этапам (таблица «Трейт → этап» под таблицей §8); определён `Container` (§2.1: `Flac`, `Wav`, `Aiff`, `Mp4`, `Ogg`, `Mp3`, `Adts`, `Dsf`, `Dff`, `Other` — по демуксерам `symphonia` в `Cargo.toml` и DSD-декодеру); в С3 — согласовать сигнатуры `SourceOpener` и `ThreadSpawner` до кода.
 
+Обновление 2026-10-03: §6.29 — разрешение `unwrap`/`expect` в тестах задаётся через `clippy.toml` (`allow-unwrap-in-tests`, `allow-expect-in-tests`) вместо `#[cfg_attr(test, allow(...))]` в модулях тестов (решение пользователя, этап С1).
+
 Правила документа:
 
 - Спецификация выполняет требования ТЗ-N и не вводит новых требований. Если требование нельзя выполнить выбранной реализацией, это фиксируется в «Открытых вопросах» (§9), а не обходится.
@@ -2636,7 +2638,7 @@ Windows: `OsStage::Known { server: WasapiMixer, rate, format }` из `default_ou
 **Исключения ТЗ-101.** Перечень пуст: `unwrap`, `expect`, `unreachable!` в прод-коде не допускаются. Все места из §2 ревью (`dsd.rs`, `viz_settings_manager.rs`, `main.rs`, `fulltrack.rs`) переписываются. Конфигурация линтера:
 
 - `Cargo.toml`, `[lints.clippy]`: `unwrap_used`, `expect_used`, `unreachable` = `deny`;
-- `#[cfg_attr(test, allow(...))]` в модулях тестов;
+- `clippy.toml` в корне: `allow-unwrap-in-tests = true`, `allow-expect-in-tests = true` — `unwrap`/`expect` разрешены в `#[test]` и `#[cfg(test)]` (включая интеграционные тесты `tests/`) без атрибутов `#[cfg_attr(test, allow(...))]` в каждом модуле; `unreachable!` в тестах не разрешается;
 - модули колбэка (`audio/render/*`) дополнительно с `#![deny(clippy::panic, clippy::indexing_slicing, clippy::arithmetic_side_effects)]` (ТЗ-100, И-Р8).
 
 Если в будущем понадобится исключение, оно вносится в этот раздел с обоснованием до слияния.
