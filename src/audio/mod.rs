@@ -12,5 +12,6 @@ pub mod spectrogram;
 pub mod testing;
 pub mod output;
 pub mod player;
+pub mod reservation;
 pub mod visualizer;
 pub mod worker;

@@ -68,7 +68,7 @@ steps:
     done: true
   - id: 10
     description: "Резервирование: ReservationService, Reservation, ReservationGuard, AudioServerProbe, ReservationMsg, трейт ReserveBus и acquire() по §6.6 (до OPEN); FakeReserveBus/FakeServerProbe (ADR-08, ТЗ-48, 118, 119; ОВ-33..35). Файлы: src/audio/reservation/mod.rs, src/audio/testing/mod.rs. Проверка: cargo test reservation"
-    done: false
+    done: true
   - id: 11
     description: "ExclusiveGate старого пути: Pending → Held → открытие с повтором EBUSY ≤ 1 с → BusyOutsideProtocol; освобождение PCM → ReleaseName; NameLost → закрыть PCM (И-Р1, И-Р20, И-Р21, ТЗ-122). Файл: src/audio/reservation/gate.rs. Проверка: cargo test reservation_before_pcm_order ebusy name_lost"
     done: false
@@ -85,8 +85,8 @@ steps:
     description: "Финальная верификация: cargo build/test/clippy; ручные сценарии ТЗ-1/2/48/118/119/120/122 — пользователю. Проверка: всё зелёное"
     done: false
 
-current_step: 10
-next_action: "Шаг 10: ReservationService/Reservation/ReservationGuard/AudioServerProbe/ReservationMsg, трейт ReserveBus и acquire() по §6.6; FakeReserveBus/FakeServerProbe (ADR-08, ТЗ-48, 118, 119; ОВ-33..35). Перед кодом прочитать §6.6, ADR-08, ТЗ-48/118/119/120/122. Наблюдение: dsd512_playback_cpu_budget (#[ignore], V5.1-11.1) проходит вручную, RTF 0.119 ≤ 0.2 — повторный замер и снятие ignore отдельной задачей."
+current_step: 11
+next_action: "Шаг 11: ExclusiveGate в src/audio/reservation/gate.rs — OPEN по §6.6 поверх acquire(): трейт открытия PCM (EBUSY/ENOENT/ENODEV/прочее), повтор EBUSY до 1 с по Clock (на старом пути — шагами тика), BusyOutsideProtocol + drop(reservation); DeviceClaim {pcm, reservation} — PCM раньше guard (И-Р1); ReservationMsg::Lost → закрыть PCM (И-Р20). Тесты: reservation_before_pcm_order, ebusy_after_reservation_busy_outside_protocol (0.9 с ok / 1.1 с отказ), name_lost_closes_pcm_immediately, shutdown_releases_pcm_then_reservation — журнал BusCall + события PCM. Готово в шаге 10: reservation/mod.rs (ReserveBus, acquire, BusReservationService, ReserveObject), testing: FakeReserveBus/FakeOwner/BusCall/FakeServerProbe. Наблюдение: dsd512_playback_cpu_budget (#[ignore], V5.1-11.1) проходит вручную, RTF 0.119 ≤ 0.2 — повторный замер и снятие ignore отдельной задачей."
 
 fail_counter: 0
 fail_counter_max: 3
