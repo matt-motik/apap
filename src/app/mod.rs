@@ -13,7 +13,7 @@ use slint::language::{SortOrder, TableColumn};
 
 use music_player_rs::audio::analyzer::TAP_CAPACITY;
 use music_player_rs::audio::output::{default_device_name, probe_output, DeviceInfo};
-use music_player_rs::audio::player::Player;
+use music_player_rs::audio::player::{Player, ReservationEvent};
 use music_player_rs::audio::visualizer::{
     FreqScale, LevelScale, VisualizerConfig,
 };
@@ -1622,6 +1622,7 @@ impl MusicApp {
         self.drain_cover();
         self.drain_fulltrack();
         self.drain_audio_devices();
+        self.handle_reservation();
         self.handle_auto_advance();
         self.sync_playback_state_to_ui();
         self.track_window_geometry();

@@ -138,6 +138,36 @@ impl MusicApp {
         self.reset_cover();
     }
 
+    /// Опрос резервирования устройства на тике 100 мс (§8 С1): получено —
+    /// отложенное открытие продолжено плеером; отказ захвата или перехват
+    /// (`NameLost`) — стоп и сообщение, отката в Shared нет (ТЗ-119, ТЗ-122, И-Р20).
+    pub(super) fn handle_reservation(&mut self) {
+        let Some(event) = self.player.poll_reservation() else {
+            return;
+        };
+        match event {
+            ReservationEvent::Opened => {
+                self.stream_desc = self.player.stream_desc().cloned();
+                self.status = self.playing_status().into();
+                self.sync_track_info_to_ui();
+            }
+            ReservationEvent::Failed(msg) | ReservationEvent::Lost(msg) => {
+                self.status = format!("Монопольный режим: {msg}").into();
+                self.player.stop();
+                self.emit(AppEvent::PlaybackStopped);
+            }
+        }
+    }
+
+    /// Строка состояния для текущего трека.
+    fn playing_status(&self) -> String {
+        let Some(track) = self.current.and_then(|i| self.tracks.get(i)) else {
+            return String::new();
+        };
+        let artist = track.artist.as_deref().unwrap_or("");
+        format!("Playing: {artist}\u{2014}{}", track.title)
+    }
+
     pub(super) fn handle_auto_advance(&mut self) {
         if self.player.ended() && self.current.is_some() {
             match self.repeat {
@@ -279,9 +309,12 @@ impl MusicApp {
                 }
                 self.current = Some(index);
                 self.sync_shuffle_pos();
-                let title = &self.tracks[index].title;
-                let track_artist = self.tracks[index].artist.as_deref().unwrap_or("");
-                self.status = format!("Playing: {track_artist}\u{2014}{title}").into();
+                self.status = if self.player.reservation_pending() {
+                    // ТЗ-119: ожидание резервирования не блокирует UI.
+                    "Захват устройства…".into()
+                } else {
+                    self.playing_status().into()
+                };
                 self.player.play();
                 // Only the affected rows change: metadata of the new current
                 // track and the `>` marker on the old/new current indices.
