@@ -62,7 +62,7 @@ steps:
     done: true
   - id: 9
     description: "DsdDecoder::next_block — F32 для CIC, ExactI32 с payload в битах 23..8 для DoP (§6.10, §6.15) в dsd.rs. Проверка: cargo test dsd::"
-    done: false
+    done: true
   - id: 10
     description: "Перевод внешних потребителей на next_block (fulltrack_manager.rs, tests/dsd512_playback_cpu_budget.rs) и удаление next_frames из AudioSource (§8 С2 «удаляется»). Проверка: cargo check --all-targets"
     done: false
@@ -85,8 +85,8 @@ steps:
     description: "Финальная верификация: cargo build/test/clippy, python tools/check_rt_imports.py, traceability_tool (§7.7, §8 общие условия). Проверка: всё зелёное"
     done: false
 
-current_step: 9
-next_action: "dsd.rs: DsdDecoder::next_block — F32 для DSD→PCM (CIC) и ExactI32 с DoP-полезной нагрузкой в битах 23..8 (§6.10, §6.15, ADR-12, ТЗ-1…ТЗ-3)"
+current_step: 10
+next_action: "fulltrack_manager.rs + tests/dsd512_playback_cpu_budget.rs: переход на next_block; удалить next_frames из AudioSource (§6.10, ADR-03)"
 
 fail_counter: 0
 fail_counter_max: 3

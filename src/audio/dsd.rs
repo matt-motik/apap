@@ -13,12 +13,13 @@
 //! 8) to PCM: 44100/48000 Hz for DSD64, 88200/96000 for DSD128, etc.
 
 use std::fs::File;
-use std::io::{BufReader, Read, Seek, SeekFrom};
+use std::io::{BufReader, ErrorKind, Read, Seek, SeekFrom};
 use std::path::Path;
 
 use super::decoder::{AudioSource, Tags, TrackInfo};
 use super::dop::DoPFramer;
 use super::error::{CorruptKind, FileError};
+use super::format::{BitDepth, SampleBlock};
 
 /// DSD decode path selected at open time (ТЗ 5.1 §8.2 / этап 6.8).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -758,13 +759,33 @@ pub struct DsdDecoder {
     dop_bytes: Vec<u8>,
     /// DoP mode: packed 24-bit DoP words produced from `dop_bytes`.
     dop_words: Vec<u32>,
+    /// DoP mode: payload of `dop_words` in bits 23..8 of `ExactI32`, marker stripped (§6.15).
+    dop_i32: Vec<i32>,
     mode: DecodeMode,
     pcm_frames: usize,
+    /// Frames already returned by `next_block` since the last seek origin (`at_frame`, ТЗ-93).
+    frames_out: u64,
+    /// IO error hit while reading audio bytes; reported once at the end of data.
+    read_err: Option<ErrorKind>,
     info: TrackInfo,
     eof: bool,
 }
 
 const RAW_GROUP: usize = 4096;
+
+/// `valid_bits` DoP payload block: the render reads bits 23..8 (§6.15, ADR-12).
+const DOP_VALID_BITS: BitDepth = match BitDepth::new(24) {
+    Some(b) => b,
+    None => panic!("24 бит вне 1..=32"),
+};
+
+/// DoP word `(marker << 16) | (older << 8) | newer` → payload `(older << 16) | (newer << 8)`
+/// in bits 23..8 of `ExactI32`; the marker is the render's job (§6.15).
+#[inline]
+fn dop_payload(word: u32) -> i32 {
+    let [_, _, hi, lo] = word.to_be_bytes();
+    i32::from_be_bytes([0, hi, lo, 0])
+}
 
 impl DsdDecoder {
     /// Open a DSD file for CIC → PCM decoding (the standard path).
@@ -821,8 +842,11 @@ impl DsdDecoder {
             framer,
             dop_bytes: Vec::with_capacity(raw_len),
             dop_words: vec![0u32; raw_len],
+            dop_i32: if mode == DecodeMode::Dop { vec![0i32; raw_len] } else { Vec::new() },
             mode,
             pcm_frames: 0,
+            frames_out: 0,
+            read_err: None,
             info,
             eof: false,
         })
@@ -851,7 +875,9 @@ impl DsdDecoder {
                 self.bytes_remaining = 0;
                 return 0;
             }
-            let _read = read_all(&mut self.file, &mut self.raw[..take]);
+            if self.read_raw(take).is_none() {
+                return 0;
+            }
             let valid_per_ch = take / ch;
             for (chn, o) in per_ch.iter_mut().enumerate().take(ch) {
                 let base = chn * valid_per_ch;
@@ -872,7 +898,9 @@ impl DsdDecoder {
                 return 0;
             }
             let take = positions * ch;
-            let read = read_all(&mut self.file, &mut self.raw[..take]);
+            let Some(read) = self.read_raw(take) else {
+                return 0;
+            };
             let n = read / ch;
             for pos in 0..n {
                 for (chn, o) in per_ch.iter_mut().enumerate().take(ch) {
@@ -921,7 +949,9 @@ impl DsdDecoder {
                 self.bytes_remaining = 0;
                 return 0;
             }
-            let _read = read_all(&mut self.file, &mut self.raw[..take]);
+            if self.read_raw(take).is_none() {
+                return 0;
+            }
             let valid_per_ch = take / ch;
             frames = valid_per_ch;
             self.dop_bytes.clear();
@@ -939,7 +969,9 @@ impl DsdDecoder {
                 return 0;
             }
             let take = positions * ch;
-            let read = read_all(&mut self.file, &mut self.raw[..take]);
+            let Some(read) = self.read_raw(take) else {
+                return 0;
+            };
             if read == 0 {
                 self.bytes_remaining = 0;
                 return 0;
@@ -960,18 +992,66 @@ impl DsdDecoder {
         self.pcm_frames = words / ch;
         self.pcm_frames
     }
+
+    /// Read `take` audio bytes into `raw`. On an IO error the error is kept for
+    /// `next_block`, the remaining data is dropped and `None` is returned.
+    fn read_raw(&mut self, take: usize) -> Option<usize> {
+        match read_all(&mut self.file, &mut self.raw[..take]) {
+            Ok(n) => Some(n),
+            Err(kind) => {
+                self.read_err = Some(kind);
+                self.bytes_remaining = 0;
+                None
+            }
+        }
+    }
+
+    /// Next decoded block (§6.10, ADR-03): `F32` for DSD → PCM (CIC),
+    /// `ExactI32` with the DoP payload in bits 23..8 for DoP (§6.15, ADR-12, ТЗ-1…ТЗ-3).
+    /// `Ok(None)` — end of data; an IO error while reading audio bytes →
+    /// `ReadDuringPlayback` once, at the frame where data stopped (ТЗ-93).
+    pub fn next_block(&mut self) -> Result<Option<SampleBlock<'_>>, FileError> {
+        if self.pcm_frames == 0 && self.decode_group() == 0 {
+            self.eof = true;
+            if let Some(kind) = self.read_err.take() {
+                return Err(FileError::ReadDuringPlayback {
+                    at_frame: self.frames_out,
+                    kind,
+                });
+            }
+            return Ok(None);
+        }
+        let frames = self.pcm_frames;
+        let n = frames * self.header.channels;
+        self.pcm_frames = 0;
+        self.frames_out += frames as u64;
+        match self.mode {
+            DecodeMode::Cic => Ok(Some(SampleBlock::F32 { data: &self.pcm[..n] })),
+            DecodeMode::Dop => {
+                for (d, &w) in self.dop_i32.iter_mut().zip(&self.dop_words[..n]) {
+                    *d = dop_payload(w);
+                }
+                Ok(Some(SampleBlock::ExactI32 {
+                    data: &self.dop_i32[..n],
+                    valid_bits: DOP_VALID_BITS,
+                }))
+            }
+        }
+    }
 }
 
-fn read_all<R: Read>(r: &mut R, buf: &mut [u8]) -> usize {
+/// Fill `buf` as far as the stream allows; `Ok(n < len)` only at end of file.
+fn read_all<R: Read>(r: &mut R, buf: &mut [u8]) -> Result<usize, ErrorKind> {
     let mut total = 0usize;
     while total < buf.len() {
         match r.read(&mut buf[total..]) {
             Ok(0) => break,
             Ok(n) => total += n,
-            Err(_) => break,
+            Err(e) if e.kind() == ErrorKind::Interrupted => continue,
+            Err(e) => return Err(e.kind()),
         }
     }
-    total
+    Ok(total)
 }
 
 impl AudioSource for DsdDecoder {
@@ -1012,6 +1092,12 @@ impl AudioSource for DsdDecoder {
         self.framer.reset();
         self.pcm_frames = 0;
         self.pcm.clear();
+        // CIC: 8 bytes per PCM frame per channel; DoP: 2 bytes per DoP word.
+        self.frames_out = match self.mode {
+            DecodeMode::Cic => per_ch_aligned / 8,
+            DecodeMode::Dop => per_ch_aligned / 2,
+        };
+        self.read_err = None;
         self.eof = false;
         Ok(())
     }
@@ -1221,6 +1307,102 @@ mod tests {
 
     fn dff(bytes: Vec<u8>) -> Result<(DsdHeader, u64), FileError> {
         parse_dff(&mut std::io::Cursor::new(bytes))
+    }
+
+    fn data_path(name: &str) -> PathBuf {
+        PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("tests/data").join(name)
+    }
+
+    /// Drain `next_block`, returning (frames, all blocks of the expected variant).
+    fn drain(dec: &mut DsdDecoder, dop: bool) -> u64 {
+        let ch = dec.info.channels;
+        let mut frames = 0u64;
+        while let Some(block) = dec.next_block().expect("next_block") {
+            let len = match (block, dop) {
+                (SampleBlock::F32 { data }, false) => data.len(),
+                (SampleBlock::ExactI32 { data, valid_bits }, true) => {
+                    assert_eq!(valid_bits.bits(), 24);
+                    data.len()
+                }
+                (other, _) => panic!("unexpected block variant {other:?}"),
+            };
+            assert_eq!(len % ch, 0, "whole frames only");
+            frames += (len / ch) as u64;
+        }
+        assert!(dec.eof());
+        frames
+    }
+
+    /// §6.10: DSD → PCM (CIC) yields `F32`, DoP yields `ExactI32` at the DoP rate (4 × PCM rate).
+    #[test]
+    fn next_block_variants_and_frame_counts() {
+        for name in ["dsf_dsd64_1k.dsf", "dff_dsd64_1k.dff"] {
+            let path = data_path(name);
+            let mut cic = DsdDecoder::open(&path).expect("open CIC");
+            let pcm_total = cic.info.num_frames.expect("num_frames");
+            assert_eq!(drain(&mut cic, false), pcm_total, "{name}: CIC frames");
+            let mut dop = DsdDecoder::open_with_mode(&path, DecodeMode::Dop).expect("open DoP");
+            assert_eq!(drain(&mut dop, true), pcm_total * 4, "{name}: DoP frames");
+            assert_eq!(dop.next_block(), Ok(None), "{name}: stays at end");
+        }
+    }
+
+    /// §6.15, ADR-12: DoP payload in bits 23..8 (older byte 23..16, newer 15..8),
+    /// marker and low byte zero; the render adds the marker itself.
+    #[test]
+    fn dop_block_carries_payload_without_marker() {
+        assert_eq!(dop_payload(0x05_A1B2), 0x00A1_B200);
+        assert_eq!(dop_payload(0xFA_FFFF), 0x00FF_FF00);
+        for name in ["dsf_dsd64_1k.dsf", "dff_dsd64_1k.dff"] {
+            let mut dec =
+                DsdDecoder::open_with_mode(&data_path(name), DecodeMode::Dop).expect("open DoP");
+            let payload: Vec<i32> = match dec.next_block().expect("next_block") {
+                Some(SampleBlock::ExactI32 { data, .. }) => data.to_vec(),
+                other => panic!("{name}: expected ExactI32, got {other:?}"),
+            };
+            assert!(!payload.is_empty());
+            let mut nonzero = false;
+            for (&p, &w) in payload.iter().zip(&dec.dop_words) {
+                assert_eq!(p & 0xFF, 0, "{name}: low byte zero");
+                assert_eq!(p >> 24, 0, "{name}: no marker / sign byte");
+                assert_eq!(p >> 8, (w & 0xFFFF) as i32, "{name}: DSD bytes in 23..8");
+                nonzero |= p != 0;
+            }
+            assert!(nonzero, "{name}: payload carries DSD data");
+        }
+    }
+
+    /// Seek restarts the frame counter at the aligned target (DoP: 2 bytes per word).
+    #[test]
+    fn seek_resets_frame_counter_per_mode() {
+        let path = data_path("dff_dsd64_1k.dff");
+        let mut cic = DsdDecoder::open(&path).expect("open CIC");
+        cic.seek(0.1).expect("seek");
+        assert_eq!(cic.frames_out, 4_410);
+        let mut dop = DsdDecoder::open_with_mode(&path, DecodeMode::Dop).expect("open DoP");
+        dop.seek(0.1).expect("seek");
+        assert_eq!(dop.frames_out, 17_640);
+        assert!(dop.next_block().expect("block").is_some());
+    }
+
+    /// ТЗ-93: an IO error while reading audio is not swallowed as end of file.
+    #[test]
+    fn read_all_reports_io_error_kind() {
+        struct Failing(usize);
+        impl Read for Failing {
+            fn read(&mut self, buf: &mut [u8]) -> std::io::Result<usize> {
+                if self.0 == 0 {
+                    return Err(std::io::Error::from(ErrorKind::PermissionDenied));
+                }
+                let n = self.0.min(buf.len());
+                buf[..n].fill(0x69);
+                self.0 -= n;
+                Ok(n)
+            }
+        }
+        let mut buf = [0u8; 8];
+        assert_eq!(read_all(&mut Failing(3), &mut buf), Err(ErrorKind::PermissionDenied));
+        assert_eq!(read_all(&mut std::io::Cursor::new([1u8, 2, 3]), &mut buf), Ok(3));
     }
 
     #[test]
