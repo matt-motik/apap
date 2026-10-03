@@ -15,6 +15,7 @@
 
 pub mod gain;
 pub mod out;
+pub mod pcm;
 pub mod tpdf;
 
 use std::sync::atomic::Ordering;
