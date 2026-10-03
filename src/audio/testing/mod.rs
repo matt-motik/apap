@@ -96,6 +96,22 @@ pub enum BusCall {
     GetApplicationName { card: u32 },
     RequestRelease { card: u32, priority: i32 },
     ReleaseName { card: u32 },
+    /// Открытие/закрытие PCM фейком [`FakePcm`] — для проверки порядка И-Р1.
+    PcmOpen { card: u32 },
+    PcmClose { card: u32 },
+}
+
+/// Фейковый PCM: открытие и закрытие (drop) пишутся в журнал `FakeReserveBus`.
+pub struct FakePcm {
+    card: u32,
+    state: Arc<Mutex<FakeBusState>>,
+}
+
+impl Drop for FakePcm {
+    fn drop(&mut self) {
+        let mut st = self.state.lock().unwrap_or_else(|p| p.into_inner());
+        st.calls.push(BusCall::PcmClose { card: self.card });
+    }
 }
 
 struct Exported {
@@ -127,6 +143,12 @@ impl FakeReserveBus {
 
     fn lock(&self) -> MutexGuard<'_, FakeBusState> {
         self.state.lock().unwrap_or_else(|p| p.into_inner())
+    }
+
+    /// Открыть фейковый PCM карты `card` (запись `PcmOpen` в журнал).
+    pub fn open_pcm(&self, card: u32) -> FakePcm {
+        self.lock().calls.push(BusCall::PcmOpen { card });
+        FakePcm { card, state: Arc::clone(&self.state) }
     }
 
     pub fn calls(&self) -> Vec<BusCall> {

@@ -8,6 +8,8 @@
 //! [`ReservationMsg`], ОВС-10 п. 6).
 #![deny(clippy::unwrap_used, clippy::expect_used, clippy::unreachable)]
 
+pub mod gate;
+
 use crate::audio::error::CaptureFailure;
 use std::fmt;
 use std::sync::mpsc::Sender;
