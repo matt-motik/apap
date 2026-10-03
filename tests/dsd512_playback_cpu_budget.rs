@@ -25,7 +25,7 @@
 use std::io::Write;
 use std::time::Instant;
 
-use music_player_rs::audio::decoder::AudioSource;
+use music_player_rs::audio::format::SampleBlock;
 use music_player_rs::audio::dsd::{DecodeMode, DsdDecoder};
 use music_player_rs::audio::output::Resampler;
 use music_player_rs::audio::player::audio_callback_f32_rt;
@@ -139,7 +139,10 @@ fn dsd512_playback_cpu_budget() {
 
     let scratch_max_frames = resample_scratch.len() / CHANNELS as usize;
     let decode_resample_start = Instant::now();
-    while let Some(frame) = decoder.next_frames() {
+    while let Some(block) = decoder.next_block().expect("synthetic DSF should decode") {
+        let SampleBlock::F32 { data: frame } = block else {
+            panic!("CIC decode must yield F32 blocks");
+        };
         resampler.push(frame);
         loop {
             let n = resampler.pull(&mut resample_scratch, scratch_max_frames, false);

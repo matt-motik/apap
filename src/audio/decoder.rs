@@ -32,12 +32,17 @@ pub struct TrackInfo {
 /// Unified source interface shared by the symphonia decoder and the DSD
 /// decoder, so the playback pipeline is driven identically for both.
 ///
-/// Core operations: `next_frames`, `info`, `eof`. `duration_secs` and `seek`
+/// Core operations: `next_block`, `info`, `eof`. `duration_secs` and `seek`
 /// are optional and ship with safe defaults (duration derived from
 /// `info().num_frames`, seek unsupported), so a source that cannot know its
 /// length or is non-seekable implements only the core three methods.
 pub trait AudioSource: Send {
+    /// Next interleaved block in the source's native representation (§6.10, ADR-03):
+    /// `Ok(None)` at end of stream, `Err` on a corrupt stream or a read error.
+    fn next_block(&mut self) -> Result<Option<SampleBlock<'_>>, FileError>;
+
     /// Next interleaved f32 block, or `None` at end of stream / on error.
+    /// Old pipeline only: removed together with the f32 worker (§8 С2).
     fn next_frames(&mut self) -> Option<&[f32]>;
 
     /// Seek the source to `secs` (0.0 = start). Default: unsupported.
@@ -597,6 +602,9 @@ pub(crate) fn compute_bitrate(sample_rate: u32, channels: usize, bits: Option<u3
 }
 
 impl AudioSource for Decoder {
+    fn next_block(&mut self) -> Result<Option<SampleBlock<'_>>, FileError> {
+        Decoder::next_block(self)
+    }
     fn next_frames(&mut self) -> Option<&[f32]> {
         Decoder::next_frames(self)
     }
@@ -780,6 +788,9 @@ mod tests {
             info: TrackInfo,
         }
         impl AudioSource for NoSeek {
+            fn next_block(&mut self) -> Result<Option<SampleBlock<'_>>, FileError> {
+                Ok(None)
+            }
             fn next_frames(&mut self) -> Option<&[f32]> {
                 None
             }

@@ -15,6 +15,7 @@ use std::time::{Instant, UNIX_EPOCH};
 
 use music_player_rs::audio::decoder::{AudioSource, Decoder};
 use music_player_rs::audio::dsd::DsdDecoder;
+use music_player_rs::audio::format::SampleBlock;
 use music_player_rs::audio::fulltrack::{self as ft};
 use music_player_rs::audio::spectrogram::{self, Spectrogram};
 use music_player_rs::audio::visualizer::{
@@ -164,13 +165,15 @@ fn run_osc(b: FullBuild, flag: Arc<AtomicBool>, out: Sender<FullEvt>) {
 
     // 3. Полный декод с прогрессом.
     let mut blk = 0u64;
+    let mut conv: Vec<f32> = Vec::new();
     loop {
         if flag.load(Ordering::SeqCst) {
             return;
         }
-        let chunk = match src.next_frames() {
-            Some(c) => c,
-            None => break,
+        let chunk = match src.next_block() {
+            Ok(Some(block)) => block_f32(block, &mut conv),
+            Ok(None) => break,
+            Err(e) => return fail(&out, b.id, &format!("{e:?}")),
         };
         env.feed(chunk, info.channels);
         blk += 1;
@@ -299,13 +302,15 @@ fn run_spec(b: FullBuild, flag: Arc<AtomicBool>, out: Sender<FullEvt>) {
 
     // 2. Полный декод с прогрессом.
     let mut blk = 0u64;
+    let mut conv: Vec<f32> = Vec::new();
     loop {
         if flag.load(Ordering::SeqCst) {
             return;
         }
-        let chunk = match src.next_frames() {
-            Some(c) => c,
-            None => break,
+        let chunk = match src.next_block() {
+            Ok(Some(block)) => block_f32(block, &mut conv),
+            Ok(None) => break,
+            Err(e) => return fail(&out, b.id, &format!("{e:?}")),
         };
         spec.feed(chunk, info.channels);
         blk += 1;
@@ -352,6 +357,24 @@ fn run_spec(b: FullBuild, flag: Arc<AtomicBool>, out: Sender<FullEvt>) {
         h,
         key,
     });
+}
+
+/// 2⁻³¹: выровненный влево `ExactI32` → full scale.
+const EXACT_TO_UNIT: f64 = 1.0 / 2_147_483_648.0;
+
+/// Блок декодера → interleaved f32 в full scale для полнотрековых анализов (§6.10, ADR-03).
+/// `ExactI32` выровнен влево: `s · 2⁻³¹`, точно для разрядности ≤ 24. `DsdBytes` сюда
+/// не приходит: DSD открывается в режиме CIC и отдаёт `F32`.
+fn block_f32<'a>(block: SampleBlock<'a>, conv: &'a mut Vec<f32>) -> &'a [f32] {
+    match block {
+        SampleBlock::F32 { data } => data,
+        SampleBlock::ExactI32 { data, .. } => {
+            conv.clear();
+            conv.extend(data.iter().map(|&s| (f64::from(s) * EXACT_TO_UNIT) as f32));
+            conv
+        }
+        SampleBlock::DsdBytes { .. } => &[],
+    }
 }
 
 fn fail(out: &Sender<FullEvt>, id: u64, reason: &str) {

@@ -38,16 +38,16 @@
 [x] Шаг 7: DopRender<O>: непрерывные маркеры, payload 0x6969 при тишине, расход ring при muted (§6.15, ТЗ-98) в render/dop.rs. Проверка: cargo test render::dop (priming_dop_emits_marked_silence, dop_markers_continuous_*, dop_silence_payload_is_6969)
 [x] Шаг 8: Decoder::next_block — ExactI32 по разрядности + lossy-округление с lossy_clipped, F32 для float-PCM (§6.10, ТЗ-4, ТЗ-5) в decoder.rs. Проверка: cargo test decoder::
 [x] Шаг 9: DsdDecoder::next_block — F32 для CIC, ExactI32 с payload в битах 23..8 для DoP (§6.10, §6.15) в dsd.rs. Проверка: cargo test dsd::
-[ ] Шаг 10: Перевод внешних потребителей на next_block (fulltrack_manager.rs, tests/dsd512_playback_cpu_budget.rs) и удаление next_frames из AudioSource (§8 С2 «удаляется»). Проверка: cargo check --all-targets
-[ ] Шаг 11: Воркер: типизированный ring, фаза 2 seek, PendingTail, eof_frame (§6.16, §6.17, ТЗ-99, ТЗ-100) в worker.rs. Проверка: cargo test worker:: (seek_protocol_rejects_two_phase_race, seek_protocol_series_acks_only_latest)
+[x] Шаг 10: AudioSource::next_block в трейте; перевод внешних потребителей на next_block (fulltrack_manager.rs, tests/dsd512_playback_cpu_budget.rs). next_frames остаётся до Шага 11: его читает f32-воркер (§6.10, ADR-03). Проверка: cargo check --all-targets
+[ ] Шаг 11: Воркер: типизированный ring, фаза 2 seek, PendingTail, eof_frame (§6.16, §6.17, ТЗ-99, ТЗ-100) в worker.rs; удаление next_frames из AudioSource и реализаций (§8 С2 «удаляется»). Проверка: cargo test worker:: (seek_protocol_rejects_two_phase_race, seek_protocol_series_acks_only_latest)
 [ ] Шаг 12: output.rs: build_output_stream_raw + bytes_mut с маппингом I16→S16, I24→S24_LE, I32→S32, F32→F32; probe_output на SessionShared (§6.14). Проверка: cargo check
 [ ] Шаг 13: Player: фаза 1 seek, начальное заполнение min(50%, 300 мс), bit_perfect→NoGain, dither фиксируется при сборке, переоткрытие при переключении (§6.16, §6.18, ОВС-18, ТЗ-138) в player.rs. Проверка: cargo check; cargo run — играет в Совместимом режиме (ручная)
 [ ] Шаг 14: Удаление старых колбэков и rt_*-тестов по §7.4 + сквозные тесты §7.2 (pause_resume_100x_counter_stream_is_continuous, seek_1000x_first_sample_is_target, no_false_underrun_after_seek_and_start, real_starvation_after_priming_counts) в player.rs. Проверка: cargo test audio::
 [ ] Шаг 15: tests/rt_zero_alloc.rs: callback_zero_alloc_all_formats_and_states для новых рендеров (§7.2, ТЗ-10). Проверка: cargo test --test rt_zero_alloc
 [ ] Шаг 16: Финальная верификация: cargo build/test/clippy, python tools/check_rt_imports.py, traceability_tool (§7.7, §8 общие условия). Проверка: всё зелёное
 
-- **Текущий шаг (current_step):** Шаг 10
-- **Следующий ход:** fulltrack_manager.rs + tests/dsd512_playback_cpu_budget.rs: переход на next_block; удалить next_frames из AudioSource (§6.10, ADR-03)
+- **Текущий шаг (current_step):** Шаг 11
+- **Следующий ход:** worker.rs: типизированный ring, фаза 2 seek (сброс упаковщика DoP), PendingTail, eof_frame, публикация lossy_clipped/decode_errors; удаление next_frames из AudioSource (§6.16, §6.17, ТЗ-99, ТЗ-100)
 - **Счетчик безуспешных компиляций:** 0/3
 - **Состояние:** in_progress
 

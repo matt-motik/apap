@@ -640,6 +640,14 @@ mod tests {
     }
 
     impl AudioSource for MockSource {
+        fn next_block(
+            &mut self,
+        ) -> Result<Option<crate::audio::format::SampleBlock<'_>>, crate::audio::error::FileError>
+        {
+            Ok(self
+                .next_frames()
+                .map(|data| crate::audio::format::SampleBlock::F32 { data }))
+        }
         fn next_frames(&mut self) -> Option<&[f32]> {
             if self.remaining == 0 {
                 self.eof = true;

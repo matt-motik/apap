@@ -1055,6 +1055,10 @@ fn read_all<R: Read>(r: &mut R, buf: &mut [u8]) -> Result<usize, ErrorKind> {
 }
 
 impl AudioSource for DsdDecoder {
+    fn next_block(&mut self) -> Result<Option<SampleBlock<'_>>, FileError> {
+        DsdDecoder::next_block(self)
+    }
+
     fn next_frames(&mut self) -> Option<&[f32]> {
         if self.pcm_frames == 0 && self.decode_group() == 0 {
             self.eof = true;

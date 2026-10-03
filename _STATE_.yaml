@@ -64,10 +64,10 @@ steps:
     description: "DsdDecoder::next_block — F32 для CIC, ExactI32 с payload в битах 23..8 для DoP (§6.10, §6.15) в dsd.rs. Проверка: cargo test dsd::"
     done: true
   - id: 10
-    description: "Перевод внешних потребителей на next_block (fulltrack_manager.rs, tests/dsd512_playback_cpu_budget.rs) и удаление next_frames из AudioSource (§8 С2 «удаляется»). Проверка: cargo check --all-targets"
-    done: false
+    description: "AudioSource::next_block в трейте; перевод внешних потребителей на next_block (fulltrack_manager.rs, tests/dsd512_playback_cpu_budget.rs). next_frames остаётся до Шага 11: его читает f32-воркер (§6.10, ADR-03). Проверка: cargo check --all-targets"
+    done: true
   - id: 11
-    description: "Воркер: типизированный ring, фаза 2 seek, PendingTail, eof_frame (§6.16, §6.17, ТЗ-99, ТЗ-100) в worker.rs. Проверка: cargo test worker:: (seek_protocol_rejects_two_phase_race, seek_protocol_series_acks_only_latest)"
+    description: "Воркер: типизированный ring, фаза 2 seek, PendingTail, eof_frame (§6.16, §6.17, ТЗ-99, ТЗ-100) в worker.rs; удаление next_frames из AudioSource и реализаций (§8 С2 «удаляется»). Проверка: cargo test worker:: (seek_protocol_rejects_two_phase_race, seek_protocol_series_acks_only_latest)"
     done: false
   - id: 12
     description: "output.rs: build_output_stream_raw + bytes_mut с маппингом I16→S16, I24→S24_LE, I32→S32, F32→F32; probe_output на SessionShared (§6.14). Проверка: cargo check"
@@ -85,8 +85,8 @@ steps:
     description: "Финальная верификация: cargo build/test/clippy, python tools/check_rt_imports.py, traceability_tool (§7.7, §8 общие условия). Проверка: всё зелёное"
     done: false
 
-current_step: 10
-next_action: "fulltrack_manager.rs + tests/dsd512_playback_cpu_budget.rs: переход на next_block; удалить next_frames из AudioSource (§6.10, ADR-03)"
+current_step: 11
+next_action: "worker.rs: типизированный ring, фаза 2 seek (сброс упаковщика DoP), PendingTail, eof_frame, публикация lossy_clipped/decode_errors; удаление next_frames из AudioSource (§6.16, §6.17, ТЗ-99, ТЗ-100)"
 
 fail_counter: 0
 fail_counter_max: 3
