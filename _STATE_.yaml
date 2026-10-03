@@ -65,7 +65,7 @@ steps:
     done: true
   - id: 9
     description: "Бейдж старого пути: bp-active всегда false, текст «Не bit-perfect: проверка недоступна» (ТЗ-52, §8 С1). Файлы: src/app/bp_report.rs, ui/status.slint (+ app.slint привязка). Проверка: cargo test bp_report"
-    done: false
+    done: true
   - id: 10
     description: "Резервирование: ReservationService, Reservation, ReservationGuard, AudioServerProbe, ReservationMsg, трейт ReserveBus и acquire() по §6.6 (до OPEN); FakeReserveBus/FakeServerProbe (ADR-08, ТЗ-48, 118, 119; ОВ-33..35). Файлы: src/audio/reservation/mod.rs, src/audio/testing/mod.rs. Проверка: cargo test reservation"
     done: false
@@ -85,8 +85,8 @@ steps:
     description: "Финальная верификация: cargo build/test/clippy; ручные сценарии ТЗ-1/2/48/118/119/120/122 — пользователю. Проверка: всё зелёное"
     done: false
 
-current_step: 9
-next_action: "Шаг 9: бейдж старого пути — bp-active всегда false, текст «Не bit-perfect: проверка недоступна» (ТЗ-52, §8 С1); src/app/bp_report.rs, ui/status.slint, ui/app.slint. Наблюдение: dsd512_playback_cpu_budget (#[ignore], V5.1-11.1) проходит вручную, RTF 0.119 ≤ 0.2 — повторный замер и снятие ignore отдельной задачей."
+current_step: 10
+next_action: "Шаг 10: ReservationService/Reservation/ReservationGuard/AudioServerProbe/ReservationMsg, трейт ReserveBus и acquire() по §6.6; FakeReserveBus/FakeServerProbe (ADR-08, ТЗ-48, 118, 119; ОВ-33..35). Перед кодом прочитать §6.6, ADR-08, ТЗ-48/118/119/120/122. Наблюдение: dsd512_playback_cpu_budget (#[ignore], V5.1-11.1) проходит вручную, RTF 0.119 ≤ 0.2 — повторный замер и снятие ignore отдельной задачей."
 
 fail_counter: 0
 fail_counter_max: 3

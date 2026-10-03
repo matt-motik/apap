@@ -129,6 +129,10 @@ export component AppWindow inherits Window {
     in property <bool> status-dsd-not-bp: false;
     // ТЗ A2.0 §4.2: bit-perfect активен, но устройство заставляет ресемплить.
     in property <bool> status-bp-resample: false;
+    // ТЗ-52, §8 С1: бейдж статус-бара — состояние из bp_report::status_badge,
+    // не флаг настроек bit-perfect.
+    in property <bool> status-bp-active: false;
+    in property <string> status-bp-text: "";
 
     in property <string> info-artist: "—";
     in property <string> info-track: "—";
@@ -467,7 +471,8 @@ export component AppWindow inherits Window {
                 track-info: root.track-info;
                 track-count: root.track-count;
                 busy: root.busy;
-                bp-active: root.bit-perfect;
+                bp-active: root.status-bp-active;
+                bp-text: root.status-bp-text;
                 dsd-not-bp: root.status-dsd-not-bp;
                 bp-resample: root.status-bp-resample;
                 bp-clicked => { root.bp-clicked(); }

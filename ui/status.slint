@@ -6,8 +6,11 @@ export component StatusBar inherits Rectangle {
     in property <string> track-count: "0 tracks";
     in property <bool> busy: false;
     callback bp-clicked();
-    // ТЗ §7.5: bit-perfect-режим активен — значок-индикатор в статус-баре.
+    // ТЗ-52: «Bit-perfect» только при выполнении всех условий. Старый путь
+    // их не проверяет — Rust держит false (§8 С1); не флаг настроек.
     in property <bool> bp-active: false;
+    // ТЗ-52, §8 С1: текст бейджа «Не bit-perfect: причина»; пусто — бейдж скрыт.
+    in property <string> bp-text: "";
     // ТЗ §7.5: активен bit-perfect, но DSD выводится конверсией в PCM — для
     // DSD-потока bit-perfect не сохраняется.
     in property <bool> dsd-not-bp: false;
@@ -62,8 +65,7 @@ export component StatusBar inherits Rectangle {
             vertical-alignment: center;
             horizontal-alignment: right;
         }
-        // ТЗ §7.5: значок «Bit-perfect», когда режим активен.
-        // Bit-perfect badge
+        // ТЗ-52: значок «Bit-perfect» — только когда все условия подтверждены.
         if root.bp-active && !root.dsd-not-bp: VerticalLayout {
             padding: 2px;
             Rectangle {
@@ -86,8 +88,31 @@ export component StatusBar inherits Rectangle {
                 }
             }
         }
-        // DSD→PCM warning badge
-        if root.bp-active && root.dsd-not-bp:  VerticalLayout {
+        // ТЗ-52, §8 С1: «Не bit-perfect: причина», когда условия не подтверждены.
+        if !root.bp-active && !root.dsd-not-bp && root.bp-text != "": VerticalLayout {
+            padding: 2px;
+            Rectangle {
+                border-width: 1px;
+                border-color: Colors.text-warn;
+                border-radius: 4px;
+                touch_not_bp := TouchArea {
+                    clicked => { root.bp-clicked(); }
+                }
+
+                VerticalLayout {
+                    padding-left: 4px;
+                    padding-right: 4px;
+                    Text {
+                        text: root.bp-text;
+                        color: Colors.text-warn;
+                        font-size: 10px;
+                        vertical-alignment: center;
+                    }
+                }
+            }
+        }
+        // DSD→PCM warning badge (dsd-not-bp уже учитывает включённый bit-perfect)
+        if root.dsd-not-bp:  VerticalLayout {
             padding: 2px;
             Rectangle {
                 border-width: 1px;

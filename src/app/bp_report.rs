@@ -43,9 +43,25 @@ pub struct BpReason {
     pub action_label: String,
 }
 
+/// Текст бейджа старого пути: фактические параметры драйвера не читаются,
+/// поэтому условия «Bit-perfect» проверить нельзя (ТЗ-52, §8 С1).
+pub const BADGE_CHECK_UNAVAILABLE: &str = "Не bit-perfect: проверка недоступна";
+
+/// Состояние бейджа статус-бара старого пути: `(bp_active, текст)`.
+/// `bp_active` всегда `false`, пока нет нового тракта (ТЗ-4, ТЗ-113);
+/// текст показывается, только если пользователь включил bit-perfect (ТЗ-52, §8 С1).
+pub fn status_badge(bit_perfect: bool) -> (bool, &'static str) {
+    if bit_perfect {
+        (false, BADGE_CHECK_UNAVAILABLE)
+    } else {
+        (false, "")
+    }
+}
+
 #[derive(Debug, Clone, PartialEq, Eq, Default)]
 pub struct BpReport {
     pub bp_active: bool,
+    pub badge_text: String,
     pub stream_desc: String,
     pub source_desc: String,
     pub reasons: Vec<BpReason>,
@@ -91,13 +107,25 @@ fn current_source_desc(track: Option<&Track>) -> String {
 }
 
 pub fn build_bp_report(inp: &BpInputs<'_>) -> BpReport {
+    let (bp_active, badge_text) = status_badge(inp.bit_perfect);
     let mut report = BpReport {
-        bp_active: inp.bit_perfect,
+        bp_active,
+        badge_text: badge_text.to_string(),
         stream_desc: describe_stream_desc(inp.stream),
         source_desc: current_source_desc(inp.track),
         reasons: Vec::new(),
         positives: Vec::new(),
     };
+
+    // ТЗ-52, §8 С1: старый путь не читает фактические параметры драйвера —
+    // «Bit-perfect» не подтверждается ни при каких настройках.
+    report.reasons.push(BpReason {
+        severity: Severity::Info,
+        title: "Проверка недоступна".into(),
+        detail: "Фактические параметры драйвера не читаются; бейдж «Bit-perfect» не показывается до нового тракта".into(),
+        action_id: 0,
+        action_label: String::new(),
+    });
 
     let volume = inp.volume;
     let muted = inp.muted;
@@ -200,7 +228,6 @@ pub fn build_bp_report(inp: &BpInputs<'_>) -> BpReport {
         report.positives.push("✓ Обнаружено устройство с поддержкой exclusive".into());
     }
 
-    report.bp_active = inp.bit_perfect && report.reasons.is_empty();
     report
 }
 
@@ -241,5 +268,35 @@ mod tests {
         });
         assert!(report.reasons.iter().any(|r| r.action_id == 1));
         assert!(!report.bp_active);
+    }
+
+    /// Даже при идеальных условиях старый путь не показывает «Bit-perfect»:
+    /// параметры драйвера не подтверждены (ТЗ-52, §8 С1).
+    #[test]
+    fn bp_report_never_active_in_old_path() {
+        let stream = StreamDesc {
+            exclusive: true,
+            ..StreamDesc::default()
+        };
+        let report = build_bp_report(&BpInputs {
+            bit_perfect: true,
+            stream: Some(&stream),
+            track: None,
+            track_is_dsd: false,
+            volume: 1.0,
+            muted: false,
+            dither: ResamplerDither::Off,
+        });
+        assert!(!report.bp_active);
+        assert_eq!(report.badge_text, BADGE_CHECK_UNAVAILABLE);
+        assert!(report.reasons.iter().any(|r| r.title == "Проверка недоступна"));
+    }
+
+    /// Бейдж статус-бара: `bp_active` всегда `false`; текст — только при
+    /// включённом bit-perfect (ТЗ-52, §8 С1).
+    #[test]
+    fn bp_report_status_badge_never_green() {
+        assert_eq!(status_badge(true), (false, BADGE_CHECK_UNAVAILABLE));
+        assert_eq!(status_badge(false), (false, ""));
     }
 }

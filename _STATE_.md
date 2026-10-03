@@ -44,7 +44,7 @@
 [x] Шаг 6: Фаззинг разборщиков: tests/parsers_survive_mutations.rs, 10 000 итераций, счётчик аллокаций ≤ file_len + 16 МиБ, APAP_FUZZ_ITERS только увеличивает (ТЗ-92, И-Р15). Проверка: cargo test --test parsers_survive_mutations
 [x] Шаг 7: Удалить unwrap/expect/unreachable из прод-кода библиотеки: dsd.rs, fulltrack.rs, output.rs (ТЗ-101, §6.29). Проверка: cargo clippy без предупреждений в этих файлах
 [x] Шаг 8: Удалить unwrap/expect из бинарника и build.rs: viz_settings_manager.rs, app/mod.rs, main.rs, build.rs; [lints.clippy] → deny (ТЗ-101, §6.29). Проверка: cargo clippy 0 предупреждений
-[ ] Шаг 9: Бейдж старого пути: bp-active всегда false, текст «Не bit-perfect: проверка недоступна» (ТЗ-52, §8 С1). Файлы: src/app/bp_report.rs, ui/status.slint (+ app.slint привязка). Проверка: cargo test bp_report
+[x] Шаг 9: Бейдж старого пути: bp-active всегда false, текст «Не bit-perfect: проверка недоступна» (ТЗ-52, §8 С1). Файлы: src/app/bp_report.rs, ui/status.slint (+ app.slint привязка). Проверка: cargo test bp_report
 [ ] Шаг 10: Резервирование: ReservationService, Reservation, ReservationGuard, AudioServerProbe, ReservationMsg, трейт ReserveBus и acquire() по §6.6 (до OPEN); FakeReserveBus/FakeServerProbe (ADR-08, ТЗ-48, 118, 119; ОВ-33..35). Файлы: src/audio/reservation/mod.rs, src/audio/testing/mod.rs. Проверка: cargo test reservation
 [ ] Шаг 11: ExclusiveGate старого пути: Pending → Held → открытие с повтором EBUSY ≤ 1 с → BusyOutsideProtocol; освобождение PCM → ReleaseName; NameLost → закрыть PCM (И-Р1, И-Р20, И-Р21, ТЗ-122). Файл: src/audio/reservation/gate.rs. Проверка: cargo test reservation_before_pcm_order ebusy name_lost
 [ ] Шаг 12: DbusReservation (zbus blocking, cfg linux), реальный AudioServerProbe, номер карты по /proc/asound; zbus прямой зависимостью Linux (ADR-08, §6.6). Файлы: src/audio/reservation/dbus.rs, Cargo.toml. Проверка: cargo check; ручной сценарий busctl
@@ -52,8 +52,8 @@
 [ ] Шаг 14: Приложение: опрос резервирования на тике 100 мс, продолжение воспроизведения после Held, ошибка захвата и NameLost — стоп и сообщение. Файлы: src/app/playback_manager.rs, src/app/mod.rs. Проверка: cargo build; запуск
 [ ] Шаг 15: Финальная верификация: cargo build/test/clippy; ручные сценарии ТЗ-1/2/48/118/119/120/122 — пользователю. Проверка: всё зелёное
 
-- **Текущий шаг (current_step):** Шаг 9
-- **Следующий ход:** Шаг 9: бейдж старого пути — bp-active всегда false, текст «Не bit-perfect: проверка недоступна» (ТЗ-52, §8 С1); src/app/bp_report.rs, ui/status.slint, ui/app.slint. Наблюдение: dsd512_playback_cpu_budget (#[ignore], V5.1-11.1) проходит вручную, RTF 0.119 ≤ 0.2 — повторный замер и снятие ignore отдельной задачей.
+- **Текущий шаг (current_step):** Шаг 10
+- **Следующий ход:** Шаг 10: ReservationService/Reservation/ReservationGuard/AudioServerProbe/ReservationMsg, трейт ReserveBus и acquire() по §6.6; FakeReserveBus/FakeServerProbe (ADR-08, ТЗ-48, 118, 119; ОВ-33..35). Перед кодом прочитать §6.6, ADR-08, ТЗ-48/118/119/120/122. Наблюдение: dsd512_playback_cpu_budget (#[ignore], V5.1-11.1) проходит вручную, RTF 0.119 ≤ 0.2 — повторный замер и снятие ignore отдельной задачей.
 - **Счетчик безуспешных компиляций:** 0/3
 - **Состояние:** in_progress
 

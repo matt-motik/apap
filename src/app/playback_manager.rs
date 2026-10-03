@@ -35,6 +35,10 @@ impl MusicApp {
         }
         if bit_perfect != cur.bit_perfect {
             self.ui.set_bit_perfect(bit_perfect);
+            // ТЗ-52, §8 С1: бейдж не следует флагу настроек — только status_badge.
+            let (bp_active, bp_text) = super::bp_report::status_badge(bit_perfect);
+            self.ui.set_status_bp_active(bp_active);
+            self.ui.set_status_bp_text(bp_text.into());
         }
         if bp_resample != cur.bp_resample {
             self.ui.set_status_bp_resample(bp_resample);
