@@ -50,7 +50,7 @@ steps:
     done: true
   - id: 5
     description: "GainStage: NoGain/AtomicGain (§2.9, ОВС-18, ТЗ-7) в render/gain.rs. Проверка: cargo test render::gain"
-    done: false
+    done: true
   - id: 6
     description: "PcmRender<P, O, G>: фаза 3 seek, priming, underrun, eof→ended, тишина при паузе (§6.14, §6.16, §6.17, ТЗ-9, ТЗ-10, ТЗ-99, ТЗ-100, ТЗ-138) в render/pcm.rs. Проверка: cargo test render::pcm (passthrough_*, optimal_unity_gain_*, dither_*, underrun_*, priming_ends_at_eof_short_track, strict_mute_*)"
     done: false
@@ -85,8 +85,8 @@ steps:
     description: "Финальная верификация: cargo build/test/clippy, python tools/check_rt_imports.py, traceability_tool (§7.7, §8 общие условия). Проверка: всё зелёное"
     done: false
 
-current_step: 5
-next_action: "render/gain.rs: GainStage (load раз в период → Unity|Scaled(f)|Muted), NoGain читает только muted, AtomicGain — gain_bits и muted"
+current_step: 6
+next_action: "render/pcm.rs: PcmRender<P,O,G>::render(&mut [u8]) поверх RenderCore + OutFormat + GainStage + Tpdf; тесты §7.2 уровня рендера"
 
 fail_counter: 0
 fail_counter_max: 3

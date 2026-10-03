@@ -13,6 +13,7 @@
     clippy::unreachable
 )]
 
+pub mod gain;
 pub mod out;
 pub mod tpdf;
 
