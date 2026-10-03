@@ -13,6 +13,8 @@
     clippy::unreachable
 )]
 
+pub mod out;
+
 use std::sync::atomic::Ordering;
 use std::sync::Arc;
 

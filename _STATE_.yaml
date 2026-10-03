@@ -44,7 +44,7 @@ steps:
     done: true
   - id: 3
     description: "OutFormat-писатели S16/S24_3LE/S24_LE/S32/F32 + quantize (§6.14 таблица усиления, ТЗ-4, ТЗ-5, ТЗ-6) в render/out.rs. Проверка: cargo test render::out (zero_pad_layout_per_format, s24le_is_right_aligned_with_sign_extension, quantize_f32_symmetric_roundtrip)"
-    done: false
+    done: true
   - id: 4
     description: "TPDF xorshift32 с фиксируемым seed (ТЗ-8, §6.14) в render/tpdf.rs. Проверка: cargo test render::tpdf"
     done: false
@@ -85,8 +85,8 @@ steps:
     description: "Финальная верификация: cargo build/test/clippy, python tools/check_rt_imports.py, traceability_tool (§7.7, §8 общие условия). Проверка: всё зелёное"
     done: false
 
-current_step: 3
-next_action: "render/out.rs: OutFormat S16/S24_3LE/S24_LE/S32/F32 + quantize, тесты zero_pad_layout_per_format, s24le_*, quantize_f32_symmetric_roundtrip"
+current_step: 4
+next_action: "render/tpdf.rs: xorshift32 TPDF d=(u1-u2)·2^-32 LSB, фиксированное и задаваемое зерно"
 
 fail_counter: 0
 fail_counter_max: 3
