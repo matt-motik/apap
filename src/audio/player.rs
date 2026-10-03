@@ -1,8 +1,10 @@
 use std::path::{Path, PathBuf};
-use std::sync::{Arc, Mutex};
+use std::sync::atomic::Ordering;
+use std::sync::{mpsc, Arc, Mutex};
+use std::time::Duration;
 
 #[cfg(test)]
-use std::sync::atomic::{AtomicUsize, Ordering};
+use std::sync::atomic::AtomicUsize;
 
 use cpal::traits::{DeviceTrait, HostTrait, StreamTrait};
 use cpal::{BufferSize, SampleFormat};
@@ -13,10 +15,18 @@ use super::clock::{Clock, ClockInstant, MonotonicClock};
 use super::error::CaptureFailure;
 use super::reservation::gate::{ExclusiveGate, GateEvent, GateStatus, OpenOutcome};
 use super::output::{
-    build_stream_rt, select_output_for, FallbackReason, OutputRequest, OutputSpec, Resampler,
-    StreamBuildError,
+    build_output_stream_raw, dop_render_for, pcm_render_for, select_output_for, FallbackReason,
+    OutputRequest, OutputSpec, RawRender, Resampler, StreamBuildError,
 };
-use super::worker::{PlaybackWorker, RtConsumer, RtShared, VizTap, WorkerCmd};
+use super::render::gain::{AtomicGain, NoGain};
+use super::render::pcm::PcmSample;
+use super::render::tpdf::Tpdf;
+use super::render::{prime_frames, RenderCore};
+use super::session::{RingPayload, SessionShared};
+use super::worker::{
+    start_fill_frames, DecodeConfig, DecodeEvent, DecodeLoop, DecodeWorker, ExactFeed, FloatFeed,
+    RtConsumer, VizTap,
+};
 use crate::settings::{
     clamp_ring_buffer_ms, ClockFamily, DsdMode, ExclusiveMode, FallbackPolicy,
     FallbackRatePolicy, ResamplerAlgorithm, ResamplerDither, ResamplerMode, RING_BUFFER_MS_DEFAULT,
@@ -264,15 +274,120 @@ fn gated_build<P>(
     }
 }
 
-/// Owns audio playback: a [`PlaybackWorker`] thread decoding into a lock-free
-/// ring and the cpal output stream whose real-time callback only consumes that
-/// ring through [`RtConsumer`]. All control happens on the caller's thread via
-/// the [`RtShared`] atomics and [`WorkerCmd`] messages (ТЗ A2.0 §5).
+/// Ёмкость `PendingTail` в кадрах: один декодированный пакет (§6.18).
+const DECODE_TAIL_FRAMES: usize = 8192;
+
+/// Сколько ждать стартового заполнения ring до отказа открытия (§6.18).
+const START_FILL_TIMEOUT: Duration = Duration::from_secs(5);
+
+/// Тип ring сессии и вид рендера (§6.10, ADR-03).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum RingKind {
+    /// DoP-слова в i32-ring, маркеры ставит `DopRender` (§6.15).
+    Dop,
+    /// Точный PCM без ресемплинга в i32-ring.
+    Exact(RingPayload),
+    /// f32 после SRC / DSD→PCM / float-источника.
+    Float,
+}
+
+/// Параметры сборки рендера, фиксируемые на время сессии (ОВС-18, ТЗ-8).
+#[derive(Debug, Clone, Copy)]
+struct EnginePlan {
+    kind: RingKind,
+    rate: u32,
+    channels: usize,
+    /// Bit-perfect: рендер без ступени громкости (`NoGain`, ОВС-18).
+    no_gain: bool,
+    /// Seed TPDF; `None` — дизеринг выключен.
+    dither_seed: Option<u32>,
+}
+
+/// Producer ring сессии, отдаваемый декодеру.
+enum EngineRing {
+    I32(rtrb::Producer<i32>),
+    F32(rtrb::Producer<f32>),
+}
+
+/// Источник для `apap-decode` по типу ring.
+enum EngineFeed {
+    Exact(ExactFeed),
+    Float(FloatFeed),
+}
+
+/// Секунды → кадр сессии (отрицательные и нечисловые — 0).
+fn secs_to_frames(secs: f64, rate: u32) -> u64 {
+    let frames = (secs.max(0.0) * f64::from(rate)).round();
+    if frames.is_finite() {
+        frames as u64
+    } else {
+        0
+    }
+}
+
+/// PCM-рендер с выбранной ступенью усиления (`NoGain` в bit-perfect, ОВС-18).
+fn pcm_render<P: PcmSample>(
+    format: SampleFormat,
+    core: RenderCore<P>,
+    payload: RingPayload,
+    tpdf: Tpdf,
+    no_gain: bool,
+) -> Option<Box<dyn RawRender>> {
+    if no_gain {
+        pcm_render_for::<P, NoGain>(format, core, payload, tpdf)
+    } else {
+        pcm_render_for::<P, AtomicGain>(format, core, payload, tpdf)
+    }
+}
+
+/// Ring ёмкостью `capacity` сэмплов и рендер над его consumer (§6.14, §6.15).
+/// Формат устройства без рендера для этого вида ring — отказ сборки.
+fn build_render(
+    plan: &EnginePlan,
+    format: SampleFormat,
+    shared: &Arc<SessionShared>,
+    capacity: usize,
+    prime: usize,
+) -> Result<(Box<dyn RawRender>, EngineRing), StreamBuildError> {
+    let tpdf = plan.dither_seed.map_or_else(Tpdf::off, Tpdf::with_seed);
+    let (render, ring) = match plan.kind {
+        RingKind::Dop => {
+            let (producer, consumer) = rtrb::RingBuffer::<i32>::new(capacity);
+            let core = RenderCore::new(consumer, shared.clone(), plan.channels, prime);
+            (dop_render_for(format, core), EngineRing::I32(producer))
+        }
+        RingKind::Exact(payload) => {
+            let (producer, consumer) = rtrb::RingBuffer::<i32>::new(capacity);
+            let core = RenderCore::new(consumer, shared.clone(), plan.channels, prime);
+            (pcm_render(format, core, payload, tpdf, plan.no_gain), EngineRing::I32(producer))
+        }
+        RingKind::Float => {
+            let (producer, consumer) = rtrb::RingBuffer::<f32>::new(capacity);
+            let core = RenderCore::new(consumer, shared.clone(), plan.channels, prime);
+            (
+                pcm_render(format, core, RingPayload::F32, tpdf, plan.no_gain),
+                EngineRing::F32(producer),
+            )
+        }
+    };
+    let render = render.ok_or_else(|| {
+        StreamBuildError::refused(format!("no renderer for {format:?} with {:?} ring", plan.kind))
+    })?;
+    Ok((render, ring))
+}
+
+/// Owns audio playback: поток `apap-decode` пишет `SampleBlock` в
+/// типизированный ring, колбэк cpal читает его через `PcmRender`/`DopRender`
+/// (§6.10, §6.14, ADR-03). Управление — атомики [`SessionShared`] (§2.9).
 pub struct Player {
-    /// Stream geometry + transport/control atomics shared with the worker and
-    /// the real-time consumer. `None` until a track is opened.
-    shared: Option<Arc<RtShared>>,
-    worker: Option<PlaybackWorker>,
+    /// Атомики сессии, общие с декодером и колбэком. `None` до открытия трека.
+    shared: Option<Arc<SessionShared>>,
+    worker: Option<DecodeWorker>,
+    /// Геометрия ring текущей сессии (позиция в кадрах → секунды).
+    out_rate: u32,
+    out_ch: usize,
+    /// Естественный конец уже обработан плейлистом ([`Player::clear_end`]).
+    end_ack: bool,
     /// Persistent visualizer tap holder; survives worker re-creation on every
     /// `open` (the producer itself is not cloneable).
     viz_tap: VizTap,
@@ -339,6 +454,9 @@ impl Player {
         Self {
             shared: None,
             worker: None,
+            out_rate: 44_100,
+            out_ch: 2,
+            end_ack: false,
             viz_tap: Arc::new(Mutex::new(None)),
             stream: None,
             gate: system_gate(),
@@ -486,10 +604,7 @@ impl Player {
         let was_playing = self.is_playing();
         self.preferred_device = Some(name.clone());
         if let Some(path) = path {
-            self.open(path)?;
-            if pos > 0.0 {
-                self.seek(pos);
-            }
+            self.open_at(path, pos)?;
             if was_playing || pos > 0.0 {
                 self.play();
             }
@@ -503,16 +618,22 @@ impl Player {
     /// step that succeeds wins. `FallbackPolicy::Fail` stops the chain after
     /// the first failed step. Returns the track info; errors are strings.
     pub fn open(&mut self, path: &Path) -> Result<TrackInfo, String> {
+        self.open_at(path, 0.0)
+    }
+
+    /// [`Player::open`] с началом сессии в `start_secs` (фаза 1 seek, §6.16):
+    /// декодер встаёт на позицию до стартового заполнения (§6.18).
+    fn open_at(&mut self, path: &Path, start_secs: f64) -> Result<TrackInfo, String> {
         self.pending = None;
         if is_dsd_path(path) {
-            self.open_dsd_with_chain(path)
+            self.open_dsd_with_chain(path, start_secs)
         } else {
-            self.open_pcm(path)
+            self.open_pcm(path, start_secs)
         }
     }
 
     /// DSD playback through the preference chain (ТЗ A3.0 §4.1–4.2).
-    fn open_dsd_with_chain(&mut self, path: &Path) -> Result<TrackInfo, String> {
+    fn open_dsd_with_chain(&mut self, path: &Path, start_secs: f64) -> Result<TrackInfo, String> {
         let preferred = self.dsd_mode;
         let chain: &[DsdMode] = match preferred {
             DsdMode::Native => &[DsdMode::Native, DsdMode::DoP, DsdMode::Pcm],
@@ -523,7 +644,7 @@ impl Player {
         let mut last_err: Option<String> = None;
 
         for &mode in chain {
-            match self.try_open_dsd(path, mode) {
+            match self.try_open_dsd(path, mode, start_secs) {
                 Ok(info) => {
                     if let Some(desc) = self.stream_desc.as_mut() {
                         desc.dsd_mode = Some(mode);
@@ -548,40 +669,36 @@ impl Player {
 
     /// One step of the DSD chain. `Native` has no cpal backend yet, so it is a
     /// constant error (the chain accounts for it).
-    fn try_open_dsd(&mut self, path: &Path, mode: DsdMode) -> Result<TrackInfo, String> {
+    fn try_open_dsd(&mut self, path: &Path, mode: DsdMode, start_secs: f64) -> Result<TrackInfo, String> {
         match mode {
             DsdMode::Native => Err("Native DSD not supported by cpal backend".into()),
-            DsdMode::DoP => self.open_dop(path),
-            DsdMode::Pcm => self.open_pcm(path),
+            DsdMode::DoP => self.open_dop(path, start_secs),
+            DsdMode::Pcm => self.open_pcm(path, start_secs),
         }
     }
 
-    /// Publish the persisted control state onto a freshly created [`RtShared`].
-    fn apply_state(
-        shared: &RtShared,
-        volume: f32,
-        muted: bool,
-        dither_idx: u8,
-        bit_perfect: bool,
-        viz_active: bool,
-    ) {
-        shared.set_volume(volume);
-        shared.set_muted(muted);
-        shared.set_dither_index(dither_idx);
-        shared.set_bit_perfect(bit_perfect);
-        shared.set_viz_tap_active(viz_active);
-        // A freshly opened stream is not "finished": the first `play` must not
-        // trigger the rewind/seek path.
-        shared.set_finished(false);
+    /// Опубликовать сохранённое состояние управления в новой сессии (§2.9).
+    fn apply_state(&self, shared: &SessionShared) {
+        shared.set_gain(self.volume);
+        shared.muted.store(self.muted, Ordering::Release);
+        shared
+            .viz_tap_active
+            .store(self.viz_active, Ordering::Relaxed);
     }
 
-    /// Wrap `build_stream_rt` with the §11.4 mock seam. In test builds the
-    /// first `build_failures` `start_engine`-iterations are forced to fail
+    /// Seed TPDF трека; `None` — дизеринг выключен. Фиксируется при сборке
+    /// рендера, смена режима переоткрывает поток (ТЗ-8, §6.14).
+    fn dither_seed(&self, path: &Path) -> Option<u32> {
+        (self.dither_idx != DITHER_INDEX_OFF).then(|| track_seed(path))
+    }
+
+    /// Wrap `build_output_stream_raw` with the §11.4 mock seam. In test builds
+    /// the first `build_failures` `start_engine`-iterations are forced to fail
     /// (the device rejects the stream); production builds call through.
     fn build_stream(
         &self,
         spec: &OutputSpec,
-        consumer: RtConsumer,
+        render: Box<dyn RawRender>,
     ) -> Result<cpal::Stream, StreamBuildError> {
         #[cfg(test)]
         {
@@ -590,25 +707,25 @@ impl Player {
                 self.test_hooks
                     .build_failures
                     .store(rem - 1, Ordering::Relaxed);
-                return Err(StreamBuildError::refused("Mock: build_stream_rt forced to fail (TestHooks)".into()));
+                return Err(StreamBuildError::refused("Mock: build_output_stream_raw forced to fail (TestHooks)".into()));
             }
         }
-        build_stream_rt(spec, consumer, None)
+        build_output_stream_raw(spec, render, None)
     }
 
-    /// Build the consumer stream and spawn the producer worker. `hw:` в
-    /// Exclusive открывается только через [`ExclusiveGate`] (ТЗ-48); `Ok(None)` —
-    /// открытие отложено до резервирования или повтора `EBUSY` (опрос
-    /// [`Player::poll_reservation`]). Отказ сборки Exclusive-потока возвращается
-    /// как ошибка: отката в Shared нет ни при каком `ExclusiveMode` (ТЗ-119,
-    /// ТЗ-122; DoP — ТЗ-1).
+    /// Собрать поток и запустить `apap-decode`. `hw:` в Exclusive открывается
+    /// только через [`ExclusiveGate`] (ТЗ-48); `Ok(None)` — открытие отложено
+    /// до резервирования или повтора `EBUSY` (опрос [`Player::poll_reservation`]).
+    /// Отказ сборки Exclusive-потока возвращается как ошибка: отката в Shared
+    /// нет ни при каком `ExclusiveMode` (ТЗ-119, ТЗ-122; DoP — ТЗ-1).
+    /// Поток возвращается после стартового заполнения ring (§6.18).
     fn start_engine(
         &mut self,
-        source: Box<dyn AudioSource>,
-        resampler: Resampler,
-        shared: Arc<RtShared>,
-        rng: TpdfRng,
+        feed: EngineFeed,
+        plan: EnginePlan,
+        shared: Arc<SessionShared>,
         mut spec: OutputSpec,
+        start_frame: u64,
     ) -> Result<Option<cpal::Stream>, String> {
         let card = reserved_card(&spec);
         let now = self.clock.now();
@@ -616,59 +733,103 @@ impl Player {
         let built = match (gate.as_mut(), card) {
             (Some(g), Some(card)) => {
                 let name = spec.device_name.clone();
-                gated_build(g, card, &name, now, || self.build_engine_stream(&shared, rng, &mut spec))
+                gated_build(g, card, &name, now, || self.build_engine_stream(&plan, &shared, &mut spec))
             }
             (g, _) => {
                 // Shared или не `hw:`: резервирование не нужно, удерживаемое снимается.
                 if let Some(g) = g {
                     g.release(&mut None::<cpal::Stream>);
                 }
-                self.build_engine_stream(&shared, rng, &mut spec)
+                self.build_engine_stream(&plan, &shared, &mut spec)
                     .map(Some)
                     .map_err(|e| e.message)
             }
         };
         self.gate = gate;
-        let Some((stream, producer)) = built? else {
+        let Some((stream, ring, cap_frames)) = built? else {
             return Ok(None);
         };
-        self.worker = Some(PlaybackWorker::spawn(
-            source,
-            resampler,
-            producer,
-            shared,
-            self.viz_tap.clone(),
-        ));
-        Ok(Some(stream))
+        match self.spawn_decoder(feed, ring, &plan, &shared, cap_frames, start_frame) {
+            Ok(worker) => {
+                self.worker = Some(worker);
+                Ok(Some(stream))
+            }
+            Err(e) => {
+                // PCM закрывается раньше снятия резервирования (И-Р1).
+                let mut stream = Some(stream);
+                match self.gate.as_mut() {
+                    Some(g) => g.release(&mut stream),
+                    None => drop(stream),
+                }
+                Err(e)
+            }
+        }
     }
 
-    /// Ring + consumer + cpal stream. On a `Fixed`-buffer rejection the stream
-    /// is retried with `Default` (the source/resampler are only handed to the
-    /// worker once the stream builds).
+    /// Поток `apap-decode` над ring сессии; возврат — после `Ready` (§6.18).
+    /// Ошибка декодирования или таймаут заполнения — отказ открытия (ТЗ-87).
+    fn spawn_decoder(
+        &self,
+        feed: EngineFeed,
+        ring: EngineRing,
+        plan: &EnginePlan,
+        shared: &Arc<SessionShared>,
+        cap_frames: usize,
+        start_frame: u64,
+    ) -> Result<DecodeWorker, String> {
+        let (tx, rx) = mpsc::channel();
+        let cfg = DecodeConfig {
+            channels: plan.channels,
+            start_frame,
+            start_fill: start_fill_frames(cap_frames, plan.rate),
+            tail_samples: DECODE_TAIL_FRAMES.saturating_mul(plan.channels.max(1)),
+        };
+        let tap = Some(self.viz_tap.clone());
+        let spawned = match (feed, ring) {
+            // DoP: tap отсутствует (ТЗ-108).
+            (EngineFeed::Exact(f), EngineRing::I32(p)) if plan.kind == RingKind::Dop => {
+                DecodeWorker::spawn(DecodeLoop::new(f, p, shared.clone(), cfg, tx, None))
+            }
+            (EngineFeed::Exact(f), EngineRing::I32(p)) => {
+                DecodeWorker::spawn(DecodeLoop::new(f, p, shared.clone(), cfg, tx, tap))
+            }
+            (EngineFeed::Float(f), EngineRing::F32(p)) => {
+                DecodeWorker::spawn(DecodeLoop::new(f, p, shared.clone(), cfg, tx, tap))
+            }
+            _ => return Err("internal: ring type does not match the feed".into()),
+        };
+        let worker = spawned.map_err(|e| format!("cannot spawn decode thread: {e}"))?;
+        match rx.recv_timeout(START_FILL_TIMEOUT) {
+            Ok(DecodeEvent::Ready) => Ok(worker),
+            Ok(DecodeEvent::Failed(e)) => Err(format!("decoding failed: {e:?}")),
+            Err(_) => Err("decoder did not fill the start buffer in time".into()),
+        }
+    }
+
+    /// Ring + рендер + cpal-поток. При отказе `Fixed`-буфера поток повторяется
+    /// с `Default` (источник отдаётся декодеру только после сборки потока).
+    /// Возврат: поток, producer ring и ёмкость ring в кадрах.
     fn build_engine_stream(
         &self,
-        shared: &Arc<RtShared>,
-        rng: TpdfRng,
+        plan: &EnginePlan,
+        shared: &Arc<SessionShared>,
         spec: &mut OutputSpec,
-    ) -> Result<(cpal::Stream, rtrb::Producer<f32>), StreamBuildError> {
+    ) -> Result<(cpal::Stream, EngineRing, usize), StreamBuildError> {
+        let ch = plan.channels.max(1);
         loop {
-            // Recompute per iteration so the `Default` retry gets a floor that
-            // matches the actual (unknown) callback period less aggressively.
             let buffer_frames = match spec.config.buffer_size {
                 BufferSize::Fixed(f) => Some(f),
                 BufferSize::Default => None,
             };
-            let capacity = ring_capacity(
-                shared.out_rate(),
-                shared.out_ch(),
-                self.ring_buffer_ms,
-                buffer_frames,
-            );
-            let (producer, ring) = rtrb::RingBuffer::<f32>::new(capacity);
-            let mut consumer = RtConsumer::new(ring, shared.clone());
-            consumer.set_tpdf(rng);
-            match self.build_stream(spec, consumer) {
-                Ok(stream) => return Ok((stream, producer)),
+            let cap_frames = ring_capacity(plan.rate, ch, self.ring_buffer_ms, buffer_frames) / ch;
+            let period = buffer_frames
+                .and_then(|f| usize::try_from(f).ok())
+                .unwrap_or(0);
+            let prime = prime_frames(period, plan.rate, cap_frames);
+            let (render, ring) =
+                build_render(plan, spec.sample_format, shared, cap_frames.saturating_mul(ch), prime)?;
+            match self.build_stream(spec, render) {
+                Ok(stream) => return Ok((stream, ring, cap_frames)),
                 Err(e) => {
                     // `EBUSY` не лечится сменой буфера: решают ворота (ТЗ-122).
                     if matches!(spec.config.buffer_size, BufferSize::Fixed(_))
@@ -685,8 +846,8 @@ impl Player {
 
     /// Открытие отложено (ожидание резервирования / повтор `EBUSY`): трек
     /// загружен, поток будет открыт из [`Player::poll_reservation`].
-    fn defer_open(&mut self, path: &Path, info: &TrackInfo) {
-        self.pending = Some(PendingOpen { path: path.to_path_buf(), play: false, seek: 0.0 });
+    fn defer_open(&mut self, path: &Path, info: &TrackInfo, start_secs: f64) {
+        self.pending = Some(PendingOpen { path: path.to_path_buf(), play: false, seek: start_secs });
         self.info = Some(info.clone());
         self.current_path = Some(path.to_path_buf());
         self.last_error = None;
@@ -706,7 +867,7 @@ impl Player {
         match event {
             Some(GateEvent::Lost) => {
                 if let Some(shared) = &self.shared {
-                    shared.set_playing(false);
+                    shared.playing.store(false, Ordering::Release);
                 }
                 self.release_engine();
                 let msg = capture_message(&CaptureFailure::ReservationLost);
@@ -726,7 +887,7 @@ impl Player {
             return None;
         }
         let intent = self.pending.take()?;
-        if let Err(e) = self.open(&intent.path) {
+        if let Err(e) = self.open_at(&intent.path, intent.seek) {
             self.release_stream();
             self.last_error = Some(e.clone());
             return Some(ReservationEvent::Failed(e));
@@ -734,11 +895,7 @@ impl Player {
         if let Some(again) = self.pending.as_mut() {
             // `EBUSY` в пределах окна: повтор на следующем тике.
             again.play = intent.play;
-            again.seek = intent.seek;
             return None;
-        }
-        if intent.seek > 0.0 {
-            self.seek(intent.seek);
         }
         if intent.play {
             self.play();
@@ -746,11 +903,13 @@ impl Player {
         Some(ReservationEvent::Opened)
     }
 
-    /// Standard path: PCM files or DSD decoded to PCM via the CIC cascade,
-    /// resampled to the device rate. The device/config are negotiated through
-    /// [`select_output_for`] so `ExclusiveMode`/`FallbackPolicy`/`ResamplerMode`
-    /// are applied (ТЗ A3.0 §2–§4).
-    fn open_pcm(&mut self, path: &Path) -> Result<TrackInfo, String> {
+    /// Standard path: PCM files or DSD decoded to PCM via the CIC cascade.
+    /// The device/config are negotiated through [`select_output_for`] so
+    /// `ExclusiveMode`/`FallbackPolicy`/`ResamplerMode` are applied (ТЗ A3.0
+    /// §2–§4). Точный `ExactI32` без ресемплинга идёт в i32-ring, остальное —
+    /// в f32-ring через SRC (§6.10, ADR-03). Сессия начинается с `start_secs`
+    /// (фаза 1 seek при переоткрытии, §6.16).
+    fn open_pcm(&mut self, path: &Path, start_secs: f64) -> Result<TrackInfo, String> {
         let src: Box<dyn AudioSource> = match path.extension().and_then(|e| e.to_str()) {
             Some(e) if e.eq_ignore_ascii_case("dsf") || e.eq_ignore_ascii_case("dff") => {
                 Box::new(DsdDecoder::open(path)?)
@@ -780,19 +939,26 @@ impl Player {
 
         let resampler =
             Resampler::with_algo(src_rate, out_rate, src_ch, out_ch, self.resampler_algo);
-        let shared = RtShared::new(out_rate, out_ch, resampler.is_enabled());
-        Self::apply_state(
-            &shared,
-            self.volume,
-            self.muted,
-            self.dither_idx,
-            self.bit_perfect,
-            self.viz_active,
-        );
-        // Fresh dither seed per track: statistically independent noise,
-        // reproducible across runs for a given track path.
-        let mut rng = TpdfRng::new();
-        rng.reseed(track_seed(path));
+        let resampled = resampler.is_enabled();
+        let payload = src.ring_payload();
+        let exact = matches!(payload, RingPayload::ExactI32 { .. }) && !resampled && src_ch == out_ch;
+        let (kind, feed) = if exact {
+            (RingKind::Exact(payload), EngineFeed::Exact(ExactFeed::new(src, out_rate)))
+        } else {
+            (
+                RingKind::Float,
+                EngineFeed::Float(FloatFeed::new(src, resampler, out_rate, src_ch, out_ch)),
+            )
+        };
+        let plan = EnginePlan {
+            kind,
+            rate: out_rate,
+            channels: out_ch,
+            no_gain: self.bit_perfect,
+            dither_seed: self.dither_seed(path),
+        };
+        let shared = Arc::new(SessionShared::new());
+        self.apply_state(&shared);
 
         self.stream_desc = Some(StreamDesc {
             device: spec.device_name.clone(),
@@ -801,7 +967,7 @@ impl Player {
             format: format_name(&spec.sample_format),
             exclusive: spec.exclusive,
             exclusive_fallback: req.exclusive != ExclusiveMode::Off && !spec.exclusive,
-            resampled: resampler.is_enabled(),
+            resampled,
             source_rate: src_rate,
             source_channels: src_ch,
             dsd_mode: None,
@@ -810,12 +976,12 @@ impl Player {
             fallback: spec.fallback,
         });
 
-        let resampled = shared.bit_perfect_resampled();
-        let Some(stream) = self.start_engine(src, resampler, shared.clone(), rng, spec)? else {
-            self.defer_open(path, &info);
+        let start_frame = secs_to_frames(start_secs, out_rate);
+        let Some(stream) = self.start_engine(feed, plan, shared.clone(), spec, start_frame)? else {
+            self.defer_open(path, &info, start_secs);
             return Ok(info);
         };
-        if resampled {
+        if resampled && self.bit_perfect {
             eprintln!(
                 "[audio] WARN: device does not support native rate {src_rate} Hz, \
                  resampling to {out_rate} Hz under Bit-perfect mode"
@@ -826,19 +992,36 @@ impl Player {
         } else {
             self.last_error = None;
         }
-        self.stream = Some(stream);
-        self.shared = Some(shared);
-        self.info = Some(info.clone());
-        self.current_path = Some(path.to_path_buf());
+        self.install(stream, shared, out_rate, out_ch, path, &info);
         Ok(info)
     }
 
-    /// DoP (DSD over PCM) path: the decoder keeps the raw DSD bytes and packs
-    /// them into 24-bit DoP words at the container rate (byte rate / 2, i.e.
-    /// two bytes per channel per frame). Any slot mismatch or stream failure
-    /// is returned as `Err` — the DSD chain (§4.2) decides whether to fall
-    /// back to PCM (honest CIC decoding) without mislabelling the mode.
-    fn open_dop(&mut self, path: &Path) -> Result<TrackInfo, String> {
+    /// Сохранить собранную сессию как текущую.
+    fn install(
+        &mut self,
+        stream: cpal::Stream,
+        shared: Arc<SessionShared>,
+        out_rate: u32,
+        out_ch: usize,
+        path: &Path,
+        info: &TrackInfo,
+    ) {
+        self.stream = Some(stream);
+        self.shared = Some(shared);
+        self.out_rate = out_rate;
+        self.out_ch = out_ch;
+        self.end_ack = false;
+        self.info = Some(info.clone());
+        self.current_path = Some(path.to_path_buf());
+    }
+
+    /// DoP (DSD over PCM) path: the decoder packs the raw DSD bytes into
+    /// `ExactI32` DoP payloads at the container rate (byte rate / 2, i.e. two
+    /// bytes per channel per frame); `DopRender` adds the markers (§6.15). Any
+    /// slot mismatch or stream failure is returned as `Err` — the DSD chain
+    /// (§4.2) decides whether to fall back to PCM (honest CIC decoding)
+    /// without mislabelling the mode.
+    fn open_dop(&mut self, path: &Path, start_secs: f64) -> Result<TrackInfo, String> {
         let dop = DsdDecoder::open_with_mode(path, DecodeMode::Dop)?;
         // DSD64: byte rate = dsd_rate / 8 = 352800; DoP carries 2 bytes per
         // channel per 32-bit frame -> container rate 176400 (mpv/mpd framing).
@@ -873,22 +1056,16 @@ impl Player {
         spec.is_dop = true;
         self.device_desc = spec.device_name.clone();
 
-        // Identity config: source and output rates/channels match, so the
-        // resampler degrades to a pure pass-through and the DoP words are
-        // delivered verbatim (no volume, no dither — Direct Output).
-        let resampler =
-            Resampler::with_algo(dop_rate, dop_rate, src_ch, src_ch, self.resampler_algo);
-        let shared = RtShared::new(dop_rate, src_ch, resampler.is_enabled());
-        Self::apply_state(
-            &shared,
-            self.volume,
-            self.muted,
-            self.dither_idx,
-            self.bit_perfect,
-            self.viz_active,
-        );
-        let mut rng = TpdfRng::new();
-        rng.reseed(track_seed(path));
+        // Direct Output: без громкости и дизеринга, слова DoP доходят без изменений.
+        let plan = EnginePlan {
+            kind: RingKind::Dop,
+            rate: dop_rate,
+            channels: src_ch,
+            no_gain: true,
+            dither_seed: None,
+        };
+        let shared = Arc::new(SessionShared::new());
+        self.apply_state(&shared);
 
         self.stream_desc = Some(StreamDesc {
             device: spec.device_name.clone(),
@@ -897,7 +1074,7 @@ impl Player {
             format: format_name(&spec.sample_format),
             exclusive: spec.exclusive,
             exclusive_fallback: req.exclusive != ExclusiveMode::Off && !spec.exclusive,
-            resampled: resampler.is_enabled(),
+            resampled: false,
             source_rate: dop_rate,
             source_channels: src_ch,
             dsd_mode: None,
@@ -906,12 +1083,12 @@ impl Player {
             fallback: spec.fallback,
         });
 
-        let resampled = shared.bit_perfect_resampled();
-
-        let stream = match self.start_engine(Box::new(dop), resampler, shared.clone(), rng, spec) {
+        let feed = EngineFeed::Exact(ExactFeed::new(Box::new(dop), dop_rate));
+        let start_frame = secs_to_frames(start_secs, dop_rate);
+        let stream = match self.start_engine(feed, plan, shared.clone(), spec, start_frame) {
             Ok(Some(s)) => s,
             Ok(None) => {
-                self.defer_open(path, &info);
+                self.defer_open(path, &info, start_secs);
                 return Ok(info);
             }
             Err(e) => {
@@ -919,49 +1096,40 @@ impl Player {
                 return Err(format!("cannot build DoP stream: {e}"));
             }
         };
-        if resampled {
-            eprintln!(
-                "[audio] WARN: device does not support the DoP slot {dop_rate} Hz, \
-                 resampling under Bit-perfect mode"
-            );
-        }
         if let Err(e) = stream.play() {
             eprintln!("[audio] WARN: cannot start DoP stream ({e})");
             return Err(format!("cannot start DoP stream: {e}"));
         }
-        self.stream = Some(stream);
-        self.shared = Some(shared);
-        self.info = Some(info.clone());
-        self.current_path = Some(path.to_path_buf());
+        self.install(stream, shared, dop_rate, src_ch, path, &info);
         self.last_error = None;
         Ok(info)
     }
 
-    /// Rewind the worker/resampler to the start and clear the finished state.
-    fn rewind(&self, shared: &Arc<RtShared>) {
-        let generation = shared.begin_seek(0);
-        if let Some(worker) = &self.worker {
-            worker.send(WorkerCmd::Seek {
-                generation,
-                secs: 0.0,
-            });
-        }
-        shared.set_finished(false);
-        shared.set_natural_end(false);
-    }
-
     /// Rebuild a released engine (idle exclusive stream, V5.1-B6): reopen the
-    /// saved current track so `play()`/`toggle()` can resume. `secs` is
-    /// applied as a seek afterwards (0 = start), preserving transport state.
+    /// saved current track at `secs` (0 = start) so `play()`/`toggle()` can
+    /// resume. Сессия начинается с этой позиции (§6.18 `start_frame`).
     fn reopen_and_seek(&mut self, secs: f64) -> Result<(), String> {
         let Some(path) = self.current_path.clone() else {
             return Err("no track loaded".into());
         };
-        self.open(&path)?;
-        if secs > 0.0 {
-            self.seek(secs);
+        self.open_at(&path, secs).map(|_| ())
+    }
+
+    /// Переоткрыть текущий трек с текущей позиции, сохранив play/pause:
+    /// режим усиления и дизеринг фиксируются при сборке рендера (ОВС-18, ТЗ-8).
+    fn reopen_current(&mut self) {
+        if self.stream.is_none() {
+            return;
         }
-        Ok(())
+        let was_playing = self.is_playing();
+        let pos = if self.at_end() { 0.0 } else { self.resume_pos_secs() };
+        if let Err(e) = self.reopen_and_seek(pos) {
+            self.last_error = Some(e);
+            return;
+        }
+        if was_playing {
+            self.play();
+        }
     }
 
     /// Current playback position in seconds (used to restore resume position
@@ -969,22 +1137,28 @@ impl Player {
     fn resume_pos_secs(&self) -> f64 {
         self.shared
             .as_ref()
-            .map(|s| s.pos_frames() as f64 / s.out_rate().max(1) as f64)
+            .map(|s| s.pos_frames.load(Ordering::Relaxed) as f64 / f64::from(self.out_rate.max(1)))
             .unwrap_or(0.0)
+    }
+
+    /// Трек доигран: колбэк дошёл до `eof_frame`, и новый seek не запрошен (§6.17).
+    fn at_end(&self) -> bool {
+        self.shared
+            .as_ref()
+            .is_some_and(|s| s.ended.load(Ordering::Acquire) && !s.seek_pending())
     }
 
     /// Start/resume playback. A finished track is rewound and replayed. When
     /// the engine was released (the exclusive node is freed on stop/pause,
-    /// V5.1-B6) the current track is reopened and seeked to the saved position
-    /// before the transport flags are raised.
+    /// V5.1-B6) the current track is reopened at the saved position before
+    /// the transport flag is raised.
     pub fn play(&mut self) {
         if let Some(pending) = self.pending.as_mut() {
             pending.play = true;
             return;
         }
         if self.stream.is_none() && self.current_path.is_some() {
-            let finished = self.shared.as_ref().map(|s| s.finished()).unwrap_or(false);
-            let target = if finished { 0.0 } else { self.resume_pos_secs() };
+            let target = if self.at_end() { 0.0 } else { self.resume_pos_secs() };
             if let Err(e) = self.reopen_and_seek(target) {
                 self.last_error = Some(e);
                 return;
@@ -994,15 +1168,18 @@ impl Player {
                 return;
             }
         }
-        let Some(shared) = self.shared.clone() else {
+        let at_end = self.at_end();
+        let Some(shared) = self.shared.as_ref() else {
             self.last_error = Some("no track loaded".into());
             return;
         };
-        if shared.finished() {
-            self.rewind(&shared);
+        if at_end {
+            // Фаза 1 seek в начало (§6.16).
+            shared.request_seek(0);
+            shared.pos_frames.store(0, Ordering::Relaxed);
         }
-        shared.set_natural_end(false);
-        shared.set_playing(true);
+        shared.playing.store(true, Ordering::Release);
+        self.end_ack = false;
     }
 
     /// Returns `true` if a decoder (track) is currently loaded.
@@ -1020,86 +1197,53 @@ impl Player {
             pending.play = !pending.play;
             return;
         }
-        let was_playing = self
-            .shared
-            .as_ref()
-            .map(|s| s.is_playing())
-            .unwrap_or(false);
-        if was_playing {
+        if self.is_playing() {
             if let Some(shared) = &self.shared {
-                shared.set_playing(false);
+                shared.playing.store(false, Ordering::Release);
             }
             self.release_if_exclusive();
         } else {
-            if self.stream.is_none() && self.current_path.is_some() {
-                let target = self.resume_pos_secs();
-                if let Err(e) = self.reopen_and_seek(target) {
-                    self.last_error = Some(e);
-                    return;
-                }
-                if let Some(pending) = self.pending.as_mut() {
-                    pending.play = true;
-                    return;
-                }
-            }
-            if let Some(shared) = self.shared.clone() {
-                if shared.finished() {
-                    self.rewind(&shared);
-                }
-                shared.set_natural_end(false);
-                shared.set_playing(true);
-            }
+            self.play();
         }
     }
 
-    /// Stop playback, mark the track as finished and rewind to the start.
+    /// Stop playback and rewind to the start (фаза 1 seek, §6.16).
     pub fn stop(&mut self) {
         // Free an exclusive raw-`hw:` node: while the cpal stream is open the
         // ALSA PCM stays exclusively locked and disappears from the
         // PipeWire/wireplumber mixer (V5.1-B5).
         self.release_if_exclusive();
-        let Some(shared) = self.shared.clone() else {
+        let Some(shared) = self.shared.as_ref() else {
             return;
         };
-        shared.set_playing(false);
-        shared.set_finished(true);
-        shared.set_natural_end(false);
-        shared.set_pos_frames(0);
-        let generation = shared.begin_seek(0);
-        if let Some(worker) = &self.worker {
-            worker.send(WorkerCmd::Seek {
-                generation,
-                secs: 0.0,
-            });
-        }
+        shared.playing.store(false, Ordering::Release);
+        shared.request_seek(0);
+        shared.pos_frames.store(0, Ordering::Relaxed);
+        self.end_ack = false;
     }
 
-    /// Seek to `secs` (clamped to >= 0). The position is re-based optimistically
-    /// and finalised by the consumer once the worker acknowledges the seek.
+    /// Seek to `secs` (clamped to >= 0): фаза 1 — запрос нового поколения и
+    /// оптимистичная позиция; фазы 2–3 выполняют декодер и колбэк (§6.16).
     pub fn seek(&mut self, secs: f64) {
         if let Some(pending) = self.pending.as_mut() {
             pending.seek = secs.max(0.0);
             return;
         }
-        let Some(shared) = self.shared.clone() else {
+        let Some(shared) = self.shared.as_ref() else {
             return;
         };
-        let secs = secs.max(0.0);
-        let target = (secs * shared.out_rate() as f64) as u64;
-        let generation = shared.begin_seek(target);
-        if let Some(worker) = &self.worker {
-            worker.send(WorkerCmd::Seek { generation, secs });
-        }
-        shared.set_pos_frames(target);
-        shared.set_finished(false);
-        shared.set_natural_end(false);
+        let target = secs_to_frames(secs, self.out_rate);
+        shared.request_seek(target);
+        shared.pos_frames.store(target, Ordering::Relaxed);
+        self.end_ack = false;
     }
 
-    /// Set volume, clamped to [0, 1]. Applied inside the audio callback.
+    /// Set volume, clamped to [0, 1]. Applied inside the audio callback
+    /// (`AtomicGain`; в bit-perfect рендер собран без ступени громкости, ОВС-18).
     pub fn set_volume(&mut self, v: f32) {
         self.volume = v.clamp(0.0, 1.0);
         if let Some(shared) = &self.shared {
-            shared.set_volume(self.volume);
+            shared.set_gain(self.volume);
         }
     }
 
@@ -1112,7 +1256,7 @@ impl Player {
     pub fn set_muted(&mut self, m: bool) {
         self.muted = m;
         if let Some(shared) = &self.shared {
-            shared.set_muted(m);
+            shared.muted.store(m, Ordering::Release);
         }
     }
 
@@ -1123,20 +1267,18 @@ impl Player {
 
     /// Toggle mute.
     pub fn toggle_mute(&mut self) {
-        self.muted = !self.muted;
-        if let Some(shared) = &self.shared {
-            shared.set_muted(self.muted);
-        }
+        let m = !self.muted;
+        self.set_muted(m);
     }
 
-    /// Enable/disable bit-perfect (Direct Output) mode. When active, the
-    /// consumer bypasses the software volume/mute stage entirely and (at a
-    /// native-rate match) delivers the stream untouched.
+    /// Enable/disable bit-perfect (Direct Output) mode: рендер собирается с
+    /// `NoGain` (ОВС-18); смена режима переоткрывает поток с текущей позиции.
     pub fn set_bit_perfect(&mut self, enabled: bool) {
-        self.bit_perfect = enabled;
-        if let Some(shared) = &self.shared {
-            shared.set_bit_perfect(enabled);
+        if self.bit_perfect == enabled {
+            return;
         }
+        self.bit_perfect = enabled;
+        self.reopen_current();
     }
 
     /// Current bit-perfect flag.
@@ -1148,41 +1290,39 @@ impl Player {
     /// resample (native rate unsupported), i.e. bit-perfect is not guaranteed.
     /// Drives the «Resample (device limit)» status badge (ТЗ A2.0 §4.1).
     pub fn bit_perfect_resampled(&self) -> bool {
-        self.shared
-            .as_ref()
-            .map(|s| s.bit_perfect_resampled())
-            .unwrap_or(false)
+        self.shared.is_some()
+            && self.bit_perfect
+            && self.stream_desc.as_ref().is_some_and(|d| d.resampled)
     }
 
-    /// Set the dither mode applied during final quantization (i16/u8).
+    /// Set the dither mode. Seed TPDF фиксируется при сборке рендера (ТЗ-8):
+    /// смена режима переоткрывает поток с текущей позиции.
     pub fn set_dither(&mut self, dither: ResamplerDither) {
-        self.dither_idx = dither_index(dither);
-        if let Some(shared) = &self.shared {
-            shared.set_dither_index(self.dither_idx);
+        let idx = dither_index(dither);
+        if self.dither_idx == idx {
+            return;
         }
+        self.dither_idx = idx;
+        self.reopen_current();
     }
 
-    /// Whether the core is actively decoding (not paused/stopped).
+    /// Whether the core is actively playing (not paused/stopped/finished).
     pub fn is_playing(&self) -> bool {
         self.shared
             .as_ref()
-            .map(|s| s.is_playing())
-            .unwrap_or(false)
+            .is_some_and(|s| s.playing.load(Ordering::Acquire))
+            && !self.at_end()
     }
 
-    /// True when the current track played to its natural end (EOF).
+    /// True when the current track played to its natural end (EOF) and the
+    /// playlist has not handled it yet ([`Self::clear_end`]).
     pub fn ended(&self) -> bool {
-        self.shared
-            .as_ref()
-            .map(|s| s.natural_end())
-            .unwrap_or(false)
+        self.at_end() && !self.end_ack
     }
 
-    /// Clear the natural-end flag (e.g. after the playlist handled it).
+    /// Acknowledge the natural end (e.g. after the playlist handled it).
     pub fn clear_end(&mut self) {
-        if let Some(shared) = &self.shared {
-            shared.set_natural_end(false);
-        }
+        self.end_ack = true;
     }
 
     /// Attach (or detach) the visualizer tap producer. The worker writes
@@ -1199,17 +1339,14 @@ impl Player {
     pub fn set_viz_tap_active(&mut self, active: bool) {
         self.viz_active = active;
         if let Some(shared) = &self.shared {
-            shared.set_viz_tap_active(active);
+            shared.viz_tap_active.store(active, Ordering::Relaxed);
         }
     }
 
     /// Return a snapshot for the UI: (playing, pos, duration).
     pub fn snapshot(&self) -> (bool, f64, Option<f64>) {
         let playing = self.is_playing();
-        let pos = match &self.shared {
-            Some(shared) => shared.pos_frames() as f64 / shared.out_rate().max(1) as f64,
-            None => 0.0,
-        };
+        let pos = self.resume_pos_secs();
         let duration = self
             .info
             .as_ref()
@@ -1221,7 +1358,7 @@ impl Player {
     /// Used by the visualizer to drive the FFT (tap is post-resampler PCM).
     pub fn format(&self) -> (u32, usize) {
         match &self.shared {
-            Some(shared) => (shared.out_rate(), shared.out_ch()),
+            Some(_) => (self.out_rate, self.out_ch),
             None => (44_100, 2),
         }
     }
@@ -1474,6 +1611,9 @@ impl Player {
         Self {
             shared: None,
             worker: None,
+            out_rate: 44_100,
+            out_ch: 2,
+            end_ack: false,
             viz_tap: Arc::new(Mutex::new(None)),
             stream: None,
             gate: None,
@@ -1585,11 +1725,13 @@ mod tests {
         }
     }
 
-    /// A `Player` with a live `RtShared` but no output engine: enough to test
-    /// transport/control state without touching a real backend.
+    /// A `Player` with a live `SessionShared` but no output engine: enough to
+    /// test transport/control state without touching a real backend.
     fn player_with_shared(frames: usize) -> Player {
         let mut p = Player::test_new();
-        p.shared = Some(RtShared::new(44100, 1, false));
+        p.shared = Some(Arc::new(SessionShared::new()));
+        p.out_rate = 44_100;
+        p.out_ch = 1;
         p.info = Some(track_info(frames));
         p
     }
@@ -1665,8 +1807,9 @@ mod tests {
         assert!(!p.is_playing());
         assert_eq!(p.snapshot().1, 0.0, "stop must rewind to start");
         let shared = p.shared.as_ref().expect("shared");
-        assert!(shared.finished());
-        assert!(!shared.natural_end(), "manual stop is not a natural end");
+        assert!(shared.seek_pending(), "stop requests a seek to 0 (§6.16)");
+        assert_eq!(shared.seek_target_frame.load(Ordering::Relaxed), 0);
+        assert!(!p.ended(), "manual stop is not a natural end");
     }
 
     #[test]
@@ -1676,8 +1819,7 @@ mod tests {
         p.stop();
         p.play();
         assert!(p.is_playing());
-        let shared = p.shared.as_ref().expect("shared");
-        assert!(!shared.finished());
+        assert!(!p.ended());
         assert_eq!(p.snapshot().1, 0.0);
     }
 
@@ -1951,13 +2093,14 @@ mod tests {
     fn bit_perfect_resampled_flag_updates_on_toggle() {
         let mut p = Player::test_new();
         // Identity resampler: native-rate match, resampling is unnecessary.
-        p.shared = Some(RtShared::new(44100, 1, false));
+        p.shared = Some(Arc::new(SessionShared::new()));
+        p.stream_desc = Some(StreamDesc { resampled: false, ..Default::default() });
         p.set_bit_perfect(true);
         assert!(!p.bit_perfect_resampled());
 
         // Device rejects the native rate: a real conversion starts, the
         // «bit-perfect not guaranteed» flag must flip (ТЗ A2.0 §4.1).
-        p.shared = Some(RtShared::new(44100, 1, true));
+        p.stream_desc = Some(StreamDesc { resampled: true, ..Default::default() });
         p.set_bit_perfect(true);
         assert!(p.bit_perfect_resampled());
 

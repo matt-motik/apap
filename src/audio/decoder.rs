@@ -17,6 +17,7 @@ use symphonia::core::units::Time;
 
 use super::error::{CorruptKind, FileError};
 use super::format::{BitDepth, SampleBlock};
+use super::session::RingPayload;
 
 #[derive(Debug, Clone)]
 pub struct TrackInfo {
@@ -73,6 +74,12 @@ pub trait AudioSource: Send {
     /// `SessionShared::lossy_clipped` by the decode thread.
     fn lossy_clipped(&self) -> u64 {
         0
+    }
+
+    /// Ring payload chosen at open time (ADR-03, ТЗ-4): `F32` by default
+    /// (DSD→PCM, float sources); integer PCM overrides with `ExactI32`.
+    fn ring_payload(&self) -> RingPayload {
+        RingPayload::F32
     }
 }
 
@@ -439,6 +446,20 @@ impl Decoder {
         }
     }
 
+    /// Тип ring до первого пакета (ADR-03, ТЗ-4): float-PCM — `F32`; целые — `ExactI32`
+    /// с разрядностью `bits_per_sample`; без неё (lossy) — 24 бита (ОВ-36).
+    pub fn ring_payload(&self) -> RingPayload {
+        if self.float_pcm {
+            return RingPayload::F32;
+        }
+        let valid_bits = self
+            .bits_per_sample
+            .and_then(|b| u8::try_from(b).ok())
+            .and_then(BitDepth::new)
+            .unwrap_or(BITS_24);
+        RingPayload::ExactI32 { valid_bits }
+    }
+
     /// Следующий блок тракта (§6.10, ADR-03, ТЗ-4…ТЗ-6): целые источники — `ExactI32`
     /// исходной разрядности, выровненные влево; lossy — `ExactI32` 24 бит после
     /// округления (ОВ-36); float-PCM — `F32` (ОВС-1). `Ok(None)` — конец потока.
@@ -637,6 +658,10 @@ impl AudioSource for Decoder {
 
     fn lossy_clipped(&self) -> u64 {
         Decoder::lossy_clipped(self)
+    }
+
+    fn ring_payload(&self) -> RingPayload {
+        Decoder::ring_payload(self)
     }
 }
 

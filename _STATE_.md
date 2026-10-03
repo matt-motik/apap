@@ -41,13 +41,13 @@
 [x] Шаг 10: AudioSource::next_block в трейте; перевод внешних потребителей на next_block (fulltrack_manager.rs, tests/dsd512_playback_cpu_budget.rs). next_frames остаётся до Шага 11: его читает f32-воркер (§6.10, ADR-03). Проверка: cargo check --all-targets
 [x] Шаг 11: Поток apap-decode: Feed<P> (ExactFeed/FloatFeed), DecodeLoop с фазой 2 seek, PendingTail, eof_frame, стартовым заполнением и публикацией lossy_clipped/decode_errors; DecodeWorker (§6.16–§6.18, ADR-13, ТЗ-99, ТЗ-100) в worker.rs (+счётчики AudioSource в decoder.rs). next_frames и старый f32-воркер остаются до Шага 14: их читает Player. Проверка: cargo test worker:: (seek_protocol_rejects_two_phase_race, seek_protocol_series_acks_only_latest)
 [x] Шаг 12: output.rs: build_output_stream_raw + bytes_mut с маппингом I16→S16, I24→S24_LE, I32→S32, F32→F32; probe_output на SessionShared (§6.14). Проверка: cargo check
-[ ] Шаг 13: Player: фаза 1 seek, начальное заполнение min(50%, 300 мс), bit_perfect→NoGain, dither фиксируется при сборке, переоткрытие при переключении (§6.16, §6.18, ОВС-18, ТЗ-138) в player.rs. Проверка: cargo check; cargo run — играет в Совместимом режиме (ручная)
+[x] Шаг 13: Player: фаза 1 seek, начальное заполнение min(50%, 300 мс), bit_perfect→NoGain, dither фиксируется при сборке, переоткрытие при переключении (§6.16, §6.18, ОВС-18, ТЗ-138) в player.rs. Проверка: cargo check; cargo run — играет в Совместимом режиме (ручная)
 [ ] Шаг 14: Удаление старых колбэков, rt_*-тестов по §7.4, старого f32-воркера (RtShared/RtConsumer/PlaybackWorker) и next_frames из AudioSource и реализаций (§8 С2 «удаляется») + сквозные тесты §7.2 (pause_resume_100x_counter_stream_is_continuous, seek_1000x_first_sample_is_target, no_false_underrun_after_seek_and_start, real_starvation_after_priming_counts) в player.rs. Проверка: cargo test audio::
 [ ] Шаг 15: tests/rt_zero_alloc.rs: callback_zero_alloc_all_formats_and_states для новых рендеров (§7.2, ТЗ-10). Проверка: cargo test --test rt_zero_alloc
 [ ] Шаг 16: Финальная верификация: cargo build/test/clippy, python tools/check_rt_imports.py, traceability_tool (§7.7, §8 общие условия). Проверка: всё зелёное
 
-- **Текущий шаг (current_step):** Шаг 13
-- **Следующий ход:** Player: фаза 1 seek, начальное заполнение min(50%, 300 мс), bit_perfect→NoGain, dither фиксируется при сборке, переоткрытие при переключении (§6.16, §6.18, ОВС-18, ТЗ-138)
+- **Текущий шаг (current_step):** Шаг 14
+- **Следующий ход:** Удалить старые колбэки, rt_*-тесты, RtShared/RtConsumer/PlaybackWorker/WorkerCmd/build_stream_rt/TpdfRng и next_frames; добавить сквозные тесты §7.2 в player.rs
 - **Счетчик безуспешных компиляций:** 0/3
 - **Состояние:** in_progress
 

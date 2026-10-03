@@ -74,7 +74,7 @@ steps:
     done: true
   - id: 13
     description: "Player: фаза 1 seek, начальное заполнение min(50%, 300 мс), bit_perfect→NoGain, dither фиксируется при сборке, переоткрытие при переключении (§6.16, §6.18, ОВС-18, ТЗ-138) в player.rs. Проверка: cargo check; cargo run — играет в Совместимом режиме (ручная)"
-    done: false
+    done: true
   - id: 14
     description: "Удаление старых колбэков, rt_*-тестов по §7.4, старого f32-воркера (RtShared/RtConsumer/PlaybackWorker) и next_frames из AudioSource и реализаций (§8 С2 «удаляется») + сквозные тесты §7.2 (pause_resume_100x_counter_stream_is_continuous, seek_1000x_first_sample_is_target, no_false_underrun_after_seek_and_start, real_starvation_after_priming_counts) в player.rs. Проверка: cargo test audio::"
     done: false
@@ -85,8 +85,8 @@ steps:
     description: "Финальная верификация: cargo build/test/clippy, python tools/check_rt_imports.py, traceability_tool (§7.7, §8 общие условия). Проверка: всё зелёное"
     done: false
 
-current_step: 13
-next_action: "Player: фаза 1 seek, начальное заполнение min(50%, 300 мс), bit_perfect→NoGain, dither фиксируется при сборке, переоткрытие при переключении (§6.16, §6.18, ОВС-18, ТЗ-138)"
+current_step: 14
+next_action: "Удалить старые колбэки, rt_*-тесты, RtShared/RtConsumer/PlaybackWorker/WorkerCmd/build_stream_rt/TpdfRng и next_frames; добавить сквозные тесты §7.2 в player.rs"
 
 fail_counter: 0
 fail_counter_max: 3
