@@ -1,13 +1,22 @@
 use std::fs::File;
+use std::io::ErrorKind;
 use std::path::Path;
 
-use symphonia::core::codecs::audio::{AudioDecoder, AudioDecoderOptions};
+use symphonia::core::audio::GenericAudioBufferRef;
+use symphonia::core::codecs::audio::well_known::{
+    CODEC_ID_PCM_F32BE, CODEC_ID_PCM_F32BE_PLANAR, CODEC_ID_PCM_F32LE, CODEC_ID_PCM_F32LE_PLANAR,
+    CODEC_ID_PCM_F64BE, CODEC_ID_PCM_F64BE_PLANAR, CODEC_ID_PCM_F64LE, CODEC_ID_PCM_F64LE_PLANAR,
+};
+use symphonia::core::codecs::audio::{AudioCodecId, AudioDecoder, AudioDecoderOptions};
 use symphonia::core::errors::Error as SymError;
 use symphonia::core::formats::probe::Hint;
 use symphonia::core::formats::{FormatOptions, FormatReader, SeekMode, SeekTo, TrackType};
 use symphonia::core::io::MediaSourceStream;
 use symphonia::core::meta::MetadataOptions;
 use symphonia::core::units::Time;
+
+use super::error::{CorruptKind, FileError};
+use super::format::{BitDepth, SampleBlock};
 
 #[derive(Debug, Clone)]
 pub struct TrackInfo {
@@ -215,6 +224,62 @@ fn year_from_date(s: &str) -> String {
     }
 }
 
+/// Разрядность как константа: `BitDepth::new` вычисляется при компиляции.
+const fn depth(bits: u8) -> BitDepth {
+    match BitDepth::new(bits) {
+        Some(b) => b,
+        None => panic!("разрядность вне 1..=32"),
+    }
+}
+
+const BITS_8: BitDepth = depth(8);
+const BITS_16: BitDepth = depth(16);
+const BITS_24: BitDepth = depth(24);
+const BITS_32: BitDepth = depth(32);
+
+/// float-PCM файла (WAV/AIFF float32/float64): отдаётся как `SampleBlock::F32` (ОВС-1).
+fn is_float_pcm(codec: AudioCodecId) -> bool {
+    [
+        CODEC_ID_PCM_F32LE,
+        CODEC_ID_PCM_F32LE_PLANAR,
+        CODEC_ID_PCM_F32BE,
+        CODEC_ID_PCM_F32BE_PLANAR,
+        CODEC_ID_PCM_F64LE,
+        CODEC_ID_PCM_F64LE_PLANAR,
+        CODEC_ID_PCM_F64BE,
+        CODEC_ID_PCM_F64BE_PLANAR,
+    ]
+    .contains(&codec)
+}
+
+/// `valid_bits` целого варианта symphonia: собственная ширина варианта, но не больше
+/// `bits_per_sample` из `codec_params` — FLAC отдаёт `S32` уже со сдвигом влево (§6.10).
+fn int_valid_bits(native: BitDepth, bits_per_sample: Option<u32>) -> BitDepth {
+    bits_per_sample
+        .and_then(|b| u8::try_from(b).ok())
+        .and_then(BitDepth::new)
+        .map_or(native, |b| b.min(native))
+}
+
+/// Округление lossy-выхода до 24 бит без дизеринга (ОВ-36, §6.10):
+/// `round(x · 2²³)` (ties away from zero), ограничение границами i24, `<< 8`.
+/// Второе значение — `clamp` изменил сэмпл (счётчик `lossy_clipped`, ОВС-11). NaN → 0.
+pub(crate) fn round_lossy_24(x: f64) -> (i32, bool) {
+    let y = (x * 8_388_608.0).round();
+    if y.is_nan() {
+        return (0, false);
+    }
+    let c = y.clamp(-8_388_608.0, 8_388_607.0);
+    // После `clamp` значение в диапазоне i24: приведение точное, сдвиг не переполняет.
+    ((c as i32) << 8, c != y)
+}
+
+/// Что положено во внутренний буфер очередным пакетом.
+enum Filled {
+    I32 { len: usize, valid_bits: BitDepth },
+    F32 { len: usize },
+}
+
 pub struct Decoder {
     format: Box<dyn FormatReader>,
     decoder: Box<dyn AudioDecoder>,
@@ -222,6 +287,17 @@ pub struct Decoder {
     pub info: TrackInfo,
     pub eof: bool,
     scratch: Vec<f32>,
+    /// Буфер `ExactI32` (§6.10), выделен при открытии: `max_frames_per_packet × каналы`.
+    buf_i32: Vec<i32>,
+    /// Буфер `F32` для float-PCM (ОВС-1).
+    buf_f32: Vec<f32>,
+    /// Промежуточный float-выход lossy-кодека перед округлением до 24 бит.
+    buf_lossy: Vec<f64>,
+    float_pcm: bool,
+    bits_per_sample: Option<u32>,
+    frames_decoded: u64,
+    decode_errors: u64,
+    lossy_clipped: u64,
 }
 
 impl Decoder {
@@ -261,6 +337,12 @@ impl Decoder {
         let channels = params.channels.as_ref().map(|c| c.count()).unwrap_or(2);
         let num_frames = track.num_frames;
         let bits = params.bits_per_sample;
+        let float_pcm = is_float_pcm(params.codec);
+        let block_cap = params
+            .max_frames_per_packet
+            .and_then(|f| usize::try_from(f).ok())
+            .unwrap_or(0)
+            .saturating_mul(channels);
 
         let mut dec_opts = AudioDecoderOptions::default();
         dec_opts.gapless = true;
@@ -305,7 +387,132 @@ impl Decoder {
             },
             eof: false,
             scratch: Vec::new(),
+            buf_i32: if float_pcm { Vec::new() } else { vec![0; block_cap] },
+            buf_f32: if float_pcm { vec![0.0; block_cap] } else { Vec::new() },
+            buf_lossy: Vec::new(),
+            float_pcm,
+            bits_per_sample: bits,
+            frames_decoded: 0,
+            decode_errors: 0,
+            lossy_clipped: 0,
         })
+    }
+
+    /// Пропущенных повреждённых пакетов (ТЗ-87, ТЗ-75).
+    pub fn decode_errors(&self) -> u64 {
+        self.decode_errors
+    }
+
+    /// Сэмплов lossy-выхода, ограниченных границами 24 бит (ОВС-11); поток
+    /// декодирования публикует значение в `SessionShared::lossy_clipped`.
+    pub fn lossy_clipped(&self) -> u64 {
+        self.lossy_clipped
+    }
+
+    /// Ошибка чтения потока (ТЗ-87, §6.10): `UnexpectedEof` — естественный конец (`Ok`),
+    /// прочий ввод-вывод — `ReadDuringPlayback`, остальное — `Corrupt`.
+    fn stream_error(&mut self, e: SymError) -> Result<(), FileError> {
+        self.eof = true;
+        match e {
+            SymError::IoError(io) if io.kind() == ErrorKind::UnexpectedEof => Ok(()),
+            SymError::IoError(io) => Err(FileError::ReadDuringPlayback {
+                at_frame: self.frames_decoded,
+                kind: io.kind(),
+            }),
+            _ => Err(FileError::Corrupt(CorruptKind::DecodeFailed)),
+        }
+    }
+
+    /// Следующий блок тракта (§6.10, ADR-03, ТЗ-4…ТЗ-6): целые источники — `ExactI32`
+    /// исходной разрядности, выровненные влево; lossy — `ExactI32` 24 бит после
+    /// округления (ОВ-36); float-PCM — `F32` (ОВС-1). `Ok(None)` — конец потока.
+    /// Повреждённый пакет пропускается с `decode_errors += 1`.
+    pub fn next_block(&mut self) -> Result<Option<SampleBlock<'_>>, FileError> {
+        if self.eof {
+            return Ok(None);
+        }
+        let filled = loop {
+            let packet = match self.format.next_packet() {
+                Ok(Some(p)) => p,
+                Ok(None) => {
+                    self.eof = true;
+                    return Ok(None);
+                }
+                Err(e) => return self.stream_error(e).map(|()| None),
+            };
+            if packet.track_id != self.track_id {
+                continue;
+            }
+            let buf = match self.decoder.decode(&packet) {
+                Ok(buf) => buf,
+                Err(SymError::DecodeError(_)) => {
+                    self.decode_errors = self.decode_errors.saturating_add(1);
+                    continue;
+                }
+                Err(e) => return self.stream_error(e).map(|()| None),
+            };
+            let len = buf.samples_interleaved();
+            if len == 0 {
+                continue;
+            }
+            self.frames_decoded = self
+                .frames_decoded
+                .saturating_add(u64::try_from(buf.frames()).unwrap_or(u64::MAX));
+            let native = match buf {
+                GenericAudioBufferRef::U8(_) | GenericAudioBufferRef::S8(_) => Some(BITS_8),
+                GenericAudioBufferRef::U16(_) | GenericAudioBufferRef::S16(_) => Some(BITS_16),
+                GenericAudioBufferRef::U24(_) | GenericAudioBufferRef::S24(_) => Some(BITS_24),
+                GenericAudioBufferRef::U32(_) | GenericAudioBufferRef::S32(_) => Some(BITS_32),
+                GenericAudioBufferRef::F32(_) | GenericAudioBufferRef::F64(_) => None,
+            };
+            if let Some(native) = native {
+                // Целые → i32 в symphonia — чистые сдвиги влево (беззнаковые — с инверсией
+                // старшего бита); младшие 32 − valid_bits бит нулевые (И-Р4).
+                if self.buf_i32.len() < len {
+                    self.buf_i32.resize(len, 0);
+                }
+                buf.copy_to_slice_interleaved(&mut self.buf_i32[..len]);
+                break Filled::I32 {
+                    len,
+                    valid_bits: int_valid_bits(native, self.bits_per_sample),
+                };
+            }
+            if self.float_pcm {
+                // F32 — копия без изменений, F64 — `as f32` (FloatNarrow, ОВС-1).
+                if self.buf_f32.len() < len {
+                    self.buf_f32.resize(len, 0.0);
+                }
+                buf.copy_to_slice_interleaved(&mut self.buf_f32[..len]);
+                break Filled::F32 { len };
+            }
+            if self.buf_lossy.len() < len {
+                self.buf_lossy.resize(len, 0.0);
+            }
+            if self.buf_i32.len() < len {
+                self.buf_i32.resize(len, 0);
+            }
+            buf.copy_to_slice_interleaved(&mut self.buf_lossy[..len]);
+            let mut clipped = 0u64;
+            for (d, &x) in self.buf_i32.iter_mut().zip(&self.buf_lossy[..len]) {
+                let (s, c) = round_lossy_24(x);
+                *d = s;
+                clipped += u64::from(c);
+            }
+            self.lossy_clipped = self.lossy_clipped.saturating_add(clipped);
+            break Filled::I32 {
+                len,
+                valid_bits: BITS_24,
+            };
+        };
+        Ok(Some(match filled {
+            Filled::I32 { len, valid_bits } => SampleBlock::ExactI32 {
+                data: &self.buf_i32[..len],
+                valid_bits,
+            },
+            Filled::F32 { len } => SampleBlock::F32 {
+                data: &self.buf_f32[..len],
+            },
+        }))
     }
 
     pub fn info(&self) -> &TrackInfo {
@@ -457,6 +664,114 @@ mod tests {
             }
         }
         assert!(saw, "no audio after seek");
+    }
+
+    #[test]
+    fn lossy_decoder_rounds_to_24bit() {
+        let lsb = 1.0 / 8_388_608.0;
+        assert_eq!(round_lossy_24(0.0), (0, false));
+        assert_eq!(round_lossy_24(0.5), (0x40_0000 << 8, false));
+        assert_eq!(round_lossy_24(-0.5), (-0x40_0000 << 8, false));
+        // Ties away from zero.
+        assert_eq!(round_lossy_24(0.5 * lsb), (1 << 8, false));
+        assert_eq!(round_lossy_24(-0.5 * lsb), (-1 << 8, false));
+        assert_eq!(round_lossy_24(0.49 * lsb), (0, false));
+        // Границы i24: −1.0 точно, +1.0 и перегрузка ограничиваются со счётом.
+        assert_eq!(round_lossy_24(-1.0), (-8_388_608 << 8, false));
+        assert_eq!(round_lossy_24(1.0), (8_388_607 << 8, true));
+        assert_eq!(round_lossy_24(3.5), (8_388_607 << 8, true));
+        assert_eq!(round_lossy_24(-1.0 - lsb), (-8_388_608 << 8, true));
+        assert_eq!(round_lossy_24(f64::NAN), (0, false));
+        // Младшие 8 бит всегда нулевые (И-Р4).
+        for i in -1000..1000 {
+            let (s, _) = round_lossy_24(f64::from(i) * 0.001_37);
+            assert_eq!(s & 0xFF, 0);
+        }
+    }
+
+    /// Минимальный WAV (`fmt ` + `data`) во временный файл.
+    fn write_wav(name: &str, format_tag: u16, bits: u16, channels: u16, data: &[u8]) -> PathBuf {
+        let rate = 44_100u32;
+        let block = channels * bits / 8;
+        let mut b = Vec::new();
+        b.extend_from_slice(b"RIFF");
+        b.extend_from_slice(&(36 + data.len() as u32).to_le_bytes());
+        b.extend_from_slice(b"WAVEfmt ");
+        b.extend_from_slice(&16u32.to_le_bytes());
+        b.extend_from_slice(&format_tag.to_le_bytes());
+        b.extend_from_slice(&channels.to_le_bytes());
+        b.extend_from_slice(&rate.to_le_bytes());
+        b.extend_from_slice(&(rate * u32::from(block)).to_le_bytes());
+        b.extend_from_slice(&block.to_le_bytes());
+        b.extend_from_slice(&bits.to_le_bytes());
+        b.extend_from_slice(b"data");
+        b.extend_from_slice(&(data.len() as u32).to_le_bytes());
+        b.extend_from_slice(data);
+        let path = std::env::temp_dir().join(format!("{}-{name}", std::process::id()));
+        std::fs::write(&path, b).expect("write wav");
+        path
+    }
+
+    #[test]
+    fn next_block_i16_wav_is_exact_left_aligned() {
+        let src: Vec<i16> = vec![0, 1, -1, i16::MAX, i16::MIN, 0x1234, -0x1234, 7];
+        let data: Vec<u8> = src.iter().flat_map(|s| s.to_le_bytes()).collect();
+        let path = write_wav("i16.wav", 1, 16, 2, &data);
+        let mut dec = Decoder::open(&path).expect("open");
+        let mut got = Vec::new();
+        while let Some(block) = dec.next_block().expect("read") {
+            match block {
+                SampleBlock::ExactI32 { data, valid_bits } => {
+                    assert_eq!(valid_bits, BITS_16);
+                    got.extend_from_slice(data);
+                }
+                other => panic!("ожидался ExactI32: {other:?}"),
+            }
+        }
+        let want: Vec<i32> = src.iter().map(|&s| i32::from(s) << 16).collect();
+        assert_eq!(got, want);
+        assert!(dec.eof());
+        assert_eq!(dec.decode_errors(), 0);
+        let _ = std::fs::remove_file(path);
+    }
+
+    #[test]
+    fn next_block_f32_wav_is_float_copy() {
+        let src: Vec<f32> = vec![0.0, 0.5, -1.0, 1.5, 1e-9, -0.25];
+        let data: Vec<u8> = src.iter().flat_map(|s| s.to_le_bytes()).collect();
+        let path = write_wav("f32.wav", 3, 32, 2, &data);
+        let mut dec = Decoder::open(&path).expect("open");
+        let mut got = Vec::new();
+        while let Some(block) = dec.next_block().expect("read") {
+            match block {
+                SampleBlock::F32 { data } => got.extend_from_slice(data),
+                other => panic!("ожидался F32: {other:?}"),
+            }
+        }
+        // Побитово, включая значения вне [-1, 1) (ОВС-1).
+        let bits = |v: &[f32]| v.iter().map(|x| x.to_bits()).collect::<Vec<_>>();
+        assert_eq!(bits(&got), bits(&src));
+        assert_eq!(dec.lossy_clipped(), 0);
+        let _ = std::fs::remove_file(path);
+    }
+
+    #[test]
+    fn valid_bits_capped_by_bits_per_sample() {
+        // FLAC 24 бит в S32: valid_bits из bits_per_sample.
+        assert_eq!(int_valid_bits(BITS_32, Some(24)), BITS_24);
+        assert_eq!(int_valid_bits(BITS_16, Some(24)), BITS_16);
+        assert_eq!(int_valid_bits(BITS_16, None), BITS_16);
+        assert_eq!(int_valid_bits(BITS_32, Some(0)), BITS_32);
+        assert_eq!(int_valid_bits(BITS_32, Some(64)), BITS_32);
+    }
+
+    #[test]
+    fn float_pcm_codecs_detected() {
+        assert!(is_float_pcm(CODEC_ID_PCM_F32LE));
+        assert!(is_float_pcm(CODEC_ID_PCM_F64BE_PLANAR));
+        assert!(!is_float_pcm(
+            symphonia::core::codecs::audio::well_known::CODEC_ID_FLAC
+        ));
     }
 
     #[test]

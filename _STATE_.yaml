@@ -59,7 +59,7 @@ steps:
     done: true
   - id: 8
     description: "Decoder::next_block — ExactI32 по разрядности + lossy-округление с lossy_clipped, F32 для float-PCM (§6.10, ТЗ-4, ТЗ-5) в decoder.rs. Проверка: cargo test decoder::"
-    done: false
+    done: true
   - id: 9
     description: "DsdDecoder::next_block — F32 для CIC, ExactI32 с payload в битах 23..8 для DoP (§6.10, §6.15) в dsd.rs. Проверка: cargo test dsd::"
     done: false
@@ -85,8 +85,8 @@ steps:
     description: "Финальная верификация: cargo build/test/clippy, python tools/check_rt_imports.py, traceability_tool (§7.7, §8 общие условия). Проверка: всё зелёное"
     done: false
 
-current_step: 8
-next_action: "decoder.rs: Decoder::next_block — ring-блок ExactI32 (целые источники, valid_bits) или F32 (lossy/float), счётчик lossy_clipped (§6.10, ADR-03, ТЗ-4…ТЗ-6)"
+current_step: 9
+next_action: "dsd.rs: DsdDecoder::next_block — F32 для DSD→PCM (CIC) и ExactI32 с DoP-полезной нагрузкой в битах 23..8 (§6.10, §6.15, ADR-12, ТЗ-1…ТЗ-3)"
 
 fail_counter: 0
 fail_counter_max: 3
