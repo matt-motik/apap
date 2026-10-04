@@ -74,7 +74,7 @@ steps:
     done: true
   - id: 12
     description: "src/app/mod.rs: проверка UiGate::allows(MainCmd) в начале каждого обработчика команды главного окна; open_settings → block(Dialog), save/cancel → unblock(Dialog); трей (poll_tray) — без проверки шлюза (ADR-12, ТЗ-23, ТЗ-24, И-Р8). Проверка: cargo check; cargo test (bin) зелёный"
-    done: false
+    done: true
   - id: 13
     description: "src/app/mod.rs: ошибка save_settings/save_track_list → messages.write_failed(WorkFile, class); Retry → повтор синхронной записи файлов списка, успех → write_succeeded (§6.8, ТЗ-20 окно, ТЗ-28: диалог закрывается, настройки действуют). Проверка: cargo check"
     done: false
@@ -88,8 +88,8 @@ steps:
     description: "Финальная верификация: cargo build, cargo test, cargo clippy (0 новых варнингов в вайтлисте), tools/state_tool.py check-whitelist, traceability_tool; ручная проверка пользователем: меню неактивно при диалоге/окне, Enter/Esc, плеер играет в Совместимом режиме. Проверка: всё зелёное"
     done: false
 
-current_step: 12
-next_action: "Шаг 12: src/app/mod.rs — проверка UiGate::allows(MainCmd) в начале каждого обработчика команды главного окна; open_settings → block(Dialog), save/cancel → unblock(Dialog); трей (poll_tray) — без проверки шлюза (ADR-12, ТЗ-23, ТЗ-24, И-Р8). Проверка: cargo check; cargo test (bin) зелёный"
+current_step: 13
+next_action: "Шаг 13: src/app/mod.rs — ошибка save_settings/save_track_list → messages.write_failed(WorkFile, class); Retry → повтор синхронной записи файлов списка, успех → write_succeeded (§6.8, ТЗ-20 окно, ТЗ-28: диалог закрывается, настройки действуют). Проверка: cargo check"
 
 fail_counter: 0
 fail_counter_max: 3

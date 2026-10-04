@@ -528,6 +528,9 @@ impl MusicApp {
             messages: MessageCenter::default(),
             caps: PlatformCaps { tray: true, notifications: true },
         };
+        // Загрузка плейлиста при старте ещё не завершена (фон, выше) —
+        // список недоступен до её окончания (ТЗ-48, §2.11).
+        app.gate.set_loading(Some(LoadKind::Startup));
         app.setup_fulltrack();
         app.setup_visualizer(viz_cfg, viz_prod, viz_cons);
         app.rebuild_shuffle();
@@ -766,6 +769,9 @@ impl MusicApp {
             ui.on_play_pause(move || {
                 eprintln!("[gui] play_pause");
                 let mut a = app.borrow_mut();
+                if !a.gate.allows(MainCmd::PlayPause) {
+                    return;
+                }
                 if !a.player.has_decoder() {
                     let idx = a.current.unwrap_or(0);
                     if idx < a.tracks.len() {
@@ -788,6 +794,9 @@ impl MusicApp {
             ui.on_stop(move || {
                 eprintln!("[gui] stop");
                 let mut a = app.borrow_mut();
+                if !a.gate.allows(MainCmd::Stop) {
+                    return;
+                }
                 a.player.stop();
                 a.emit(AppEvent::PlaybackStopped);
             });
@@ -798,7 +807,11 @@ impl MusicApp {
             let app = this.clone();
             ui.on_prev_track(move || {
                 eprintln!("[gui] prev_track");
-                app.borrow_mut().play_prev();
+                let mut a = app.borrow_mut();
+                if !a.gate.allows(MainCmd::Prev) {
+                    return;
+                }
+                a.play_prev();
             });
         }
 
@@ -807,7 +820,11 @@ impl MusicApp {
             let app = this.clone();
             ui.on_next_track(move || {
                 eprintln!("[gui] next_track");
-                app.borrow_mut().play_next(1);
+                let mut a = app.borrow_mut();
+                if !a.gate.allows(MainCmd::Next) {
+                    return;
+                }
+                a.play_next(1);
             });
         }
 
@@ -816,7 +833,11 @@ impl MusicApp {
             let app = this.clone();
             ui.on_toggle_repeat(move || {
                 eprintln!("[gui] toggle_repeat");
-                app.borrow_mut().cycle_repeat();
+                let mut a = app.borrow_mut();
+                if !a.gate.allows(MainCmd::Repeat) {
+                    return;
+                }
+                a.cycle_repeat();
             });
         }
 
@@ -826,6 +847,9 @@ impl MusicApp {
             ui.on_toggle_shuffle(move || {
                 eprintln!("[gui] toggle_shuffle");
                 let mut a = app.borrow_mut();
+                if !a.gate.allows(MainCmd::Shuffle) {
+                    return;
+                }
                 a.shuffle = !a.shuffle;
                 a.settings.settings.shuffle = a.shuffle;
                 a.rebuild_shuffle();
@@ -838,6 +862,9 @@ impl MusicApp {
             let app = this.clone();
             ui.on_seek(move |fraction| {
                 eprintln!("[gui] seek fraction={fraction:.3}");
+                if !app.borrow().gate.allows(MainCmd::Seek) {
+                    return;
+                }
                 let duration = app.borrow().player.snapshot().2.unwrap_or(0.0);
                 app.borrow_mut().player.seek(fraction as f64 * duration);
             });
@@ -848,6 +875,9 @@ impl MusicApp {
             let app = this.clone();
             ui.on_seek_commit(move |fraction| {
                 eprintln!("[gui] seek_commit fraction={fraction:.3}");
+                if !app.borrow().gate.allows(MainCmd::Seek) {
+                    return;
+                }
                 let duration = app.borrow().player.snapshot().2.unwrap_or(0.0);
                 app.borrow_mut().player.seek(fraction as f64 * duration);
             });
@@ -859,6 +889,9 @@ impl MusicApp {
             ui.on_volume_changed(move |volume| {
                 eprintln!("[gui] volume_changed volume={volume:.3}");
                 let mut a = app.borrow_mut();
+                if !a.gate.allows(MainCmd::Volume) {
+                    return;
+                }
                 // Bit-perfect (Direct Output) moves the volume stage to the
                 // external DAC/amp: a stray slider/wheel event must never
                 // insert a software gain into the untouched stream.
@@ -877,7 +910,11 @@ impl MusicApp {
             let app = this.clone();
             ui.on_toggle_mute(move || {
                 eprintln!("[gui] toggle_mute");
-                app.borrow_mut().player.toggle_mute();
+                let mut a = app.borrow_mut();
+                if !a.gate.allows(MainCmd::ToggleMute) {
+                    return;
+                }
+                a.player.toggle_mute();
             });
         }
 
@@ -887,6 +924,9 @@ impl MusicApp {
             ui.on_play_track(move |index| {
                 eprintln!("[gui] play_track index={index}");
                 let mut a = app.borrow_mut();
+                if !a.gate.allows(MainCmd::PlayRow) {
+                    return;
+                }
                 let now = Instant::now();
                 let is_double = a.last_click_row == Some(index)
                     && now.duration_since(a.last_click_time).as_millis() < 400;
@@ -908,7 +948,11 @@ impl MusicApp {
                     visible_col_at_index(&a.settings.settings, col_idx)
                 };
                 if let Some(col) = col {
-                    app.borrow_mut().sort_tracks(col);
+                    let mut a = app.borrow_mut();
+                    if !a.gate.allows(MainCmd::SortBy(col)) {
+                        return;
+                    }
+                    a.sort_tracks(col);
                 }
             });
         }
@@ -921,7 +965,11 @@ impl MusicApp {
                     visible_col_at_index(&a.settings.settings, col_idx)
                 };
                 if let Some(col) = col {
-                    app.borrow_mut().sort_tracks(col);
+                    let mut a = app.borrow_mut();
+                    if !a.gate.allows(MainCmd::SortBy(col)) {
+                        return;
+                    }
+                    a.sort_tracks(col);
                 }
             });
         }
@@ -932,6 +980,9 @@ impl MusicApp {
             ui.on_open_settings(move || {
                 eprintln!("[gui] open_settings");
                 let mut a = app.borrow_mut();
+                if !a.gate.allows(MainCmd::OpenSettings) {
+                    return;
+                }
                 a.settings_draft = Some(a.settings.settings.clone());
                 // T1.0 §6.2: свежий диалог → сброс транзитного выбора темы и
                 // пересборка списка/метаданных из themes/*.toml.
@@ -947,6 +998,8 @@ impl MusicApp {
                 a.sync_cover_settings_to_ui();
                 a.sync_cache_stats_to_ui();
                 a.ui.set_settings_open(true);
+                a.gate.block(BlockReason::Dialog);
+                a.sync_gate_ui();
             });
         }
 
@@ -955,12 +1008,25 @@ impl MusicApp {
             let app = this.clone();
             ui.on_add_files(move || {
                 eprintln!("[gui] add_files");
+                if !app.borrow().gate.allows(MainCmd::AddFiles) {
+                    return;
+                }
+                {
+                    let mut a = app.borrow_mut();
+                    a.gate.block(BlockReason::FilePicker);
+                    a.sync_gate_ui();
+                }
                 let dialog = FileDialog::new()
                     .add_filter(
                         "Audio",
                         &["flac", "mp3", "ogg", "wav", "aac", "m4a", "dsf", "aiff"],
                     )
                     .pick_files();
+                {
+                    let mut a = app.borrow_mut();
+                    a.gate.unblock(BlockReason::FilePicker);
+                    a.sync_gate_ui();
+                }
                 if let Some(paths) = dialog {
                     app.borrow_mut().start_scan(paths);
                 }
@@ -972,7 +1038,21 @@ impl MusicApp {
             let app = this.clone();
             ui.on_add_folder(move || {
                 eprintln!("[gui] add_folder");
-                if let Some(folder) = FileDialog::new().pick_folder() {
+                if !app.borrow().gate.allows(MainCmd::AddFolder) {
+                    return;
+                }
+                {
+                    let mut a = app.borrow_mut();
+                    a.gate.block(BlockReason::FilePicker);
+                    a.sync_gate_ui();
+                }
+                let folder = FileDialog::new().pick_folder();
+                {
+                    let mut a = app.borrow_mut();
+                    a.gate.unblock(BlockReason::FilePicker);
+                    a.sync_gate_ui();
+                }
+                if let Some(folder) = folder {
                     app.borrow_mut().start_scan(vec![folder]);
                 }
             });
@@ -983,7 +1063,11 @@ impl MusicApp {
             let app = this.clone();
             ui.on_save_playlist(move || {
                 eprintln!("[gui] save_playlist");
-                app.borrow_mut().save_playlist();
+                let mut a = app.borrow_mut();
+                if !a.gate.allows(MainCmd::SavePlaylist) {
+                    return;
+                }
+                a.save_playlist();
             });
         }
 
@@ -992,10 +1076,23 @@ impl MusicApp {
             let app = this.clone();
             ui.on_load_playlist(move || {
                 eprintln!("[gui] load_playlist");
-                if let Some(path) = FileDialog::new()
-                    .add_filter("Playlist", &["m3u", "m3u8"])
-                    .pick_file()
+                if !app.borrow().gate.allows(MainCmd::LoadPlaylist) {
+                    return;
+                }
                 {
+                    let mut a = app.borrow_mut();
+                    a.gate.block(BlockReason::FilePicker);
+                    a.sync_gate_ui();
+                }
+                let picked = FileDialog::new()
+                    .add_filter("Playlist", &["m3u", "m3u8"])
+                    .pick_file();
+                {
+                    let mut a = app.borrow_mut();
+                    a.gate.unblock(BlockReason::FilePicker);
+                    a.sync_gate_ui();
+                }
+                if let Some(path) = picked {
                     let tracks = playlist::load_track_list(&path);
                     let mut a = app.borrow_mut();
                     a.disk_tracks = tracks.clone();
@@ -1019,6 +1116,8 @@ impl MusicApp {
                 // real settings on the next open, so no field resync is needed.
                 a.settings_draft = None;
                 a.ui.set_settings_open(false);
+                a.gate.unblock(BlockReason::Dialog);
+                a.sync_gate_ui();
             });
         }
 
@@ -1548,6 +1647,8 @@ impl MusicApp {
                 a.sync_playlist_to_ui();
                 a.sync_audio_devices();
                 a.ui.set_settings_open(false);
+                a.gate.unblock(BlockReason::Dialog);
+                a.sync_gate_ui();
                 eprintln!("[gui] settings_save: applied and closed");
             });
         }
@@ -1810,6 +1911,8 @@ impl MusicApp {
                 return;
             }
         };
+        // Загрузка завершена — снять признак ТЗ-48, список снова доступен.
+        self.gate.set_loading(None);
         let n = tracks.len();
         self.disk_tracks = tracks.clone();
         self.tracks = tracks;

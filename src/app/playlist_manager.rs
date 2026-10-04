@@ -19,6 +19,8 @@ impl MusicApp {
         self.scan_rx = Some(rx);
         self.status = format!("Adding tracks\u{2026} {} item(s)", paths.len()).into();
         self.ui.set_busy(true);
+        // Список недоступен для ТЗ-48 команд до конца фонового сканирования.
+        self.gate.set_loading(Some(LoadKind::Command));
         thread::spawn(move || {
             playlist::probe_paths(paths, tx);
         });
@@ -71,6 +73,7 @@ impl MusicApp {
         if finished {
             self.scan_rx = None;
             self.ui.set_busy(false);
+            self.gate.set_loading(None);
             // Flush leftovers if the stream ended without a final Done message.
             if !self.scan_pending.is_empty() {
                 let n = self.scan_pending.len();
