@@ -245,3 +245,154 @@ impl MessageCenter {
         }
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn plain_msg(title: &str) -> Message {
+        Message {
+            level: MessageLevel::Warning,
+            title: title.into(),
+            body: "body".into(),
+            buttons: MessageButtons::Ok,
+        }
+    }
+
+    #[test]
+    fn messages_before_show_queued_in_order() {
+        let mut mc = MessageCenter::default();
+        let caps = PlatformCaps::default();
+        let m1 = plain_msg("A");
+        let m2 = plain_msg("B");
+
+        assert_eq!(mc.push(m1.clone(), caps).show, None);
+        assert_eq!(mc.push(m2.clone(), caps).show, None);
+
+        let shown = mc.window_shown();
+        assert_eq!(shown.show, Some(m1));
+
+        let (close, effect) = mc.press(MessageButton::Primary);
+        assert_eq!(close, CloseEffect::Closed);
+        assert!(effect.hide);
+        assert_eq!(effect.show, Some(m2));
+    }
+
+    #[test]
+    fn tray_hidden_error_notifies_once() {
+        let mut mc = MessageCenter::default();
+        mc.window_shown();
+        let caps = PlatformCaps {
+            tray: true,
+            notifications: true,
+        };
+        mc.set_in_tray(true);
+
+        let e1 = mc.write_failed(WorkFile::State, WriteErrorClass::Io, caps);
+        assert!(e1.notify.is_some());
+        assert_eq!(e1.show, None);
+
+        let e2 = mc.write_failed(WorkFile::Settings, WriteErrorClass::NoSpace, caps);
+        assert!(e2.notify.is_none());
+        assert_eq!(e2.show, None);
+
+        let e3 = mc.set_in_tray(false);
+        let shown = e3.show.expect("окно ошибок записи показано при открытии");
+        assert_eq!(shown.level, MessageLevel::Error);
+        assert!(shown.body.contains("state.toml"));
+        assert!(shown.body.contains("settings.toml"));
+    }
+
+    #[test]
+    fn no_tray_error_shows_window() {
+        let mut mc = MessageCenter::default();
+        mc.window_shown();
+        let caps = PlatformCaps::default();
+
+        let e = mc.write_failed(WorkFile::Playlist, WriteErrorClass::ReadOnlyFs, caps);
+        assert!(e.notify.is_none());
+        let shown = e.show.expect("окно ошибки записи показано без трея");
+        assert_eq!(shown.level, MessageLevel::Error);
+        assert_eq!(shown.buttons, MessageButtons::RetryOk);
+    }
+
+    #[test]
+    fn enter_esc_buttons() {
+        let caps = PlatformCaps::default();
+
+        let mut primary_closes = MessageCenter::default();
+        primary_closes.window_shown();
+        primary_closes.push(plain_msg("A"), caps);
+        let (close, _) = primary_closes.press(MessageButton::Primary);
+        assert_eq!(close, CloseEffect::Closed);
+
+        let mut close_closes = MessageCenter::default();
+        close_closes.window_shown();
+        close_closes.push(plain_msg("A"), caps);
+        let (close, _) = close_closes.press(MessageButton::Close);
+        assert_eq!(close, CloseEffect::Closed);
+
+        let mut retry = MessageCenter::default();
+        retry.window_shown();
+        retry.write_failed(WorkFile::State, WriteErrorClass::Io, caps);
+        let (close, _) = retry.press(MessageButton::Primary);
+        assert_eq!(close, CloseEffect::Retry(vec![WorkFile::State]));
+        assert!(retry.is_shown());
+
+        let (close, effect) = retry.press(MessageButton::Close);
+        assert_eq!(close, CloseEffect::Closed);
+        assert!(effect.hide);
+        assert!(!retry.is_shown());
+    }
+
+    #[test]
+    fn write_errors_merge_into_one_window() {
+        let mut mc = MessageCenter::default();
+        mc.window_shown();
+        let caps = PlatformCaps::default();
+
+        let e1 = mc.write_failed(WorkFile::State, WriteErrorClass::Io, caps);
+        assert!(e1.show.is_some());
+
+        let e2 = mc.write_failed(WorkFile::Settings, WriteErrorClass::NoSpace, caps);
+        let shown = e2.show.expect("сводный текст обновлён");
+        assert!(shown.body.contains("state.toml"));
+        assert!(shown.body.contains("settings.toml"));
+
+        let (close, _) = mc.press(MessageButton::Primary);
+        assert_eq!(close, CloseEffect::Retry(vec![WorkFile::State, WorkFile::Settings]));
+    }
+
+    #[test]
+    fn retry_success_closes_window() {
+        let mut mc = MessageCenter::default();
+        mc.window_shown();
+        let caps = PlatformCaps::default();
+        mc.write_failed(WorkFile::State, WriteErrorClass::Io, caps);
+        mc.write_failed(WorkFile::Settings, WriteErrorClass::NoSpace, caps);
+        assert!(mc.is_shown());
+
+        let e1 = mc.write_succeeded(WorkFile::State);
+        assert!(!e1.hide);
+        assert!(mc.is_shown());
+
+        let e2 = mc.write_succeeded(WorkFile::Settings);
+        assert!(e2.hide);
+        assert!(!mc.is_shown());
+    }
+
+    #[test]
+    fn dismiss_for_exit_clears_everything() {
+        let mut mc = MessageCenter::default();
+        mc.push(plain_msg("A"), PlatformCaps::default());
+        mc.window_shown();
+        mc.push(plain_msg("B"), PlatformCaps::default());
+        assert!(mc.is_shown());
+
+        mc.dismiss_for_exit();
+        assert!(!mc.is_shown());
+
+        let e = mc.window_shown();
+        assert_eq!(e.show, None, "очередь тоже очищена — показывать нечего");
+    }
+}
