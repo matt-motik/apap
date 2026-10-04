@@ -7,6 +7,12 @@ pub mod keys;
 pub mod settings_file;
 pub mod state_file;
 
+use crate::journal::{JournalRecord, WriteTarget};
+use crate::platform::fs::{FileReader, FileWriter, ReadErrorClass, WriteError};
+use keys::{FileRead, Parsed};
+use settings_file::{parse_settings, Settings};
+use state_file::{parse_state, SessionState};
+
 /// Рабочий файл единственного писателя (ТЗ-3, §2.2). Порядок вариантов =
 /// порядок записи на пути выхода (ТЗ-14).
 #[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Debug)]
@@ -112,6 +118,94 @@ impl ReferenceText {
     }
 }
 
+/// Прочитать файл один раз и классифицировать результат без разбора
+/// (ADR-23 шаг 2, §6.1): `NotFound` — файла нет, иная ошибка — `Failed`.
+pub fn read_config(reader: &dyn FileReader, path: &Path) -> FileRead {
+    match reader.read(path) {
+        Ok(bytes) => FileRead::Bytes(Arc::from(bytes)),
+        Err(e) if e.class == ReadErrorClass::NotFound => FileRead::Absent,
+        Err(e) => FileRead::Failed(e),
+    }
+}
+
+/// Результат чтения и разбора обоих файлов до создания окна (ADR-23 шаг 2).
+pub struct Boot {
+    pub settings: Parsed<Settings>,
+    pub state: Parsed<SessionState>,
+}
+
+/// Читает `settings.toml` и `state.toml` ровно по одному разу каждый (ТЗ-1) и
+/// разбирает их; чистая функция, записи не производит (ТЗ-4, ADR-23 шаг 2).
+pub fn boot(reader: &dyn FileReader, paths: &ConfigPaths) -> Boot {
+    Boot {
+        settings: parse_settings(read_config(reader, &paths.settings)),
+        state: parse_state(read_config(reader, &paths.state)),
+    }
+}
+
+/// Итог попытки записать копию `*.bad` одного файла (§2.13, И-Р12, И-Р18).
+pub struct BadCopyOutcome {
+    pub file: ConfigFile,
+    pub result: Result<PathBuf, WriteError>,
+}
+
+/// Для каждого неразбираемого файла из `boot` записывает его исходные байты в
+/// `<файл>.bad` (не более одной копии на файл — И-Р12) до первой записи этого
+/// файла писателем (И-Р18; на этапе С3 копия пишется синхронно в `main` до
+/// появления писателя `apap-persist`, §8 С3). Файлы, разобранные успешно или
+/// отсутствующие, не порождают записи.
+pub fn write_bad_copies(boot: &Boot, writer: &mut dyn FileWriter, paths: &ConfigPaths) -> Vec<BadCopyOutcome> {
+    let mut out = Vec::new();
+    if let Parsed::Unparsable { original, .. } = &boot.settings {
+        out.push(write_bad_copy(writer, paths, ConfigFile::Settings, original));
+    }
+    if let Parsed::Unparsable { original, .. } = &boot.state {
+        out.push(write_bad_copy(writer, paths, ConfigFile::State, original));
+    }
+    out
+}
+
+fn write_bad_copy(
+    writer: &mut dyn FileWriter,
+    paths: &ConfigPaths,
+    file: ConfigFile,
+    original: &[u8],
+) -> BadCopyOutcome {
+    let path = paths.bad_copy(file.work());
+    let result = writer.write_atomic(&path, original).map(|()| path);
+    BadCopyOutcome { file, result }
+}
+
+/// Записи журнала для шага 2 ADR-23 (§6.1): ошибка чтения файла — готовым
+/// вариантом `JournalRecord::ReadFailed`. Записи вида «заметки разбора»
+/// (`Parsed`) и «неразбираемый файл» (`Unparsable`) требуют вариантов
+/// `JournalRecord`, которых пока нет в `journal.rs` (там заведены только
+/// `ReadFailed`/`WriteFailed`/`TempRemoveFailed` — комментарий у `JournalRecord`
+/// явно оставляет варианты будущих этапов на потом); добавление этих
+/// вариантов — отдельный шаг, затрагивающий `journal.rs` вне вайтлиста С3.
+pub fn journal_records_for_boot(boot: &Boot) -> Vec<JournalRecord> {
+    let mut out = Vec::new();
+    if let Parsed::ReadFailed { err, .. } = &boot.settings {
+        out.push(JournalRecord::ReadFailed { file: WorkFile::Settings, err: err.clone() });
+    }
+    if let Parsed::ReadFailed { err, .. } = &boot.state {
+        out.push(JournalRecord::ReadFailed { file: WorkFile::State, err: err.clone() });
+    }
+    out
+}
+
+/// Записи журнала о неудачной записи копии `*.bad` (ТЗ-20) — для случаев из
+/// `write_bad_copies`, где `result` — `Err`.
+pub fn journal_records_for_bad_copies(outcomes: &[BadCopyOutcome]) -> Vec<JournalRecord> {
+    outcomes
+        .iter()
+        .filter_map(|o| {
+            let err = o.result.as_ref().err()?;
+            Some(JournalRecord::WriteFailed { target: WriteTarget::BadCopy(o.file), err: err.clone() })
+        })
+        .collect()
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -137,5 +231,97 @@ mod tests {
         assert_eq!(p.bad_copy(WorkFile::Settings), dir.join("settings.toml.bad"));
         assert_eq!(p.bad_copy(ConfigFile::State.work()), dir.join("state.toml.bad"));
         assert_eq!(p.bad_copy(WorkFile::Playlist), dir.join("playlist.m3u.bad"));
+    }
+
+    use crate::platform::fs::MemStore;
+
+    fn paths() -> ConfigPaths {
+        ConfigPaths::in_dir(PathBuf::from("/cfg"))
+    }
+
+    #[test]
+    fn boot_reads_each_file_exactly_once() {
+        let fs = MemStore::new();
+        let p = paths();
+        fs.put(&p.settings, b"theme = \"dark\"\n");
+        fs.put(&p.state, b"");
+        let _ = boot(&fs, &p);
+        assert_eq!(fs.counts(&p.settings).reads, 1);
+        assert_eq!(fs.counts(&p.state).reads, 1);
+    }
+
+    #[test]
+    fn boot_absent_files_use_defaults() {
+        let fs = MemStore::new();
+        let p = paths();
+        let b = boot(&fs, &p);
+        assert!(matches!(b.settings, Parsed::Absent { .. }));
+        assert!(matches!(b.state, Parsed::Absent { .. }));
+    }
+
+    #[test]
+    fn boot_read_failure_reports_read_failed() {
+        use crate::platform::fs::ReadErrorClass;
+        let fs = MemStore::new();
+        let p = paths();
+        fs.fail_read(&p.settings, ReadErrorClass::NoAccess);
+        let b = boot(&fs, &p);
+        assert!(matches!(b.settings, Parsed::ReadFailed { .. }));
+        let records = journal_records_for_boot(&b);
+        assert_eq!(records.len(), 1);
+        assert!(matches!(&records[0], JournalRecord::ReadFailed { file: WorkFile::Settings, .. }));
+    }
+
+    #[test]
+    fn write_bad_copies_writes_original_bytes_once_each() {
+        let fs = MemStore::new();
+        let p = paths();
+        fs.put(&p.settings, b"[[\n");
+        fs.put(&p.state, b"[[\n");
+        let b = boot(&fs, &p);
+        assert!(matches!(b.settings, Parsed::Unparsable { .. }));
+        assert!(matches!(b.state, Parsed::Unparsable { .. }));
+        let mut writer = fs.clone();
+        let outcomes = write_bad_copies(&b, &mut writer, &p);
+        assert_eq!(outcomes.len(), 2);
+        assert_eq!(fs.get(&p.bad_copy(WorkFile::Settings)).as_deref(), Some(&b"[[\n"[..]));
+        assert_eq!(fs.get(&p.bad_copy(WorkFile::State)).as_deref(), Some(&b"[[\n"[..]));
+        assert_eq!(fs.counts(&p.bad_copy(WorkFile::Settings)).writes, 1);
+        assert_eq!(fs.counts(&p.bad_copy(WorkFile::State)).writes, 1);
+    }
+
+    #[test]
+    fn write_bad_copies_reports_write_failure() {
+        use crate::platform::fs::{WriteErrorClass, WriteStep};
+        let fs = MemStore::new();
+        let p = paths();
+        fs.put(&p.settings, b"[[\n");
+        let bad = p.bad_copy(WorkFile::Settings);
+        fs.fail_write(&bad, WriteStep::WriteData, WriteErrorClass::NoSpace, 1);
+        let b = boot(&fs, &p);
+        let mut writer = fs.clone();
+        let outcomes = write_bad_copies(&b, &mut writer, &p);
+        assert_eq!(outcomes.len(), 1);
+        assert!(outcomes[0].result.is_err());
+        let records = journal_records_for_bad_copies(&outcomes);
+        assert_eq!(records.len(), 1);
+        assert!(matches!(
+            &records[0],
+            JournalRecord::WriteFailed { target: WriteTarget::BadCopy(ConfigFile::Settings), .. }
+        ));
+    }
+
+    #[test]
+    fn write_bad_copies_no_writes_when_files_are_fine() {
+        let fs = MemStore::new();
+        let p = paths();
+        fs.put(&p.settings, b"theme = \"dark\"\n");
+        fs.put(&p.state, b"");
+        let b = boot(&fs, &p);
+        let mut writer = fs.clone();
+        let outcomes = write_bad_copies(&b, &mut writer, &p);
+        assert!(outcomes.is_empty());
+        assert_eq!(fs.counts(&p.bad_copy(WorkFile::Settings)).writes, 0);
+        assert_eq!(fs.counts(&p.bad_copy(WorkFile::State)).writes, 0);
     }
 }
