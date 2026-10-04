@@ -65,11 +65,11 @@
 [x] Шаг 23: app/mod.rs: оставшиеся чтения старого поля → core; поле SettingsStore удалено из MusicApp, save_settings без apply_legacy (§8.1 С3, §6.1). Проверка: cargo check; групповая проверка А по шагам 15–23 — cargo test + cargo clippy (вывод фильтром; при красном — разбор test-runner/haiku)
 [x] Шаг 24: ui/settings.slint + app.slint: параметр N (10/30/60/120) с подсказкой §2.13, сохранение значения по «Сохранить» (ТЗ-33 параметр). Проверка: cargo check (build.rs компилирует .slint)
 [x] Шаг 25: ui/settings.slint: постоянный текст ОВС-6 рядом с «Сохранить» при нечитаемом settings.toml (§2.13, ОВС-6, И-Р20). Проверка: cargo check
-[ ] Шаг 26: settings.rs (+ тесты audio/analyzer.rs, audio/fulltrack.rs, audio/visualizer.rs): удалить мост С3, SettingsStore, старую Settings, VisualizerConfig::from_settings, migrate_legacy_columns и устаревшие тесты по §7.5 (§8.1 «что удаляется»). Проверка: cargo check
+[x] Шаг 26: settings.rs (+ тесты audio/analyzer.rs, audio/fulltrack.rs, audio/visualizer.rs): удалить мост С3, SettingsStore, старую Settings, VisualizerConfig::from_settings, migrate_legacy_columns и устаревшие тесты по §7.5 (§8.1 «что удаляется»). Проверка: cargo check
 [ ] Шаг 27: Финальная верификация (групповая проверка Б по шагам 24–26): cargo build/test/clippy зелёные, закрытие этапа (Шаг 5). Проверка: все зелёные, 0 новых варнингов
 
-- **Текущий шаг (current_step):** Шаг 26
-- **Следующий ход:** Шаг 26: удалить мост settings::bridge, старый Settings, VisualizerConfig::from_settings, migrate_legacy_columns и их тесты
+- **Текущий шаг (current_step):** Шаг 27
+- **Следующий ход:** Шаг 27: групповая проверка B (cargo test + clippy) и закрытие этапа (Шаг 5)
 - **Счетчик безуспешных компиляций:** 0/3
 - **Состояние:** in_progress
 

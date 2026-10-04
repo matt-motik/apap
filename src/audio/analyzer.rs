@@ -568,7 +568,10 @@ mod tests {
     #[test]
     fn worker_drains_and_swaps_bars() {
         // Интеграционный дым-тест: воркер читает заполненное кольцо и публикует ненулевые полосы.
-        let cfg = Arc::new(VisualizerConfig::from_settings(&crate::settings::Settings::default()));
+        let cfg = Arc::new(VisualizerConfig::from_persist_settings(
+            &crate::persist::settings_file::Settings::default(),
+            VisualizationMode::Off,
+        ));
         let mut vcfg = (*cfg).clone();
         vcfg.mode = VisualizationMode::Spectrum;
         vcfg.spectrum.channels = ChannelMode::Mono;

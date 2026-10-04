@@ -482,24 +482,6 @@ impl Default for DsdCacheParams {
 }
 
 impl VisualizerConfig {
-    pub fn from_settings(s: &crate::settings::Settings) -> Self {
-        let v = &s.visualization;
-        Self {
-            mode: v.mode,
-            skip_fulltrack_for_dsd: v.skip_fulltrack_for_dsd,
-            viz_max_ram_mb: v.viz_max_ram_mb,
-            disk_max_size_mb: v.disk_max_size_mb,
-            oscilloscope: v.oscilloscope.clone(),
-            spectrogram: v.spectrogram.clone(),
-            spectrum: v.spectrum.clone(),
-            dsd_params: DsdCacheParams {
-                target_bit_depth: s.dsd.target_bit_depth,
-                target_sample_rate: s.dsd.target_sample_rate,
-                resampler_algorithm: s.audio.resampler.algorithm,
-            },
-        }
-    }
-
     /// Снимок из нового `persist::settings_file::Settings` (§8 С3, ADR-19):
     /// `VizSettings` не хранит `mode` — тип визуализации живёт в
     /// `SessionState::viz_mode()` (§2.5) и передаётся отдельным параметром.
@@ -619,8 +601,8 @@ mod tests {
 
     #[test]
     fn config_from_settings_snapshot() {
-        let s = crate::settings::Settings::default();
-        let cfg = VisualizerConfig::from_settings(&s);
+        let s = crate::persist::settings_file::Settings::default();
+        let cfg = VisualizerConfig::from_persist_settings(&s, VisualizationMode::Off);
         assert_eq!(cfg.mode, VisualizationMode::Off);
         assert_eq!(cfg.spectrum.bands, 32);
     }
@@ -629,7 +611,14 @@ mod tests {
     fn viz_max_ram_roundtrip_and_default() {
         // Default 64 MiB (§10.4).
         assert_eq!(VisualizerSettings::default().viz_max_ram_mb, 64);
-        assert_eq!(VisualizerConfig::from_settings(&crate::settings::Settings::default()).viz_max_ram_mb, 64);
+        assert_eq!(
+            VisualizerConfig::from_persist_settings(
+                &crate::persist::settings_file::Settings::default(),
+                VisualizationMode::Off
+            )
+            .viz_max_ram_mb,
+            64
+        );
         // TOML-roundtrip нестандартного значения.
         let v = VisualizerSettings {
             viz_max_ram_mb: 128,
@@ -649,7 +638,14 @@ mod tests {
     fn disk_max_size_roundtrip_and_default() {
         // Default 512 MiB (§10.4).
         assert_eq!(VisualizerSettings::default().disk_max_size_mb, 512);
-        assert_eq!(VisualizerConfig::from_settings(&crate::settings::Settings::default()).disk_max_size_mb, 512);
+        assert_eq!(
+            VisualizerConfig::from_persist_settings(
+                &crate::persist::settings_file::Settings::default(),
+                VisualizationMode::Off
+            )
+            .disk_max_size_mb,
+            512
+        );
         // TOML-roundtrip нестандартного значения.
         let v = VisualizerSettings {
             disk_max_size_mb: 256,

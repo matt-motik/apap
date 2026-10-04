@@ -625,22 +625,29 @@ mod tests {
                   rate: crate::settings::TargetSampleRate,
                   algo: crate::settings::ResamplerAlgorithm|
          -> crate::audio::visualizer::DsdCacheParams {
-            let settings = crate::settings::Settings {
-                dsd: crate::settings::DsdCfg {
-                    target_bit_depth: bit,
-                    target_sample_rate: rate,
-                    ..crate::settings::DsdCfg::default()
-                },
-                audio: crate::settings::AudioCfg {
-                    resampler: crate::settings::AudioResamplerCfg {
-                        algorithm: algo,
-                        ..crate::settings::AudioResamplerCfg::default()
+            let settings = crate::persist::settings_file::Settings {
+                playback: crate::persist::settings_file::LegacyPlayback {
+                    dsd: crate::settings::DsdCfg {
+                        target_bit_depth: bit,
+                        target_sample_rate: rate,
+                        ..crate::settings::DsdCfg::default()
                     },
-                    ..crate::settings::AudioCfg::default()
+                    audio: crate::settings::AudioCfg {
+                        resampler: crate::settings::AudioResamplerCfg {
+                            algorithm: algo,
+                            ..crate::settings::AudioResamplerCfg::default()
+                        },
+                        ..crate::settings::AudioCfg::default()
+                    },
+                    ..crate::persist::settings_file::LegacyPlayback::default()
                 },
-                ..crate::settings::Settings::default()
+                ..crate::persist::settings_file::Settings::default()
             };
-            crate::audio::visualizer::VisualizerConfig::from_settings(&settings).dsd_params
+            crate::audio::visualizer::VisualizerConfig::from_persist_settings(
+                &settings,
+                crate::audio::visualizer::VisualizationMode::Off,
+            )
+            .dsd_params
         };
 
         let dp_a = mk(

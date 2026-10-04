@@ -120,13 +120,13 @@ steps:
     done: true
   - id: 26
     description: "settings.rs (+ тесты audio/analyzer.rs, audio/fulltrack.rs, audio/visualizer.rs): удалить мост С3, SettingsStore, старую Settings, VisualizerConfig::from_settings, migrate_legacy_columns и устаревшие тесты по §7.5 (§8.1 «что удаляется»). Проверка: cargo check"
-    done: false
+    done: true
   - id: 27
     description: "Финальная верификация (групповая проверка Б по шагам 24–26): cargo build/test/clippy зелёные, закрытие этапа (Шаг 5). Проверка: все зелёные, 0 новых варнингов"
     done: false
 
-current_step: 26
-next_action: "Шаг 26: удалить мост settings::bridge, старый Settings, VisualizerConfig::from_settings, migrate_legacy_columns и их тесты"
+current_step: 27
+next_action: "Шаг 27: групповая проверка B (cargo test + clippy) и закрытие этапа (Шаг 5)"
 
 fail_counter: 0
 fail_counter_max: 3

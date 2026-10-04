@@ -1,9 +1,6 @@
-use std::fs;
 use std::path::PathBuf;
 
 use serde::{Deserialize, Serialize};
-
-use crate::platform::fs::{FileWriter, WriteError};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
 pub enum RepeatMode {
@@ -74,11 +71,6 @@ fn default_cfg_title() -> String {
 
 fn default_true() -> bool {
     true
-}
-
-/// Дефолтное имя темы (T1.0 §4): светлая тема при отсутствии поля `theme`.
-fn default_theme() -> String {
-    "light".into()
 }
 
 impl ColumnCfg {
@@ -197,11 +189,6 @@ impl CoverSource {
     }
 }
 
-/// Порядок источников обложек по умолчанию: диск → встроенная → интернет.
-pub fn default_cover_priority() -> Vec<String> {
-    CoverSource::ALL.iter().map(|c| c.key().to_string()).collect()
-}
-
 /// Имена файлов обложек, искомых в папке с альбомом (по умолчанию).
 pub fn default_cover_folder_names() -> Vec<String> {
     [
@@ -226,11 +213,6 @@ pub fn default_cover_folder_names() -> Vec<String> {
     .iter()
     .map(|s| s.to_string())
     .collect()
-}
-
-/// Значение по умолчанию для `Settings::cover_online`.
-fn default_cover_online() -> bool {
-    true
 }
 
 /// Default relative widths as percentages (0..100). The percent values sum to
@@ -728,462 +710,6 @@ impl Default for AudioCfg {
     }
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct Settings {
-    /// Имя темы = имя файла `themes/<имя>.toml` без расширения (T1.0 §4).
-    #[serde(default = "default_theme")]
-    pub theme: String,
-    #[serde(default)]
-    pub volume: f32,
-    #[serde(default)]
-    pub muted: bool,
-    #[serde(default)]
-    pub last_dir: String,
-    #[serde(default)]
-    pub minimize_to_tray: bool,
-    #[serde(default)]
-    pub repeat: RepeatMode,
-    #[serde(default)]
-    pub shuffle: bool,
-    #[serde(default)]
-    pub audio_device: String,
-    /// Unified column configuration (per-column title, priority, limits,
-    /// visibility, type). Migrated from the old separate fields on first load.
-    #[serde(default = "default_columns")]
-    pub columns: std::collections::HashMap<String, ColumnCfg>,
-    /// Left-to-right column order as stable keys. Source of truth for ordering;
-    /// empty = canonical order.
-    #[serde(default)]
-    pub column_order: Vec<String>,
-    #[serde(default)]
-    pub sorted_col: Option<ColumnId>,
-    #[serde(default)]
-    pub sort_desc: bool,
-    /// Auto-scroll the playlist to the currently playing track when it changes.
-    #[serde(default = "default_true")]
-    pub scroll_to_playing: bool,
-    /// Сторона обложки (пиксели) — задаёт высоту верхней панели и размер
-    /// квадратных кнопок управления. Диапазон 100..=400, по умолчанию 200.
-    #[serde(default)]
-    pub cover_size: f32,
-    /// Ширина колонки информации о треке (пиксели). Диапазон 200..=400,
-    /// по умолчанию 240. При переносе строк колонка скролится.
-    #[serde(default)]
-    pub col_info_w: f32,
-    /// Горизонтальный отступ между колонками верхней панели (пиксели),
-    /// применяется по обе стороны вертикального разделителя.
-    /// Диапазон 0..=20, по умолчанию 12.
-    #[serde(default)]
-    pub col_gap: f32,
-    /// Позиция окна на экране (физические пиксели, включая рамку). `None` —
-    /// не сохранено, окну позицию выбирает оконный менеджер.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub win_x: Option<i32>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub win_y: Option<i32>,
-    /// Размер окна в физических пикселях (без рамки). `None` — размер по умолчанию.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub win_w: Option<u32>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub win_h: Option<u32>,
-    /// Флаги состояния окна: было ли оно развёрнуто на весь экран / максимизировано
-    /// на момент последнего сохранения геометрии. Восстанавливаются через
-    /// `set_fullscreen`/`set_maximized` при старте.
-    #[serde(default)]
-    pub win_fullscreen: bool,
-    #[serde(default)]
-    pub win_maximized: bool,
-    /// Источники обложек в порядке приоритета (ключи `CoverSource::key`).
-    /// Пусто — дефолтный порядок (диск → встроенная → интернет).
-    #[serde(default)]
-    pub cover_priority: Vec<String>,
-    /// Имена файлов обложек, которые ищем в папке с альбомом.
-    #[serde(default)]
-    pub cover_folder_names: Vec<String>,
-    /// Искать обложки в интернете (iTunes Search API).
-    #[serde(default = "default_cover_online")]
-    pub cover_online: bool,
-    /// Заголовки полей панели информации о треке (стабильный ключ → строка).
-    /// Редактируются вручную в конфиге (локализация/переименования), UI для
-    /// них нет. Отсутствующие/пустые ключи подставляются дефолтами.
-    #[serde(default = "default_info_labels")]
-    pub info_labels: std::collections::HashMap<String, String>,
-    /// Настройки визуализации аудио (ТЗ 5.1): режим и параметры трёх типов.
-    #[serde(default)]
-    pub visualization: crate::audio::visualizer::VisualizerSettings,
-    /// Настройки DSD → PCM (ТЗ 5.1 §8.2): режим вывода, битность, частота.
-    #[serde(default)]
-    pub dsd: DsdCfg,
-    /// Аудио-настройки (ТЗ 5.1 §8.2): bit-perfect и ресемплер для всех треков.
-    #[serde(default)]
-    pub audio: AudioCfg,
-}
-
-impl Default for Settings {
-    fn default() -> Self {
-        Self {
-            theme: default_theme(),
-            volume: 0.8,
-            muted: false,
-            last_dir: String::new(),
-            minimize_to_tray: false,
-            repeat: RepeatMode::Off,
-            shuffle: false,
-            audio_device: String::new(),
-            columns: default_columns(),
-            column_order: Vec::new(),
-            sorted_col: None,
-            sort_desc: false,
-            scroll_to_playing: true,
-            cover_size: 200.0,
-            col_info_w: 240.0,
-            col_gap: 12.0,
-            win_x: None,
-            win_y: None,
-            win_w: None,
-            win_h: None,
-            win_fullscreen: false,
-            win_maximized: false,
-            cover_priority: default_cover_priority(),
-            cover_folder_names: default_cover_folder_names(),
-            cover_online: true,
-            info_labels: default_info_labels(),
-            visualization: crate::audio::visualizer::VisualizerSettings::default(),
-            dsd: DsdCfg::default(),
-            audio: AudioCfg::default(),
-        }
-    }
-}
-
-impl Settings {
-    /// Get the `ColumnCfg` for a given column id.
-    pub fn column_cfg(&self, id: ColumnId) -> Option<&ColumnCfg> {
-        self.columns.get(id.key())
-    }
-
-    /// ТЗ §7.4/§8.4: bit-perfect активен, а DSD выводится конверсией в PCM
-    /// (`dsd.mode = pcm`). DSD→PCM — это смена формата, поэтому для DSD-потока
-    /// bit-perfect **не сохраняется** (конфликт сценариев, индикатор «Не
-    /// bit-perfect (DSD→PCM)»).
-    pub fn dsd_pcm_breaks_bit_perfect(&self) -> bool {
-        self.audio.bit_perfect && self.dsd.mode == DsdMode::Pcm
-    }
-
-    /// Get the display title for a column, falling back to the key if not in config.
-    pub fn column_title(&self, id: ColumnId) -> String {
-        self.columns
-            .get(id.key())
-            .map(|c| c.title.clone())
-            .unwrap_or_else(|| id.key().to_string())
-    }
-
-    /// Get the track-info panel label for a stable key, falling back to the
-    /// default (English) label when missing or empty in config.
-    pub fn info_label(&self, key: &str) -> String {
-        self.info_labels
-            .get(key)
-            .filter(|s| !s.is_empty())
-            .cloned()
-            .unwrap_or_else(|| {
-                default_info_labels()
-                    .get(key)
-                    .cloned()
-                    .unwrap_or_else(|| key.to_string())
-            })
-    }
-
-    /// All track-info panel labels in display order (`INFO_LABEL_KEYS` order).
-    pub fn info_labels_ordered(&self) -> Vec<String> {
-        INFO_LABEL_KEYS.iter().map(|k| self.info_label(k)).collect()
-    }
-
-    /// Resolved visibility for a given id (default: visible).
-    pub fn column_visible(&self, id: ColumnId) -> bool {
-        self.columns
-            .get(id.key())
-            .map(|c| c.visible)
-            .unwrap_or(true)
-    }
-
-    /// Visible columns in display order.
-    pub fn visible_columns(&self) -> Vec<ColumnId> {
-        self.ordered_columns()
-            .into_iter()
-            .filter(|c| self.column_visible(*c))
-            .collect()
-    }
-
-    /// Resolved relative width (percent, 0..100) for a column, falling back to
-    /// the config `width` → `priority` → legacy `default_column_width`.
-    /// Percent values are normalised to sum to 100 across the currently visible
-    /// columns; call [`Settings::normalize_visible_pct`] whenever visibility
-    /// changes before applying.
-    pub fn column_width_pct(&self, id: ColumnId) -> f32 {
-        if let Some(cfg) = self.columns.get(id.key()) {
-            // User-dragged width takes highest priority.
-            if let Some(w) = cfg.width {
-                if w.is_finite() && w > 0.0 {
-                    return w;
-                }
-            }
-            // Config priority (default weight).
-            if cfg.priority > 0.0 && cfg.priority.is_finite() {
-                return cfg.priority;
-            }
-        }
-        default_column_width(id)
-    }
-
-    /// Renormalise stored percentages so that the currently visible columns sum
-    /// to 100. Hidden/unknown columns are skipped; if no stored widths are
-    /// present, defaults (of the visible columns) are written instead.
-    /// Widths of hidden columns are preserved (e.g. 0%) and NOT dropped.
-    pub fn normalize_visible_pct(&mut self) {
-        let visible = self.visible_columns();
-        if visible.is_empty() {
-            return;
-        }
-        let has_stored = visible.iter().any(|c| {
-            self.columns
-                .get(c.key())
-                .and_then(|cfg| cfg.width)
-                .is_some_and(|w| w.is_finite() && w > 0.0)
-        });
-        let values: Vec<f32> = visible
-            .iter()
-            .map(|c| {
-                if has_stored {
-                    self.columns
-                        .get(c.key())
-                        .and_then(|cfg| cfg.width)
-                        .filter(|w| w.is_finite() && *w > 0.0)
-                        .unwrap_or_else(|| self.column_width_pct(*c))
-                } else {
-                    self.column_width_pct(*c)
-                }
-            })
-            .collect();
-        let sum: f32 = values.iter().sum();
-        for (c, v) in visible.iter().zip(values) {
-            let pct = if sum > 0.0 { (v / sum) * 100.0 } else { 100.0 / visible.len() as f32 };
-            if let Some(cfg) = self.columns.get_mut(c.key()) {
-                cfg.width = Some(pct);
-            }
-        }
-    }
-
-    /// Enable a column: give it the average of the current visible set,
-    /// then renormalise all visible columns to 100%.
-    pub fn enable_column(&mut self, id: ColumnId) {
-        let old_n = self.visible_columns().len() as f32;
-        if let Some(cfg) = self.columns.get_mut(id.key()) {
-            cfg.visible = true;
-        }
-        let avg = if old_n > 0.0 { 100.0 / old_n } else { 100.0 };
-        if let Some(cfg) = self.columns.get_mut(id.key()) {
-            cfg.width = Some(avg);
-        }
-        self.normalize_visible_pct();
-    }
-
-    /// Disable a column: set its width to 0%, hide it, then renormalise
-    /// the remaining visible columns to 100%.
-    pub fn disable_column(&mut self, id: ColumnId) {
-        if let Some(cfg) = self.columns.get_mut(id.key()) {
-            cfg.width = Some(0.0);
-            cfg.visible = false;
-        }
-        self.normalize_visible_pct();
-    }
-
-    /// All columns in the user's left-to-right order (falls back to canonical).
-    pub fn ordered_columns(&self) -> Vec<ColumnId> {
-        if self.column_order.is_empty() {
-            return ColumnId::ALL.to_vec();
-        }
-        let mut out: Vec<ColumnId> = self
-            .column_order
-            .iter()
-            .filter_map(|k| ColumnId::from_key(k))
-            .collect();
-        // Include any canonical columns not present (e.g. after adding new ones)
-        // appended after the stored order.
-        for c in ColumnId::ALL {
-            if !out.contains(&c) {
-                out.push(c);
-            }
-        }
-        out
-    }
-
-    /// Move a column from `from` to `to` in the stored order, materialising
-    /// the canonical order first if it was empty.
-    pub fn move_column(&mut self, from: usize, to: usize) {
-        let mut order = self.ordered_columns();
-        if from >= order.len() {
-            return;
-        }
-        let col = order.remove(from);
-        let to = to.min(order.len());
-        order.insert(to, col);
-        self.column_order = order.iter().map(|c| c.key().to_string()).collect();
-    }
-
-    /// Cover sources in the user's priority order (falls back to the default:
-    /// folder → embedded → internet). Unknown stored keys are dropped, missing
-    /// canonical sources are appended.
-    pub fn cover_priority_ordered(&self) -> Vec<CoverSource> {
-        if self.cover_priority.is_empty() {
-            return CoverSource::ALL.to_vec();
-        }
-        let mut out: Vec<CoverSource> = self
-            .cover_priority
-            .iter()
-            .filter_map(|k| CoverSource::from_key(k))
-            .collect();
-        for c in CoverSource::ALL {
-            if !out.contains(&c) {
-                out.push(c);
-            }
-        }
-        out
-    }
-
-    /// Folder cover file names to look for, falling back to the default list
-    /// when none are stored. Empty/whitespace entries are dropped.
-    pub fn cover_folder_names_list(&self) -> Vec<String> {
-        let names: Vec<String> = self
-            .cover_folder_names
-            .iter()
-            .map(|n| n.trim().to_string())
-            .filter(|n| !n.is_empty())
-            .collect();
-        if names.is_empty() {
-            default_cover_folder_names()
-        } else {
-            names
-        }
-    }
-
-    /// Move a cover source within the stored priority order.
-    pub fn move_cover(&mut self, from: usize, to: usize) {
-        let mut order: Vec<String> = self
-            .cover_priority_ordered()
-            .iter()
-            .map(|c| c.key().to_string())
-            .collect();
-        if from >= order.len() {
-            return;
-        }
-        let item = order.remove(from);
-        let to = to.min(order.len());
-        order.insert(to, item);
-        self.cover_priority = order;
-    }
-}
-
-/// Loaded settings plus the canonical on-disk path they were read from /
-/// written back to.
-pub struct SettingsStore {
-    pub settings: Settings,
-    pub path: PathBuf,
-}
-
-/// Legacy settings format (pre-unified-columns) used only for one-time migration.
-#[derive(Debug, Deserialize, Default)]
-struct LegacySettings {
-    #[serde(default)]
-    column_widths: std::collections::HashMap<String, f32>,
-    #[serde(default)]
-    column_visibility: std::collections::HashMap<String, bool>,
-    #[serde(default)]
-    column_order: Vec<String>,
-}
-
-impl SettingsStore {
-    /// Read settings from `path` (or defaults if missing/corrupt) and migrate
-    /// legacy fields. Путь приходит из `main` (`ConfigPaths`), каталог
-    /// пользователя здесь не ищется (ADR-19, ТЗ-49). Запись результата — у
-    /// владельца писателя (`MusicApp::new`).
-    pub fn load_from(path: PathBuf) -> Self {
-        let raw = fs::read_to_string(&path).ok();
-        let mut settings = match &raw {
-            Some(contents) => toml::from_str(contents).unwrap_or_default(),
-            None => Settings::default(),
-        };
-        // One-time migration from old format (separate column_widths/visibility/order
-        // fields) to the unified `columns` HashMap.
-        if settings.columns.is_empty() {
-            if let Some(contents) = &raw {
-                if contents.contains("column_widths")
-                    || contents.contains("column_visibility")
-                    || contents.contains("column_order")
-                {
-                    if let Ok(legacy) = toml::from_str::<LegacySettings>(contents) {
-                        migrate_legacy_columns(&mut settings, &legacy);
-                    }
-                }
-            }
-            // Ensure columns exist even without legacy data (fresh install).
-            if settings.columns.is_empty() {
-                settings.columns = default_columns();
-            }
-        }
-        // Ensure `column_order` has entries for all known columns.
-        if settings.column_order.is_empty() {
-            settings.column_order = ColumnId::ALL.iter().map(|c| c.key().to_string()).collect();
-        }
-        Self { settings, path }
-    }
-
-    /// Записать настройки атомарно и долговечно через модуль ФС (ТЗ-18,
-    /// ТЗ-19); ошибка возвращается вызывающему для журнала (ТЗ-20).
-    pub fn save(&self, fs: &mut dyn FileWriter) -> Result<(), WriteError> {
-        let contents =
-            toml::to_string(&self.settings).map_err(|e| WriteError::serialize(&e.to_string(), &self.path))?;
-        fs.write_atomic(&self.path, contents.as_bytes())
-    }
-}
-
-/// Migrate old `column_widths` / `column_visibility` / `column_order` into the
-/// unified `columns` HashMap.
-fn migrate_legacy_columns(settings: &mut Settings, legacy: &LegacySettings) {
-    // Merge old column_order (preserve it, append missing at the end).
-    if !legacy.column_order.is_empty() {
-        settings.column_order = legacy
-            .column_order
-            .iter()
-            .filter(|k| ColumnId::from_key(k).is_some())
-            .cloned()
-            .collect();
-        // Append canonical columns not in legacy order.
-        for c in ColumnId::ALL {
-            if !settings.column_order.contains(&c.key().to_string()) {
-                settings.column_order.push(c.key().to_string());
-            }
-        }
-    }
-
-    // Migrate visibility and width into per-column configs.
-    let defaults = default_columns();
-    for c in ColumnId::ALL {
-        let key = c.key().to_string();
-        let cfg = settings.columns.entry(key.clone()).or_insert_with(|| {
-            defaults.get(&key).cloned().unwrap_or_default()
-        });
-
-        if let Some(&vis) = legacy.column_visibility.get(c.key()) {
-            cfg.visible = vis;
-        }
-
-        if let Some(&w) = legacy.column_widths.get(c.key()) {
-            if w > 0.0 && w.is_finite() {
-                cfg.width = Some(w);
-            }
-        }
-    }
-}
-
 /// Resolve (and cache) the per-user config directory: `$XDG_CONFIG_HOME/
 /// music_player` (or `./music_player` when no config dir exists).
 /// Вызывается только в `main` (ТЗ-49, ADR-19): остальной код получает пути
@@ -1198,341 +724,36 @@ pub fn config_dir() -> PathBuf {
     .clone()
 }
 
-/// Временный мост старой/новой модели (С3, §8.1): плоская `Settings` ↔
-/// `persist::settings_file::Settings` + `persist::state_file::SessionState`
-/// внутри `AppCore`. Настройки переводятся через текст TOML (имена ключей
-/// совпадают), состояние сессии — по полям (§2.5). Удаляется на шаге очистки
-/// (§7.5).
-pub mod bridge {
-    use std::collections::BTreeMap;
-    use std::path::PathBuf;
-    use std::sync::Arc;
-
-    use crate::core::AppCore;
-    use crate::persist::keys::{FileRead, Parsed};
-    use crate::persist::settings_file::{parse_settings, serialize_settings, Settings as NewSettings};
-    use crate::persist::state_file::{
-        Origin, PhysPos, PhysSize, SessionState, SortDirection, SortKey, StateChange, WidthPct, WindowGeometry,
-    };
-
-    use super::{ColumnId, Settings};
-
-    /// Ключи верхнего уровня старой модели, которые в новой живут в
-    /// `state.toml` (§2.5) и в разбор настроек не передаются.
-    const STATE_KEYS: [&str; 13] = [
-        "volume",
-        "muted",
-        "last_dir",
-        "repeat",
-        "shuffle",
-        "sorted_col",
-        "sort_desc",
-        "win_x",
-        "win_y",
-        "win_w",
-        "win_h",
-        "win_fullscreen",
-        "win_maximized",
-    ];
-
-    /// Старая модель из новой (новое → старое). Если текст новых настроек
-    /// не читается старой структурой — её значения по умолчанию.
-    pub fn legacy_from_core(settings: &NewSettings, state: &SessionState) -> Settings {
-        let mut old = legacy_settings_part(settings).unwrap_or_default();
-        apply_state_to_legacy(state, &mut old);
-        old
-    }
-
-    /// Перенести правки старой модели в `AppCore` (старое → новое): настройки
-    /// заменяются целиком только при отличии (интервал записи — текущий из
-    /// ядра, в старой модели его нет); состояние — по одному `change_state`
-    /// на каждое отличие (И-Т7). На диск ничего не пишет.
-    pub fn apply_legacy(old: &Settings, core: &mut AppCore) {
-        if let Some(mut new) = settings_from_legacy(old) {
-            new.save_interval = core.settings().save_interval;
-            if &new != core.settings() {
-                core.set_settings(new);
-            }
-        }
-        for ch in state_changes(old, core.state()) {
-            core.change_state(Origin::User, ch);
-        }
-    }
-
-    fn legacy_settings_part(settings: &NewSettings) -> Option<Settings> {
-        let bytes = serialize_settings(settings).ok()?;
-        let mut table: toml::Table = std::str::from_utf8(&bytes).ok()?.parse().ok()?;
-        table.remove("save_interval");
-        // `column_type = "data"` в старой модели записывается отсутствием ключа.
-        if let Some(toml::Value::Table(cols)) = table.get_mut("columns") {
-            for (_, col) in cols.iter_mut() {
-                if let toml::Value::Table(c) = col {
-                    if c.get("column_type").and_then(toml::Value::as_str) == Some("data") {
-                        c.remove("column_type");
-                    }
-                }
-            }
-        }
-        toml::Value::Table(table).try_into().ok()
-    }
-
-    fn apply_state_to_legacy(state: &SessionState, old: &mut Settings) {
-        let playback = state.playback();
-        old.volume = f32::from(playback.volume) / 100.0;
-        old.muted = playback.muted;
-        old.repeat = state.repeat();
-        old.shuffle = state.shuffle();
-        old.visualization.mode = state.viz_mode();
-        old.last_dir = state.last_dir().map(|p| p.to_string_lossy().into_owned()).unwrap_or_default();
-        old.sorted_col = state.sort().map(|k| k.column);
-        old.sort_desc = state.sort().is_some_and(|k| k.direction == SortDirection::Desc);
-        let window = state.window();
-        old.win_x = window.position.map(|p| p.x);
-        old.win_y = window.position.map(|p| p.y);
-        old.win_w = window.size.map(|s| s.width);
-        old.win_h = window.size.map(|s| s.height);
-        old.win_maximized = window.maximized;
-        old.win_fullscreen = window.fullscreen;
-        let widths = state.column_widths();
-        for (key, cfg) in old.columns.iter_mut() {
-            cfg.width = ColumnId::from_key(key).and_then(|id| widths.get(&id)).map(|w| w.get());
-        }
-    }
-
-    /// Настройки новой модели из текста старой без ключей состояния. Только
-    /// успешно разобранный документ: неразбираемый текст не должен затирать
-    /// настройки ядра значениями по умолчанию.
-    fn settings_from_legacy(old: &Settings) -> Option<NewSettings> {
-        let toml::Value::Table(mut table) = toml::Value::try_from(old).ok()? else {
-            return None;
-        };
-        for key in STATE_KEYS {
-            table.remove(key);
-        }
-        if let Some(toml::Value::Table(viz)) = table.get_mut("visualization") {
-            viz.remove("mode");
-        }
-        if let Some(toml::Value::Table(cols)) = table.get_mut("columns") {
-            for (_, col) in cols.iter_mut() {
-                if let toml::Value::Table(c) = col {
-                    c.remove("width");
-                }
-            }
-        }
-        let text = toml::to_string(&table).ok()?;
-        match parse_settings(FileRead::Bytes(Arc::from(text.into_bytes()))) {
-            Parsed::Parsed { value, .. } => Some(value),
-            Parsed::Absent { .. } | Parsed::Unparsable { .. } | Parsed::ReadFailed { .. } => None,
-        }
-    }
-
-    fn state_changes(old: &Settings, cur: &SessionState) -> Vec<StateChange> {
-        let mut out = Vec::new();
-        let playback = cur.playback();
-        let volume = volume_pct(old.volume);
-        if volume != playback.volume {
-            out.push(StateChange::Volume(volume));
-        }
-        if old.muted != playback.muted {
-            out.push(StateChange::Muted(old.muted));
-        }
-        if old.repeat != cur.repeat() {
-            out.push(StateChange::Repeat(old.repeat));
-        }
-        if old.shuffle != cur.shuffle() {
-            out.push(StateChange::Shuffle(old.shuffle));
-        }
-        if old.visualization.mode != cur.viz_mode() {
-            out.push(StateChange::VizMode(old.visualization.mode));
-        }
-        let widths: BTreeMap<ColumnId, WidthPct> = old
-            .columns
-            .iter()
-            .filter_map(|(key, cfg)| Some((ColumnId::from_key(key)?, WidthPct::new(cfg.width?)?)))
-            .collect();
-        if &widths != cur.column_widths() {
-            out.push(StateChange::ColumnWidths(widths));
-        }
-        let direction = if old.sort_desc { SortDirection::Desc } else { SortDirection::Asc };
-        let sort = old.sorted_col.map(|column| SortKey { column, direction });
-        if sort != cur.sort() {
-            out.push(StateChange::Sort(sort));
-        }
-        let window = WindowGeometry {
-            position: old.win_x.zip(old.win_y).map(|(x, y)| PhysPos { x, y }),
-            size: old.win_w.zip(old.win_h).map(|(width, height)| PhysSize { width, height }),
-            maximized: old.win_maximized,
-            fullscreen: old.win_fullscreen,
-        };
-        if window != cur.window() {
-            out.push(StateChange::Window(window));
-        }
-        // Пустая строка старой модели = «не задано»; снять `last_dir` новая модель не умеет.
-        if !old.last_dir.is_empty() {
-            let dir = PathBuf::from(&old.last_dir);
-            if cur.last_dir() != Some(dir.as_path()) {
-                out.push(StateChange::LastDir(dir));
-            }
-        }
-        out
-    }
-
-    /// Громкость старой модели (0.0..=1.0) → проценты состояния (0..=100), без `as`.
-    fn volume_pct(v: f32) -> u8 {
-        let pct = (if v.is_finite() { v } else { 0.0 }).clamp(0.0, 1.0) * 100.0;
-        let pct = pct.round();
-        (0u8..=100).find(|n| f32::from(*n) >= pct).unwrap_or(100)
-    }
-
-    #[cfg(test)]
-    mod tests {
-        use super::*;
-        use crate::audio::visualizer::VisualizationMode;
-        use crate::core::testing::Harness;
-        use crate::settings::RepeatMode;
-
-        fn artist() -> ColumnId {
-            ColumnId::from_key("artist").expect("artist column")
-        }
-
-        #[test]
-        fn bridge_roundtrip_keeps_core_unchanged() {
-            let h = Harness::new();
-            h.put_settings(b"theme = \"dark\"\ncover_size = 180.0\n");
-            h.put_state(
-                b"volume = 40\nshuffle = true\nlast_dir = \"/music\"\n[sort]\ncolumn = \"artist\"\ndirection = \"desc\"\n[window]\nx = 5\ny = 6\nwidth = 800\nheight = 600\n[columns.widths]\nartist = 30.0\ntitle = 70.0\n",
-            );
-            let mut core = h.boot();
-            let settings_before = core.settings().clone();
-            let state_before = core.state().clone();
-            let old = legacy_from_core(core.settings(), core.state());
-            apply_legacy(&old, &mut core);
-            assert_eq!(core.settings(), &settings_before);
-            assert_eq!(core.state(), &state_before);
-        }
-
-        #[test]
-        fn bridge_legacy_changes_reach_core() {
-            let mut core = Harness::new().boot();
-            let mut old = legacy_from_core(core.settings(), core.state());
-            old.theme = "dark".to_string();
-            old.cover_size = 150.0;
-            old.volume = 0.25;
-            old.muted = true;
-            old.shuffle = true;
-            old.repeat = RepeatMode::All;
-            old.visualization.mode = VisualizationMode::Spectrum;
-            old.win_x = Some(10);
-            old.win_y = Some(20);
-            old.win_w = Some(1024);
-            old.win_h = Some(768);
-            old.sorted_col = Some(artist());
-            old.sort_desc = true;
-            old.last_dir = "/data/music".to_string();
-            apply_legacy(&old, &mut core);
-            assert_eq!(core.settings().theme.as_str(), "dark");
-            assert_eq!(core.settings().top_panel.cover_size, 150.0);
-            let st = core.state();
-            assert_eq!(st.playback().volume, 25);
-            assert!(st.playback().muted);
-            assert!(st.shuffle());
-            assert_eq!(st.repeat(), RepeatMode::All);
-            assert_eq!(st.viz_mode(), VisualizationMode::Spectrum);
-            assert_eq!(st.window().position, Some(PhysPos { x: 10, y: 20 }));
-            assert_eq!(st.window().size, Some(PhysSize { width: 1024, height: 768 }));
-            assert_eq!(st.sort(), Some(SortKey { column: artist(), direction: SortDirection::Desc }));
-            assert_eq!(st.last_dir(), Some(std::path::Path::new("/data/music")));
-        }
-
-        #[test]
-        fn bridge_new_to_old_maps_state() {
-            let h = Harness::new();
-            h.put_state(
-                b"volume = 70\nmuted = true\nlast_dir = \"/m\"\n[sort]\ncolumn = \"artist\"\ndirection = \"asc\"\n[window]\nx = 1\ny = 2\nwidth = 300\nheight = 200\nmaximized = true\n[columns.widths]\nartist = 40.0\n",
-            );
-            let core = h.boot();
-            let old = legacy_from_core(core.settings(), core.state());
-            assert!((old.volume - 0.7).abs() < 1e-6);
-            assert!(old.muted);
-            assert_eq!(old.last_dir, "/m");
-            assert_eq!(old.sorted_col, Some(artist()));
-            assert!(!old.sort_desc);
-            assert_eq!((old.win_x, old.win_y, old.win_w, old.win_h), (Some(1), Some(2), Some(300), Some(200)));
-            assert!(old.win_maximized);
-            assert_eq!(old.column_cfg(artist()).and_then(|c| c.width), Some(40.0));
-            assert_eq!(old.theme, core.settings().theme.as_str());
-        }
-
-        #[test]
-        fn bridge_volume_pct_bounds() {
-            assert_eq!(volume_pct(0.0), 0);
-            assert_eq!(volume_pct(0.56), 56);
-            assert_eq!(volume_pct(1.5), 100);
-            assert_eq!(volume_pct(f32::NAN), 0);
-        }
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
 
     #[test]
     fn audio_and_dsd_defaults() {
-        let s = Settings::default();
+        let a = AudioCfg::default();
         // ТЗ §8.3: дефолт ресемплера — sinc_medium.
-        assert_eq!(s.audio.resampler.algorithm, ResamplerAlgorithm::SincMedium);
-        assert_eq!(s.audio.resampler.dither, ResamplerDither::Tpdf);
-        assert!(!s.audio.bit_perfect);
+        assert_eq!(a.resampler.algorithm, ResamplerAlgorithm::SincMedium);
+        assert_eq!(a.resampler.dither, ResamplerDither::Tpdf);
+        assert!(!a.bit_perfect);
         // ТЗ A2.0 §5.2: дефолтная глубина ring-буфера — 1500 мс.
-        assert_eq!(s.audio.ring_buffer_ms, RING_BUFFER_MS_DEFAULT);
+        assert_eq!(a.ring_buffer_ms, RING_BUFFER_MS_DEFAULT);
         // ТЗ §8.2: DSD по умолчанию «DSD → PCM», 24 бит, auto частота.
-        assert_eq!(s.dsd.mode, DsdMode::Pcm);
-        assert_eq!(s.dsd.target_bit_depth, TargetBitDepth::Bits24);
-        assert_eq!(s.dsd.target_sample_rate, TargetSampleRate::Auto);
-    }
-
-    #[test]
-    fn audio_and_dsd_toml_roundtrip() {
-        let s = Settings::default();
-        let toml = toml::to_string(&s).unwrap();
-        assert!(toml.contains("[dsd]"), "missing [dsd]:\n{toml}");
-        assert!(toml.contains("[audio]"), "missing [audio]:\n{toml}");
-        assert!(toml.contains("[audio.resampler]"), "missing [audio.resampler]:\n{toml}");
-        let parsed: Settings = toml::from_str(&toml).unwrap();
-        assert_eq!(parsed.audio, s.audio);
-        assert_eq!(parsed.dsd, s.dsd);
+        let d = DsdCfg::default();
+        assert_eq!(d.mode, DsdMode::Pcm);
+        assert_eq!(d.target_bit_depth, TargetBitDepth::Bits24);
+        assert_eq!(d.target_sample_rate, TargetSampleRate::Auto);
     }
 
     #[test]
     fn ring_buffer_ms_roundtrips_and_overrides() {
-        let s = Settings::default();
-        let toml = toml::to_string(&s).unwrap();
+        let a = AudioCfg::default();
+        let toml = toml::to_string(&a).unwrap();
         assert!(toml.contains("ring_buffer_ms"), "missing ring_buffer_ms:\n{toml}");
-        let parsed: Settings = toml::from_str(&toml).unwrap();
-        assert_eq!(parsed.audio.ring_buffer_ms, RING_BUFFER_MS_DEFAULT);
+        let parsed: AudioCfg = toml::from_str(&toml).unwrap();
+        assert_eq!(parsed.ring_buffer_ms, RING_BUFFER_MS_DEFAULT);
 
-        let parsed: Settings = toml::from_str("[audio]\nring_buffer_ms = 250\n").unwrap();
-        assert_eq!(parsed.audio.ring_buffer_ms, 250);
-    }
-
-    #[test]
-    fn window_state_flags_roundtrip() {
-        let s = Settings {
-            win_fullscreen: true,
-            win_maximized: true,
-            ..Default::default()
-        };
-        let toml = toml::to_string(&s).unwrap();
-        assert!(toml.contains("win_fullscreen = true"), "missing win_fullscreen:\n{toml}");
-        assert!(toml.contains("win_maximized = true"), "missing win_maximized:\n{toml}");
-        let parsed: Settings = toml::from_str(&toml).unwrap();
-        assert!(parsed.win_fullscreen);
-        assert!(parsed.win_maximized);
-
-        let parsed: Settings = toml::from_str("").unwrap();
-        assert!(!parsed.win_fullscreen);
-        assert!(!parsed.win_maximized);
+        let parsed: AudioCfg = toml::from_str("ring_buffer_ms = 250\n").unwrap();
+        assert_eq!(parsed.ring_buffer_ms, 250);
     }
 
     #[test]
@@ -1541,20 +762,6 @@ mod tests {
         assert_eq!(clamp_ring_buffer_ms(50), RING_BUFFER_MS_MIN);
         assert_eq!(clamp_ring_buffer_ms(1500), 1500);
         assert_eq!(clamp_ring_buffer_ms(20_000), RING_BUFFER_MS_MAX);
-    }
-
-    #[test]
-    fn dsd_pcm_breaks_bit_perfect_detects_conflict() {
-        let mut s = Settings::default();
-        assert!(!s.dsd_pcm_breaks_bit_perfect(), "без bit-perfect конфликта нет");
-        s.audio.bit_perfect = true;
-        assert!(s.dsd_pcm_breaks_bit_perfect());
-        s.dsd.mode = DsdMode::Native;
-        assert!(!s.dsd_pcm_breaks_bit_perfect(), "native — без конверсии");
-        s.dsd.mode = DsdMode::DoP;
-        assert!(!s.dsd_pcm_breaks_bit_perfect(), "DoP — без конверсии");
-        s.dsd.mode = DsdMode::Pcm;
-        assert!(s.dsd_pcm_breaks_bit_perfect(), "вернулся к конверсии");
     }
 
     #[test]
@@ -1571,74 +778,70 @@ mod tests {
 
     #[test]
     fn audio_resampler_defaults() {
-        let s = Settings::default();
-        assert_eq!(s.audio.resampler.mode, ResamplerMode::Auto, "A3.0 §11.1");
-        assert_eq!(s.audio.resampler.fixed_rate, 0, "A3.0 §11.1");
-        assert_eq!(s.audio.resampler.prefer_family, ClockFamily::Auto, "A3.0 §11.1");
-        assert_eq!(s.audio.resampler.fallback_rate, FallbackRatePolicy::Nearest, "A3.0 §11.1");
+        let a = AudioCfg::default();
+        assert_eq!(a.resampler.mode, ResamplerMode::Auto, "A3.0 §11.1");
+        assert_eq!(a.resampler.fixed_rate, 0, "A3.0 §11.1");
+        assert_eq!(a.resampler.prefer_family, ClockFamily::Auto, "A3.0 §11.1");
+        assert_eq!(a.resampler.fallback_rate, FallbackRatePolicy::Nearest, "A3.0 §11.1");
     }
 
     #[test]
     fn audio_defaults_new_fields() {
-        let s = Settings::default();
-        assert_eq!(s.audio.exclusive, ExclusiveMode::Auto, "A3.0 §11.1");
-        assert_eq!(s.audio.fallback, FallbackPolicy::Nearest, "A3.0 §11.1");
-        assert!(!s.audio.filter_hardware_only, "A3.0 §11.1");
-        assert!(!s.audio.filter_stereo_only, "A3.0 §11.1");
+        let a = AudioCfg::default();
+        assert_eq!(a.exclusive, ExclusiveMode::Auto, "A3.0 §11.1");
+        assert_eq!(a.fallback, FallbackPolicy::Nearest, "A3.0 §11.1");
+        assert!(!a.filter_hardware_only, "A3.0 §11.1");
+        assert!(!a.filter_stereo_only, "A3.0 §11.1");
     }
 
     #[test]
     fn audio_toml_roundtrip_with_new_fields() {
-        let toml = "[audio]\nbit_perfect = true\nexclusive = \"strict\"\nfallback = \"fail\"\nfilter_hardware_only = true\nfilter_stereo_only = true\n\n[audio.resampler]\nmode = \"fixed\"\nfixed_rate = 48000\nprefer_family = \"family48k\"\nfallback_rate = \"never_downsample\"\n";
-        let s: Settings = toml::from_str(toml).unwrap();
-        assert!(s.audio.bit_perfect);
-        assert_eq!(s.audio.exclusive, ExclusiveMode::Strict);
-        assert_eq!(s.audio.fallback, FallbackPolicy::Fail);
-        assert!(s.audio.filter_hardware_only);
-        assert!(s.audio.filter_stereo_only);
-        assert_eq!(s.audio.resampler.mode, ResamplerMode::Fixed);
-        assert_eq!(s.audio.resampler.fixed_rate, 48000);
-        assert_eq!(s.audio.resampler.prefer_family, ClockFamily::Family48k);
-        assert_eq!(
-            s.audio.resampler.fallback_rate,
-            FallbackRatePolicy::NeverDownsample
-        );
+        let toml = "bit_perfect = true\nexclusive = \"strict\"\nfallback = \"fail\"\nfilter_hardware_only = true\nfilter_stereo_only = true\n\n[resampler]\nmode = \"fixed\"\nfixed_rate = 48000\nprefer_family = \"family48k\"\nfallback_rate = \"never_downsample\"\n";
+        let a: AudioCfg = toml::from_str(toml).unwrap();
+        assert!(a.bit_perfect);
+        assert_eq!(a.exclusive, ExclusiveMode::Strict);
+        assert_eq!(a.fallback, FallbackPolicy::Fail);
+        assert!(a.filter_hardware_only);
+        assert!(a.filter_stereo_only);
+        assert_eq!(a.resampler.mode, ResamplerMode::Fixed);
+        assert_eq!(a.resampler.fixed_rate, 48000);
+        assert_eq!(a.resampler.prefer_family, ClockFamily::Family48k);
+        assert_eq!(a.resampler.fallback_rate, FallbackRatePolicy::NeverDownsample);
 
-        let re = toml::to_string(&s).unwrap();
-        let parsed: Settings = toml::from_str(&re).unwrap();
-        assert_eq!(parsed.audio, s.audio);
+        let re = toml::to_string(&a).unwrap();
+        let parsed: AudioCfg = toml::from_str(&re).unwrap();
+        assert_eq!(parsed, a);
     }
 
     #[test]
     fn audio_partial_config_preserves_existing() {
-        let toml = "[audio]\nbit_perfect = false\n";
-        let s: Settings = toml::from_str(toml).unwrap();
-        assert!(!s.audio.bit_perfect);
-        assert_eq!(s.audio.resampler.algorithm, ResamplerAlgorithm::SincMedium);
-        assert_eq!(s.audio.resampler.dither, ResamplerDither::Tpdf);
-        assert_eq!(s.audio.resampler.mode, ResamplerMode::Auto);
-        assert_eq!(s.audio.resampler.fixed_rate, 0);
-        assert_eq!(s.audio.resampler.prefer_family, ClockFamily::Auto);
-        assert_eq!(s.audio.resampler.fallback_rate, FallbackRatePolicy::Nearest);
-        assert_eq!(s.audio.exclusive, ExclusiveMode::Auto);
-        assert_eq!(s.audio.fallback, FallbackPolicy::Nearest);
-        assert!(!s.audio.filter_hardware_only);
-        assert!(!s.audio.filter_stereo_only);
+        let toml = "bit_perfect = false\n";
+        let a: AudioCfg = toml::from_str(toml).unwrap();
+        assert!(!a.bit_perfect);
+        assert_eq!(a.resampler.algorithm, ResamplerAlgorithm::SincMedium);
+        assert_eq!(a.resampler.dither, ResamplerDither::Tpdf);
+        assert_eq!(a.resampler.mode, ResamplerMode::Auto);
+        assert_eq!(a.resampler.fixed_rate, 0);
+        assert_eq!(a.resampler.prefer_family, ClockFamily::Auto);
+        assert_eq!(a.resampler.fallback_rate, FallbackRatePolicy::Nearest);
+        assert_eq!(a.exclusive, ExclusiveMode::Auto);
+        assert_eq!(a.fallback, FallbackPolicy::Nearest);
+        assert!(!a.filter_hardware_only);
+        assert!(!a.filter_stereo_only);
     }
 
     #[test]
     fn audio_resampler_algorithm_overrides_default() {
-        let toml = "[audio.resampler]\nalgorithm = \"cubic\"\n";
-        let s: Settings = match toml::from_str(toml) {
-            Ok(s) => s,
+        let toml = "algorithm = \"cubic\"\n";
+        let r: AudioResamplerCfg = match toml::from_str(toml) {
+            Ok(r) => r,
             Err(e) => {
                 panic!("parse failed: {e}");
             }
         };
-        assert_eq!(s.audio.resampler.algorithm, ResamplerAlgorithm::Cubic);
-        // Остальные секции — дефолты.
-        assert_eq!(s.audio.resampler.dither, ResamplerDither::Tpdf);
-        assert_eq!(s.dsd.mode, DsdMode::Pcm);
+        assert_eq!(r.algorithm, ResamplerAlgorithm::Cubic);
+        // Остальные поля — дефолты.
+        assert_eq!(r.dither, ResamplerDither::Tpdf);
     }
 
     #[test]
@@ -1651,213 +854,11 @@ mod tests {
     }
 
     #[test]
-    fn ordered_columns_falls_back_to_canonical() {
-        let s = Settings::default();
-        assert_eq!(s.ordered_columns(), ColumnId::ALL.to_vec());
-    }
-
-    #[test]
-    fn ordered_columns_uses_stored_order_and_appends_new() {
-        let s = Settings {
-            column_order: vec!["title".into(), "genre".into(), "artist".into()],
-            ..Default::default()
-        };
-        let ord = s.ordered_columns();
-        assert_eq!(ord[0], ColumnId::Title);
-        assert_eq!(ord[1], ColumnId::Genre);
-        assert_eq!(ord[2], ColumnId::Artist);
-        // Remaining canonical columns appended in canonical order.
-        assert!(ord.contains(&ColumnId::NowPlaying));
-        assert!(ord.contains(&ColumnId::SampleRate));
-        assert_eq!(ord.len(), ColumnId::ALL.len());
-        // No duplicates.
-        let mut set = std::collections::HashSet::new();
-        for c in &ord {
-            assert!(set.insert(*c), "duplicate {c:?}");
-        }
-    }
-
-    #[test]
-    fn move_column_reorders_stored_keys() {
-        let mut s = Settings {
-            column_order: vec![
-                "title".into(),
-                "genre".into(),
-                "artist".into(),
-                "year".into(),
-            ],
-            ..Default::default()
-        };
-        s.move_column(0, 2); // title -> position 2
-                             // The full canonical order is materialised; the reorder is reflected
-                             // in the leading positions.
-        assert!(s.column_order.starts_with(&[
-            "genre".to_string(),
-            "artist".to_string(),
-            "title".to_string(),
-            "year".to_string(),
-        ]));
-        assert_eq!(s.column_order.len(), ColumnId::ALL.len());
-    }
-
-    #[test]
     fn from_key_and_key_roundtrip() {
         for c in ColumnId::ALL {
             assert_eq!(ColumnId::from_key(c.key()), Some(c));
         }
         assert_eq!(ColumnId::from_key("nope"), None);
-    }
-
-    #[test]
-    fn column_cfg_title_applies() {
-        let s = Settings::default();
-        assert_eq!(s.column_title(ColumnId::NowPlaying), "\u{25B6}");
-        assert_eq!(s.column_title(ColumnId::Title), "Название");
-        assert_eq!(s.column_title(ColumnId::Artist), "Исполнитель");
-    }
-
-    #[test]
-    fn column_width_pct_uses_priority() {
-        let s = Settings::default();
-        // Title has priority 0.22 in defaults.
-        let w = s.column_width_pct(ColumnId::Title);
-        assert!((w - 0.22).abs() < 0.001, "expected 0.22, got {w}");
-    }
-
-    #[test]
-    fn column_width_pct_uses_user_width_over_priority() {
-        let mut s = Settings::default();
-        if let Some(cfg) = s.columns.get_mut("title") {
-            cfg.width = Some(33.0);
-        }
-        let w = s.column_width_pct(ColumnId::Title);
-        assert!((w - 33.0).abs() < 0.001, "expected 33.0, got {w}");
-    }
-
-    #[test]
-    fn cover_priority_default_order() {
-        let s = Settings::default();
-        assert_eq!(
-            s.cover_priority_ordered(),
-            vec![CoverSource::Folder, CoverSource::Embedded, CoverSource::Internet]
-        );
-    }
-
-    #[test]
-    fn cover_priority_filters_unknown_and_appends_missing() {
-        let s = Settings {
-            cover_priority: vec!["internet".into(), "bogus".into()],
-            ..Default::default()
-        };
-        let ord = s.cover_priority_ordered();
-        assert_eq!(ord[0], CoverSource::Internet);
-        // Missing canonical sources appended in canonical order.
-        assert_eq!(ord[1], CoverSource::Folder);
-        assert_eq!(ord[2], CoverSource::Embedded);
-        assert_eq!(ord.len(), CoverSource::ALL.len());
-    }
-
-    #[test]
-    fn cover_move_reorders_stored_keys() {
-        let mut s = Settings::default();
-        s.move_cover(0, 2); // folder -> last
-        let ord = s.cover_priority_ordered();
-        assert_eq!(
-            ord,
-            vec![CoverSource::Embedded, CoverSource::Internet, CoverSource::Folder]
-        );
-    }
-
-    #[test]
-    fn cover_folder_names_fallback_and_trim() {
-        let s = Settings::default();
-        assert_eq!(s.cover_folder_names_list(), default_cover_folder_names());
-        assert_eq!(default_cover_folder_names().len(), 17);
-
-        let s = Settings {
-            cover_folder_names: vec!["front.jpg".into(), "   ".into(), "art.png".into()],
-            ..Default::default()
-        };
-        assert_eq!(s.cover_folder_names_list(), vec!["front.jpg", "art.png"]);
-
-        // All-blank stored names fall back to the default list.
-        let s = Settings {
-            cover_folder_names: vec![" ".into()],
-            ..Default::default()
-        };
-        assert_eq!(s.cover_folder_names_list(), default_cover_folder_names());
-    }
-
-    #[test]
-    fn migrate_legacy_columns_merges_old_fields() {
-        let legacy = LegacySettings {
-            column_widths: [("title".into(), 30.0), ("artist".into(), 20.0)].into(),
-            column_visibility: [("title".into(), true), ("genre".into(), false)].into(),
-            column_order: vec!["title".into(), "artist".into()],
-        };
-        let mut settings = Settings::default();
-        // Clear defaults so migration has something to populate.
-        settings.columns.clear();
-        migrate_legacy_columns(&mut settings, &legacy);
-
-        // Visibility migrated.
-        assert!(settings.column_visible(ColumnId::Title));
-        assert!(!settings.column_visible(ColumnId::Genre));
-        // Width migrated.
-        let title_cfg = settings.columns.get("title").unwrap();
-        assert!((title_cfg.width.unwrap() - 30.0).abs() < 0.001);
-        // Order migrated.
-        assert_eq!(settings.column_order[0], "title");
-        assert_eq!(settings.column_order[1], "artist");
-        // All canonical columns present in order.
-        assert_eq!(settings.column_order.len(), ColumnId::ALL.len());
-    }
-
-    #[test]
-    fn info_labels_defaults_in_display_order() {
-        let s = Settings::default();
-        let ordered = s.info_labels_ordered();
-        assert_eq!(ordered.len(), INFO_LABEL_KEYS.len());
-        assert_eq!(ordered[0], "Artist");
-        assert_eq!(ordered[2], "Title");
-        assert_eq!(ordered[10], "Bit depth");
-        assert_eq!(ordered[12], "Channels");
-    }
-
-    #[test]
-    fn info_label_overrides_and_falls_back() {
-        let mut s = Settings::default();
-        // Skip non-overridden keys: derive expected from defaults.
-        let expected_artist = "Artist";
-        assert_eq!(s.info_label("artist"), expected_artist);
-
-        s.info_labels.insert("artist".into(), "Исполнитель".into());
-        s.info_labels.insert("channels".into(), String::new());
-        assert_eq!(s.info_label("artist"), "Исполнитель");
-        // Empty string falls back to the default (not blank/raw key).
-        assert_eq!(s.info_label("channels"), "Channels");
-        // Unknown key: raw key as last resort.
-        assert_eq!(s.info_label("bogus"), "bogus");
-    }
-
-    /// ТЗ-18, ТЗ-20: запись через модуль ФС; ошибка не меняет файл на диске.
-    #[test]
-    fn settings_store_save_goes_through_file_writer() {
-        use crate::platform::fs::{MemStore, WriteErrorClass, WriteStep};
-        let path = PathBuf::from("/cfg/settings.toml");
-        let mut mem = MemStore::new();
-        let mut store = SettingsStore { settings: Settings::default(), path: path.clone() };
-        store.save(&mut mem).expect("save");
-        let first = mem.get(&path).expect("written");
-        let parsed: Settings = toml::from_str(std::str::from_utf8(&first).expect("utf8")).expect("toml");
-        assert_eq!(parsed.cover_size, store.settings.cover_size);
-        assert_eq!(mem.counts(&path).writes, 1);
-
-        store.settings.cover_size += 10.0;
-        mem.fail_write(&path, WriteStep::Replace, WriteErrorClass::NoSpace, 1);
-        let err = store.save(&mut mem).expect_err("injected");
-        assert_eq!(err.class, WriteErrorClass::NoSpace);
-        assert_eq!(mem.get(&path), Some(first));
     }
 }
 
