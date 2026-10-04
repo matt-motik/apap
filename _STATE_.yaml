@@ -2,20 +2,93 @@
 # _STATE_.md генерируется из этого файла — не редактировать его руками.
 # Редактируйте этот файл, затем: python tools/state_tool.py render
 
-status: done
+status: in_progress
 
 task:
-  roadmap_id: null
-  title: null
+  roadmap_id: "SP1.0-8.3"
+  title: "С3 (02). Два файла и разбор по ключам (ТЗ-1, 2, 4, 5, 6, 7, 8, 9, 33 (параметр), ОВС-6)"
 
-whitelist: []
+whitelist:
+  - ROADMAP.md
+  - _STATE_.yaml
+  - _STATE_.md
+  - src/persist/mod.rs
+  - src/persist/keys.rs
+  - src/persist/settings_file.rs
+  - src/persist/state_file.rs
+  - src/core/mod.rs
+  - src/core/testing.rs
+  - src/settings.rs
+  - src/main.rs
+  - src/lib.rs
+  - src/cover.rs
+  - src/playlist_layout.rs
+  - src/audio/visualizer.rs
+  - src/app/mod.rs
+  - src/app/ui_manager.rs
+  - src/app/playback_manager.rs
+  - src/app/playlist_manager.rs
+  - src/app/viz_settings_manager.rs
+  - src/app/fulltrack_manager.rs
+  - src/app/visualizer_manager.rs
+  - src/app/bp_report.rs
+  - ui/settings.slint
+  - ui/app.slint
 
-dod: null
+dod: "Два файла settings.toml/state.toml разбираются по ключам (§2.3–§2.6, §6.1–§6.2); повреждённый файл не стирает настроек (.bad до первой записи); запуск ничего не пишет; SettingsStore/migrate_legacy_columns/unwrap_or_default удалены; тесты §7.2 С3 и миграции §7.5 зелёные; cargo build/test/clippy зелёные"
 
-steps: []
+steps:
+  - id: 1
+    description: "persist/keys.rs: KeyPath, LoadNote(Kind), KeySpec, FileRead, Parsed, walk (lookup по точкам, leaf_paths → Unknown, сортировка заметок) + юнит-тесты walk (§2.3, §6.2, ТЗ-5). Проверка: cargo test persist::keys"
+    done: false
+  - id: 2
+    description: "persist/settings_file.rs: типы новой Settings с дефолтами (ThemeName, SaveInterval, TopPanelLayout, ColumnsConfig/ColumnDef/ColumnKind, CoverSettings, InfoLabelKey, VizSettings, legacy audio/dsd/audio_device); Ord для ColumnId в settings.rs (§2.4, ТЗ-1, ТЗ-33). Проверка: cargo check"
+    done: false
+  - id: 3
+    description: "settings_file.rs: перенос методов-помощников (ordered_columns, move_column, cover-помощники, info labels) с сохраняемыми тестами §7.5 (§2.4). Проверка: cargo test persist::settings_file"
+    done: false
+  - id: 4
+    description: "settings_file.rs: таблица SETTINGS KeySpec + parse_settings (Adjusted для column_order/cover_priority, legacy audio-ключи) + тесты parse_column_order_adjusts, cover_priority, legacy_audio_keys_parse_by_keys, empty_files_give_documented_defaults (часть settings), save_interval_invalid_value (§2.4, §6.2, ТЗ-4, ТЗ-5, ТЗ-33, НФ-1). Проверка: cargo test persist::settings_file"
+    done: false
+  - id: 5
+    description: "settings_file.rs: serialize_settings через DTO SettingsFile (фиксированный порядок, BTreeMap) + settings_roundtrip_deterministic (§2.6, НФ-3). Проверка: cargo test settings_roundtrip"
+    done: false
+  - id: 6
+    description: "persist/state_file.rs: SessionState (legacy volume 0..100/muted), WidthPct, WindowGeometry, SortKey, Origin, StateChange, таблица STATE + parse_state + тесты parse_by_keys_three_notes и пары sort (§2.5, §6.2, ТЗ-2, ТЗ-5). Проверка: cargo test persist::state_file"
+    done: false
+  - id: 7
+    description: "state_file.rs: serialize_state через DTO StateFile + state_roundtrip_deterministic + settings_and_state_keys_disjoint_and_cover_lists (§2.6, ТЗ-1, ТЗ-2). Проверка: cargo test persist::"
+    done: false
+  - id: 8
+    description: "persist/mod.rs: ReferenceText, read_config(reader, path) → FileRead, Boot/boot(reader, paths), write_bad_copies (§2.2, §6.1, ADR-23 шаги 0–2, И-Р12, И-Р18, ТЗ-6, ТЗ-7). Проверка: cargo test persist::"
+    done: false
+  - id: 9
+    description: "core/mod.rs: AppCore владеет Settings/SessionState/эталонами, change_state(Origin, StateChange), set_settings, синхронный flush с сравнением с эталоном, forbid_auto, стартовые сообщения/журнал из Boot (§6.1, И-Р3, И-Р20, И-Т7, ОВС-6, ТЗ-8, ТЗ-9). Проверка: cargo check"
+    done: false
+  - id: 10
+    description: "core/testing.rs: Harness на MemStore + тесты С3 §7.2 (startup/exit/unparsable/unreadable/legacy/external_change) (§7.1, §7.2). Проверка: cargo test core::testing"
+    done: false
+  - id: 11
+    description: "main.rs: boot до окна, .bad-копии через FileWriter, передача AppCore в MusicApp::new (ADR-23 шаги 0–2, ТЗ-6). Проверка: cargo check"
+    done: false
+  - id: 12
+    description: "Атомарный перевод MusicApp с SettingsStore на AppCore (src/app/*, cover.rs, bp_report.rs, playlist_layout.rs): настройки — settings(), состояние — change_state; запись целиком в старые моменты (§8.1 С3). Обоснованное исключение из правила 1–2 файлов: смена типа требует атомарной компиляции. Проверка: cargo build + cargo test"
+    done: false
+  - id: 13
+    description: "ui/settings.slint + app.slint: параметр N (10/30/60/120) с подсказкой §2.13, сохранение значения по «Сохранить» (ТЗ-33 параметр). Проверка: cargo build"
+    done: false
+  - id: 14
+    description: "ui/settings.slint: постоянный текст ОВС-6 рядом с «Сохранить» при нечитаемом settings.toml (§2.13, ОВС-6, И-Р20). Проверка: cargo build"
+    done: false
+  - id: 15
+    description: "settings.rs: удалить SettingsStore, старую Settings, migrate_legacy_columns и устаревшие тесты по §7.5 (§8.1 «что удаляется»). Проверка: cargo test"
+    done: false
+  - id: 16
+    description: "Финальная верификация: cargo build/test/clippy зелёные, закрытие этапа (Шаг 5). Проверка: все зелёные, 0 новых варнингов"
+    done: false
 
-current_step: null
-next_action: null
+current_step: 1
+next_action: "Шаг 1: создать src/persist/keys.rs (KeyPath, LoadNote, KeySpec, FileRead, Parsed, walk) и тесты walk"
 
 fail_counter: 0
 fail_counter_max: 3
