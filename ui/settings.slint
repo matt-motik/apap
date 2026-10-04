@@ -57,6 +57,8 @@ export component Settings inherits Rectangle {
     in property <float> col-info-w: 240;
     in property <float> col-gap: 12;
     in property <bool> minimize-to-tray: false;
+    // Индекс N в [10, 30, 60, 120] с (ТЗ-33).
+    in property <int> save-interval-idx: 1;
     in property <[string]> audio-devices: [];
     in property <int> audio-device-idx: -1;
     in property <string> active-device: "";
@@ -141,6 +143,7 @@ export component Settings inherits Rectangle {
     callback set-col-info-w(float);
     callback set-col-gap(float);
     callback set-minimize-to-tray(bool);
+    callback set-save-interval(int);
     callback set-audio-device(string);
     callback refresh-devices();
     callback set-dsd-mode(int);
@@ -362,6 +365,36 @@ export component Settings inherits Rectangle {
 
                                         Rectangle {
                                             horizontal-stretch: 1;
+                                        }
+                                    }
+
+                                    // Параметр N — интервал отложенной записи (ТЗ-33, §2.13).
+                                    VerticalLayout {
+                                        padding-left: 8px;
+                                        padding-right: 8px;
+                                        spacing: 2px;
+                                        HorizontalLayout {
+                                            spacing: 4px;
+                                            RowLabel {
+                                                text: "Save state every";
+                                            }
+
+                                            ComboBox {
+                                                model: ["10 s", "30 s", "60 s", "120 s"];
+                                                current-index: root.save-interval-idx;
+                                                selected(s) => { root.set-save-interval(self.current-index); }
+                                            }
+
+                                            Rectangle {
+                                                horizontal-stretch: 1;
+                                            }
+                                        }
+
+                                        Text {
+                                            text: "Через сколько секунд после первого изменения громкости, режима, колонок, сортировки, окна и плейлиста они сохраняются на диск. При аварийном завершении программы или отключении питания теряются изменения не старше этого интервала. Настройки из этого окна сохраняются сразу по кнопке „Сохранить“";
+                                            color: Colors.text-secondary;
+                                            font-size: 11px;
+                                            wrap: word-wrap;
                                         }
                                     }
 

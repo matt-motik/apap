@@ -1251,6 +1251,17 @@ impl MusicApp {
             });
         }
 
+        // 23a. settings-save-interval — параметр N (ТЗ-33), сохраняется по «Сохранить»
+        {
+            let app = this.clone();
+            ui.on_settings_save_interval(move |idx| {
+                let n = usize::try_from(idx).ok().and_then(|i| ui_manager::SAVE_INTERVALS.get(i).copied());
+                if let Some(n) = n {
+                    app.borrow_mut().edit_cfg(|s| s.save_interval = n);
+                }
+            });
+        }
+
         // 24. settings-device
         {
             let app = this.clone();

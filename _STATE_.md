@@ -63,13 +63,13 @@
 [x] Шаг 21: bp_report.rs + playlist_manager.rs: громкость/mute/сортировка → core.state()/change_state (И-Т7). Проверка: cargo check
 [x] Шаг 22: app/mod.rs: колбэки диалога → dialog_mut(); «Сохранить» применяет DialogDraft (set_settings + change_state VizMode/ColumnWidths, побочные эффекты по сравнению старой и новой core-настройки); старый settings_draft/settings_ref/settings_mut удалены (§8.1 С3). Проверка: cargo check
 [x] Шаг 23: app/mod.rs: оставшиеся чтения старого поля → core; поле SettingsStore удалено из MusicApp, save_settings без apply_legacy (§8.1 С3, §6.1). Проверка: cargo check; групповая проверка А по шагам 15–23 — cargo test + cargo clippy (вывод фильтром; при красном — разбор test-runner/haiku)
-[ ] Шаг 24: ui/settings.slint + app.slint: параметр N (10/30/60/120) с подсказкой §2.13, сохранение значения по «Сохранить» (ТЗ-33 параметр). Проверка: cargo check (build.rs компилирует .slint)
+[x] Шаг 24: ui/settings.slint + app.slint: параметр N (10/30/60/120) с подсказкой §2.13, сохранение значения по «Сохранить» (ТЗ-33 параметр). Проверка: cargo check (build.rs компилирует .slint)
 [ ] Шаг 25: ui/settings.slint: постоянный текст ОВС-6 рядом с «Сохранить» при нечитаемом settings.toml (§2.13, ОВС-6, И-Р20). Проверка: cargo check
 [ ] Шаг 26: settings.rs (+ тесты audio/analyzer.rs, audio/fulltrack.rs, audio/visualizer.rs): удалить мост С3, SettingsStore, старую Settings, VisualizerConfig::from_settings, migrate_legacy_columns и устаревшие тесты по §7.5 (§8.1 «что удаляется»). Проверка: cargo check
 [ ] Шаг 27: Финальная верификация (групповая проверка Б по шагам 24–26): cargo build/test/clippy зелёные, закрытие этапа (Шаг 5). Проверка: все зелёные, 0 новых варнингов
 
-- **Текущий шаг (current_step):** Шаг 24
-- **Следующий ход:** Шаг 24: параметр N (10/30/60/120) в settings.slint/app.slint с подсказкой §2.13, сохранение по «Сохранить»
+- **Текущий шаг (current_step):** Шаг 25
+- **Следующий ход:** Шаг 25: постоянный текст ОВС-6 рядом с «Сохранить» в settings.slint при нечитаемом settings.toml
 - **Счетчик безуспешных компиляций:** 0/3
 - **Состояние:** in_progress
 

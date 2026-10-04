@@ -217,6 +217,7 @@ export component AppWindow inherits Window {
     in property <string> theme-description: "";
     in property <bool> theme-save-enabled: false;
     in property <bool> settings-minimize: false;
+    in property <int> settings-save-interval-idx: 1;
     in property <[string]> settings-devices: [];
     in property <int> settings-device-idx: -1;
     in property <string> settings-active-device: "";
@@ -275,6 +276,7 @@ export component AppWindow inherits Window {
     callback settings-col-info-w(float);
     callback settings-col-gap(float);
     callback settings-toggle-minimize(bool);
+    callback settings-save-interval(int);
     callback settings-device(string);
     callback settings-refresh-devices();
     callback settings-set-dsd-mode(int);
@@ -666,6 +668,7 @@ export component AppWindow inherits Window {
         col-info-w: root.col-info-w;
         col-gap: root.col-gap;
         minimize-to-tray: root.settings-minimize;
+        save-interval-idx: root.settings-save-interval-idx;
         audio-devices: root.settings-devices;
         audio-device-idx: root.settings-device-idx;
         active-device: root.settings-active-device;
@@ -705,6 +708,7 @@ export component AppWindow inherits Window {
         set-col-info-w(v) => { root.settings-col-info-w(v); }
         set-col-gap(v) => { root.settings-col-gap(v); }
         set-minimize-to-tray(b) => { root.settings-toggle-minimize(b); }
+        set-save-interval(i) => { root.settings-save-interval(i); }
         set-audio-device(s) => { root.settings-device(s); }
         refresh-devices => { root.settings-refresh-devices(); }
         set-dsd-mode(i) => { root.settings-set-dsd-mode(i); }

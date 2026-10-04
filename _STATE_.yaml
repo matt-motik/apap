@@ -114,7 +114,7 @@ steps:
     done: true
   - id: 24
     description: "ui/settings.slint + app.slint: параметр N (10/30/60/120) с подсказкой §2.13, сохранение значения по «Сохранить» (ТЗ-33 параметр). Проверка: cargo check (build.rs компилирует .slint)"
-    done: false
+    done: true
   - id: 25
     description: "ui/settings.slint: постоянный текст ОВС-6 рядом с «Сохранить» при нечитаемом settings.toml (§2.13, ОВС-6, И-Р20). Проверка: cargo check"
     done: false
@@ -125,8 +125,8 @@ steps:
     description: "Финальная верификация (групповая проверка Б по шагам 24–26): cargo build/test/clippy зелёные, закрытие этапа (Шаг 5). Проверка: все зелёные, 0 новых варнингов"
     done: false
 
-current_step: 24
-next_action: "Шаг 24: параметр N (10/30/60/120) в settings.slint/app.slint с подсказкой §2.13, сохранение по «Сохранить»"
+current_step: 25
+next_action: "Шаг 25: постоянный текст ОВС-6 рядом с «Сохранить» в settings.slint при нечитаемом settings.toml"
 
 fail_counter: 0
 fail_counter_max: 3

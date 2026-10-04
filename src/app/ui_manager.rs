@@ -8,6 +8,11 @@ use music_player_rs::persist::state_file::{
     effective_width_pct, Origin, PhysPos, PhysSize, SortDirection, StateChange,
 };
 use music_player_rs::theme::StandardPalette;
+use music_player_rs::persist::settings_file::SaveInterval;
+
+/// Значения N в порядке пунктов списка диалога (ТЗ-33, И-Т3).
+pub(super) const SAVE_INTERVALS: [SaveInterval; 4] =
+    [SaveInterval::S10, SaveInterval::S30, SaveInterval::S60, SaveInterval::S120];
 
 impl MusicApp {
     /// Restore the saved window size/position (if any) before the window is shown.
@@ -140,6 +145,8 @@ impl MusicApp {
         self.ui.set_theme_palette(if s.theme.as_str() == "dark" { 0 } else { 1 });
         self.ui
             .set_settings_minimize(s.minimize_to_tray);
+        let n_idx = SAVE_INTERVALS.iter().position(|n| *n == s.save_interval).unwrap_or(1);
+        self.ui.set_settings_save_interval_idx(i32::try_from(n_idx).unwrap_or(1));
         self.ui
             .set_cover_size(s.top_panel.cover_size);
         self.ui
