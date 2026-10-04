@@ -123,3 +123,151 @@ impl UiGate {
         self.blocked.iter().any(|b| *b)
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// Исчерпывающий перечень `MainCmd`, включая один вариант `SortBy`.
+    const ALL_CMDS: &[MainCmd] = &[
+        MainCmd::AddFiles,
+        MainCmd::AddFolder,
+        MainCmd::LoadPlaylist,
+        MainCmd::SavePlaylist,
+        MainCmd::RemoveCurrent,
+        MainCmd::ClearPlaylist,
+        MainCmd::SortBy(ColumnId::Title),
+        MainCmd::DropFiles,
+        MainCmd::Next,
+        MainCmd::Prev,
+        MainCmd::PlayPause,
+        MainCmd::Stop,
+        MainCmd::Seek,
+        MainCmd::PlayRow,
+        MainCmd::Volume,
+        MainCmd::ToggleMute,
+        MainCmd::SwitchMode,
+        MainCmd::Repeat,
+        MainCmd::Shuffle,
+        MainCmd::VizCycle,
+        MainCmd::ColumnResize,
+        MainCmd::OpenSettings,
+    ];
+
+    /// Список команд, недоступных по ТЗ-48 во время загрузки плейлиста.
+    const LOAD_BLOCKED_CMDS: &[MainCmd] = &[
+        MainCmd::AddFiles,
+        MainCmd::AddFolder,
+        MainCmd::LoadPlaylist,
+        MainCmd::RemoveCurrent,
+        MainCmd::ClearPlaylist,
+        MainCmd::SavePlaylist,
+        MainCmd::SortBy(ColumnId::Title),
+        MainCmd::DropFiles,
+    ];
+
+    #[test]
+    fn menu_inactive_while_dialog_open_gate() {
+        let mut gate = UiGate::default();
+        gate.block(BlockReason::Dialog);
+        for &cmd in ALL_CMDS {
+            assert!(!gate.allows(cmd), "{cmd:?} must be denied while dialog is open");
+        }
+        assert!(gate.window_blocked());
+    }
+
+    #[test]
+    fn menu_inactive_while_message_open_gate() {
+        let mut gate = UiGate::default();
+        gate.block(BlockReason::Message);
+        for &cmd in ALL_CMDS {
+            assert!(!gate.allows(cmd), "{cmd:?} must be denied while message window is open");
+        }
+        assert!(gate.window_blocked());
+    }
+
+    #[test]
+    fn menu_inactive_while_file_picker_open_gate() {
+        let mut gate = UiGate::default();
+        gate.block(BlockReason::FilePicker);
+        for &cmd in ALL_CMDS {
+            assert!(!gate.allows(cmd), "{cmd:?} must be denied while file picker is open");
+        }
+        assert!(gate.window_blocked());
+    }
+
+    #[test]
+    fn unblocking_one_of_two_reasons_keeps_blocked() {
+        let mut gate = UiGate::default();
+        gate.block(BlockReason::Dialog);
+        gate.block(BlockReason::Message);
+        gate.unblock(BlockReason::Dialog);
+        assert!(gate.window_blocked());
+        assert!(!gate.allows(MainCmd::PlayPause));
+    }
+
+    #[test]
+    fn unblocking_all_reasons_allows_everything() {
+        let mut gate = UiGate::default();
+        gate.block(BlockReason::Dialog);
+        gate.block(BlockReason::Message);
+        gate.block(BlockReason::FilePicker);
+        gate.unblock(BlockReason::Dialog);
+        gate.unblock(BlockReason::Message);
+        gate.unblock(BlockReason::FilePicker);
+        assert!(!gate.window_blocked());
+        for &cmd in ALL_CMDS {
+            assert!(gate.allows(cmd), "{cmd:?} must be allowed once all reasons are cleared");
+        }
+    }
+
+    #[test]
+    fn loading_startup_denies_tz48_list_only() {
+        let mut gate = UiGate::default();
+        gate.set_loading(Some(LoadKind::Startup));
+        for &cmd in LOAD_BLOCKED_CMDS {
+            assert!(!gate.allows(cmd), "{cmd:?} must be denied during startup load (ТЗ-48)");
+        }
+        for cmd in [
+            MainCmd::Next,
+            MainCmd::Prev,
+            MainCmd::PlayPause,
+            MainCmd::Stop,
+            MainCmd::Seek,
+            MainCmd::Volume,
+            MainCmd::ToggleMute,
+        ] {
+            assert!(gate.allows(cmd), "{cmd:?} must stay allowed during startup load");
+        }
+    }
+
+    #[test]
+    fn loading_command_additionally_denies_next_prev() {
+        let mut gate = UiGate::default();
+        gate.set_loading(Some(LoadKind::Command));
+        for &cmd in LOAD_BLOCKED_CMDS {
+            assert!(!gate.allows(cmd), "{cmd:?} must be denied during command load (ТЗ-48)");
+        }
+        assert!(!gate.allows(MainCmd::Next));
+        assert!(!gate.allows(MainCmd::Prev));
+        for cmd in [
+            MainCmd::PlayPause,
+            MainCmd::Stop,
+            MainCmd::Seek,
+            MainCmd::Volume,
+            MainCmd::ToggleMute,
+        ] {
+            assert!(gate.allows(cmd), "{cmd:?} must stay allowed during command load");
+        }
+    }
+
+    #[test]
+    fn window_blocked_only_with_block_reason() {
+        let mut gate = UiGate::default();
+        assert!(!gate.window_blocked());
+        gate.set_loading(Some(LoadKind::Command));
+        assert!(!gate.window_blocked(), "loading alone must not block the window");
+        gate.block(BlockReason::Message);
+        assert!(gate.window_blocked());
+    }
+}
