@@ -3,8 +3,9 @@
 mod app;
 
 use app::MusicApp;
+use music_player_rs::core::AppCore;
 use music_player_rs::journal::{FileJournal, Journal};
-use music_player_rs::persist::ConfigPaths;
+use music_player_rs::persist::{self, ConfigPaths};
 use music_player_rs::platform::fs::os_fs;
 use music_player_rs::theme::create_default_themes;
 use slint::ComponentHandle;
@@ -41,7 +42,25 @@ fn main() {
     }
     // Журнал и модуль ФС собираются только здесь (ADR-19, ADR-21).
     let journal: Arc<dyn Journal> = Arc::new(FileJournal::start(paths.journal.clone()));
-    let (_reader, work_fs, _engine_fs) = os_fs(journal.clone());
+    let (reader, mut work_fs, _engine_fs) = os_fs(journal.clone());
+    // Чтение и разбор обоих файлов до создания окна, по одному разу каждый
+    // (ADR-23 шаг 2, §6.1, ТЗ-1, ТЗ-4). Запись не производится здесь.
+    let boot = persist::boot(reader.as_ref(), &paths);
+    for rec in persist::journal_records_for_boot(&boot) {
+        journal.record(rec);
+    }
+    // Копия `*.bad` неразбираемого файла пишется до первой записи этим же
+    // файлом (И-Р18); до писателя `apap-persist` (С4) — синхронно здесь
+    // (§8 С3, ADR-23 шаг 3).
+    let bad_copy_outcomes = persist::write_bad_copies(&boot, &mut *work_fs, &paths);
+    for rec in persist::journal_records_for_bad_copies(&bad_copy_outcomes) {
+        journal.record(rec);
+    }
+    // `AppCore` — владелец действующих настроек и состояния (ADR-19, §6.1).
+    // Полный переход `MusicApp` на `AppCore` — отдельный шаг (§8 С3): здесь
+    // экземпляр только создаётся до окна и живёт до конца `main`, чтобы его
+    // наличие не зависело от использования окном.
+    let _core = AppCore::new(boot);
     let ui = match app::create_ui() {
         Ok(ui) => ui,
         Err(e) => {

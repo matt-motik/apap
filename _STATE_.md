@@ -16,6 +16,7 @@
   - src/persist/state_file.rs
   - src/core/mod.rs
   - src/core/testing.rs
+  - src/journal.rs
   - src/settings.rs
   - src/main.rs
   - src/lib.rs
@@ -45,15 +46,16 @@
 [x] Шаг 8: persist/mod.rs: ReferenceText, read_config(reader, path) → FileRead, Boot/boot(reader, paths), write_bad_copies (§2.2, §6.1, ADR-23 шаги 0–2, И-Р12, И-Р18, ТЗ-6, ТЗ-7). Проверка: cargo test persist::
 [x] Шаг 9: core/mod.rs: AppCore владеет Settings/SessionState/эталонами, change_state(Origin, StateChange), set_settings, синхронный flush с сравнением с эталоном, forbid_auto, стартовые сообщения/журнал из Boot (§6.1, И-Р3, И-Р20, И-Т7, ОВС-6, ТЗ-8, ТЗ-9). Проверка: cargo check
 [x] Шаг 10: core/testing.rs: Harness на MemStore + тесты С3 §7.2 (startup/exit/unparsable/unreadable/legacy/external_change) (§7.1, §7.2). Проверка: cargo test core::testing
-[ ] Шаг 11: main.rs: boot до окна, .bad-копии через FileWriter, передача AppCore в MusicApp::new (ADR-23 шаги 0–2, ТЗ-6). Проверка: cargo check
-[ ] Шаг 12: Атомарный перевод MusicApp с SettingsStore на AppCore (src/app/*, cover.rs, bp_report.rs, playlist_layout.rs): настройки — settings(), состояние — change_state; запись целиком в старые моменты (§8.1 С3). Обоснованное исключение из правила 1–2 файлов: смена типа требует атомарной компиляции. Проверка: cargo build + cargo test
-[ ] Шаг 13: ui/settings.slint + app.slint: параметр N (10/30/60/120) с подсказкой §2.13, сохранение значения по «Сохранить» (ТЗ-33 параметр). Проверка: cargo build
-[ ] Шаг 14: ui/settings.slint: постоянный текст ОВС-6 рядом с «Сохранить» при нечитаемом settings.toml (§2.13, ОВС-6, И-Р20). Проверка: cargo build
-[ ] Шаг 15: settings.rs: удалить SettingsStore, старую Settings, migrate_legacy_columns и устаревшие тесты по §7.5 (§8.1 «что удаляется»). Проверка: cargo test
-[ ] Шаг 16: Финальная верификация: cargo build/test/clippy зелёные, закрытие этапа (Шаг 5). Проверка: все зелёные, 0 новых варнингов
+[x] Шаг 11: main.rs: boot до окна, .bad-копии через FileWriter, передача AppCore в MusicApp::new (ADR-23 шаги 0–2, ТЗ-6). Проверка: cargo check
+[ ] Шаг 12: journal.rs: варианты JournalRecord LoadNotes и Unparsable (с исходом .bad-копии) + их формирование в persist::journal_records_for_boot (§6.1, ADR-21, ТЗ-5, ТЗ-6). Вайтлист расширен с разрешения пользователя. Проверка: cargo test journal:: persist::
+[ ] Шаг 13: Атомарный перевод MusicApp с SettingsStore на AppCore (src/app/*, cover.rs, bp_report.rs, playlist_layout.rs): настройки — settings(), состояние — change_state; запись целиком в старые моменты (§8.1 С3). Обоснованное исключение из правила 1–2 файлов: смена типа требует атомарной компиляции. Проверка: cargo build + cargo test
+[ ] Шаг 14: ui/settings.slint + app.slint: параметр N (10/30/60/120) с подсказкой §2.13, сохранение значения по «Сохранить» (ТЗ-33 параметр). Проверка: cargo build
+[ ] Шаг 15: ui/settings.slint: постоянный текст ОВС-6 рядом с «Сохранить» при нечитаемом settings.toml (§2.13, ОВС-6, И-Р20). Проверка: cargo build
+[ ] Шаг 16: settings.rs: удалить SettingsStore, старую Settings, migrate_legacy_columns и устаревшие тесты по §7.5 (§8.1 «что удаляется»). Проверка: cargo test
+[ ] Шаг 17: Финальная верификация: cargo build/test/clippy зелёные, закрытие этапа (Шаг 5). Проверка: все зелёные, 0 новых варнингов
 
-- **Текущий шаг (current_step):** Шаг 11
-- **Следующий ход:** Шаг 11: main.rs — boot до создания окна (открыто: варианты JournalRecord LoadNotes/Unparsable — ждёт решения о вайтлисте src/journal.rs; ручное «Сохранить» при ReadFailed блокируется flush — до С4)
+- **Текущий шаг (current_step):** Шаг 12
+- **Следующий ход:** Шаг 12: journal.rs — варианты JournalRecord LoadNotes/Unparsable (ручное «Сохранить» при ReadFailed блокируется flush — до С4)
 - **Счетчик безуспешных компиляций:** 0/3
 - **Состояние:** in_progress
 
