@@ -1,5 +1,5 @@
 use std::cell::RefCell;
-use std::collections::HashSet;
+use std::collections::{BTreeMap, HashSet};
 use std::path::{Path, PathBuf};
 use std::rc::Rc;
 use std::sync::mpsc::{channel, Receiver, TryRecvError};
@@ -15,7 +15,7 @@ use music_player_rs::audio::analyzer::TAP_CAPACITY;
 use music_player_rs::audio::output::{default_device_name, probe_output, DeviceInfo};
 use music_player_rs::audio::player::{Player, ReservationEvent};
 use music_player_rs::audio::visualizer::{
-    FreqScale, LevelScale, VisualizerConfig,
+    FreqScale, LevelScale, VisualizationMode, VisualizerConfig,
 };
 use music_player_rs::core::gate::{BlockReason, LoadKind, MainCmd, UiGate};
 use music_player_rs::core::messages::{
@@ -24,6 +24,8 @@ use music_player_rs::core::messages::{
 use music_player_rs::core::{journal_records_for_flush, AppCore, FlushOutcome};
 use music_player_rs::cover::{self, CoverDone, CoverJob};
 use music_player_rs::journal::{Journal, JournalRecord, WriteTarget};
+use music_player_rs::persist::settings_file::Settings as PersistSettings;
+use music_player_rs::persist::state_file::WidthPct;
 use music_player_rs::persist::{ConfigPaths, WorkFile};
 use music_player_rs::platform::fs::FileWriter;
 use music_player_rs::platform::lifecycle::PlatformCaps;
@@ -86,6 +88,15 @@ impl Default for UiState {
             status: String::new(),
         }
     }
+}
+
+/// Черновик диалога настроек (§8.1 С3, И-Т7): настройки и правимые в
+/// диалоге поля состояния (тип визуализации, ширины колонок §2.5). Применяется
+/// целиком по «Сохранить», отбрасывается по «Отмена».
+struct DialogDraft {
+    settings: PersistSettings,
+    viz_mode: VisualizationMode,
+    column_widths: BTreeMap<ColumnId, WidthPct>,
 }
 
 /// Метаданные темы, показываемые в диалоге настроек (T1.0 §8.2):
@@ -304,6 +315,9 @@ pub struct MusicApp {
     col_model_sig: u64,
     col_sig_stable_ticks: u32,
     settings_draft: Option<Settings>,
+    /// Черновик диалога настроек в новой модели (§8.1 С3, И-Т7); мост С3 —
+    /// живёт рядом со старым `settings_draft`, пока менеджеры переводятся на него.
+    dialog: Option<DialogDraft>,
     /// Транзитное состояние выбора темы в диалоге (T1.0 §5.4/§8.2): имя,
     /// выбранное в ComboBox, не пишется в draft/settings до «Сохранить».
     theme_selection: Option<String>,
@@ -512,6 +526,7 @@ impl MusicApp {
             col_model_sig: 0,
             col_sig_stable_ticks: 0,
             settings_draft: None,
+            dialog: None,
             theme_selection: None,
             theme_meta: None,
             cover_tx: Some(cover_tx),
@@ -701,6 +716,37 @@ impl MusicApp {
 
     fn settings_mut(&mut self) -> &mut Settings {
         self.settings_draft.as_mut().unwrap_or(&mut self.settings.settings)
+    }
+
+    /// Действующие настройки для чтения: черновик диалога, если он открыт,
+    /// иначе применённые настройки ядра (§8.1 С3, И-Т7).
+    fn cfg(&self) -> &PersistSettings {
+        self.dialog.as_ref().map_or(self.core.settings(), |d| &d.settings)
+    }
+
+    /// Тип визуализации с учётом черновика диалога (§2.5, §8.1 С3).
+    fn cfg_viz_mode(&self) -> VisualizationMode {
+        self.dialog.as_ref().map_or(self.core.state().viz_mode(), |d| d.viz_mode)
+    }
+
+    /// Ширины колонок с учётом черновика диалога (§2.5, §8.1 С3).
+    fn cfg_column_widths(&self) -> &BTreeMap<ColumnId, WidthPct> {
+        self.dialog.as_ref().map_or(self.core.state().column_widths(), |d| &d.column_widths)
+    }
+
+    /// Черновик диалога для правки; `None` — диалог закрыт: настройки
+    /// меняются только через «Сохранить» (§8.1 С3, И-Т7).
+    fn dialog_mut(&mut self) -> Option<&mut DialogDraft> {
+        self.dialog.as_mut()
+    }
+
+    /// Открыть черновик диалога из текущего состояния ядра (§8.1 С3).
+    fn open_dialog_draft(&mut self) {
+        self.dialog = Some(DialogDraft {
+            settings: self.core.settings().clone(),
+            viz_mode: self.core.state().viz_mode(),
+            column_widths: self.core.state().column_widths().clone(),
+        });
     }
 
     fn push_bp_report_to_ui(&self, report: bp_report::BpReport) {
@@ -1026,6 +1072,7 @@ impl MusicApp {
                     return;
                 }
                 a.settings_draft = Some(a.settings.settings.clone());
+                a.open_dialog_draft();
                 // T1.0 §6.2: свежий диалог → сброс транзитного выбора темы и
                 // пересборка списка/метаданных из themes/*.toml.
                 a.theme_selection = None;
@@ -1157,6 +1204,7 @@ impl MusicApp {
                 // Discard the draft; the dialog itself is recreated from the
                 // real settings on the next open, so no field resync is needed.
                 a.settings_draft = None;
+                a.dialog = None;
                 a.ui.set_settings_open(false);
                 a.gate.unblock(BlockReason::Dialog);
                 a.sync_gate_ui();
@@ -1339,6 +1387,7 @@ impl MusicApp {
                 a.ui.set_bp_report_open(false);
                 a.ui.set_settings_open(true);
                 a.settings_draft = Some(a.settings.settings.clone());
+                a.open_dialog_draft();
                 a.sync_audio_devices();
                 a.sync_audio_advanced();
             });
@@ -1537,6 +1586,9 @@ impl MusicApp {
                 eprintln!("[gui] settings_save (Save) draft_present={}", app.borrow().settings_draft.is_some());
                 let mut a = app.borrow_mut();
                 let Some(draft) = a.settings_draft.take() else { return };
+                // Мост С3: «Сохранить» применяет старый черновик; новый
+                // отбрасывается до перевода колбэков диалога (§8.1 С3).
+                a.dialog = None;
 
                 let device_changed =
                     draft.audio_device != a.settings.settings.audio_device;

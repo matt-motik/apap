@@ -96,7 +96,7 @@ steps:
     done: true
   - id: 18
     description: "app/mod.rs: мост черновика диалога — DialogDraft{settings: новая Settings, viz_mode, column_widths}, поле dialog: Option<DialogDraft> рядом со старым settings_draft (создаётся там же), аксессоры cfg() -> &новая Settings (черновик или core) и dialog_mut() -> Option<&mut DialogDraft> (§8.1 С3, И-Т7). Проверка: cargo check"
-    done: false
+    done: true
   - id: 19
     description: "ui_manager.rs: чтения → cfg()/core.state(); правки в диалоге → dialog_mut(); живые ширины/сортировка/окно → change_state + старое поле (§8.1 С3, И-Т7). Проверка: cargo check"
     done: false
@@ -125,8 +125,8 @@ steps:
     description: "Финальная верификация (групповая проверка Б по шагам 24–26): cargo build/test/clippy зелёные, закрытие этапа (Шаг 5). Проверка: все зелёные, 0 новых варнингов"
     done: false
 
-current_step: 18
-next_action: "Шаг 18: DialogDraft-мост в app/mod.rs"
+current_step: 19
+next_action: "Шаг 19: ui_manager.rs → cfg()/dialog_mut()/core.state()"
 
 fail_counter: 0
 fail_counter_max: 3
