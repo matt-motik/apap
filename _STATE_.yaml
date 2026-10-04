@@ -26,6 +26,7 @@ whitelist:
   - src/app/mod.rs
   - src/app/playback_manager.rs
   - src/app/playlist_manager.rs
+  - tools/setup_dev.py
 
 dod: >-
   UiGate (причины Dialog/Message/FilePicker, флаг загрузки) и MessageCenter (очередь до первого показа, по одному,
