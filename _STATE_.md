@@ -30,7 +30,7 @@
 [x] Шаг 1: Каркас AppCore-модуля: src/core/mod.rs (doc модуля, §2.1, ADR-19) + регистрация pub mod core в src/lib.rs. Проверка: cargo check
 [x] Шаг 2: UiGate, BlockReason, LoadKind, MainCmd в src/core/gate.rs (+ pub mod gate в core/mod.rs) (§2.12/ADR-12, ТЗ-23, ТЗ-48 список). Проверка: cargo check
 [x] Шаг 3: Юнит-тесты UiGate в src/core/gate.rs: любая причина → allows=false для всех MainCmd; снятие причин по одной; loading Startup/Command — список ТЗ-48 (+Next/Prev на Command); window_blocked (ТЗ-23, И-Р8). Проверка: cargo test core::gate зелёный
-[ ] Шаг 4: PlatformCaps { tray, notifications } в src/platform/lifecycle/mod.rs (+ pub mod lifecycle в platform/mod.rs); остальное содержимое модуля — С5 (ADR-6). Проверка: cargo check
+[x] Шаг 4: PlatformCaps { tray, notifications } в src/platform/lifecycle/mod.rs (+ pub mod lifecycle в platform/mod.rs); остальное содержимое модуля — С5 (ADR-6). Проверка: cargo check
 [ ] Шаг 5: Message, MessageLevel, MessageButtons, MessageButton, MsgEffect, CloseEffect, MessageCenter в src/core/messages.rs (+ pub mod messages) по §6.15, §6.8 (ADR-13, ТЗ-52 п. 1, ТЗ-20). Проверка: cargo check
 [ ] Шаг 6: Notification в src/platform/notify/mod.rs (+ pub mod notify в platform/mod.rs); трейт Notifier и D-Bus — С5 (ADR-9). Подключить MsgEffect.notify. Проверка: cargo check
 [ ] Шаг 7: Юнит-тесты MessageCenter (§7.2): messages_before_show_queued_in_order, tray_hidden_error_notifies_once, no_tray_error_shows_window, enter_esc_buttons, слияние ошибок записи в одно окно, Retry → список файлов, write_succeeded закрывает при пустом списке, Close очищает список, dismiss_for_exit. Проверка: cargo test core::messages зелёный
@@ -44,8 +44,8 @@
 [ ] Шаг 15: src/app/playlist_manager.rs + src/app/mod.rs: раскладка ТЗ-52/ОВ-7 — успешные «Added/Track removed/Playlist cleared/Loaded» — не сообщения (журнал не нужен); падение темы при запуске → окно Warning вместо подсказки трея; принудительный Nearest — не сообщение. Проверка: cargo check
 [ ] Шаг 16: Финальная верификация: cargo build, cargo test, cargo clippy (0 новых варнингов в вайтлисте), tools/state_tool.py check-whitelist, traceability_tool; ручная проверка пользователем: меню неактивно при диалоге/окне, Enter/Esc, плеер играет в Совместимом режиме. Проверка: всё зелёное
 
-- **Текущий шаг (current_step):** Шаг 4
-- **Следующий ход:** Шаг 4: PlatformCaps { tray, notifications } в src/platform/lifecycle/mod.rs; cargo check
+- **Текущий шаг (current_step):** Шаг 5
+- **Следующий ход:** Шаг 5: Message/MessageLevel/MessageButtons/MessageButton/MsgEffect/CloseEffect/MessageCenter в src/core/messages.rs; cargo check
 - **Счетчик безуспешных компиляций:** 0/3
 - **Состояние:** in_progress
 

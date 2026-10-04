@@ -3,3 +3,4 @@
 //! встречается только внутри `src/platform/`.
 
 pub mod fs;
+pub mod lifecycle;
