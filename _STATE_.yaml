@@ -43,7 +43,7 @@ steps:
     done: true
   - id: 2
     description: "persist/settings_file.rs: типы новой Settings с дефолтами (ThemeName, SaveInterval, TopPanelLayout, ColumnsConfig/ColumnDef/ColumnKind, CoverSettings, InfoLabelKey, VizSettings, legacy audio/dsd/audio_device); Ord для ColumnId в settings.rs (§2.4, ТЗ-1, ТЗ-33). Проверка: cargo check"
-    done: false
+    done: true
   - id: 3
     description: "settings_file.rs: перенос методов-помощников (ordered_columns, move_column, cover-помощники, info labels) с сохраняемыми тестами §7.5 (§2.4). Проверка: cargo test persist::settings_file"
     done: false
@@ -87,8 +87,8 @@ steps:
     description: "Финальная верификация: cargo build/test/clippy зелёные, закрытие этапа (Шаг 5). Проверка: все зелёные, 0 новых варнингов"
     done: false
 
-current_step: 2
-next_action: "Шаг 2: persist/settings_file.rs — типы новой Settings с дефолтами; Ord для ColumnId"
+current_step: 3
+next_action: "Шаг 3: перенос методов-помощников в settings_file.rs с сохраняемыми тестами §7.5"
 
 fail_counter: 0
 fail_counter_max: 3

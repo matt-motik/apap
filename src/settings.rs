@@ -94,7 +94,7 @@ impl ColumnCfg {
 
 /// Identifiers for the playlist columns (order matches the display order in
 /// the playlist table).
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize, Default)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize, Default)]
 pub enum ColumnId {
     #[default]
     NowPlaying,
@@ -314,7 +314,7 @@ pub const INFO_LABEL_KEYS: [&str; 13] = [
 
 /// Default (English) labels for the track-info panel. Editing `info_labels`
 /// in the config file overrides these values.
-fn default_info_labels() -> std::collections::HashMap<String, String> {
+pub(crate) fn default_info_labels() -> std::collections::HashMap<String, String> {
     [
         ("artist", "Artist"),
         ("track", "Track"),

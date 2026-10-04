@@ -36,7 +36,7 @@
 
 ## Итерационный трекер
 [x] Шаг 1: persist/keys.rs: KeyPath, LoadNote(Kind), KeySpec, FileRead, Parsed, walk (lookup по точкам, leaf_paths → Unknown, сортировка заметок) + юнит-тесты walk (§2.3, §6.2, ТЗ-5). Проверка: cargo test persist::keys
-[ ] Шаг 2: persist/settings_file.rs: типы новой Settings с дефолтами (ThemeName, SaveInterval, TopPanelLayout, ColumnsConfig/ColumnDef/ColumnKind, CoverSettings, InfoLabelKey, VizSettings, legacy audio/dsd/audio_device); Ord для ColumnId в settings.rs (§2.4, ТЗ-1, ТЗ-33). Проверка: cargo check
+[x] Шаг 2: persist/settings_file.rs: типы новой Settings с дефолтами (ThemeName, SaveInterval, TopPanelLayout, ColumnsConfig/ColumnDef/ColumnKind, CoverSettings, InfoLabelKey, VizSettings, legacy audio/dsd/audio_device); Ord для ColumnId в settings.rs (§2.4, ТЗ-1, ТЗ-33). Проверка: cargo check
 [ ] Шаг 3: settings_file.rs: перенос методов-помощников (ordered_columns, move_column, cover-помощники, info labels) с сохраняемыми тестами §7.5 (§2.4). Проверка: cargo test persist::settings_file
 [ ] Шаг 4: settings_file.rs: таблица SETTINGS KeySpec + parse_settings (Adjusted для column_order/cover_priority, legacy audio-ключи) + тесты parse_column_order_adjusts, cover_priority, legacy_audio_keys_parse_by_keys, empty_files_give_documented_defaults (часть settings), save_interval_invalid_value (§2.4, §6.2, ТЗ-4, ТЗ-5, ТЗ-33, НФ-1). Проверка: cargo test persist::settings_file
 [ ] Шаг 5: settings_file.rs: serialize_settings через DTO SettingsFile (фиксированный порядок, BTreeMap) + settings_roundtrip_deterministic (§2.6, НФ-3). Проверка: cargo test settings_roundtrip
@@ -52,8 +52,8 @@
 [ ] Шаг 15: settings.rs: удалить SettingsStore, старую Settings, migrate_legacy_columns и устаревшие тесты по §7.5 (§8.1 «что удаляется»). Проверка: cargo test
 [ ] Шаг 16: Финальная верификация: cargo build/test/clippy зелёные, закрытие этапа (Шаг 5). Проверка: все зелёные, 0 новых варнингов
 
-- **Текущий шаг (current_step):** Шаг 2
-- **Следующий ход:** Шаг 2: persist/settings_file.rs — типы новой Settings с дефолтами; Ord для ColumnId
+- **Текущий шаг (current_step):** Шаг 3
+- **Следующий ход:** Шаг 3: перенос методов-помощников в settings_file.rs с сохраняемыми тестами §7.5
 - **Счетчик безуспешных компиляций:** 0/3
 - **Состояние:** in_progress
 

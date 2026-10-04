@@ -168,7 +168,7 @@ pub mod defaults {
 }
 
 /// Настройки осциллограммы (полнотрековая, ТЗ §5.2).
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct OscilloscopeCfg {
     #[serde(default)]
     pub channels: ChannelMode,
@@ -247,7 +247,7 @@ pub enum Palette {
 }
 
 /// Настройки спектрограммы (полнотрековая, ТЗ §5.3).
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct SpectrogramCfg {
     #[serde(default)]
     pub channels: ChannelMode,
@@ -327,7 +327,7 @@ pub enum LevelScale {
 }
 
 /// Настройки анализатора спектра (мгновенный, ТЗ §5.4).
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct SpectrumCfg {
     #[serde(default)]
     pub channels: ChannelMode,
@@ -414,6 +414,31 @@ impl Default for VisualizerSettings {
     fn default() -> Self {
         Self {
             mode: VisualizationMode::Off,
+            skip_fulltrack_for_dsd: true,
+            viz_max_ram_mb: defaults::viz_max_ram_mb(),
+            disk_max_size_mb: defaults::disk_max_size_mb(),
+            oscilloscope: OscilloscopeCfg::default(),
+            spectrogram: SpectrogramCfg::default(),
+            spectrum: SpectrumCfg::default(),
+        }
+    }
+}
+
+/// Параметры визуализации без типа (§2.4 (02_settings_persistence), Т-1):
+/// `VisualizerSettings` без поля `mode` — тип читается из `state.toml` (§2.5).
+#[derive(Debug, Clone, PartialEq)]
+pub struct VizSettings {
+    pub skip_fulltrack_for_dsd: bool,
+    pub viz_max_ram_mb: u32,
+    pub disk_max_size_mb: u32,
+    pub oscilloscope: OscilloscopeCfg,
+    pub spectrogram: SpectrogramCfg,
+    pub spectrum: SpectrumCfg,
+}
+
+impl Default for VizSettings {
+    fn default() -> Self {
+        Self {
             skip_fulltrack_for_dsd: true,
             viz_max_ram_mb: defaults::viz_max_ram_mb(),
             disk_max_size_mb: defaults::disk_max_size_mb(),
