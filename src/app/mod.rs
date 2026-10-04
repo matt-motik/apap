@@ -563,8 +563,7 @@ impl MusicApp {
             app.apply_sort(k.column, k.direction == SortDirection::Desc);
         }
         app.apply_window_geometry();
-        // Прежний момент записи при запуске (результат миграции); убирается в С3 (ТЗ-4).
-        app.save_settings();
+        // Запуск ничего не пишет (ТЗ-4, §8.1 С3).
         app
     }
 

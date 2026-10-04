@@ -123,10 +123,10 @@ steps:
     done: true
   - id: 27
     description: "Финальная верификация (групповая проверка Б по шагам 24–26): cargo build/test/clippy зелёные, закрытие этапа (Шаг 5). Проверка: все зелёные, 0 новых варнингов"
-    done: false
+    done: true
 
 current_step: 27
-next_action: "Шаг 27: групповая проверка B (cargo test + clippy) и закрытие этапа (Шаг 5)"
+next_action: "Закрытие этапа (Шаг 5): ROADMAP ✅, заметка плана, status done"
 
 fail_counter: 0
 fail_counter_max: 3
