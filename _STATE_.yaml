@@ -81,31 +81,31 @@ steps:
     done: true
   - id: 14
     description: "MusicApp владеет AppCore (app/mod.rs, main.rs): MusicApp::new(ui, core, …), старое поле заполняется мостом, SettingsStore::load_from убран (одно чтение), save() → apply_legacy + core.flush + journal_records_for_flush (§6.1, И-Р3, ADR-23). Проверка: cargo build + cargo test"
-    done: false
+    done: true
   - id: 15
-    description: "playback_manager.rs + cover.rs: обложки/громкость/устройство читаются из core.settings()/core.state(), изменения состояния — change_state (И-Т7). Проверка: cargo check + cargo test"
+    description: "playback_manager.rs + cover.rs: обложки/громкость/устройство читаются из core.settings()/core.state(), изменения состояния — change_state (И-Т7). Проверка: cargo check"
     done: false
   - id: 16
-    description: "ui_manager.rs: чтение настроек/состояния из AppCore вместо старого поля (§8.1 С3, И-Т7). Проверка: cargo check + cargo test"
+    description: "ui_manager.rs: чтение настроек/состояния из AppCore вместо старого поля (§8.1 С3, И-Т7). Проверка: cargo check"
     done: false
   - id: 17
-    description: "viz_settings_manager.rs + visualizer_manager.rs/fulltrack_manager.rs/playlist_manager.rs: перевод на AppCore (VisualizerConfig::from_persist_settings), старое поле MusicApp удалено (§8.1 С3). Проверка: cargo build + cargo test"
+    description: "viz_settings_manager.rs + visualizer_manager.rs/fulltrack_manager.rs/playlist_manager.rs: перевод на AppCore (VisualizerConfig::from_persist_settings), старое поле MusicApp удалено (§8.1 С3). Проверка: cargo check; групповая проверка А по шагам 15–17 — cargo test + cargo clippy (вывод фильтром; при красном — разбор test-runner/haiku)"
     done: false
   - id: 18
-    description: "ui/settings.slint + app.slint: параметр N (10/30/60/120) с подсказкой §2.13, сохранение значения по «Сохранить» (ТЗ-33 параметр). Проверка: cargo build"
+    description: "ui/settings.slint + app.slint: параметр N (10/30/60/120) с подсказкой §2.13, сохранение значения по «Сохранить» (ТЗ-33 параметр). Проверка: cargo check (build.rs компилирует .slint)"
     done: false
   - id: 19
-    description: "ui/settings.slint: постоянный текст ОВС-6 рядом с «Сохранить» при нечитаемом settings.toml (§2.13, ОВС-6, И-Р20). Проверка: cargo build"
+    description: "ui/settings.slint: постоянный текст ОВС-6 рядом с «Сохранить» при нечитаемом settings.toml (§2.13, ОВС-6, И-Р20). Проверка: cargo check"
     done: false
   - id: 20
-    description: "settings.rs: удалить мост С3, SettingsStore, старую Settings, migrate_legacy_columns и устаревшие тесты по §7.5 (§8.1 «что удаляется»). Проверка: cargo test"
+    description: "settings.rs: удалить мост С3, SettingsStore, старую Settings, migrate_legacy_columns и устаревшие тесты по §7.5 (§8.1 «что удаляется»). Проверка: cargo check"
     done: false
   - id: 21
-    description: "Финальная верификация: cargo build/test/clippy зелёные, закрытие этапа (Шаг 5). Проверка: все зелёные, 0 новых варнингов"
+    description: "Финальная верификация (групповая проверка Б по шагам 18–20): cargo build/test/clippy зелёные, закрытие этапа (Шаг 5). Проверка: все зелёные, 0 новых варнингов"
     done: false
 
-current_step: 14
-next_action: "Шаг 14: MusicApp владеет AppCore (app/mod.rs, main.rs); старое поле settings заполняется мостом legacy_from_core; save() = apply_legacy + запись"
+current_step: 15
+next_action: "Шаг 15: playback_manager.rs + cover.rs читают из core.settings()/core.state(); изменения состояния — change_state"
 
 fail_counter: 0
 fail_counter_max: 3

@@ -21,12 +21,14 @@ use music_player_rs::core::gate::{BlockReason, LoadKind, MainCmd, UiGate};
 use music_player_rs::core::messages::{
     CloseEffect, Message, MessageButton, MessageButtons, MessageCenter, MessageLevel, MsgEffect,
 };
+use music_player_rs::core::{journal_records_for_flush, AppCore, FlushOutcome};
 use music_player_rs::cover::{self, CoverDone, CoverJob};
 use music_player_rs::journal::{Journal, JournalRecord, WriteTarget};
 use music_player_rs::persist::{ConfigPaths, WorkFile};
 use music_player_rs::platform::fs::FileWriter;
 use music_player_rs::platform::lifecycle::PlatformCaps;
 use music_player_rs::playlist::{self, ScanMsg, Track};
+use music_player_rs::settings::bridge::{apply_legacy, legacy_from_core};
 use music_player_rs::settings::{
     ClockFamily, ColumnId, DsdMode, ExclusiveMode, FallbackPolicy, FallbackRatePolicy, RepeatMode,
     ResamplerMode, Settings, SettingsStore,
@@ -251,6 +253,10 @@ pub struct MusicApp {
     fs: Box<dyn FileWriter>,
     /// Журнал (ADR-21): ошибки записи рабочих файлов (ТЗ-20).
     journal: Arc<dyn Journal>,
+    /// Владелец действующих настроек и состояния сессии (ADR-19, И-Т7).
+    /// Старое плоское `settings` заполняется из него через мост (§8.1 С3)
+    /// и остаётся источником для менеджеров до шага очистки.
+    core: AppCore,
     settings: SettingsStore,
     player: Player,
     tracks: Vec<Track>,
@@ -380,8 +386,17 @@ pub struct MusicApp {
 impl MusicApp {
     /// `paths`, модуль ФС и журнал строит `main` (ADR-19): приложение не ищет
     /// каталог настроек пользователя само, поэтому тесты его не трогают (ТЗ-49).
-    pub fn new(ui: AppWindow, paths: ConfigPaths, fs: Box<dyn FileWriter>, journal: Arc<dyn Journal>) -> Self {
-        let settings = SettingsStore::load_from(paths.settings.clone());
+    pub fn new(
+        ui: AppWindow,
+        core: AppCore,
+        paths: ConfigPaths,
+        fs: Box<dyn FileWriter>,
+        journal: Arc<dyn Journal>,
+    ) -> Self {
+        let settings = SettingsStore {
+            settings: legacy_from_core(core.settings(), core.state()),
+            path: paths.settings.clone(),
+        };
         let mut player = Player::new();
         player.set_volume(settings.settings.volume);
         player.set_muted(settings.settings.muted);
@@ -467,6 +482,7 @@ impl MusicApp {
             paths,
             fs,
             journal,
+            core,
             settings,
             player,
             tracks,
@@ -544,21 +560,29 @@ impl MusicApp {
         app
     }
 
-    /// Записать `settings.toml` через модуль ФС; ошибка — в журнал и в окно
-    /// ошибок записи, успех снимает файл из этого окна, если он там был
-    /// (§6.8, ТЗ-18, ТЗ-20, ТЗ-28).
+    /// Записать `settings.toml`/`state.toml` через `AppCore`, только если
+    /// сериализованный текст отличается от эталона; ошибка — в журнал и в
+    /// окно ошибок записи, успех снимает файл из этого окна, если он там был
+    /// (И-Р3, §6.8, ТЗ-18, ТЗ-20, ТЗ-28). Временная синхронная запись всего
+    /// файла целиком — до писателя `apap-persist` (С4).
     pub(super) fn save_settings(&mut self) {
-        match self.settings.save(self.fs.as_mut()) {
-            Ok(()) => {
-                let effect = self.messages.write_succeeded(WorkFile::Settings);
-                self.apply_msg_effect(effect);
-            }
-            Err(err) => {
-                let class = err.class;
-                let target = WriteTarget::Work(WorkFile::Settings);
-                self.journal.record(JournalRecord::WriteFailed { target, err });
-                let effect = self.messages.write_failed(WorkFile::Settings, class, self.caps);
-                self.apply_msg_effect(effect);
+        apply_legacy(&self.settings.settings, &mut self.core);
+        let outcomes = self.core.flush(self.fs.as_mut(), &self.paths);
+        for rec in journal_records_for_flush(&outcomes) {
+            self.journal.record(rec);
+        }
+        for outcome in outcomes {
+            match outcome {
+                FlushOutcome::Written(file) => {
+                    let effect = self.messages.write_succeeded(file.work());
+                    self.apply_msg_effect(effect);
+                }
+                FlushOutcome::Failed { file, err } => {
+                    let class = err.class;
+                    let effect = self.messages.write_failed(file.work(), class, self.caps);
+                    self.apply_msg_effect(effect);
+                }
+                FlushOutcome::Unchanged(_) | FlushOutcome::Forbidden(_) => {}
             }
         }
     }
@@ -603,17 +627,13 @@ impl MusicApp {
     /// «Повторить» сводного окна ошибок записи, §6.8, ТЗ-20, ТЗ-52). Проходит
     /// через те же методы, что инструментированы `write_failed`/
     /// `write_succeeded` (ТЗ-13), так что результат повтора сам обновит окно.
-    /// `WorkFile::State` пока не имеет писателя в этой кодовой базе (запись
-    /// состояния — `MemStore::delay_write`/`next_wake`, этап С4): повтор для
-    /// него явно пропускается, а не замалчивается.
+    /// `WorkFile::Settings` и `WorkFile::State` оба идут через `save_settings`
+    /// (`AppCore::flush` пишет оба файла, §8.1 С3).
     pub(super) fn retry_writes(&mut self, files: Vec<WorkFile>) {
         for file in files {
             match file {
-                WorkFile::Settings => self.save_settings(),
+                WorkFile::Settings | WorkFile::State => self.save_settings(),
                 WorkFile::Playlist => self.save_playlist(),
-                WorkFile::State => {
-                    // Писателя состояния на этом этапе нет (С4) — пропуск.
-                }
             }
         }
     }

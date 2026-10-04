@@ -57,10 +57,9 @@ fn main() {
         journal.record(rec);
     }
     // `AppCore` — владелец действующих настроек и состояния (ADR-19, §6.1).
-    // Полный переход `MusicApp` на `AppCore` — отдельный шаг (§8 С3): здесь
-    // экземпляр только создаётся до окна и живёт до конца `main`, чтобы его
-    // наличие не зависело от использования окном.
-    let _core = AppCore::new(boot);
+    // `MusicApp` владеет этим экземпляром; старое плоское поле настроек
+    // заполняется из него через мост до шага очистки (§8.1 С3).
+    let core = AppCore::new(boot);
     let ui = match app::create_ui() {
         Ok(ui) => ui,
         Err(e) => {
@@ -69,7 +68,7 @@ fn main() {
             return;
         }
     };
-    let app = Rc::new(RefCell::new(MusicApp::new(ui.clone_strong(), paths, work_fs, journal.clone())));
+    let app = Rc::new(RefCell::new(MusicApp::new(ui.clone_strong(), core, paths, work_fs, journal.clone())));
     MusicApp::init(&app);
 
     let weak = ui.as_weak();
