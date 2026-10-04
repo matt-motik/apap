@@ -84,7 +84,7 @@ steps:
     done: true
   - id: 15
     description: "playback_manager.rs + cover.rs: обложки/громкость/устройство читаются из core.settings()/core.state(), изменения состояния — change_state (И-Т7). Проверка: cargo check"
-    done: false
+    done: true
   - id: 16
     description: "ui_manager.rs: чтение настроек/состояния из AppCore вместо старого поля (§8.1 С3, И-Т7). Проверка: cargo check"
     done: false
@@ -104,8 +104,8 @@ steps:
     description: "Финальная верификация (групповая проверка Б по шагам 18–20): cargo build/test/clippy зелёные, закрытие этапа (Шаг 5). Проверка: все зелёные, 0 новых варнингов"
     done: false
 
-current_step: 15
-next_action: "Шаг 15: playback_manager.rs + cover.rs читают из core.settings()/core.state(); изменения состояния — change_state"
+current_step: 16
+next_action: "Шаг 16: ui_manager.rs читает настройки/состояние из AppCore; записи состояния — change_state + старое поле до очистки"
 
 fail_counter: 0
 fail_counter_max: 3

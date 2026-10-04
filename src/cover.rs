@@ -17,7 +17,6 @@ use symphonia::core::io::MediaSourceStream;
 use symphonia::core::meta::{MetadataOptions, StandardVisualKey};
 
 use crate::playlist::Track;
-use crate::settings::Settings;
 
 /// Запрос на подгрузку обложки для трека.
 #[derive(Clone)]
@@ -47,15 +46,12 @@ pub struct CoverConfig {
 }
 
 impl CoverConfig {
-    pub fn from_settings(s: &Settings) -> Self {
+    /// Настройки обложек из `AppCore` (§2.4, §8.1 С3).
+    pub fn from_settings(s: &crate::persist::settings_file::CoverSettings) -> Self {
         CoverConfig {
-            priority: s
-                .cover_priority_ordered()
-                .iter()
-                .map(|c| c.key().to_string())
-                .collect(),
+            priority: s.priority.iter().map(|c| c.key().to_string()).collect(),
             folder_names: s.cover_folder_names_list(),
-            online: s.cover_online,
+            online: s.online,
         }
     }
 }

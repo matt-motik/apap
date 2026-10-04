@@ -2,6 +2,7 @@
 //! shuffle state, playback-state sync to the UI and cover-art handling.
 
 use super::*;
+use music_player_rs::persist::state_file::{Origin, StateChange};
 
 impl MusicApp {
     pub(super) fn sync_playback_state_to_ui(&mut self) {
@@ -224,7 +225,7 @@ impl MusicApp {
         };
         self.cover_gen = self.cover_gen.wrapping_add(1);
         if let Some(tx) = &self.cover_tx {
-            let cfg = cover::CoverConfig::from_settings(&self.settings.settings);
+            let cfg = cover::CoverConfig::from_settings(&self.core.settings().covers);
             let _ = tx.send(CoverJob {
                 id: self.cover_gen,
                 track: track.clone(),
@@ -329,7 +330,7 @@ impl MusicApp {
                 self.refresh_playlist_rows_at(self.current);
                 self.sync_track_info_to_ui();
                 self.ui.set_current_row(index as i32);
-                if self.settings.settings.scroll_to_playing {
+                if self.core.settings().scroll_to_playing {
                     self.ui.invoke_scroll_to_row(index as i32);
                 }
                 self.emit(AppEvent::TrackChanged(self.current));
@@ -377,6 +378,9 @@ impl MusicApp {
     pub fn cycle_repeat(&mut self) {
         self.repeat = self.repeat.next();
         self.settings.settings.repeat = self.repeat;
+        // Изменение состояния — через `change_state` (И-Т7); старое поле
+        // обновляется до шага очистки, иначе мост откатит значение (§8.1 С3).
+        self.core.change_state(Origin::User, StateChange::Repeat(self.repeat));
         // Persisted at exit (save-at-exit).
         self.ui.set_repeat(self.repeat == RepeatMode::All);
         self.ui.set_repeat_one(self.repeat == RepeatMode::One);
@@ -422,7 +426,7 @@ impl MusicApp {
         if name.is_empty() || name == "(select device)" {
             return;
         }
-        if name == self.settings.settings.audio_device {
+        if name == self.core.settings().playback.audio_device {
             return;
         }
         self.settings.settings.audio_device = name.clone();

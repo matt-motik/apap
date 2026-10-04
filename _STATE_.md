@@ -51,7 +51,7 @@
 [x] Шаг 12: journal.rs: варианты JournalRecord LoadNotes и Unparsable (с исходом .bad-копии) + их формирование в persist::journal_records_for_boot (§6.1, ADR-21, ТЗ-5, ТЗ-6). Вайтлист расширен с разрешения пользователя. Проверка: cargo test journal:: persist::
 [x] Шаг 13: Мост С3 (settings.rs): legacy_from_core(&Settings,&SessionState)->старый Settings и apply_legacy(&старый Settings,&mut AppCore) (set_settings + change_state по различиям); тест «туда-обратно» без потерь (§8.1 С3, ТЗ-1, И-Т7). Временный: удаляется в шаге 20. Проверка: cargo test settings::
 [x] Шаг 14: MusicApp владеет AppCore (app/mod.rs, main.rs): MusicApp::new(ui, core, …), старое поле заполняется мостом, SettingsStore::load_from убран (одно чтение), save() → apply_legacy + core.flush + journal_records_for_flush (§6.1, И-Р3, ADR-23). Проверка: cargo build + cargo test
-[ ] Шаг 15: playback_manager.rs + cover.rs: обложки/громкость/устройство читаются из core.settings()/core.state(), изменения состояния — change_state (И-Т7). Проверка: cargo check
+[x] Шаг 15: playback_manager.rs + cover.rs: обложки/громкость/устройство читаются из core.settings()/core.state(), изменения состояния — change_state (И-Т7). Проверка: cargo check
 [ ] Шаг 16: ui_manager.rs: чтение настроек/состояния из AppCore вместо старого поля (§8.1 С3, И-Т7). Проверка: cargo check
 [ ] Шаг 17: viz_settings_manager.rs + visualizer_manager.rs/fulltrack_manager.rs/playlist_manager.rs: перевод на AppCore (VisualizerConfig::from_persist_settings), старое поле MusicApp удалено (§8.1 С3). Проверка: cargo check; групповая проверка А по шагам 15–17 — cargo test + cargo clippy (вывод фильтром; при красном — разбор test-runner/haiku)
 [ ] Шаг 18: ui/settings.slint + app.slint: параметр N (10/30/60/120) с подсказкой §2.13, сохранение значения по «Сохранить» (ТЗ-33 параметр). Проверка: cargo check (build.rs компилирует .slint)
@@ -59,8 +59,8 @@
 [ ] Шаг 20: settings.rs: удалить мост С3, SettingsStore, старую Settings, migrate_legacy_columns и устаревшие тесты по §7.5 (§8.1 «что удаляется»). Проверка: cargo check
 [ ] Шаг 21: Финальная верификация (групповая проверка Б по шагам 18–20): cargo build/test/clippy зелёные, закрытие этапа (Шаг 5). Проверка: все зелёные, 0 новых варнингов
 
-- **Текущий шаг (current_step):** Шаг 15
-- **Следующий ход:** Шаг 15: playback_manager.rs + cover.rs читают из core.settings()/core.state(); изменения состояния — change_state
+- **Текущий шаг (current_step):** Шаг 16
+- **Следующий ход:** Шаг 16: ui_manager.rs читает настройки/состояние из AppCore; записи состояния — change_state + старое поле до очистки
 - **Счетчик безуспешных компиляций:** 0/3
 - **Состояние:** in_progress
 
