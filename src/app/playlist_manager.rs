@@ -54,7 +54,8 @@ impl MusicApp {
                             self.tracks.extend(added);
                             self.mark_playlist_dirty();
                             self.rebuild_shuffle();
-                            self.status = format!("Added {n} tracks").into();
+                            // Успешное добавление — результат виден в таблице
+                            // плейлиста, сообщение не требуется (ТЗ-52, ОВ-7).
                         } else {
                             self.status = format!("Scan finished: nothing new ({total} found)").into();
                         }
@@ -76,13 +77,13 @@ impl MusicApp {
             self.gate.set_loading(None);
             // Flush leftovers if the stream ended without a final Done message.
             if !self.scan_pending.is_empty() {
-                let n = self.scan_pending.len();
                 let added: Vec<Track> = std::mem::take(&mut self.scan_pending);
                 self.disk_tracks.extend(added.iter().cloned());
                 self.tracks.extend(added);
                 self.mark_playlist_dirty();
                 self.rebuild_shuffle();
-                self.status = format!("Added {n} tracks").into();
+                // Успешное добавление — результат виден в таблице плейлиста,
+                // сообщение не требуется (ТЗ-52, ОВ-7).
                 self.emit(AppEvent::QueueChanged);
             }
             // Single atomic UI update for the entire scanned batch.
@@ -143,7 +144,8 @@ impl MusicApp {
             }
         }
         self.mark_playlist_dirty();
-        self.status = "Track removed".into();
+        // Успешное удаление — строка уже исчезла из таблицы плейлиста,
+        // сообщение не требуется (ТЗ-52, ОВ-7).
         self.emit(AppEvent::QueueChanged);
     }
 
@@ -157,7 +159,8 @@ impl MusicApp {
         self.rebuild_shuffle();
         self.mark_playlist_dirty();
         self.sync_playlist_to_ui();
-        self.status = "Playlist cleared".into();
+        // Успешная очистка — таблица плейлиста уже пуста, сообщение не
+        // требуется (ТЗ-52, ОВ-7).
         self.emit(AppEvent::QueueChanged);
     }
 

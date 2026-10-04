@@ -646,16 +646,24 @@ impl MusicApp {
                 app.apply_theme(theme);
             }
             // T1.0 §6.1: падение загрузки темы → Light визуально для текущего
-            // запуска + тултип трея. Значение `theme` в settings.toml НЕ
+            // запуска + окно Warning (данные не под угрозой, но явное
+            // намерение пользователя — выбранная тема — не выполнено;
+            // ТЗ-52, ОВ-7). Значение `theme` в settings.toml НЕ
             // перезаписывается (resolve_startup_theme чистая, намерение
             // пользователя сохраняется до исправления TOML).
             if was_fallback {
                 eprintln!(
                     "[theme] startup: тема \"{theme_name}\" не загружена, применена светлая"
                 );
-                app.set_tray_notice(format!(
-                    "Тема \"{theme_name}\" не загружена, применена светлая тема"
-                ));
+                app.push_message(Message {
+                    level: MessageLevel::Warning,
+                    title: "Тема не загружена".into(),
+                    body: format!(
+                        "Тема \"{theme_name}\" не загружена, применена светлая тема"
+                    )
+                    .into(),
+                    buttons: MessageButtons::Ok,
+                });
             }
             app.sync_settings_to_ui();
             app.sync_playlist_to_ui();
@@ -1360,11 +1368,10 @@ impl MusicApp {
                     }
                 }
                 if forced {
+                    // Автоматическая правка черновика настроек, видимая сразу
+                    // через sync_audio_advanced (комбобокс Fallback в диалоге)
+                    // — сообщение не требуется (ТЗ-52, ОВ-7).
                     a.sync_audio_advanced();
-                    a.ui.set_status_text(
-                        "Resampler = Fixed несовместим с Fallback = Fail: переключено на Nearest"
-                            .into(),
-                    );
                 }
                 a.sync_capabilities_and_validation();
             });
@@ -1937,7 +1944,6 @@ impl MusicApp {
         };
         // Загрузка завершена — снять признак ТЗ-48, список снова доступен.
         self.gate.set_loading(None);
-        let n = tracks.len();
         self.disk_tracks = tracks.clone();
         self.tracks = tracks;
         self.known_paths = self.tracks.iter().map(|t| t.path.clone()).collect();
@@ -1947,14 +1953,9 @@ impl MusicApp {
             self.apply_sort(col, desc);
         }
         self.sync_playlist_to_ui();
-        if n > 0 {
-            let audio = if self.audio_ready {
-                format!("Audio: {} ready; ", self.active_device)
-            } else {
-                String::new()
-            };
-            self.status = format!("{audio}Loaded {n} tracks").into();
-        }
+        // Успешная загрузка стартового плейлиста — результат виден в
+        // таблице и track-count, сообщение/строка состояния не нужны
+        // (ТЗ-52, ОВ-7).
     }
 
     fn poll_tray(&mut self) {
