@@ -59,6 +59,8 @@ export component Settings inherits Rectangle {
     in property <bool> minimize-to-tray: false;
     // Индекс N в [10, 30, 60, 120] с (ТЗ-33).
     in property <int> save-interval-idx: 1;
+    // Постоянный текст у «Сохранить» при нечитаемом settings.toml; пусто — не показывается (ОВС-6 в, §2.13).
+    in property <string> save-notice: "";
     in property <[string]> audio-devices: [];
     in property <int> audio-device-idx: -1;
     in property <string> active-device: "";
@@ -1932,8 +1934,13 @@ export component Settings inherits Rectangle {
                         spacing: 8px;
                         alignment: end;
 
-                        Rectangle {
+                        Text {
                             horizontal-stretch: 1;
+                            text: root.save-notice;
+                            color: Colors.text-secondary;
+                            font-size: 11px;
+                            wrap: word-wrap;
+                            vertical-alignment: center;
                         }
 
                         Button {

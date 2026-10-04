@@ -147,6 +147,8 @@ impl MusicApp {
             .set_settings_minimize(s.minimize_to_tray);
         let n_idx = SAVE_INTERVALS.iter().position(|n| *n == s.save_interval).unwrap_or(1);
         self.ui.set_settings_save_interval_idx(i32::try_from(n_idx).unwrap_or(1));
+        // Запрет автозаписи settings.toml действует весь сеанс (ОВС-6 в, И-Р20, §2.13).
+        self.ui.set_settings_save_notice(self.core.settings_save_notice().unwrap_or("").into());
         self.ui
             .set_cover_size(s.top_panel.cover_size);
         self.ui

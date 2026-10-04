@@ -218,6 +218,7 @@ export component AppWindow inherits Window {
     in property <bool> theme-save-enabled: false;
     in property <bool> settings-minimize: false;
     in property <int> settings-save-interval-idx: 1;
+    in property <string> settings-save-notice: "";
     in property <[string]> settings-devices: [];
     in property <int> settings-device-idx: -1;
     in property <string> settings-active-device: "";
@@ -669,6 +670,7 @@ export component AppWindow inherits Window {
         col-gap: root.col-gap;
         minimize-to-tray: root.settings-minimize;
         save-interval-idx: root.settings-save-interval-idx;
+        save-notice: root.settings-save-notice;
         audio-devices: root.settings-devices;
         audio-device-idx: root.settings-device-idx;
         active-device: root.settings-active-device;

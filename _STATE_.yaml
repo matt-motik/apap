@@ -117,7 +117,7 @@ steps:
     done: true
   - id: 25
     description: "ui/settings.slint: постоянный текст ОВС-6 рядом с «Сохранить» при нечитаемом settings.toml (§2.13, ОВС-6, И-Р20). Проверка: cargo check"
-    done: false
+    done: true
   - id: 26
     description: "settings.rs (+ тесты audio/analyzer.rs, audio/fulltrack.rs, audio/visualizer.rs): удалить мост С3, SettingsStore, старую Settings, VisualizerConfig::from_settings, migrate_legacy_columns и устаревшие тесты по §7.5 (§8.1 «что удаляется»). Проверка: cargo check"
     done: false
@@ -125,8 +125,8 @@ steps:
     description: "Финальная верификация (групповая проверка Б по шагам 24–26): cargo build/test/clippy зелёные, закрытие этапа (Шаг 5). Проверка: все зелёные, 0 новых варнингов"
     done: false
 
-current_step: 25
-next_action: "Шаг 25: постоянный текст ОВС-6 рядом с «Сохранить» в settings.slint при нечитаемом settings.toml"
+current_step: 26
+next_action: "Шаг 26: удалить мост settings::bridge, старый Settings, VisualizerConfig::from_settings, migrate_legacy_columns и их тесты"
 
 fail_counter: 0
 fail_counter_max: 3
