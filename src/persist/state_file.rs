@@ -124,6 +124,20 @@ pub struct LegacyPlaybackState {
     pub muted: bool,
 }
 
+impl LegacyPlaybackState {
+    /// Громкость плеера 0.0..=1.0 из процентов (§8.1 С3).
+    pub fn gain(&self) -> f32 {
+        f32::from(self.volume.min(100)) / 100.0
+    }
+
+    /// Проценты из громкости плеера; не-конечное значение — 0, диапазон
+    /// ограничивается [0, 100] (§8.1 С3).
+    pub fn pct_from_gain(v: f32) -> u8 {
+        let pct = ((if v.is_finite() { v } else { 0.0 }).clamp(0.0, 1.0) * 100.0).round();
+        (0u8..=100).find(|n| f32::from(*n) >= pct).unwrap_or(100)
+    }
+}
+
 impl Default for LegacyPlaybackState {
     fn default() -> LegacyPlaybackState {
         LegacyPlaybackState { volume: 100, muted: false }
@@ -749,6 +763,18 @@ pub fn serialize_state(s: &SessionState) -> Result<Arc<[u8]>, SerializeError> {
 mod tests {
     use super::*;
     use std::sync::Arc;
+
+    /// Громкость: проценты ↔ усиление без потерь на границах (§8.1 С3).
+    #[test]
+    fn volume_gain_roundtrip() {
+        for pct in [0u8, 1, 37, 50, 99, 100] {
+            let st = LegacyPlaybackState { volume: pct, ..LegacyPlaybackState::default() };
+            assert_eq!(LegacyPlaybackState::pct_from_gain(st.gain()), pct);
+        }
+        assert_eq!(LegacyPlaybackState::pct_from_gain(f32::NAN), 0);
+        assert_eq!(LegacyPlaybackState::pct_from_gain(2.0), 100);
+        assert_eq!(LegacyPlaybackState::pct_from_gain(-1.0), 0);
+    }
 
     fn bytes(text: &str) -> FileRead {
         FileRead::Bytes(Arc::from(text.as_bytes()))

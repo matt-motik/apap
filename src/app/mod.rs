@@ -25,18 +25,17 @@ use music_player_rs::core::{journal_records_for_flush, AppCore, FlushOutcome};
 use music_player_rs::cover::{self, CoverDone, CoverJob};
 use music_player_rs::journal::{Journal, JournalRecord, WriteTarget};
 use music_player_rs::persist::settings_file::Settings as PersistSettings;
-use music_player_rs::persist::settings_file::ThemeName;
+use music_player_rs::persist::settings_file::{ColumnsConfig, ThemeName};
 use music_player_rs::persist::state_file::{
-    effective_width_pct, normalize_visible, widths_on_disable, widths_on_enable, Origin, StateChange, WidthPct,
+    effective_width_pct, LegacyPlaybackState, normalize_visible, widths_on_disable, widths_on_enable, Origin, SortDirection, StateChange, WidthPct,
 };
 use music_player_rs::persist::{ConfigPaths, WorkFile};
 use music_player_rs::platform::fs::FileWriter;
 use music_player_rs::platform::lifecycle::PlatformCaps;
 use music_player_rs::playlist::{self, ScanMsg, Track};
-use music_player_rs::settings::bridge::{apply_legacy, legacy_from_core};
 use music_player_rs::settings::{
     ClockFamily, ColumnId, DsdMode, ExclusiveMode, FallbackPolicy, FallbackRatePolicy, RepeatMode,
-    ResamplerMode, SettingsStore,
+    ResamplerMode,
 };
 use music_player_rs::theme::{
     ColorsData, ThemeData, ThemeError, DEFAULT_LIGHT_TOML, parse_hex,
@@ -267,11 +266,8 @@ pub struct MusicApp {
     fs: Box<dyn FileWriter>,
     /// Журнал (ADR-21): ошибки записи рабочих файлов (ТЗ-20).
     journal: Arc<dyn Journal>,
-    /// Владелец действующих настроек и состояния сессии (ADR-19, И-Т7).
-    /// Старое плоское `settings` заполняется из него через мост (§8.1 С3)
-    /// и остаётся источником для менеджеров до шага очистки.
+    /// Владелец действующих настроек и состояния сессии (ADR-19, И-Т7, §8.1 С3).
     core: AppCore,
-    settings: SettingsStore,
     player: Player,
     tracks: Vec<Track>,
     /// On-disk playlist order (original load + scanned additions), kept
@@ -409,20 +405,18 @@ impl MusicApp {
         fs: Box<dyn FileWriter>,
         journal: Arc<dyn Journal>,
     ) -> Self {
-        let settings = SettingsStore {
-            settings: legacy_from_core(core.settings(), core.state()),
-            path: paths.settings.clone(),
-        };
         let mut player = Player::new();
-        player.set_volume(settings.settings.volume);
-        player.set_muted(settings.settings.muted);
-        player.set_resampler_algorithm(settings.settings.audio.resampler.algorithm);
-        player.set_dither(settings.settings.audio.resampler.dither);
-        player.set_bit_perfect(settings.settings.audio.bit_perfect);
-        player.set_dsd_mode(settings.settings.dsd.mode);
-        player.set_ring_buffer_ms(settings.settings.audio.ring_buffer_ms);
-        if !settings.settings.audio_device.is_empty() {
-            player.set_preferred_device(settings.settings.audio_device.clone());
+        let pb_state = core.state().playback();
+        let pb = &core.settings().playback;
+        player.set_volume(pb_state.gain());
+        player.set_muted(pb_state.muted);
+        player.set_resampler_algorithm(pb.audio.resampler.algorithm);
+        player.set_dither(pb.audio.resampler.dither);
+        player.set_bit_perfect(pb.audio.bit_perfect);
+        player.set_dsd_mode(pb.dsd.mode);
+        player.set_ring_buffer_ms(pb.audio.ring_buffer_ms);
+        if !pb.audio_device.is_empty() {
+            player.set_preferred_device(pb.audio_device.clone());
         }
 
         // Load the persisted playlist in the background so a large library
@@ -452,12 +446,12 @@ impl MusicApp {
         let playlist_cols: Rc<VecModel<TableColumn>> = Rc::new(slint::VecModel::default());
         ui.set_playlist_cols(ModelRc::from(playlist_cols.clone()));
 
-        let repeat = settings.settings.repeat;
-        let shuffle = settings.settings.shuffle;
+        let repeat = core.state().repeat();
+        let shuffle = core.state().shuffle();
 
         // Probe the configured (or default) output device so availability is
         // known before the UI is shown.
-        let saved_device = settings.settings.audio_device.clone();
+        let saved_device = core.settings().playback.audio_device.clone();
         let preferred = if saved_device.is_empty() {
             None
         } else {
@@ -487,10 +481,10 @@ impl MusicApp {
         // Visualization tap (ТЗ §16.2): кольцо PCM для анализатора, consumer
         // уходит в LiveWorker, producer — в audio-callback плеера.
         let (viz_prod, viz_cons) = rtrb::RingBuffer::new(TAP_CAPACITY);
-        let viz_cfg = Arc::new(VisualizerConfig::from_settings(&settings.settings));
+        let viz_cfg = Arc::new(VisualizerConfig::from_persist_settings(core.settings(), core.state().viz_mode()));
         let cache_max_entries =
             music_player_rs::audio::fulltrack::fulltrack_cache_max_entries(
-                settings.settings.visualization.viz_max_ram_mb,
+                core.settings().visualization.viz_max_ram_mb,
             );
 
         let mut app = Self {
@@ -499,7 +493,6 @@ impl MusicApp {
             fs,
             journal,
             core,
-            settings,
             player,
             tracks,
             playlist_rows,
@@ -566,9 +559,8 @@ impl MusicApp {
         app.setup_fulltrack();
         app.setup_visualizer(viz_cfg, viz_prod, viz_cons);
         app.rebuild_shuffle();
-        if let Some(col) = app.settings.settings.sorted_col {
-            let desc = app.settings.settings.sort_desc;
-            app.apply_sort(col, desc);
+        if let Some(k) = app.core.state().sort() {
+            app.apply_sort(k.column, k.direction == SortDirection::Desc);
         }
         app.apply_window_geometry();
         // Прежний момент записи при запуске (результат миграции); убирается в С3 (ТЗ-4).
@@ -582,7 +574,6 @@ impl MusicApp {
     /// (И-Р3, §6.8, ТЗ-18, ТЗ-20, ТЗ-28). Временная синхронная запись всего
     /// файла целиком — до писателя `apap-persist` (С4).
     pub(super) fn save_settings(&mut self) {
-        apply_legacy(&self.settings.settings, &mut self.core);
         let outcomes = self.core.flush(self.fs.as_mut(), &self.paths);
         for rec in journal_records_for_flush(&outcomes) {
             self.journal.record(rec);
@@ -673,7 +664,7 @@ impl MusicApp {
         {
             let mut app = this.borrow_mut();
             let themes_dir = app.paths.dir.join("themes");
-            let theme_name = app.settings.settings.theme.clone();
+            let theme_name = app.core.settings().theme.as_str().to_string();
             let (theme, was_fallback) = match resolve_startup_theme(&theme_name, &themes_dir) {
                 Some((theme, was_fallback)) => (Some(theme), was_fallback),
                 None => (None, true),
@@ -816,7 +807,7 @@ impl MusicApp {
         let entries = scan_themes_dir(&themes_dir);
         let names: Vec<SharedString> = entries.iter().map(|e| e.file_stem.clone().into()).collect();
         self.ui.set_theme_list_model(ModelRc::from(names.as_slice()));
-        let current = self.settings.settings.theme.clone();
+        let current = self.core.settings().theme.as_str().to_string();
         self.ui.set_theme_current(current.clone().into());
         let meta = if entries.iter().any(|e| e.file_stem == current) {
             match Self::load_theme_meta(&current, &themes_dir) {
@@ -939,7 +930,8 @@ impl MusicApp {
                     return;
                 }
                 a.shuffle = !a.shuffle;
-                a.settings.settings.shuffle = a.shuffle;
+                let shuffle = a.shuffle;
+                a.core.change_state(Origin::User, StateChange::Shuffle(shuffle));
                 a.rebuild_shuffle();
                 a.ui.set_shuffle(a.shuffle);
             });
@@ -987,7 +979,7 @@ impl MusicApp {
                     return;
                 }
                 a.player.set_volume(volume);
-                a.settings.settings.volume = volume;
+                a.core.change_state(Origin::User, StateChange::Volume(LegacyPlaybackState::pct_from_gain(volume)));
                 // Persisted at exit (save-at-exit); no per-slider-move disk I/O.
                 a.emit(AppEvent::VolumeChanged(volume));
             });
@@ -1033,7 +1025,7 @@ impl MusicApp {
                 eprintln!("[gui] sort_ascending col={col_idx}");
                 let col = {
                     let a = app.borrow();
-                    visible_col_at_index(&a.settings.settings, col_idx)
+                    visible_col_at_index(&a.core.settings().columns, col_idx)
                 };
                 if let Some(col) = col {
                     let mut a = app.borrow_mut();
@@ -1050,7 +1042,7 @@ impl MusicApp {
                 eprintln!("[gui] sort_descending col={col_idx}");
                 let col = {
                     let a = app.borrow();
-                    visible_col_at_index(&a.settings.settings, col_idx)
+                    visible_col_at_index(&a.core.settings().columns, col_idx)
                 };
                 if let Some(col) = col {
                     let mut a = app.borrow_mut();
@@ -1587,13 +1579,6 @@ impl MusicApp {
                 eprintln!("[gui] settings_save (Save) draft_present={}", app.borrow().dialog.is_some());
                 let mut a = app.borrow_mut();
                 let Some(draft) = a.dialog.take() else { return };
-                // Мост С3: живые изменения, пока записанные только в старое
-                // поле (громкость, last_dir…), сначала переносятся в ядро, чтобы
-                // проекция старого поля ниже их не откатила (§8.1 С3).
-                {
-                    let a = &mut *a;
-                    apply_legacy(&a.settings.settings, &mut a.core);
-                }
                 let old = a.core.settings().clone();
                 let DialogDraft { settings: mut new, viz_mode, column_widths } = draft;
                 // T1.0 §6.4: коммит выбранной в диалоге темы из транзитного поля
@@ -1615,9 +1600,6 @@ impl MusicApp {
                 a.core.set_settings(new);
                 a.core.change_state(Origin::User, StateChange::VizMode(viz_mode));
                 a.core.change_state(Origin::User, StateChange::ColumnWidths(column_widths));
-                // Мост С3: старое поле — проекция ядра, пока его читают
-                // остальные пути (удаляется на шаге очистки).
-                a.settings.settings = legacy_from_core(a.core.settings(), a.core.state());
                 a.save_settings();
                 let cur = a.core.settings().clone();
                 // ТЗ §10.4: лимит RAM-кэша визуализации менялся в диалоге →
@@ -1639,9 +1621,6 @@ impl MusicApp {
                     if bp {
                         a.player.set_volume(1.0);
                         a.player.set_muted(false);
-                        let s = &mut a.settings.settings;
-                        s.volume = 1.0;
-                        s.muted = false;
                         a.core.change_state(Origin::User, StateChange::Volume(100));
                         a.core.change_state(Origin::User, StateChange::Muted(false));
                         // V5.1-8.7: показать тултип трея про громкость
@@ -1879,8 +1858,8 @@ impl MusicApp {
         {
             let app = this.clone();
             ui.window().on_close_requested(move || {
-                eprintln!("[gui] close_requested minimize={}", app.borrow().settings.settings.minimize_to_tray);
-                let minimize = app.borrow().settings.settings.minimize_to_tray;
+                let minimize = app.borrow().core.settings().minimize_to_tray;
+                eprintln!("[gui] close_requested minimize={minimize}");
                 if minimize {
                     let mut a = app.borrow_mut();
                     let _ = a.ui.hide();
@@ -1991,9 +1970,8 @@ impl MusicApp {
         self.tracks = tracks;
         self.known_paths = self.tracks.iter().map(|t| t.path.clone()).collect();
         self.rebuild_shuffle();
-        if let Some(col) = self.settings.settings.sorted_col {
-            let desc = self.settings.settings.sort_desc;
-            self.apply_sort(col, desc);
+        if let Some(k) = self.core.state().sort() {
+            self.apply_sort(k.column, k.direction == SortDirection::Desc);
         }
         self.sync_playlist_to_ui();
         // Успешная загрузка стартового плейлиста — результат виден в
@@ -2068,7 +2046,7 @@ impl MusicApp {
                         let dir = if delta < 0 { 1.0 } else { -1.0 };
                         let v = (self.player.volume() + dir * WHEEL_VOLUME_STEP).clamp(0.0, 1.0);
                         self.player.set_volume(v);
-                        self.settings.settings.volume = v;
+                        self.core.change_state(Origin::User, StateChange::Volume(LegacyPlaybackState::pct_from_gain(v)));
                         // Persisted at exit (save-at-exit).
                         self.emit(AppEvent::VolumeChanged(v));
                     }
@@ -2149,14 +2127,8 @@ impl MusicApp {
     }
 }
 
-fn visible_col_at_index(settings: &music_player_rs::settings::Settings, visible_index: i32) -> Option<ColumnId> {
-    let ordered = settings.ordered_columns();
-    let visible_cols: Vec<ColumnId> = ordered
-        .iter()
-        .copied()
-        .filter(|c| settings.column_visible(*c))
-        .collect();
-    visible_cols.get(visible_index as usize).copied()
+fn visible_col_at_index(columns: &ColumnsConfig, visible_index: i32) -> Option<ColumnId> {
+    columns.visible_columns().get(visible_index as usize).copied()
 }
 
 /// Guard для авто-коррекции Advanced-настроек (ТЗ A3.0 §7.7): сочетание

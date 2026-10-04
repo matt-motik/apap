@@ -234,22 +234,18 @@ pub fn build_bp_report(inp: &BpInputs<'_>) -> BpReport {
 
 /// Быстрые исправления из отчёта: громкость/mute — состояние сессии через
 /// `change_state`, дизеринг — настройка через `set_settings` (И-Т7, §8.1 С3).
-/// Старые поля обновляются до шага очистки, иначе мост откатит значения.
 pub fn apply_action(app: &mut super::MusicApp, action_id: i32) {
     match action_id {
         1 => {
             app.player.set_volume(1.0);
-            app.settings.settings.volume = 1.0;
             app.core.change_state(Origin::User, StateChange::Volume(100));
         }
         2 => {
             app.player.set_muted(false);
-            app.settings.settings.muted = false;
             app.core.change_state(Origin::User, StateChange::Muted(false));
         }
         3 => {
             app.player.set_dither(ResamplerDither::Off);
-            app.settings.settings.audio.resampler.dither = ResamplerDither::Off;
             let mut s = app.core.settings().clone();
             s.playback.audio.resampler.dither = ResamplerDither::Off;
             app.core.set_settings(s);

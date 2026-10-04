@@ -377,9 +377,7 @@ impl MusicApp {
 
     pub fn cycle_repeat(&mut self) {
         self.repeat = self.repeat.next();
-        self.settings.settings.repeat = self.repeat;
-        // Изменение состояния — через `change_state` (И-Т7); старое поле
-        // обновляется до шага очистки, иначе мост откатит значение (§8.1 С3).
+        // Изменение состояния — через `change_state` (И-Т7, §8.1 С3).
         self.core.change_state(Origin::User, StateChange::Repeat(self.repeat));
         // Persisted at exit (save-at-exit).
         self.ui.set_repeat(self.repeat == RepeatMode::All);
@@ -429,7 +427,10 @@ impl MusicApp {
         if name == self.core.settings().playback.audio_device {
             return;
         }
-        self.settings.settings.audio_device = name.clone();
+        // Устройство — настройка: замена целиком через `set_settings` (И-Т7, §8.1 С3).
+        let mut s = self.core.settings().clone();
+        s.playback.audio_device = name.clone();
+        self.core.set_settings(s);
         self.save_settings();
 
         let path = self

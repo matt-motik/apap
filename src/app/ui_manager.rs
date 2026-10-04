@@ -48,33 +48,23 @@ impl MusicApp {
     }
 
     /// Persist the current window size/position for the next run, together with
-    /// the fullscreen/maximized state flags. Also mirrors the geometry into
-    /// `AppCore`'s session state so `apply_legacy` has a consistent view (§8.1 С3).
+    /// the fullscreen/maximized state flags — session state via `change_state`
+    /// (И-Т7, §8.1 С3).
     pub(super) fn save_window_geometry(&mut self) {
         let w = self.ui.window();
-        let s = &mut self.settings.settings;
-        s.win_fullscreen = w.is_fullscreen();
-        s.win_maximized = w.is_maximized();
         let mut geom = self.core.state().window();
-        geom.fullscreen = s.win_fullscreen;
-        geom.maximized = s.win_maximized;
+        geom.fullscreen = w.is_fullscreen();
+        geom.maximized = w.is_maximized();
         // Размер/позицию сохраняем только из обычного состояния окна: в
         // fullscreen/maximized `size()` возвращает размер во весь экран,
         // который нельзя восстанавливать как размер окна. Последний «нормальный»
         // размер из settings сохраняется нетронутым.
-        if !s.win_fullscreen && !s.win_maximized {
+        if !geom.fullscreen && !geom.maximized {
             let size = w.size();
             let pos = w.position();
-            s.win_w = Some(size.width);
-            s.win_h = Some(size.height);
-            s.win_x = Some(pos.x);
-            s.win_y = Some(pos.y);
             geom.size = Some(PhysSize { width: size.width, height: size.height });
             geom.position = Some(PhysPos { x: pos.x, y: pos.y });
         }
-        // Дублируем запись в `AppCore` напрямую (§8.1 С3): `save_settings`
-        // синхронизирует её через `apply_legacy`, но до этого вызова оба
-        // представления геометрии должны совпадать.
         self.core.change_state(Origin::User, StateChange::Window(geom));
         self.save_settings();
         self.win_geom_dirty = false;
@@ -627,9 +617,8 @@ impl MusicApp {
         sig
     }
 
-    /// Persist the UI's live pixel widths as percentages, mirroring the write
-    /// into both the legacy settings and `AppCore`'s session state so
-    /// `apply_legacy` sees a consistent view on the next save (§8.1 С3).
+    /// Persist the UI's live pixel widths as percentages into `AppCore`'s
+    /// session state via `change_state` (§2.5, И-Т7, §8.1 С3).
     pub(super) fn save_column_widths_from_ui(&mut self) {
         let cols = self.ui.get_playlist_cols();
         let len = cols.row_count();
@@ -668,15 +657,10 @@ impl MusicApp {
         if total_px <= 0.0 {
             return;
         }
-        // Дублируем запись в `AppCore` напрямую (§8.1 С3): `save_settings`
-        // синхронизирует её через `apply_legacy`, но до этого вызова оба
-        // представления ширин колонок должны совпадать.
+        // Ширины колонок — состояние сессии (§2.5, И-Т7, §8.1 С3).
         let mut new_widths = self.core.state().column_widths().clone();
         for (col_id, w) in visible_cols.iter().zip(px) {
             let pct = (w / total_px) * 100.0;
-            if let Some(cfg) = self.settings.settings.columns.get_mut(col_id.key()) {
-                cfg.width = Some(pct);
-            }
             match WidthPct::new(pct) {
                 Some(wp) => new_widths.insert(*col_id, wp),
                 None => new_widths.remove(col_id),

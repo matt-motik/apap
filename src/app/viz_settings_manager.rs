@@ -147,7 +147,6 @@ impl MusicApp {
         }
         let current = self.core.state().viz_mode();
         let next = VisualizationMode::from_index(current.index() + 1);
-        self.settings.settings.visualization.mode = next;
         self.core.change_state(Origin::User, StateChange::VizMode(next));
         self.save_settings();
         self.sync_viz_settings_to_ui();
@@ -165,7 +164,6 @@ impl MusicApp {
         let picked = VisualizationMode::from_index(i);
         let cur = self.core.state().viz_mode();
         let next = if picked == cur { VisualizationMode::Off } else { picked };
-        self.settings.settings.visualization.mode = next;
         self.core.change_state(Origin::User, StateChange::VizMode(next));
         self.save_settings();
         self.sync_viz_settings_to_ui();
