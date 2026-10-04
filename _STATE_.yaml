@@ -78,7 +78,7 @@ steps:
     done: true
   - id: 13
     description: "Мост С3 (settings.rs): legacy_from_core(&Settings,&SessionState)->старый Settings и apply_legacy(&старый Settings,&mut AppCore) (set_settings + change_state по различиям); тест «туда-обратно» без потерь (§8.1 С3, ТЗ-1, И-Т7). Временный: удаляется в шаге 20. Проверка: cargo test settings::"
-    done: false
+    done: true
   - id: 14
     description: "MusicApp владеет AppCore (app/mod.rs, main.rs): MusicApp::new(ui, core, …), старое поле заполняется мостом, SettingsStore::load_from убран (одно чтение), save() → apply_legacy + core.flush + journal_records_for_flush (§6.1, И-Р3, ADR-23). Проверка: cargo build + cargo test"
     done: false
@@ -104,8 +104,8 @@ steps:
     description: "Финальная верификация: cargo build/test/clippy зелёные, закрытие этапа (Шаг 5). Проверка: все зелёные, 0 новых варнингов"
     done: false
 
-current_step: 13
-next_action: "Шаг 13: мост С3 в settings.rs (прежний атомарный шаг 13 разбит на подшаги 13–17 по решению пользователя: слишком дорогой)"
+current_step: 14
+next_action: "Шаг 14: MusicApp владеет AppCore (app/mod.rs, main.rs); старое поле settings заполняется мостом legacy_from_core; save() = apply_legacy + запись"
 
 fail_counter: 0
 fail_counter_max: 3

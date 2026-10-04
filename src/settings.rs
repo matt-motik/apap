@@ -1198,6 +1198,281 @@ pub fn config_dir() -> PathBuf {
     .clone()
 }
 
+/// Временный мост старой/новой модели (С3, §8.1): плоская `Settings` ↔
+/// `persist::settings_file::Settings` + `persist::state_file::SessionState`
+/// внутри `AppCore`. Настройки переводятся через текст TOML (имена ключей
+/// совпадают), состояние сессии — по полям (§2.5). Удаляется на шаге очистки
+/// (§7.5).
+pub mod bridge {
+    use std::collections::BTreeMap;
+    use std::path::PathBuf;
+    use std::sync::Arc;
+
+    use crate::core::AppCore;
+    use crate::persist::keys::{FileRead, Parsed};
+    use crate::persist::settings_file::{parse_settings, serialize_settings, Settings as NewSettings};
+    use crate::persist::state_file::{
+        Origin, PhysPos, PhysSize, SessionState, SortDirection, SortKey, StateChange, WidthPct, WindowGeometry,
+    };
+
+    use super::{ColumnId, Settings};
+
+    /// Ключи верхнего уровня старой модели, которые в новой живут в
+    /// `state.toml` (§2.5) и в разбор настроек не передаются.
+    const STATE_KEYS: [&str; 13] = [
+        "volume",
+        "muted",
+        "last_dir",
+        "repeat",
+        "shuffle",
+        "sorted_col",
+        "sort_desc",
+        "win_x",
+        "win_y",
+        "win_w",
+        "win_h",
+        "win_fullscreen",
+        "win_maximized",
+    ];
+
+    /// Старая модель из новой (новое → старое). Если текст новых настроек
+    /// не читается старой структурой — её значения по умолчанию.
+    pub fn legacy_from_core(settings: &NewSettings, state: &SessionState) -> Settings {
+        let mut old = legacy_settings_part(settings).unwrap_or_default();
+        apply_state_to_legacy(state, &mut old);
+        old
+    }
+
+    /// Перенести правки старой модели в `AppCore` (старое → новое): настройки
+    /// заменяются целиком только при отличии (интервал записи — текущий из
+    /// ядра, в старой модели его нет); состояние — по одному `change_state`
+    /// на каждое отличие (И-Т7). На диск ничего не пишет.
+    pub fn apply_legacy(old: &Settings, core: &mut AppCore) {
+        if let Some(mut new) = settings_from_legacy(old) {
+            new.save_interval = core.settings().save_interval;
+            if &new != core.settings() {
+                core.set_settings(new);
+            }
+        }
+        for ch in state_changes(old, core.state()) {
+            core.change_state(Origin::User, ch);
+        }
+    }
+
+    fn legacy_settings_part(settings: &NewSettings) -> Option<Settings> {
+        let bytes = serialize_settings(settings).ok()?;
+        let mut table: toml::Table = std::str::from_utf8(&bytes).ok()?.parse().ok()?;
+        table.remove("save_interval");
+        // `column_type = "data"` в старой модели записывается отсутствием ключа.
+        if let Some(toml::Value::Table(cols)) = table.get_mut("columns") {
+            for (_, col) in cols.iter_mut() {
+                if let toml::Value::Table(c) = col {
+                    if c.get("column_type").and_then(toml::Value::as_str) == Some("data") {
+                        c.remove("column_type");
+                    }
+                }
+            }
+        }
+        toml::Value::Table(table).try_into().ok()
+    }
+
+    fn apply_state_to_legacy(state: &SessionState, old: &mut Settings) {
+        let playback = state.playback();
+        old.volume = f32::from(playback.volume) / 100.0;
+        old.muted = playback.muted;
+        old.repeat = state.repeat();
+        old.shuffle = state.shuffle();
+        old.visualization.mode = state.viz_mode();
+        old.last_dir = state.last_dir().map(|p| p.to_string_lossy().into_owned()).unwrap_or_default();
+        old.sorted_col = state.sort().map(|k| k.column);
+        old.sort_desc = state.sort().is_some_and(|k| k.direction == SortDirection::Desc);
+        let window = state.window();
+        old.win_x = window.position.map(|p| p.x);
+        old.win_y = window.position.map(|p| p.y);
+        old.win_w = window.size.map(|s| s.width);
+        old.win_h = window.size.map(|s| s.height);
+        old.win_maximized = window.maximized;
+        old.win_fullscreen = window.fullscreen;
+        let widths = state.column_widths();
+        for (key, cfg) in old.columns.iter_mut() {
+            cfg.width = ColumnId::from_key(key).and_then(|id| widths.get(&id)).map(|w| w.get());
+        }
+    }
+
+    /// Настройки новой модели из текста старой без ключей состояния. Только
+    /// успешно разобранный документ: неразбираемый текст не должен затирать
+    /// настройки ядра значениями по умолчанию.
+    fn settings_from_legacy(old: &Settings) -> Option<NewSettings> {
+        let toml::Value::Table(mut table) = toml::Value::try_from(old).ok()? else {
+            return None;
+        };
+        for key in STATE_KEYS {
+            table.remove(key);
+        }
+        if let Some(toml::Value::Table(viz)) = table.get_mut("visualization") {
+            viz.remove("mode");
+        }
+        if let Some(toml::Value::Table(cols)) = table.get_mut("columns") {
+            for (_, col) in cols.iter_mut() {
+                if let toml::Value::Table(c) = col {
+                    c.remove("width");
+                }
+            }
+        }
+        let text = toml::to_string(&table).ok()?;
+        match parse_settings(FileRead::Bytes(Arc::from(text.into_bytes()))) {
+            Parsed::Parsed { value, .. } => Some(value),
+            Parsed::Absent { .. } | Parsed::Unparsable { .. } | Parsed::ReadFailed { .. } => None,
+        }
+    }
+
+    fn state_changes(old: &Settings, cur: &SessionState) -> Vec<StateChange> {
+        let mut out = Vec::new();
+        let playback = cur.playback();
+        let volume = volume_pct(old.volume);
+        if volume != playback.volume {
+            out.push(StateChange::Volume(volume));
+        }
+        if old.muted != playback.muted {
+            out.push(StateChange::Muted(old.muted));
+        }
+        if old.repeat != cur.repeat() {
+            out.push(StateChange::Repeat(old.repeat));
+        }
+        if old.shuffle != cur.shuffle() {
+            out.push(StateChange::Shuffle(old.shuffle));
+        }
+        if old.visualization.mode != cur.viz_mode() {
+            out.push(StateChange::VizMode(old.visualization.mode));
+        }
+        let widths: BTreeMap<ColumnId, WidthPct> = old
+            .columns
+            .iter()
+            .filter_map(|(key, cfg)| Some((ColumnId::from_key(key)?, WidthPct::new(cfg.width?)?)))
+            .collect();
+        if &widths != cur.column_widths() {
+            out.push(StateChange::ColumnWidths(widths));
+        }
+        let direction = if old.sort_desc { SortDirection::Desc } else { SortDirection::Asc };
+        let sort = old.sorted_col.map(|column| SortKey { column, direction });
+        if sort != cur.sort() {
+            out.push(StateChange::Sort(sort));
+        }
+        let window = WindowGeometry {
+            position: old.win_x.zip(old.win_y).map(|(x, y)| PhysPos { x, y }),
+            size: old.win_w.zip(old.win_h).map(|(width, height)| PhysSize { width, height }),
+            maximized: old.win_maximized,
+            fullscreen: old.win_fullscreen,
+        };
+        if window != cur.window() {
+            out.push(StateChange::Window(window));
+        }
+        // Пустая строка старой модели = «не задано»; снять `last_dir` новая модель не умеет.
+        if !old.last_dir.is_empty() {
+            let dir = PathBuf::from(&old.last_dir);
+            if cur.last_dir() != Some(dir.as_path()) {
+                out.push(StateChange::LastDir(dir));
+            }
+        }
+        out
+    }
+
+    /// Громкость старой модели (0.0..=1.0) → проценты состояния (0..=100), без `as`.
+    fn volume_pct(v: f32) -> u8 {
+        let pct = (if v.is_finite() { v } else { 0.0 }).clamp(0.0, 1.0) * 100.0;
+        let pct = pct.round();
+        (0u8..=100).find(|n| f32::from(*n) >= pct).unwrap_or(100)
+    }
+
+    #[cfg(test)]
+    mod tests {
+        use super::*;
+        use crate::audio::visualizer::VisualizationMode;
+        use crate::core::testing::Harness;
+        use crate::settings::RepeatMode;
+
+        fn artist() -> ColumnId {
+            ColumnId::from_key("artist").expect("artist column")
+        }
+
+        #[test]
+        fn bridge_roundtrip_keeps_core_unchanged() {
+            let h = Harness::new();
+            h.put_settings(b"theme = \"dark\"\ncover_size = 180.0\n");
+            h.put_state(
+                b"volume = 40\nshuffle = true\nlast_dir = \"/music\"\n[sort]\ncolumn = \"artist\"\ndirection = \"desc\"\n[window]\nx = 5\ny = 6\nwidth = 800\nheight = 600\n[columns.widths]\nartist = 30.0\ntitle = 70.0\n",
+            );
+            let mut core = h.boot();
+            let settings_before = core.settings().clone();
+            let state_before = core.state().clone();
+            let old = legacy_from_core(core.settings(), core.state());
+            apply_legacy(&old, &mut core);
+            assert_eq!(core.settings(), &settings_before);
+            assert_eq!(core.state(), &state_before);
+        }
+
+        #[test]
+        fn bridge_legacy_changes_reach_core() {
+            let mut core = Harness::new().boot();
+            let mut old = legacy_from_core(core.settings(), core.state());
+            old.theme = "dark".to_string();
+            old.cover_size = 150.0;
+            old.volume = 0.25;
+            old.muted = true;
+            old.shuffle = true;
+            old.repeat = RepeatMode::All;
+            old.visualization.mode = VisualizationMode::Spectrum;
+            old.win_x = Some(10);
+            old.win_y = Some(20);
+            old.win_w = Some(1024);
+            old.win_h = Some(768);
+            old.sorted_col = Some(artist());
+            old.sort_desc = true;
+            old.last_dir = "/data/music".to_string();
+            apply_legacy(&old, &mut core);
+            assert_eq!(core.settings().theme.as_str(), "dark");
+            assert_eq!(core.settings().top_panel.cover_size, 150.0);
+            let st = core.state();
+            assert_eq!(st.playback().volume, 25);
+            assert!(st.playback().muted);
+            assert!(st.shuffle());
+            assert_eq!(st.repeat(), RepeatMode::All);
+            assert_eq!(st.viz_mode(), VisualizationMode::Spectrum);
+            assert_eq!(st.window().position, Some(PhysPos { x: 10, y: 20 }));
+            assert_eq!(st.window().size, Some(PhysSize { width: 1024, height: 768 }));
+            assert_eq!(st.sort(), Some(SortKey { column: artist(), direction: SortDirection::Desc }));
+            assert_eq!(st.last_dir(), Some(std::path::Path::new("/data/music")));
+        }
+
+        #[test]
+        fn bridge_new_to_old_maps_state() {
+            let h = Harness::new();
+            h.put_state(
+                b"volume = 70\nmuted = true\nlast_dir = \"/m\"\n[sort]\ncolumn = \"artist\"\ndirection = \"asc\"\n[window]\nx = 1\ny = 2\nwidth = 300\nheight = 200\nmaximized = true\n[columns.widths]\nartist = 40.0\n",
+            );
+            let core = h.boot();
+            let old = legacy_from_core(core.settings(), core.state());
+            assert!((old.volume - 0.7).abs() < 1e-6);
+            assert!(old.muted);
+            assert_eq!(old.last_dir, "/m");
+            assert_eq!(old.sorted_col, Some(artist()));
+            assert!(!old.sort_desc);
+            assert_eq!((old.win_x, old.win_y, old.win_w, old.win_h), (Some(1), Some(2), Some(300), Some(200)));
+            assert!(old.win_maximized);
+            assert_eq!(old.column_cfg(artist()).and_then(|c| c.width), Some(40.0));
+            assert_eq!(old.theme, core.settings().theme.as_str());
+        }
+
+        #[test]
+        fn bridge_volume_pct_bounds() {
+            assert_eq!(volume_pct(0.0), 0);
+            assert_eq!(volume_pct(0.56), 56);
+            assert_eq!(volume_pct(1.5), 100);
+            assert_eq!(volume_pct(f32::NAN), 0);
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -1585,3 +1860,4 @@ mod tests {
         assert_eq!(mem.get(&path), Some(first));
     }
 }
+

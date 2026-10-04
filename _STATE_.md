@@ -49,7 +49,7 @@
 [x] Шаг 10: core/testing.rs: Harness на MemStore + тесты С3 §7.2 (startup/exit/unparsable/unreadable/legacy/external_change) (§7.1, §7.2). Проверка: cargo test core::testing
 [x] Шаг 11: main.rs: boot до окна, .bad-копии через FileWriter, передача AppCore в MusicApp::new (ADR-23 шаги 0–2, ТЗ-6). Проверка: cargo check
 [x] Шаг 12: journal.rs: варианты JournalRecord LoadNotes и Unparsable (с исходом .bad-копии) + их формирование в persist::journal_records_for_boot (§6.1, ADR-21, ТЗ-5, ТЗ-6). Вайтлист расширен с разрешения пользователя. Проверка: cargo test journal:: persist::
-[ ] Шаг 13: Мост С3 (settings.rs): legacy_from_core(&Settings,&SessionState)->старый Settings и apply_legacy(&старый Settings,&mut AppCore) (set_settings + change_state по различиям); тест «туда-обратно» без потерь (§8.1 С3, ТЗ-1, И-Т7). Временный: удаляется в шаге 20. Проверка: cargo test settings::
+[x] Шаг 13: Мост С3 (settings.rs): legacy_from_core(&Settings,&SessionState)->старый Settings и apply_legacy(&старый Settings,&mut AppCore) (set_settings + change_state по различиям); тест «туда-обратно» без потерь (§8.1 С3, ТЗ-1, И-Т7). Временный: удаляется в шаге 20. Проверка: cargo test settings::
 [ ] Шаг 14: MusicApp владеет AppCore (app/mod.rs, main.rs): MusicApp::new(ui, core, …), старое поле заполняется мостом, SettingsStore::load_from убран (одно чтение), save() → apply_legacy + core.flush + journal_records_for_flush (§6.1, И-Р3, ADR-23). Проверка: cargo build + cargo test
 [ ] Шаг 15: playback_manager.rs + cover.rs: обложки/громкость/устройство читаются из core.settings()/core.state(), изменения состояния — change_state (И-Т7). Проверка: cargo check + cargo test
 [ ] Шаг 16: ui_manager.rs: чтение настроек/состояния из AppCore вместо старого поля (§8.1 С3, И-Т7). Проверка: cargo check + cargo test
@@ -59,8 +59,8 @@
 [ ] Шаг 20: settings.rs: удалить мост С3, SettingsStore, старую Settings, migrate_legacy_columns и устаревшие тесты по §7.5 (§8.1 «что удаляется»). Проверка: cargo test
 [ ] Шаг 21: Финальная верификация: cargo build/test/clippy зелёные, закрытие этапа (Шаг 5). Проверка: все зелёные, 0 новых варнингов
 
-- **Текущий шаг (current_step):** Шаг 13
-- **Следующий ход:** Шаг 13: мост С3 в settings.rs (прежний атомарный шаг 13 разбит на подшаги 13–17 по решению пользователя: слишком дорогой)
+- **Текущий шаг (current_step):** Шаг 14
+- **Следующий ход:** Шаг 14: MusicApp владеет AppCore (app/mod.rs, main.rs); старое поле settings заполняется мостом legacy_from_core; save() = apply_legacy + запись
 - **Счетчик безуспешных компиляций:** 0/3
 - **Состояние:** in_progress
 
