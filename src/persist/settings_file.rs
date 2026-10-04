@@ -11,7 +11,7 @@ use std::collections::BTreeMap;
 use std::time::Duration;
 
 use crate::audio::visualizer::VizSettings;
-use crate::settings::{AudioCfg, ColumnId, CoverSource, DsdCfg};
+use crate::settings::{AudioCfg, ColumnId, CoverSource, DsdCfg, DsdMode};
 
 /// Содержимое `settings.toml` (ТЗ-2, §2.4): параметры окна настроек, меняются
 /// только действием «Сохранить» диалога (решение 1, ТЗ-10).
@@ -210,6 +210,74 @@ fn column_def_from_legacy(cfg: &crate::settings::ColumnCfg) -> ColumnDef {
     }
 }
 
+impl ColumnsConfig {
+    /// Описание колонки по id (бывший `Settings::column_cfg`,
+    /// `src/settings.rs:860`, §2.4).
+    pub fn column_def(&self, id: ColumnId) -> Option<&ColumnDef> {
+        self.defs.get(&id)
+    }
+
+    /// Заголовок колонки, с запасным значением — ключ (бывший
+    /// `Settings::column_title`, `src/settings.rs:873`, §2.4).
+    pub fn column_title(&self, id: ColumnId) -> String {
+        self.defs
+            .get(&id)
+            .map(|d| d.title.clone())
+            .unwrap_or_else(|| id.key().to_string())
+    }
+
+    /// Видимость колонки, по умолчанию — видима (бывший
+    /// `Settings::column_visible`, `src/settings.rs:901`, §2.4).
+    pub fn column_visible(&self, id: ColumnId) -> bool {
+        self.defs.get(&id).map(|d| d.visible).unwrap_or(true)
+    }
+
+    /// Видимые колонки в порядке отображения (бывший
+    /// `Settings::visible_columns`, `src/settings.rs:909`, §2.4).
+    pub fn visible_columns(&self) -> Vec<ColumnId> {
+        self.ordered_columns()
+            .into_iter()
+            .filter(|c| self.column_visible(*c))
+            .collect()
+    }
+
+    /// Сделать колонку видимой. Ширина (бывшая часть `Settings::enable_column`,
+    /// `src/settings.rs:977`) — поле `SessionState` (§2.5), здесь не трогается.
+    pub fn enable_column(&mut self, id: ColumnId) {
+        if let Some(def) = self.defs.get_mut(&id) {
+            def.visible = true;
+        }
+    }
+
+    /// Скрыть колонку. Ширина (бывшая часть `Settings::disable_column`,
+    /// `src/settings.rs:991`) — поле `SessionState` (§2.5), здесь не трогается.
+    pub fn disable_column(&mut self, id: ColumnId) {
+        if let Some(def) = self.defs.get_mut(&id) {
+            def.visible = false;
+        }
+    }
+
+    /// Колонки в пользовательском порядке слева направо (бывший
+    /// `Settings::ordered_columns`, `src/settings.rs:1000`, §2.4). В отличие от
+    /// прежней версии не достраивает отсутствующие id и не фильтрует
+    /// неизвестные ключи — инвариант «каждая `ColumnId` ровно один раз»
+    /// проверяется при разборе файла (§6.2), а не здесь.
+    pub fn ordered_columns(&self) -> Vec<ColumnId> {
+        self.order.clone()
+    }
+
+    /// Переставить колонку из `from` в `to` в сохранённом порядке (бывший
+    /// `Settings::move_column`, `src/settings.rs:1021`, §2.4).
+    pub fn move_column(&mut self, from: usize, to: usize) {
+        if from >= self.order.len() {
+            return;
+        }
+        let col = self.order.remove(from);
+        let to = to.min(self.order.len());
+        self.order.insert(to, col);
+    }
+}
+
 /// Настройки обложек альбома (§2.4).
 #[derive(Clone, PartialEq, Debug)]
 pub struct CoverSettings {
@@ -228,6 +296,39 @@ impl Default for CoverSettings {
             folder_names: crate::settings::default_cover_folder_names(),
             online: true,
         }
+    }
+}
+
+impl CoverSettings {
+    /// Имена файлов обложки папки для поиска: пустые/пробельные записи
+    /// отбрасываются, при пустом результате — запасной список (бывший
+    /// `Settings::cover_folder_names_list`, `src/settings.rs:1054`, §2.4).
+    /// В отличие от `priority` (дополняется и дедуплицируется при разборе,
+    /// §6.2), для `folder_names` этот запас не гарантирован инвариантом
+    /// парсинга, поэтому метод остаётся нужен.
+    pub fn cover_folder_names_list(&self) -> Vec<String> {
+        let names: Vec<String> = self
+            .folder_names
+            .iter()
+            .map(|n| n.trim().to_string())
+            .filter(|n| !n.is_empty())
+            .collect();
+        if names.is_empty() {
+            crate::settings::default_cover_folder_names()
+        } else {
+            names
+        }
+    }
+
+    /// Переставить источник обложки в сохранённом порядке приоритета (бывший
+    /// `Settings::move_cover`, `src/settings.rs:1069`, §2.4).
+    pub fn move_cover(&mut self, from: usize, to: usize) {
+        if from >= self.priority.len() {
+            return;
+        }
+        let item = self.priority.remove(from);
+        let to = to.min(self.priority.len());
+        self.priority.insert(to, item);
     }
 }
 
@@ -253,6 +354,35 @@ fn default_info_labels() -> BTreeMap<InfoLabelKey, String> {
         .collect()
 }
 
+impl Settings {
+    /// Подпись панели информации по ключу: переопределение пользователя,
+    /// иначе — дефолт (English), пустая строка в переопределении тоже
+    /// считается отсутствующей (бывший `Settings::info_label`,
+    /// `src/settings.rs:882`, §2.4).
+    pub fn info_label(&self, key: &InfoLabelKey) -> String {
+        self.info_labels
+            .get(key)
+            .filter(|s| !s.is_empty())
+            .cloned()
+            .unwrap_or_else(|| {
+                default_info_labels()
+                    .get(key)
+                    .cloned()
+                    .unwrap_or_else(|| key.as_str().to_string())
+            })
+    }
+
+    /// Все подписи панели информации в порядке отображения
+    /// (`INFO_LABEL_KEYS`, бывший `Settings::info_labels_ordered`,
+    /// `src/settings.rs:896`, §2.4).
+    pub fn info_labels_ordered(&self) -> Vec<String> {
+        crate::settings::INFO_LABEL_KEYS
+            .iter()
+            .map(|&k| self.info_label(&InfoLabelKey(k)))
+            .collect()
+    }
+}
+
 /// Раздел `[playback]` (§2.4) до С4 (01_audio_modes): старые `[audio]`,
 /// `[dsd]`, `audio_device` (`src/settings.rs:694-819`). Заменяется на
 /// `ModeSettings`/`PlaybackDto` (ADR-04, ТЗ-8 (01_audio_modes)), когда
@@ -262,6 +392,16 @@ pub struct LegacyPlayback {
     pub audio: AudioCfg,
     pub dsd: DsdCfg,
     pub audio_device: String,
+}
+
+impl LegacyPlayback {
+    /// ТЗ §7.4/§8.4 (01_audio_modes): bit-perfect активен, а DSD выводится
+    /// конверсией в PCM (`dsd.mode = pcm`) — конфликт сценариев, bit-perfect
+    /// для DSD-потока не сохраняется (бывший
+    /// `Settings::dsd_pcm_breaks_bit_perfect`, `src/settings.rs:868`, §2.4).
+    pub fn dsd_pcm_breaks_bit_perfect(&self) -> bool {
+        self.audio.bit_perfect && self.dsd.mode == DsdMode::Pcm
+    }
 }
 
 #[cfg(test)]
@@ -309,5 +449,81 @@ mod tests {
             assert_eq!(SaveInterval::from_secs(i64::try_from(v.secs()).expect("fits i64")), Some(v));
         }
         assert_eq!(SaveInterval::from_secs(31), None);
+    }
+
+    #[test]
+    fn move_column_reorders_stored_keys() {
+        let mut cfg = ColumnsConfig {
+            order: vec![ColumnId::Title, ColumnId::Genre, ColumnId::Artist, ColumnId::Year],
+            ..ColumnsConfig::default()
+        };
+        cfg.move_column(0, 2); // title -> position 2
+        assert_eq!(
+            cfg.order,
+            vec![ColumnId::Genre, ColumnId::Artist, ColumnId::Title, ColumnId::Year]
+        );
+    }
+
+    #[test]
+    fn column_cfg_title_applies() {
+        let cfg = ColumnsConfig::default();
+        assert_eq!(cfg.column_title(ColumnId::NowPlaying), "\u{25B6}");
+        assert_eq!(cfg.column_title(ColumnId::Title), "Название");
+        assert_eq!(cfg.column_title(ColumnId::Artist), "Исполнитель");
+    }
+
+    #[test]
+    fn cover_move_reorders_stored_keys() {
+        let mut covers = CoverSettings::default();
+        covers.move_cover(0, 2); // folder -> last
+        assert_eq!(
+            covers.priority,
+            vec![CoverSource::Embedded, CoverSource::Internet, CoverSource::Folder]
+        );
+    }
+
+    #[test]
+    fn cover_folder_names_fallback_and_trim() {
+        let covers = CoverSettings::default();
+        assert_eq!(covers.cover_folder_names_list(), crate::settings::default_cover_folder_names());
+        assert_eq!(crate::settings::default_cover_folder_names().len(), 17);
+
+        let covers = CoverSettings {
+            folder_names: vec!["front.jpg".into(), "   ".into(), "art.png".into()],
+            ..CoverSettings::default()
+        };
+        assert_eq!(covers.cover_folder_names_list(), vec!["front.jpg", "art.png"]);
+
+        // All-blank stored names fall back to the default list.
+        let covers = CoverSettings { folder_names: vec![" ".into()], ..CoverSettings::default() };
+        assert_eq!(covers.cover_folder_names_list(), crate::settings::default_cover_folder_names());
+    }
+
+    #[test]
+    fn info_labels_defaults_in_display_order() {
+        let s = Settings::default();
+        let ordered = s.info_labels_ordered();
+        assert_eq!(ordered.len(), crate::settings::INFO_LABEL_KEYS.len());
+        assert_eq!(ordered[0], "Artist");
+        assert_eq!(ordered[2], "Title");
+        assert_eq!(ordered[10], "Bit depth");
+        assert_eq!(ordered[12], "Channels");
+    }
+
+    #[test]
+    fn info_label_overrides_and_falls_back() {
+        let mut s = Settings::default();
+        let artist = InfoLabelKey("artist");
+        assert_eq!(s.info_label(&artist), "Artist");
+
+        s.info_labels.insert(artist.clone(), "Исполнитель".into());
+        let channels = InfoLabelKey("channels");
+        s.info_labels.insert(channels.clone(), String::new());
+        assert_eq!(s.info_label(&artist), "Исполнитель");
+        // Empty string falls back to the default (not blank/raw key).
+        assert_eq!(s.info_label(&channels), "Channels");
+        // Unknown key: raw key as last resort.
+        let bogus = InfoLabelKey("bogus");
+        assert_eq!(s.info_label(&bogus), "bogus");
     }
 }
