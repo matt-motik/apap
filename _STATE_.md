@@ -32,6 +32,9 @@
   - src/app/fulltrack_manager.rs
   - src/app/visualizer_manager.rs
   - src/app/bp_report.rs
+  - src/audio/output.rs
+  - src/audio/analyzer.rs
+  - src/audio/fulltrack.rs
   - ui/settings.slint
   - ui/app.slint
 - **Критерий успеха (Definition of Done):** Два файла settings.toml/state.toml разбираются по ключам (§2.3–§2.6, §6.1–§6.2); повреждённый файл не стирает настроек (.bad до первой записи); запуск ничего не пишет; SettingsStore/migrate_legacy_columns/unwrap_or_default удалены; тесты §7.2 С3 и миграции §7.5 зелёные; cargo build/test/clippy зелёные
@@ -66,7 +69,7 @@
 [ ] Шаг 27: Финальная верификация (групповая проверка Б по шагам 24–26): cargo build/test/clippy зелёные, закрытие этапа (Шаг 5). Проверка: все зелёные, 0 новых варнингов
 
 - **Текущий шаг (current_step):** Шаг 17
-- **Следующий ход:** Шаг 17: validate_audio_settings(&AudioCfg) — ждёт разрешения на расширение вайтлиста (output.rs, analyzer.rs, fulltrack.rs)
+- **Следующий ход:** Шаг 17: validate_audio_settings(device, &AudioCfg)
 - **Счетчик безуспешных компиляций:** 0/3
 - **Состояние:** in_progress
 

@@ -34,6 +34,9 @@ whitelist:
   - src/app/fulltrack_manager.rs
   - src/app/visualizer_manager.rs
   - src/app/bp_report.rs
+  - src/audio/output.rs
+  - src/audio/analyzer.rs
+  - src/audio/fulltrack.rs
   - ui/settings.slint
   - ui/app.slint
 
@@ -123,7 +126,7 @@ steps:
     done: false
 
 current_step: 17
-next_action: "Шаг 17: validate_audio_settings(&AudioCfg) — ждёт разрешения на расширение вайтлиста (output.rs, analyzer.rs, fulltrack.rs)"
+next_action: "Шаг 17: validate_audio_settings(device, &AudioCfg)"
 
 fail_counter: 0
 fail_counter_max: 3
