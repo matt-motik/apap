@@ -14,6 +14,7 @@ use std::sync::Arc;
 
 use crate::audio::visualizer::VisualizationMode;
 use crate::persist::keys::{walk, FileRead, KeyPath, KeySpec, LoadNote, LoadNoteKind, Parsed};
+use crate::persist::settings_file::ColumnsConfig;
 use crate::persist::{ReferenceText, SerializeError};
 use crate::settings::{ColumnId, RepeatMode};
 
@@ -145,6 +146,88 @@ impl WidthPct {
     pub fn get(self) -> f32 {
         self.0
     }
+}
+
+/// Количество колонок как `f32` без потери точности (не `as`): реальные
+/// счётчики колонок на порядки меньше `u16::MAX`, насыщение — защитный предел.
+fn count_f32(n: usize) -> f32 {
+    f32::from(u16::try_from(n).unwrap_or(u16::MAX))
+}
+
+/// Действующая ширина колонки в процентах: сохранённая в `state.toml`
+/// ширина → приоритет из `ColumnDef` → `default_column_width` (бывший
+/// `Settings::column_width_pct`, `src/settings.rs:921`, §2.5, §8.1 С3).
+/// Ширина и видимость/приоритет разнесены по разным файлам (`state.toml` /
+/// `settings.toml`, §2.5), поэтому функция принимает оба источника.
+pub fn effective_width_pct(cols: &ColumnsConfig, widths: &BTreeMap<ColumnId, WidthPct>, id: ColumnId) -> f32 {
+    if let Some(w) = widths.get(&id) {
+        return w.get();
+    }
+    if let Some(def) = cols.column_def(id) {
+        if def.priority > 0.0 && def.priority.is_finite() {
+            return def.priority;
+        }
+    }
+    crate::settings::default_column_width(id)
+}
+
+/// Renормализовать сохранённые ширины так, чтобы видимые сейчас колонки
+/// суммарно давали 100% (бывший `Settings::normalize_visible_pct`,
+/// `src/settings.rs:941`, §2.5, §8.1 С3). Скрытые/неизвестные колонки не
+/// трогаются — их ширины (если были сохранены) сохраняются как есть.
+/// Значение, не прошедшее [`WidthPct::new`] (например, 0 при пустой сумме и
+/// делении на ноль колонок — такого не бывает, т.к. `visible` пуст
+/// проверяется отдельно), просто не сохраняется — ключ удаляется.
+pub fn normalize_visible(cols: &ColumnsConfig, widths: &mut BTreeMap<ColumnId, WidthPct>) {
+    let visible = cols.visible_columns();
+    if visible.is_empty() {
+        return;
+    }
+    let has_stored = visible.iter().any(|c| widths.contains_key(c));
+    let values: Vec<f32> = visible
+        .iter()
+        .map(|c| {
+            if has_stored {
+                widths.get(c).map(|w| w.get()).unwrap_or_else(|| effective_width_pct(cols, widths, *c))
+            } else {
+                effective_width_pct(cols, widths, *c)
+            }
+        })
+        .collect();
+    let sum: f32 = values.iter().sum();
+    for (c, v) in visible.iter().zip(values) {
+        let pct = if sum > 0.0 { (v / sum) * 100.0 } else { 100.0 / count_f32(visible.len()) };
+        match WidthPct::new(pct) {
+            Some(w) => widths.insert(*c, w),
+            None => widths.remove(c),
+        };
+    }
+}
+
+/// Ширины при включении колонки: `cols.enable_column(id)` уже применена
+/// (ТРЕБОВАНИЕ: `id` видима в `cols` на момент вызова) — эта функция
+/// воспроизводит только арифметику ширин из бывшего `Settings::enable_column`
+/// (`src/settings.rs:977`, §2.5, §8.1 С3): новой колонке — среднее по
+/// старому видимому набору (без неё самой), затем renормализация.
+pub fn widths_on_enable(cols: &ColumnsConfig, widths: &mut BTreeMap<ColumnId, WidthPct>, id: ColumnId) {
+    let old_n = cols.visible_columns().len().saturating_sub(1);
+    let avg = if old_n > 0 { 100.0 / count_f32(old_n) } else { 100.0 };
+    match WidthPct::new(avg) {
+        Some(w) => widths.insert(id, w),
+        None => widths.remove(&id),
+    };
+    normalize_visible(cols, widths);
+}
+
+/// Ширины при скрытии колонки: `cols.disable_column(id)` уже применена
+/// (ТРЕБОВАНИЕ: `id` скрыта в `cols` на момент вызова) — эта функция
+/// воспроизводит только арифметику ширин из бывшего `Settings::disable_column`
+/// (`src/settings.rs:991`, §2.5, §8.1 С3). Старая версия писала `width = 0.0`
+/// скрытой колонке; `WidthPct` такое значение не представляет ((0, 100]),
+/// поэтому эквивалент — снять сохранённую ширину колонки.
+pub fn widths_on_disable(cols: &ColumnsConfig, widths: &mut BTreeMap<ColumnId, WidthPct>, id: ColumnId) {
+    widths.remove(&id);
+    normalize_visible(cols, widths);
 }
 
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
@@ -873,6 +956,95 @@ mod tests {
 
         state.apply(StateChange::LastDir(PathBuf::from("/music")));
         assert_eq!(state.last_dir(), Some(Path::new("/music")));
+    }
+
+    #[test]
+    fn effective_width_pct_prefers_stored_width() {
+        let cols = ColumnsConfig::default();
+        let mut widths = BTreeMap::new();
+        widths.insert(ColumnId::Title, WidthPct::new(42.0).expect("valid"));
+        assert_eq!(effective_width_pct(&cols, &widths, ColumnId::Title), 42.0);
+    }
+
+    #[test]
+    fn effective_width_pct_falls_back_to_priority_then_default() {
+        let mut cols = ColumnsConfig::default();
+        let widths = BTreeMap::new();
+        // Column default priority (`§2.4`) is used when no width is stored.
+        let title_priority = cols.column_def(ColumnId::Title).expect("def present").priority;
+        assert_eq!(effective_width_pct(&cols, &widths, ColumnId::Title), title_priority);
+
+        // Zero/non-finite priority falls back to `default_column_width`.
+        if let Some(def) = cols.defs.get_mut(&ColumnId::Title) {
+            def.priority = 0.0;
+        }
+        assert_eq!(
+            effective_width_pct(&cols, &widths, ColumnId::Title),
+            crate::settings::default_column_width(ColumnId::Title)
+        );
+    }
+
+    #[test]
+    fn normalize_visible_sums_visible_columns_to_100() {
+        let cols = ColumnsConfig::default();
+        let mut widths = BTreeMap::new();
+        widths.insert(ColumnId::Title, WidthPct::new(50.0).expect("valid"));
+        widths.insert(ColumnId::Duration, WidthPct::new(50.0).expect("valid"));
+        normalize_visible(&cols, &mut widths);
+
+        let sum: f32 = cols
+            .visible_columns()
+            .iter()
+            .filter_map(|c| widths.get(c).map(|w| w.get()))
+            .sum();
+        assert!((sum - 100.0).abs() < 0.01, "sum was {sum}");
+    }
+
+    #[test]
+    fn normalize_visible_empty_is_noop() {
+        let mut cols = ColumnsConfig::default();
+        for def in cols.defs.values_mut() {
+            def.visible = false;
+        }
+        let mut widths = BTreeMap::new();
+        widths.insert(ColumnId::Title, WidthPct::new(50.0).expect("valid"));
+        normalize_visible(&cols, &mut widths);
+        assert_eq!(widths.get(&ColumnId::Title).map(|w| w.get()), Some(50.0));
+    }
+
+    #[test]
+    fn widths_on_enable_averages_and_normalizes() {
+        let mut cols = ColumnsConfig::default();
+        cols.enable_column(ColumnId::Genre);
+        let mut widths = BTreeMap::new();
+        widths_on_enable(&cols, &mut widths, ColumnId::Genre);
+
+        assert!(widths.contains_key(&ColumnId::Genre));
+        let sum: f32 = cols
+            .visible_columns()
+            .iter()
+            .filter_map(|c| widths.get(c).map(|w| w.get()))
+            .sum();
+        assert!((sum - 100.0).abs() < 0.01, "sum was {sum}");
+    }
+
+    #[test]
+    fn widths_on_disable_removes_width_and_normalizes() {
+        let mut cols = ColumnsConfig::default();
+        let mut widths = BTreeMap::new();
+        widths.insert(ColumnId::Title, WidthPct::new(60.0).expect("valid"));
+        widths.insert(ColumnId::Duration, WidthPct::new(40.0).expect("valid"));
+
+        cols.disable_column(ColumnId::Title);
+        widths_on_disable(&cols, &mut widths, ColumnId::Title);
+
+        assert!(!widths.contains_key(&ColumnId::Title));
+        let sum: f32 = cols
+            .visible_columns()
+            .iter()
+            .filter_map(|c| widths.get(c).map(|w| w.get()))
+            .sum();
+        assert!((sum - 100.0).abs() < 0.01, "sum was {sum}");
     }
 
     /// §7.2: сценарий «один ключ недопустим, один отсутствует, один

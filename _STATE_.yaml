@@ -87,7 +87,7 @@ steps:
     done: true
   - id: 16
     description: "persist/state_file.rs: чистые функции ширин колонок над (ColumnsConfig, BTreeMap<ColumnId,WidthPct>) — effective_width_pct, normalize_visible, ширины при enable/disable (перенос логики Settings::column_width_pct/normalize_visible_pct/enable_column/disable_column, §2.5) + юнит-тесты. Проверка: cargo check; cargo test state_file"
-    done: false
+    done: true
   - id: 17
     description: "audio/output.rs: validate_audio_settings(device, &AudioCfg) вместо старой &Settings; вызов в ui_manager.rs — &..audio (§8.1 С3). Проверка: cargo check"
     done: false
@@ -122,8 +122,8 @@ steps:
     description: "Финальная верификация (групповая проверка Б по шагам 24–26): cargo build/test/clippy зелёные, закрытие этапа (Шаг 5). Проверка: все зелёные, 0 новых варнингов"
     done: false
 
-current_step: 16
-next_action: "Шаг 16: ui_manager.rs читает настройки/состояние из AppCore; записи состояния — change_state + старое поле до очистки"
+current_step: 17
+next_action: "Шаг 17: validate_audio_settings(&AudioCfg) — ждёт разрешения на расширение вайтлиста (output.rs, analyzer.rs, fulltrack.rs)"
 
 fail_counter: 0
 fail_counter_max: 3
