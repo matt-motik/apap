@@ -58,7 +58,7 @@ steps:
     done: true
   - id: 7
     description: "state_file.rs: serialize_state через DTO StateFile + state_roundtrip_deterministic + settings_and_state_keys_disjoint_and_cover_lists (§2.6, ТЗ-1, ТЗ-2). Проверка: cargo test persist::"
-    done: false
+    done: true
   - id: 8
     description: "persist/mod.rs: ReferenceText, read_config(reader, path) → FileRead, Boot/boot(reader, paths), write_bad_copies (§2.2, §6.1, ADR-23 шаги 0–2, И-Р12, И-Р18, ТЗ-6, ТЗ-7). Проверка: cargo test persist::"
     done: false
@@ -87,8 +87,8 @@ steps:
     description: "Финальная верификация: cargo build/test/clippy зелёные, закрытие этапа (Шаг 5). Проверка: все зелёные, 0 новых варнингов"
     done: false
 
-current_step: 7
-next_action: "Шаг 7: serialize_state через DTO StateFile + roundtrip + disjoint keys"
+current_step: 8
+next_action: "Шаг 8: persist/mod.rs — read_config, Boot/boot, write_bad_copies"
 
 fail_counter: 0
 fail_counter_max: 3

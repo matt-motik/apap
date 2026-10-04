@@ -1056,8 +1056,10 @@ fn save_interval_spec() -> KeySpec<Settings> {
 }
 
 /// Полная таблица `KeySpec` для `settings.toml` (§2.4, §6.2): развёртка по
-/// каждому листовому ключу, без группировки поддеревьев.
-fn settings_spec() -> Vec<KeySpec<Settings>> {
+/// каждому листовому ключу, без группировки поддеревьев. `pub(crate)` —
+/// используется напрямую тестом §7.2 `settings_and_state_keys_disjoint_and_cover_lists`
+/// в `state_file.rs` (ТЗ-2).
+pub(crate) fn settings_spec() -> Vec<KeySpec<Settings>> {
     let mut specs = vec![
         theme_spec(),
         save_interval_spec(),

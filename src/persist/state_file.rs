@@ -10,10 +10,11 @@
 
 use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
+use std::sync::Arc;
 
 use crate::audio::visualizer::VisualizationMode;
 use crate::persist::keys::{walk, FileRead, KeyPath, KeySpec, LoadNote, LoadNoteKind, Parsed};
-use crate::persist::ReferenceText;
+use crate::persist::{ReferenceText, SerializeError};
 use crate::settings::{ColumnId, RepeatMode};
 
 /// Состояние сессии (§2.5): поля приватны, снаружи — только геттеры и
@@ -442,8 +443,10 @@ fn last_dir_spec() -> KeySpec<SessionState> {
     }
 }
 
-/// Полная таблица ключей `state.toml` (§2.5).
-fn state_spec() -> Vec<KeySpec<SessionState>> {
+/// Полная таблица ключей `state.toml` (§2.5). `pub(crate)` — используется
+/// напрямую тестом §7.2 `settings_and_state_keys_disjoint_and_cover_lists`
+/// (ТЗ-2).
+pub(crate) fn state_spec() -> Vec<KeySpec<SessionState>> {
     let mut specs = legacy_playback_specs();
     specs.extend(column_width_specs());
     specs.extend(sort_specs());
@@ -551,6 +554,112 @@ pub fn parse_state(read: FileRead) -> Parsed<SessionState> {
     notes.sort_by(|a, b| a.key.cmp(&b.key));
 
     Parsed::Parsed { value, notes, reference: ReferenceText::of(bytes) }
+}
+
+/// DTO `columns.widths.*` для сериализации (§2.5, §2.6): `widths` —
+/// `BTreeMap` (ОВ-2, ADR-2), запись только для колонок с заданной шириной.
+#[derive(serde::Serialize)]
+struct ColumnsDto {
+    widths: BTreeMap<&'static str, f32>,
+}
+
+/// DTO `sort.*` для сериализации (§2.5, §2.6): обе части пары приходят
+/// вместе из `SessionState::sort` (`adjust_sort_pair` не допускает другого
+/// состояния), поэтому `None`/`None` и `Some`/`Some` — единственные случаи.
+#[derive(serde::Serialize)]
+struct SortDto {
+    #[serde(skip_serializing_if = "Option::is_none")]
+    column: Option<&'static str>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    direction: Option<&'static str>,
+}
+
+/// DTO `visualization.mode` для сериализации (§2.5, §2.6): `VisualizationMode`
+/// уже `Serialize` в нижнем регистре (`#[serde(rename_all = "lowercase")]`).
+#[derive(serde::Serialize)]
+struct VisualizationDto {
+    mode: VisualizationMode,
+}
+
+/// DTO `window.*` для сериализации (§2.5, §2.6): `x`/`y`/`width`/`height` —
+/// те же optional-ключи, что при разборе (§6.2), пропускаются при `None`.
+#[derive(serde::Serialize)]
+struct WindowDto {
+    #[serde(skip_serializing_if = "Option::is_none")]
+    x: Option<i32>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    y: Option<i32>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    width: Option<u32>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    height: Option<u32>,
+    maximized: bool,
+    fullscreen: bool,
+}
+
+/// DTO записи `state.toml` (§2.6). Порядок полей — не буквальный порядок
+/// таблицы §2.5: TOML требует все скалярные ключи до первой вложенной
+/// таблицы, иначе они достанутся последней открытой `[table]`. Поэтому
+/// сперва идут скаляры §2.5 (`volume`, `muted`, `repeat`, `shuffle`,
+/// `last_dir`) в их исходном относительном порядке, затем таблицы
+/// (`columns`, `sort`, `visualization`, `window`) — тоже в порядке §2.5.
+#[derive(serde::Serialize)]
+struct StateFile<'a> {
+    volume: u8,
+    muted: bool,
+    repeat: &'static str,
+    shuffle: bool,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    last_dir: Option<&'a str>,
+    columns: ColumnsDto,
+    sort: SortDto,
+    visualization: VisualizationDto,
+    window: WindowDto,
+}
+
+/// Детерминированный текст файла (ОВ-2): одинаковые значения `SessionState`
+/// → одинаковые байты в любом процессе — гарантируется фиксированным
+/// порядком полей DTO и `BTreeMap` для `columns.widths` (§2.6).
+pub fn serialize_state(s: &SessionState) -> Result<Arc<[u8]>, SerializeError> {
+    let widths: BTreeMap<&'static str, f32> =
+        s.column_widths.iter().map(|(id, w)| (id.key(), w.get())).collect();
+
+    let (sort_column, sort_direction) = match s.sort {
+        Some(key) => (
+            Some(key.column.key()),
+            Some(match key.direction {
+                SortDirection::Asc => "asc",
+                SortDirection::Desc => "desc",
+            }),
+        ),
+        None => (None, None),
+    };
+
+    let dto = StateFile {
+        volume: s.playback.volume,
+        muted: s.playback.muted,
+        repeat: match s.repeat {
+            RepeatMode::Off => "off",
+            RepeatMode::All => "all",
+            RepeatMode::One => "one",
+        },
+        shuffle: s.shuffle,
+        last_dir: s.last_dir.as_deref().and_then(Path::to_str),
+        columns: ColumnsDto { widths },
+        sort: SortDto { column: sort_column, direction: sort_direction },
+        visualization: VisualizationDto { mode: s.viz_mode },
+        window: WindowDto {
+            x: s.window.position.map(|p| p.x),
+            y: s.window.position.map(|p| p.y),
+            width: s.window.size.map(|sz| sz.width),
+            height: s.window.size.map(|sz| sz.height),
+            maximized: s.window.maximized,
+            fullscreen: s.window.fullscreen,
+        },
+    };
+
+    let text = toml::to_string(&dto).map_err(|e| SerializeError(e.to_string().into()))?;
+    Ok(Arc::from(text.into_bytes()))
 }
 
 #[cfg(test)]
@@ -784,5 +893,116 @@ mod tests {
 
         let unknown_note = notes.iter().find(|n| n.key == KeyPath::new("unknown_leaf")).expect("note present");
         assert!(matches!(unknown_note.kind, LoadNoteKind::Unknown));
+    }
+
+    /// `SessionState` отличное от значений по умолчанию во всех разделах
+    /// §2.5: громкость/mute, ширины колонок, сортировка, визуализация,
+    /// повтор/перемешивание, геометрия окна, последний каталог.
+    fn non_default_state() -> SessionState {
+        let mut s = SessionState::default();
+        s.apply(StateChange::Volume(42));
+        s.apply(StateChange::Muted(true));
+
+        let mut widths = BTreeMap::new();
+        widths.insert(ColumnId::Title, WidthPct::new(50.0).expect("valid"));
+        widths.insert(ColumnId::Artist, WidthPct::new(25.0).expect("valid"));
+        s.apply(StateChange::ColumnWidths(widths));
+
+        s.apply(StateChange::Sort(Some(SortKey { column: ColumnId::Artist, direction: SortDirection::Desc })));
+        s.apply(StateChange::VizMode(VisualizationMode::Spectrum));
+        s.apply(StateChange::Repeat(RepeatMode::All));
+        s.apply(StateChange::Shuffle(true));
+        s.apply(StateChange::Window(WindowGeometry {
+            position: Some(PhysPos { x: 10, y: 20 }),
+            size: Some(PhysSize { width: 1024, height: 768 }),
+            maximized: true,
+            fullscreen: true,
+        }));
+        s.apply(StateChange::LastDir(PathBuf::from("/home/user/music")));
+        s
+    }
+
+    /// Серилизация `s` детерминирована (ОВ-2) и round-trip'ится без заметок
+    /// (§7.2): `serialize_state` дважды даёт одинаковые байты, разбор
+    /// результата даёт равное значение без заметок, а повторная сериализация
+    /// разобранного значения воспроизводит исходные байты. Заменяет старый
+    /// `window_state_flags_roundtrip` (`src/settings.rs`) — геометрия окна
+    /// теперь в `state.toml`.
+    fn assert_roundtrip_deterministic(s: &SessionState) {
+        let bytes1 = serialize_state(s).expect("serialize ok");
+        let bytes2 = serialize_state(s).expect("serialize ok");
+        assert_eq!(bytes1, bytes2, "same SessionState must serialize to identical bytes");
+
+        let (value, notes) = parsed(FileRead::Bytes(bytes1.clone()));
+        assert_eq!(value, *s);
+        assert!(notes.is_empty(), "expected zero notes, got: {notes:?}");
+
+        let bytes3 = serialize_state(&value).expect("serialize ok");
+        assert_eq!(bytes1, bytes3, "re-serializing parsed value must reproduce original bytes");
+    }
+
+    #[test]
+    fn state_roundtrip_deterministic() {
+        assert_roundtrip_deterministic(&SessionState::default());
+        assert_roundtrip_deterministic(&non_default_state());
+    }
+
+    #[test]
+    fn defaults_serialize_parses_with_zero_notes() {
+        let bytes = serialize_state(&SessionState::default()).expect("serialize ok");
+        let (value, notes) = parsed(FileRead::Bytes(bytes));
+        assert_eq!(value, SessionState::default());
+        assert!(notes.is_empty(), "expected zero notes, got: {notes:?}");
+    }
+
+    /// §7.2 `settings_and_state_keys_disjoint_and_cover_lists` (ТЗ-2): тест
+    /// сравнивает множества путей таблиц `KeySpec` (`settings_spec()` из
+    /// `settings_file.rs` и `state_spec()` выше, обе `pub(crate)`) —
+    /// пересечение пусто, а объединение покрывает семейства ключей §2.4/§2.5
+    /// (без `[playback]`/`playback.<режим>.*` — целевая модель 01_audio_modes,
+    /// до С4 их замещают легаси `audio.*`/`dsd.*`/`audio_device` и
+    /// `volume`/`muted`).
+    #[test]
+    fn settings_and_state_keys_disjoint_and_cover_lists() {
+        use crate::persist::settings_file::settings_spec;
+
+        let settings_keys: std::collections::BTreeSet<String> = settings_spec().into_iter().map(|s| s.path).collect();
+        let state_keys: std::collections::BTreeSet<String> = state_spec().into_iter().map(|s| s.path).collect();
+
+        let overlap: Vec<&String> = settings_keys.intersection(&state_keys).collect();
+        assert!(overlap.is_empty(), "settings.toml and state.toml key paths must be disjoint: {overlap:?}");
+
+        for key in [
+            "theme",
+            "save_interval",
+            "minimize_to_tray",
+            "scroll_to_playing",
+            "cover_size",
+            "col_info_w",
+            "col_gap",
+            "column_order",
+            "cover_priority",
+            "cover_folder_names",
+            "cover_online",
+            "audio_device",
+        ] {
+            assert!(settings_keys.contains(key), "missing settings key {key}");
+        }
+        for prefix in ["columns.", "info_labels.", "visualization.", "audio.", "dsd."] {
+            assert!(settings_keys.iter().any(|k| k.starts_with(prefix)), "missing settings key family {prefix}");
+        }
+        for suffix in [".title", ".priority", ".min_width", ".max_width", ".max_width_percent", ".visible", ".column_type"] {
+            assert!(
+                settings_keys.iter().any(|k| k.starts_with("columns.") && k.ends_with(suffix)),
+                "missing columns.* key {suffix}"
+            );
+        }
+
+        for key in ["volume", "muted", "repeat", "shuffle", "visualization.mode", "last_dir"] {
+            assert!(state_keys.contains(key), "missing state key {key}");
+        }
+        for prefix in ["columns.widths.", "sort.", "window."] {
+            assert!(state_keys.iter().any(|k| k.starts_with(prefix)), "missing state key family {prefix}");
+        }
     }
 }
