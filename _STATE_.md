@@ -35,7 +35,7 @@
 [x] Шаг 5: Message, MessageLevel, MessageButtons, MessageButton, MsgEffect, CloseEffect, MessageCenter в src/core/messages.rs (+ pub mod messages) по §6.15, §6.8 (ADR-13, ТЗ-52 п. 1, ТЗ-20). Проверка: cargo check
 [x] Шаг 6: Notification в src/platform/notify/mod.rs (+ pub mod notify в platform/mod.rs); трейт Notifier и D-Bus — С5 (ADR-9). Подключить MsgEffect.notify. Проверка: cargo check
 [x] Шаг 7: Юнит-тесты MessageCenter (§7.2): messages_before_show_queued_in_order, tray_hidden_error_notifies_once, no_tray_error_shows_window, enter_esc_buttons, слияние ошибок записи в одно окно, Retry → список файлов, write_succeeded закрывает при пустом списке, Close очищает список, dismiss_for_exit. Проверка: cargo test core::messages зелёный
-[ ] Шаг 8: Компонент MessageWindow в ui/message_window.slint (+ цвета заголовка Warning/Error в ui/theme.slint при отсутствии): оверлей, значок и цвет заголовка по уровню, тело, кнопки OK / Повторить+OK, FocusScope Enter=primary, Esc=close (ADR-13, ТЗ-52 п. 1). Проверка: cargo build (slint компилируется)
+[x] Шаг 8: Компонент MessageWindow в ui/message_window.slint (+ цвета заголовка Warning/Error в ui/theme.slint при отсутствии): оверлей, значок и цвет заголовка по уровню, тело, кнопки OK / Повторить+OK, FocusScope Enter=primary, Esc=close (ADR-13, ТЗ-52 п. 1). Проверка: cargo build (slint компилируется)
 [ ] Шаг 9: ui/app.slint: свойство window-blocked, свойства/колбэки окна сообщения; MessageWindow — последний потомок AppWindow; оверлей блокировки над главным окном; enabled пунктов меню и root-focus от window-blocked (ADR-12, ТЗ-23). Проверка: cargo build
 [ ] Шаг 10: src/app/mod.rs: поля gate, messages, caps в MusicApp; применение MsgEffect (show/hide → свойства Slint и gate.block/unblock(Message)); колбэки press primary/close (§6.15). Проверка: cargo check
 [ ] Шаг 11: src/main.rs: после ui.show() — MessageCenter::window_shown (И-Р9, ТЗ-52 п. 1 «после первого показа»). Проверка: cargo check
@@ -45,8 +45,8 @@
 [ ] Шаг 15: src/app/playlist_manager.rs + src/app/mod.rs: раскладка ТЗ-52/ОВ-7 — успешные «Added/Track removed/Playlist cleared/Loaded» — не сообщения (журнал не нужен); падение темы при запуске → окно Warning вместо подсказки трея; принудительный Nearest — не сообщение. Проверка: cargo check
 [ ] Шаг 16: Финальная верификация: cargo build, cargo test, cargo clippy (0 новых варнингов в вайтлисте), tools/state_tool.py check-whitelist, traceability_tool; ручная проверка пользователем: меню неактивно при диалоге/окне, Enter/Esc, плеер играет в Совместимом режиме. Проверка: всё зелёное
 
-- **Текущий шаг (current_step):** Шаг 8
-- **Следующий ход:** Шаг 8: компонент MessageWindow в ui/message_window.slint (+ цвета заголовка Warning/Error в ui/theme.slint); cargo build
+- **Текущий шаг (current_step):** Шаг 9
+- **Следующий ход:** Шаг 9: ui/app.slint — свойство window-blocked, оверлей блокировки, enabled пунктов меню/root-focus, свойства/колбэки окна сообщения и инстанс MessageWindow последним потомком; cargo build
 - **Счетчик безуспешных компиляций:** 0/3
 - **Состояние:** in_progress
 

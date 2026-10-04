@@ -1,0 +1,136 @@
+import { Colors } from "theme.slint";
+import { Button, ScrollView } from "std-widgets.slint";
+
+// Окно сообщения (ADR-13, §6.15, ТЗ-52). Последний потомок AppWindow —
+// рендерится поверх главного окна и диалога настроек. Пока показано,
+// AppCore держит UiGate::block(Message) (ТЗ-23), поэтому это окно само
+// недоступности не проверяет.
+//
+// `level` — MessageLevel (ТЗ-52): 0 = Info, 1 = Warning, 2 = Error.
+// `retry` — true для сводного окна ошибок записи (§6.8): кнопки
+// «Повторить» (primary) + «OK» (close); false — одна кнопка «OK», которая
+// сама по себе primary (Ok-окну всё равно, какая кнопка нажата, §6.15).
+export component MessageWindow inherits Rectangle {
+    in property <bool> shown: false;
+    in property <int> level: 2;
+    in property <string> title: "";
+    in property <string> body: "";
+    in property <bool> retry: false;
+
+    callback primary();
+    callback close();
+
+    visible: root.shown;
+    width: 100%;
+    height: 100%;
+    background: Colors.bg-overlay;
+
+    function level-color() -> color {
+        return root.level == 2 ? Colors.text-error : root.level == 1 ? Colors.text-warn : Colors.accent;
+    }
+
+    function level-icon() -> string {
+        return root.level == 2 ? "⛔" : root.level == 1 ? "⚠" : "ℹ";
+    }
+
+    TouchArea {
+        width: 100%;
+        height: 100%;
+        clicked => { }
+        scroll-event(event) => {
+            EventResult.accept
+        }
+    }
+
+    dialog := Rectangle {
+        width: 440px;
+        height: 260px;
+        x: (parent.width - self.width) / 2;
+        y: (parent.height - self.height) / 2;
+
+        background: Colors.bg-surface;
+        border-radius: 8px;
+        border-width: 1px;
+        border-color: Colors.border-default;
+
+        VerticalLayout {
+            padding: 16px;
+            spacing: 12px;
+
+            // Пересобирается при каждом показе (как диалог настроек): забирает
+            // фокус заново, иначе Enter/Esc уйдут в последний сфокусированный
+            // виджет главного окна.
+            if root.shown: FocusScope {
+                init => { self.focus(); }
+                key-pressed(event) => {
+                    if (event.text == Key.Return) { root.primary(); return accept; }
+                    if (event.text == Key.Escape) { root.close(); return accept; }
+                    return accept;
+                }
+
+                VerticalLayout {
+                    spacing: 12px;
+
+                    HorizontalLayout {
+                        spacing: 8px;
+                        Text {
+                            text: root.level-icon();
+                            color: root.level-color();
+                            font-size: 20px;
+                        }
+
+                        Text {
+                            text: root.title;
+                            color: root.level-color();
+                            font-size: 16px;
+                            font-weight: 600;
+                            vertical-alignment: center;
+                        }
+                    }
+
+                    Rectangle {
+                        vertical-stretch: 1;
+                        background: Colors.bg-window;
+                        border-radius: 4px;
+                        ScrollView {
+                            VerticalLayout {
+                                padding: 8px;
+                                Text {
+                                    text: root.body;
+                                    color: Colors.text-primary;
+                                    font-size: 13px;
+                                    wrap: word-wrap;
+                                }
+                            }
+                        }
+                    }
+
+                    HorizontalLayout {
+                        spacing: 8px;
+                        alignment: end;
+
+                        if root.retry: Button {
+                            text: "Повторить";
+                            preferred-height: 28px;
+                            primary: true;
+                            clicked => { root.primary(); }
+                        }
+
+                        Button {
+                            text: "OK";
+                            preferred-height: 28px;
+                            primary: !root.retry;
+                            clicked => {
+                                if (root.retry) {
+                                    root.close();
+                                } else {
+                                    root.primary();
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+}

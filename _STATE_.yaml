@@ -62,7 +62,7 @@ steps:
     done: true
   - id: 8
     description: "Компонент MessageWindow в ui/message_window.slint (+ цвета заголовка Warning/Error в ui/theme.slint при отсутствии): оверлей, значок и цвет заголовка по уровню, тело, кнопки OK / Повторить+OK, FocusScope Enter=primary, Esc=close (ADR-13, ТЗ-52 п. 1). Проверка: cargo build (slint компилируется)"
-    done: false
+    done: true
   - id: 9
     description: "ui/app.slint: свойство window-blocked, свойства/колбэки окна сообщения; MessageWindow — последний потомок AppWindow; оверлей блокировки над главным окном; enabled пунктов меню и root-focus от window-blocked (ADR-12, ТЗ-23). Проверка: cargo build"
     done: false
@@ -88,8 +88,8 @@ steps:
     description: "Финальная верификация: cargo build, cargo test, cargo clippy (0 новых варнингов в вайтлисте), tools/state_tool.py check-whitelist, traceability_tool; ручная проверка пользователем: меню неактивно при диалоге/окне, Enter/Esc, плеер играет в Совместимом режиме. Проверка: всё зелёное"
     done: false
 
-current_step: 8
-next_action: "Шаг 8: компонент MessageWindow в ui/message_window.slint (+ цвета заголовка Warning/Error в ui/theme.slint); cargo build"
+current_step: 9
+next_action: "Шаг 9: ui/app.slint — свойство window-blocked, оверлей блокировки, enabled пунктов меню/root-focus, свойства/колбэки окна сообщения и инстанс MessageWindow последним потомком; cargo build"
 
 fail_counter: 0
 fail_counter_max: 3
