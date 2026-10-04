@@ -7,7 +7,7 @@ pub mod keys;
 pub mod settings_file;
 pub mod state_file;
 
-use crate::journal::{JournalRecord, WriteTarget};
+use crate::journal::JournalRecord;
 use crate::platform::fs::{FileReader, FileWriter, ReadErrorClass, WriteError};
 use keys::{FileRead, Parsed};
 use settings_file::{parse_settings, Settings};
@@ -176,34 +176,52 @@ fn write_bad_copy(
     BadCopyOutcome { file, result }
 }
 
-/// Записи журнала для шага 2 ADR-23 (§6.1): ошибка чтения файла — готовым
-/// вариантом `JournalRecord::ReadFailed`. Записи вида «заметки разбора»
-/// (`Parsed`) и «неразбираемый файл» (`Unparsable`) требуют вариантов
-/// `JournalRecord`, которых пока нет в `journal.rs` (там заведены только
-/// `ReadFailed`/`WriteFailed`/`TempRemoveFailed` — комментарий у `JournalRecord`
-/// явно оставляет варианты будущих этапов на потом); добавление этих
-/// вариантов — отдельный шаг, затрагивающий `journal.rs` вне вайтлиста С3.
+/// Записи журнала для шага 2 ADR-23 (§6.1): ошибка чтения файла —
+/// `JournalRecord::ReadFailed`; успешный разбор с заметками — `LoadNotes`
+/// (ТЗ-5). Неразбираемый файл в журнал здесь не попадает — его запись
+/// `Unparsable` объединяет текст ошибки разбора с итогом копии `*.bad` и
+/// строится из результата `write_bad_copies` (`journal_records_for_bad_copies`).
 pub fn journal_records_for_boot(boot: &Boot) -> Vec<JournalRecord> {
     let mut out = Vec::new();
-    if let Parsed::ReadFailed { err, .. } = &boot.settings {
-        out.push(JournalRecord::ReadFailed { file: WorkFile::Settings, err: err.clone() });
-    }
-    if let Parsed::ReadFailed { err, .. } = &boot.state {
-        out.push(JournalRecord::ReadFailed { file: WorkFile::State, err: err.clone() });
-    }
+    push_boot_file_records(&mut out, ConfigFile::Settings, &boot.settings);
+    push_boot_file_records(&mut out, ConfigFile::State, &boot.state);
     out
 }
 
-/// Записи журнала о неудачной записи копии `*.bad` (ТЗ-20) — для случаев из
-/// `write_bad_copies`, где `result` — `Err`.
-pub fn journal_records_for_bad_copies(outcomes: &[BadCopyOutcome]) -> Vec<JournalRecord> {
+fn push_boot_file_records<T>(out: &mut Vec<JournalRecord>, file: ConfigFile, parsed: &Parsed<T>) {
+    match parsed {
+        Parsed::Parsed { notes, .. } if !notes.is_empty() => {
+            out.push(JournalRecord::LoadNotes { file, notes: notes.clone() });
+        }
+        Parsed::ReadFailed { err, .. } => {
+            out.push(JournalRecord::ReadFailed { file: file.work(), err: err.clone() });
+        }
+        _ => {}
+    }
+}
+
+/// Записи журнала «неразбираемый файл» (ТЗ-6, ТЗ-7, §6.1): текст ошибки
+/// разбора из `boot` объединён с итогом записи копии `*.bad` из `outcomes`
+/// (одна запись на файл, независимо от того, удалась копия или нет).
+pub fn journal_records_for_bad_copies(boot: &Boot, outcomes: &[BadCopyOutcome]) -> Vec<JournalRecord> {
     outcomes
         .iter()
-        .filter_map(|o| {
-            let err = o.result.as_ref().err()?;
-            Some(JournalRecord::WriteFailed { target: WriteTarget::BadCopy(o.file), err: err.clone() })
-        })
+        .map(|o| JournalRecord::Unparsable { file: o.file, error: parse_error_text(o.file, boot), copy: o.result.clone() })
         .collect()
+}
+
+fn parse_error_text(file: ConfigFile, boot: &Boot) -> Box<str> {
+    match file {
+        ConfigFile::Settings => unparsable_error(&boot.settings),
+        ConfigFile::State => unparsable_error(&boot.state),
+    }
+}
+
+fn unparsable_error<T>(parsed: &Parsed<T>) -> Box<str> {
+    match parsed {
+        Parsed::Unparsable { error, .. } => error.clone(),
+        _ => Box::default(),
+    }
 }
 
 #[cfg(test)]
@@ -273,6 +291,38 @@ mod tests {
     }
 
     #[test]
+    fn boot_parsed_notes_reports_load_notes() {
+        let fs = MemStore::new();
+        let p = paths();
+        fs.put(&p.state, b"bogus = 1\n");
+        let b = boot(&fs, &p);
+        assert!(matches!(&b.state, Parsed::Parsed { notes, .. } if !notes.is_empty()));
+        let records = journal_records_for_boot(&b);
+        assert_eq!(records.len(), 1);
+        assert!(matches!(&records[0], JournalRecord::LoadNotes { file: ConfigFile::State, .. }));
+    }
+
+    #[test]
+    fn journal_records_for_bad_copies_reports_unparsable_with_copy_path() {
+        let fs = MemStore::new();
+        let p = paths();
+        fs.put(&p.settings, b"[[\n");
+        let b = boot(&fs, &p);
+        let mut writer = fs.clone();
+        let outcomes = write_bad_copies(&b, &mut writer, &p);
+        let records = journal_records_for_bad_copies(&b, &outcomes);
+        assert_eq!(records.len(), 1);
+        match &records[0] {
+            JournalRecord::Unparsable { file, error, copy } => {
+                assert_eq!(*file, ConfigFile::Settings);
+                assert!(!error.is_empty());
+                assert_eq!(copy.as_deref(), Ok(p.bad_copy(WorkFile::Settings).as_path()));
+            }
+            other => panic!("unexpected: {other:?}"),
+        }
+    }
+
+    #[test]
     fn write_bad_copies_writes_original_bytes_once_each() {
         let fs = MemStore::new();
         let p = paths();
@@ -303,11 +353,11 @@ mod tests {
         let outcomes = write_bad_copies(&b, &mut writer, &p);
         assert_eq!(outcomes.len(), 1);
         assert!(outcomes[0].result.is_err());
-        let records = journal_records_for_bad_copies(&outcomes);
+        let records = journal_records_for_bad_copies(&b, &outcomes);
         assert_eq!(records.len(), 1);
         assert!(matches!(
             &records[0],
-            JournalRecord::WriteFailed { target: WriteTarget::BadCopy(ConfigFile::Settings), .. }
+            JournalRecord::Unparsable { file: ConfigFile::Settings, copy: Err(_), .. }
         ));
     }
 

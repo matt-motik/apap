@@ -2,6 +2,7 @@
 //! Реализация по умолчанию — `FileJournal` (stderr + `apap.log`), подмена для
 //! автотестов — `VecJournal`. В аудио-колбэке журнал не используется.
 
+use crate::persist::keys::{LoadNote, LoadNoteKind};
 use crate::persist::{ConfigFile, WorkFile};
 use crate::platform::fs::{ReadError, WriteError};
 use std::fs::{self, File, OpenOptions};
@@ -25,6 +26,11 @@ pub trait Journal: Send + Sync {
 pub enum JournalRecord {
     /// Рабочий файл не прочитан.
     ReadFailed { file: WorkFile, err: ReadError },
+    /// Все заметки разбора одного файла — одной записью (ТЗ-5, §6.1).
+    LoadNotes { file: ConfigFile, notes: Vec<LoadNote> },
+    /// Неразбираемый файл: текст ошибки разбора и итог копии `*.bad`
+    /// (ТЗ-6, ТЗ-7, §6.1).
+    Unparsable { file: ConfigFile, error: Box<str>, copy: Result<PathBuf, WriteError> },
     /// ТЗ-20: вид ошибки, текст ОС, путь — в `WriteError`.
     WriteFailed { target: WriteTarget, err: WriteError },
     /// Временный файл после неудачной записи не удалён (ADR-4: ошибка
@@ -46,6 +52,8 @@ impl JournalRecord {
     pub fn kind(&self) -> &'static str {
         match self {
             JournalRecord::ReadFailed { .. } => "ошибка чтения",
+            JournalRecord::LoadNotes { .. } => "заметки разбора",
+            JournalRecord::Unparsable { .. } => "неразбираемый файл",
             JournalRecord::WriteFailed { .. } => "ошибка записи",
             JournalRecord::TempRemoveFailed { .. } => "временный файл не удалён",
         }
@@ -62,11 +70,34 @@ impl JournalRecord {
                 os_code_suffix(err.os_code),
                 err.path.display()
             ),
+            JournalRecord::LoadNotes { file, notes } => {
+                let body = notes.iter().map(load_note_text).collect::<Vec<_>>().join("; ");
+                format!("{}: {body}", file.work().file_name())
+            }
+            JournalRecord::Unparsable { file, error, copy } => {
+                let copy_text = match copy {
+                    Ok(path) => format!("копия {}", path.display()),
+                    Err(err) => format!("копия не записана: {}", write_error_text(err)),
+                };
+                format!("{}: {error}; {copy_text}", file.work().file_name())
+            }
             JournalRecord::WriteFailed { target, err } => {
                 format!("{}: {}", target_name(target), write_error_text(err))
             }
             JournalRecord::TempRemoveFailed { err } => write_error_text(err),
         }
+    }
+}
+
+/// Текст одной заметки разбора для строки `LoadNotes` (ТЗ-5).
+fn load_note_text(note: &LoadNote) -> String {
+    match &note.kind {
+        LoadNoteKind::Missing => format!("{}: нет значения, подставлено по умолчанию", note.key),
+        LoadNoteKind::Invalid { found, allowed } => {
+            format!("{}: недопустимое значение {found} (ожидается {allowed}), подставлено по умолчанию", note.key)
+        }
+        LoadNoteKind::Unknown => format!("{}: неизвестный ключ, исчезнет при записи", note.key),
+        LoadNoteKind::Adjusted { reason } => format!("{}: значение изменено ({reason})", note.key),
     }
 }
 
@@ -303,6 +334,58 @@ mod tests {
             line,
             "1970-01-01T00:00:00.000Z ошибка записи: state.toml: нет места на диске, шаг WriteData: \
              No space left on device (код ОС 28); путь /cfg/state.toml.tmp"
+        );
+    }
+
+    #[test]
+    fn journal_load_notes_line_lists_each_note() {
+        use crate::persist::keys::KeyPath;
+        let notes = vec![
+            LoadNote { key: KeyPath::new("volume"), kind: LoadNoteKind::Invalid { found: "200".into(), allowed: "целое 0..=100" } },
+            LoadNote { key: KeyPath::new("muted"), kind: LoadNoteKind::Missing },
+            LoadNote { key: KeyPath::new("bogus"), kind: LoadNoteKind::Unknown },
+        ];
+        let rec = JournalRecord::LoadNotes { file: ConfigFile::State, notes };
+        let line = format_line(&rec, UNIX_EPOCH);
+        assert_eq!(
+            line,
+            "1970-01-01T00:00:00.000Z заметки разбора: state.toml: volume: недопустимое значение 200 \
+             (ожидается целое 0..=100), подставлено по умолчанию; muted: нет значения, подставлено по \
+             умолчанию; bogus: неизвестный ключ, исчезнет при записи"
+        );
+    }
+
+    #[test]
+    fn journal_unparsable_line_has_error_and_copy_path() {
+        let rec = JournalRecord::Unparsable {
+            file: ConfigFile::Settings,
+            error: "ожидался символ `=`".into(),
+            copy: Ok(PathBuf::from("/cfg/settings.toml.bad")),
+        };
+        let line = format_line(&rec, UNIX_EPOCH);
+        assert_eq!(
+            line,
+            "1970-01-01T00:00:00.000Z неразбираемый файл: settings.toml: ожидался символ `=`; \
+             копия /cfg/settings.toml.bad"
+        );
+    }
+
+    #[test]
+    fn journal_unparsable_line_reports_failed_copy() {
+        let err = WriteError {
+            class: WriteErrorClass::NoSpace,
+            step: WriteStep::WriteData,
+            os_code: Some(28),
+            os_text: "No space left on device".into(),
+            path: Path::new("/cfg/settings.toml.bad.tmp").to_path_buf(),
+        };
+        let rec = JournalRecord::Unparsable { file: ConfigFile::Settings, error: "ожидался символ `=`".into(), copy: Err(err) };
+        let line = format_line(&rec, UNIX_EPOCH);
+        assert_eq!(
+            line,
+            "1970-01-01T00:00:00.000Z неразбираемый файл: settings.toml: ожидался символ `=`; копия не \
+             записана: нет места на диске, шаг WriteData: No space left on device (код ОС 28); путь \
+             /cfg/settings.toml.bad.tmp"
         );
     }
 

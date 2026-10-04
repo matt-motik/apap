@@ -7,8 +7,9 @@
 //! не моделирует — `flush` вызывается напрямую, синхронно.
 
 use super::{AppCore, FlushOutcome};
+use crate::journal::{Journal, JournalRecord, VecJournal};
 use crate::persist::{self, ConfigFile, ConfigPaths, WorkFile};
-use crate::platform::fs::{MemStore, OpCounts, ReadErrorClass};
+use crate::platform::fs::{MemStore, OpCounts, ReadErrorClass, WriteErrorClass, WriteStep};
 use std::path::PathBuf;
 
 /// Каталог настроек стенда — не каталог пользователя (ТЗ-49).
@@ -19,12 +20,13 @@ fn test_dir() -> PathBuf {
 pub(crate) struct Harness {
     fs: MemStore,
     paths: ConfigPaths,
+    journal: VecJournal,
 }
 
 impl Harness {
     /// Пустой каталог: оба файла отсутствуют, пока не вызван `put_*`.
     pub(crate) fn new() -> Harness {
-        Harness { fs: MemStore::new(), paths: ConfigPaths::in_dir(test_dir()) }
+        Harness { fs: MemStore::new(), paths: ConfigPaths::in_dir(test_dir()), journal: VecJournal::default() }
     }
 
     /// Положить байты `settings.toml` «на диск» до запуска.
@@ -47,14 +49,31 @@ impl Harness {
         self.fs.fail_read(&self.paths.state, class);
     }
 
+    /// Внедрить ошибку записи копии `<file>.bad` (ТЗ-7).
+    pub(crate) fn fail_write_bad_copy(&self, file: WorkFile, step: WriteStep, class: WriteErrorClass) {
+        self.fs.fail_write(&self.paths.bad_copy(file), step, class, 1);
+    }
+
     /// Запуск (ADR-23 шаги 0–2, §8 С3): чтение + разбор, копии `*.bad` до
-    /// появления окна, затем `AppCore`. Ничего не возвращает про сами копии —
-    /// их результат проверяется через `bad_copy_bytes`/`bad_copy_counts`.
+    /// появления окна, затем `AppCore`. Записи журнала для обоих шагов
+    /// (ТЗ-5, ТЗ-6, ТЗ-7, §6.1) накапливаются в `journal()`; результат самих
+    /// копий также проверяется через `bad_copy_bytes`/`bad_copy_counts`.
     pub(crate) fn boot(&self) -> AppCore {
         let boot = persist::boot(&self.fs, &self.paths);
+        for rec in persist::journal_records_for_boot(&boot) {
+            self.journal.record(rec);
+        }
         let mut writer = self.fs.clone();
-        let _ = persist::write_bad_copies(&boot, &mut writer, &self.paths);
+        let outcomes = persist::write_bad_copies(&boot, &mut writer, &self.paths);
+        for rec in persist::journal_records_for_bad_copies(&boot, &outcomes) {
+            self.journal.record(rec);
+        }
         AppCore::new(boot)
+    }
+
+    /// Записи журнала, накопленные за `boot` (ТЗ-5, ТЗ-6, ТЗ-7, §6.1).
+    pub(crate) fn journal(&self) -> Vec<JournalRecord> {
+        self.journal.records()
     }
 
     /// `AppCore::flush` через стенд (временная синхронная запись С3).
@@ -231,5 +250,79 @@ mod tests {
         let unknown_note =
             notes.iter().find(|n| n.key == KeyPath::new("bogus_leaf")).expect("bogus_leaf note present");
         assert!(matches!(unknown_note.kind, LoadNoteKind::Unknown));
+    }
+
+    /// Три заметки одного файла — одна запись `LoadNotes` (ТЗ-5, §6.1,
+    /// §7.2 `parse_by_keys_three_notes`): отсутствующий обязательный ключ
+    /// (`muted`), недопустимое значение (`volume`), неизвестный ключ (`bogus`).
+    #[test]
+    fn parse_by_keys_three_notes() {
+        let h = Harness::new();
+        h.put_state(
+            b"volume = 200\nrepeat = \"off\"\nshuffle = false\nbogus = 1\n\n\
+              [visualization]\nmode = \"off\"\n\n\
+              [window]\nmaximized = false\nfullscreen = false\n",
+        );
+        let _core = h.boot();
+
+        let records = h.journal();
+        let load_notes: Vec<&JournalRecord> =
+            records.iter().filter(|r| matches!(r, JournalRecord::LoadNotes { file: ConfigFile::State, .. })).collect();
+        assert_eq!(load_notes.len(), 1);
+        match load_notes[0] {
+            JournalRecord::LoadNotes { notes, .. } => assert_eq!(notes.len(), 3),
+            other => panic!("unexpected: {other:?}"),
+        }
+    }
+
+    /// Неразбираемый `settings.toml` с успешной копией `*.bad` (ТЗ-6, ТЗ-7,
+    /// §6.1): одна запись `Unparsable` с путём копии.
+    #[test]
+    fn unparsable_settings_journal_has_copy_path() {
+        let h = Harness::new();
+        h.put_settings(b"[[\n");
+        let _core = h.boot();
+
+        let records = h.journal();
+        assert_eq!(records.len(), 1);
+        match &records[0] {
+            JournalRecord::Unparsable { file: ConfigFile::Settings, error, copy } => {
+                assert!(!error.is_empty());
+                assert_eq!(copy.as_deref().ok(), Some(h.paths.bad_copy(WorkFile::Settings).as_path()));
+            }
+            other => panic!("unexpected: {other:?}"),
+        }
+    }
+
+    /// Неразбираемый `state.toml` без окна: только запись журнала (ТЗ-7,
+    /// §6.1, §7.2 `unparsable_state_journal_only`).
+    #[test]
+    fn unparsable_state_journal_only() {
+        let h = Harness::new();
+        h.put_state(b"[[\n");
+        let _core = h.boot();
+
+        let records = h.journal();
+        assert_eq!(records.len(), 1);
+        assert!(matches!(&records[0], JournalRecord::Unparsable { file: ConfigFile::State, .. }));
+    }
+
+    /// Копия `*.bad` не записалась: `Unparsable.copy` несёт `WriteError`
+    /// (ТЗ-7, §6.1, §7.2 `unparsable_settings_copy_failed_warning_text`).
+    #[test]
+    fn unparsable_settings_copy_failed_is_journaled() {
+        let h = Harness::new();
+        h.put_settings(b"[[\n");
+        h.fail_write_bad_copy(WorkFile::Settings, WriteStep::WriteData, WriteErrorClass::NoSpace);
+        let _core = h.boot();
+
+        let records = h.journal();
+        assert_eq!(records.len(), 1);
+        match &records[0] {
+            JournalRecord::Unparsable { file: ConfigFile::Settings, copy, .. } => {
+                assert!(copy.is_err());
+            }
+            other => panic!("unexpected: {other:?}"),
+        }
     }
 }

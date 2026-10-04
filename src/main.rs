@@ -53,7 +53,7 @@ fn main() {
     // файлом (И-Р18); до писателя `apap-persist` (С4) — синхронно здесь
     // (§8 С3, ADR-23 шаг 3).
     let bad_copy_outcomes = persist::write_bad_copies(&boot, &mut *work_fs, &paths);
-    for rec in persist::journal_records_for_bad_copies(&bad_copy_outcomes) {
+    for rec in persist::journal_records_for_bad_copies(&boot, &bad_copy_outcomes) {
         journal.record(rec);
     }
     // `AppCore` — владелец действующих настроек и состояния (ADR-19, §6.1).
