@@ -4,6 +4,9 @@
 use super::*;
 
 use music_player_rs::audio::output::DeviceCategory;
+use music_player_rs::persist::state_file::{
+    effective_width_pct, Origin, PhysPos, PhysSize, SortDirection, StateChange,
+};
 use music_player_rs::theme::StandardPalette;
 
 impl MusicApp {
@@ -11,10 +14,13 @@ impl MusicApp {
     /// Also re-applied from `main` after `show()` (surface exists) so winit
     /// does not collapse the window to its content minimum (V5.1-B7).
     pub(crate) fn apply_window_geometry(&self) {
-        let s = &self.settings.settings;
-        if let (Some(w), Some(h)) = (s.win_w, s.win_h) {
-            if (200..=8000).contains(&w) && (200..=8000).contains(&h) {
-                self.ui.window().set_size(slint::WindowSize::Physical(slint::PhysicalSize::new(w, h)));
+        let win = self.core.state().window();
+        if let Some(size) = win.size {
+            if (200..=8000).contains(&size.width) && (200..=8000).contains(&size.height) {
+                self.ui.window().set_size(slint::WindowSize::Physical(slint::PhysicalSize::new(
+                    size.width,
+                    size.height,
+                )));
             }
         } else {
             // No persisted geometry yet (first run): give the window a sensible
@@ -26,28 +32,32 @@ impl MusicApp {
                 .window()
                 .set_size(slint::WindowSize::Logical(slint::LogicalSize::new(1200.0, 760.0)));
         }
-        if let (Some(x), Some(y)) = (s.win_x, s.win_y) {
+        if let Some(pos) = win.position {
             self.ui
                 .window()
-                .set_position(slint::WindowPosition::Physical(slint::PhysicalPosition::new(x, y)));
+                .set_position(slint::WindowPosition::Physical(slint::PhysicalPosition::new(pos.x, pos.y)));
         }
         // Восстанавливаем состояние окна поверх обычной геометрии: сначала
         // нормальный размер/позиция, затем максимизация и fullscreen.
-        if s.win_maximized {
+        if win.maximized {
             self.ui.window().set_maximized(true);
         }
-        if s.win_fullscreen {
+        if win.fullscreen {
             self.ui.window().set_fullscreen(true);
         }
     }
 
     /// Persist the current window size/position for the next run, together with
-    /// the fullscreen/maximized state flags.
+    /// the fullscreen/maximized state flags. Also mirrors the geometry into
+    /// `AppCore`'s session state so `apply_legacy` has a consistent view (§8.1 С3).
     pub(super) fn save_window_geometry(&mut self) {
         let w = self.ui.window();
         let s = &mut self.settings.settings;
         s.win_fullscreen = w.is_fullscreen();
         s.win_maximized = w.is_maximized();
+        let mut geom = self.core.state().window();
+        geom.fullscreen = s.win_fullscreen;
+        geom.maximized = s.win_maximized;
         // Размер/позицию сохраняем только из обычного состояния окна: в
         // fullscreen/maximized `size()` возвращает размер во весь экран,
         // который нельзя восстанавливать как размер окна. Последний «нормальный»
@@ -59,7 +69,13 @@ impl MusicApp {
             s.win_h = Some(size.height);
             s.win_x = Some(pos.x);
             s.win_y = Some(pos.y);
+            geom.size = Some(PhysSize { width: size.width, height: size.height });
+            geom.position = Some(PhysPos { x: pos.x, y: pos.y });
         }
+        // Дублируем запись в `AppCore` напрямую (§8.1 С3): `save_settings`
+        // синхронизирует её через `apply_legacy`, но до этого вызова оба
+        // представления геометрии должны совпадать.
+        self.core.change_state(Origin::User, StateChange::Window(geom));
         self.save_settings();
         self.win_geom_dirty = false;
         self.win_geom_changed = None;
@@ -80,15 +96,13 @@ impl MusicApp {
         let pos = w.position();
         let max = w.is_maximized();
         let full = w.is_fullscreen();
-        let s = &self.settings.settings;
+        let geom = self.core.state().window();
         let normal = !max && !full;
-        let matches = s.win_maximized == max
-            && s.win_fullscreen == full
+        let matches = geom.maximized == max
+            && geom.fullscreen == full
             && (!normal
-                || (s.win_w == Some(size.width)
-                    && s.win_h == Some(size.height)
-                    && s.win_x == Some(pos.x)
-                    && s.win_y == Some(pos.y)));
+                || (geom.size == Some(PhysSize { width: size.width, height: size.height })
+                    && geom.position == Some(PhysPos { x: pos.x, y: pos.y })));
         if matches {
             self.win_geom_dirty = false;
             self.win_geom_changed = None;
@@ -108,18 +122,20 @@ impl MusicApp {
     }
 
     /// Build the dialog's column-list model (visibility/order/width display)
-    /// from the current settings view (draft while the dialog is open).
+    /// from the current settings view (draft while the dialog is open),
+    /// reading widths from session state via `effective_width_pct` (§8.1 С3).
     fn dialog_cols_model(&self) -> Vec<ColumnSetting> {
-        let s = self.settings_ref();
-        let ordered = s.ordered_columns();
+        let cfg = self.cfg();
+        let widths = self.cfg_column_widths();
+        let ordered = cfg.columns.ordered_columns();
         ordered
             .iter()
             .map(|c| {
                 ColumnSetting {
                     index: ordered.iter().position(|x| x == c).unwrap_or(0) as i32,
-                    label: s.column_title(*c).into(),
-                    visible: s.column_visible(*c),
-                    width_pct: s.column_width_pct(*c),
+                    label: cfg.columns.column_title(*c).into(),
+                    visible: cfg.columns.column_visible(*c),
+                    width_pct: effective_width_pct(&cfg.columns, widths, *c),
                 }
             })
             .collect()
@@ -130,15 +146,15 @@ impl MusicApp {
     /// live properties `cover-size`/`col-info-w`/`col-gap` — only call this
     /// when those really should change.
     pub(super) fn sync_settings_to_ui(&self) {
-        let s = self.settings_ref();
-        self.ui.set_theme_palette(if s.theme == "dark" { 0 } else { 1 });
+        let s = self.cfg();
+        self.ui.set_theme_palette(if s.theme.as_str() == "dark" { 0 } else { 1 });
         self.ui
             .set_settings_minimize(s.minimize_to_tray);
         self.ui
-            .set_cover_size(s.cover_size);
+            .set_cover_size(s.top_panel.cover_size);
         self.ui
-            .set_col_info_w(s.col_info_w);
-        self.ui.set_col_gap(s.col_gap);
+            .set_col_info_w(s.top_panel.col_info_w);
+        self.ui.set_col_gap(s.top_panel.col_gap);
         let labels: Vec<SharedString> = s
             .info_labels_ordered()
             .into_iter()
@@ -149,7 +165,7 @@ impl MusicApp {
         self.ui.set_repeat(self.repeat == RepeatMode::All);
         self.ui.set_repeat_one(self.repeat == RepeatMode::One);
         self.ui
-            .set_viz_mode(s.visualization.mode.index());
+            .set_viz_mode(self.cfg_viz_mode().index());
         self.ui
             .set_settings_cols(ModelRc::from(self.dialog_cols_model().as_slice()));
         self.sync_dsd_settings_to_ui();
@@ -173,10 +189,10 @@ impl MusicApp {
     /// Синхронизация DSD-полей диалога настроек: текущий режим (0=PCM,
     /// 1=Native, 2=DoP) и признак конфликта «DSD→PCM + bit-perfect» (§8.4).
     pub(super) fn sync_dsd_settings_to_ui(&self) {
-        let s = self.settings_ref();
-        self.ui.set_settings_dsd_mode(s.dsd.mode.index());
-        self.ui.set_settings_dsd_bp_warn(s.dsd_pcm_breaks_bit_perfect());
-        self.ui.set_settings_bit_perfect(s.audio.bit_perfect);
+        let s = self.cfg();
+        self.ui.set_settings_dsd_mode(s.playback.dsd.mode.index());
+        self.ui.set_settings_dsd_bp_warn(s.playback.dsd_pcm_breaks_bit_perfect());
+        self.ui.set_settings_bit_perfect(s.playback.audio.bit_perfect);
     }
 
     /// ТЗ §7.5: актуализировать индикатор статус-бара «Не bit-perfect
@@ -184,7 +200,7 @@ impl MusicApp {
     /// отражает последний выбранный трек и live-настройки.
     pub(super) fn sync_dsd_status_ui(&self) {
         let warn = self.current_track_is_dsd()
-            && self.settings_ref().dsd_pcm_breaks_bit_perfect();
+            && self.cfg().playback.dsd_pcm_breaks_bit_perfect();
         self.ui.set_status_dsd_not_bp(warn);
     }
 
@@ -212,9 +228,10 @@ impl MusicApp {
     }
 
     pub(super) fn sync_cover_settings_to_ui(&self) {
-        let s = self.settings_ref();
+        let s = self.cfg();
         let covers: Vec<CoverSetting> = s
-            .cover_priority_ordered()
+            .covers
+            .priority
             .iter()
             .enumerate()
             .map(|(i, c)| {
@@ -225,9 +242,9 @@ impl MusicApp {
             })
             .collect();
         self.ui.set_settings_covers(ModelRc::from(covers.as_slice()));
-        let names = s.cover_folder_names_list().join(", ");
+        let names = s.covers.cover_folder_names_list().join(", ");
         self.ui.set_settings_cover_names(names.into());
-        self.ui.set_settings_cover_online(s.cover_online);
+        self.ui.set_settings_cover_online(s.covers.online);
     }
 
     /// Kick off an asynchronous enumeration of output devices for the Audio tab.
@@ -244,9 +261,9 @@ impl MusicApp {
         // Отразить фильтры из текущего draft-снапшота (ТЗ A3.0 §8.1): тумблеры
         // в диалоге — live-превью, показывают то, что применено к списку.
         self.ui
-            .set_settings_audio_filter_hardware(self.settings_ref().audio.filter_hardware_only);
+            .set_settings_audio_filter_hardware(self.cfg().playback.audio.filter_hardware_only);
         self.ui
-            .set_settings_audio_filter_stereo(self.settings_ref().audio.filter_stereo_only);
+            .set_settings_audio_filter_stereo(self.cfg().playback.audio.filter_stereo_only);
 
         if self.audio_devices_rx.is_some() {
             return;
@@ -300,16 +317,16 @@ impl MusicApp {
 
     /// Re-project the *already fetched* device list through the current draft
     /// filters and refresh the ComboBox model/highlight plus the capabilities
-    /// and validation preview (ТЗ A3.0 §8.1). Synchronous — called when an
+    /// and validation preview (§8.1 С3). Synchronous — called when an
     /// enumeration lands and on every filter toggle, so flipping a filter never
     /// needs a backend requery.
     fn apply_audio_device_listing(&mut self) {
-        let s = self.settings_ref();
+        let s = self.cfg();
         let filtered: Vec<&DeviceInfo> = self
             .audio_device_infos
             .iter()
             .filter(|d| {
-                audio_filter_matches(d, s.audio.filter_hardware_only, s.audio.filter_stereo_only)
+                audio_filter_matches(d, s.playback.audio.filter_hardware_only, s.playback.audio.filter_stereo_only)
             })
             .collect();
 
@@ -345,7 +362,7 @@ impl MusicApp {
             })
             .collect::<Vec<_>>();
 
-        let saved = self.settings_ref().audio_device.clone();
+        let saved = self.cfg().playback.audio_device.clone();
         let active = self.active_device.clone();
         let want = if !active.is_empty() {
             Some(active)
@@ -456,12 +473,7 @@ impl MusicApp {
 
     /// Columns currently visible, in display order.
     fn visible_col_ids(&self) -> Vec<ColumnId> {
-        self.settings.settings
-            .ordered_columns()
-            .iter()
-            .copied()
-            .filter(|c| self.settings.settings.column_visible(*c))
-            .collect()
+        self.core.settings().columns.visible_columns()
     }
 
     /// Build a single playlist-table row for track `t` at `index`.
@@ -539,35 +551,43 @@ impl MusicApp {
         }
     }
 
-    /// Resolve the visible `TableColumn`s with current pixel widths.
+    /// Resolve the visible `TableColumn`s with current pixel widths, reading
+    /// ratios/sort from `AppCore` session state (§8.1 С3).
     fn build_table_columns(&self) -> Vec<TableColumn> {
         let view_w = self.ui.get_playlist_view_width().max(100.0);
 
         let ids = self.visible_col_ids();
+        let cols_cfg = &self.core.settings().columns;
+        let widths = self.core.state().column_widths();
         let ratios: Vec<f32> = ids
             .iter()
-            .map(|c| self.settings.settings.column_width_pct(*c))
+            .map(|c| effective_width_pct(cols_cfg, widths, *c))
             .collect();
         let limits: Vec<music_player_rs::playlist_layout::ColumnLimit> = ids
             .iter()
-            .filter_map(|c| self.settings.settings.column_cfg(*c).map(|cfg| cfg.to_limit()))
+            .filter_map(|c| {
+                cols_cfg.column_def(*c).map(|def| music_player_rs::playlist_layout::ColumnLimit {
+                    min_px: def.min_width,
+                    max_px: def.max_width,
+                    max_pct: def.max_width_percent,
+                })
+            })
             .collect();
-        let widths = music_player_rs::playlist_layout::resolve_widths(view_w, &ids, &ratios, &limits);
+        let resolved = music_player_rs::playlist_layout::resolve_widths(view_w, &ids, &ratios, &limits);
 
+        let sort = self.core.state().sort();
         ids.iter()
-            .zip(widths)
+            .zip(resolved)
             .map(|(c, w)| {
                 let mut tc = TableColumn::default();
-                tc.title = self.settings.settings.column_title(*c).into();
+                tc.title = cols_cfg.column_title(*c).into();
                 tc.width = w;
-                tc.sort_order = if Some(*c) == self.settings.settings.sorted_col {
-                    if self.settings.settings.sort_desc {
-                        SortOrder::Descending
-                    } else {
-                        SortOrder::Ascending
-                    }
-                } else {
-                    SortOrder::Unsorted
+                tc.sort_order = match sort {
+                    Some(k) if k.column == *c => match k.direction {
+                        SortDirection::Desc => SortOrder::Descending,
+                        SortDirection::Asc => SortOrder::Ascending,
+                    },
+                    _ => SortOrder::Unsorted,
                 };
                 tc
             })
@@ -607,48 +627,62 @@ impl MusicApp {
         sig
     }
 
+    /// Persist the UI's live pixel widths as percentages, mirroring the write
+    /// into both the legacy settings and `AppCore`'s session state so
+    /// `apply_legacy` sees a consistent view on the next save (§8.1 С3).
     pub(super) fn save_column_widths_from_ui(&mut self) {
         let cols = self.ui.get_playlist_cols();
         let len = cols.row_count();
         if len == 0 {
             return;
         }
-        let ordered = self.settings.settings.ordered_columns();
-        let visible_cols: Vec<ColumnId> = ordered
-            .iter()
-            .copied()
-            .filter(|c| self.settings.settings.column_visible(*c))
-            .collect();
+        let visible_cols = self.visible_col_ids();
         if visible_cols.len() != len {
             return;
         }
         let view_w = self.ui.get_playlist_view_width().max(100.0);
         let mut px: Vec<f32> = Vec::with_capacity(len);
-        for (i, col_id) in visible_cols.iter().enumerate() {
-            if let Some(tc) = cols.row_data(i) {
-                let lim = self.settings.settings
-                    .column_cfg(*col_id)
-                    .map(|cfg| cfg.to_limit())
-                    .unwrap_or(music_player_rs::playlist_layout::ColumnLimit {
-                        min_px: 0.0,
-                        max_px: None,
-                        max_pct: None,
-                    });
-                let max_eff = lim.effective_max(view_w);
-                let min_eff = lim.min_px.min(max_eff);
-                px.push(tc.width.clamp(min_eff, max_eff));
+        {
+            let cols_cfg = &self.core.settings().columns;
+            for (i, col_id) in visible_cols.iter().enumerate() {
+                if let Some(tc) = cols.row_data(i) {
+                    let lim = cols_cfg
+                        .column_def(*col_id)
+                        .map(|def| music_player_rs::playlist_layout::ColumnLimit {
+                            min_px: def.min_width,
+                            max_px: def.max_width,
+                            max_pct: def.max_width_percent,
+                        })
+                        .unwrap_or(music_player_rs::playlist_layout::ColumnLimit {
+                            min_px: 0.0,
+                            max_px: None,
+                            max_pct: None,
+                        });
+                    let max_eff = lim.effective_max(view_w);
+                    let min_eff = lim.min_px.min(max_eff);
+                    px.push(tc.width.clamp(min_eff, max_eff));
+                }
             }
         }
         let total_px: f32 = px.iter().sum();
         if total_px <= 0.0 {
             return;
         }
+        // Дублируем запись в `AppCore` напрямую (§8.1 С3): `save_settings`
+        // синхронизирует её через `apply_legacy`, но до этого вызова оба
+        // представления ширин колонок должны совпадать.
+        let mut new_widths = self.core.state().column_widths().clone();
         for (col_id, w) in visible_cols.iter().zip(px) {
             let pct = (w / total_px) * 100.0;
             if let Some(cfg) = self.settings.settings.columns.get_mut(col_id.key()) {
                 cfg.width = Some(pct);
             }
+            match WidthPct::new(pct) {
+                Some(wp) => new_widths.insert(*col_id, wp),
+                None => new_widths.remove(col_id),
+            };
         }
+        self.core.change_state(Origin::User, StateChange::ColumnWidths(new_widths));
         // Persisted at exit (save-at-exit).
     }
 
@@ -662,14 +696,14 @@ impl MusicApp {
     }
 
     /// Проецирует выбор диалога на конкретное [`DeviceInfo`] для превью
-    /// capabilities/validation (ТЗ A3.0 §8.4): приоритет — draft-превью
-    /// (`settings.audio_device`), затем реально активное устройство, затем
+    /// capabilities/validation (§8.1 С3): приоритет — draft-превью
+    /// (`playback.audio_device`), затем реально активное устройство, затем
     /// первое из списка как дефолт.
     fn current_audio_device_info(&self) -> Option<&DeviceInfo> {
         let want = {
-            let s = self.settings_ref();
-            if !s.audio_device.is_empty() {
-                Some(s.audio_device.clone())
+            let s = self.cfg();
+            if !s.playback.audio_device.is_empty() {
+                Some(s.playback.audio_device.clone())
             } else if !self.active_device.is_empty() {
                 Some(self.active_device.clone())
             } else {
@@ -688,7 +722,7 @@ impl MusicApp {
 
     /// Push the device-capabilities and validation rows to the dialog. Either
     /// the whole device list is empty (preview blocks cleared) or the preview
-    /// is built for exactly one device: the draft/active one (ТЗ A3.0 §8.1).
+    /// is built for exactly one device: the draft/active one (§8.1 С3).
     pub(super) fn sync_capabilities_and_validation(&mut self) {
         let Some(device) = self.current_audio_device_info() else {
             self.ui.set_settings_audio_caps(ModelRc::from(&[][..]));
@@ -699,14 +733,10 @@ impl MusicApp {
         let caps = build_capabilities(device);
         self.ui.set_settings_audio_caps(ModelRc::from(caps.as_slice()));
 
-        let s = self.settings_ref();
-        let playback = music_player_rs::persist::settings_file::LegacyPlayback {
-            audio: s.audio.clone(),
-            dsd: s.dsd.clone(),
-            audio_device: s.audio_device.clone(),
-        };
-        let rows =
-            music_player_rs::audio::output::validate_audio_settings(device, &playback);
+        let rows = music_player_rs::audio::output::validate_audio_settings(
+            device,
+            &self.cfg().playback,
+        );
         let model: Vec<ValidationRow> = rows
             .into_iter()
             .map(|r| ValidationRow {
@@ -722,9 +752,9 @@ impl MusicApp {
         self.ui.set_settings_audio_validation(ModelRc::from(model.as_slice()));
     }
 
-    /// Цепочка DSD по выбранному режиму (ТЗ A3.0 §4.1) — строка под combo.
+    /// Цепочка DSD по выбранному режиму (§8.1 С3) — строка под combo.
     pub(super) fn sync_dsd_chain_desc(&self) {
-        let chain = match self.settings_ref().dsd.mode {
+        let chain = match self.cfg().playback.dsd.mode {
             DsdMode::Native => "Native → DoP → PCM",
             DsdMode::DoP => "DoP → PCM",
             DsdMode::Pcm => "PCM only",
@@ -733,26 +763,26 @@ impl MusicApp {
     }
 
     /// Синхронизация Advanced-панели из текущих настроек (draft): индексы
-    /// ComboBox, фиксированная частота, глубина ring-буфера (ТЗ A3.0 §7.3).
+    /// ComboBox, фиксированная частота, глубина ring-буфера (§8.1 С3).
     pub(super) fn sync_audio_advanced(&self) {
-        let s = self.settings_ref();
-        self.ui.set_settings_audio_exclusive_idx(s.audio.exclusive.index());
-        self.ui.set_settings_audio_fallback_idx(s.audio.fallback.index());
+        let s = self.cfg();
+        self.ui.set_settings_audio_exclusive_idx(s.playback.audio.exclusive.index());
+        self.ui.set_settings_audio_fallback_idx(s.playback.audio.fallback.index());
         self.ui
-            .set_settings_audio_resampler_mode_idx(s.audio.resampler.mode.index());
+            .set_settings_audio_resampler_mode_idx(s.playback.audio.resampler.mode.index());
         self.ui
             .set_settings_audio_fixed_rate_idx(
                 super::FIXED_RATES
                     .iter()
-                    .position(|&r| r == s.audio.resampler.fixed_rate)
+                    .position(|&r| r == s.playback.audio.resampler.fixed_rate)
                     .unwrap_or(0) as i32,
             );
         self.ui
-            .set_settings_audio_clock_family_idx(s.audio.resampler.prefer_family.index());
+            .set_settings_audio_clock_family_idx(s.playback.audio.resampler.prefer_family.index());
         self.ui
-            .set_settings_audio_fallback_rate_idx(s.audio.resampler.fallback_rate.index());
+            .set_settings_audio_fallback_rate_idx(s.playback.audio.resampler.fallback_rate.index());
         self.ui
-            .set_settings_audio_ring_buffer_ms(s.audio.ring_buffer_ms as i32);
+            .set_settings_audio_ring_buffer_ms(s.playback.audio.ring_buffer_ms as i32);
     }
 }
 
