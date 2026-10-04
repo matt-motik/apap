@@ -4,3 +4,4 @@
 
 pub mod fs;
 pub mod lifecycle;
+pub mod notify;
