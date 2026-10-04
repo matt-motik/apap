@@ -58,6 +58,17 @@ impl Default for Settings {
 pub struct ThemeName(Box<str>);
 
 impl ThemeName {
+    /// Построить имя темы из произвольной строки, с той же проверкой, что
+    /// при разборе ключа `theme` (§2.4): непустая, без `/` и `\`.
+    pub fn new(s: impl Into<Box<str>>) -> Option<ThemeName> {
+        let s = s.into();
+        if s.is_empty() || s.contains('/') || s.contains('\\') {
+            None
+        } else {
+            Some(ThemeName(s))
+        }
+    }
+
     pub fn as_str(&self) -> &str {
         &self.0
     }

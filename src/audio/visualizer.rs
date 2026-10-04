@@ -499,6 +499,30 @@ impl VisualizerConfig {
             },
         }
     }
+
+    /// Снимок из нового `persist::settings_file::Settings` (§8 С3, ADR-19):
+    /// `VizSettings` не хранит `mode` — тип визуализации живёт в
+    /// `SessionState::viz_mode()` (§2.5) и передаётся отдельным параметром.
+    pub fn from_persist_settings(
+        s: &crate::persist::settings_file::Settings,
+        mode: VisualizationMode,
+    ) -> Self {
+        let v = &s.visualization;
+        Self {
+            mode,
+            skip_fulltrack_for_dsd: v.skip_fulltrack_for_dsd,
+            viz_max_ram_mb: v.viz_max_ram_mb,
+            disk_max_size_mb: v.disk_max_size_mb,
+            oscilloscope: v.oscilloscope.clone(),
+            spectrogram: v.spectrogram.clone(),
+            spectrum: v.spectrum.clone(),
+            dsd_params: DsdCacheParams {
+                target_bit_depth: s.playback.dsd.target_bit_depth,
+                target_sample_rate: s.playback.dsd.target_sample_rate,
+                resampler_algorithm: s.playback.audio.resampler.algorithm,
+            },
+        }
+    }
 }
 
 #[cfg(test)]
