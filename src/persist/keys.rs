@@ -51,16 +51,21 @@ pub enum LoadNoteKind {
     Adjusted { reason: Box<str> },
 }
 
+/// Извлечь значение листа в `T`; `Err` — текст допустимого множества для заметки `Invalid`.
+type ReadFn<T> = dyn Fn(&toml::Value, &mut T) -> Result<(), &'static str>;
+
 /// Строка таблицы описаний ключей (§2.3, §6.2).
 pub struct KeySpec<T: 'static> {
-    pub path: &'static str,
+    pub path: String,
     /// `true` — отсутствие ключа означает «не задано» (`None`) и заметки не даёт
     /// (положение и размер окна, ширины колонок, ключ сортировки, последний каталог).
     pub optional: bool,
     /// Извлечь значение в `T`; `Err` — текст допустимого множества для заметки `Invalid`.
-    pub read: fn(&toml::Value, &mut T) -> Result<(), &'static str>,
+    /// Замыкание (не `fn`), т.к. листовые ключи колонок/подписей собираются
+    /// циклом по `ColumnId`/`InfoLabelKey` и захватывают конкретный ключ (§6.2).
+    pub read: Box<ReadFn<T>>,
     /// Записать в `T` значение по умолчанию.
-    pub default: fn(&mut T),
+    pub default: Box<dyn Fn(&mut T)>,
 }
 
 /// Результат чтения файла модулем ФС, вход чистой функции разбора (§2.3).
@@ -94,18 +99,18 @@ pub fn walk<T: Default>(table: &toml::Table, spec: &[KeySpec<T>]) -> (T, Vec<Loa
     let mut notes = Vec::new();
 
     for s in spec {
-        match lookup(table, s.path) {
+        match lookup(table, &s.path) {
             None => {
                 if !s.optional {
                     (s.default)(&mut value);
-                    notes.push(LoadNote { key: KeyPath::new(s.path), kind: LoadNoteKind::Missing });
+                    notes.push(LoadNote { key: KeyPath::new(s.path.as_str()), kind: LoadNoteKind::Missing });
                 }
             }
             Some(v) => {
                 if let Err(allowed) = (s.read)(v, &mut value) {
                     (s.default)(&mut value);
                     notes.push(LoadNote {
-                        key: KeyPath::new(s.path),
+                        key: KeyPath::new(s.path.as_str()),
                         kind: LoadNoteKind::Invalid { found: v.to_string().into(), allowed },
                     });
                 }
@@ -165,22 +170,22 @@ mod tests {
     fn spec() -> Vec<KeySpec<Toy>> {
         vec![
             KeySpec {
-                path: "a",
+                path: "a".to_string(),
                 optional: false,
-                read: |v, t| {
+                read: Box::new(|v, t| {
                     t.a = v.as_integer().ok_or("целое число")?;
                     Ok(())
-                },
-                default: |t| t.a = -1,
+                }),
+                default: Box::new(|t| t.a = -1),
             },
             KeySpec {
-                path: "b.c",
+                path: "b.c".to_string(),
                 optional: true,
-                read: |v, t| {
+                read: Box::new(|v, t| {
                     t.b = v.as_bool().ok_or("bool")?;
                     Ok(())
-                },
-                default: |t| t.b = false,
+                }),
+                default: Box::new(|t| t.b = false),
             },
         ]
     }

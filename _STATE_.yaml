@@ -49,7 +49,7 @@ steps:
     done: true
   - id: 4
     description: "settings_file.rs: таблица SETTINGS KeySpec + parse_settings (Adjusted для column_order/cover_priority, legacy audio-ключи) + тесты parse_column_order_adjusts, cover_priority, legacy_audio_keys_parse_by_keys, empty_files_give_documented_defaults (часть settings), save_interval_invalid_value (§2.4, §6.2, ТЗ-4, ТЗ-5, ТЗ-33, НФ-1). Проверка: cargo test persist::settings_file"
-    done: false
+    done: true
   - id: 5
     description: "settings_file.rs: serialize_settings через DTO SettingsFile (фиксированный порядок, BTreeMap) + settings_roundtrip_deterministic (§2.6, НФ-3). Проверка: cargo test settings_roundtrip"
     done: false
@@ -87,8 +87,8 @@ steps:
     description: "Финальная верификация: cargo build/test/clippy зелёные, закрытие этапа (Шаг 5). Проверка: все зелёные, 0 новых варнингов"
     done: false
 
-current_step: 4
-next_action: "Шаг 4: таблица SETTINGS KeySpec + parse_settings с тестами"
+current_step: 5
+next_action: "Шаг 5: serialize_settings через DTO SettingsFile + settings_roundtrip_deterministic"
 
 fail_counter: 0
 fail_counter_max: 3
