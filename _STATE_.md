@@ -56,7 +56,7 @@
 [x] Шаг 14: MusicApp владеет AppCore (app/mod.rs, main.rs): MusicApp::new(ui, core, …), старое поле заполняется мостом, SettingsStore::load_from убран (одно чтение), save() → apply_legacy + core.flush + journal_records_for_flush (§6.1, И-Р3, ADR-23). Проверка: cargo build + cargo test
 [x] Шаг 15: playback_manager.rs + cover.rs: обложки/громкость/устройство читаются из core.settings()/core.state(), изменения состояния — change_state (И-Т7). Проверка: cargo check
 [x] Шаг 16: persist/state_file.rs: чистые функции ширин колонок над (ColumnsConfig, BTreeMap<ColumnId,WidthPct>) — effective_width_pct, normalize_visible, ширины при enable/disable (перенос логики Settings::column_width_pct/normalize_visible_pct/enable_column/disable_column, §2.5) + юнит-тесты. Проверка: cargo check; cargo test state_file
-[ ] Шаг 17: audio/output.rs: validate_audio_settings(device, &AudioCfg) вместо старой &Settings; вызов в ui_manager.rs — &..audio (§8.1 С3). Проверка: cargo check
+[x] Шаг 17: audio/output.rs: validate_audio_settings(device, &AudioCfg) вместо старой &Settings; вызов в ui_manager.rs — &..audio (§8.1 С3). Проверка: cargo check
 [ ] Шаг 18: app/mod.rs: мост черновика диалога — DialogDraft{settings: новая Settings, viz_mode, column_widths}, поле dialog: Option<DialogDraft> рядом со старым settings_draft (создаётся там же), аксессоры cfg() -> &новая Settings (черновик или core) и dialog_mut() -> Option<&mut DialogDraft> (§8.1 С3, И-Т7). Проверка: cargo check
 [ ] Шаг 19: ui_manager.rs: чтения → cfg()/core.state(); правки в диалоге → dialog_mut(); живые ширины/сортировка/окно → change_state + старое поле (§8.1 С3, И-Т7). Проверка: cargo check
 [ ] Шаг 20: viz_settings_manager.rs + visualizer_manager.rs/fulltrack_manager.rs: → cfg()/dialog_mut()/VisualizerConfig::from_persist_settings (§8.1 С3). Проверка: cargo check
@@ -68,8 +68,8 @@
 [ ] Шаг 26: settings.rs (+ тесты audio/analyzer.rs, audio/fulltrack.rs, audio/visualizer.rs): удалить мост С3, SettingsStore, старую Settings, VisualizerConfig::from_settings, migrate_legacy_columns и устаревшие тесты по §7.5 (§8.1 «что удаляется»). Проверка: cargo check
 [ ] Шаг 27: Финальная верификация (групповая проверка Б по шагам 24–26): cargo build/test/clippy зелёные, закрытие этапа (Шаг 5). Проверка: все зелёные, 0 новых варнингов
 
-- **Текущий шаг (current_step):** Шаг 17
-- **Следующий ход:** Шаг 17: validate_audio_settings(device, &AudioCfg)
+- **Текущий шаг (current_step):** Шаг 18
+- **Следующий ход:** Шаг 18: DialogDraft-мост в app/mod.rs
 - **Счетчик безуспешных компиляций:** 0/3
 - **Состояние:** in_progress
 

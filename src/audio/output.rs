@@ -12,9 +12,10 @@ use crate::audio::render::tpdf::Tpdf;
 use crate::audio::render::RenderCore;
 use crate::audio::session::{RingPayload, SessionShared};
 use crate::audio::reservation::gate::PcmOpenError;
+use crate::persist::settings_file::LegacyPlayback;
 use crate::settings::{
     ClockFamily, DsdMode, ExclusiveMode, FallbackPolicy, FallbackRatePolicy, ResamplerAlgorithm,
-    ResamplerMode, Settings,
+    ResamplerMode,
 };
 
 /// How long the startup device probe holds the stream open (ms). Long enough
@@ -591,7 +592,7 @@ pub enum FallbackReason {
 pub struct OutputRequest {
     pub track_rate: u32,
     pub track_channels: usize,
-    /// Желаемое устройство: пользовательское (`Settings.audio_device`) либо None.
+    /// Желаемое устройство: пользовательское (`LegacyPlayback.audio_device`) либо None.
     pub preferred_device: Option<String>,
     /// Режим exclusive-доступа (ТЗ A3.0 §2.2).
     pub exclusive: ExclusiveMode,
@@ -608,8 +609,8 @@ pub struct OutputRequest {
 }
 
 impl OutputRequest {
-    /// Собрать запрос из настроек для конкретного источника.
-    pub fn from_settings(s: &Settings, track_rate: u32, track_channels: usize) -> Self {
+    /// Собрать запрос из настроек для конкретного источника (§8.1 С3).
+    pub fn from_settings(s: &LegacyPlayback, track_rate: u32, track_channels: usize) -> Self {
         Self {
             track_rate,
             track_channels,
@@ -1267,7 +1268,8 @@ pub struct ValidationRow {
 /// [`choose_output`]. Вызывается из UI-синхронизации с живыми настройками.
 ///
 /// Источники: 8 PCM-строк (44.1k..384k) и 3 DSD (DoP-слот DSD64/128/256).
-pub fn validate_audio_settings(device: &DeviceInfo, settings: &Settings) -> Vec<ValidationRow> {
+/// (§8.1 С3)
+pub fn validate_audio_settings(device: &DeviceInfo, playback: &LegacyPlayback) -> Vec<ValidationRow> {
     const PCM: [(u32, &str); 8] = [
         (44_100, "44.1k PCM"),
         (48_000, "48k PCM"),
@@ -1287,12 +1289,12 @@ pub fn validate_audio_settings(device: &DeviceInfo, settings: &Settings) -> Vec<
         track_rate: 44_100,
         track_channels: 2,
         preferred_device: Some(device.id.clone()),
-        exclusive: settings.audio.exclusive,
-        fallback: settings.audio.fallback,
-        resampler: settings.audio.resampler.mode,
-        fallback_rate: settings.audio.resampler.fallback_rate,
-        clock_family: settings.audio.resampler.prefer_family,
-        fixed_rate: settings.audio.resampler.fixed_rate,
+        exclusive: playback.audio.exclusive,
+        fallback: playback.audio.fallback,
+        resampler: playback.audio.resampler.mode,
+        fallback_rate: playback.audio.resampler.fallback_rate,
+        clock_family: playback.audio.resampler.prefer_family,
+        fixed_rate: playback.audio.resampler.fixed_rate,
     };
 
     let mut rows = Vec::with_capacity(11);
@@ -1300,7 +1302,7 @@ pub fn validate_audio_settings(device: &DeviceInfo, settings: &Settings) -> Vec<
         rows.push(validate_pcm_row(device, &base.with_source(rate, 2), label));
     }
     for (rate, label) in DSD {
-        rows.push(validate_dsd_row(device, &base, rate, label, settings.dsd.mode));
+        rows.push(validate_dsd_row(device, &base, rate, label, playback.dsd.mode));
     }
     rows
 }
@@ -2793,13 +2795,13 @@ mod tests {
     #[test]
     fn validate_returns_11_rows() {
         let device = mock_device("DAC", 2, 44100, &[(2, 44100, 192000)]);
-        let rows = validate_audio_settings(&device, &Settings::default());
+        let rows = validate_audio_settings(&device, &LegacyPlayback::default());
         assert_eq!(rows.len(), 11);
     }
 
     #[test]
     fn validate_pcm_native_when_rate_supported() {
-        let mut s = Settings::default();
+        let mut s = LegacyPlayback::default();
         s.audio.resampler.mode = ResamplerMode::Native;
         s.audio.exclusive = ExclusiveMode::Auto;
         let hw = mock_device_id(
@@ -2817,7 +2819,7 @@ mod tests {
 
     #[test]
     fn validate_pcm_degraded_when_nearest() {
-        let mut s = Settings::default();
+        let mut s = LegacyPlayback::default();
         s.audio.exclusive = ExclusiveMode::Off;
         let server = mock_device_id("default", "PipeWire", 2, 48000, &[(2, 44100, 48000)]);
         let rows = validate_audio_settings(&server, &s);
@@ -2828,7 +2830,7 @@ mod tests {
 
     #[test]
     fn validate_pcm_unsupported_when_fail() {
-        let mut s = Settings::default();
+        let mut s = LegacyPlayback::default();
         s.audio.fallback = FallbackPolicy::Fail;
         s.audio.exclusive = ExclusiveMode::Off;
         let server = mock_device_id("default", "PipeWire", 2, 48000, &[(2, 44100, 48000)]);
@@ -2840,7 +2842,7 @@ mod tests {
 
     #[test]
     fn validate_pcm_cross_family_detail() {
-        let mut s = Settings::default();
+        let mut s = LegacyPlayback::default();
         s.audio.exclusive = ExclusiveMode::Off;
         let hw = mock_device(
             "DAC",
@@ -2858,7 +2860,7 @@ mod tests {
     fn validate_pcm_native_bp_unsupported() {
         // Ревью §14 №3: Native (ресемплер) + bit_perfect + несовпадение rate
         // → HARD FAIL: строка Unsupported, detail про exact-rate.
-        let mut s = Settings::default();
+        let mut s = LegacyPlayback::default();
         s.audio.resampler.mode = ResamplerMode::Native;
         s.audio.bit_perfect = true;
         s.audio.exclusive = ExclusiveMode::Auto;
@@ -2873,7 +2875,7 @@ mod tests {
     fn validate_dsd_bitperfect_when_dop_slot_supported() {
         // ТЗ §11.3: dsd_mode = Native, устройство с DoP-слотом 176400 →
         // DSD64 BitPerfect, detail «DoP» (DoP сохраняет bit-perfect контейнер).
-        let mut s = Settings::default();
+        let mut s = LegacyPlayback::default();
         s.dsd.mode = DsdMode::Native;
         s.audio.exclusive = ExclusiveMode::Auto;
         let hw = mock_device_id(
@@ -2893,7 +2895,7 @@ mod tests {
     fn validate_dsd_degraded_when_chain_falls_to_pcm() {
         // ТЗ §11.3: dsd_mode = DoP без DoP-слота → PCM (CIC ×8): 176400/8 =
         // 22050 → nearest 44100, строка Degraded.
-        let mut s = Settings::default();
+        let mut s = LegacyPlayback::default();
         s.dsd.mode = DsdMode::DoP;
         s.audio.exclusive = ExclusiveMode::Off;
         let server = mock_device_id("default", "PipeWire", 2, 44100, &[(2, 44100, 48000)]);
@@ -2906,7 +2908,7 @@ mod tests {
     #[test]
     fn validate_dsd_unsupported_when_fail() {
         // ТЗ §11.3: Fallback = Fail — цепочка не спускается, строка Unsupported.
-        let mut s = Settings::default();
+        let mut s = LegacyPlayback::default();
         s.dsd.mode = DsdMode::Pcm;
         s.audio.fallback = FallbackPolicy::Fail;
         s.audio.exclusive = ExclusiveMode::Off;

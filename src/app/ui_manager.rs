@@ -699,8 +699,14 @@ impl MusicApp {
         let caps = build_capabilities(device);
         self.ui.set_settings_audio_caps(ModelRc::from(caps.as_slice()));
 
+        let s = self.settings_ref();
+        let playback = music_player_rs::persist::settings_file::LegacyPlayback {
+            audio: s.audio.clone(),
+            dsd: s.dsd.clone(),
+            audio_device: s.audio_device.clone(),
+        };
         let rows =
-            music_player_rs::audio::output::validate_audio_settings(device, self.settings_ref());
+            music_player_rs::audio::output::validate_audio_settings(device, &playback);
         let model: Vec<ValidationRow> = rows
             .into_iter()
             .map(|r| ValidationRow {

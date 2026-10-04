@@ -93,7 +93,7 @@ steps:
     done: true
   - id: 17
     description: "audio/output.rs: validate_audio_settings(device, &AudioCfg) вместо старой &Settings; вызов в ui_manager.rs — &..audio (§8.1 С3). Проверка: cargo check"
-    done: false
+    done: true
   - id: 18
     description: "app/mod.rs: мост черновика диалога — DialogDraft{settings: новая Settings, viz_mode, column_widths}, поле dialog: Option<DialogDraft> рядом со старым settings_draft (создаётся там же), аксессоры cfg() -> &новая Settings (черновик или core) и dialog_mut() -> Option<&mut DialogDraft> (§8.1 С3, И-Т7). Проверка: cargo check"
     done: false
@@ -125,8 +125,8 @@ steps:
     description: "Финальная верификация (групповая проверка Б по шагам 24–26): cargo build/test/clippy зелёные, закрытие этапа (Шаг 5). Проверка: все зелёные, 0 новых варнингов"
     done: false
 
-current_step: 17
-next_action: "Шаг 17: validate_audio_settings(device, &AudioCfg)"
+current_step: 18
+next_action: "Шаг 18: DialogDraft-мост в app/mod.rs"
 
 fail_counter: 0
 fail_counter_max: 3
