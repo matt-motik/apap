@@ -105,7 +105,7 @@ steps:
     done: true
   - id: 21
     description: "bp_report.rs + playlist_manager.rs: громкость/mute/сортировка → core.state()/change_state (И-Т7). Проверка: cargo check"
-    done: false
+    done: true
   - id: 22
     description: "app/mod.rs: колбэки диалога → dialog_mut(); «Сохранить» применяет DialogDraft (set_settings + change_state VizMode/ColumnWidths, побочные эффекты по сравнению старой и новой core-настройки); старый settings_draft/settings_ref/settings_mut удалены (§8.1 С3). Проверка: cargo check"
     done: false
@@ -125,8 +125,8 @@ steps:
     description: "Финальная верификация (групповая проверка Б по шагам 24–26): cargo build/test/clippy зелёные, закрытие этапа (Шаг 5). Проверка: все зелёные, 0 новых варнингов"
     done: false
 
-current_step: 21
-next_action: "Шаг 21: bp_report + playlist_manager → core.state()/change_state"
+current_step: 22
+next_action: "Шаг 22: колбэки диалога mod.rs → dialog_mut(); Save применяет DialogDraft"
 
 fail_counter: 0
 fail_counter_max: 3

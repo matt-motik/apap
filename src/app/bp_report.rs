@@ -1,4 +1,5 @@
 use music_player_rs::audio::player::StreamDesc;
+use music_player_rs::persist::state_file::{Origin, StateChange};
 use music_player_rs::playlist::Track;
 use music_player_rs::settings::{DsdMode, ResamplerDither};
 
@@ -24,7 +25,7 @@ pub fn bp_inputs(app: &super::MusicApp) -> BpInputs<'_> {
         track_is_dsd: app.current_track_is_dsd(),
         volume: app.player.volume(),
         muted: app.player.muted(),
-        dither: app.settings_ref().audio.resampler.dither,
+        dither: app.core.settings().playback.audio.resampler.dither,
     }
 }
 
@@ -231,19 +232,27 @@ pub fn build_bp_report(inp: &BpInputs<'_>) -> BpReport {
     report
 }
 
+/// Быстрые исправления из отчёта: громкость/mute — состояние сессии через
+/// `change_state`, дизеринг — настройка через `set_settings` (И-Т7, §8.1 С3).
+/// Старые поля обновляются до шага очистки, иначе мост откатит значения.
 pub fn apply_action(app: &mut super::MusicApp, action_id: i32) {
     match action_id {
         1 => {
             app.player.set_volume(1.0);
-            app.settings_mut().volume = 1.0;
+            app.settings.settings.volume = 1.0;
+            app.core.change_state(Origin::User, StateChange::Volume(100));
         }
         2 => {
             app.player.set_muted(false);
-            app.settings_mut().muted = false;
+            app.settings.settings.muted = false;
+            app.core.change_state(Origin::User, StateChange::Muted(false));
         }
         3 => {
             app.player.set_dither(ResamplerDither::Off);
-            app.settings_mut().audio.resampler.dither = ResamplerDither::Off;
+            app.settings.settings.audio.resampler.dither = ResamplerDither::Off;
+            let mut s = app.core.settings().clone();
+            s.playback.audio.resampler.dither = ResamplerDither::Off;
+            app.core.set_settings(s);
         }
         _ => {}
     }

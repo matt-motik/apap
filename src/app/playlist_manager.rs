@@ -2,6 +2,7 @@
 //! scanning, persistence of the M3U playlist and column sorting.
 
 use super::*;
+use music_player_rs::persist::state_file::{Origin, SortDirection, SortKey, StateChange};
 
 impl MusicApp {
     /// Start a background scan/import of files and/or folders ("Add Files",
@@ -165,10 +166,9 @@ impl MusicApp {
     }
 
     pub(super) fn sort_tracks(&mut self, col: ColumnId) {
-        let desc = if self.settings.settings.sorted_col == Some(col) {
-            !self.settings.settings.sort_desc
-        } else {
-            false
+        let desc = match self.core.state().sort() {
+            Some(k) if k.column == col => k.direction == SortDirection::Asc,
+            _ => false,
         };
         self.apply_sort(col, desc);
         // Sort prefs persisted at exit (save-at-exit).
@@ -196,7 +196,12 @@ impl MusicApp {
         }
         self.shuffle_order = self.shuffle_order.iter().map(|&i| new_pos[i]).collect();
         self.tracks = new_tracks;
+        // Ключ сортировки — состояние сессии (ТЗ-43, И-Т7); старые поля
+        // обновляются до шага очистки, иначе мост откатит значение (§8.1 С3).
         self.settings.settings.sorted_col = Some(col);
         self.settings.settings.sort_desc = desc;
+        let direction = if desc { SortDirection::Desc } else { SortDirection::Asc };
+        self.core
+            .change_state(Origin::User, StateChange::Sort(Some(SortKey { column: col, direction })));
     }
 }
