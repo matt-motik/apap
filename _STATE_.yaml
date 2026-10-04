@@ -102,7 +102,7 @@ steps:
     done: true
   - id: 20
     description: "viz_settings_manager.rs + visualizer_manager.rs/fulltrack_manager.rs: → cfg()/dialog_mut()/VisualizerConfig::from_persist_settings (§8.1 С3). Проверка: cargo check"
-    done: false
+    done: true
   - id: 21
     description: "bp_report.rs + playlist_manager.rs: громкость/mute/сортировка → core.state()/change_state (И-Т7). Проверка: cargo check"
     done: false
@@ -125,8 +125,8 @@ steps:
     description: "Финальная верификация (групповая проверка Б по шагам 24–26): cargo build/test/clippy зелёные, закрытие этапа (Шаг 5). Проверка: все зелёные, 0 новых варнингов"
     done: false
 
-current_step: 20
-next_action: "Шаг 20: viz_settings_manager/visualizer_manager/fulltrack_manager → cfg()/dialog_mut()"
+current_step: 21
+next_action: "Шаг 21: bp_report + playlist_manager → core.state()/change_state"
 
 fail_counter: 0
 fail_counter_max: 3

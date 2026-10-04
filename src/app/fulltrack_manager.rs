@@ -395,9 +395,10 @@ impl MusicApp {
     }
 
     /// Авто-драйв: следит за `viz-mode == oscilloscope/spectrogram` и текущим
-    /// треком, строит/отменяет/показывает картинку. Вызывается каждый UI-тик.
+    /// треком, строит/отменяет/показывает картинку. Вызывается каждый UI-тик
+    /// (§8.1 С3).
     pub(super) fn drain_fulltrack(&mut self) {
-        let cfg = VisualizerConfig::from_settings(self.settings_ref());
+        let cfg = VisualizerConfig::from_persist_settings(self.cfg(), self.cfg_viz_mode());
         let mode = cfg.mode;
         let osc = cfg.oscilloscope.clone();
 
@@ -452,7 +453,7 @@ impl MusicApp {
         // Debounce (§9.2): правки параметров из диалога (draft) перезапускают
         // полнотрековый билд только после 500 мс стабильности; смена режима
         // применяется сразу (V / комбобокс типа).
-        let in_dialog = self.settings_draft.is_some();
+        let in_dialog = self.dialog.is_some();
         let mode_changed = self.fulltrack_mode != Some(mode);
         if !in_dialog {
             self.viz_debounce = None;

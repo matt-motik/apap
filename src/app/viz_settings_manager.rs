@@ -19,8 +19,9 @@ use slint::SharedString;
 use super::MusicApp;
 use music_player_rs::audio::visualizer::{
     ChannelMode, FreqScale, LevelScale, OscilloscopeCfg, Palette, SpectrogramCfg, SpectrumCfg,
-    VisualizationMode, WindowType,
+    VisualizationMode, VizSettings, WindowType,
 };
+use music_player_rs::persist::state_file::{Origin, StateChange};
 
 /// Индекс канала в комбобоксе: 0 mono, 1 stereo.
 fn channel_index(c: ChannelMode) -> i32 {
@@ -128,15 +129,26 @@ fn fft_from_index(i: i32) -> u32 {
 }
 
 impl MusicApp {
+    /// Правит настройки визуализации в черновике диалога; без эффекта, если
+    /// диалог закрыт — настройки меняются только через «Сохранить»
+    /// (§8.1 С3, И-Т7).
+    fn edit_viz(&mut self, f: impl FnOnce(&mut VizSettings)) {
+        if let Some(d) = self.dialog_mut() {
+            f(&mut d.settings.visualization);
+        }
+    }
+
     /// Цикл по всем типам (Off→Osc→Spectrogram→Spectrum→Off), ТЗ §3.2.
-    /// Немедленно сохраняет режим в конфиг и применяет к UI/воркерам.
+    /// Немедленно сохраняет режим в конфиг и применяет к UI/воркерам
+    /// (§8.1 С3).
     pub(super) fn cycle_viz_mode(&mut self) {
-        if self.settings_draft.is_some() {
+        if self.dialog.is_some() {
             return;
         }
-        let current = self.settings.settings.visualization.mode;
+        let current = self.core.state().viz_mode();
         let next = VisualizationMode::from_index(current.index() + 1);
         self.settings.settings.visualization.mode = next;
+        self.core.change_state(Origin::User, StateChange::VizMode(next));
         self.save_settings();
         self.sync_viz_settings_to_ui();
         eprintln!("[viz] cycle: {:?} -> {:?}", current, next);
@@ -144,35 +156,38 @@ impl MusicApp {
 
     /// Выбор пункта меню «Визуализация» (ТЗ §3.2): клик по отмеченному режиму
     /// выключает визуализацию (Off), иначе — включает выбранный. Сразу
-    /// сохраняет режим в конфиг и синхронизирует UI (галочки меню).
+    /// сохраняет режим в конфиг и синхронизирует UI (галочки меню)
+    /// (§8.1 С3).
     pub(super) fn menu_select_viz_mode(&mut self, i: i32) {
-        if self.settings_draft.is_some() {
+        if self.dialog.is_some() {
             return;
         }
         let picked = VisualizationMode::from_index(i);
-        let cur = self.settings.settings.visualization.mode;
+        let cur = self.core.state().viz_mode();
         let next = if picked == cur { VisualizationMode::Off } else { picked };
         self.settings.settings.visualization.mode = next;
+        self.core.change_state(Origin::User, StateChange::VizMode(next));
         self.save_settings();
         self.sync_viz_settings_to_ui();
         eprintln!("[viz] menu select {i} -> {:?}", next);
     }
 
-    /// Сброс настроек текущего типа к дефолтам (кнопка в диалоге, §9.2).
+    /// Сброс настроек текущего типа к дефолтам (кнопка в диалоге, §9.2,
+    /// §8.1 С3).
     pub(super) fn reset_viz_type(&mut self) {
-        if self.settings_draft.is_none() {
+        if self.dialog.is_none() {
             return;
         }
-        let mode = self.settings_ref().visualization.mode;
+        let mode = self.cfg_viz_mode();
         match mode {
             VisualizationMode::Oscilloscope => {
-                self.settings_mut().visualization.oscilloscope = OscilloscopeCfg::default();
+                self.edit_viz(|v| v.oscilloscope = OscilloscopeCfg::default());
             }
             VisualizationMode::Spectrogram => {
-                self.settings_mut().visualization.spectrogram = SpectrogramCfg::default();
+                self.edit_viz(|v| v.spectrogram = SpectrogramCfg::default());
             }
             VisualizationMode::Spectrum => {
-                self.settings_mut().visualization.spectrum = SpectrumCfg::default();
+                self.edit_viz(|v| v.spectrum = SpectrumCfg::default());
             }
             VisualizationMode::Off => {}
         }
@@ -180,12 +195,12 @@ impl MusicApp {
         self.viz_apply_validated_texts();
     }
 
-    /// Проброс всех настроек визуализации в диалог (open + reset).
+    /// Проброс всех настроек визуализации в диалог (open + reset) (§8.1 С3).
     pub(super) fn sync_viz_settings_to_ui(&self) {
-        let s = self.settings_ref();
+        let s = self.cfg();
         let v = &s.visualization;
 
-        self.ui.set_settings_viz_mode(v.mode.index());
+        self.ui.set_settings_viz_mode(self.cfg_viz_mode().index());
         self.ui.set_settings_viz_skip_dsd(v.skip_fulltrack_for_dsd);
 
         let o = &v.oscilloscope;
@@ -241,8 +256,8 @@ impl MusicApp {
     }
 
     /// Перечитать текстовые поля (`freq_min`/`freq_max`/`bands`) из UI,
-    /// применить валидные значения в draft и выставить флаги подсветки (§9.3).
-    /// Некорректные значения не применяются; поля помечаются красным.
+    /// применить валидные значения в draft и выставить флаги подсветки (§9.3,
+    /// §8.1 С3). Некорректные значения не применяются; поля помечаются красным.
     pub(super) fn viz_apply_validated_texts(&mut self) {
         let fmin_t = self
             .ui
@@ -283,13 +298,13 @@ impl MusicApp {
 
         // Применяем только валидные значения (запись в draft при открытом диалоге).
         if let (Some(v), true) = (fmin, cross_ok) {
-            self.settings_mut().visualization.spectrogram.freq_min = v;
+            self.edit_viz(|viz| viz.spectrogram.freq_min = v);
         }
         if let (Some(v), true) = (fmax, cross_ok) {
-            self.settings_mut().visualization.spectrogram.freq_max = v;
+            self.edit_viz(|viz| viz.spectrogram.freq_max = v);
         }
         if let Some(v) = bands {
-            self.settings_mut().visualization.spectrum.bands = v;
+            self.edit_viz(|viz| viz.spectrum.bands = v);
         }
 
         self.ui
@@ -306,54 +321,56 @@ impl MusicApp {
 /// Привязка всех колбэков вкладки «Visualization» и горячей клавиши V.
 pub fn bind_viz_settings_callbacks(this: &Rc<RefCell<MusicApp>>) {
     bind_int(this, "viz-mode", |a, i| {
-        a.settings_mut().visualization.mode = VisualizationMode::from_index(i);
+        if let Some(d) = a.dialog_mut() {
+            d.viz_mode = VisualizationMode::from_index(i);
+        }
         // Пересинхронизируем диалог, чтобы переключились блоки полей (§3.2/§9).
         a.sync_viz_settings_to_ui();
         a.viz_apply_validated_texts();
         eprintln!("[gui] settings_viz_mode mode={i}");
     });
     bind_bool(this, "viz-skip-dsd", |a, b| {
-        a.settings_mut().visualization.skip_fulltrack_for_dsd = b;
+        a.edit_viz(|v| v.skip_fulltrack_for_dsd = b);
         eprintln!("[gui] settings_viz_skip_dsd on={b}");
     });
     bind_int(this, "viz-osc-channels", |a, i| {
-        a.settings_mut().visualization.oscilloscope.channels = channel_from_index(i);
+        a.edit_viz(|v| v.oscilloscope.channels = channel_from_index(i));
         eprintln!("[gui] settings_viz_osc_channels idx={i}");
     });
-    bind_float(this, "viz-osc-sensitivity", |a, v| {
-        a.settings_mut().visualization.oscilloscope.sensitivity = v.clamp(0.01, 20.0);
+    bind_float(this, "viz-osc-sensitivity", |a, val| {
+        a.edit_viz(|v| v.oscilloscope.sensitivity = val.clamp(0.01, 20.0));
     });
-    bind_float(this, "viz-osc-line-width", |a, v| {
-        a.settings_mut().visualization.oscilloscope.line_width = v.clamp(0.5, 4.0);
+    bind_float(this, "viz-osc-line-width", |a, val| {
+        a.edit_viz(|v| v.oscilloscope.line_width = val.clamp(0.5, 4.0));
     });
     bind_bool(this, "viz-osc-center-line", |a, b| {
-        a.settings_mut().visualization.oscilloscope.draw_center_line = b;
+        a.edit_viz(|v| v.oscilloscope.draw_center_line = b);
     });
     bind_int(this, "viz-osc-max-columns", |a, i| {
-        a.settings_mut().visualization.oscilloscope.max_columns = (i as u32).clamp(512, 8192);
+        a.edit_viz(|v| v.oscilloscope.max_columns = (i as u32).clamp(512, 8192));
     });
     bind_bool(this, "viz-osc-cache-mem", |a, b| {
-        a.settings_mut().visualization.oscilloscope.cache_in_memory = b;
+        a.edit_viz(|v| v.oscilloscope.cache_in_memory = b);
     });
     bind_bool(this, "viz-osc-cache-disk", |a, b| {
-        a.settings_mut().visualization.oscilloscope.cache_on_disk = b;
+        a.edit_viz(|v| v.oscilloscope.cache_on_disk = b);
     });
 
     bind_int(this, "viz-spec-channels", |a, i| {
-        a.settings_mut().visualization.spectrogram.channels = channel_from_index(i);
+        a.edit_viz(|v| v.spectrogram.channels = channel_from_index(i));
     });
-    bind_float(this, "viz-spec-sensitivity", |a, v| {
-        a.settings_mut().visualization.spectrogram.sensitivity = v.clamp(0.01, 20.0);
+    bind_float(this, "viz-spec-sensitivity", |a, val| {
+        a.edit_viz(|v| v.spectrogram.sensitivity = val.clamp(0.01, 20.0));
     });
     bind_int(this, "viz-spec-fft", |a, i| {
-        a.settings_mut().visualization.spectrogram.fft_size = fft_from_index(i);
+        a.edit_viz(|v| v.spectrogram.fft_size = fft_from_index(i));
         eprintln!("[gui] settings_viz_spec_fft idx={i}");
     });
     bind_int(this, "viz-spec-window", |a, i| {
-        a.settings_mut().visualization.spectrogram.window_type = window_from_index(i);
+        a.edit_viz(|v| v.spectrogram.window_type = window_from_index(i));
     });
     bind_int(this, "viz-spec-scale", |a, i| {
-        a.settings_mut().visualization.spectrogram.freq_scale = freq_scale_from_index(i);
+        a.edit_viz(|v| v.spectrogram.freq_scale = freq_scale_from_index(i));
     });
     bind_str(this, "viz-spec-freq-min", |a, t| {
         eprintln!("[gui] settings_viz_spec_freq_min '{t}'");
@@ -363,67 +380,67 @@ pub fn bind_viz_settings_callbacks(this: &Rc<RefCell<MusicApp>>) {
         eprintln!("[gui] settings_viz_spec_freq_max '{t}'");
         a.viz_apply_validated_texts();
     });
-    bind_float(this, "viz-spec-gain", |a, v| {
-        a.settings_mut().visualization.spectrogram.gain_db = v.clamp(-40.0, 100.0);
+    bind_float(this, "viz-spec-gain", |a, val| {
+        a.edit_viz(|v| v.spectrogram.gain_db = val.clamp(-40.0, 100.0));
     });
-    bind_float(this, "viz-spec-range", |a, v| {
-        a.settings_mut().visualization.spectrogram.range_db = v.clamp(1.0, 200.0);
+    bind_float(this, "viz-spec-range", |a, val| {
+        a.edit_viz(|v| v.spectrogram.range_db = val.clamp(1.0, 200.0));
     });
-    bind_float(this, "viz-spec-boost", |a, v| {
-        a.settings_mut().visualization.spectrogram.high_boost_db = v.clamp(0.0, 60.0);
+    bind_float(this, "viz-spec-boost", |a, val| {
+        a.edit_viz(|v| v.spectrogram.high_boost_db = val.clamp(0.0, 60.0));
     });
     bind_int(this, "viz-spec-palette", |a, i| {
-        a.settings_mut().visualization.spectrogram.palette = palette_from_index(i);
+        a.edit_viz(|v| v.spectrogram.palette = palette_from_index(i));
     });
     bind_int(this, "viz-spec-max-frames", |a, i| {
-        a.settings_mut().visualization.spectrogram.max_frames = (i as u32).clamp(512, 8192);
+        a.edit_viz(|v| v.spectrogram.max_frames = (i as u32).clamp(512, 8192));
     });
     bind_bool(this, "viz-spec-dsd-comp", |a, b| {
-        a.settings_mut().visualization.spectrogram.dsd_cic_compensation = b;
+        a.edit_viz(|v| v.spectrogram.dsd_cic_compensation = b);
     });
     bind_bool(this, "viz-spec-cache-mem", |a, b| {
-        a.settings_mut().visualization.spectrogram.cache_in_memory = b;
+        a.edit_viz(|v| v.spectrogram.cache_in_memory = b);
     });
     bind_bool(this, "viz-spec-cache-disk", |a, b| {
-        a.settings_mut().visualization.spectrogram.cache_on_disk = b;
+        a.edit_viz(|v| v.spectrogram.cache_on_disk = b);
     });
 
     bind_int(this, "viz-sp-channels", |a, i| {
-        a.settings_mut().visualization.spectrum.channels = channel_from_index(i);
+        a.edit_viz(|v| v.spectrum.channels = channel_from_index(i));
     });
-    bind_float(this, "viz-sp-sensitivity", |a, v| {
-        a.settings_mut().visualization.spectrum.sensitivity = v.clamp(0.01, 20.0);
+    bind_float(this, "viz-sp-sensitivity", |a, val| {
+        a.edit_viz(|v| v.spectrum.sensitivity = val.clamp(0.01, 20.0));
     });
     bind_str(this, "viz-sp-bands", |a, t| {
         eprintln!("[gui] settings_viz_sp_bands '{t}'");
         a.viz_apply_validated_texts();
     });
     bind_int(this, "viz-sp-freq-scale", |a, i| {
-        a.settings_mut().visualization.spectrum.freq_scale = freq_scale_from_index(i);
+        a.edit_viz(|v| v.spectrum.freq_scale = freq_scale_from_index(i));
     });
     bind_int(this, "viz-sp-level-scale", |a, i| {
-        a.settings_mut().visualization.spectrum.level_scale = level_scale_from_index(i);
+        a.edit_viz(|v| v.spectrum.level_scale = level_scale_from_index(i));
     });
-    bind_float(this, "viz-sp-smoothing", |a, v| {
-        a.settings_mut().visualization.spectrum.smoothing = v.clamp(0.0, 0.99);
+    bind_float(this, "viz-sp-smoothing", |a, val| {
+        a.edit_viz(|v| v.spectrum.smoothing = val.clamp(0.0, 0.99));
     });
     bind_bool(this, "viz-sp-peak-hold", |a, b| {
-        a.settings_mut().visualization.spectrum.peak_hold = b;
+        a.edit_viz(|v| v.spectrum.peak_hold = b);
     });
     bind_int(this, "viz-sp-peak-decay", |a, i| {
-        a.settings_mut().visualization.spectrum.peak_decay_ms = (i as u32).clamp(50, 2000);
+        a.edit_viz(|v| v.spectrum.peak_decay_ms = (i as u32).clamp(50, 2000));
     });
     bind_int(this, "viz-sp-bar-gap", |a, i| {
-        a.settings_mut().visualization.spectrum.bar_gap = (i as u32).clamp(0, 10);
+        a.edit_viz(|v| v.spectrum.bar_gap = (i as u32).clamp(0, 10));
     });
     bind_int(this, "viz-sp-bar-radius", |a, i| {
-        a.settings_mut().visualization.spectrum.bar_radius = (i as u32).clamp(0, 12);
+        a.edit_viz(|v| v.spectrum.bar_radius = (i as u32).clamp(0, 12));
     });
     bind_bool(this, "viz-sp-gradient", |a, b| {
-        a.settings_mut().visualization.spectrum.gradient = b;
+        a.edit_viz(|v| v.spectrum.gradient = b);
     });
     bind_bool(this, "viz-sp-dsd-comp", |a, b| {
-        a.settings_mut().visualization.spectrum.dsd_cic_compensation = b;
+        a.edit_viz(|v| v.spectrum.dsd_cic_compensation = b);
     });
 
     // Кнопка «Сбросить настройки типа».
