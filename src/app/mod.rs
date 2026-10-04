@@ -564,11 +564,14 @@ impl MusicApp {
     }
 
     /// Применить эффект `MessageCenter` к Slint-свойствам окна сообщения и
-    /// к шлюзу главного окна (ADR-13, §6.15). `notify` — системное
-    /// уведомление; трейт `Notifier` появится на этапе С5 (ADR-9), до этого
-    /// у значения нет визуального потребителя (эффект вычислен, не показан).
+    /// к шлюзу главного окна (ADR-13, §6.15). `notify` — уведомление при окне
+    /// в трее (ТЗ-52 п. 3); до трейта `Notifier` этапа С5 (ADR-9) доставляется
+    /// существующей подсказкой трея.
     pub(super) fn apply_msg_effect(&mut self, effect: MsgEffect) {
-        let MsgEffect { show, hide, notify: _ } = effect;
+        let MsgEffect { show, hide, notify } = effect;
+        if let Some(n) = notify {
+            self.set_tray_notice(format!("{}: {}", n.title, n.body));
+        }
         if hide {
             self.ui.set_msg_shown(false);
             self.gate.unblock(BlockReason::Message);
@@ -1669,7 +1672,13 @@ impl MusicApp {
             let app = this.clone();
             ui.on_settings_clear_playlist(move || {
                 eprintln!("[gui] settings_clear_playlist");
-                app.borrow_mut().clear_playlist();
+                let mut a = app.borrow_mut();
+                // Во время загрузки список недоступен (ТЗ-48, ADR-12); кнопка
+                // живёт в диалоге, поэтому проверяется флаг загрузки, а не allows.
+                if a.gate.loading().is_some() {
+                    return;
+                }
+                a.clear_playlist();
             });
         }
 
@@ -1678,6 +1687,10 @@ impl MusicApp {
             let app = this.clone();
             ui.on_settings_remove_current(move || {
                 eprintln!("[gui] settings_remove_current");
+                // Во время загрузки список недоступен (ТЗ-48, ADR-12).
+                if app.borrow().gate.loading().is_some() {
+                    return;
+                }
                 let current = app.borrow().current;
                 if let Some(idx) = current {
                     app.borrow_mut().remove_track(idx);
