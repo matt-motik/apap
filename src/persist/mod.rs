@@ -1,6 +1,9 @@
 //! Хранение настроек, состояния и плейлиста (`docs/02_settings_persistence_v1.0/`).
 
 use std::path::{Path, PathBuf};
+use std::sync::Arc;
+
+pub mod keys;
 
 /// Рабочий файл единственного писателя (ТЗ-3, §2.2). Порядок вариантов =
 /// порядок записи на пути выхода (ТЗ-14).
@@ -80,6 +83,26 @@ impl ConfigPaths {
     /// «<имя>.bad» рядом с файлом: одна копия на файл (ТЗ-6, ТЗ-21, НФ-7).
     pub fn bad_copy(&self, f: WorkFile) -> PathBuf {
         self.dir.join(format!("{}.bad", f.file_name()))
+    }
+}
+
+/// Эталонный текст файла (ОВ-2): текст последней успешной записи, до неё —
+/// прочитанный при запуске. `None` — файла не было или он неразбираемый (§2.2).
+#[derive(Clone, PartialEq, Eq, Debug, Default)]
+pub struct ReferenceText(Option<Arc<[u8]>>);
+
+impl ReferenceText {
+    /// Эталон из прочитанных байт файла.
+    pub fn of(bytes: Arc<[u8]>) -> ReferenceText {
+        ReferenceText(Some(bytes))
+    }
+
+    /// `true`, если `text` отличается от эталона; пустой эталон отличается от любого текста.
+    pub fn differs(&self, text: &[u8]) -> bool {
+        match &self.0 {
+            Some(bytes) => bytes.as_ref() != text,
+            None => true,
+        }
     }
 }
 
