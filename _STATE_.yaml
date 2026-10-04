@@ -55,7 +55,7 @@ steps:
     done: true
   - id: 6
     description: "persist/state_file.rs: SessionState (legacy volume 0..100/muted), WidthPct, WindowGeometry, SortKey, Origin, StateChange, таблица STATE + parse_state + тесты parse_by_keys_three_notes и пары sort (§2.5, §6.2, ТЗ-2, ТЗ-5). Проверка: cargo test persist::state_file"
-    done: false
+    done: true
   - id: 7
     description: "state_file.rs: serialize_state через DTO StateFile + state_roundtrip_deterministic + settings_and_state_keys_disjoint_and_cover_lists (§2.6, ТЗ-1, ТЗ-2). Проверка: cargo test persist::"
     done: false
@@ -87,8 +87,8 @@ steps:
     description: "Финальная верификация: cargo build/test/clippy зелёные, закрытие этапа (Шаг 5). Проверка: все зелёные, 0 новых варнингов"
     done: false
 
-current_step: 6
-next_action: "Шаг 6: persist/state_file.rs — SessionState, таблица STATE, parse_state"
+current_step: 7
+next_action: "Шаг 7: serialize_state через DTO StateFile + roundtrip + disjoint keys"
 
 fail_counter: 0
 fail_counter_max: 3

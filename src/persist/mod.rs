@@ -5,6 +5,7 @@ use std::sync::Arc;
 
 pub mod keys;
 pub mod settings_file;
+pub mod state_file;
 
 /// Рабочий файл единственного писателя (ТЗ-3, §2.2). Порядок вариантов =
 /// порядок записи на пути выхода (ТЗ-14).
