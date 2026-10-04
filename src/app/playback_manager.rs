@@ -152,9 +152,16 @@ impl MusicApp {
                 self.sync_track_info_to_ui();
             }
             ReservationEvent::Failed(msg) | ReservationEvent::Lost(msg) => {
-                self.status = format!("Монопольный режим: {msg}").into();
                 self.player.stop();
                 self.emit(AppEvent::PlaybackStopped);
+                // Явное действие (воспроизведение) не выполнено — окно Error,
+                // не строка состояния (ТЗ-52, ОВ-7; ТЗ-119, ТЗ-122).
+                self.push_message(Message {
+                    level: MessageLevel::Error,
+                    title: "Монопольный режим".into(),
+                    body: format!("Не удалось получить устройство: {msg}").into(),
+                    buttons: MessageButtons::Ok,
+                });
             }
         }
     }
@@ -329,8 +336,15 @@ impl MusicApp {
                 self.emit(AppEvent::PlaybackStarted);
             }
             Err(e) => {
-                self.status = format!("Cannot play {title}: {e}").into();
                 self.player.stop();
+                // Явное действие (воспроизведение трека) не выполнено — окно
+                // Error, не строка состояния (ТЗ-52, ОВ-7).
+                self.push_message(Message {
+                    level: MessageLevel::Error,
+                    title: "Не удалось воспроизвести трек".into(),
+                    body: format!("{title}: {e}").into(),
+                    buttons: MessageButtons::Ok,
+                });
             }
         }
     }
@@ -422,16 +436,25 @@ impl MusicApp {
         match path {
             Some(path) => {
                 if let Err(e) = self.player.set_device(name.clone(), Some(&path), pos) {
-                    self.status = format!("Cannot switch audio device: {e}").into();
-                    self.audio_error = Some(e);
+                    self.audio_error = Some(e.clone());
                     self.ui.set_settings_active_error(
                         self.audio_error.clone().unwrap_or_default().into(),
                     );
+                    // Явное действие (переключение устройства) не выполнено —
+                    // окно Error, не строка состояния (ТЗ-52, ОВ-7).
+                    self.push_message(Message {
+                        level: MessageLevel::Error,
+                        title: "Не удалось переключить аудиоустройство".into(),
+                        body: e.into(),
+                        buttons: MessageButtons::Ok,
+                    });
                 } else {
                     // The configuration stores the stable device id; present it
                     // to the user by its human-readable name of the opened node.
+                    // Успешное переключение — результат виден в диалоге
+                    // настроек (settings_active_device), сообщение не нужно
+                    // (ТЗ-52, ОВ-7).
                     let human = self.player.device_desc.clone();
-                    self.status = format!("Audio device: {human}").into();
                     self.audio_ready = true;
                     self.audio_error = None;
                     self.active_device = human.clone();
@@ -444,7 +467,6 @@ impl MusicApp {
                 let human = self
                     .device_display_name(&name)
                     .unwrap_or_else(|| self.player.device_desc.clone());
-                self.status = format!("Audio device: {human}").into();
                 self.active_device = human.clone();
                 self.ui.set_settings_active_device(human.into());
             }
