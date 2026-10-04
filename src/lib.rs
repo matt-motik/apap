@@ -1,6 +1,7 @@
 // Библиотека ядра музыкального плеера.
 
 pub mod audio;
+pub mod core;
 pub mod cover;
 pub mod journal;
 pub mod meta;
