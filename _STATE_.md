@@ -40,13 +40,13 @@
 [x] Шаг 10: src/app/mod.rs: поля gate, messages, caps в MusicApp; применение MsgEffect (show/hide → свойства Slint и gate.block/unblock(Message)); колбэки press primary/close (§6.15). Проверка: cargo check
 [x] Шаг 11: src/main.rs: после ui.show() — MessageCenter::window_shown (И-Р9, ТЗ-52 п. 1 «после первого показа»). Проверка: cargo check
 [x] Шаг 12: src/app/mod.rs: проверка UiGate::allows(MainCmd) в начале каждого обработчика команды главного окна; open_settings → block(Dialog), save/cancel → unblock(Dialog); трей (poll_tray) — без проверки шлюза (ADR-12, ТЗ-23, ТЗ-24, И-Р8). Проверка: cargo check; cargo test (bin) зелёный
-[ ] Шаг 13: src/app/mod.rs: ошибка save_settings/save_track_list → messages.write_failed(WorkFile, class); Retry → повтор синхронной записи файлов списка, успех → write_succeeded (§6.8, ТЗ-20 окно, ТЗ-28: диалог закрывается, настройки действуют). Проверка: cargo check
+[x] Шаг 13: src/app/mod.rs: ошибка save_settings/save_track_list → messages.write_failed(WorkFile, class); Retry → повтор синхронной записи файлов списка, успех → write_succeeded (§6.8, ТЗ-20 окно, ТЗ-28: диалог закрывается, настройки действуют). Проверка: cargo check
 [ ] Шаг 14: src/app/playback_manager.rs: раскладка ТЗ-52/ОВ-7 — «Cannot play», «Cannot switch audio device», «Монопольный режим» → окно Error (явное действие не выполнено); успешные («Audio device: …») — не сообщения. Проверка: cargo check
 [ ] Шаг 15: src/app/playlist_manager.rs + src/app/mod.rs: раскладка ТЗ-52/ОВ-7 — успешные «Added/Track removed/Playlist cleared/Loaded» — не сообщения (журнал не нужен); падение темы при запуске → окно Warning вместо подсказки трея; принудительный Nearest — не сообщение. Проверка: cargo check
 [ ] Шаг 16: Финальная верификация: cargo build, cargo test, cargo clippy (0 новых варнингов в вайтлисте), tools/state_tool.py check-whitelist, traceability_tool; ручная проверка пользователем: меню неактивно при диалоге/окне, Enter/Esc, плеер играет в Совместимом режиме. Проверка: всё зелёное
 
-- **Текущий шаг (current_step):** Шаг 13
-- **Следующий ход:** Шаг 13: src/app/mod.rs — ошибка save_settings/save_track_list → messages.write_failed(WorkFile, class); Retry → повтор синхронной записи файлов списка, успех → write_succeeded (§6.8, ТЗ-20 окно, ТЗ-28: диалог закрывается, настройки действуют). Проверка: cargo check
+- **Текущий шаг (current_step):** Шаг 14
+- **Следующий ход:** Шаг 14: src/app/playback_manager.rs — раскладка ТЗ-52/ОВ-7: «Cannot play», «Cannot switch audio device», «Монопольный режим» → окно Error (явное действие не выполнено); успешные («Audio device: …») — не сообщения. Проверка: cargo check
 - **Счетчик безуспешных компиляций:** 0/3
 - **Состояние:** in_progress
 

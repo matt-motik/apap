@@ -544,11 +544,22 @@ impl MusicApp {
         app
     }
 
-    /// Записать `settings.toml` через модуль ФС; ошибка — в журнал (ТЗ-18, ТЗ-20).
+    /// Записать `settings.toml` через модуль ФС; ошибка — в журнал и в окно
+    /// ошибок записи, успех снимает файл из этого окна, если он там был
+    /// (§6.8, ТЗ-18, ТЗ-20, ТЗ-28).
     pub(super) fn save_settings(&mut self) {
-        if let Err(err) = self.settings.save(self.fs.as_mut()) {
-            let target = WriteTarget::Work(WorkFile::Settings);
-            self.journal.record(JournalRecord::WriteFailed { target, err });
+        match self.settings.save(self.fs.as_mut()) {
+            Ok(()) => {
+                let effect = self.messages.write_succeeded(WorkFile::Settings);
+                self.apply_msg_effect(effect);
+            }
+            Err(err) => {
+                let class = err.class;
+                let target = WriteTarget::Work(WorkFile::Settings);
+                self.journal.record(JournalRecord::WriteFailed { target, err });
+                let effect = self.messages.write_failed(WorkFile::Settings, class, self.caps);
+                self.apply_msg_effect(effect);
+            }
         }
     }
 
