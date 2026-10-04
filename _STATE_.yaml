@@ -67,7 +67,7 @@ steps:
     done: true
   - id: 10
     description: "core/testing.rs: Harness на MemStore + тесты С3 §7.2 (startup/exit/unparsable/unreadable/legacy/external_change) (§7.1, §7.2). Проверка: cargo test core::testing"
-    done: false
+    done: true
   - id: 11
     description: "main.rs: boot до окна, .bad-копии через FileWriter, передача AppCore в MusicApp::new (ADR-23 шаги 0–2, ТЗ-6). Проверка: cargo check"
     done: false
@@ -87,8 +87,8 @@ steps:
     description: "Финальная верификация: cargo build/test/clippy зелёные, закрытие этапа (Шаг 5). Проверка: все зелёные, 0 новых варнингов"
     done: false
 
-current_step: 10
-next_action: "Шаг 10: core/testing.rs — Harness + тесты §7.2 (открыто: варианты JournalRecord LoadNotes/Unparsable — ждёт решения о вайтлисте src/journal.rs; ручное «Сохранить» при ReadFailed блокируется flush — до С4)"
+current_step: 11
+next_action: "Шаг 11: main.rs — boot до создания окна (открыто: варианты JournalRecord LoadNotes/Unparsable — ждёт решения о вайтлисте src/journal.rs; ручное «Сохранить» при ReadFailed блокируется flush — до С4)"
 
 fail_counter: 0
 fail_counter_max: 3

@@ -6,6 +6,8 @@
 
 pub mod gate;
 pub mod messages;
+#[cfg(test)]
+pub(crate) mod testing;
 
 use std::path::Path;
 use std::sync::Arc;
