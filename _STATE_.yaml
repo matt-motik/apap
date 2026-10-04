@@ -65,7 +65,7 @@ steps:
     done: true
   - id: 9
     description: "ui/app.slint: свойство window-blocked, свойства/колбэки окна сообщения; MessageWindow — последний потомок AppWindow; оверлей блокировки над главным окном; enabled пунктов меню и root-focus от window-blocked (ADR-12, ТЗ-23). Проверка: cargo build"
-    done: false
+    done: true
   - id: 10
     description: "src/app/mod.rs: поля gate, messages, caps в MusicApp; применение MsgEffect (show/hide → свойства Slint и gate.block/unblock(Message)); колбэки press primary/close (§6.15). Проверка: cargo check"
     done: false
@@ -88,8 +88,8 @@ steps:
     description: "Финальная верификация: cargo build, cargo test, cargo clippy (0 новых варнингов в вайтлисте), tools/state_tool.py check-whitelist, traceability_tool; ручная проверка пользователем: меню неактивно при диалоге/окне, Enter/Esc, плеер играет в Совместимом режиме. Проверка: всё зелёное"
     done: false
 
-current_step: 9
-next_action: "Шаг 9: ui/app.slint — свойство window-blocked, оверлей блокировки, enabled пунктов меню/root-focus, свойства/колбэки окна сообщения и инстанс MessageWindow последним потомком; cargo build"
+current_step: 10
+next_action: "Шаг 10: src/app/mod.rs — поля gate, messages, caps в MusicApp; применение MsgEffect (show/hide → свойства Slint и gate.block/unblock(Message)); колбэки press primary/close (§6.15). Проверка: cargo check"
 
 fail_counter: 0
 fail_counter_max: 3
