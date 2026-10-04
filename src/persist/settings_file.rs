@@ -8,11 +8,12 @@
 //! оба набора типов сосуществуют до переключения чтения/записи (§8.1 С3).
 
 use std::collections::BTreeMap;
+use std::sync::Arc;
 use std::time::Duration;
 
 use crate::audio::visualizer::{defaults, OscilloscopeCfg, SpectrogramCfg, SpectrumCfg, VizSettings};
 use crate::persist::keys::{walk, FileRead, KeyPath, KeySpec, LoadNote, LoadNoteKind, Parsed};
-use crate::persist::ReferenceText;
+use crate::persist::{ReferenceText, SerializeError};
 use crate::settings::{AudioCfg, ColumnId, CoverSource, DsdCfg, DsdMode};
 
 /// Содержимое `settings.toml` (ТЗ-2, §2.4): параметры окна настроек, меняются
@@ -1219,6 +1220,121 @@ pub fn parse_settings(read: FileRead) -> Parsed<Settings> {
     Parsed::Parsed { value, notes, reference: ReferenceText::of(bytes) }
 }
 
+/// DTO `columns.<key>.*` для сериализации (§2.4, §2.6): поля в том же
+/// порядке, что в таблице ключей; `max_width`/`max_width_percent` — те же
+/// optional-ключи, что при разборе (§6.2), пропускаются при `None`.
+#[derive(serde::Serialize)]
+struct ColumnDefDto<'a> {
+    title: &'a str,
+    priority: f32,
+    min_width: f32,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    max_width: Option<f32>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    max_width_percent: Option<f32>,
+    visible: bool,
+    column_type: &'static str,
+}
+
+impl<'a> ColumnDefDto<'a> {
+    fn from(def: &'a ColumnDef) -> Self {
+        ColumnDefDto {
+            title: &def.title,
+            priority: def.priority,
+            min_width: def.min_width,
+            max_width: def.max_width,
+            max_width_percent: def.max_width_percent,
+            visible: def.visible,
+            column_type: match def.kind {
+                ColumnKind::Data => "data",
+                ColumnKind::NowPlaying => "now-playing",
+            },
+        }
+    }
+}
+
+/// DTO `visualization.*` для сериализации (§2.4, §2.6): `VizSettings` не
+/// реализует `Serialize` (его поля читаются по отдельности при разборе,
+/// §6.2), поэтому верхние три листа перечислены явно; вложенные `*Cfg` — по
+/// ссылке (уже `Serialize`, имена полей совпадают с таблицей ключей §2.4).
+#[derive(serde::Serialize)]
+struct VisualizationDto<'a> {
+    skip_fulltrack_for_dsd: bool,
+    viz_max_ram_mb: u32,
+    disk_max_size_mb: u32,
+    oscilloscope: &'a OscilloscopeCfg,
+    spectrogram: &'a SpectrogramCfg,
+    spectrum: &'a SpectrumCfg,
+}
+
+/// DTO записи `settings.toml` (§2.6). Порядок полей — не буквальный порядок
+/// таблицы §2.4: TOML требует все скалярные/массивные ключи до первой
+/// вложенной таблицы, иначе они достанутся последней открытой `[table]`.
+/// Поэтому сперва идут скаляры и массивы §2.4 в их исходном относительном
+/// порядке, затем таблицы (`columns`, `info_labels`, `visualization`,
+/// `audio`, `dsd`) — тоже в порядке §2.4. Отображения — `BTreeMap` (ОВ-2,
+/// ADR-2): одинаковые значения дают одинаковые байты в любом процессе.
+#[derive(serde::Serialize)]
+struct SettingsFile<'a> {
+    theme: &'a str,
+    save_interval: u64,
+    minimize_to_tray: bool,
+    scroll_to_playing: bool,
+    cover_size: f32,
+    col_info_w: f32,
+    col_gap: f32,
+    column_order: Vec<&'static str>,
+    cover_priority: Vec<&'static str>,
+    cover_folder_names: &'a [String],
+    cover_online: bool,
+    audio_device: &'a str,
+    columns: BTreeMap<&'static str, ColumnDefDto<'a>>,
+    info_labels: BTreeMap<&'a str, &'a str>,
+    visualization: VisualizationDto<'a>,
+    audio: &'a AudioCfg,
+    dsd: &'a DsdCfg,
+}
+
+/// Детерминированный текст файла (ОВ-2): одинаковые значения `Settings` →
+/// одинаковые байты в любом процессе — гарантируется фиксированным порядком
+/// полей DTO и `BTreeMap` для отображений (§2.6).
+pub fn serialize_settings(s: &Settings) -> Result<Arc<[u8]>, SerializeError> {
+    let columns: BTreeMap<&'static str, ColumnDefDto> =
+        s.columns.defs.iter().map(|(id, def)| (id.key(), ColumnDefDto::from(def))).collect();
+    let info_labels: BTreeMap<&str, &str> =
+        s.info_labels.iter().map(|(k, v)| (k.as_str(), v.as_str())).collect();
+
+    let dto = SettingsFile {
+        theme: s.theme.as_str(),
+        save_interval: s.save_interval.secs(),
+        minimize_to_tray: s.minimize_to_tray,
+        scroll_to_playing: s.scroll_to_playing,
+        cover_size: s.top_panel.cover_size,
+        col_info_w: s.top_panel.col_info_w,
+        col_gap: s.top_panel.col_gap,
+        column_order: s.columns.order.iter().map(|id| id.key()).collect(),
+        cover_priority: s.covers.priority.iter().map(|src| src.key()).collect(),
+        cover_folder_names: &s.covers.folder_names,
+        cover_online: s.covers.online,
+        audio_device: &s.playback.audio_device,
+        columns,
+        info_labels,
+        visualization: VisualizationDto {
+            skip_fulltrack_for_dsd: s.visualization.skip_fulltrack_for_dsd,
+            viz_max_ram_mb: s.visualization.viz_max_ram_mb,
+            disk_max_size_mb: s.visualization.disk_max_size_mb,
+            oscilloscope: &s.visualization.oscilloscope,
+            spectrogram: &s.visualization.spectrogram,
+            spectrum: &s.visualization.spectrum,
+        },
+        audio: &s.playback.audio,
+        dsd: &s.playback.dsd,
+    };
+
+    let text = toml::to_string(&dto).map_err(|e| SerializeError(e.to_string().into()))?;
+    Ok(Arc::from(text.into_bytes()))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -1522,5 +1638,63 @@ mode = \"spectrum\"
             let note = notes.iter().find(|n| n.key == KeyPath::new(key));
             assert!(matches!(note.map(|n| &n.kind), Some(LoadNoteKind::Unknown)), "key {key} should be Unknown, notes: {notes:?}");
         }
+    }
+
+    /// `Settings` отличная от значений по умолчанию во всех разделах §2.4:
+    /// темы, колонок, обложек, подписей, визуализации и `[playback]`.
+    #[allow(clippy::field_reassign_with_default)]
+    fn non_default_settings() -> Settings {
+        let mut s = Settings::default();
+        s.theme = ThemeName("dark".into());
+        s.save_interval = SaveInterval::S60;
+        s.minimize_to_tray = true;
+        s.scroll_to_playing = false;
+        s.top_panel.cover_size = 300.0;
+        s.top_panel.col_info_w = 260.0;
+        s.top_panel.col_gap = 4.0;
+        s.columns.move_column(0, 2);
+        column_def_mut(&mut s, ColumnId::Title).title = "Track title".to_string();
+        s.covers.move_cover(0, 1);
+        s.covers.folder_names = vec!["front.jpg".to_string()];
+        s.covers.online = false;
+        s.info_labels.insert(InfoLabelKey("artist"), "Performer".to_string());
+        s.visualization.skip_fulltrack_for_dsd = false;
+        s.visualization.oscilloscope.line_width = 2.5;
+        s.playback.audio.bit_perfect = true;
+        s.playback.audio.ring_buffer_ms = 2000;
+        s.playback.dsd.mode = DsdMode::Native;
+        s.playback.audio_device = "hw:1,0".to_string();
+        s
+    }
+
+    /// Серилизация `s` детерминирована (ОВ-2) и round-trip'ится без заметок
+    /// (§7.2): `serialize_settings` дважды даёт одинаковые байты, разбор
+    /// результата даёт равное значение без заметок, а повторная сериализация
+    /// разобранного значения воспроизводит исходные байты.
+    fn assert_roundtrip_deterministic(s: &Settings) {
+        let bytes1 = serialize_settings(s).expect("serialize ok");
+        let bytes2 = serialize_settings(s).expect("serialize ok");
+        assert_eq!(bytes1, bytes2, "same Settings must serialize to identical bytes");
+
+        let (value, notes) = parsed(FileRead::Bytes(bytes1.clone()));
+        assert_eq!(value, *s);
+        assert!(notes.is_empty(), "expected zero notes, got: {notes:?}");
+
+        let bytes3 = serialize_settings(&value).expect("serialize ok");
+        assert_eq!(bytes1, bytes3, "re-serializing parsed value must reproduce original bytes");
+    }
+
+    #[test]
+    fn settings_roundtrip_deterministic() {
+        assert_roundtrip_deterministic(&Settings::default());
+        assert_roundtrip_deterministic(&non_default_settings());
+    }
+
+    #[test]
+    fn defaults_serialize_parses_with_zero_notes() {
+        let bytes = serialize_settings(&Settings::default()).expect("serialize ok");
+        let (value, notes) = parsed(FileRead::Bytes(bytes));
+        assert_eq!(value, Settings::default());
+        assert!(notes.is_empty(), "expected zero notes, got: {notes:?}");
     }
 }

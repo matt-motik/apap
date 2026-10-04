@@ -87,6 +87,10 @@ impl ConfigPaths {
     }
 }
 
+/// Ошибка сериализации — класс «ошибка ввода-вывода» по ТЗ-20 (§2.6).
+#[derive(Clone, PartialEq, Debug)]
+pub struct SerializeError(pub Box<str>);
+
 /// Эталонный текст файла (ОВ-2): текст последней успешной записи, до неё —
 /// прочитанный при запуске. `None` — файла не было или он неразбираемый (§2.2).
 #[derive(Clone, PartialEq, Eq, Debug, Default)]
