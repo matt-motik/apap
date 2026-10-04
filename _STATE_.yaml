@@ -43,7 +43,7 @@ steps:
     done: true
   - id: 2
     description: "UiGate, BlockReason, LoadKind, MainCmd в src/core/gate.rs (+ pub mod gate в core/mod.rs) (§2.12/ADR-12, ТЗ-23, ТЗ-48 список). Проверка: cargo check"
-    done: false
+    done: true
   - id: 3
     description: "Юнит-тесты UiGate в src/core/gate.rs: любая причина → allows=false для всех MainCmd; снятие причин по одной; loading Startup/Command — список ТЗ-48 (+Next/Prev на Command); window_blocked (ТЗ-23, И-Р8). Проверка: cargo test core::gate зелёный"
     done: false
@@ -87,8 +87,8 @@ steps:
     description: "Финальная верификация: cargo build, cargo test, cargo clippy (0 новых варнингов в вайтлисте), tools/state_tool.py check-whitelist, traceability_tool; ручная проверка пользователем: меню неактивно при диалоге/окне, Enter/Esc, плеер играет в Совместимом режиме. Проверка: всё зелёное"
     done: false
 
-current_step: 2
-next_action: "Шаг 2: UiGate, BlockReason, LoadKind, MainCmd в src/core/gate.rs; cargo check"
+current_step: 3
+next_action: "Шаг 3: юнит-тесты UiGate в src/core/gate.rs; cargo test core::gate"
 
 fail_counter: 0
 fail_counter_max: 3
