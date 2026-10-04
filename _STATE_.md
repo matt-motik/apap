@@ -10,6 +10,7 @@
   - ROADMAP.md
   - _STATE_.yaml
   - _STATE_.md
+  - AGENTS.md
   - src/persist/mod.rs
   - src/persist/keys.rs
   - src/persist/settings_file.rs
