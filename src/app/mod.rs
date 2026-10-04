@@ -608,6 +608,14 @@ impl MusicApp {
         self.apply_msg_effect(effect);
     }
 
+    /// Первый показ окна: разблокировать очередь `MessageCenter` (И-Р9,
+    /// ТЗ-52 п. 1 «после первого показа») — вызывается из `main` сразу после
+    /// `ui.show()`.
+    pub(crate) fn window_shown(&mut self) {
+        let effect = self.messages.window_shown();
+        self.apply_msg_effect(effect);
+    }
+
     pub fn init(this: &Rc<RefCell<Self>>) {
         {
             let mut app = this.borrow_mut();
