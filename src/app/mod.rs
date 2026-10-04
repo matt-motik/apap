@@ -25,7 +25,10 @@ use music_player_rs::core::{journal_records_for_flush, AppCore, FlushOutcome};
 use music_player_rs::cover::{self, CoverDone, CoverJob};
 use music_player_rs::journal::{Journal, JournalRecord, WriteTarget};
 use music_player_rs::persist::settings_file::Settings as PersistSettings;
-use music_player_rs::persist::state_file::WidthPct;
+use music_player_rs::persist::settings_file::ThemeName;
+use music_player_rs::persist::state_file::{
+    effective_width_pct, normalize_visible, widths_on_disable, widths_on_enable, Origin, StateChange, WidthPct,
+};
 use music_player_rs::persist::{ConfigPaths, WorkFile};
 use music_player_rs::platform::fs::FileWriter;
 use music_player_rs::platform::lifecycle::PlatformCaps;
@@ -33,7 +36,7 @@ use music_player_rs::playlist::{self, ScanMsg, Track};
 use music_player_rs::settings::bridge::{apply_legacy, legacy_from_core};
 use music_player_rs::settings::{
     ClockFamily, ColumnId, DsdMode, ExclusiveMode, FallbackPolicy, FallbackRatePolicy, RepeatMode,
-    ResamplerMode, Settings, SettingsStore,
+    ResamplerMode, SettingsStore,
 };
 use music_player_rs::theme::{
     ColorsData, ThemeData, ThemeError, DEFAULT_LIGHT_TOML, parse_hex,
@@ -314,9 +317,8 @@ pub struct MusicApp {
     view_w_stable_ticks: u32,
     col_model_sig: u64,
     col_sig_stable_ticks: u32,
-    settings_draft: Option<Settings>,
-    /// Черновик диалога настроек в новой модели (§8.1 С3, И-Т7); мост С3 —
-    /// живёт рядом со старым `settings_draft`, пока менеджеры переводятся на него.
+    /// Черновик диалога настроек (§8.1 С3, И-Т7): настройки меняются только
+    /// через него и применяются на «Сохранить».
     dialog: Option<DialogDraft>,
     /// Транзитное состояние выбора темы в диалоге (T1.0 §5.4/§8.2): имя,
     /// выбранное в ComboBox, не пишется в draft/settings до «Сохранить».
@@ -525,7 +527,6 @@ impl MusicApp {
             view_w_stable_ticks: 0,
             col_model_sig: 0,
             col_sig_stable_ticks: 0,
-            settings_draft: None,
             dialog: None,
             theme_selection: None,
             theme_meta: None,
@@ -710,14 +711,6 @@ impl MusicApp {
         Self::bind_callbacks(this);
     }
 
-    fn settings_ref(&self) -> &Settings {
-        self.settings_draft.as_ref().unwrap_or(&self.settings.settings)
-    }
-
-    fn settings_mut(&mut self) -> &mut Settings {
-        self.settings_draft.as_mut().unwrap_or(&mut self.settings.settings)
-    }
-
     /// Действующие настройки для чтения: черновик диалога, если он открыт,
     /// иначе применённые настройки ядра (§8.1 С3, И-Т7).
     fn cfg(&self) -> &PersistSettings {
@@ -738,6 +731,13 @@ impl MusicApp {
     /// меняются только через «Сохранить» (§8.1 С3, И-Т7).
     fn dialog_mut(&mut self) -> Option<&mut DialogDraft> {
         self.dialog.as_mut()
+    }
+
+    /// Правка настроек черновика; при закрытом диалоге — ничего (§8.1 С3, И-Т7).
+    fn edit_cfg(&mut self, f: impl FnOnce(&mut PersistSettings)) {
+        if let Some(d) = self.dialog_mut() {
+            f(&mut d.settings);
+        }
     }
 
     /// Открыть черновик диалога из текущего состояния ядра (§8.1 С3).
@@ -1071,7 +1071,6 @@ impl MusicApp {
                 if !a.gate.allows(MainCmd::OpenSettings) {
                     return;
                 }
-                a.settings_draft = Some(a.settings.settings.clone());
                 a.open_dialog_draft();
                 // T1.0 §6.2: свежий диалог → сброс транзитного выбора темы и
                 // пересборка списка/метаданных из themes/*.toml.
@@ -1203,7 +1202,6 @@ impl MusicApp {
                 let mut a = app.borrow_mut();
                 // Discard the draft; the dialog itself is recreated from the
                 // real settings on the next open, so no field resync is needed.
-                a.settings_draft = None;
                 a.dialog = None;
                 a.ui.set_settings_open(false);
                 a.gate.unblock(BlockReason::Dialog);
@@ -1227,7 +1225,7 @@ impl MusicApp {
             ui.on_settings_cover_size(move |size| {
                 eprintln!("[gui] settings_cover_size size={size:.1}");
                 let mut a = app.borrow_mut();
-                a.settings_mut().cover_size = size;
+                a.edit_cfg(|s| s.top_panel.cover_size = size);
             });
         }
 
@@ -1237,7 +1235,7 @@ impl MusicApp {
             ui.on_settings_col_info_w(move |width| {
                 eprintln!("[gui] settings_col_info_w width={width:.1}");
                 let mut a = app.borrow_mut();
-                a.settings_mut().col_info_w = width;
+                a.edit_cfg(|s| s.top_panel.col_info_w = width);
             });
         }
 
@@ -1247,7 +1245,7 @@ impl MusicApp {
             ui.on_settings_col_gap(move |gap| {
                 eprintln!("[gui] settings_col_gap gap={gap:.1}");
                 let mut a = app.borrow_mut();
-                a.settings_mut().col_gap = gap;
+                a.edit_cfg(|s| s.top_panel.col_gap = gap);
             });
         }
 
@@ -1257,7 +1255,7 @@ impl MusicApp {
             ui.on_settings_toggle_minimize(move |enabled| {
                 eprintln!("[gui] settings_toggle_minimize enabled={enabled}");
                 let mut a = app.borrow_mut();
-                a.settings_mut().minimize_to_tray = enabled;
+                a.edit_cfg(|s| s.minimize_to_tray = enabled);
             });
         }
 
@@ -1275,11 +1273,7 @@ impl MusicApp {
                 // stable device id it maps to.
                 let mut a = app.borrow_mut();
                 let raw = a.resolve_device_label(&name);
-                if !raw.is_empty() {
-                    a.settings_mut().audio_device = raw;
-                } else {
-                    a.settings_mut().audio_device = String::new();
-                }
+                a.edit_cfg(|s| s.playback.audio_device = raw);
             });
         }
 
@@ -1302,7 +1296,7 @@ impl MusicApp {
                     eprintln!("[gui] settings_set_dsd_mode: invalid index {idx}");
                     return;
                 };
-                a.settings_mut().dsd.mode = mode;
+                a.edit_cfg(|s| s.playback.dsd.mode = mode);
                 // Live-обновление предупреждения в диалоге: при выборе
                 // Native/DoP конфликт исчезает немедленно.
                 a.sync_dsd_settings_to_ui();
@@ -1318,7 +1312,7 @@ impl MusicApp {
             ui.on_settings_set_bit_perfect(move |enabled| {
                 eprintln!("[gui] settings_set_bit_perfect enabled={enabled}");
                 let mut a = app.borrow_mut();
-                a.settings_mut().audio.bit_perfect = enabled;
+                a.edit_cfg(|s| s.playback.audio.bit_perfect = enabled);
                 // Live-обновление предупреждения DSD в диалоге.
                 a.sync_dsd_settings_to_ui();
             });
@@ -1330,7 +1324,7 @@ impl MusicApp {
         {
             let app = this.clone();
             ui.on_settings_set_audio_filter_hardware(move |enabled| {
-                app.borrow_mut().settings_mut().audio.filter_hardware_only = enabled;
+                app.borrow_mut().edit_cfg(|s| s.playback.audio.filter_hardware_only = enabled);
                 app.borrow_mut().apply_audio_filter();
             });
         }
@@ -1339,7 +1333,7 @@ impl MusicApp {
         {
             let app = this.clone();
             ui.on_settings_set_audio_filter_stereo(move |enabled| {
-                app.borrow_mut().settings_mut().audio.filter_stereo_only = enabled;
+                app.borrow_mut().edit_cfg(|s| s.playback.audio.filter_stereo_only = enabled);
                 app.borrow_mut().apply_audio_filter();
             });
         }
@@ -1386,7 +1380,6 @@ impl MusicApp {
                 let mut a = app.borrow_mut();
                 a.ui.set_bp_report_open(false);
                 a.ui.set_settings_open(true);
-                a.settings_draft = Some(a.settings.settings.clone());
                 a.open_dialog_draft();
                 a.sync_audio_devices();
                 a.sync_audio_advanced();
@@ -1399,8 +1392,8 @@ impl MusicApp {
             ui.on_settings_set_audio_exclusive(move |i| {
                 eprintln!("[gui] settings_set_audio_exclusive idx={i}");
                 let mut a = app.borrow_mut();
-                a.settings_mut().audio.exclusive =
-                    ExclusiveMode::from_index(i).unwrap_or(ExclusiveMode::Auto);
+                let excl = ExclusiveMode::from_index(i).unwrap_or(ExclusiveMode::Auto);
+                a.edit_cfg(|s| s.playback.audio.exclusive = excl);
                 a.sync_capabilities_and_validation();
             });
         }
@@ -1411,8 +1404,8 @@ impl MusicApp {
             ui.on_settings_set_audio_fallback(move |i| {
                 eprintln!("[gui] settings_set_audio_fallback idx={i}");
                 let mut a = app.borrow_mut();
-                a.settings_mut().audio.fallback =
-                    FallbackPolicy::from_index(i).unwrap_or(FallbackPolicy::Nearest);
+                let fb = FallbackPolicy::from_index(i).unwrap_or(FallbackPolicy::Nearest);
+                a.edit_cfg(|s| s.playback.audio.fallback = fb);
                 a.sync_capabilities_and_validation();
             });
         }
@@ -1427,15 +1420,15 @@ impl MusicApp {
                 eprintln!("[gui] settings_set_audio_resampler_mode idx={i}");
                 let mut a = app.borrow_mut();
                 let mode = ResamplerMode::from_index(i).unwrap_or(ResamplerMode::Auto);
-                let guarded = resampler_fixed_fallback_guard(mode, a.settings_ref().audio.fallback);
-                let forced = guarded != a.settings_ref().audio.fallback;
-                {
-                    let s = a.settings_mut();
-                    s.audio.resampler.mode = mode;
+                let cur_fb = a.cfg().playback.audio.fallback;
+                let guarded = resampler_fixed_fallback_guard(mode, cur_fb);
+                let forced = guarded != cur_fb;
+                a.edit_cfg(|s| {
+                    s.playback.audio.resampler.mode = mode;
                     if forced {
-                        s.audio.fallback = guarded;
+                        s.playback.audio.fallback = guarded;
                     }
-                }
+                });
                 if forced {
                     // Автоматическая правка черновика настроек, видимая сразу
                     // через sync_audio_advanced (комбобокс Fallback в диалоге)
@@ -1452,8 +1445,8 @@ impl MusicApp {
             ui.on_settings_set_audio_fixed_rate(move |i| {
                 eprintln!("[gui] settings_set_audio_fixed_rate idx={i}");
                 let mut a = app.borrow_mut();
-                a.settings_mut().audio.resampler.fixed_rate =
-                    FIXED_RATES.get(i as usize).copied().unwrap_or_default();
+                let rate = FIXED_RATES.get(i as usize).copied().unwrap_or_default();
+                a.edit_cfg(|s| s.playback.audio.resampler.fixed_rate = rate);
                 a.sync_capabilities_and_validation();
             });
         }
@@ -1464,8 +1457,8 @@ impl MusicApp {
             ui.on_settings_set_audio_clock_family(move |i| {
                 eprintln!("[gui] settings_set_audio_clock_family idx={i}");
                 let mut a = app.borrow_mut();
-                a.settings_mut().audio.resampler.prefer_family =
-                    ClockFamily::from_index(i).unwrap_or(ClockFamily::Auto);
+                let family = ClockFamily::from_index(i).unwrap_or(ClockFamily::Auto);
+                a.edit_cfg(|s| s.playback.audio.resampler.prefer_family = family);
                 a.sync_capabilities_and_validation();
             });
         }
@@ -1476,8 +1469,8 @@ impl MusicApp {
             ui.on_settings_set_audio_fallback_rate(move |i| {
                 eprintln!("[gui] settings_set_audio_fallback_rate idx={i}");
                 let mut a = app.borrow_mut();
-                a.settings_mut().audio.resampler.fallback_rate =
-                    FallbackRatePolicy::from_index(i).unwrap_or(FallbackRatePolicy::Nearest);
+                let policy = FallbackRatePolicy::from_index(i).unwrap_or(FallbackRatePolicy::Nearest);
+                a.edit_cfg(|s| s.playback.audio.resampler.fallback_rate = policy);
                 a.sync_capabilities_and_validation();
             });
         }
@@ -1488,8 +1481,8 @@ impl MusicApp {
             ui.on_settings_set_audio_ring_buffer_ms(move |ms| {
                 eprintln!("[gui] settings_set_audio_ring_buffer_ms ms={ms}");
                 let mut a = app.borrow_mut();
-                a.settings_mut().audio.ring_buffer_ms =
-                    music_player_rs::settings::clamp_ring_buffer_ms(ms.max(0) as u32);
+                let ring_ms = music_player_rs::settings::clamp_ring_buffer_ms(ms.max(0) as u32);
+                a.edit_cfg(|s| s.playback.audio.ring_buffer_ms = ring_ms);
             });
         }
 
@@ -1501,16 +1494,22 @@ impl MusicApp {
                 let idx = idx as usize;
                 let (col, visible) = {
                     let a = app.borrow();
-                    let ordered = a.settings_ref().ordered_columns();
+                    let ordered = a.cfg().columns.ordered_columns();
                     let Some(&col) = ordered.get(idx) else { return };
-                    let visible = a.settings_ref().column_visible(col);
+                    let visible = a.cfg().columns.column_visible(col);
                     (col, visible)
                 };
                 let mut a = app.borrow_mut();
-                if visible {
-                    a.settings_mut().disable_column(col);
-                } else {
-                    a.settings_mut().enable_column(col);
+                // Видимость — настройка, ширина — состояние сессии; обе
+                // правятся в черновике (§2.5, §8.1 С3).
+                if let Some(d) = a.dialog_mut() {
+                    if visible {
+                        d.settings.columns.disable_column(col);
+                        widths_on_disable(&d.settings.columns, &mut d.column_widths, col);
+                    } else {
+                        d.settings.columns.enable_column(col);
+                        widths_on_enable(&d.settings.columns, &mut d.column_widths, col);
+                    }
                 }
                 // Draft-only: refresh just the dialog list; live columns change
                 // only when the draft is applied on Save.
@@ -1524,17 +1523,19 @@ impl MusicApp {
             ui.on_settings_reset_cols(move || {
                 eprintln!("[gui] settings_reset_cols");
                 let mut a = app.borrow_mut();
-                let s = a.settings_mut();
                 // Reset only the width proportions to their config priorities;
-                // the current visibility and column order are kept.
-                let visible = s.visible_columns();
-                for c in visible {
-                    let pri = s.column_width_pct(c);
-                    if let Some(cfg) = s.columns.get_mut(c.key()) {
-                        cfg.width = Some(pri);
+                // the current visibility and column order are kept (§2.5, §8.1 С3).
+                if let Some(d) = a.dialog_mut() {
+                    let none = BTreeMap::new();
+                    let mut widths = BTreeMap::new();
+                    for c in d.settings.columns.visible_columns() {
+                        if let Some(w) = WidthPct::new(effective_width_pct(&d.settings.columns, &none, c)) {
+                            widths.insert(c, w);
+                        }
                     }
+                    normalize_visible(&d.settings.columns, &mut widths);
+                    d.column_widths = widths;
                 }
-                s.normalize_visible_pct();
                 a.sync_dialog_cols();
             });
         }
@@ -1546,14 +1547,14 @@ impl MusicApp {
                 eprintln!("[gui] settings_move_col_up idx={idx}");
                 let idx = idx as usize;
                 let mut a = app.borrow_mut();
-                let ordered = a.settings_ref().ordered_columns();
+                let ordered = a.cfg().columns.ordered_columns();
                 if idx == 0 || idx >= ordered.len() {
                     return;
                 }
                 let col_id = ordered[idx];
-                a.settings_mut().move_column(idx, idx - 1);
+                a.edit_cfg(|s| s.columns.move_column(idx, idx - 1));
                 a.sync_dialog_cols();
-                let new_ordered = a.settings_ref().ordered_columns();
+                let new_ordered = a.cfg().columns.ordered_columns();
                 let new_idx = new_ordered.iter().position(|&c| c == col_id).unwrap_or(idx - 1);
                 a.ui.set_settings_selected_col(new_idx as i32);
             });
@@ -1566,14 +1567,14 @@ impl MusicApp {
                 eprintln!("[gui] settings_move_col_down idx={idx}");
                 let idx = idx as usize;
                 let mut a = app.borrow_mut();
-                let ordered = a.settings_ref().ordered_columns();
+                let ordered = a.cfg().columns.ordered_columns();
                 if idx + 1 >= ordered.len() {
                     return;
                 }
                 let col_id = ordered[idx];
-                a.settings_mut().move_column(idx, idx + 1);
+                a.edit_cfg(|s| s.columns.move_column(idx, idx + 1));
                 a.sync_dialog_cols();
-                let new_ordered = a.settings_ref().ordered_columns();
+                let new_ordered = a.cfg().columns.ordered_columns();
                 let new_idx = new_ordered.iter().position(|&c| c == col_id).unwrap_or(idx + 1);
                 a.ui.set_settings_selected_col(new_idx as i32);
             });
@@ -1583,75 +1584,47 @@ impl MusicApp {
         {
             let app = this.clone();
             ui.on_settings_save(move || {
-                eprintln!("[gui] settings_save (Save) draft_present={}", app.borrow().settings_draft.is_some());
+                eprintln!("[gui] settings_save (Save) draft_present={}", app.borrow().dialog.is_some());
                 let mut a = app.borrow_mut();
-                let Some(draft) = a.settings_draft.take() else { return };
-                // Мост С3: «Сохранить» применяет старый черновик; новый
-                // отбрасывается до перевода колбэков диалога (§8.1 С3).
-                a.dialog = None;
-
-                let device_changed =
-                    draft.audio_device != a.settings.settings.audio_device;
-                if device_changed {
-                    // Apply the device first: its early-return guard compares
-                    // against the *live* setting, which still has the old value.
-                    a.set_output_device(draft.audio_device.clone());
+                let Some(draft) = a.dialog.take() else { return };
+                // Мост С3: живые изменения, пока записанные только в старое
+                // поле (громкость, last_dir…), сначала переносятся в ядро, чтобы
+                // проекция старого поля ниже их не откатила (§8.1 С3).
+                {
+                    let a = &mut *a;
+                    apply_legacy(&a.settings.settings, &mut a.core);
+                }
+                let old = a.core.settings().clone();
+                let DialogDraft { settings: mut new, viz_mode, column_widths } = draft;
+                // T1.0 §6.4: коммит выбранной в диалоге темы из транзитного поля
+                // (кнопка Save активна только для валидной темы, §5.3).
+                if let Some(name) = a.theme_selection.take().and_then(ThemeName::new) {
+                    new.theme = name;
                 }
 
-                // Diff-apply: the settings dialog does not manage the fields
-                // below (they change live from the top panel / playlist header),
-                // so preserve them across the draft replacement instead of
-                // letting the stale clone overwrite fresh values.
-                let old_bp = a.settings.settings.audio.bit_perfect;
-                let old_viz_ram_mb = a.settings.settings.visualization.viz_max_ram_mb;
-                // ТЗ A3.0 §7.7: старые (до присваивания draft) политики вывода —
-                // по ним решаем, нужен ли рестарт текущего потока на Save.
-                let old_resample = (
-                    a.settings.settings.audio.resampler.algorithm,
-                    a.settings.settings.audio.resampler.dither,
-                    a.settings.settings.audio.resampler.mode,
-                    a.settings.settings.audio.resampler.fixed_rate,
-                    a.settings.settings.audio.resampler.prefer_family,
-                    a.settings.settings.audio.resampler.fallback_rate,
-                    a.settings.settings.audio.ring_buffer_ms,
-                    a.settings.settings.audio.exclusive,
-                    a.settings.settings.audio.fallback,
-                );
-                let live = {
-                    let l = &a.settings.settings;
-                    (
-                        l.volume,
-                        l.muted,
-                        l.last_dir.clone(),
-                        l.repeat,
-                        l.shuffle,
-                        l.sorted_col,
-                        l.sort_desc,
-                        l.win_x,
-                        l.win_y,
-                        l.win_w,
-                        l.win_h,
-                    )
-                };
-                a.settings.settings = draft;
-                let s = &mut a.settings.settings;
-                s.volume = live.0;
-                s.muted = live.1;
-                s.last_dir = live.2;
-                s.repeat = live.3;
-                s.shuffle = live.4;
-                s.sorted_col = live.5;
-                s.sort_desc = live.6;
-                s.win_x = live.7;
-                s.win_y = live.8;
-                s.win_w = live.9;
-                s.win_h = live.10;
+                if new.playback.audio_device != old.playback.audio_device {
+                    // Apply the device first: its early-return guard compares
+                    // against the *live* setting, which still has the old value.
+                    a.set_output_device(new.playback.audio_device.clone());
+                }
+
+                // «Сохранить» заменяет настройки целиком; тип визуализации и
+                // ширины колонок — состояние сессии (§2.5, И-Т7, §8.1 С3).
+                // Живые поля состояния (громкость, повтор, окно…) диалог не
+                // трогает, поэтому они сохраняются без ручного переноса.
+                a.core.set_settings(new);
+                a.core.change_state(Origin::User, StateChange::VizMode(viz_mode));
+                a.core.change_state(Origin::User, StateChange::ColumnWidths(column_widths));
+                // Мост С3: старое поле — проекция ядра, пока его читают
+                // остальные пути (удаляется на шаге очистки).
+                a.settings.settings = legacy_from_core(a.core.settings(), a.core.state());
                 a.save_settings();
+                let cur = a.core.settings().clone();
                 // ТЗ §10.4: лимит RAM-кэша визуализации менялся в диалоге →
                 // горячий `resize` существующего LRU (лишние записи вытесняются
                 // по LRU внутри `CLruCache::resize`).
-                let new_viz_ram_mb = a.settings.settings.visualization.viz_max_ram_mb;
-                if new_viz_ram_mb != old_viz_ram_mb {
+                let new_viz_ram_mb = cur.visualization.viz_max_ram_mb;
+                if new_viz_ram_mb != old.visualization.viz_max_ram_mb {
                     let cap = music_player_rs::audio::fulltrack::fulltrack_cache_max_entries(
                         new_viz_ram_mb,
                     );
@@ -1660,8 +1633,8 @@ impl MusicApp {
                 }
                 // ТЗ §7.5/§8.6: bit-perfect менялся в диалоге → применить к
                 // плееру. Включение = Direct Output (unity gain, снятие mute).
-                if a.settings.settings.audio.bit_perfect != old_bp {
-                    let bp = a.settings.settings.audio.bit_perfect;
+                let bp = cur.playback.audio.bit_perfect;
+                if bp != old.playback.audio.bit_perfect {
                     a.player.set_bit_perfect(bp);
                     if bp {
                         a.player.set_volume(1.0);
@@ -1669,6 +1642,8 @@ impl MusicApp {
                         let s = &mut a.settings.settings;
                         s.volume = 1.0;
                         s.muted = false;
+                        a.core.change_state(Origin::User, StateChange::Volume(100));
+                        a.core.change_state(Origin::User, StateChange::Muted(false));
                         // V5.1-8.7: показать тултип трея про громкость
                         // на момент включения Direct Output.
                         a.set_tray_notice(tray::BP_NOTICE_TEXT.to_string());
@@ -1680,20 +1655,23 @@ impl MusicApp {
                 // ТЗ A3.0 §7.7: применять политики вывода/ресемплера из диалога.
                 // Сеттеры идемпотентны; рестарт текущего трека (аналогично DSD)
                 // переоткрывает поток с новым `OutputRequest`.
-                let (algo, dither, mode, fixed_rate, prefer_family, fallback_rate, ring_ms, excl, fb) = {
-                    let s = &a.settings.settings;
+                let resample_of = |s: &PersistSettings| {
+                    let au = &s.playback.audio;
                     (
-                        s.audio.resampler.algorithm,
-                        s.audio.resampler.dither,
-                        s.audio.resampler.mode,
-                        s.audio.resampler.fixed_rate,
-                        s.audio.resampler.prefer_family,
-                        s.audio.resampler.fallback_rate,
-                        s.audio.ring_buffer_ms,
-                        s.audio.exclusive,
-                        s.audio.fallback,
+                        au.resampler.algorithm,
+                        au.resampler.dither,
+                        au.resampler.mode,
+                        au.resampler.fixed_rate,
+                        au.resampler.prefer_family,
+                        au.resampler.fallback_rate,
+                        au.ring_buffer_ms,
+                        au.exclusive,
+                        au.fallback,
                     )
                 };
+                let old_resample = resample_of(&old);
+                let new_resample = resample_of(&cur);
+                let (algo, dither, mode, fixed_rate, prefer_family, fallback_rate, ring_ms, excl, fb) = new_resample;
                 a.player.set_resampler_algorithm(algo);
                 a.player.set_dither(dither);
                 a.player.set_resampler_mode(mode);
@@ -1703,7 +1681,6 @@ impl MusicApp {
                 a.player.set_ring_buffer_ms(ring_ms);
                 a.player.set_exclusive_mode(excl);
                 a.player.set_fallback_policy(fb);
-                let new_resample = (algo, dither, mode, fixed_rate, prefer_family, fallback_rate, ring_ms, excl, fb);
                 if new_resample != old_resample {
                     if let Some(idx) = a.current {
                         eprintln!("[gui] settings_save: restarting current track {idx} with new audio policies");
@@ -1713,8 +1690,7 @@ impl MusicApp {
                 // ТЗ §8.4: применить выбранный DSD-режим к плееру. Если в этот
                 // момент играет DSD-трек — перезапустить его, чтобы новый
                 // конвейер (PCM/Native/DoP) применился к незакрытому потоку.
-                let dsd_mode = a.settings.settings.dsd.mode;
-                a.player.set_dsd_mode(dsd_mode);
+                a.player.set_dsd_mode(cur.playback.dsd.mode);
                 a.sync_dsd_settings_to_ui();
                 a.sync_dsd_status_ui();
                 if a.current_track_is_dsd() {
@@ -1723,19 +1699,14 @@ impl MusicApp {
                         a.play_track(idx);
                     }
                 }
-                // T1.0 §6.4: коммит выбранной в диалоге темы из транзитного поля
-                // (кнопка Save активна только для валидной темы, §5.3).
-                if let Some(sel) = a.theme_selection.take() {
-                    a.settings.settings.theme = sel;
-                }
                 if let Some((theme, _)) =
-                    resolve_startup_theme(&a.settings.settings.theme, &a.paths.dir.join("themes"))
+                    resolve_startup_theme(cur.theme.as_str(), &a.paths.dir.join("themes"))
                 {
                     a.apply_theme(&theme);
                 }
-                a.ui.set_cover_size(a.settings.settings.cover_size);
-                a.ui.set_col_info_w(a.settings.settings.col_info_w);
-                a.ui.set_col_gap(a.settings.settings.col_gap);
+                a.ui.set_cover_size(cur.top_panel.cover_size);
+                a.ui.set_col_info_w(cur.top_panel.col_info_w);
+                a.ui.set_col_gap(cur.top_panel.col_gap);
                 a.sync_cover_settings_to_ui();
                 a.sync_playlist_to_ui();
                 a.sync_audio_devices();
@@ -1784,11 +1755,11 @@ impl MusicApp {
                 eprintln!("[gui] settings_cover_move_up idx={idx}");
                 let idx = idx as usize;
                 let mut a = app.borrow_mut();
-                let ordered = a.settings_ref().cover_priority_ordered();
+                let ordered = a.cfg().covers.priority.clone();
                 if idx == 0 || idx >= ordered.len() {
                     return;
                 }
-                a.settings_mut().move_cover(idx, idx - 1);
+                a.edit_cfg(|s| s.covers.move_cover(idx, idx - 1));
                 a.sync_cover_settings_to_ui();
             });
         }
@@ -1800,11 +1771,11 @@ impl MusicApp {
                 eprintln!("[gui] settings_cover_move_down idx={idx}");
                 let idx = idx as usize;
                 let mut a = app.borrow_mut();
-                let ordered = a.settings_ref().cover_priority_ordered();
+                let ordered = a.cfg().covers.priority.clone();
                 if idx + 1 >= ordered.len() {
                     return;
                 }
-                a.settings_mut().move_cover(idx, idx + 1);
+                a.edit_cfg(|s| s.covers.move_cover(idx, idx + 1));
                 a.sync_cover_settings_to_ui();
             });
         }
@@ -1819,7 +1790,7 @@ impl MusicApp {
                     .map(|s| s.trim().to_string())
                     .filter(|s| !s.is_empty())
                     .collect();
-                app.borrow_mut().settings_mut().cover_folder_names = names;
+                app.borrow_mut().edit_cfg(|s| s.covers.folder_names = names);
             });
         }
 
@@ -1828,7 +1799,7 @@ impl MusicApp {
             let app = this.clone();
             ui.on_settings_toggle_cover_online(move |on| {
                 eprintln!("[gui] settings_toggle_cover_online on={on}");
-                app.borrow_mut().settings_mut().cover_online = on;
+                app.borrow_mut().edit_cfg(|s| s.covers.online = on);
             });
         }
 

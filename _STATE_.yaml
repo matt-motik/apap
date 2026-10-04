@@ -108,7 +108,7 @@ steps:
     done: true
   - id: 22
     description: "app/mod.rs: колбэки диалога → dialog_mut(); «Сохранить» применяет DialogDraft (set_settings + change_state VizMode/ColumnWidths, побочные эффекты по сравнению старой и новой core-настройки); старый settings_draft/settings_ref/settings_mut удалены (§8.1 С3). Проверка: cargo check"
-    done: false
+    done: true
   - id: 23
     description: "app/mod.rs: оставшиеся чтения старого поля → core; поле SettingsStore удалено из MusicApp, save_settings без apply_legacy (§8.1 С3, §6.1). Проверка: cargo check; групповая проверка А по шагам 15–23 — cargo test + cargo clippy (вывод фильтром; при красном — разбор test-runner/haiku)"
     done: false
@@ -125,8 +125,8 @@ steps:
     description: "Финальная верификация (групповая проверка Б по шагам 24–26): cargo build/test/clippy зелёные, закрытие этапа (Шаг 5). Проверка: все зелёные, 0 новых варнингов"
     done: false
 
-current_step: 22
-next_action: "Шаг 22: колбэки диалога mod.rs → dialog_mut(); Save применяет DialogDraft"
+current_step: 23
+next_action: "Шаг 23: остальные чтения старого поля в mod.rs → core; убрать поле SettingsStore; save_settings без apply_legacy; групповая проверка A"
 
 fail_counter: 0
 fail_counter_max: 3
