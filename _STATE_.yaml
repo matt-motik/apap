@@ -68,7 +68,7 @@ steps:
     done: true
   - id: 10
     description: "src/app/mod.rs: поля gate, messages, caps в MusicApp; применение MsgEffect (show/hide → свойства Slint и gate.block/unblock(Message)); колбэки press primary/close (§6.15). Проверка: cargo check"
-    done: false
+    done: true
   - id: 11
     description: "src/main.rs: после ui.show() — MessageCenter::window_shown (И-Р9, ТЗ-52 п. 1 «после первого показа»). Проверка: cargo check"
     done: false
@@ -88,8 +88,8 @@ steps:
     description: "Финальная верификация: cargo build, cargo test, cargo clippy (0 новых варнингов в вайтлисте), tools/state_tool.py check-whitelist, traceability_tool; ручная проверка пользователем: меню неактивно при диалоге/окне, Enter/Esc, плеер играет в Совместимом режиме. Проверка: всё зелёное"
     done: false
 
-current_step: 10
-next_action: "Шаг 10: src/app/mod.rs — поля gate, messages, caps в MusicApp; применение MsgEffect (show/hide → свойства Slint и gate.block/unblock(Message)); колбэки press primary/close (§6.15). Проверка: cargo check"
+current_step: 11
+next_action: "Шаг 11: src/main.rs — после ui.show() вызвать MessageCenter::window_shown и применить эффект (И-Р9, ТЗ-52 п. 1 «после первого показа»). Проверка: cargo check"
 
 fail_counter: 0
 fail_counter_max: 3

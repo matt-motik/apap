@@ -17,10 +17,15 @@ use music_player_rs::audio::player::{Player, ReservationEvent};
 use music_player_rs::audio::visualizer::{
     FreqScale, LevelScale, VisualizerConfig,
 };
+use music_player_rs::core::gate::{BlockReason, LoadKind, MainCmd, UiGate};
+use music_player_rs::core::messages::{
+    CloseEffect, Message, MessageButton, MessageButtons, MessageCenter, MessageLevel, MsgEffect,
+};
 use music_player_rs::cover::{self, CoverDone, CoverJob};
 use music_player_rs::journal::{Journal, JournalRecord, WriteTarget};
 use music_player_rs::persist::{ConfigPaths, WorkFile};
 use music_player_rs::platform::fs::FileWriter;
+use music_player_rs::platform::lifecycle::PlatformCaps;
 use music_player_rs::playlist::{self, ScanMsg, Track};
 use music_player_rs::settings::{
     ClockFamily, ColumnId, DsdMode, ExclusiveMode, FallbackPolicy, FallbackRatePolicy, RepeatMode,
@@ -357,6 +362,19 @@ pub struct MusicApp {
     win_geom_dirty: bool,
     /// Момент последнего изменения геометрии окна (для дебаунса записи).
     win_geom_changed: Option<Instant>,
+    /// Шлюз главного окна: причины блокировки (диалог/сообщение/выбор файла)
+    /// и вид идущей загрузки плейлиста (ADR-12, ТЗ-23, ТЗ-48, §2.11).
+    gate: UiGate,
+    /// Центр сообщений: очередь до первого показа, по одному, сводное окно
+    /// ошибок записи с «Повторить»/«OK» (ADR-13, §6.15, §6.8, ТЗ-52, ТЗ-20).
+    messages: MessageCenter,
+    /// Возможности платформы, которыми руководствуется `MessageCenter` при
+    /// решении «окно или уведомление» (ADR-9, ТЗ-52 п. 3). `tray::start()`
+    /// не возвращает и не присылает сигнал успеха/неуспеха запуска трея
+    /// (поток ksni молча завершается при ошибке spawn) — до реальной
+    /// детекции возможностей на С5 (ADR-9) оба поля считаются доступными,
+    /// когда трей запущен.
+    caps: PlatformCaps,
 }
 
 impl MusicApp {
@@ -506,6 +524,9 @@ impl MusicApp {
             viz_debounce: None,
             win_geom_dirty: false,
             win_geom_changed: None,
+            gate: UiGate::default(),
+            messages: MessageCenter::default(),
+            caps: PlatformCaps { tray: true, notifications: true },
         };
         app.setup_fulltrack();
         app.setup_visualizer(viz_cfg, viz_prod, viz_cons);
@@ -526,6 +547,65 @@ impl MusicApp {
             let target = WriteTarget::Work(WorkFile::Settings);
             self.journal.record(JournalRecord::WriteFailed { target, err });
         }
+    }
+
+    /// Применить эффект `MessageCenter` к Slint-свойствам окна сообщения и
+    /// к шлюзу главного окна (ADR-13, §6.15). `notify` — системное
+    /// уведомление; трейт `Notifier` появится на этапе С5 (ADR-9), до этого
+    /// у значения нет визуального потребителя (эффект вычислен, не показан).
+    pub(super) fn apply_msg_effect(&mut self, effect: MsgEffect) {
+        let MsgEffect { show, hide, notify: _ } = effect;
+        if hide {
+            self.ui.set_msg_shown(false);
+            self.gate.unblock(BlockReason::Message);
+        }
+        if let Some(message) = show {
+            let level = match message.level {
+                MessageLevel::Info => 0,
+                MessageLevel::Warning => 1,
+                MessageLevel::Error => 2,
+            };
+            let retry = message.buttons == MessageButtons::RetryOk;
+            self.ui.set_msg_level(level);
+            self.ui.set_msg_title(message.title.as_ref().into());
+            self.ui.set_msg_body(message.body.as_ref().into());
+            self.ui.set_msg_retry(retry);
+            self.ui.set_msg_shown(true);
+            self.gate.block(BlockReason::Message);
+        }
+        self.sync_gate_ui();
+    }
+
+    /// Синхронизировать `window-blocked` со шлюзом после любой его мутации
+    /// (ADR-12, ТЗ-23).
+    pub(super) fn sync_gate_ui(&mut self) {
+        self.ui.set_window_blocked(self.gate.window_blocked());
+    }
+
+    /// Повторить синхронную запись перечисленных рабочих файлов (кнопка
+    /// «Повторить» сводного окна ошибок записи, §6.8, ТЗ-20, ТЗ-52). Проходит
+    /// через те же методы, что инструментированы `write_failed`/
+    /// `write_succeeded` (ТЗ-13), так что результат повтора сам обновит окно.
+    /// `WorkFile::State` пока не имеет писателя в этой кодовой базе (запись
+    /// состояния — `MemStore::delay_write`/`next_wake`, этап С4): повтор для
+    /// него явно пропускается, а не замалчивается.
+    pub(super) fn retry_writes(&mut self, files: Vec<WorkFile>) {
+        for file in files {
+            match file {
+                WorkFile::Settings => self.save_settings(),
+                WorkFile::Playlist => self.save_playlist(),
+                WorkFile::State => {
+                    // Писателя состояния на этом этапе нет (С4) — пропуск.
+                }
+            }
+        }
+    }
+
+    /// Поставить сообщение в `MessageCenter` и сразу применить эффект
+    /// (используется раскладкой ТЗ-52/ОВ-7 на следующих шагах).
+    pub(super) fn push_message(&mut self, message: Message) {
+        let effect = self.messages.push(message, self.caps);
+        self.apply_msg_effect(effect);
     }
 
     pub fn init(this: &Rc<RefCell<Self>>) {
@@ -1586,6 +1666,32 @@ impl MusicApp {
             });
         }
 
+        // 32b. message window: primary ("OK"/"Повторить") and close buttons (§6.15).
+        {
+            let app = this.clone();
+            ui.on_msg_primary(move || {
+                eprintln!("[gui] msg_primary");
+                let mut a = app.borrow_mut();
+                let (close_effect, msg_effect) = a.messages.press(MessageButton::Primary);
+                a.apply_msg_effect(msg_effect);
+                if let CloseEffect::Retry(files) = close_effect {
+                    a.retry_writes(files);
+                }
+            });
+        }
+        {
+            let app = this.clone();
+            ui.on_msg_close(move || {
+                eprintln!("[gui] msg_close");
+                let mut a = app.borrow_mut();
+                let (close_effect, msg_effect) = a.messages.press(MessageButton::Close);
+                a.apply_msg_effect(msg_effect);
+                if let CloseEffect::Retry(files) = close_effect {
+                    a.retry_writes(files);
+                }
+            });
+        }
+
         // 33. window close -> minimize to tray (if enabled), otherwise quit
         {
             let app = this.clone();
@@ -1593,7 +1699,10 @@ impl MusicApp {
                 eprintln!("[gui] close_requested minimize={}", app.borrow().settings.settings.minimize_to_tray);
                 let minimize = app.borrow().settings.settings.minimize_to_tray;
                 if minimize {
-                    let _ = app.borrow_mut().ui.hide();
+                    let mut a = app.borrow_mut();
+                    let _ = a.ui.hide();
+                    let effect = a.messages.set_in_tray(true);
+                    a.apply_msg_effect(effect);
                     slint::CloseRequestResponse::KeepWindowShown
                 } else {
                     let mut a = app.borrow_mut();
@@ -1747,6 +1856,12 @@ impl MusicApp {
                     };
                     if let Err(e) = res {
                         eprintln!("tray show/hide failed: {e}");
+                    } else {
+                        // В трее (ADR-13, ТЗ-52 п. 3): скрытие окна уходит
+                        // сообщение в уведомление по PlatformCaps, возврат —
+                        // обратно в окно.
+                        let effect = self.messages.set_in_tray(visible);
+                        self.apply_msg_effect(effect);
                     }
                 }
                 TrayCmd::Quit => {
