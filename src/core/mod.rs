@@ -4,6 +4,7 @@
 //! центр сообщений и прочая логика, не зависящая от UI-фреймворка,
 //! живут здесь; `src/app/` — тонкая прослойка Slint над `AppCore`.
 
+pub mod exit;
 pub mod gate;
 pub mod geometry;
 pub mod messages;

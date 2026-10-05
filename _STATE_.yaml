@@ -46,7 +46,7 @@ steps:
     done: true
   - id: 5
     description: "Примитивы выхода: ExitReason (WindowClose, TrayQuit), ExitOutcome, EXIT_BUDGET, ExitPhase, ExitCoordinator, ExitReport, ReplyWaiter, ChannelWaiter, ManualWaiter (ADR-7, ТЗ-14, НФ-9, §2.11, §6.10). Файлы: src/core/exit.rs (новый), src/core/mod.rs (pub mod). Проверка: cargo test core::exit зелёный"
-    done: false
+    done: true
   - id: 6
     description: "Журнал: JournalRecord::Exit(ExitReport) и его строка в apap.log (ТЗ-14, ADR-21, §2.9, §6.10). Файл: src/journal.rs. Проверка: cargo test journal зелёный"
     done: false
@@ -90,8 +90,8 @@ steps:
     description: "Тест no_file_io_on_ui_thread (MemStore::calls — только поток apap-persist) и финальная верификация (ТЗ-22, НФ-5). Файл: src/core/mod.rs (тесты). Проверка: cargo test и cargo clippy зелёные, 0 новых варнингов"
     done: false
 
-current_step: 5
-next_action: "Шаг 5: примитивы выхода и ожидатели (core/exit.rs, core/mod.rs) — code-writer, sonnet"
+current_step: 6
+next_action: "Шаг 6: JournalRecord::Exit (journal.rs) — code-writer, sonnet"
 
 fail_counter: 0
 fail_counter_max: 3
