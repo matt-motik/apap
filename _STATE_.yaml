@@ -58,7 +58,7 @@ steps:
     done: true
   - id: 9
     description: "Тесты §7.2 ТЗ-3/10/11/12/16/38 на Harness (state_written_after_n_seconds_once, continuous_series_written_every_n, interval_change_shortens_deadline, change_and_revert_writes_nothing, idle_ten_minutes_writes_nothing, program_change_does_not_start_timer, playlist_dirty_written_by_timer, playlist_write_error_stops_timer_writes, unreadable_playlist_never_written, playlist_flag_kept_if_changed_during_write, crash_keeps_last_written_version, mute_starts_timer, event_*_does_not_write_settings). Файл: src/core/mod.rs (тесты). Проверка: cargo test core:: зелёный"
-    done: false
+    done: true
   - id: 10
     description: "Тесты §7.2 ТЗ-14/20/28/32 на Harness (exit_budget_five_seconds, exit_partial_within_budget, exit_retries_previously_failed_file_once, repeated_tray_quit_ignored, no_space_state_one_window_no_timer_retries, retry_after_space_freed, exit_after_space_freed_without_retry, readonly_media_one_window_two_files, ok_keeps_timer_writes_stopped, dialog_save_single_write_all_fields, dialog_save_without_changes_does_not_write). Файл: src/core/mod.rs (тесты). Проверка: cargo test core:: зелёный"
     done: false
@@ -90,8 +90,8 @@ steps:
     description: "Тест no_file_io_on_ui_thread (MemStore::calls — только поток apap-persist) и финальная верификация (ТЗ-22, НФ-5). Файл: src/core/mod.rs (тесты). Проверка: cargo test и cargo clippy зелёные, 0 новых варнингов"
     done: false
 
-current_step: 9
-next_action: "Шаг 9: тесты ТЗ-3/10/11/12/16/38 на стенде (core/testing.rs) — code-writer, sonnet"
+current_step: 10
+next_action: "Шаг 10: тесты ТЗ-14/20/28/32 на Harness (core/testing.rs) — code-writer, sonnet. Отложено из шага 9: unreadable_playlist_never_written — нет чтения плейлиста в AppCore до С6"
 
 fail_counter: 0
 fail_counter_max: 3

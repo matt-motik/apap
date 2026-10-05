@@ -162,6 +162,12 @@ impl Harness {
             if !pending {
                 return;
             }
+            // Если писатель ждёт искусственную задержку (`delay_write_work`),
+            // симулированные часы сами не идут — подвинуть их к ближайшему
+            // пробуждению, как это делает `ManualWaiter` на выходе (§6.10).
+            if let Some(wake) = self.fs.next_wake() {
+                self.clock.advance(wake.saturating_since(self.clock.now()));
+            }
             assert!(start.elapsed() < Duration::from_secs(2), "settle: писатель не ответил за 2 с реального времени");
             std::thread::sleep(Duration::from_millis(5));
         }
@@ -173,14 +179,35 @@ impl Harness {
         let counts = self.fs.counts(self.paths.work(file));
         usize::try_from(counts.writes).expect("счётчик записей укладывается в usize")
     }
+
+    /// Внедрить ошибку записи рабочего файла `file` (ТЗ-20, §6.8).
+    pub(crate) fn fail_write_work(&self, file: WorkFile, step: WriteStep, class: WriteErrorClass, times: u32) {
+        self.fs.fail_write(self.paths.work(file), step, class, times);
+    }
+
+    /// Задержать следующую запись рабочего файла `file` на `d` симулированного
+    /// времени от текущего момента (§7.1 `playlist_flag_kept_if_changed_during_write`).
+    pub(crate) fn delay_write_work(&self, file: WorkFile, d: Duration) {
+        let until = self.clock.now().saturating_add(d);
+        self.fs.delay_write(self.paths.work(file), until, self.clock.clone());
+    }
+
+    /// Содержимое рабочего файла «на диске» — то, что переживёт крах
+    /// процесса без пути выхода (§7.1 `crash_keeps_last_written_version`).
+    pub(crate) fn disk_bytes(&self, file: WorkFile) -> Option<Vec<u8>> {
+        self.fs.get(self.paths.work(file))
+    }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::audio::visualizer::VisualizationMode;
+    use crate::core::exit::ExitReason;
     use crate::persist::keys::{KeyPath, LoadNoteKind};
-    use crate::persist::settings_file::Settings;
-    use crate::persist::state_file::{Origin, SessionState, StateChange};
+    use crate::persist::settings_file::{SaveInterval, Settings};
+    use crate::persist::state_file::{Origin, PhysPos, PhysSize, SessionState, StateChange, WindowGeometry};
+    use crate::settings::RepeatMode;
 
     /// Нечитаемый `settings.toml` (ОВС-6 в, ТЗ-7, §6.1): автозаписи
     /// запрещены на весь сеанс, `flush` не пишет файл.
@@ -425,7 +452,7 @@ mod tests {
     /// `change_and_revert_writes_nothing`): асинхронный аналог
     /// `unchanged_files_not_rewritten` через изменение и обратное изменение.
     #[test]
-    fn state_change_reverted_writes_nothing() {
+    fn change_and_revert_writes_nothing() {
         let h = Harness::new();
         let state_bytes =
             crate::persist::state_file::serialize_state(&SessionState::default()).expect("serialize state");
@@ -488,10 +515,11 @@ mod tests {
     }
 
     /// Изменение плейлиста доходит до писателя по тому же дедлайну, что и
-    /// состояние (§2.7, §6.4, §7.1): `set_playlist` задаёт байты, которые
-    /// вернёт замыкание `tick`.
+    /// состояние (ТЗ-12, §2.7, §6.4, §7.1 `playlist_dirty_written_by_timer`):
+    /// `set_playlist` задаёт байты, которые вернёт замыкание `tick`; после
+    /// успешной записи флаг «грязного» плейлиста снят.
     #[test]
-    fn tick_writes_playlist_after_change() {
+    fn playlist_dirty_written_by_timer() {
         let h = Harness::new();
         h.put_settings(b"");
         h.put_state(b"");
@@ -504,5 +532,325 @@ mod tests {
         h.settle(&mut core);
 
         assert_eq!(h.writes(WorkFile::Playlist), 1);
+        assert!(!core.tracker().playlist_dirty());
+    }
+
+    /// N=30; изменения громкости в t=0, 10, 20 с — одна запись в t=30 с со
+    /// значением из t=20 с (ТЗ-11, §6.4, §7.2 `state_written_after_n_seconds_once`).
+    #[test]
+    fn state_written_after_n_seconds_once() {
+        let h = Harness::new();
+        h.put_settings(b"");
+        h.put_state(b"");
+        let mut core = h.boot();
+
+        core.change_state(Origin::User, StateChange::Volume(10)); // t=0, срок = 30с
+        h.advance(&mut core, Duration::from_secs(10)); // t=10
+        core.change_state(Origin::User, StateChange::Volume(20));
+        h.advance(&mut core, Duration::from_secs(10)); // t=20
+        core.change_state(Origin::User, StateChange::Volume(30));
+        h.advance(&mut core, Duration::from_secs(10)); // t=30 — дедлайн срабатывает
+        h.settle(&mut core);
+
+        assert_eq!(h.writes(WorkFile::State), 1);
+        assert_eq!(core.state().playback().volume, 30);
+    }
+
+    /// Изменения каждые 5 с в течение 10 мин — запись каждые N=30 с, ни
+    /// одна пара записей не расходится дальше N (ТЗ-11, §6.4,
+    /// §7.2 `continuous_series_written_every_n`).
+    #[test]
+    fn continuous_series_written_every_n() {
+        let h = Harness::new();
+        h.put_settings(b"");
+        h.put_state(b"");
+        let mut core = h.boot();
+
+        // 20 блоков по 30 с (интервал N по умолчанию); внутри каждого блока —
+        // изменения каждые 5 с, т.е. несколько «перезаписей» значения до
+        // срабатывания дедлайна. `settle` в конце блока дожидается ответа
+        // писателя перед тем, как следующий блок мог бы взвести новый срок,
+        // иначе гонка между симулированными часами и реальным потоком
+        // писателя делает счётчик записей недетерминированным.
+        for block in 0..20u32 {
+            for i in 0..6u16 {
+                let volume = u8::try_from((block * 6 + u32::from(i)) % 256).expect("fits u8");
+                core.change_state(Origin::User, StateChange::Volume(volume));
+                h.advance(&mut core, Duration::from_secs(5));
+            }
+            h.settle(&mut core);
+        }
+
+        // 600 с опроса / 30 с интервал = 20 записей по дедлайну.
+        assert_eq!(h.writes(WorkFile::State), 20);
+    }
+
+    /// N=120; изменение в t=0; «Сохранить» с N=10 в t=100 с сжимает срок до
+    /// t=110 с (ТЗ-11, ТЗ-33, У-1, §6.4, §6.6, §7.2 `interval_change_shortens_deadline`).
+    #[test]
+    fn interval_change_shortens_deadline() {
+        let h = Harness::new();
+        h.put_settings(b"save_interval = 120\n");
+        h.put_state(b"");
+        let mut core = h.boot();
+
+        core.change_state(Origin::User, StateChange::Volume(42)); // t=0, срок = 120с
+        h.advance(&mut core, Duration::from_secs(100)); // t=100с
+
+        let mut settings = core.settings().clone();
+        settings.save_interval = SaveInterval::S10;
+        core.save_settings_now(settings); // «Сохранить» — срок сжимается до t=110с
+        h.settle(&mut core);
+
+        h.advance(&mut core, Duration::from_secs(9)); // t=109с — ещё не время
+        h.settle(&mut core);
+        assert_eq!(h.writes(WorkFile::State), 0);
+
+        h.advance(&mut core, Duration::from_secs(1)); // t=110с
+        h.settle(&mut core);
+        assert_eq!(h.writes(WorkFile::State), 1);
+    }
+
+    /// Полный `state.toml`; восстановление геометрии при старте (эхо
+    /// Program, ОВС-5 а); 10 минут простоя — 0 запусков отсчёта; при выходе
+    /// одна запись, т.к. первое показание после показа отличается от
+    /// запрошенного (ТЗ-11, ОВ-2, ОВ-3, ОВС-5 а, §6.17, §7.2
+    /// `idle_ten_minutes_writes_nothing`).
+    #[test]
+    fn idle_ten_minutes_writes_nothing() {
+        let h = Harness::new();
+        let restored = WindowGeometry {
+            position: Some(PhysPos { x: 10, y: 20 }),
+            size: Some(PhysSize { width: 800, height: 600 }),
+            maximized: false,
+            fullscreen: false,
+        };
+        let mut state = SessionState::default();
+        state.apply(StateChange::Window(restored));
+        let state_bytes = crate::persist::state_file::serialize_state(&state).expect("serialize state");
+        h.put_settings(b"");
+        h.put_state(&state_bytes);
+        let mut core = h.boot();
+
+        core.program_set_geometry(restored);
+        core.window_shown();
+
+        let actual = WindowGeometry {
+            position: Some(PhysPos { x: 30, y: 40 }),
+            size: Some(PhysSize { width: 800, height: 600 }),
+            maximized: false,
+            fullscreen: false,
+        };
+        // Первое показание после показа окна — эхо Program, не пользователь.
+        core.tick(Some(actual), &|| Arc::from(&b""[..]));
+
+        h.advance(&mut core, Duration::from_secs(600));
+        h.settle(&mut core);
+        assert_eq!(h.writes(WorkFile::State), 0);
+
+        core.exit(ExitReason::WindowClose, &mut || true, &|| Arc::from(&b""[..]));
+        assert_eq!(h.writes(WorkFile::State), 1);
+    }
+
+    /// `change_state(Program, …)` не взводит срок; при выходе — одна запись
+    /// (ТЗ-11, ОВ-3, §6.4, §7.2 `program_change_does_not_start_timer`).
+    #[test]
+    fn program_change_does_not_start_timer() {
+        let h = Harness::new();
+        h.put_settings(b"");
+        h.put_state(b"");
+        let mut core = h.boot();
+
+        core.change_state(Origin::Program, StateChange::Volume(55));
+
+        let interval = core.settings().save_interval.duration();
+        h.advance(&mut core, interval);
+        h.settle(&mut core);
+        assert_eq!(h.writes(WorkFile::State), 0);
+
+        core.exit(ExitReason::WindowClose, &mut || true, &|| Arc::from(&b""[..]));
+        assert_eq!(h.writes(WorkFile::State), 1);
+    }
+
+    /// Ошибка записи `playlist.m3u` останавливает дальнейшие попытки по
+    /// отсчёту: флаг «грязного» плейлиста остаётся взведённым, а новое
+    /// изменение плейлиста за 10 мин не приводит ни к одной записи
+    /// (ТЗ-12, ТЗ-20, §6.8, §7.2 `playlist_write_error_stops_timer_writes`).
+    #[test]
+    fn playlist_write_error_stops_timer_writes() {
+        let h = Harness::new();
+        h.put_settings(b"");
+        h.put_state(b"");
+        let mut core = h.boot();
+
+        h.fail_write_work(WorkFile::Playlist, WriteStep::WriteData, WriteErrorClass::NoSpace, 100);
+        h.set_playlist(b"track1.flac\n");
+        core.playlist_changed();
+
+        let interval = core.settings().save_interval.duration();
+        h.advance(&mut core, interval);
+        h.settle(&mut core);
+        assert_eq!(h.writes(WorkFile::Playlist), 0);
+        assert!(core.tracker().playlist_dirty());
+
+        // Новое изменение взводит срок заново, но попытки по таймеру
+        // всё равно блокированы (`stopped`), пока нет явного `retry`.
+        h.set_playlist(b"track1.flac\ntrack2.flac\n");
+        core.playlist_changed();
+        h.advance(&mut core, Duration::from_secs(600));
+        h.settle(&mut core);
+        assert_eq!(h.writes(WorkFile::Playlist), 0);
+    }
+
+    /// Задержка записи на 2 с; во время неё плейлист снова меняется — после
+    /// ответа на первый снимок флаг остаётся взведённым, а следующая запись
+    /// по новому сроку содержит оба трека (ТЗ-12, §6.4, §7.2
+    /// `playlist_flag_kept_if_changed_during_write`).
+    #[test]
+    fn playlist_flag_kept_if_changed_during_write() {
+        let h = Harness::new();
+        h.put_settings(b"");
+        h.put_state(b"");
+        let mut core = h.boot();
+        let interval = core.settings().save_interval.duration();
+
+        h.delay_write_work(WorkFile::Playlist, interval + Duration::from_secs(2));
+        h.set_playlist(b"track1.flac\n");
+        core.playlist_changed();
+        h.advance(&mut core, interval); // срок истёк — первый снимок отправлен, но задержан
+
+        // во время задержанной записи плейлист снова меняется
+        h.set_playlist(b"track1.flac\ntrack2.flac\n");
+        core.playlist_changed();
+
+        h.settle(&mut core); // ждёт ответ на первый снимок, продвигая часы до конца задержки
+        assert_eq!(h.writes(WorkFile::Playlist), 1);
+        assert!(core.tracker().playlist_dirty());
+
+        h.advance(&mut core, interval); // новый срок — пишет актуальный плейлист с обоими треками
+        h.settle(&mut core);
+        assert_eq!(h.writes(WorkFile::Playlist), 2);
+        assert_eq!(h.disk_bytes(WorkFile::Playlist).as_deref(), Some(&b"track1.flac\ntrack2.flac\n"[..]));
+    }
+
+    /// Изменить громкость; дождаться записи; изменить ещё раз; уничтожить
+    /// `AppCore` без пути выхода — на диске остаётся значение первого
+    /// изменения (ТЗ-16, §6.4, §7.2 `crash_keeps_last_written_version`).
+    #[test]
+    fn crash_keeps_last_written_version() {
+        let h = Harness::new();
+        h.put_settings(b"");
+        h.put_state(b"");
+        let mut core = h.boot();
+
+        core.change_state(Origin::User, StateChange::Volume(11));
+        let interval = core.settings().save_interval.duration();
+        h.advance(&mut core, interval);
+        h.settle(&mut core);
+        assert_eq!(h.writes(WorkFile::State), 1);
+
+        core.change_state(Origin::User, StateChange::Volume(22));
+        drop(core); // уничтожение без пути выхода — второе изменение никуда не уходит
+
+        let mut expected = SessionState::default();
+        expected.apply(StateChange::Volume(11));
+        let expected_bytes =
+            crate::persist::state_file::serialize_state(&expected).expect("serialize state");
+        assert_eq!(h.disk_bytes(WorkFile::State), Some(expected_bytes.to_vec()));
+        assert_eq!(h.writes(WorkFile::State), 1);
+    }
+
+    /// Переключение mute взводит срок N; через N с — одна запись (ТЗ-38,
+    /// §6.4, §7.2 `mute_starts_timer`).
+    #[test]
+    fn mute_starts_timer() {
+        let h = Harness::new();
+        h.put_settings(b"");
+        h.put_state(b"");
+        let mut core = h.boot();
+
+        core.change_state(Origin::User, StateChange::Muted(true));
+        let interval = core.settings().save_interval.duration();
+        h.advance(&mut core, interval);
+        h.settle(&mut core);
+
+        assert_eq!(h.writes(WorkFile::State), 1);
+        assert!(core.state().playback().muted);
+    }
+
+    /// Общий шаг «событие → `advance(10 мин)` → 0 записей `settings.toml`»
+    /// для строк §5.1 матрицы с «—» в столбце `settings.toml` (ТЗ-10, §7.2:
+    /// семейство `event_*_does_not_write_settings`).
+    fn assert_event_does_not_write_settings(apply: impl FnOnce(&mut AppCore)) {
+        let h = Harness::new();
+        h.put_settings(b"");
+        h.put_state(b"");
+        let mut core = h.boot();
+
+        apply(&mut core);
+
+        h.advance(&mut core, Duration::from_secs(600));
+        h.settle(&mut core);
+
+        assert_eq!(h.writes(WorkFile::Settings), 0);
+    }
+
+    /// Громкость не пишет `settings.toml` (ТЗ-10, §5.1, §7.2).
+    #[test]
+    fn volume_change_does_not_write_settings() {
+        assert_event_does_not_write_settings(|core| {
+            core.change_state(Origin::User, StateChange::Volume(42));
+        });
+    }
+
+    /// Mute не пишет `settings.toml` (ТЗ-10, §5.1, §7.2, §7.3 строка «Mute»).
+    #[test]
+    fn event_mute_does_not_write_settings() {
+        assert_event_does_not_write_settings(|core| {
+            core.change_state(Origin::User, StateChange::Muted(true));
+        });
+    }
+
+    /// Геометрия окна пользователем не пишет `settings.toml` (ТЗ-10, ADR-22,
+    /// §5.1, §7.2).
+    #[test]
+    fn event_geometry_does_not_write_settings() {
+        assert_event_does_not_write_settings(|core| {
+            let g = WindowGeometry {
+                position: Some(PhysPos { x: 1, y: 2 }),
+                size: Some(PhysSize { width: 640, height: 480 }),
+                maximized: false,
+                fullscreen: false,
+            };
+            core.change_state(Origin::User, StateChange::Window(g));
+        });
+    }
+
+    /// Тип визуализации не пишет `settings.toml` (ТЗ-10, §5.1, §7.2, §7.3
+    /// строка «Тип визуализации»).
+    #[test]
+    fn event_viz_mode_does_not_write_settings() {
+        assert_event_does_not_write_settings(|core| {
+            core.change_state(Origin::User, StateChange::VizMode(VisualizationMode::Spectrum));
+        });
+    }
+
+    /// Repeat/Shuffle не пишут `settings.toml` (ТЗ-10, §5.1, §7.2, §7.3
+    /// строка «Repeat/Shuffle»).
+    #[test]
+    fn event_repeat_shuffle_does_not_write_settings() {
+        assert_event_does_not_write_settings(|core| {
+            core.change_state(Origin::User, StateChange::Repeat(RepeatMode::All));
+            core.change_state(Origin::User, StateChange::Shuffle(true));
+        });
+    }
+
+    /// Последний каталог не пишет `settings.toml` (ТЗ-10, §5.1, §7.2, §7.3
+    /// строка «Последний каталог»).
+    #[test]
+    fn event_last_dir_does_not_write_settings() {
+        assert_event_does_not_write_settings(|core| {
+            core.change_state(Origin::User, StateChange::LastDir(PathBuf::from("/music")));
+        });
     }
 }
