@@ -6,6 +6,7 @@ use std::sync::Arc;
 pub mod keys;
 pub mod settings_file;
 pub mod state_file;
+pub mod writer;
 
 use crate::journal::JournalRecord;
 use crate::platform::fs::{FileReader, FileWriter, ReadErrorClass, WriteError};
@@ -92,6 +93,30 @@ impl ConfigPaths {
     pub fn bad_copy(&self, f: WorkFile) -> PathBuf {
         self.dir.join(format!("{}.bad", f.file_name()))
     }
+}
+
+/// Идентификатор снимка (ТЗ-3, §2.2): растёт с каждым новым снимком,
+/// используется писателем для ответов `Written`/`Superseded`/`Failed`.
+#[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Debug)]
+pub struct SnapshotId(u64);
+
+impl SnapshotId {
+    pub const fn new(n: u64) -> SnapshotId {
+        SnapshotId(n)
+    }
+
+    pub const fn get(self) -> u64 {
+        self.0
+    }
+}
+
+/// Готовый к записи снимок рабочего файла (ТЗ-3, §2.2): байты уже
+/// сериализованы, писатель не трогает память UI (И-Т1).
+#[derive(Clone, Debug)]
+pub struct Snapshot {
+    pub id: SnapshotId,
+    pub file: WorkFile,
+    pub bytes: Arc<[u8]>,
 }
 
 /// Ошибка сериализации — класс «ошибка ввода-вывода» по ТЗ-20 (§2.6).

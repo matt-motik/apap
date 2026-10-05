@@ -30,7 +30,7 @@
 
 ## Итерационный трекер
 [x] Шаг 1: MemStore: delay_write(path, until: ClockInstant, clock: ManualClock) + next_wake() — запись пути блокируется до момента по ManualClock (§7.1, ADR-19, отложено из С1). Файл: src/platform/fs/mem.rs. Проверка: cargo test platform::fs зелёный
-[ ] Шаг 2: Писатель apap-persist: SnapshotId, Snapshot, WriterCmd, WriterReply, WriterHandle, spawn_writer; слот на файл, Superseded, FIFO, Stop; ошибка запуска → IO-ответы (ADR-1, ТЗ-3, ТЗ-22, §2.7, §6.6, И-Т1, И-Р1). Файлы: src/persist/writer.rs (новый), src/persist/mod.rs. Проверка: cargo test persist::writer зелёный (writes_serialized_last_snapshot_wins)
+[x] Шаг 2: Писатель apap-persist: SnapshotId, Snapshot, WriterCmd, WriterReply, WriterHandle, spawn_writer; слот на файл, Superseded, FIFO, Stop; ошибка запуска → IO-ответы (ADR-1, ТЗ-3, ТЗ-22, §2.7, §6.6, И-Т1, И-Р1). Файлы: src/persist/writer.rs (новый), src/persist/mod.rs. Проверка: cargo test persist::writer зелёный (writes_serialized_last_snapshot_wins)
 [ ] Шаг 3: PersistTracker: FileTrack, PlaylistTrack, DueFiles, ReplyEffect; срок N, эталон, флаг плейлиста, stopped/forbidden/auto_forbidden, on_reply (ADR-3, ТЗ-11, ТЗ-12, ТЗ-20, §2.7, §6.4, §6.5, И-Р3). Файлы: src/persist/tracker.rs (новый), src/persist/mod.rs. Проверка: cargo test persist::tracker зелёный
 [ ] Шаг 4: GeometryTracker: program_set/window_shown/observe, эхо Program, Wayland без позиции (ОВС-5 а, ADR-22, §6.17). Файлы: src/core/geometry.rs (новый), src/core/mod.rs (pub mod). Проверка: cargo test core::geometry зелёный
 [ ] Шаг 5: Примитивы выхода: ExitReason (WindowClose, TrayQuit), ExitOutcome, EXIT_BUDGET, ExitPhase, ExitCoordinator, ExitReport, ReplyWaiter, ChannelWaiter, ManualWaiter (ADR-7, ТЗ-14, НФ-9, §2.11, §6.10). Файлы: src/core/exit.rs (новый), src/core/mod.rs (pub mod). Проверка: cargo test core::exit зелёный
@@ -49,8 +49,8 @@
 [ ] Шаг 18: Очистка моста: удалить AppCore::new(boot)/flush/FlushOutcome/journal_records_for_flush и синхронный persist::write_bad_copies (§8.1 С4). Файлы: src/core/mod.rs, src/persist/mod.rs. Проверка: cargo check
 [ ] Шаг 19: Тест no_file_io_on_ui_thread (MemStore::calls — только поток apap-persist) и финальная верификация (ТЗ-22, НФ-5). Файл: src/core/mod.rs (тесты). Проверка: cargo test и cargo clippy зелёные, 0 новых варнингов
 
-- **Текущий шаг (current_step):** Шаг 2
-- **Следующий ход:** Шаг 2: писатель apap-persist (writer.rs, persist/mod.rs) — code-writer, sonnet
+- **Текущий шаг (current_step):** Шаг 3
+- **Следующий ход:** Шаг 3: PersistTracker (tracker.rs, persist/mod.rs) — code-writer, sonnet
 - **Счетчик безуспешных компиляций:** 0/3
 - **Состояние:** in_progress
 

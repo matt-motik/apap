@@ -37,7 +37,7 @@ steps:
     done: true
   - id: 2
     description: "Писатель apap-persist: SnapshotId, Snapshot, WriterCmd, WriterReply, WriterHandle, spawn_writer; слот на файл, Superseded, FIFO, Stop; ошибка запуска → IO-ответы (ADR-1, ТЗ-3, ТЗ-22, §2.7, §6.6, И-Т1, И-Р1). Файлы: src/persist/writer.rs (новый), src/persist/mod.rs. Проверка: cargo test persist::writer зелёный (writes_serialized_last_snapshot_wins)"
-    done: false
+    done: true
   - id: 3
     description: "PersistTracker: FileTrack, PlaylistTrack, DueFiles, ReplyEffect; срок N, эталон, флаг плейлиста, stopped/forbidden/auto_forbidden, on_reply (ADR-3, ТЗ-11, ТЗ-12, ТЗ-20, §2.7, §6.4, §6.5, И-Р3). Файлы: src/persist/tracker.rs (новый), src/persist/mod.rs. Проверка: cargo test persist::tracker зелёный"
     done: false
@@ -90,8 +90,8 @@ steps:
     description: "Тест no_file_io_on_ui_thread (MemStore::calls — только поток apap-persist) и финальная верификация (ТЗ-22, НФ-5). Файл: src/core/mod.rs (тесты). Проверка: cargo test и cargo clippy зелёные, 0 новых варнингов"
     done: false
 
-current_step: 2
-next_action: "Шаг 2: писатель apap-persist (writer.rs, persist/mod.rs) — code-writer, sonnet"
+current_step: 3
+next_action: "Шаг 3: PersistTracker (tracker.rs, persist/mod.rs) — code-writer, sonnet"
 
 fail_counter: 0
 fail_counter_max: 3
