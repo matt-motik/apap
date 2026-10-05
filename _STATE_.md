@@ -2,10 +2,57 @@
      Source of truth: _STATE_.yaml — edit that, then run:
      python tools/state_tool.py render -->
 
-# Состояние сессии
 
-- **Текущая задача:** Нет (все шаги завершены)
-- **Состояние:** done
+# Текущая микро-сессия
+
+- **Задача из ROADMAP:** SP1.0-8.4 — С4. Писатель, моменты записи, путь выхода
+- **Вайтлист файлов в работе (Изменяемые файлы):**
+  - src/platform/fs/mem.rs
+  - src/persist/writer.rs
+  - src/persist/tracker.rs
+  - src/persist/mod.rs
+  - src/core/geometry.rs
+  - src/core/exit.rs
+  - src/core/mod.rs
+  - src/core/testing.rs
+  - src/journal.rs
+  - src/playlist.rs
+  - src/main.rs
+  - src/app/mod.rs
+  - src/app/ui_manager.rs
+  - src/app/playback_manager.rs
+  - src/app/viz_settings_manager.rs
+  - src/app/playlist_manager.rs
+  - _STATE_.yaml
+  - _STATE_.md
+  - ROADMAP.md
+- **Критерий успеха (Definition of Done):** Запись settings/state/playlist только потоком apap-persist и только в моменты ТЗ (срок N, «Сохранить», выход); путь выхода с бюджетом 5 с; ошибки записи → окно с «Повторить»; W1–W7, throttle геометрии, дебаунс ширин и запись плейлиста в UI-потоке удалены; тесты §7.2 С4 зелёные; cargo test/clippy зелёные
+
+## Итерационный трекер
+[x] Шаг 1: MemStore: delay_write(path, until: ClockInstant, clock: ManualClock) + next_wake() — запись пути блокируется до момента по ManualClock (§7.1, ADR-19, отложено из С1). Файл: src/platform/fs/mem.rs. Проверка: cargo test platform::fs зелёный
+[ ] Шаг 2: Писатель apap-persist: SnapshotId, Snapshot, WriterCmd, WriterReply, WriterHandle, spawn_writer; слот на файл, Superseded, FIFO, Stop; ошибка запуска → IO-ответы (ADR-1, ТЗ-3, ТЗ-22, §2.7, §6.6, И-Т1, И-Р1). Файлы: src/persist/writer.rs (новый), src/persist/mod.rs. Проверка: cargo test persist::writer зелёный (writes_serialized_last_snapshot_wins)
+[ ] Шаг 3: PersistTracker: FileTrack, PlaylistTrack, DueFiles, ReplyEffect; срок N, эталон, флаг плейлиста, stopped/forbidden/auto_forbidden, on_reply (ADR-3, ТЗ-11, ТЗ-12, ТЗ-20, §2.7, §6.4, §6.5, И-Р3). Файлы: src/persist/tracker.rs (новый), src/persist/mod.rs. Проверка: cargo test persist::tracker зелёный
+[ ] Шаг 4: GeometryTracker: program_set/window_shown/observe, эхо Program, Wayland без позиции (ОВС-5 а, ADR-22, §6.17). Файлы: src/core/geometry.rs (новый), src/core/mod.rs (pub mod). Проверка: cargo test core::geometry зелёный
+[ ] Шаг 5: Примитивы выхода: ExitReason (WindowClose, TrayQuit), ExitOutcome, EXIT_BUDGET, ExitPhase, ExitCoordinator, ExitReport, ReplyWaiter, ChannelWaiter, ManualWaiter (ADR-7, ТЗ-14, НФ-9, §2.11, §6.10). Файлы: src/core/exit.rs (новый), src/core/mod.rs (pub mod). Проверка: cargo test core::exit зелёный
+[ ] Шаг 6: Журнал: JournalRecord::Exit(ExitReport) и его строка в apap.log (ТЗ-14, ADR-21, §2.9, §6.10). Файл: src/journal.rs. Проверка: cargo test journal зелёный
+[ ] Шаг 7: AppCore поверх писателя (мост): AppDeps {writer, clock, waiter, journal}, AppCore::with_deps; tracker вместо FileState; change_state(origin)→срок; playlist_changed; tick(geometry, playlist_bytes)→ReplyEffect; save_settings_now (ТЗ-28); set_interval; retry(files); exit(reason, release_engine, playlist_bytes); старые new(boot)/flush пока остаются мостом (ADR-19, ADR-3, ADR-7, §2.12, §6.4–§6.10). Файл: src/core/mod.rs. Проверка: cargo check
+[ ] Шаг 8: Harness на писателе: AppDeps из MemStore+spawn_writer, ManualClock, ManualWaiter, VecJournal; advance(d), settle(), writes(f); перевод тестов С3 с flush на новый путь (§7.1). Файлы: src/core/testing.rs, src/core/mod.rs (тесты). Проверка: cargo test core:: зелёный
+[ ] Шаг 9: Тесты §7.2 ТЗ-3/10/11/12/16/38 на Harness (state_written_after_n_seconds_once, continuous_series_written_every_n, interval_change_shortens_deadline, change_and_revert_writes_nothing, idle_ten_minutes_writes_nothing, program_change_does_not_start_timer, playlist_dirty_written_by_timer, playlist_write_error_stops_timer_writes, unreadable_playlist_never_written, playlist_flag_kept_if_changed_during_write, crash_keeps_last_written_version, mute_starts_timer, event_*_does_not_write_settings). Файл: src/core/mod.rs (тесты). Проверка: cargo test core:: зелёный
+[ ] Шаг 10: Тесты §7.2 ТЗ-14/20/28/32 на Harness (exit_budget_five_seconds, exit_partial_within_budget, exit_retries_previously_failed_file_once, repeated_tray_quit_ignored, no_space_state_one_window_no_timer_retries, retry_after_space_freed, exit_after_space_freed_without_retry, readonly_media_one_window_two_files, ok_keeps_timer_writes_stopped, dialog_save_single_write_all_fields, dialog_save_without_changes_does_not_write). Файл: src/core/mod.rs (тесты). Проверка: cargo test core:: зелёный
+[ ] Шаг 11: Сериализация плейлиста в байты для снимка: serialize_m3u(&[Track]) -> Arc<[u8]>; save_track_list пишет через неё (ADR-1, §6.5). Файл: src/playlist.rs. Проверка: cargo test playlist зелёный
+[ ] Шаг 12: main и конструктор MusicApp: spawn_writer(work_fs), копии *.bad через WriterCmd::BadCopy до Write, AppCore::with_deps с MonotonicClock/ChannelWaiter/journal (ADR-23, ТЗ-6, ТЗ-22, §6.1). Файлы: src/main.rs, src/app/mod.rs. Проверка: cargo check
+[ ] Шаг 13: MusicApp: tick → core.tick (ответы писателя → write_failed/write_succeeded), «Сохранить» → save_settings_now + set_interval, retry_writes → core.retry (ТЗ-11, ТЗ-20, ТЗ-28, §6.8, §6.9). Файл: src/app/mod.rs. Проверка: cargo check
+[ ] Шаг 14: Удалить W3/W6/W7: прямые save_settings в playback_manager и viz_settings_manager — изменения идут только через change_state/срок N (ТЗ-10, §8.1 С4). Файлы: src/app/playback_manager.rs, src/app/viz_settings_manager.rs. Проверка: cargo check
+[ ] Шаг 15: Плейлист через писатель: playlist_dirty → core.playlist_changed, save_playlist → снимок через core (ТЗ-12, ТЗ-22, §6.4). Файлы: src/app/playlist_manager.rs, src/app/mod.rs. Проверка: cargo check
+[ ] Шаг 16: Путь выхода в MusicApp: close_requested и TrayCmd::Quit → exit(reason): черновик диалога := None, gate.unblock(Dialog), dismiss_for_exit, release_engine, core.exit, quit_event_loop; без записи плейлиста в UI-потоке (ТЗ-14, ТЗ-32, ADR-7, §6.10). Файл: src/app/mod.rs. Проверка: cargo check
+[ ] Шаг 17: Удалить throttle геометрии и дебаунс ширин: track_window_geometry/save_window_geometry → геометрия через core.tick (GeometryTracker), ширины наследуют Origin (ОВС-5 а, §6.17, V5.1-B7). Файлы: src/app/ui_manager.rs, src/app/mod.rs. Проверка: cargo check
+[ ] Шаг 18: Очистка моста: удалить AppCore::new(boot)/flush/FlushOutcome/journal_records_for_flush и синхронный persist::write_bad_copies (§8.1 С4). Файлы: src/core/mod.rs, src/persist/mod.rs. Проверка: cargo check
+[ ] Шаг 19: Тест no_file_io_on_ui_thread (MemStore::calls — только поток apap-persist) и финальная верификация (ТЗ-22, НФ-5). Файл: src/core/mod.rs (тесты). Проверка: cargo test и cargo clippy зелёные, 0 новых варнингов
+
+- **Текущий шаг (current_step):** Шаг 2
+- **Следующий ход:** Шаг 2: писатель apap-persist (writer.rs, persist/mod.rs) — code-writer, sonnet
+- **Счетчик безуспешных компиляций:** 0/3
+- **Состояние:** in_progress
 
 ## План: Executable workflow: правила AGENTS.md → исполняемые механизмы
 _Источник: чат с пользователем (ноутбук), начат в 67686ce; перенесён в репо 2026-09-22_

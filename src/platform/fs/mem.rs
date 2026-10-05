@@ -3,13 +3,19 @@
 //! `cfg(test)`. Моделирует последовательность ADR-4: «содержимое на диске»
 //! целевого файла меняется только на шаге `Replace`; ошибка или «сбой» на
 //! любом шаге оставляют прежнее содержимое и, возможно, `<имя>.tmp`.
-//! Задержки записи по `ManualClock` (`delay_write`, `next_wake`) появятся
-//! вместе с писателем (С4).
+//! Задержки записи по `ManualClock` (`delay_write`, `next_wake`, §7.1,
+//! ADR-19): `delay_write` откладывает ровно следующую `write_atomic` пути до
+//! момента `until` по переданным часам, не удерживая мьютекс хранилища на
+//! время ожидания (И-Р11, §2.11) — поток-писатель ждёт поллингом `now()`, а
+//! другие потоки свободно читают/пишут и опрашивают `next_wake`.
 
 use super::{temp_path, FileReader, FileWriter, ReadError, ReadErrorClass, WriteError, WriteErrorClass, WriteStep};
+use crate::audio::clock::{Clock, ClockInstant};
+use crate::audio::testing::ManualClock;
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex, MutexGuard};
+use std::time::Duration;
 
 /// Файлы в памяти. Реализует `FileReader` и `FileWriter`; клоны делят одно
 /// содержимое (§2.8).
@@ -51,6 +57,14 @@ struct MemInner {
     write_faults: HashMap<PathBuf, Fault>,
     read_faults: HashMap<PathBuf, ReadErrorClass>,
     calls: Vec<FsCall>,
+    delays: HashMap<PathBuf, Delay>,
+}
+
+/// Отложенная (одноразовая) следующая запись пути (§2.11, ADR-19).
+#[derive(Clone)]
+struct Delay {
+    until: ClockInstant,
+    clock: ManualClock,
 }
 
 /// Внедрённая неудача шага записи пути.
@@ -103,6 +117,31 @@ impl MemStore {
     /// Все вызовы с именем потока (И-Р11).
     pub fn calls(&self) -> Vec<FsCall> {
         self.lock().calls.clone()
+    }
+
+    /// Задержать ровно следующую `write_atomic` пути (одноразово) до
+    /// момента `until` по часам `clock` (§2.11, ADR-19). Ожидание — в самой
+    /// `write_atomic`, без удержания мьютекса хранилища.
+    pub fn delay_write(&self, path: &Path, until: ClockInstant, clock: ManualClock) {
+        self.lock().delays.insert(path.to_path_buf(), Delay { until, clock });
+    }
+
+    /// Ближайший момент среди ещё не отработанных задержек (§2.11): отсчёт
+    /// идёт от регистрации `delay_write`, даже если сама запись не началась.
+    pub fn next_wake(&self) -> Option<ClockInstant> {
+        self.lock().delays.values().map(|d| d.until).min()
+    }
+
+    /// Подождать (без мьютекса хранилища) зарегистрированную задержку пути,
+    /// если она есть; снять её по завершении ожидания (одноразово).
+    fn wait_for_delay(&self, path: &Path) {
+        let Some(delay) = self.lock().delays.get(path).cloned() else {
+            return;
+        };
+        while delay.clock.now() < delay.until {
+            std::thread::sleep(Duration::from_millis(1));
+        }
+        self.lock().delays.remove(path);
     }
 
     fn lock(&self) -> MutexGuard<'_, MemInner> {
@@ -171,6 +210,7 @@ impl FileReader for MemStore {
 
 impl FileWriter for MemStore {
     fn write_atomic(&mut self, path: &Path, bytes: &[u8]) -> Result<(), WriteError> {
+        self.wait_for_delay(path);
         let tmp = temp_path(path);
         let mut inner = self.lock();
         inner.call(FsOp::WriteAtomic, path);
@@ -290,5 +330,81 @@ mod tests {
         assert_eq!(clone.get(b).as_deref(), Some(&b"x"[..]));
         let ops: Vec<FsOp> = fs.calls().iter().map(|c| c.op).collect();
         assert_eq!(ops, vec![FsOp::Read, FsOp::Read, FsOp::RenameReplace]);
+    }
+
+    /// §2.11, ADR-19: отложенная запись не завершается, пока `ManualClock`
+    /// не дойдёт до `until`, и не удерживает мьютекс хранилища на время
+    /// ожидания (поток-писатель ждёт поллингом, параллельно доступен `get`).
+    #[test]
+    fn delay_write_blocks_until_clock_advances() {
+        let path = Path::new("/cfg/delayed.toml");
+        let clock = ManualClock::new();
+        let fs = MemStore::new();
+        let until = ClockInstant::START.saturating_add(Duration::from_millis(50));
+        fs.delay_write(path, until, clock.clone());
+
+        let (tx, rx) = std::sync::mpsc::channel();
+        let mut writer = fs.clone();
+        let handle = std::thread::spawn(move || {
+            writer.write_atomic(path, b"value").expect("delayed write");
+            tx.send(()).expect("send done");
+        });
+
+        std::thread::sleep(Duration::from_millis(20));
+        assert!(rx.try_recv().is_err(), "write must not complete before delay elapses");
+        assert_eq!(fs.get(path), None, "fs mutex is free; write just hasn't finished yet");
+
+        clock.advance(Duration::from_millis(60));
+        rx.recv_timeout(Duration::from_secs(2)).expect("write completes after delay");
+        handle.join().expect("writer thread");
+        assert_eq!(fs.get(path).as_deref(), Some(&b"value"[..]));
+    }
+
+    /// §2.11: `next_wake` — минимум среди ещё не отработанных задержек; по
+    /// мере их освобождения выбывают по одной, в конце — `None`.
+    #[test]
+    fn next_wake_returns_earliest_pending_delay() {
+        let a = Path::new("/cfg/a.toml");
+        let b = Path::new("/cfg/b.toml");
+        let clock = ManualClock::new();
+        let fs = MemStore::new();
+        let until_a = ClockInstant::START.saturating_add(Duration::from_millis(100));
+        let until_b = ClockInstant::START.saturating_add(Duration::from_millis(30));
+        fs.delay_write(a, until_a, clock.clone());
+        fs.delay_write(b, until_b, clock.clone());
+        assert_eq!(fs.next_wake(), Some(until_b));
+
+        clock.advance(Duration::from_millis(30));
+        fs.clone().write_atomic(b, b"b").expect("write b");
+        assert_eq!(fs.next_wake(), Some(until_a));
+
+        clock.advance(Duration::from_millis(70));
+        fs.clone().write_atomic(a, b"a").expect("write a");
+        assert_eq!(fs.next_wake(), None);
+    }
+
+    /// §2.11: `delay_write` откладывает ровно одну, следующую запись пути;
+    /// после её завершения задержка снята, и повторная запись того же пути
+    /// не ждёт заново.
+    #[test]
+    fn delay_write_is_one_shot() {
+        let path = Path::new("/cfg/once.toml");
+        let clock = ManualClock::new();
+        let fs = MemStore::new();
+        let until = ClockInstant::START.saturating_add(Duration::from_millis(20));
+        fs.delay_write(path, until, clock.clone());
+
+        clock.advance(Duration::from_millis(20));
+        fs.clone().write_atomic(path, b"first").expect("first write");
+        assert_eq!(fs.next_wake(), None, "delay removed once released");
+
+        let (tx, rx) = std::sync::mpsc::channel();
+        let mut writer = fs.clone();
+        std::thread::spawn(move || {
+            writer.write_atomic(path, b"second").expect("second write");
+            tx.send(()).expect("send done");
+        });
+        rx.recv_timeout(Duration::from_millis(200)).expect("second write is not delayed again");
+        assert_eq!(fs.get(path).as_deref(), Some(&b"second"[..]));
     }
 }
