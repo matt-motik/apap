@@ -5,6 +5,7 @@
 //! живут здесь; `src/app/` — тонкая прослойка Slint над `AppCore`.
 
 pub mod gate;
+pub mod geometry;
 pub mod messages;
 #[cfg(test)]
 pub(crate) mod testing;
