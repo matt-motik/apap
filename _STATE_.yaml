@@ -52,7 +52,7 @@ steps:
     done: true
   - id: 7
     description: "AppCore поверх писателя (мост): AppDeps {writer, clock, waiter, journal}, AppCore::with_deps; tracker вместо FileState; change_state(origin)→срок; playlist_changed; tick(geometry, playlist_bytes)→ReplyEffect; save_settings_now (ТЗ-28); set_interval; retry(files); exit(reason, release_engine, playlist_bytes); старые new(boot)/flush пока остаются мостом (ADR-19, ADR-3, ADR-7, §2.12, §6.4–§6.10). Файл: src/core/mod.rs. Проверка: cargo check"
-    done: false
+    done: true
   - id: 8
     description: "Harness на писателе: AppDeps из MemStore+spawn_writer, ManualClock, ManualWaiter, VecJournal; advance(d), settle(), writes(f); перевод тестов С3 с flush на новый путь (§7.1). Файлы: src/core/testing.rs, src/core/mod.rs (тесты). Проверка: cargo test core:: зелёный"
     done: false
@@ -90,8 +90,8 @@ steps:
     description: "Тест no_file_io_on_ui_thread (MemStore::calls — только поток apap-persist) и финальная верификация (ТЗ-22, НФ-5). Файл: src/core/mod.rs (тесты). Проверка: cargo test и cargo clippy зелёные, 0 новых варнингов"
     done: false
 
-current_step: 7
-next_action: "Шаг 7: мост AppCore::with_deps (core/mod.rs) — code-writer, sonnet"
+current_step: 8
+next_action: "Шаг 8: Harness на писателе (core/testing.rs, тесты core/mod.rs) — code-writer, sonnet"
 
 fail_counter: 0
 fail_counter_max: 3

@@ -14,13 +14,18 @@ pub(crate) mod testing;
 use std::path::Path;
 use std::sync::Arc;
 
+use exit::{ExitCoordinator, ExitOutcome, ExitPhase, ExitReason, ExitReport, ReplyWaiter};
+use geometry::GeometryTracker;
 use messages::{Message, MessageButtons, MessageLevel};
 
-use crate::journal::{JournalRecord, WriteTarget};
+use crate::audio::clock::{Clock, ClockInstant};
+use crate::journal::{Journal, JournalRecord, WriteTarget};
 use crate::persist::keys::{LoadNote, Parsed};
 use crate::persist::settings_file::{serialize_settings, Settings};
-use crate::persist::state_file::{serialize_state, Origin, SessionState, StateChange};
-use crate::persist::{Boot, ConfigFile, ConfigPaths, ReferenceText, SerializeError};
+use crate::persist::state_file::{serialize_state, Origin, SessionState, StateChange, WindowGeometry};
+use crate::persist::tracker::{PersistTracker, ReplyEffect};
+use crate::persist::writer::{WriterCmd, WriterHandle, WriterReply};
+use crate::persist::{Boot, ConfigFile, ConfigPaths, ReferenceText, SerializeError, Snapshot, SnapshotId, WorkFile};
 use crate::platform::fs::{FileWriter, ReadError, WriteError};
 
 /// Эталон и запрет автозаписи одного файла (§2.2, §2.12, И-Р3, И-Р20).
@@ -116,12 +121,33 @@ fn flush_file(
     }
 }
 
+/// Внешние зависимости нового API `AppCore` (ADR-19, §2.12): писатель
+/// `apap-persist`, пути конфигурации, инжектируемые часы, ожидание ответа
+/// на пути выхода и журнал.
+///
+/// ОТКЛОНЕНИЕ от §2.12: полный `AppDeps` спецификации содержит также
+/// `Lifecycle`, движок (`EngineSink`) и загрузчик обложек — они появляются
+/// на последующих этапах. Остановка движка на пути выхода здесь не
+/// типизирована отдельным полем — `exit()` принимает её замыканием
+/// `&mut dyn FnMut() -> bool`, чтобы не заводить трейт под ещё не
+/// существующий тип движка.
+pub struct AppDeps {
+    pub writer: WriterHandle,
+    pub paths: ConfigPaths,
+    pub clock: Box<dyn Clock>,
+    pub waiter: Box<dyn ReplyWaiter>,
+    pub journal: Arc<dyn Journal>,
+}
+
 /// Ядро приложения без Slint (ADR-19, §2.12): владеет настройками и
-/// состоянием сессии, их эталонными текстами и запретом автозаписи.
-/// Полный состав `AppCore` по спецификации (`AppDeps`, `PersistTracker`,
-/// `Playlist`, `UiGate`, `MessageCenter`, `ExitCoordinator`, `GeometryTracker`,
-/// `LoadState` и т. д.) появляется поэтапно; на С3 — только то, что нужно
-/// для чтения, изменения и синхронной записи `settings.toml`/`state.toml`.
+/// состоянием сессии, их эталонными текстами и запретом автозаписи, а также
+/// (при наличии `deps`) `PersistTracker`, координатором выхода и трекером
+/// геометрии окна.
+/// Полный состав `AppCore` по спецификации (`Playlist`, `UiGate`,
+/// `MessageCenter`, `LoadState` и т. д.) появляется поэтапно; на этом шаге —
+/// то, что нужно для чтения/изменения настроек и состояния, синхронной
+/// записи (старый мост) и отложенной записи через писателя (новый API,
+/// §6.4, §6.8, §6.10).
 pub struct AppCore {
     settings: Settings,
     settings_file: FileState,
@@ -131,25 +157,80 @@ pub struct AppCore {
     state: SessionState,
     state_file: FileState,
     startup_notes: StartupNotes,
+    /// `None` в режиме старого моста (`new(boot)`) — методы нового API
+    /// в этом режиме не выполняют I/O (§2.12).
+    deps: Option<AppDeps>,
+    tracker: PersistTracker,
+    exit: ExitCoordinator,
+    geometry: GeometryTracker,
+}
+
+/// Общая часть `new`/`with_deps`: разбирает `boot` и строит `PersistTracker`
+/// с тем же эталоном и запретом автозаписи, что уже применяет старый мост
+/// (ТЗ-11, И-Р20, §2.7, §2.12).
+#[allow(clippy::type_complexity)]
+fn from_boot(boot: Boot) -> (Settings, FileState, Option<ReadError>, SessionState, FileState, StartupNotes, PersistTracker) {
+    let (settings, settings_file, settings_notes, settings_read_failed) = split_parsed(boot.settings);
+    let (state, state_file, state_notes, _) = split_parsed(boot.state);
+
+    let mut tracker = PersistTracker::new(settings.save_interval, settings_file.reference.clone(), state_file.reference.clone());
+    if settings_file.auto_forbidden {
+        tracker.forbid_auto(ConfigFile::Settings);
+    }
+    if state_file.auto_forbidden {
+        tracker.forbid_auto(ConfigFile::State);
+    }
+
+    let startup_notes = StartupNotes { settings: settings_notes, state: state_notes };
+    (settings, settings_file, settings_read_failed, state, state_file, startup_notes, tracker)
 }
 
 impl AppCore {
-    /// Строит `AppCore` из результата `persist::boot` (ADR-23 шаг 2, §2.12).
-    ///
-    /// Отклонение от §2.12: спецификация задаёт `new(deps: AppDeps, boot: Boot)`;
-    /// на С3 `AppDeps` и его трейты (`WriterHandle`, `Lifecycle`, `Clock`,
-    /// `EngineSink`, ...) ещё не существуют, поэтому конструктор этого шага —
-    /// `new(boot: Boot)` без `deps`.
+    /// Строит `AppCore` из результата `persist::boot` без зависимостей
+    /// писателя (ADR-23 шаг 2, §2.12) — старый мост `src/app/`: `flush` пишет
+    /// синхронно, методы нового API (`tick`, `exit`, ...) не выполняют I/O.
     pub fn new(boot: Boot) -> AppCore {
-        let (settings, settings_file, settings_notes, settings_read_failed) = split_parsed(boot.settings);
-        let (state, state_file, state_notes, _) = split_parsed(boot.state);
+        let (settings, settings_file, settings_read_failed, state, state_file, startup_notes, tracker) = from_boot(boot);
         AppCore {
             settings,
             settings_file,
             settings_read_failed,
             state,
             state_file,
-            startup_notes: StartupNotes { settings: settings_notes, state: state_notes },
+            startup_notes,
+            deps: None,
+            tracker,
+            exit: ExitCoordinator::new(),
+            geometry: GeometryTracker::new(),
+        }
+    }
+
+    /// Строит `AppCore` с зависимостями нового API (ADR-19, §2.12).
+    ///
+    /// ОТКЛОНЕНИЕ от §2.12: там это тот же конструктор `new(deps, boot)`;
+    /// здесь — отдельное имя, так как `new(boot)` уже занят старым мостом.
+    pub fn with_deps(deps: AppDeps, boot: Boot) -> AppCore {
+        let (settings, settings_file, settings_read_failed, state, state_file, startup_notes, tracker) = from_boot(boot);
+        AppCore {
+            settings,
+            settings_file,
+            settings_read_failed,
+            state,
+            state_file,
+            startup_notes,
+            deps: Some(deps),
+            tracker,
+            exit: ExitCoordinator::new(),
+            geometry: GeometryTracker::new(),
+        }
+    }
+
+    /// Текущее время по инжектируемым часам (ADR-20); без `deps` (мост) —
+    /// начало отсчёта `ClockInstant::START`.
+    fn now(&self) -> ClockInstant {
+        match &self.deps {
+            Some(deps) => deps.clock.now(),
+            None => ClockInstant::START,
         }
     }
 
@@ -169,11 +250,43 @@ impl AppCore {
         self.settings = settings;
     }
 
-    /// Единственный изменитель состояния сессии (И-Т7, ADR-22, §2.12).
-    /// `origin` пока не используется: его потребитель — `PersistTracker`
-    /// (С4, писатель); здесь он только закрывает форму вызова по И-Т7.
-    pub fn change_state(&mut self, _origin: Origin, ch: StateChange) {
+    /// Единственный изменитель состояния сессии (И-Т7, ADR-22, §2.12). При
+    /// наличии `deps` взводит дедлайн отложенной записи `state.toml` для
+    /// `Origin::User` — `PersistTracker::on_state_changed` сам не взводит
+    /// его для `Origin::Program` (ТЗ-11).
+    pub fn change_state(&mut self, origin: Origin, ch: StateChange) {
         self.state.apply(ch);
+        if self.deps.is_some() {
+            let now = self.now();
+            self.tracker.on_state_changed(origin, now);
+        }
+    }
+
+    /// Плейлист изменён пользователем — взводит дедлайн отложенной записи
+    /// `playlist.m3u` (ТЗ-12, §2.7, §6.4). Без `deps` — без эффекта.
+    pub fn playlist_changed(&mut self) {
+        if self.deps.is_some() {
+            let now = self.now();
+            self.tracker.on_playlist_changed(now);
+        }
+    }
+
+    /// Запрещает запись плейлиста до конца сеанса (случай 3 ОВ-8, §2.7).
+    pub fn forbid_playlist(&mut self) {
+        self.tracker.forbid_playlist();
+    }
+
+    /// Программная установка геометрии окна (восстановление при старте или
+    /// повторное применение после `show()`) — запоминается как эхо, не
+    /// взводит дедлайн записи (ADR-22, §6.17).
+    pub fn program_set_geometry(&mut self, g: WindowGeometry) {
+        self.geometry.program_set(g);
+    }
+
+    /// Окно показано: следующее показание геометрии на тике — ожидаемое
+    /// эхо повторного применения после `show()` (ОВС-5 а, ТЗ-11, §6.17).
+    pub fn window_shown(&mut self) {
+        self.geometry.window_shown();
     }
 
     /// Синхронно пишет `settings.toml`/`state.toml`, если текст отличается
@@ -187,6 +300,19 @@ impl AppCore {
         let state_bytes = serialize_state(&self.state);
         let state_outcome = flush_file(ConfigFile::State, &mut self.state_file, state_bytes, writer, &paths.state);
         vec![settings_outcome, state_outcome]
+    }
+
+    /// Отправляет снимок писателю `apap-persist`: заводит `SnapshotId`,
+    /// отмечает его в `PersistTracker` как «в пути» и шлёт `WriterCmd::Write`
+    /// (§6.5). Без `deps` — только заводит `SnapshotId`, без I/O.
+    fn send_snapshot(&mut self, file: WorkFile, bytes: Arc<[u8]>, playlist_seq: Option<u64>) -> SnapshotId {
+        let id = self.tracker.next_id();
+        let snap = Snapshot { id, file, bytes };
+        self.tracker.sent(&snap, playlist_seq);
+        if let Some(deps) = &self.deps {
+            deps.writer.send(WriterCmd::Write(snap));
+        }
+        id
     }
 
     /// Заметки разбора обоих файлов при запуске — данные для будущих записей
@@ -220,6 +346,280 @@ impl AppCore {
             .auto_forbidden
             .then_some("Файл настроек не прочитан — «Сохранить» заменит его значениями из этого окна")
     }
+
+    /// Один тик цикла приложения (ADR-3, ADR-22, §6.4): разбирает ответы
+    /// писателя, проверяет срок отложенной записи и показание геометрии
+    /// окна. `geometry` — текущее показание, если платформа его отдаёт;
+    /// `playlist_bytes` сериализует плейлист лениво — только когда он
+    /// действительно нужен к отправке. Без `deps` (мост) — пустой результат.
+    pub fn tick(&mut self, geometry: Option<WindowGeometry>, playlist_bytes: &dyn Fn() -> Arc<[u8]>) -> TickOutput {
+        let Some(deps) = &self.deps else {
+            return TickOutput { effects: Vec::new(), other: Vec::new() };
+        };
+
+        let mut effects = Vec::new();
+        let mut other = Vec::new();
+        while let Some(reply) = deps.writer.try_recv() {
+            if let WriterReply::Failed { file, err, .. } = &reply {
+                deps.journal.record(JournalRecord::WriteFailed { target: WriteTarget::Work(*file), err: err.clone() });
+            }
+            match self.tracker.on_reply(&reply) {
+                ReplyEffect::None => other.push(reply),
+                effect => effects.push(effect),
+            }
+        }
+
+        let now = self.now();
+        let due = self.tracker.poll_deadline(now);
+
+        if due.state && self.tracker.auto_allowed(ConfigFile::State) && !self.tracker.timer_stopped(WorkFile::State) {
+            match serialize_state(&self.state) {
+                Ok(bytes) => {
+                    if self.tracker.toml_needs_write(ConfigFile::State, &bytes) {
+                        self.send_snapshot(WorkFile::State, bytes, None);
+                    }
+                }
+                Err(SerializeError(msg)) => {
+                    if let Some(deps) = &self.deps {
+                        let err = WriteError::serialize(&msg, &deps.paths.state);
+                        deps.journal.record(JournalRecord::WriteFailed { target: WriteTarget::Work(WorkFile::State), err });
+                    }
+                }
+            }
+        }
+
+        if due.playlist && self.tracker.playlist_writable(true) {
+            let bytes = playlist_bytes();
+            self.send_snapshot(WorkFile::Playlist, bytes, None);
+        }
+
+        if let Some(g) = geometry {
+            if let Some((g, origin)) = self.geometry.observe(g) {
+                self.change_state(origin, StateChange::Window(g));
+            }
+        }
+
+        TickOutput { effects, other }
+    }
+
+    /// «Сохранить» в диалоге настроек (ТЗ-28, §6.4): пишет `settings.toml`
+    /// немедленно, независимо от запрета автозаписи и эталона; меняет срок
+    /// отложенной записи, если интервал изменился. Без `deps` — только
+    /// заменяет настройки в памяти (мост).
+    pub fn save_settings_now(&mut self, settings: Settings) -> Option<ReplyEffect> {
+        let old_interval = self.settings.save_interval;
+        self.settings = settings;
+        self.deps.as_ref()?;
+
+        if self.settings.save_interval != old_interval {
+            let now = self.now();
+            self.tracker.set_interval(self.settings.save_interval, now);
+        }
+
+        let bytes = match serialize_settings(&self.settings) {
+            Ok(bytes) => bytes,
+            Err(SerializeError(msg)) => {
+                let Some(deps) = &self.deps else { return None };
+                let err = WriteError::serialize(&msg, &deps.paths.settings);
+                deps.journal.record(JournalRecord::WriteFailed { target: WriteTarget::Work(WorkFile::Settings), err: err.clone() });
+                return Some(ReplyEffect::Failed(WorkFile::Settings, err.class));
+            }
+        };
+        self.send_snapshot(WorkFile::Settings, bytes, None);
+        None
+    }
+
+    /// «Повторить» (ТЗ-20, §6.8): немедленная отправка снимков указанных
+    /// файлов независимо от дедлайна и эталона; плейлист — если он не под
+    /// постоянным запретом (случай 3 ОВ-8). Без `deps` — без эффекта.
+    pub fn retry(&mut self, files: &[WorkFile], playlist_bytes: &dyn Fn() -> Arc<[u8]>) -> Vec<ReplyEffect> {
+        let mut effects = Vec::new();
+        if self.deps.is_none() {
+            return effects;
+        }
+
+        for &file in files {
+            match file {
+                WorkFile::Settings => match serialize_settings(&self.settings) {
+                    Ok(bytes) => {
+                        self.send_snapshot(WorkFile::Settings, bytes, None);
+                    }
+                    Err(SerializeError(msg)) => {
+                        if let Some(deps) = &self.deps {
+                            let err = WriteError::serialize(&msg, &deps.paths.settings);
+                            deps.journal.record(JournalRecord::WriteFailed {
+                                target: WriteTarget::Work(WorkFile::Settings),
+                                err: err.clone(),
+                            });
+                            effects.push(ReplyEffect::Failed(WorkFile::Settings, err.class));
+                        }
+                    }
+                },
+                WorkFile::State => match serialize_state(&self.state) {
+                    Ok(bytes) => {
+                        self.send_snapshot(WorkFile::State, bytes, None);
+                    }
+                    Err(SerializeError(msg)) => {
+                        if let Some(deps) = &self.deps {
+                            let err = WriteError::serialize(&msg, &deps.paths.state);
+                            deps.journal.record(JournalRecord::WriteFailed {
+                                target: WriteTarget::Work(WorkFile::State),
+                                err: err.clone(),
+                            });
+                            effects.push(ReplyEffect::Failed(WorkFile::State, err.class));
+                        }
+                    }
+                },
+                WorkFile::Playlist => {
+                    if self.tracker.playlist_writable(false) {
+                        let bytes = playlist_bytes();
+                        self.send_snapshot(WorkFile::Playlist, bytes, None);
+                    }
+                }
+            }
+        }
+        effects
+    }
+
+    /// Путь выхода (ADR-7, ТЗ-14, ТЗ-17, ТЗ-32, НФ-9, §6.10): останавливает
+    /// движок, отправляет снимки изменившихся файлов в порядке `Playlist`,
+    /// `State`, `Settings`, ждёт итоговые снимки (новые и уже бывшие в полёте)
+    /// не дольше `EXIT_BUDGET` от запроса и журналирует итог
+    /// (`JournalRecord::ExitSummary`). Повторный запрос — `Ignored` (И-Т8).
+    ///
+    /// ОТКЛОНЕНИЯ от §2.12/§6.10 (мост до С5/С6): остановка движка —
+    /// замыкание `release_engine` (вызывается один раз до записи, его итог —
+    /// `engine_ack`), а не `EngineSink`; текст плейлиста — замыкание
+    /// `playlist_bytes` (модель `Playlist` переходит в `AppCore` на С6);
+    /// черновик диалога и сообщения закрывает `MusicApp` до вызова.
+    pub fn exit(
+        &mut self,
+        reason: ExitReason,
+        release_engine: &mut dyn FnMut() -> bool,
+        playlist_bytes: &dyn Fn() -> Arc<[u8]>,
+    ) -> ExitOutcome {
+        let now = self.now();
+        let Some(until) = self.exit.begin(reason, now) else {
+            return ExitOutcome::Ignored;
+        };
+        if self.deps.is_none() {
+            self.exit.finish();
+            return ExitOutcome::Completed;
+        }
+
+        let mut report = ExitReport::new(reason);
+        report.engine_ack = release_engine();
+
+        // Итоговый снимок каждого файла, ответ на который ждём.
+        let mut waiting: Vec<(WorkFile, SnapshotId)> = Vec::new();
+
+        // Плейлист: флаг и не запрещён (ТЗ-17); `playlist_writable` не
+        // учитывается — одна попытка независимо от прежних неудач (ТЗ-20).
+        if !self.tracker.playlist_forbidden() && self.tracker.playlist_dirty() {
+            let id = self.send_snapshot(WorkFile::Playlist, playlist_bytes(), None);
+            waiting.push((WorkFile::Playlist, id));
+        } else {
+            self.classify_unsent(WorkFile::Playlist, self.tracker.playlist_forbidden(), &mut waiting, &mut report);
+        }
+
+        for (cfg, work) in [(ConfigFile::State, WorkFile::State), (ConfigFile::Settings, WorkFile::Settings)] {
+            let allowed = self.tracker.auto_allowed(cfg);
+            let bytes = match work {
+                WorkFile::Settings => serialize_settings(&self.settings),
+                _ => serialize_state(&self.state),
+            };
+            match bytes {
+                Ok(bytes) if allowed && self.tracker.toml_needs_write(cfg, &bytes) => {
+                    let id = self.send_snapshot(work, bytes, None);
+                    waiting.push((work, id));
+                }
+                Ok(_) => self.classify_unsent(work, !allowed, &mut waiting, &mut report),
+                Err(SerializeError(msg)) => {
+                    let Some(deps) = &self.deps else { break };
+                    let err = WriteError::serialize(&msg, deps.paths.work(work));
+                    deps.journal.record(JournalRecord::WriteFailed { target: WriteTarget::Work(work), err: err.clone() });
+                    report.failed.push((work, err));
+                }
+            }
+        }
+
+        while !waiting.is_empty() {
+            let Some(deps) = &self.deps else { break };
+            if deps.clock.now() >= until {
+                break;
+            }
+            let Some(reply) = deps.waiter.wait(deps.writer.replies(), until, deps.clock.as_ref()) else {
+                break;
+            };
+            // Любой ответ учитывается трекером: эталон, флаг, «в полёте» (§6.5).
+            self.tracker.on_reply(&reply);
+            match reply {
+                WriterReply::Written { file, id } => {
+                    if let Some(pos) = waiting.iter().position(|w| *w == (file, id)) {
+                        waiting.remove(pos);
+                        report.written.push(file);
+                    }
+                }
+                WriterReply::Failed { file, id, err } => {
+                    deps.journal.record(JournalRecord::WriteFailed { target: WriteTarget::Work(file), err: err.clone() });
+                    if let Some(pos) = waiting.iter().position(|w| *w == (file, id)) {
+                        waiting.remove(pos);
+                        report.failed.push((file, err));
+                    }
+                }
+                _ => {}
+            }
+        }
+        report.timed_out.extend(waiting.iter().map(|(f, _)| *f));
+
+        if let Some(deps) = &self.deps {
+            deps.journal.record(JournalRecord::ExitSummary(report));
+            let now = deps.clock.now();
+            if now < until {
+                deps.journal.flush(until.saturating_since(now));
+            }
+        }
+        self.exit.finish();
+        ExitOutcome::Completed
+    }
+
+    /// Файл без нового снимка на пути выхода (§6.10): если в полёте есть
+    /// снимок — его текст и есть итог, ждём ответ; иначе файл запрещён
+    /// (`forbidden`) или не изменился (`unchanged`).
+    fn classify_unsent(
+        &self,
+        file: WorkFile,
+        forbidden: bool,
+        waiting: &mut Vec<(WorkFile, SnapshotId)>,
+        report: &mut ExitReport,
+    ) {
+        if let Some(id) = self.tracker.last_in_flight(file) {
+            waiting.push((file, id));
+        } else if forbidden {
+            report.forbidden.push(file);
+        } else {
+            report.unchanged.push(file);
+        }
+    }
+
+    /// Доступ к `PersistTracker` для менеджеров плейлиста/UI (§2.12).
+    pub fn tracker(&self) -> &PersistTracker {
+        &self.tracker
+    }
+
+    /// Текущая фаза пути выхода (§6.10).
+    pub fn exit_phase(&self) -> ExitPhase {
+        self.exit.phase()
+    }
+}
+
+/// Результат одного тика (§6.4): эффекты ответов писателя, уже обработанные
+/// `PersistTracker` (`Succeeded`/`Failed`), и прочие ответы
+/// (`Superseded`/`Exported`/`BadCopySaved`/...) — их разбирают другие
+/// менеджеры на последующих этапах.
+pub struct TickOutput {
+    pub effects: Vec<ReplyEffect>,
+    pub other: Vec<WriterReply>,
 }
 
 #[cfg(test)]
