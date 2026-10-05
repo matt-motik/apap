@@ -6,6 +6,7 @@ use std::sync::Arc;
 pub mod keys;
 pub mod settings_file;
 pub mod state_file;
+pub mod tracker;
 pub mod writer;
 
 use crate::journal::JournalRecord;
