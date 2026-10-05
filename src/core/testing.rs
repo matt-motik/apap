@@ -1,16 +1,29 @@
-//! Стенд С3 для тестов `AppCore` без Slint (§7.1, §7.2, ADR-19).
+//! Стенд С3/С4 для тестов `AppCore` без Slint (§7.1, §7.2, ADR-19).
 //!
 //! `Harness` оборачивает `MemStore` и воссоздаёт порядок `main` для С3
 //! (ADR-23 шаги 0–2, §8 С3): чтение и разбор обоих файлов (`persist::boot`),
-//! затем копии `*.bad` до появления окна (`persist::write_bad_copies`), затем
-//! `AppCore::new`. Писателя `apap-persist` и задержки по времени (С4) стенд
-//! не моделирует — `flush` вызывается напрямую, синхронно.
+//! затем копии `*.bad` до появления окна (`persist::write_bad_copies`).
+//! Дальше стенд собирает `AppDeps` (ADR-19, §2.12): писатель `apap-persist`
+//! через `spawn_writer` на той же `MemStore`, инжектируемые `ManualClock` и
+//! `ManualWaiter` (ожидание ответа без сна по симулированному времени,
+//! §6.10) и общий `Arc<VecJournal>` — и строит `AppCore::with_deps`.
+//!
+//! `flush` остаётся для старого синхронного моста (бывший С3, удаляется на
+//! последующем этапе); новый путь — `advance`/`settle` поверх `tick`:
+//! продвигают `ManualClock` и дожидаются ответа писателя (§7.1).
 
-use super::{AppCore, FlushOutcome};
+use super::{AppCore, AppDeps, FlushOutcome, TickOutput};
+use crate::audio::clock::Clock;
+use crate::audio::testing::ManualClock;
+use crate::core::exit::{ManualWaiter, ReplyWaiter};
 use crate::journal::{Journal, JournalRecord, VecJournal};
+use crate::persist::writer::spawn_writer;
 use crate::persist::{self, ConfigFile, ConfigPaths, WorkFile};
 use crate::platform::fs::{MemStore, OpCounts, ReadErrorClass, WriteErrorClass, WriteStep};
+use std::cell::RefCell;
 use std::path::PathBuf;
+use std::sync::Arc;
+use std::time::{Duration, Instant};
 
 /// Каталог настроек стенда — не каталог пользователя (ТЗ-49).
 fn test_dir() -> PathBuf {
@@ -20,13 +33,21 @@ fn test_dir() -> PathBuf {
 pub(crate) struct Harness {
     fs: MemStore,
     paths: ConfigPaths,
-    journal: VecJournal,
+    journal: Arc<VecJournal>,
+    clock: ManualClock,
+    playlist: RefCell<Arc<[u8]>>,
 }
 
 impl Harness {
     /// Пустой каталог: оба файла отсутствуют, пока не вызван `put_*`.
     pub(crate) fn new() -> Harness {
-        Harness { fs: MemStore::new(), paths: ConfigPaths::in_dir(test_dir()), journal: VecJournal::default() }
+        Harness {
+            fs: MemStore::new(),
+            paths: ConfigPaths::in_dir(test_dir()),
+            journal: Arc::new(VecJournal::default()),
+            clock: ManualClock::new(),
+            playlist: RefCell::new(Arc::from(&b""[..])),
+        }
     }
 
     /// Положить байты `settings.toml` «на диск» до запуска.
@@ -55,20 +76,29 @@ impl Harness {
     }
 
     /// Запуск (ADR-23 шаги 0–2, §8 С3): чтение + разбор, копии `*.bad` до
-    /// появления окна, затем `AppCore`. Записи журнала для обоих шагов
-    /// (ТЗ-5, ТЗ-6, ТЗ-7, §6.1) накапливаются в `journal()`; результат самих
-    /// копий также проверяется через `bad_copy_bytes`/`bad_copy_counts`.
+    /// появления окна, затем `AppCore` с зависимостями нового API (ADR-19,
+    /// §2.12) — писатель `apap-persist` на той же `MemStore`, инжектируемые
+    /// `ManualClock`/`ManualWaiter` и общий журнал. Записи журнала для
+    /// обоих шагов (ТЗ-5, ТЗ-6, ТЗ-7, §6.1) накапливаются в `journal()`;
+    /// результат самих копий также проверяется через
+    /// `bad_copy_bytes`/`bad_copy_counts`.
     pub(crate) fn boot(&self) -> AppCore {
         let boot = persist::boot(&self.fs, &self.paths);
         for rec in persist::journal_records_for_boot(&boot) {
             self.journal.record(rec);
         }
-        let mut writer = self.fs.clone();
-        let outcomes = persist::write_bad_copies(&boot, &mut writer, &self.paths);
+        let mut bad_copy_writer = self.fs.clone();
+        let outcomes = persist::write_bad_copies(&boot, &mut bad_copy_writer, &self.paths);
         for rec in persist::journal_records_for_bad_copies(&boot, &outcomes) {
             self.journal.record(rec);
         }
-        AppCore::new(boot)
+
+        let writer = spawn_writer(Box::new(self.fs.clone()), self.paths.clone());
+        let clock: Box<dyn Clock> = Box::new(self.clock.clone());
+        let waiter: Box<dyn ReplyWaiter> = Box::new(ManualWaiter::new(self.clock.clone(), self.fs.clone()));
+        let journal: Arc<dyn Journal> = Arc::clone(&self.journal) as Arc<dyn Journal>;
+        let deps = AppDeps { writer, paths: self.paths.clone(), clock, waiter, journal };
+        AppCore::with_deps(deps, boot)
     }
 
     /// Записи журнала, накопленные за `boot` (ТЗ-5, ТЗ-6, ТЗ-7, §6.1).
@@ -76,7 +106,7 @@ impl Harness {
         self.journal.records()
     }
 
-    /// `AppCore::flush` через стенд (временная синхронная запись С3).
+    /// `AppCore::flush` через стенд (старый синхронный мост С3).
     pub(crate) fn flush(&self, core: &mut AppCore) -> Vec<FlushOutcome> {
         let mut writer = self.fs.clone();
         core.flush(&mut writer, &self.paths)
@@ -96,6 +126,52 @@ impl Harness {
 
     pub(crate) fn bad_copy_counts(&self, file: WorkFile) -> OpCounts {
         self.fs.counts(&self.paths.bad_copy(file))
+    }
+
+    /// Текущий снимок плейлиста для `tick`/`advance` (§7.1): источник байт
+    /// настраивается тестом через `set_playlist`.
+    fn playlist_snapshot(&self) -> Arc<[u8]> {
+        self.playlist.borrow().clone()
+    }
+
+    /// Задать байты плейлиста, которые вернёт замыкание `tick` (§7.1).
+    pub(crate) fn set_playlist(&self, bytes: &[u8]) {
+        *self.playlist.borrow_mut() = Arc::from(bytes);
+    }
+
+    /// Продвигает инжектируемые часы на `d`, затем выполняет один тик
+    /// `AppCore` (ADR-19, §6.4, §7.1): срабатывание дедлайна отложенной
+    /// записи и разбор ответов писателя идут по симулированному времени.
+    pub(crate) fn advance(&self, core: &mut AppCore, d: Duration) -> TickOutput {
+        self.clock.advance(d);
+        core.tick(None, &|| self.playlist_snapshot())
+    }
+
+    /// Тикает, пока у `PersistTracker` остаётся хоть один файл «в полёте»
+    /// (§7.1, §6.10): тот же протокол опроса, что у `ManualWaiter` — ждёт
+    /// ответа писателя `apap-persist`, не продвигая симулированное время.
+    /// Срок — 2 с реального времени; превышение — ошибка теста (зависший
+    /// писатель), а не штатный исход.
+    pub(crate) fn settle(&self, core: &mut AppCore) {
+        let start = Instant::now();
+        loop {
+            core.tick(None, &|| self.playlist_snapshot());
+            let pending = [WorkFile::Playlist, WorkFile::State, WorkFile::Settings]
+                .into_iter()
+                .any(|f| core.tracker().last_in_flight(f).is_some());
+            if !pending {
+                return;
+            }
+            assert!(start.elapsed() < Duration::from_secs(2), "settle: писатель не ответил за 2 с реального времени");
+            std::thread::sleep(Duration::from_millis(5));
+        }
+    }
+
+    /// Число успешных записей рабочего файла `file` (§7.1) — по счётчикам
+    /// `MemStore`, независимо от журнала.
+    pub(crate) fn writes(&self, file: WorkFile) -> usize {
+        let counts = self.fs.counts(self.paths.work(file));
+        usize::try_from(counts.writes).expect("счётчик записей укладывается в usize")
     }
 }
 
@@ -324,5 +400,109 @@ mod tests {
             }
             other => panic!("unexpected: {other:?}"),
         }
+    }
+
+    /// Тик без изменений ничего не пишет (ТЗ-4, §6.4, §7.1): дедлайн не
+    /// взведён — продвижение часов на любой срок не вызывает запись.
+    /// Асинхронный аналог `startup_writes_nothing` через `advance`/`settle`.
+    #[test]
+    fn tick_without_change_writes_nothing() {
+        let h = Harness::new();
+        h.put_settings(b"");
+        h.put_state(b"");
+        let mut core = h.boot();
+
+        let interval = core.settings().save_interval.duration();
+        h.advance(&mut core, interval * 2);
+        h.settle(&mut core);
+
+        assert_eq!(h.writes(WorkFile::State), 0);
+        assert_eq!(h.writes(WorkFile::Settings), 0);
+    }
+
+    /// Дедлайн срабатывает, но итоговый текст совпал с эталоном — запись
+    /// не отправляется (И-Р3, ТЗ-9, §6.4, §7.1
+    /// `change_and_revert_writes_nothing`): асинхронный аналог
+    /// `unchanged_files_not_rewritten` через изменение и обратное изменение.
+    #[test]
+    fn state_change_reverted_writes_nothing() {
+        let h = Harness::new();
+        let state_bytes =
+            crate::persist::state_file::serialize_state(&SessionState::default()).expect("serialize state");
+        h.put_settings(b"");
+        h.put_state(&state_bytes);
+        let mut core = h.boot();
+
+        core.change_state(Origin::User, StateChange::Volume(42));
+        core.change_state(Origin::User, StateChange::Volume(100));
+
+        let interval = core.settings().save_interval.duration();
+        h.advance(&mut core, interval);
+        h.settle(&mut core);
+
+        assert_eq!(h.writes(WorkFile::State), 0);
+        assert_eq!(core.state(), &SessionState::default());
+    }
+
+    /// Изменение состояния доходит до писателя за один тик по дедлайну
+    /// (ADR-4, §6.4, §7.1): асинхронный аналог `changed_state_written_once`
+    /// через `advance`/`settle`; повторный тик без новых изменений не
+    /// пишет снова.
+    #[test]
+    fn tick_writes_changed_state_once() {
+        let h = Harness::new();
+        h.put_settings(b"");
+        h.put_state(b"");
+        let mut core = h.boot();
+
+        core.change_state(Origin::User, StateChange::Shuffle(true));
+        let interval = core.settings().save_interval.duration();
+        h.advance(&mut core, interval);
+        h.settle(&mut core);
+
+        assert_eq!(h.writes(WorkFile::State), 1);
+        assert!(core.state().shuffle());
+
+        h.advance(&mut core, interval);
+        h.settle(&mut core);
+        assert_eq!(h.writes(WorkFile::State), 1);
+    }
+
+    /// Нечитаемый `state.toml` запрещает отложенную автозапись на весь
+    /// сеанс (ОВС-6 в, ТЗ-7, §6.4, §7.1): асинхронный аналог
+    /// `unreadable_state_forbids_auto_write` — дедлайн срабатывает, но
+    /// `auto_allowed` не пропускает отправку снимка.
+    #[test]
+    fn unreadable_state_forbids_tick_write() {
+        let h = Harness::new();
+        h.put_settings(b"");
+        h.fail_read_state(ReadErrorClass::NoAccess);
+        let mut core = h.boot();
+
+        core.change_state(Origin::User, StateChange::Shuffle(true));
+        let interval = core.settings().save_interval.duration();
+        h.advance(&mut core, interval);
+        h.settle(&mut core);
+
+        assert_eq!(h.writes(WorkFile::State), 0);
+    }
+
+    /// Изменение плейлиста доходит до писателя по тому же дедлайну, что и
+    /// состояние (§2.7, §6.4, §7.1): `set_playlist` задаёт байты, которые
+    /// вернёт замыкание `tick`.
+    #[test]
+    fn tick_writes_playlist_after_change() {
+        let h = Harness::new();
+        h.put_settings(b"");
+        h.put_state(b"");
+        let mut core = h.boot();
+
+        h.set_playlist(b"track1.flac\ntrack2.flac\n");
+        core.playlist_changed();
+        let interval = core.settings().save_interval.duration();
+        h.advance(&mut core, interval);
+        h.settle(&mut core);
+
+        assert_eq!(h.writes(WorkFile::Playlist), 1);
     }
 }

@@ -36,7 +36,7 @@
 [x] Шаг 5: Примитивы выхода: ExitReason (WindowClose, TrayQuit), ExitOutcome, EXIT_BUDGET, ExitPhase, ExitCoordinator, ExitReport, ReplyWaiter, ChannelWaiter, ManualWaiter (ADR-7, ТЗ-14, НФ-9, §2.11, §6.10). Файлы: src/core/exit.rs (новый), src/core/mod.rs (pub mod). Проверка: cargo test core::exit зелёный
 [x] Шаг 6: Журнал: JournalRecord::Exit(ExitReport) и его строка в apap.log (ТЗ-14, ADR-21, §2.9, §6.10). Файл: src/journal.rs. Проверка: cargo test journal зелёный
 [x] Шаг 7: AppCore поверх писателя (мост): AppDeps {writer, clock, waiter, journal}, AppCore::with_deps; tracker вместо FileState; change_state(origin)→срок; playlist_changed; tick(geometry, playlist_bytes)→ReplyEffect; save_settings_now (ТЗ-28); set_interval; retry(files); exit(reason, release_engine, playlist_bytes); старые new(boot)/flush пока остаются мостом (ADR-19, ADR-3, ADR-7, §2.12, §6.4–§6.10). Файл: src/core/mod.rs. Проверка: cargo check
-[ ] Шаг 8: Harness на писателе: AppDeps из MemStore+spawn_writer, ManualClock, ManualWaiter, VecJournal; advance(d), settle(), writes(f); перевод тестов С3 с flush на новый путь (§7.1). Файлы: src/core/testing.rs, src/core/mod.rs (тесты). Проверка: cargo test core:: зелёный
+[x] Шаг 8: Harness на писателе: AppDeps из MemStore+spawn_writer, ManualClock, ManualWaiter, VecJournal; advance(d), settle(), writes(f); перевод тестов С3 с flush на новый путь (§7.1). Файлы: src/core/testing.rs, src/core/mod.rs (тесты). Проверка: cargo test core:: зелёный
 [ ] Шаг 9: Тесты §7.2 ТЗ-3/10/11/12/16/38 на Harness (state_written_after_n_seconds_once, continuous_series_written_every_n, interval_change_shortens_deadline, change_and_revert_writes_nothing, idle_ten_minutes_writes_nothing, program_change_does_not_start_timer, playlist_dirty_written_by_timer, playlist_write_error_stops_timer_writes, unreadable_playlist_never_written, playlist_flag_kept_if_changed_during_write, crash_keeps_last_written_version, mute_starts_timer, event_*_does_not_write_settings). Файл: src/core/mod.rs (тесты). Проверка: cargo test core:: зелёный
 [ ] Шаг 10: Тесты §7.2 ТЗ-14/20/28/32 на Harness (exit_budget_five_seconds, exit_partial_within_budget, exit_retries_previously_failed_file_once, repeated_tray_quit_ignored, no_space_state_one_window_no_timer_retries, retry_after_space_freed, exit_after_space_freed_without_retry, readonly_media_one_window_two_files, ok_keeps_timer_writes_stopped, dialog_save_single_write_all_fields, dialog_save_without_changes_does_not_write). Файл: src/core/mod.rs (тесты). Проверка: cargo test core:: зелёный
 [ ] Шаг 11: Сериализация плейлиста в байты для снимка: serialize_m3u(&[Track]) -> Arc<[u8]>; save_track_list пишет через неё (ADR-1, §6.5). Файл: src/playlist.rs. Проверка: cargo test playlist зелёный
@@ -49,8 +49,8 @@
 [ ] Шаг 18: Очистка моста: удалить AppCore::new(boot)/flush/FlushOutcome/journal_records_for_flush и синхронный persist::write_bad_copies (§8.1 С4). Файлы: src/core/mod.rs, src/persist/mod.rs. Проверка: cargo check
 [ ] Шаг 19: Тест no_file_io_on_ui_thread (MemStore::calls — только поток apap-persist) и финальная верификация (ТЗ-22, НФ-5). Файл: src/core/mod.rs (тесты). Проверка: cargo test и cargo clippy зелёные, 0 новых варнингов
 
-- **Текущий шаг (current_step):** Шаг 8
-- **Следующий ход:** Шаг 8: Harness на писателе (core/testing.rs, тесты core/mod.rs) — code-writer, sonnet
+- **Текущий шаг (current_step):** Шаг 9
+- **Следующий ход:** Шаг 9: тесты ТЗ-3/10/11/12/16/38 на стенде (core/testing.rs) — code-writer, sonnet
 - **Счетчик безуспешных компиляций:** 0/3
 - **Состояние:** in_progress
 
