@@ -2,6 +2,7 @@
 //! Реализация по умолчанию — `FileJournal` (stderr + `apap.log`), подмена для
 //! автотестов — `VecJournal`. В аудио-колбэке журнал не используется.
 
+use crate::core::exit::{ExitReason, ExitReport};
 use crate::persist::keys::{LoadNote, LoadNoteKind};
 use crate::persist::{ConfigFile, WorkFile};
 use crate::platform::fs::{ReadError, WriteError};
@@ -36,6 +37,8 @@ pub enum JournalRecord {
     /// Временный файл после неудачной записи не удалён (ADR-4: ошибка
     /// удаления — только в журнал).
     TempRemoveFailed { err: WriteError },
+    /// ТЗ-14: итог пути выхода.
+    ExitSummary(ExitReport),
 }
 
 /// Что записывалось (§2.9).
@@ -56,6 +59,7 @@ impl JournalRecord {
             JournalRecord::Unparsable { .. } => "неразбираемый файл",
             JournalRecord::WriteFailed { .. } => "ошибка записи",
             JournalRecord::TempRemoveFailed { .. } => "временный файл не удалён",
+            JournalRecord::ExitSummary(_) => "итог выхода",
         }
     }
 
@@ -85,8 +89,42 @@ impl JournalRecord {
                 format!("{}: {}", target_name(target), write_error_text(err))
             }
             JournalRecord::TempRemoveFailed { err } => write_error_text(err),
+            JournalRecord::ExitSummary(report) => {
+                let failed = report
+                    .failed
+                    .iter()
+                    .map(|(f, err)| format!("{} ({})", f.file_name(), write_error_text(err)))
+                    .collect::<Vec<_>>()
+                    .join(", ");
+                format!(
+                    "причина {}; записаны: {}; без изменений: {}; запрещены: {}; ошибки: {}; не успели: {}; движок остановлен: {}",
+                    exit_reason_text(report.reason),
+                    file_list(&report.written),
+                    file_list(&report.unchanged),
+                    file_list(&report.forbidden),
+                    if failed.is_empty() { "—".to_string() } else { failed },
+                    file_list(&report.timed_out),
+                    if report.engine_ack { "да" } else { "нет" }
+                )
+            }
         }
     }
+}
+
+/// Текст причины выхода для строки журнала (ТЗ-14).
+fn exit_reason_text(reason: ExitReason) -> &'static str {
+    match reason {
+        ExitReason::WindowClose => "закрытие окна",
+        ExitReason::TrayQuit => "«Выход» в трее",
+    }
+}
+
+/// Список рабочих файлов через запятую; пустой список — «—» (ТЗ-14).
+fn file_list(files: &[WorkFile]) -> String {
+    if files.is_empty() {
+        return "—".to_string();
+    }
+    files.iter().map(|f| f.file_name()).collect::<Vec<_>>().join(", ")
 }
 
 /// Текст одной заметки разбора для строки `LoadNotes` (ТЗ-5).
@@ -387,6 +425,33 @@ mod tests {
              записана: нет места на диске, шаг WriteData: No space left on device (код ОС 28); путь \
              /cfg/settings.toml.bad.tmp"
         );
+    }
+
+    #[test]
+    fn journal_exit_summary_line_lists_files_by_outcome() {
+        let err = WriteError {
+            class: WriteErrorClass::NoSpace,
+            step: WriteStep::WriteData,
+            os_code: Some(28),
+            os_text: "No space left on device".into(),
+            path: Path::new("/cfg/settings.toml.tmp").to_path_buf(),
+        };
+        let mut report = crate::core::exit::ExitReport::new(crate::core::exit::ExitReason::WindowClose);
+        report.written = vec![WorkFile::State];
+        report.forbidden = vec![WorkFile::Playlist];
+        report.failed = vec![(WorkFile::Settings, err)];
+        report.engine_ack = true;
+
+        let rec = JournalRecord::ExitSummary(report);
+        assert_eq!(rec.kind(), "итог выхода");
+        let text = rec.text();
+        assert!(text.contains("причина закрытие окна"));
+        assert!(text.contains("записаны: state.toml"));
+        assert!(text.contains("без изменений: —"));
+        assert!(text.contains("запрещены: playlist.m3u"));
+        assert!(text.contains("ошибки: settings.toml (нет места на диске"));
+        assert!(text.contains("не успели: —"));
+        assert!(text.contains("движок остановлен: да"));
     }
 
     /// Временный каталог теста (не каталог пользователя, ТЗ-49).
