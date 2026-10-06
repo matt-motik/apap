@@ -22,9 +22,8 @@ use music_player_rs::core::messages::{
     CloseEffect, Message, MessageButton, MessageButtons, MessageCenter, MessageLevel, MsgEffect,
 };
 use music_player_rs::core::exit::{ExitOutcome, ExitReason};
-use music_player_rs::core::{journal_records_for_flush, AppCore, FlushOutcome};
+use music_player_rs::core::AppCore;
 use music_player_rs::cover::{self, CoverDone, CoverJob};
-use music_player_rs::journal::Journal;
 use music_player_rs::persist::settings_file::Settings as PersistSettings;
 use music_player_rs::persist::settings_file::{ColumnsConfig, ThemeName};
 use music_player_rs::persist::state_file::{
@@ -32,7 +31,6 @@ use music_player_rs::persist::state_file::{
 };
 use music_player_rs::persist::tracker::ReplyEffect;
 use music_player_rs::persist::{ConfigPaths, WorkFile};
-use music_player_rs::platform::fs::FileWriter;
 use music_player_rs::platform::lifecycle::PlatformCaps;
 use music_player_rs::playlist::{self, ScanMsg, Track};
 use music_player_rs::settings::{
@@ -263,11 +261,6 @@ pub struct MusicApp {
     ui: AppWindow,
     /// Пути файлов настроек, состояния, плейлиста и журнала (ADR-19).
     paths: ConfigPaths,
-    /// Писатель рабочих файлов (ADR-4, ТЗ-18, ТЗ-19). До писателя `apap-persist`
-    /// (С4) пишет в UI-потоке в прежние моменты.
-    fs: Box<dyn FileWriter>,
-    /// Журнал (ADR-21): ошибки записи рабочих файлов (ТЗ-20).
-    journal: Arc<dyn Journal>,
     /// Владелец действующих настроек и состояния сессии (ADR-19, И-Т7, §8.1 С3).
     core: AppCore,
     player: Player,
@@ -393,14 +386,12 @@ pub struct MusicApp {
 }
 
 impl MusicApp {
-    /// `paths`, модуль ФС и журнал строит `main` (ADR-19): приложение не ищет
+    /// `paths` и `AppCore` (с писателем и журналом) строит `main` (ADR-19): приложение не ищет
     /// каталог настроек пользователя само, поэтому тесты его не трогают (ТЗ-49).
     pub fn new(
         ui: AppWindow,
         core: AppCore,
         paths: ConfigPaths,
-        fs: Box<dyn FileWriter>,
-        journal: Arc<dyn Journal>,
     ) -> Self {
         let mut player = Player::new();
         let pb_state = core.state().playback();
@@ -487,8 +478,6 @@ impl MusicApp {
         let mut app = Self {
             ui: ui.clone_strong(),
             paths,
-            fs,
-            journal,
             core,
             player,
             tracks,
@@ -565,35 +554,9 @@ impl MusicApp {
         app
     }
 
-    /// Записать `settings.toml`/`state.toml` через `AppCore`, только если
-    /// сериализованный текст отличается от эталона; ошибка — в журнал и в
-    /// окно ошибок записи, успех снимает файл из этого окна, если он там был
-    /// (И-Р3, §6.8, ТЗ-18, ТЗ-20, ТЗ-28). Временная синхронная запись всего
-    /// файла целиком — до писателя `apap-persist` (С4).
-    pub(super) fn save_settings(&mut self) {
-        let outcomes = self.core.flush(self.fs.as_mut(), &self.paths);
-        for rec in journal_records_for_flush(&outcomes) {
-            self.journal.record(rec);
-        }
-        for outcome in outcomes {
-            match outcome {
-                FlushOutcome::Written(file) => {
-                    let effect = self.messages.write_succeeded(file.work());
-                    self.apply_msg_effect(effect);
-                }
-                FlushOutcome::Failed { file, err } => {
-                    let class = err.class;
-                    let effect = self.messages.write_failed(file.work(), class, self.caps);
-                    self.apply_msg_effect(effect);
-                }
-                FlushOutcome::Unchanged(_) | FlushOutcome::Forbidden(_) => {}
-            }
-        }
-    }
-
     /// Применить эффекты ответов писателя из `AppCore::tick`/`AppCore::retry`
     /// (ADR-22, §6.4, §6.5): `Succeeded`/`Failed` — через те же методы
-    /// `MessageCenter`, что и `save_settings`; `None` отфильтрован самим
+    /// `MessageCenter` (ТЗ-18, ТЗ-20); `None` отфильтрован самим
     /// `AppCore` (уходит в `TickOutput.other`), здесь не встречается.
     pub(super) fn apply_reply_effects(&mut self, effects: Vec<ReplyEffect>) {
         for effect in effects {

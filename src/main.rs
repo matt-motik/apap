@@ -51,17 +51,15 @@ fn main() {
     }
     // Журнал и модуль ФС собираются только здесь (ADR-19, ADR-21).
     let journal: Arc<dyn Journal> = Arc::new(FileJournal::start(paths.journal.clone()));
-    let (reader, work_fs, _engine_fs) = os_fs(journal.clone());
+    let (reader, writer_fs, _engine_fs) = os_fs(journal.clone());
     // Чтение и разбор обоих файлов до создания окна, по одному разу каждый
     // (ADR-23 шаг 2, §6.1, ТЗ-1, ТЗ-4). Запись не производится здесь.
     let boot = persist::boot(reader.as_ref(), &paths);
     for rec in persist::journal_records_for_boot(&boot) {
         journal.record(rec);
     }
-    // Писатель `apap-persist` (ADR-23 шаг 3, §6.6, ТЗ-3) получает собственный
-    // экземпляр ФС, не связанный с `work_fs` — тот остаётся мостом для
-    // старого синхронного `flush`/`save_playlist` до шага очистки (§8.1 С3).
-    let (_, writer_fs, _) = os_fs(journal.clone());
+    // Писатель `apap-persist` (ADR-23 шаг 3, §6.6, ТЗ-3) — единственный
+    // владелец записи рабочих файлов; UI-поток файлов не пишет (ТЗ-22).
     let writer = spawn_writer(writer_fs, paths.clone());
     // Копия `*.bad` неразбираемого файла пишется до первой записи этим же
     // файлом (И-Р18, ТЗ-6): команды `BadCopy` уходят писателю раньше любого
@@ -90,7 +88,7 @@ fn main() {
             return;
         }
     };
-    let app = Rc::new(RefCell::new(MusicApp::new(ui.clone_strong(), core, paths, work_fs, journal.clone())));
+    let app = Rc::new(RefCell::new(MusicApp::new(ui.clone_strong(), core, paths)));
     MusicApp::init(&app);
 
     let weak = ui.as_weak();
