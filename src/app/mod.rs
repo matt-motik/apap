@@ -23,7 +23,7 @@ use music_player_rs::core::messages::{
 };
 use music_player_rs::core::{journal_records_for_flush, AppCore, FlushOutcome};
 use music_player_rs::cover::{self, CoverDone, CoverJob};
-use music_player_rs::journal::{Journal, JournalRecord, WriteTarget};
+use music_player_rs::journal::Journal;
 use music_player_rs::persist::settings_file::Settings as PersistSettings;
 use music_player_rs::persist::settings_file::{ColumnsConfig, ThemeName};
 use music_player_rs::persist::state_file::{
@@ -303,7 +303,6 @@ pub struct MusicApp {
     audio_error: Option<String>,
     /// Effective output device name (from the probe or last successful switch).
     active_device: String,
-    playlist_dirty: bool,
     tray_rx: Option<std::sync::mpsc::Receiver<TrayCmd>>,
     tray_up_tx: Option<tokio::sync::mpsc::UnboundedSender<tray::TrayState>>,
     last_tray_update: Instant,
@@ -512,7 +511,6 @@ impl MusicApp {
             audio_error,
             active_device,
             disk_tracks: Vec::new(),
-            playlist_dirty: false,
             tray_rx: Some(tray_rx),
             tray_up_tx: Some(tray_up_tx),
             last_tray_update: Instant::now(),
@@ -650,25 +648,17 @@ impl MusicApp {
         self.ui.set_window_blocked(self.gate.window_blocked());
     }
 
-    /// Повторить синхронную запись перечисленных рабочих файлов (кнопка
-    /// «Повторить» сводного окна ошибок записи, §6.8, ТЗ-20, ТЗ-52). Проходит
-    /// через те же методы, что инструментированы `write_failed`/
-    /// `write_succeeded` (ТЗ-13), так что результат повтора сам обновит окно.
-    /// `WorkFile::Settings`/`WorkFile::State` идут через `AppCore::retry`
-    /// (писатель `apap-persist`, ADR-22); `WorkFile::Playlist` — пока через
-    /// `save_playlist` (плейлист переходит на писателя отдельным шагом).
+    /// Повторить запись перечисленных рабочих файлов (кнопка «Повторить»
+    /// сводного окна ошибок записи, §6.8, ТЗ-20, ТЗ-52): снимки уходят
+    /// писателю `apap-persist` через `AppCore::retry` (ADR-22); ответы
+    /// приходят в `tick` и обновляют окно через `write_failed`/
+    /// `write_succeeded` (ТЗ-13).
     pub(super) fn retry_writes(&mut self, files: Vec<WorkFile>) {
-        let mut core_files = Vec::new();
-        for file in files {
-            match file {
-                WorkFile::Settings | WorkFile::State => core_files.push(file),
-                WorkFile::Playlist => self.save_playlist(),
-            }
+        if files.is_empty() {
+            return;
         }
-        if !core_files.is_empty() {
-            let effects = self.core.retry(&core_files, &|| playlist::serialize_m3u(&self.disk_tracks));
-            self.apply_reply_effects(effects);
-        }
+        let effects = self.core.retry(&files, &|| playlist::serialize_m3u(&self.disk_tracks));
+        self.apply_reply_effects(effects);
     }
 
     /// Поставить сообщение в `MessageCenter` и сразу применить эффект
@@ -1910,9 +1900,9 @@ impl MusicApp {
                 } else {
                     let mut a = app.borrow_mut();
                     a.save_window_geometry();
-                    if a.playlist_dirty {
-                        a.save_playlist();
-                    }
+                    // Снимок плейлиста писателю; ожидание ответов — путь
+                    // выхода `AppCore::exit` (подключается следующими шагами).
+                    a.save_playlist();
                     // Free an exclusive raw-`hw:` node before the event loop
                     // quits (V5.1-B6).
                     a.player.release_engine();
@@ -2071,9 +2061,9 @@ impl MusicApp {
                 }
                 TrayCmd::Quit => {
                     self.save_window_geometry();
-                    if self.playlist_dirty {
-                        self.save_playlist();
-                    }
+                    // Снимок плейлиста писателю; ожидание ответов — путь
+                    // выхода `AppCore::exit` (подключается следующими шагами).
+                    self.save_playlist();
                     // Drop the stream so an exclusive raw-`hw:` node returns to
                     // the system mixer even if the process lingers during quit
                     // teardown (V5.1-B6).

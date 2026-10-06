@@ -92,29 +92,20 @@ impl MusicApp {
         }
     }
 
+    /// Плейлист изменён пользователем: взводит срок отложенной записи
+    /// `playlist.m3u` в `AppCore`; сам снимок уходит писателю из `tick`
+    /// (ТЗ-12, §6.4).
     pub(super) fn mark_playlist_dirty(&mut self) {
-        self.playlist_dirty = true;
+        self.core.playlist_changed();
     }
 
+    /// Немедленная запись `playlist.m3u` снимком через писатель `apap-persist`
+    /// (ТЗ-22, §6.8). На диске — всегда `disk_tracks` (загруженный список +
+    /// добавленные), а не порядок сортировки на экране. Результат приходит
+    /// ответом писателя в `tick` и обновляет окно ошибок записи (ТЗ-20).
     pub(super) fn save_playlist(&mut self) {
-        // The on-disk playlist always reflects `disk_tracks` (original load +
-        // scanned additions), never the on-screen sort order.
-        // Ошибка записи — в журнал и в окно ошибок записи, флаг остаётся
-        // взведённым; успех снимает файл из окна, если он там был (§6.8, ТЗ-20).
-        match playlist::save_track_list(self.fs.as_mut(), &self.paths.playlist, &self.disk_tracks) {
-            Ok(()) => {
-                self.playlist_dirty = false;
-                let effect = self.messages.write_succeeded(WorkFile::Playlist);
-                self.apply_msg_effect(effect);
-            }
-            Err(err) => {
-                let class = err.class;
-                let target = WriteTarget::Work(WorkFile::Playlist);
-                self.journal.record(JournalRecord::WriteFailed { target, err });
-                let effect = self.messages.write_failed(WorkFile::Playlist, class, self.caps);
-                self.apply_msg_effect(effect);
-            }
-        }
+        let effects = self.core.retry(&[WorkFile::Playlist], &|| playlist::serialize_m3u(&self.disk_tracks));
+        self.apply_reply_effects(effects);
     }
 
     pub(super) fn remove_track(&mut self, index: usize) {
