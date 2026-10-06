@@ -29,6 +29,7 @@ use music_player_rs::persist::settings_file::{ColumnsConfig, ThemeName};
 use music_player_rs::persist::state_file::{
     effective_width_pct, LegacyPlaybackState, normalize_visible, widths_on_disable, widths_on_enable, Origin, SortDirection, StateChange, WidthPct,
 };
+use music_player_rs::persist::tracker::ReplyEffect;
 use music_player_rs::persist::{ConfigPaths, WorkFile};
 use music_player_rs::platform::fs::FileWriter;
 use music_player_rs::platform::lifecycle::PlatformCaps;
@@ -593,6 +594,26 @@ impl MusicApp {
         }
     }
 
+    /// Применить эффекты ответов писателя из `AppCore::tick`/`AppCore::retry`
+    /// (ADR-22, §6.4, §6.5): `Succeeded`/`Failed` — через те же методы
+    /// `MessageCenter`, что и `save_settings`; `None` отфильтрован самим
+    /// `AppCore` (уходит в `TickOutput.other`), здесь не встречается.
+    pub(super) fn apply_reply_effects(&mut self, effects: Vec<ReplyEffect>) {
+        for effect in effects {
+            match effect {
+                ReplyEffect::None => {}
+                ReplyEffect::Succeeded(file) => {
+                    let effect = self.messages.write_succeeded(file);
+                    self.apply_msg_effect(effect);
+                }
+                ReplyEffect::Failed(file, class) => {
+                    let effect = self.messages.write_failed(file, class, self.caps);
+                    self.apply_msg_effect(effect);
+                }
+            }
+        }
+    }
+
     /// Применить эффект `MessageCenter` к Slint-свойствам окна сообщения и
     /// к шлюзу главного окна (ADR-13, §6.15). `notify` — уведомление при окне
     /// в трее (ТЗ-52 п. 3); до трейта `Notifier` этапа С5 (ADR-9) доставляется
@@ -633,14 +654,20 @@ impl MusicApp {
     /// «Повторить» сводного окна ошибок записи, §6.8, ТЗ-20, ТЗ-52). Проходит
     /// через те же методы, что инструментированы `write_failed`/
     /// `write_succeeded` (ТЗ-13), так что результат повтора сам обновит окно.
-    /// `WorkFile::Settings` и `WorkFile::State` оба идут через `save_settings`
-    /// (`AppCore::flush` пишет оба файла, §8.1 С3).
+    /// `WorkFile::Settings`/`WorkFile::State` идут через `AppCore::retry`
+    /// (писатель `apap-persist`, ADR-22); `WorkFile::Playlist` — пока через
+    /// `save_playlist` (плейлист переходит на писателя отдельным шагом).
     pub(super) fn retry_writes(&mut self, files: Vec<WorkFile>) {
+        let mut core_files = Vec::new();
         for file in files {
             match file {
-                WorkFile::Settings | WorkFile::State => self.save_settings(),
+                WorkFile::Settings | WorkFile::State => core_files.push(file),
                 WorkFile::Playlist => self.save_playlist(),
             }
+        }
+        if !core_files.is_empty() {
+            let effects = self.core.retry(&core_files, &|| playlist::serialize_m3u(&self.disk_tracks));
+            self.apply_reply_effects(effects);
         }
     }
 
@@ -1906,6 +1933,13 @@ impl MusicApp {
         self.handle_reservation();
         self.handle_auto_advance();
         self.sync_playback_state_to_ui();
+        // `geometry` = `None`: показание окна пробрасывается через `AppCore`
+        // отдельным шагом позже (SP1.0-8.4), пока окно отслеживает его
+        // по-старому в `track_window_geometry` (§6.4).
+        let output = self.core.tick(None, &|| playlist::serialize_m3u(&self.disk_tracks));
+        self.apply_reply_effects(output.effects);
+        // `output.other` (экспорт/бэд-копии/карантин) — разбор добавится на
+        // этапе писателя для этих путей; пока ответы отбрасываются.
         self.track_window_geometry();
         self.sync_dsd_status_ui();
         if self.ui.get_bp_report_open() {
