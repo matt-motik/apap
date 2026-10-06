@@ -377,10 +377,6 @@ pub struct MusicApp {
     /// Debounce перестроения полнотрековых при изменении параметров из диалога
     /// (ТЗ §9.2: 500 мс): (момент последнего изменения, целевой (path, key)).
     viz_debounce: Option<(Instant, Option<(PathBuf, String)>)>,
-    /// Окно: геометрия изменилась и ждёт сохранения (debounce в `tick`, V5.1-B7).
-    win_geom_dirty: bool,
-    /// Момент последнего изменения геометрии окна (для дебаунса записи).
-    win_geom_changed: Option<Instant>,
     /// Шлюз главного окна: причины блокировки (диалог/сообщение/выбор файла)
     /// и вид идущей загрузки плейлиста (ADR-12, ТЗ-23, ТЗ-48, §2.11).
     gate: UiGate,
@@ -547,8 +543,6 @@ impl MusicApp {
             fulltrack_cache: clru::CLruCache::new(cache_max_entries),
             fulltrack_mode: None,
             viz_debounce: None,
-            win_geom_dirty: false,
-            win_geom_changed: None,
             gate: UiGate::default(),
             messages: MessageCenter::default(),
             caps: PlatformCaps { tray: true, notifications: true },
@@ -563,6 +557,10 @@ impl MusicApp {
             app.apply_sort(k.column, k.direction == SortDirection::Desc);
         }
         app.apply_window_geometry();
+        // Восстановленная геометрия — программная установка: её эхо на тике
+        // не взводит срок записи (ADR-22, §6.17).
+        let restored = app.core.state().window();
+        app.core.program_set_geometry(restored);
         // Запуск ничего не пишет (ТЗ-4, §8.1 С3).
         app
     }
@@ -676,7 +674,12 @@ impl MusicApp {
         self.ui.set_msg_shown(false);
         self.gate.unblock(BlockReason::Message);
         self.sync_gate_ui();
-        self.save_window_geometry();
+        // Последнее показание геометрии — в состояние до итоговых снимков.
+        if let Some(g) = self.window_geometry() {
+            if g != self.core.state().window() {
+                self.core.change_state(Origin::User, StateChange::Window(g));
+            }
+        }
         let player = &mut self.player;
         let mut release_engine = || {
             player.release_engine();
@@ -701,6 +704,9 @@ impl MusicApp {
     /// ТЗ-52 п. 1 «после первого показа») — вызывается из `main` сразу после
     /// `ui.show()`.
     pub(crate) fn window_shown(&mut self) {
+        // Следующее показание геометрии — эхо повторного применения после
+        // `show()`, источник — программа (ОВС-5 а, ТЗ-11, §6.17).
+        self.core.window_shown();
         let effect = self.messages.window_shown();
         self.apply_msg_effect(effect);
     }
@@ -1927,15 +1933,9 @@ impl MusicApp {
                     a.apply_msg_effect(effect);
                     slint::CloseRequestResponse::KeepWindowShown
                 } else {
-                    let mut a = app.borrow_mut();
-                    a.save_window_geometry();
-                    // Снимок плейлиста писателю; ожидание ответов — путь
-                    // выхода `AppCore::exit` (подключается следующими шагами).
-                    a.save_playlist();
-                    // Free an exclusive raw-`hw:` node before the event loop
-                    // quits (V5.1-B6).
-                    a.player.release_engine();
-                    let _ = slint::quit_event_loop();
+                    // Путь выхода (ТЗ-14, ТЗ-22, §6.10): освобождение движка,
+                    // итоговые снимки писателю, ожидание в бюджете выхода.
+                    app.borrow_mut().exit(ExitReason::WindowClose);
                     slint::CloseRequestResponse::KeepWindowShown
                 }
             });
@@ -1956,14 +1956,14 @@ impl MusicApp {
         self.handle_reservation();
         self.handle_auto_advance();
         self.sync_playback_state_to_ui();
-        // `geometry` = `None`: показание окна пробрасывается через `AppCore`
-        // отдельным шагом позже (SP1.0-8.4), пока окно отслеживает его
-        // по-старому в `track_window_geometry` (§6.4).
-        let output = self.core.tick(None, &|| playlist::serialize_m3u(&self.disk_tracks));
+        // Показание геометрии окна: `AppCore` отличает эхо программной
+        // установки от действия пользователя и взводит срок записи только
+        // для последнего (ОВС-5 а, ADR-22, §6.17, V5.1-B7).
+        let geometry = self.window_geometry();
+        let output = self.core.tick(geometry, &|| playlist::serialize_m3u(&self.disk_tracks));
         self.apply_reply_effects(output.effects);
         // `output.other` (экспорт/бэд-копии/карантин) — разбор добавится на
         // этапе писателя для этих путей; пока ответы отбрасываются.
-        self.track_window_geometry();
         self.sync_dsd_status_ui();
         if self.ui.get_bp_report_open() {
             let report = bp_report::build_bp_report(&bp_report::bp_inputs(self));
@@ -2089,15 +2089,9 @@ impl MusicApp {
                     }
                 }
                 TrayCmd::Quit => {
-                    self.save_window_geometry();
-                    // Снимок плейлиста писателю; ожидание ответов — путь
-                    // выхода `AppCore::exit` (подключается следующими шагами).
-                    self.save_playlist();
-                    // Drop the stream so an exclusive raw-`hw:` node returns to
-                    // the system mixer even if the process lingers during quit
-                    // teardown (V5.1-B6).
-                    self.player.release_engine();
-                    let _ = slint::quit_event_loop();
+                    // Путь выхода (ТЗ-14, ТЗ-22, §6.10); повтор во время
+                    // выхода игнорируется (`ExitOutcome::Ignored`).
+                    self.exit(ExitReason::TrayQuit);
                 }
                 TrayCmd::Wheel(delta) => {
                     const WHEEL_VOLUME_STEP: f32 = 0.02;

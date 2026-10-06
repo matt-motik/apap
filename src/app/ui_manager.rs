@@ -5,7 +5,7 @@ use super::*;
 
 use music_player_rs::audio::output::DeviceCategory;
 use music_player_rs::persist::state_file::{
-    effective_width_pct, Origin, PhysPos, PhysSize, SortDirection, StateChange,
+    effective_width_pct, Origin, PhysPos, PhysSize, SortDirection, StateChange, WindowGeometry,
 };
 use music_player_rs::theme::StandardPalette;
 use music_player_rs::persist::settings_file::SaveInterval;
@@ -52,69 +52,27 @@ impl MusicApp {
         }
     }
 
-    /// Persist the current window size/position for the next run, together with
-    /// the fullscreen/maximized state flags — session state via `change_state`
-    /// (И-Т7, §8.1 С3).
-    pub(super) fn save_window_geometry(&mut self) {
+    /// Текущее показание геометрии окна для `AppCore::tick` (ADR-22, §6.17):
+    /// флаги fullscreen/maximized и, только в обычном состоянии окна, размер
+    /// и позиция. В fullscreen/maximized `size()` — размер во весь экран,
+    /// который нельзя восстанавливать как размер окна, поэтому остаётся
+    /// последний «нормальный» размер из состояния. `None` — окно скрыто
+    /// (в трее), показания нет.
+    pub(super) fn window_geometry(&self) -> Option<WindowGeometry> {
         let w = self.ui.window();
+        if !w.is_visible() {
+            return None;
+        }
         let mut geom = self.core.state().window();
         geom.fullscreen = w.is_fullscreen();
         geom.maximized = w.is_maximized();
-        // Размер/позицию сохраняем только из обычного состояния окна: в
-        // fullscreen/maximized `size()` возвращает размер во весь экран,
-        // который нельзя восстанавливать как размер окна. Последний «нормальный»
-        // размер из settings сохраняется нетронутым.
         if !geom.fullscreen && !geom.maximized {
             let size = w.size();
             let pos = w.position();
             geom.size = Some(PhysSize { width: size.width, height: size.height });
             geom.position = Some(PhysPos { x: pos.x, y: pos.y });
         }
-        // Запись — по сроку отложенной записи или на выходе через писатель
-        // (ТЗ-10, ТЗ-22, §6.10), не синхронно в UI-потоке.
-        self.core.change_state(Origin::User, StateChange::Window(geom));
-        self.win_geom_dirty = false;
-        self.win_geom_changed = None;
-    }
-
-    /// Debounce-сохранение геометрии окна из `tick` (V5.1-B7): запись на диск
-    /// выполняется не чаще одного раза в ~2 c после последнего изменения
-    /// размера/позиции/состояния. Гарантирует, что размер и положение окна
-    /// сохраняются даже при аварийном завершении или если close-запрос не
-    /// пришёл (WM-килл, suspend), а не только на close/quit-путях выхода.
-    pub(super) fn track_window_geometry(&mut self) {
-        const SAVE_GEOM_DEBOUNCE: std::time::Duration = std::time::Duration::from_secs(2);
-        let w = self.ui.window();
-        if !w.is_visible() {
-            return;
-        }
-        let size = w.size();
-        let pos = w.position();
-        let max = w.is_maximized();
-        let full = w.is_fullscreen();
-        let geom = self.core.state().window();
-        let normal = !max && !full;
-        let matches = geom.maximized == max
-            && geom.fullscreen == full
-            && (!normal
-                || (geom.size == Some(PhysSize { width: size.width, height: size.height })
-                    && geom.position == Some(PhysPos { x: pos.x, y: pos.y })));
-        if matches {
-            self.win_geom_dirty = false;
-            self.win_geom_changed = None;
-            return;
-        }
-        if !self.win_geom_dirty {
-            self.win_geom_dirty = true;
-            self.win_geom_changed = Some(std::time::Instant::now());
-            return;
-        }
-        let ready = self
-            .win_geom_changed
-            .is_none_or(|t| t.elapsed() >= SAVE_GEOM_DEBOUNCE);
-        if ready {
-            self.save_window_geometry();
-        }
+        Some(geom)
     }
 
     /// Build the dialog's column-list model (visibility/order/width display)
