@@ -3,16 +3,20 @@
 mod app;
 
 use app::MusicApp;
-use music_player_rs::core::AppCore;
+use music_player_rs::audio::clock::MonotonicClock;
+use music_player_rs::core::exit::ChannelWaiter;
+use music_player_rs::core::{AppCore, AppDeps};
 use music_player_rs::journal::{FileJournal, Journal};
-use music_player_rs::persist::{self, ConfigPaths};
+use music_player_rs::persist::keys::Parsed;
+use music_player_rs::persist::writer::{spawn_writer, WriterCmd, WriterHandle, WriterReply};
+use music_player_rs::persist::{self, BadCopyOutcome, Boot, ConfigFile, ConfigPaths};
 use music_player_rs::platform::fs::os_fs;
 use music_player_rs::theme::create_default_themes;
 use slint::ComponentHandle;
 use std::cell::RefCell;
 use std::rc::Rc;
 use std::sync::Arc;
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 /// UI update period: pulls tray commands, scan/cover results and playback
 /// state into the window. Also bounds responsiveness of transport controls.
@@ -30,6 +34,11 @@ const VIZ_PUSH_INTERVAL_MS: u64 = app::visualizer_manager::VIZ_PUSH_INTERVAL_MS;
 /// Срок дозаписи журнала при выходе; полный путь выхода — С4 (ADR-7, ADR-21).
 const JOURNAL_FLUSH_BUDGET: Duration = Duration::from_secs(1);
 
+/// Срок ожидания ответов писателя на команды `BadCopy` до создания окна
+/// (ADR-23 шаг 3, §8 С4). Окна ещё нет — бюджет небольшой и локальный, а не
+/// общий `EXIT_BUDGET` пути выхода.
+const BAD_COPY_WAIT_BUDGET: Duration = Duration::from_secs(2);
+
 fn main() {
     // Каталог настроек пользователя ищется только здесь (ТЗ-49, ADR-19):
     // остальной код получает пути из `ConfigPaths`.
@@ -42,24 +51,37 @@ fn main() {
     }
     // Журнал и модуль ФС собираются только здесь (ADR-19, ADR-21).
     let journal: Arc<dyn Journal> = Arc::new(FileJournal::start(paths.journal.clone()));
-    let (reader, mut work_fs, _engine_fs) = os_fs(journal.clone());
+    let (reader, work_fs, _engine_fs) = os_fs(journal.clone());
     // Чтение и разбор обоих файлов до создания окна, по одному разу каждый
     // (ADR-23 шаг 2, §6.1, ТЗ-1, ТЗ-4). Запись не производится здесь.
     let boot = persist::boot(reader.as_ref(), &paths);
     for rec in persist::journal_records_for_boot(&boot) {
         journal.record(rec);
     }
+    // Писатель `apap-persist` (ADR-23 шаг 3, §6.6, ТЗ-3) получает собственный
+    // экземпляр ФС, не связанный с `work_fs` — тот остаётся мостом для
+    // старого синхронного `flush`/`save_playlist` до шага очистки (§8.1 С3).
+    let (_, writer_fs, _) = os_fs(journal.clone());
+    let writer = spawn_writer(writer_fs, paths.clone());
     // Копия `*.bad` неразбираемого файла пишется до первой записи этим же
-    // файлом (И-Р18); до писателя `apap-persist` (С4) — синхронно здесь
-    // (§8 С3, ADR-23 шаг 3).
-    let bad_copy_outcomes = persist::write_bad_copies(&boot, &mut *work_fs, &paths);
-    for rec in persist::journal_records_for_bad_copies(&boot, &bad_copy_outcomes) {
-        journal.record(rec);
-    }
-    // `AppCore` — владелец действующих настроек и состояния (ADR-19, §6.1).
-    // `MusicApp` владеет этим экземпляром; старое плоское поле настроек
-    // заполняется из него через мост до шага очистки (§8.1 С3).
-    let core = AppCore::new(boot);
+    // файлом (И-Р18, ТЗ-6): команды `BadCopy` уходят писателю раньше любого
+    // `Write` — FIFO писателя (§6.6) гарантирует нужный порядок без
+    // синхронной записи (§8 С4, ADR-23 шаг 3).
+    bad_copies_via_writer(&boot, &writer, journal.as_ref());
+    // `AppCore` — владелец действующих настроек и состояния, писателя и
+    // инжектируемых часов/ожидания (ADR-19, ADR-23, §2.12, §6.1). `MusicApp`
+    // владеет этим экземпляром; старое плоское поле настроек заполняется из
+    // него через мост до шага очистки (§8.1 С3).
+    let core = AppCore::with_deps(
+        AppDeps {
+            writer,
+            paths: paths.clone(),
+            clock: Box::new(MonotonicClock::new()),
+            waiter: Box::new(ChannelWaiter),
+            journal: journal.clone(),
+        },
+        boot,
+    );
     let ui = match app::create_ui() {
         Ok(ui) => ui,
         Err(e) => {
@@ -134,4 +156,53 @@ fn main() {
     drop(timer);
     // Дописать строки журнала до выхода процесса (ADR-21).
     journal.flush(JOURNAL_FLUSH_BUDGET);
+}
+
+/// Копии `*.bad` неразбираемых файлов через писателя `apap-persist` (ТЗ-6,
+/// ТЗ-22, И-Р18, ADR-23 шаг 3, §8 С4). Команды `BadCopy` отправляются до
+/// создания `AppCore` — на этот момент писателю ещё не послано ни одного
+/// `Write`, поэтому FIFO очереди (§6.6) сам гарантирует нужный порядок:
+/// копия пишется раньше первой записи этим же файлом.
+///
+/// Ждёт ровно столько ответов, сколько команд отправлено, в пределах
+/// `BAD_COPY_WAIT_BUDGET` суммарно (окна ещё нет — таймаут небольшой и
+/// локальный). Любой ответ, пришедший раньше срока, конвертируется в
+/// `persist::BadCopyOutcome` и попадает в журнал через
+/// `persist::journal_records_for_bad_copies`; файл, на который ответ не
+/// успел прийти, просто не получает записи журнала (функция строит записи
+/// по числу элементов `outcomes`, а не по числу неразбираемых файлов).
+/// Ответ другого типа здесь не ожидается — `Write` до этого момента не
+/// отправлялся — и игнорируется.
+fn bad_copies_via_writer(boot: &Boot, writer: &WriterHandle, journal: &dyn Journal) {
+    let mut expected: u32 = 0;
+    if let Parsed::Unparsable { original, .. } = &boot.settings {
+        writer.send(WriterCmd::BadCopy { file: ConfigFile::Settings, bytes: original.clone() });
+        expected += 1;
+    }
+    if let Parsed::Unparsable { original, .. } = &boot.state {
+        writer.send(WriterCmd::BadCopy { file: ConfigFile::State, bytes: original.clone() });
+        expected += 1;
+    }
+    if expected == 0 {
+        return;
+    }
+
+    let deadline = Instant::now() + BAD_COPY_WAIT_BUDGET;
+    let mut outcomes: Vec<BadCopyOutcome> = Vec::new();
+    while outcomes.len() < expected as usize {
+        let remaining = deadline.saturating_duration_since(Instant::now());
+        if remaining.is_zero() {
+            break;
+        }
+        match writer.replies().recv_timeout(remaining) {
+            Ok(WriterReply::BadCopySaved { file, path }) => outcomes.push(BadCopyOutcome { file, result: Ok(path) }),
+            Ok(WriterReply::BadCopyFailed { file, err }) => outcomes.push(BadCopyOutcome { file, result: Err(err) }),
+            Ok(_) => {}
+            Err(_) => break,
+        }
+    }
+
+    for rec in persist::journal_records_for_bad_copies(boot, &outcomes) {
+        journal.record(rec);
+    }
 }

@@ -73,7 +73,7 @@ steps:
     done: true
   - id: 14
     description: "main и конструктор MusicApp: spawn_writer на отдельном экземпляре ФС (self.fs в MusicApp остаётся мостом для flush/save_playlist до шага 23), копии *.bad через WriterCmd::BadCopy до Write, AppCore::with_deps с MonotonicClock/ChannelWaiter/journal (ADR-23, ТЗ-6, ТЗ-22, §6.1). Файлы: src/main.rs, src/app/mod.rs (конструктор). Проверка: cargo check"
-    done: false
+    done: true
   - id: 15
     description: "MusicApp::tick → core.tick: ответы писателя → write_failed/write_succeeded окна сообщений; retry_writes → core.retry (ТЗ-11, ТЗ-20, §6.8). Файл: src/app/mod.rs. Проверка: cargo check"
     done: false
@@ -108,8 +108,8 @@ steps:
     description: "Тест no_file_io_on_ui_thread (MemStore::calls — только поток apap-persist) и финальная верификация (ТЗ-22, НФ-5). Файл: src/core/testing.rs. Проверка: cargo test и cargo clippy зелёные, 0 новых варнингов"
     done: false
 
-current_step: 14
-next_action: "Шаг 14: main + конструктор MusicApp — spawn_writer, BadCopy через WriterCmd, AppCore::with_deps (MonotonicClock/ChannelWaiter/journal) — новый code-writer, sonnet. Отложено из шага 9: unreadable_playlist_never_written — нет чтения плейлиста в AppCore до С6"
+current_step: 15
+next_action: "Шаг 15: MusicApp::tick → core.tick (ответы писателя → окна сообщений), retry_writes → core.retry — новый code-writer, sonnet. Отложено из шага 9: unreadable_playlist_never_written — нет чтения плейлиста в AppCore до С6"
 
 fail_counter: 0
 fail_counter_max: 3
