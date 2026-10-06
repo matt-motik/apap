@@ -70,8 +70,9 @@ impl MusicApp {
             geom.size = Some(PhysSize { width: size.width, height: size.height });
             geom.position = Some(PhysPos { x: pos.x, y: pos.y });
         }
+        // Запись — по сроку отложенной записи или на выходе через писатель
+        // (ТЗ-10, ТЗ-22, §6.10), не синхронно в UI-потоке.
         self.core.change_state(Origin::User, StateChange::Window(geom));
-        self.save_settings();
         self.win_geom_dirty = false;
         self.win_geom_changed = None;
     }

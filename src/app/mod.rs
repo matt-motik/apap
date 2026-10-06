@@ -21,6 +21,7 @@ use music_player_rs::core::gate::{BlockReason, LoadKind, MainCmd, UiGate};
 use music_player_rs::core::messages::{
     CloseEffect, Message, MessageButton, MessageButtons, MessageCenter, MessageLevel, MsgEffect,
 };
+use music_player_rs::core::exit::{ExitOutcome, ExitReason};
 use music_player_rs::core::{journal_records_for_flush, AppCore, FlushOutcome};
 use music_player_rs::cover::{self, CoverDone, CoverJob};
 use music_player_rs::journal::Journal;
@@ -659,6 +660,34 @@ impl MusicApp {
         }
         let effects = self.core.retry(&files, &|| playlist::serialize_m3u(&self.disk_tracks));
         self.apply_reply_effects(effects);
+    }
+
+    /// Путь выхода (ТЗ-14, ТЗ-32, ADR-7, §6.10): черновик диалога
+    /// отбрасывается, окно сообщений и очередь закрываются без вопроса,
+    /// геометрия окна фиксируется в состоянии; `AppCore::exit` освобождает
+    /// движок, отправляет итоговые снимки писателю и ждёт ответов не дольше
+    /// бюджета выхода. Повторный запрос во время/после выхода игнорируется
+    /// (`ExitOutcome::Ignored`).
+    pub(super) fn exit(&mut self, reason: ExitReason) {
+        self.dialog = None;
+        self.ui.set_settings_open(false);
+        self.gate.unblock(BlockReason::Dialog);
+        self.messages.dismiss_for_exit();
+        self.ui.set_msg_shown(false);
+        self.gate.unblock(BlockReason::Message);
+        self.sync_gate_ui();
+        self.save_window_geometry();
+        let player = &mut self.player;
+        let mut release_engine = || {
+            player.release_engine();
+            true
+        };
+        let outcome = self.core.exit(reason, &mut release_engine, &|| playlist::serialize_m3u(&self.disk_tracks));
+        if outcome == ExitOutcome::Ignored {
+            eprintln!("[app] exit {reason:?}: уже выполняется, повтор проигнорирован");
+            return;
+        }
+        let _ = slint::quit_event_loop();
     }
 
     /// Поставить сообщение в `MessageCenter` и сразу применить эффект
