@@ -56,6 +56,18 @@ impl Harness {
         self.fs.put(&self.paths.settings, bytes);
     }
 
+    /// Положить «на диск» `settings.toml`, уже равный сериализации настроек
+    /// по умолчанию — без расхождения с эталоном `PersistTracker` сразу
+    /// после `boot`. Нужен тестам пути выхода (ТЗ-32, §6.10), которым
+    /// `settings.toml` не интересен: иначе `exit` каждый раз отправляет и
+    /// его снимок — расхождение с «пустым» `put_settings(b"")` против
+    /// реальной сериализации значений по умолчанию.
+    pub(crate) fn put_default_settings(&self) {
+        let bytes = crate::persist::settings_file::serialize_settings(&crate::persist::settings_file::Settings::default())
+            .expect("сериализация настроек по умолчанию");
+        self.put_settings(&bytes);
+    }
+
     /// Положить байты `state.toml` «на диск» до запуска.
     pub(crate) fn put_state(&self, bytes: &[u8]) {
         self.fs.put(&self.paths.state, bytes);
@@ -235,7 +247,7 @@ impl Harness {
 mod tests {
     use super::*;
     use crate::audio::visualizer::VisualizationMode;
-    use crate::core::exit::ExitReason;
+    use crate::core::exit::{ExitOutcome, ExitReason};
     use crate::journal::WriteTarget;
     use crate::persist::keys::{KeyPath, LoadNoteKind};
     use crate::persist::settings_file::{SaveInterval, Settings, ThemeName};
@@ -1074,5 +1086,204 @@ mod tests {
 
         assert_eq!(h.writes(WorkFile::State), 0);
         assert_eq!(h.writes(WorkFile::Playlist), 0);
+    }
+
+    /// Все три файла нуждаются в записи, но каждый задержан на 10 с —
+    /// дольше бюджета выхода: `exit` возвращает `Completed` ровно через 5 с
+    /// симулированного времени (сам бюджет), ни один ответ писателя не
+    /// успевает прийти, все три файла — в `timed_out`, на диске остаются
+    /// прежние версии (ТЗ-14, ТЗ-32, НФ-9, §6.10 `exit_budget_five_seconds`).
+    #[test]
+    fn exit_budget_five_seconds() {
+        let h = Harness::new();
+        h.put_settings(b"");
+        h.put_state(b"");
+        let mut core = h.boot();
+
+        h.delay_write_work(WorkFile::Settings, Duration::from_secs(10));
+        let mut settings = core.settings().clone();
+        settings.playback.audio_device = "hw:1,0".into();
+        core.save_settings_now(settings);
+
+        h.delay_write_work(WorkFile::State, Duration::from_secs(10));
+        core.change_state(Origin::User, StateChange::Volume(42));
+
+        h.delay_write_work(WorkFile::Playlist, Duration::from_secs(10));
+        h.set_playlist(b"track1.flac\n");
+        core.playlist_changed();
+
+        let before_settings = h.disk_bytes(WorkFile::Settings);
+        let before_state = h.disk_bytes(WorkFile::State);
+        let before_playlist = h.disk_bytes(WorkFile::Playlist);
+
+        let start = h.now();
+        let outcome = core.exit(ExitReason::WindowClose, &mut || true, &|| Arc::from(&b"track1.flac\n"[..]));
+        let elapsed = h.now().saturating_since(start);
+
+        assert_eq!(outcome, ExitOutcome::Completed);
+        assert_eq!(elapsed, Duration::from_secs(5), "бюджет выхода — ровно EXIT_BUDGET");
+
+        let report = h
+            .journal()
+            .into_iter()
+            .find_map(|r| match r {
+                JournalRecord::ExitSummary(report) => Some(report),
+                _ => None,
+            })
+            .expect("ExitSummary journaled");
+        let mut timed_out = report.timed_out;
+        timed_out.sort();
+        assert_eq!(timed_out, vec![WorkFile::Playlist, WorkFile::State, WorkFile::Settings]);
+        assert!(report.written.is_empty());
+        assert!(report.failed.is_empty());
+
+        assert_eq!(h.disk_bytes(WorkFile::Settings), before_settings);
+        assert_eq!(h.disk_bytes(WorkFile::State), before_state);
+        assert_eq!(h.disk_bytes(WorkFile::Playlist), before_playlist);
+
+        // Писатель всё ещё ждёт задержки (t0+10с) по всем трём файлам —
+        // дать ему ответить, прежде чем стенд уничтожится, иначе поток
+        // `apap-persist` будет бесконечно опрашивать часы, которые больше
+        // никто не двигает.
+        h.settle(&mut core);
+    }
+
+    /// Плейлист отвечает через 4 с, `state.toml` — только спустя 6 с
+    /// (абсолютные моменты `delay_write_work`, а не последовательные
+    /// длительности: писатель `apap-persist` — один поток FIFO, запись
+    /// state не начинается раньше ответа на плейлист, поэтому разница 4с/6с
+    /// достаточна, чтобы смоделировать «плейлист успел, state не успел» при
+    /// бюджете 5 с). `exit` укладывает плейлист в бюджет, а `state.toml`
+    /// уходит в `timed_out` (ТЗ-14, ТЗ-32, НФ-9, §6.10
+    /// `exit_partial_within_budget`).
+    #[test]
+    fn exit_partial_within_budget() {
+        let h = Harness::new();
+        h.put_default_settings();
+        h.put_state(b"");
+        let mut core = h.boot();
+
+        h.set_playlist(b"track1.flac\n");
+        core.playlist_changed();
+        core.change_state(Origin::User, StateChange::Volume(42));
+
+        h.delay_write_work(WorkFile::Playlist, Duration::from_secs(4));
+        h.delay_write_work(WorkFile::State, Duration::from_secs(6));
+
+        let outcome = core.exit(ExitReason::WindowClose, &mut || true, &|| Arc::from(&b"track1.flac\n"[..]));
+        assert_eq!(outcome, ExitOutcome::Completed);
+
+        assert_eq!(h.disk_bytes(WorkFile::Playlist).as_deref(), Some(&b"track1.flac\n"[..]));
+        assert_eq!(h.disk_bytes(WorkFile::State), Some(b"".to_vec()));
+
+        let report = h
+            .journal()
+            .into_iter()
+            .find_map(|r| match r {
+                JournalRecord::ExitSummary(report) => Some(report),
+                _ => None,
+            })
+            .expect("ExitSummary journaled");
+        assert_eq!(report.written, vec![WorkFile::Playlist]);
+        assert_eq!(report.timed_out, vec![WorkFile::State]);
+
+        // `state.toml` всё ещё ждёт свою задержку (t0+6с) — дать писателю
+        // ответить, прежде чем стенд уничтожится (см. комментарий выше).
+        h.settle(&mut core);
+    }
+
+    /// Запись `state.toml` по отсчёту уже провалилась («нет места») и
+    /// таймер остановлен (ТЗ-20, §6.8) — путь выхода не смотрит на
+    /// `timer_stopped`, поэтому при выходе отправляется ровно одна новая
+    /// попытка, и она проходит (внедрённая неудача была одноразовой)
+    /// (ТЗ-14, ТЗ-20, ТЗ-32, НФ-9, §6.10
+    /// `exit_retries_previously_failed_file_once`).
+    #[test]
+    fn exit_retries_previously_failed_file_once() {
+        let h = Harness::new();
+        h.put_default_settings();
+        h.put_state(b"");
+        let mut core = h.boot();
+
+        h.fail_write_work(WorkFile::State, WriteStep::WriteData, WriteErrorClass::NoSpace, 1);
+        core.change_state(Origin::User, StateChange::Volume(42));
+        let interval = core.settings().save_interval.duration();
+        h.advance(&mut core, interval);
+        h.settle(&mut core);
+        assert_eq!(h.writes(WorkFile::State), 0);
+        assert!(core.tracker().timer_stopped(WorkFile::State));
+
+        let outcome = core.exit(ExitReason::WindowClose, &mut || true, &|| Arc::from(&b""[..]));
+        assert_eq!(outcome, ExitOutcome::Completed);
+        assert_eq!(h.writes(WorkFile::State), 1);
+
+        let report = h
+            .journal()
+            .into_iter()
+            .find_map(|r| match r {
+                JournalRecord::ExitSummary(report) => Some(report),
+                _ => None,
+            })
+            .expect("ExitSummary journaled");
+        assert_eq!(report.written, vec![WorkFile::State]);
+    }
+
+    /// Повторный запрос на выход во время уже идущего (синхронного) пути
+    /// игнорируется (ТЗ-14, И-Т8): второй вызов `exit` сразу после первого
+    /// (`TrayQuit` после `WindowClose`) возвращает `Ignored`, не меняет
+    /// счётчики записи и не добавляет новую запись `ExitSummary` в журнал
+    /// (ТЗ-14, ТЗ-32, НФ-9, §6.10 `repeated_tray_quit_ignored`).
+    #[test]
+    fn repeated_tray_quit_ignored() {
+        let h = Harness::new();
+        h.put_default_settings();
+        h.put_state(b"");
+        let mut core = h.boot();
+
+        h.delay_write_work(WorkFile::State, Duration::from_secs(10));
+        core.change_state(Origin::User, StateChange::Volume(42));
+
+        let first = core.exit(ExitReason::WindowClose, &mut || true, &|| Arc::from(&b""[..]));
+        assert_eq!(first, ExitOutcome::Completed);
+        let writes_after_first = h.writes(WorkFile::State);
+
+        let second = core.exit(ExitReason::TrayQuit, &mut || true, &|| Arc::from(&b""[..]));
+        assert_eq!(second, ExitOutcome::Ignored);
+        assert_eq!(h.writes(WorkFile::State), writes_after_first);
+
+        let summaries =
+            h.journal().iter().filter(|r| matches!(r, JournalRecord::ExitSummary(_))).count();
+        assert_eq!(summaries, 1);
+
+        // `state.toml` всё ещё ждёт свою задержку (t0+10с) — дать писателю
+        // ответить, прежде чем стенд уничтожится (см. комментарий выше).
+        h.settle(&mut core);
+    }
+
+    /// Нет места на диске при записи по отсчёту; пользователь не нажал
+    /// «Повторить» — запись остаётся остановленной (ТЗ-20, §6.8). Путь
+    /// выхода всё равно отправляет файл ещё раз без оглядки на
+    /// `timer_stopped`, и он успешно уходит на диск (ТЗ-14, ТЗ-20, ТЗ-32,
+    /// НФ-9, §6.10 `exit_after_space_freed_without_retry`).
+    #[test]
+    fn exit_after_space_freed_without_retry() {
+        let h = Harness::new();
+        h.put_default_settings();
+        h.put_state(b"");
+        let mut core = h.boot();
+
+        h.fail_write_work(WorkFile::State, WriteStep::WriteData, WriteErrorClass::NoSpace, 1);
+        core.change_state(Origin::User, StateChange::Volume(42));
+        let interval = core.settings().save_interval.duration();
+        h.advance(&mut core, interval);
+        h.settle(&mut core);
+        assert_eq!(h.writes(WorkFile::State), 0);
+        assert!(core.tracker().timer_stopped(WorkFile::State));
+
+        let outcome = core.exit(ExitReason::WindowClose, &mut || true, &|| Arc::from(&b""[..]));
+        assert_eq!(outcome, ExitOutcome::Completed);
+
+        let expected = crate::persist::state_file::serialize_state(core.state()).expect("serialize state");
+        assert_eq!(h.disk_bytes(WorkFile::State).as_deref(), Some(&expected[..]));
     }
 }
