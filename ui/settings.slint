@@ -165,8 +165,6 @@ export component Settings inherits Rectangle {
     callback reset-columns();
     callback move-col-up(int);
     callback move-col-down(int);
-    callback clear-playlist();
-    callback remove-current();
     callback cover-move-up(int);
     callback cover-move-down(int);
     callback cover-names-edited(string);
@@ -1802,32 +1800,6 @@ export component Settings inherits Rectangle {
                                         text: "Reset type settings";
                                         preferred-height: 28px;
                                         clicked => { debug("settings: reset viz type"); root.reset-viz-type(); }
-                                    }
-                                }
-                            }
-                        }
-
-                        // ===== Playlist =====
-                        Tab {
-                            title: "Playlist";
-                            ScrollView {
-                                VerticalLayout {
-                                    spacing: 10px;
-                                    padding-top: 10px;
-                                    Button {
-                                        text: "Remove current track";
-                                        preferred-height: 28px;
-                                        clicked => { root.remove-current(); }
-                                    }
-
-                                    Button {
-                                        text: "Clear playlist";
-                                        preferred-height: 28px;
-                                        clicked => { root.clear-playlist(); }
-                                    }
-
-                                    Rectangle {
-                                        vertical-stretch: 1;
                                     }
                                 }
                             }

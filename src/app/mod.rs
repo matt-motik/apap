@@ -1725,33 +1725,31 @@ impl MusicApp {
             });
         }
 
-        // 30. settings-clear-playlist
+        // 30. menu-clear-playlist: пункт меню «Файл» (ТЗ-34, ОВ-10); шлюз
+        // отсекает его при блокировке окна и во время загрузки (ТЗ-48, ADR-12).
         {
             let app = this.clone();
-            ui.on_settings_clear_playlist(move || {
-                eprintln!("[gui] settings_clear_playlist");
+            ui.on_menu_clear_playlist(move || {
+                eprintln!("[gui] menu_clear_playlist");
                 let mut a = app.borrow_mut();
-                // Во время загрузки список недоступен (ТЗ-48, ADR-12); кнопка
-                // живёт в диалоге, поэтому проверяется флаг загрузки, а не allows.
-                if a.gate.loading().is_some() {
+                if !a.gate.allows(MainCmd::ClearPlaylist) {
                     return;
                 }
                 a.clear_playlist();
             });
         }
 
-        // 31. settings-remove-current
+        // 31. menu-remove-current: пункт меню «Файл» (ТЗ-34, ОВ-10, ТЗ-48, ADR-12).
         {
             let app = this.clone();
-            ui.on_settings_remove_current(move || {
-                eprintln!("[gui] settings_remove_current");
-                // Во время загрузки список недоступен (ТЗ-48, ADR-12).
-                if app.borrow().gate.loading().is_some() {
+            ui.on_menu_remove_current(move || {
+                eprintln!("[gui] menu_remove_current");
+                let mut a = app.borrow_mut();
+                if !a.gate.allows(MainCmd::RemoveCurrent) {
                     return;
                 }
-                let current = app.borrow().current;
-                if let Some(idx) = current {
-                    app.borrow_mut().remove_track(idx);
+                if let Some(idx) = a.current {
+                    a.remove_track(idx);
                 }
             });
         }

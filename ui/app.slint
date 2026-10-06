@@ -56,6 +56,21 @@ export component AppWindow inherits Window {
 
             MenuSeparator { }
 
+            // Действия с плейлистом — в меню, не в диалоге настроек (ТЗ-34, ОВ-10).
+            MenuItem {
+                title: "Удалить текущий трек";
+                enabled: !root.window-blocked;
+                activated => { root.menu-remove-current(); }
+            }
+
+            MenuItem {
+                title: "Очистить плейлист";
+                enabled: !root.window-blocked;
+                activated => { root.menu-clear-playlist(); }
+            }
+
+            MenuSeparator { }
+
             MenuItem {
                 title: "Сохранить плейлист";
                 enabled: !root.window-blocked;
@@ -306,8 +321,8 @@ export component AppWindow inherits Window {
     callback settings-reset-cols();
     callback settings-move-col-up(int);
     callback settings-move-col-down(int);
-    callback settings-clear-playlist();
-    callback settings-remove-current();
+    callback menu-clear-playlist();
+    callback menu-remove-current();
     callback settings-save();
     // §10.5: кнопки очистки кэша
     callback settings-clear-viz-cache();
@@ -739,8 +754,6 @@ export component AppWindow inherits Window {
         reset-columns => { root.settings-reset-cols(); }
         move-col-up(i) => { root.settings-move-col-up(i); }
         move-col-down(i) => { root.settings-move-col-down(i); }
-        clear-playlist => { root.settings-clear-playlist(); }
-        remove-current => { root.settings-remove-current(); }
         save-settings => { root.settings-save(); }
         cover-move-up(i) => { root.settings-cover-move-up(i); }
         cover-move-down(i) => { root.settings-cover-move-down(i); }

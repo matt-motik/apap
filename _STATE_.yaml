@@ -2,20 +2,29 @@
 # _STATE_.md генерируется из этого файла — не редактировать его руками.
 # Редактируйте этот файл, затем: python tools/state_tool.py render
 
-status: done
+status: in_progress
 
 task:
-  roadmap_id: null
-  title: null
+  roadmap_id: SP1.0-B5
+  title: "Кнопки «Удалить текущий трек» / «Очистить плейлист» — из диалога в меню «Файл» (ТЗ-34)"
 
-whitelist: []
+whitelist:
+  - ROADMAP.md
+  - _STATE_.yaml
+  - _STATE_.md
+  - ui/app.slint
+  - ui/settings.slint
+  - src/app/mod.rs
 
-dod: null
+dod: "cargo build/test/clippy зелёные; пункты в меню «Файл», вкладки Playlist в диалоге нет"
 
-steps: []
+steps:
+  - id: 1
+    description: "Перенос: пункты меню «Файл» + колбэки menu-remove-current/menu-clear-playlist через allows(), вкладка Playlist удалена (ТЗ-34, ТЗ-48, ADR-12). Проверка: cargo build, cargo test, cargo clippy"
+    done: true
 
-current_step: null
-next_action: null
+current_step: 1
+next_action: "Правка ui/app.slint, ui/settings.slint, src/app/mod.rs"
 
 fail_counter: 0
 fail_counter_max: 3
