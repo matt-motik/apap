@@ -15,6 +15,7 @@ whitelist:
   - src/core/testing.rs
   - src/app/ui_manager.rs
   - src/app/mod.rs
+  - ui/app.slint
   - _STATE_.yaml
   - _STATE_.md
   - ROADMAP.md
@@ -29,14 +30,14 @@ steps:
     description: "Модель и файл: SizeUnits {Physical (default), Logical} и поле WindowGeometry.size_units; ключ window.units (\"physical\"/\"logical\", отсутствие → physical, неверное значение → заметка + physical) в разборе и записи state.toml; тест раундтрипа (ADR-22, §2, §6.17). Файлы: src/persist/state_file.rs (+ литералы WindowGeometry в src/core/geometry.rs, src/core/testing.rs). Проверка: cargo check; cargo test state_file"
     done: true
   - id: 3
-    description: "Окно: на Wayland window_geometry читает size().to_logical(scale) с size_units = Logical, apply_window_geometry задаёт set_size(LogicalSize) для Logical и PhysicalSize для Physical; обход SP1.0-B2 (geometry_scale, geometry_rescale_until, reapply_geometry_on_scale_change, GEOMETRY_RESCALE_WINDOW) удалён (ADR-22, §6.17). Файлы: src/app/ui_manager.rs, src/app/mod.rs. Проверка: cargo check; cargo run под Wayland — окно сразу нужного размера"
-    done: false
+    description: "Окно: на Wayland window_geometry читает size().to_logical(scale) с size_units = Logical, apply_window_geometry задаёт set_size(LogicalSize) для Logical и PhysicalSize для Physical; обход SP1.0-B2 (geometry_scale, geometry_rescale_until, reapply_geometry_on_scale_change, GEOMETRY_RESCALE_WINDOW) удалён; ширина дублируется в preferred-width окна (initial-width) — Slint 1.17 при создании окна на Wayland сбрасывает ширину к предпочтительной (ADR-22, §6.17; ui/app.slint — с разрешения пользователя). Файлы: src/app/ui_manager.rs, src/app/mod.rs, ui/app.slint. Проверка: cargo check; cargo run под Wayland — окно сразу нужного размера"
+    done: true
   - id: 4
     description: "ЧЕКПОИНТ: cargo test, cargo clippy (0 новых в вайтлисте); ROADMAP SP1.0-B4 → ✅. Проверка: зелёные"
     done: false
 
-current_step: 3
-next_action: "Шаг 3: логический размер на Wayland в ui_manager.rs, удалить обход SP1.0-B2"
+current_step: 4
+next_action: "Шаг 4: ЧЕКПОИНТ — cargo test, cargo clippy; ROADMAP SP1.0-B4 → ✅"
 
 fail_counter: 0
 fail_counter_max: 3

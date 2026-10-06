@@ -13,6 +13,7 @@
   - src/core/testing.rs
   - src/app/ui_manager.rs
   - src/app/mod.rs
+  - ui/app.slint
   - _STATE_.yaml
   - _STATE_.md
   - ROADMAP.md
@@ -21,11 +22,11 @@
 ## Итерационный трекер
 [x] Шаг 1: Спецификация: ADR-22 (размер на Wayland — логические px), §2 WindowGeometry.size_units/SizeUnits, ключ window.units в таблице state.toml, §6.17, строка заходов (решение пользователя: вариант 1). Файл: docs/02_settings_persistence_v1.0/03_spec.md. Проверка: pre-commit traceability OK
 [x] Шаг 2: Модель и файл: SizeUnits {Physical (default), Logical} и поле WindowGeometry.size_units; ключ window.units ("physical"/"logical", отсутствие → physical, неверное значение → заметка + physical) в разборе и записи state.toml; тест раундтрипа (ADR-22, §2, §6.17). Файлы: src/persist/state_file.rs (+ литералы WindowGeometry в src/core/geometry.rs, src/core/testing.rs). Проверка: cargo check; cargo test state_file
-[ ] Шаг 3: Окно: на Wayland window_geometry читает size().to_logical(scale) с size_units = Logical, apply_window_geometry задаёт set_size(LogicalSize) для Logical и PhysicalSize для Physical; обход SP1.0-B2 (geometry_scale, geometry_rescale_until, reapply_geometry_on_scale_change, GEOMETRY_RESCALE_WINDOW) удалён (ADR-22, §6.17). Файлы: src/app/ui_manager.rs, src/app/mod.rs. Проверка: cargo check; cargo run под Wayland — окно сразу нужного размера
+[x] Шаг 3: Окно: на Wayland window_geometry читает size().to_logical(scale) с size_units = Logical, apply_window_geometry задаёт set_size(LogicalSize) для Logical и PhysicalSize для Physical; обход SP1.0-B2 (geometry_scale, geometry_rescale_until, reapply_geometry_on_scale_change, GEOMETRY_RESCALE_WINDOW) удалён; ширина дублируется в preferred-width окна (initial-width) — Slint 1.17 при создании окна на Wayland сбрасывает ширину к предпочтительной (ADR-22, §6.17; ui/app.slint — с разрешения пользователя). Файлы: src/app/ui_manager.rs, src/app/mod.rs, ui/app.slint. Проверка: cargo check; cargo run под Wayland — окно сразу нужного размера
 [ ] Шаг 4: ЧЕКПОИНТ: cargo test, cargo clippy (0 новых в вайтлисте); ROADMAP SP1.0-B4 → ✅. Проверка: зелёные
 
-- **Текущий шаг (current_step):** Шаг 3
-- **Следующий ход:** Шаг 3: логический размер на Wayland в ui_manager.rs, удалить обход SP1.0-B2
+- **Текущий шаг (current_step):** Шаг 4
+- **Следующий ход:** Шаг 4: ЧЕКПОИНТ — cargo test, cargo clippy; ROADMAP SP1.0-B4 → ✅
 - **Счетчик безуспешных компиляций:** 0/3
 - **Состояние:** in_progress
 

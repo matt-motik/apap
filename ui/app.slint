@@ -27,6 +27,11 @@ export component AppWindow inherits Window {
     title: "Music Player";
     background: Colors.bg-window;
     max-width: 100000px;
+    // Предпочтительная ширина = сохранённая ширина окна (ADR-22, §6.17,
+    // SP1.0-B4): Slint при создании окна выставляет ширину элемента окна в
+    // предпочтительную; ограничений на ресайз она не накладывает.
+    in property <length> initial-width: 0px;
+    preferred-width: initial-width;
 
     // Нативное меню (MenuBar) — первое меню в окне. Содержит: Файл (add),
     // Визуализация (checkable, §3.2), Настройки/О программе.

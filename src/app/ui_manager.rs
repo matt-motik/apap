@@ -5,7 +5,8 @@ use super::*;
 
 use music_player_rs::audio::output::DeviceCategory;
 use music_player_rs::persist::state_file::{
-    effective_width_pct, Origin, PhysPos, PhysSize, SortDirection, StateChange, WindowGeometry,
+    effective_width_pct, Origin, PhysPos, PhysSize, SizeUnits, SortDirection, StateChange,
+    WindowGeometry,
 };
 use music_player_rs::theme::StandardPalette;
 use music_player_rs::persist::settings_file::SaveInterval;
@@ -34,14 +35,43 @@ impl MusicApp {
     /// Restore the saved window size/position (if any) before the window is shown.
     /// Also re-applied from `main` after `show()` (surface exists) so winit
     /// does not collapse the window to its content minimum (V5.1-B7).
+    /// Размер восстанавливается в тех же единицах, в которых он сохранён
+    /// (`size_units`): на Wayland — логические px, поскольку масштаб
+    /// композитора до первого `configure` ещё не известен и восстановление
+    /// физического размера под масштабом 1.0 даёт видимый скачок при
+    /// последующем приходе реального масштаба (ADR-22, SP1.0-B4, §6.17).
+    /// Ширина дублируется в `initial-width` (предпочтительная ширина окна):
+    /// при создании winit-окна Slint 1.17 сбрасывает ширину элемента окна к
+    /// предпочтительной, и на Wayland, где окно создаётся уже в цикле
+    /// событий, без этого ширина схлопывалась до минимума содержимого.
     pub(crate) fn apply_window_geometry(&self) {
         let win = self.core.state().window();
         if let Some(size) = win.size {
             if (200..=8000).contains(&size.width) && (200..=8000).contains(&size.height) {
-                self.ui.window().set_size(slint::WindowSize::Physical(slint::PhysicalSize::new(
-                    size.width,
-                    size.height,
-                )));
+                match win.size_units {
+                    SizeUnits::Logical => {
+                        // Диапазон выше (200..=8000) гарантирует, что оба
+                        // значения помещаются в u16 — конверсия в f32 точная.
+                        if let (Ok(w), Ok(h)) =
+                            (u16::try_from(size.width), u16::try_from(size.height))
+                        {
+                            self.ui.set_initial_width(f32::from(w));
+                            self.ui.window().set_size(slint::WindowSize::Logical(
+                                slint::LogicalSize::new(f32::from(w), f32::from(h)),
+                            ));
+                        }
+                    }
+                    SizeUnits::Physical => {
+                        // До показа Slint и так трактует размер как логический
+                        // под масштабом 1.0 — та же ширина идёт в `initial-width`.
+                        if let Ok(w) = u16::try_from(size.width) {
+                            self.ui.set_initial_width(f32::from(w));
+                        }
+                        self.ui.window().set_size(slint::WindowSize::Physical(
+                            slint::PhysicalSize::new(size.width, size.height),
+                        ));
+                    }
+                }
             }
         } else {
             // No persisted geometry yet (first run): give the window a sensible
@@ -49,6 +79,7 @@ impl MusicApp {
             // `preferred-width/height`, so it can be resized freely and fast;
             // without this the first-run window would collapse to its content
             // minimum.
+            self.ui.set_initial_width(1200.0);
             self.ui
                 .window()
                 .set_size(slint::WindowSize::Logical(slint::LogicalSize::new(1200.0, 760.0)));
@@ -72,37 +103,6 @@ impl MusicApp {
         if win.fullscreen {
             self.ui.window().set_fullscreen(true);
         }
-        // Запоминаем масштаб, под который применена геометрия — `tick`
-        // сравнивает его с текущим, чтобы заметить поздний Wayland-`configure`
-        // (SP1.0-B2, ADR-22, §6.17).
-        self.geometry_scale.set(self.ui.window().scale_factor());
-    }
-
-    /// Догонка масштаба после показа окна (SP1.0-B2, ADR-22, §6.17, ОВС-5 а):
-    /// на нативном Wayland `scale_factor()` может прийти от композитора
-    /// позже первого `show()`, и физический размер, восстановленный под
-    /// ещё не обновлённым масштабом, получается интерпретирован неверно.
-    /// Пока не истёк срок после показа, замечаем смену масштаба и
-    /// переприменяем геометрию заново — уже под верным значением; эхо этого
-    /// повторного применения помечается программным, чтобы не взвести срок
-    /// записи как от действия пользователя.
-    pub(super) fn reapply_geometry_on_scale_change(&mut self) {
-        let Some(deadline) = self.geometry_rescale_until else {
-            return;
-        };
-        if Instant::now() >= deadline {
-            self.geometry_rescale_until = None;
-            return;
-        }
-        if !self.ui.window().is_visible() {
-            return;
-        }
-        if (self.ui.window().scale_factor() - self.geometry_scale.get()).abs() > f32::EPSILON {
-            self.apply_window_geometry();
-            self.core.program_set_geometry(self.core.state().window());
-            self.core.window_shown();
-            self.geometry_rescale_until = None;
-        }
     }
 
     /// Текущее показание геометрии окна для `AppCore::tick` (ADR-22, §6.17):
@@ -110,7 +110,10 @@ impl MusicApp {
     /// и позиция. В fullscreen/maximized `size()` — размер во весь экран,
     /// который нельзя восстанавливать как размер окна, поэтому остаётся
     /// последний «нормальный» размер из состояния. `None` — окно скрыто
-    /// (в трее), показания нет.
+    /// (в трее), показания нет. На Wayland размер снимается в логических px
+    /// (размеры поверхности Wayland логические, а масштаб до первого
+    /// `configure` композитора ещё не известен) — иначе в физических
+    /// (ADR-22, SP1.0-B4, §6.17).
     pub(super) fn window_geometry(&self) -> Option<WindowGeometry> {
         let w = self.ui.window();
         if !w.is_visible() {
@@ -120,8 +123,20 @@ impl MusicApp {
         geom.fullscreen = w.is_fullscreen();
         geom.maximized = w.is_maximized();
         if !geom.fullscreen && !geom.maximized {
-            let size = w.size();
-            geom.size = Some(PhysSize { width: size.width, height: size.height });
+            if self.is_wayland_window() {
+                let s = w.size().to_logical(w.scale_factor());
+                // Клампинг в диапазон u32 перед конверсией делает `as u32`
+                // безопасным (без переполнения/обёртывания).
+                geom.size = Some(PhysSize {
+                    width: s.width.clamp(1.0, 65535.0).round() as u32,
+                    height: s.height.clamp(1.0, 65535.0).round() as u32,
+                });
+                geom.size_units = SizeUnits::Logical;
+            } else {
+                let size = w.size();
+                geom.size = Some(PhysSize { width: size.width, height: size.height });
+                geom.size_units = SizeUnits::Physical;
+            }
             // На Wayland `position()` не отражает реальное положение окна
             // (композитор его не сообщает), поэтому позицию не читаем и не
             // перезаписываем персистентное значение — оно остаётся прежним
