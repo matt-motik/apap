@@ -1,5 +1,6 @@
 use std::path::{Path, PathBuf};
 use std::sync::mpsc::Sender;
+use std::sync::Arc;
 
 use walkdir::WalkDir;
 
@@ -223,15 +224,21 @@ pub fn load_track_list(path: &Path) -> Vec<Track> {
         .collect()
 }
 
-/// Save the playlist as a plain M3U file: атомарная долговечная запись через
-/// модуль ФС (ТЗ-18, ТЗ-19); ошибка — вызывающему для журнала (ТЗ-20).
-pub fn save_track_list(fs: &mut dyn FileWriter, path: &Path, tracks: &[Track]) -> Result<(), WriteError> {
+/// Сериализует плейлист в байты plain M3U (один путь на строку) — снимок для
+/// писателя (ADR-1, §6.5).
+pub fn serialize_m3u(tracks: &[Track]) -> Arc<[u8]> {
     let mut out = String::new();
     for t in tracks {
         out.push_str(&t.path.to_string_lossy());
         out.push('\n');
     }
-    fs.write_atomic(path, out.as_bytes())
+    Arc::from(out.into_bytes())
+}
+
+/// Save the playlist as a plain M3U file: атомарная долговечная запись через
+/// модуль ФС (ТЗ-18, ТЗ-19); ошибка — вызывающему для журнала (ТЗ-20).
+pub fn save_track_list(fs: &mut dyn FileWriter, path: &Path, tracks: &[Track]) -> Result<(), WriteError> {
+    fs.write_atomic(path, &serialize_m3u(tracks))
 }
 
 /// Display text for a track cell in a given column ("", "0", "24 bit", ...).
@@ -333,6 +340,17 @@ mod tests {
         let err = save_track_list(&mut mem, path, &[]).expect_err("injected");
         assert_eq!(err.class, WriteErrorClass::ReadOnlyFs);
         assert_eq!(mem.get(path).as_deref(), Some(&b"/music/a.flac\n"[..]));
+    }
+
+    /// ADR-1, §6.5: снимок плейлиста — по пути на строку, пустой список — пустые байты.
+    #[test]
+    fn serialize_m3u_one_path_per_line() {
+        let tracks = vec![
+            track_for_path(Path::new("/music/a.flac")),
+            track_for_path(Path::new("/music/b.wav")),
+        ];
+        assert_eq!(&*serialize_m3u(&tracks), &b"/music/a.flac\n/music/b.wav\n"[..]);
+        assert!(serialize_m3u(&[]).is_empty());
     }
 
     #[test]
