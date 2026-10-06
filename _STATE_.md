@@ -53,7 +53,7 @@
 [x] Шаг 22: Ширины колонок: save_column_widths_from_ui без дебаунса и без записи — change_state с Origin источника (пользователь/программа), программный пересчёт не запускает срок (ОВС-5 а, §6.17). Файл: src/app/ui_manager.rs. Проверка: cargo check
 [x] Шаг 23: Очистка моста в app: удалить MusicApp::save_settings, поле fs (если больше не используется), импорты FlushOutcome/journal_records_for_flush (§8.1 С4). Файл: src/app/mod.rs. Проверка: cargo check
 [x] Шаг 24: Очистка моста в core/persist: удалить AppCore::new(boot)/flush/FlushOutcome/journal_records_for_flush и их тесты, синхронный persist::write_bad_copies (§8.1 С4). Файлы: src/core/mod.rs, src/persist/mod.rs. Проверка: cargo check; ЧЕКПОИНТ — полный cargo test + cargo clippy (test-runner, haiku)
-[ ] Шаг 25: Тест no_file_io_on_ui_thread (MemStore::calls — только поток apap-persist) и финальная верификация (ТЗ-22, НФ-5). Файл: src/core/testing.rs. Проверка: cargo test и cargo clippy зелёные, 0 новых варнингов
+[x] Шаг 25: Тест no_file_io_on_ui_thread (MemStore::calls — только поток apap-persist) и финальная верификация (ТЗ-22, НФ-5). Файл: src/core/testing.rs. Проверка: cargo test и cargo clippy зелёные, 0 новых варнингов
 
 - **Текущий шаг (current_step):** Шаг 25
 - **Следующий ход:** Шаг 25: тест no_file_io_on_ui_thread и финальная верификация. Отложено из шага 9: unreadable_playlist_never_written — нет чтения плейлиста в AppCore до С6

@@ -21,7 +21,7 @@ use crate::persist::keys::Parsed;
 use crate::persist::tracker::ReplyEffect;
 use crate::persist::writer::spawn_writer;
 use crate::persist::{self, BadCopyOutcome, ConfigFile, ConfigPaths, WorkFile};
-use crate::platform::fs::{FileWriter, MemStore, OpCounts, ReadErrorClass, WriteErrorClass, WriteStep};
+use crate::platform::fs::{FileWriter, FsCall, MemStore, OpCounts, ReadErrorClass, WriteErrorClass, WriteStep};
 use std::cell::RefCell;
 use std::path::PathBuf;
 use std::sync::Arc;
@@ -227,6 +227,11 @@ impl Harness {
         }
     }
 
+    /// Журнал вызовов модуля ФС с именами потоков (И-Р11, ТЗ-22, §7.1).
+    pub(crate) fn fs_calls(&self) -> Vec<FsCall> {
+        self.fs.calls()
+    }
+
     /// Число успешных записей рабочего файла `file` (§7.1) — по счётчикам
     /// `MemStore`, независимо от журнала.
     pub(crate) fn writes(&self, file: WorkFile) -> usize {
@@ -266,6 +271,7 @@ mod tests {
     use crate::audio::visualizer::VisualizationMode;
     use crate::core::exit::{ExitOutcome, ExitReason};
     use crate::journal::WriteTarget;
+    use crate::platform::fs::FsOp;
     use crate::persist::keys::{KeyPath, LoadNoteKind};
     use crate::persist::settings_file::{SaveInterval, Settings, ThemeName};
     use crate::persist::state_file::{Origin, PhysPos, PhysSize, SessionState, StateChange, WindowGeometry};
@@ -1285,5 +1291,43 @@ mod tests {
 
         let expected = crate::persist::state_file::serialize_state(core.state()).expect("serialize state");
         assert_eq!(h.disk_bytes(WorkFile::State).as_deref(), Some(&expected[..]));
+    }
+
+    /// Запись рабочих файлов идёт только в потоке писателя `apap-persist`
+    /// (ТЗ-22, НФ-5, И-Р11, §6.6): ни отложенная запись по сроку, ни
+    /// «Сохранить», ни путь выхода не пишут из вызывающего (UI) потока.
+    /// Чтение при старте (`boot`, до окна, ADR-23 шаг 2) в проверку не входит.
+    #[test]
+    fn no_file_io_on_ui_thread() {
+        let h = Harness::new();
+        h.put_default_settings();
+        h.put_state(b"");
+        let mut core = h.boot();
+        let boot_calls = h.fs_calls().len();
+
+        core.change_state(Origin::User, StateChange::Shuffle(true));
+        h.set_playlist(b"/music/a.flac\n");
+        core.playlist_changed();
+        let interval = core.settings().save_interval.duration();
+        h.advance(&mut core, interval);
+        h.settle(&mut core);
+
+        let mut settings = core.settings().clone();
+        settings.save_interval = SaveInterval::S10;
+        core.save_settings_now(settings);
+        h.settle(&mut core);
+
+        core.change_state(Origin::User, StateChange::Volume(17));
+        let outcome = core.exit(ExitReason::TrayQuit, &mut || true, &|| Arc::from(&b"/music/b.flac\n"[..]));
+        assert_eq!(outcome, ExitOutcome::Completed);
+
+        let after_boot = &h.fs_calls()[boot_calls..];
+        assert!(after_boot.iter().any(|c| c.op != FsOp::Read), "ожидались записи после старта");
+        for call in after_boot {
+            assert_eq!(&*call.thread, "apap-persist", "ввод-вывод вне писателя: {call:?}");
+        }
+        assert!(h.writes(WorkFile::Settings) >= 1);
+        assert!(h.writes(WorkFile::State) >= 1);
+        assert!(h.writes(WorkFile::Playlist) >= 1);
     }
 }
