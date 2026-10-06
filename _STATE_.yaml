@@ -97,7 +97,7 @@ steps:
     done: true
   - id: 22
     description: "Ширины колонок: save_column_widths_from_ui без дебаунса и без записи — change_state с Origin источника (пользователь/программа), программный пересчёт не запускает срок (ОВС-5 а, §6.17). Файл: src/app/ui_manager.rs. Проверка: cargo check"
-    done: false
+    done: true
   - id: 23
     description: "Очистка моста в app: удалить MusicApp::save_settings, поле fs (если больше не используется), импорты FlushOutcome/journal_records_for_flush (§8.1 С4). Файл: src/app/mod.rs. Проверка: cargo check"
     done: false
@@ -108,8 +108,8 @@ steps:
     description: "Тест no_file_io_on_ui_thread (MemStore::calls — только поток apap-persist) и финальная верификация (ТЗ-22, НФ-5). Файл: src/core/testing.rs. Проверка: cargo test и cargo clippy зелёные, 0 новых варнингов"
     done: false
 
-current_step: 22
-next_action: "Шаг 22: ширины колонок через change_state с Origin, без дебаунса и записи. Отложено из шага 9: unreadable_playlist_never_written — нет чтения плейлиста в AppCore до С6"
+current_step: 23
+next_action: "Шаг 23: очистка моста в app (save_settings, fs, FlushOutcome). Отложено из шага 9: unreadable_playlist_never_written — нет чтения плейлиста в AppCore до С6"
 
 fail_counter: 0
 fail_counter_max: 3

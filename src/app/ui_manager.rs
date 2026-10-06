@@ -585,9 +585,11 @@ impl MusicApp {
         sig
     }
 
-    /// Persist the UI's live pixel widths as percentages into `AppCore`'s
-    /// session state via `change_state` (§2.5, И-Т7, §8.1 С3).
-    pub(super) fn save_column_widths_from_ui(&mut self) {
+    /// Переносит живые пиксельные ширины UI в состояние сессии `AppCore`
+    /// процентами (§2.5, И-Т7). Файл здесь не пишется: срок отложенной записи
+    /// взводит только `Origin::User`; программный пересчёт и неизменённые
+    /// ширины срок не запускают (ОВС-5 а, §6.17).
+    pub(super) fn save_column_widths_from_ui(&mut self, origin: Origin) {
         let cols = self.ui.get_playlist_cols();
         let len = cols.row_count();
         if len == 0 {
@@ -634,8 +636,10 @@ impl MusicApp {
                 None => new_widths.remove(col_id),
             };
         }
-        self.core.change_state(Origin::User, StateChange::ColumnWidths(new_widths));
-        // Persisted at exit (save-at-exit).
+        if &new_widths == self.core.state().column_widths() {
+            return;
+        }
+        self.core.change_state(origin, StateChange::ColumnWidths(new_widths));
     }
 
     /// Re-apply the current filters from the draft synchronously. A filter
