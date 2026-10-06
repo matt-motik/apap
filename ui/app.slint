@@ -58,9 +58,9 @@ export component AppWindow inherits Window {
 
             // Действия с плейлистом — в меню, не в диалоге настроек (ТЗ-34, ОВ-10).
             MenuItem {
-                title: "Удалить текущий трек";
+                title: "Удалить выделенный трек";
                 enabled: !root.window-blocked;
-                activated => { root.menu-remove-current(); }
+                activated => { root.menu-remove-selected(playlist_view_width.selected-row); }
             }
 
             MenuItem {
@@ -322,7 +322,7 @@ export component AppWindow inherits Window {
     callback settings-move-col-up(int);
     callback settings-move-col-down(int);
     callback menu-clear-playlist();
-    callback menu-remove-current();
+    callback menu-remove-selected(int);
     callback settings-save();
     // §10.5: кнопки очистки кэша
     callback settings-clear-viz-cache();

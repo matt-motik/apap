@@ -2,10 +2,26 @@
      Source of truth: _STATE_.yaml — edit that, then run:
      python tools/state_tool.py render -->
 
-# Состояние сессии
 
-- **Текущая задача:** Нет (все шаги завершены)
-- **Состояние:** done
+# Текущая микро-сессия
+
+- **Задача из ROADMAP:** SP1.0-B6 — Меню «Файл»: удалять выделенный трек, а не играющий
+- **Вайтлист файлов в работе (Изменяемые файлы):**
+  - ROADMAP.md
+  - _STATE_.yaml
+  - _STATE_.md
+  - ui/playlist.slint
+  - ui/app.slint
+  - src/app/mod.rs
+- **Критерий успеха (Definition of Done):** cargo build/test/clippy зелёные; пункт меню удаляет строку, выделенную в таблице
+
+## Итерационный трекер
+[x] Шаг 1: selected-row из таблицы плейлиста → колбэк menu-remove-selected(int) → remove_track через allows(RemoveCurrent) (ТЗ-34, ТЗ-48, ADR-12). Проверка: cargo build, cargo test, cargo clippy
+
+- **Текущий шаг (current_step):** Шаг 1
+- **Следующий ход:** Правка ui/playlist.slint, ui/app.slint, src/app/mod.rs
+- **Счетчик безуспешных компиляций:** 0/3
+- **Состояние:** in_progress
 
 ## План: Executable workflow: правила AGENTS.md → исполняемые механизмы
 _Источник: чат с пользователем (ноутбук), начат в 67686ce; перенесён в репо 2026-09-22_

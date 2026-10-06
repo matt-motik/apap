@@ -1739,16 +1739,17 @@ impl MusicApp {
             });
         }
 
-        // 31. menu-remove-current: пункт меню «Файл» (ТЗ-34, ОВ-10, ТЗ-48, ADR-12).
+        // 31. menu-remove-selected: пункт меню «Файл» удаляет строку,
+        // выделенную в таблице (ТЗ-34, ОВ-10, SP1.0-B6); шлюз — ТЗ-48, ADR-12.
         {
             let app = this.clone();
-            ui.on_menu_remove_current(move || {
-                eprintln!("[gui] menu_remove_current");
+            ui.on_menu_remove_selected(move |row| {
+                eprintln!("[gui] menu_remove_selected row={row}");
                 let mut a = app.borrow_mut();
                 if !a.gate.allows(MainCmd::RemoveCurrent) {
                     return;
                 }
-                if let Some(idx) = a.current {
+                if let Ok(idx) = usize::try_from(row) {
                     a.remove_track(idx);
                 }
             });
