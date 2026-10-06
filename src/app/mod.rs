@@ -1634,10 +1634,15 @@ impl MusicApp {
                 // ширины колонок — состояние сессии (§2.5, И-Т7, §8.1 С3).
                 // Живые поля состояния (громкость, повтор, окно…) диалог не
                 // трогает, поэтому они сохраняются без ручного переноса.
-                a.core.set_settings(new);
+                // Состояние уходит по таймеру отложенной записи, `settings.toml`
+                // — немедленно одним снимком через писатель, независимо от
+                // запрета автозаписи; смена интервала переставляет срок
+                // (ТЗ-28, §6.9).
                 a.core.change_state(Origin::User, StateChange::VizMode(viz_mode));
                 a.core.change_state(Origin::User, StateChange::ColumnWidths(column_widths));
-                a.save_settings();
+                if let Some(effect) = a.core.save_settings_now(new) {
+                    a.apply_reply_effects(vec![effect]);
+                }
                 let cur = a.core.settings().clone();
                 // ТЗ §10.4: лимит RAM-кэша визуализации менялся в диалоге →
                 // горячий `resize` существующего LRU (лишние записи вытесняются
@@ -1664,7 +1669,6 @@ impl MusicApp {
                         // на момент включения Direct Output.
                         a.set_tray_notice(tray::BP_NOTICE_TEXT.to_string());
                     }
-                    a.save_settings();
                     a.emit(AppEvent::BitPerfectChanged);
                     eprintln!("[gui] settings_save: bit_perfect applied -> {bp}");
                 }

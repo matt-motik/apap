@@ -79,7 +79,7 @@ steps:
     done: true
   - id: 16
     description: "«Сохранить» диалога → core.save_settings_now + set_interval вместо save_settings (ТЗ-28, §6.9). Файл: src/app/mod.rs (обработчик settings_save). Проверка: cargo check; ЧЕКПОИНТ — полный cargo test + cargo clippy (test-runner, haiku)"
-    done: false
+    done: true
   - id: 17
     description: "Удалить W3/W6/W7: прямые save_settings в playback_manager и viz_settings_manager — изменения идут только через change_state/срок N (ТЗ-10, §8.1 С4). Файлы: src/app/playback_manager.rs, src/app/viz_settings_manager.rs. Проверка: cargo check"
     done: false
@@ -108,8 +108,8 @@ steps:
     description: "Тест no_file_io_on_ui_thread (MemStore::calls — только поток apap-persist) и финальная верификация (ТЗ-22, НФ-5). Файл: src/core/testing.rs. Проверка: cargo test и cargo clippy зелёные, 0 новых варнингов"
     done: false
 
-current_step: 16
-next_action: "Шаг 16: «Сохранить» диалога → core.save_settings_now + set_interval (ЧЕКПОИНТ cargo test + clippy) — новый code-writer, sonnet. Отложено из шага 9: unreadable_playlist_never_written — нет чтения плейлиста в AppCore до С6"
+current_step: 17
+next_action: "Шаг 17: удалить синхронные записи W3/W6/W7 (playback_manager.rs, viz_settings_manager.rs) — изменения идут через core и таймер. Отложено из шага 9: unreadable_playlist_never_written — нет чтения плейлиста в AppCore до С6"
 
 fail_counter: 0
 fail_counter_max: 3

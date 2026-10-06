@@ -44,7 +44,7 @@
 [x] Шаг 13: Сериализация плейлиста в байты для снимка: serialize_m3u(&[Track]) -> Arc<[u8]>; save_track_list пишет через неё (ADR-1, §6.5). Файл: src/playlist.rs. Проверка: cargo test playlist
 [x] Шаг 14: main и конструктор MusicApp: spawn_writer на отдельном экземпляре ФС (self.fs в MusicApp остаётся мостом для flush/save_playlist до шага 23), копии *.bad через WriterCmd::BadCopy до Write, AppCore::with_deps с MonotonicClock/ChannelWaiter/journal (ADR-23, ТЗ-6, ТЗ-22, §6.1). Файлы: src/main.rs, src/app/mod.rs (конструктор). Проверка: cargo check
 [x] Шаг 15: MusicApp::tick → core.tick: ответы писателя → write_failed/write_succeeded окна сообщений; retry_writes → core.retry (ТЗ-11, ТЗ-20, §6.8). Файл: src/app/mod.rs. Проверка: cargo check
-[ ] Шаг 16: «Сохранить» диалога → core.save_settings_now + set_interval вместо save_settings (ТЗ-28, §6.9). Файл: src/app/mod.rs (обработчик settings_save). Проверка: cargo check; ЧЕКПОИНТ — полный cargo test + cargo clippy (test-runner, haiku)
+[x] Шаг 16: «Сохранить» диалога → core.save_settings_now + set_interval вместо save_settings (ТЗ-28, §6.9). Файл: src/app/mod.rs (обработчик settings_save). Проверка: cargo check; ЧЕКПОИНТ — полный cargo test + cargo clippy (test-runner, haiku)
 [ ] Шаг 17: Удалить W3/W6/W7: прямые save_settings в playback_manager и viz_settings_manager — изменения идут только через change_state/срок N (ТЗ-10, §8.1 С4). Файлы: src/app/playback_manager.rs, src/app/viz_settings_manager.rs. Проверка: cargo check
 [ ] Шаг 18: Плейлист через писатель: playlist_dirty → core.playlist_changed, save_playlist → снимок через core (serialize_m3u), поле MusicApp::playlist_dirty удалить (ТЗ-12, ТЗ-22, §6.4). Файлы: src/app/playlist_manager.rs, src/app/mod.rs. Проверка: cargo check
 [ ] Шаг 19: Метод MusicApp::exit(reason): черновик диалога := None, gate.unblock(Dialog), dismiss_for_exit, release_engine, core.exit(reason, …), quit_event_loop; ExitOutcome::Ignored при повторе (ТЗ-14, ТЗ-32, ADR-7, §6.10). Файл: src/app/mod.rs. Проверка: cargo check
@@ -55,8 +55,8 @@
 [ ] Шаг 24: Очистка моста в core/persist: удалить AppCore::new(boot)/flush/FlushOutcome/journal_records_for_flush и их тесты, синхронный persist::write_bad_copies (§8.1 С4). Файлы: src/core/mod.rs, src/persist/mod.rs. Проверка: cargo check; ЧЕКПОИНТ — полный cargo test + cargo clippy (test-runner, haiku)
 [ ] Шаг 25: Тест no_file_io_on_ui_thread (MemStore::calls — только поток apap-persist) и финальная верификация (ТЗ-22, НФ-5). Файл: src/core/testing.rs. Проверка: cargo test и cargo clippy зелёные, 0 новых варнингов
 
-- **Текущий шаг (current_step):** Шаг 16
-- **Следующий ход:** Шаг 16: «Сохранить» диалога → core.save_settings_now + set_interval (ЧЕКПОИНТ cargo test + clippy) — новый code-writer, sonnet. Отложено из шага 9: unreadable_playlist_never_written — нет чтения плейлиста в AppCore до С6
+- **Текущий шаг (current_step):** Шаг 17
+- **Следующий ход:** Шаг 17: удалить синхронные записи W3/W6/W7 (playback_manager.rs, viz_settings_manager.rs) — изменения идут через core и таймер. Отложено из шага 9: unreadable_playlist_never_written — нет чтения плейлиста в AppCore до С6
 - **Счетчик безуспешных компиляций:** 0/3
 - **Состояние:** in_progress
 
