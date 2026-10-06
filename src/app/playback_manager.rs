@@ -427,11 +427,12 @@ impl MusicApp {
         if name == self.core.settings().playback.audio_device {
             return;
         }
-        // Устройство — настройка: замена целиком через `set_settings` (И-Т7, §8.1 С3).
+        // Устройство — настройка: замена целиком через `set_settings` (И-Т7).
+        // Вызывается только из «Сохранить» диалога, который сам пишет
+        // `settings.toml` через `save_settings_now` (ТЗ-10, ТЗ-28, §8.1 С4).
         let mut s = self.core.settings().clone();
         s.playback.audio_device = name.clone();
         self.core.set_settings(s);
-        self.save_settings();
 
         let path = self
             .current

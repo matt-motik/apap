@@ -139,8 +139,8 @@ impl MusicApp {
     }
 
     /// Цикл по всем типам (Off→Osc→Spectrogram→Spectrum→Off), ТЗ §3.2.
-    /// Немедленно сохраняет режим в конфиг и применяет к UI/воркерам
-    /// (§8.1 С3).
+    /// Режим — состояние сессии: пишется по сроку отложенной записи (ТЗ-10,
+    /// §8.1 С4); сразу применяется к UI/воркерам.
     pub(super) fn cycle_viz_mode(&mut self) {
         if self.dialog.is_some() {
             return;
@@ -148,15 +148,14 @@ impl MusicApp {
         let current = self.core.state().viz_mode();
         let next = VisualizationMode::from_index(current.index() + 1);
         self.core.change_state(Origin::User, StateChange::VizMode(next));
-        self.save_settings();
         self.sync_viz_settings_to_ui();
         eprintln!("[viz] cycle: {:?} -> {:?}", current, next);
     }
 
     /// Выбор пункта меню «Визуализация» (ТЗ §3.2): клик по отмеченному режиму
-    /// выключает визуализацию (Off), иначе — включает выбранный. Сразу
-    /// сохраняет режим в конфиг и синхронизирует UI (галочки меню)
-    /// (§8.1 С3).
+    /// выключает визуализацию (Off), иначе — включает выбранный. Режим
+    /// пишется по сроку отложенной записи (ТЗ-10, §8.1 С4); UI (галочки
+    /// меню) синхронизируется сразу.
     pub(super) fn menu_select_viz_mode(&mut self, i: i32) {
         if self.dialog.is_some() {
             return;
@@ -165,7 +164,6 @@ impl MusicApp {
         let cur = self.core.state().viz_mode();
         let next = if picked == cur { VisualizationMode::Off } else { picked };
         self.core.change_state(Origin::User, StateChange::VizMode(next));
-        self.save_settings();
         self.sync_viz_settings_to_ui();
         eprintln!("[viz] menu select {i} -> {:?}", next);
     }
