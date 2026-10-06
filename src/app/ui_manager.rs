@@ -15,6 +15,22 @@ pub(super) const SAVE_INTERVALS: [SaveInterval; 4] =
     [SaveInterval::S10, SaveInterval::S30, SaveInterval::S60, SaveInterval::S120];
 
 impl MusicApp {
+    /// `true`, если окно в данный момент работает под нативным Wayland
+    /// (ADR-22, §6.17): композитор не сообщает клиенту положение окна на
+    /// экране, поэтому `window().position()` всегда возвращает (0,0), а
+    /// `set_position()` молча игнорируется. До первого `show()` хэндл ещё
+    /// недоступен — в этом случае, как и при любой другой ошибке получения
+    /// хэндла, считаем сессию не-Wayland (`false`).
+    fn is_wayland_window(&self) -> bool {
+        use raw_window_handle::HasWindowHandle;
+
+        let slint_handle = self.ui.window().window_handle();
+        let Ok(handle) = slint_handle.window_handle() else {
+            return false;
+        };
+        matches!(handle.as_raw(), raw_window_handle::RawWindowHandle::Wayland(_))
+    }
+
     /// Restore the saved window size/position (if any) before the window is shown.
     /// Also re-applied from `main` after `show()` (surface exists) so winit
     /// does not collapse the window to its content minimum (V5.1-B7).
@@ -37,10 +53,16 @@ impl MusicApp {
                 .window()
                 .set_size(slint::WindowSize::Logical(slint::LogicalSize::new(1200.0, 760.0)));
         }
+        // На Wayland позиция окна недоступна программе (ADR-22, §6.17):
+        // `set_position` композитор молча игнорирует, поэтому не вызываем его
+        // вовсе — чтобы не создавать ложное впечатление восстановленной
+        // геометрии.
         if let Some(pos) = win.position {
-            self.ui
-                .window()
-                .set_position(slint::WindowPosition::Physical(slint::PhysicalPosition::new(pos.x, pos.y)));
+            if !self.is_wayland_window() {
+                self.ui.window().set_position(slint::WindowPosition::Physical(
+                    slint::PhysicalPosition::new(pos.x, pos.y),
+                ));
+            }
         }
         // Восстанавливаем состояние окна поверх обычной геометрии: сначала
         // нормальный размер/позиция, затем максимизация и fullscreen.
@@ -68,9 +90,15 @@ impl MusicApp {
         geom.maximized = w.is_maximized();
         if !geom.fullscreen && !geom.maximized {
             let size = w.size();
-            let pos = w.position();
             geom.size = Some(PhysSize { width: size.width, height: size.height });
-            geom.position = Some(PhysPos { x: pos.x, y: pos.y });
+            // На Wayland `position()` не отражает реальное положение окна
+            // (композитор его не сообщает), поэтому позицию не читаем и не
+            // перезаписываем персистентное значение — оно остаётся прежним
+            // (ADR-22, §6.17).
+            if !self.is_wayland_window() {
+                let pos = w.position();
+                geom.position = Some(PhysPos { x: pos.x, y: pos.y });
+            }
         }
         Some(geom)
     }
