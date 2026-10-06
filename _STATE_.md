@@ -2,10 +2,32 @@
      Source of truth: _STATE_.yaml — edit that, then run:
      python tools/state_tool.py render -->
 
-# Состояние сессии
 
-- **Текущая задача:** Нет (все шаги завершены)
-- **Состояние:** done
+# Текущая микро-сессия
+
+- **Задача из ROADMAP:** SP1.0-B4 — Мигание размера окна на Wayland — размер в логических px
+- **Вайтлист файлов в работе (Изменяемые файлы):**
+  - docs/02_settings_persistence_v1.0/03_spec.md
+  - src/persist/state_file.rs
+  - src/core/geometry.rs
+  - src/core/testing.rs
+  - src/app/ui_manager.rs
+  - src/app/mod.rs
+  - _STATE_.yaml
+  - _STATE_.md
+  - ROADMAP.md
+- **Критерий успеха (Definition of Done):** На нативном Wayland окно открывается сразу с сохранённым размером без перескока: размер пишется в логических px с window.units = "logical" и применяется set_size(LogicalSize); на X11 — физические px; обход повторного применения SP1.0-B2 удалён; cargo test/clippy зелёные; ручная проверка cargo run под Wayland и X11 — пользователь
+
+## Итерационный трекер
+[x] Шаг 1: Спецификация: ADR-22 (размер на Wayland — логические px), §2 WindowGeometry.size_units/SizeUnits, ключ window.units в таблице state.toml, §6.17, строка заходов (решение пользователя: вариант 1). Файл: docs/02_settings_persistence_v1.0/03_spec.md. Проверка: pre-commit traceability OK
+[ ] Шаг 2: Модель и файл: SizeUnits {Physical (default), Logical} и поле WindowGeometry.size_units; ключ window.units ("physical"/"logical", отсутствие → physical, неверное значение → заметка + physical) в разборе и записи state.toml; тест раундтрипа (ADR-22, §2, §6.17). Файлы: src/persist/state_file.rs (+ литералы WindowGeometry в src/core/geometry.rs, src/core/testing.rs). Проверка: cargo check; cargo test state_file
+[ ] Шаг 3: Окно: на Wayland window_geometry читает size().to_logical(scale) с size_units = Logical, apply_window_geometry задаёт set_size(LogicalSize) для Logical и PhysicalSize для Physical; обход SP1.0-B2 (geometry_scale, geometry_rescale_until, reapply_geometry_on_scale_change, GEOMETRY_RESCALE_WINDOW) удалён (ADR-22, §6.17). Файлы: src/app/ui_manager.rs, src/app/mod.rs. Проверка: cargo check; cargo run под Wayland — окно сразу нужного размера
+[ ] Шаг 4: ЧЕКПОИНТ: cargo test, cargo clippy (0 новых в вайтлисте); ROADMAP SP1.0-B4 → ✅. Проверка: зелёные
+
+- **Текущий шаг (current_step):** Шаг 2
+- **Следующий ход:** Шаг 2: SizeUnits и ключ window.units в src/persist/state_file.rs
+- **Счетчик безуспешных компиляций:** 0/3
+- **Состояние:** in_progress
 
 ## План: Executable workflow: правила AGENTS.md → исполняемые механизмы
 _Источник: чат с пользователем (ноутбук), начат в 67686ce; перенесён в репо 2026-09-22_

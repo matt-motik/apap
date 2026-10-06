@@ -26,6 +26,7 @@
 | 2 | 2026-10-02 | `1be4ec5` | §10 (решения по ОВС-1…ОВС-5); их внесение в §1: ADR-8, ADR-15, ADR-19, ADR-20, ADR-21, ADR-22, ADR-23 и перечень ADR; §2, §3, §4, §5, §6; §9 — ОВС-6 (новый); §11 — дополнен предварительный список | ADR-23 изменён по решению ОВС-4 (журнал запускается до чтения файлов) |
 | 3 | 2026-10-02 | `1be4ec5` + незакоммиченный заход 2 | §10 (ОВС-6, Т-журнал, Т-ТЗ-46) и их внесение: ADR-3, ADR-7, ADR-21, §2.3, §2.7, §2.9, §2.13, §3.1, §3.4, §5 (И-Р20), §6.1, §6.4, §6.9, §6.10, §6.12, §6.13; §7; §8 (§8.3 — покрытие, §8.4 — проверка); §11 (сводный) | исправление явной ошибки захода 2: `cover_priority` (§2.4, §6.2) — возвращено поведение кода; новых ОВС нет |
 | — | 2026-10-02 | `5e815c8` | §8.1, С4, колонка «Что удаляется»: названы функции throttle-записи геометрии (V5.1-B7) | регистрация задачи `SP1.0` в `ROADMAP.md`; содержание этапов не менялось |
+| — | 2026-10-06 | `6495e0d` | ADR-22 (размер окна на Wayland — логические px), §2 (`WindowGeometry.size_units`, `SizeUnits`), таблица ключей `state.toml` (`window.units`), §6.17 | баг SP1.0-B4 (мигание размера окна на Wayland), решение пользователя: вариант «отдельный ключ единиц» |
 
 ## Правила документа
 
@@ -859,6 +860,7 @@
 - Пересчёт ширин колонок наследует источник изменения размера окна, за которым он следует (§5.1 ТЗ: «включая пересчёт ширин вслед за изменением размера окна пользователем»).
 - Программа запоминает значения, которые выставила сама (геометрия при восстановлении, ширины при пересчёте). Показание, равное запомненному значению, изменением не считается («эхо», ОВ-3).
 - Положение окна на Wayland не читается, поэтому не меняется: в `state.toml` остаётся прежнее значение.
+- **Размер окна на Wayland — в логических px** (SP1.0-B4). Масштаб поверхности Wayland приходит от композитора только после первого показа окна; до него `scale_factor()` = 1, и физический размер, заданный при восстановлении, применяется под неверным масштабом — окно открывается не того размера и затем перескакивает (мигание). Размеры поверхности Wayland логические, поэтому на Wayland размер читается как логический (`size().to_logical(scale_factor)`), пишется с `window.units = "logical"` и применяется `set_size(LogicalSize)` — масштаб для этого не нужен. На X11, Windows и macOS размер — физические px (`window.units = "physical"`). Сохранённый размер применяется в своих единицах в любом сеансе; файл, переписанный в другом сеансе, получает единицы этого сеанса. Размер в физических px из файла до SP1.0-B4 на Wayland применяется как физический один раз.
 - **Геометрия после показа** (ОВС-5 а, §10). Первое показание геометрии окна после первого показа главного окна — программное (эхо), каким бы оно ни было. Оно становится запомненным значением и отсчёт N не запускает. Последующие показания, отличные от запомненного, — `Origin::User`. Ширины колонок, пересчитанные вслед за этим первым показанием, — тоже `Program`. Оконный менеджер, который двигает окно позже первого показания, даёт одну лишнюю запись `state.toml` за запуск с верной геометрией. Ручной сценарий ТЗ-11 на Linux X11, Linux Wayland и Windows фиксирует число записей при запуске без действий в протоколе приёмки.
 
 **Что проверяет выбор.** Автотесты ТЗ-11:
@@ -1187,15 +1189,20 @@ pub struct SessionState {
 #[derive(Clone, Copy, PartialEq, Debug)]
 pub struct WidthPct(f32);
 
-/// Геометрия окна (§2 ТЗ «Состояние сессии»), физические px, как сейчас (src/settings.rs:776-793).
+/// Геометрия окна (§2 ТЗ «Состояние сессии»): положение — физические px; размер — в единицах `size_units` (ADR-22, SP1.0-B4).
 #[derive(Clone, Copy, PartialEq, Eq, Debug, Default)]
 pub struct WindowGeometry {
     /// None — не известно; на Wayland положение не читается (ADR-22).
     pub position: Option<PhysPos>,
     pub size: Option<PhysSize>,
+    /// Единицы `size`: на Wayland — логические px (размер поверхности Wayland), иначе физические (ADR-22).
+    pub size_units: SizeUnits,
     pub maximized: bool,
     pub fullscreen: bool,
 }
+/// Единицы размера окна в `state.toml` (`window.units`, ADR-22).
+#[derive(Clone, Copy, PartialEq, Eq, Debug, Default)]
+pub enum SizeUnits { #[default] Physical, Logical }
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub struct PhysPos { pub x: i32, pub y: i32 }
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
@@ -1241,6 +1248,7 @@ pub enum MuteTarget { Compatible, Optimal, Strict }
 | `shuffle` | bool | — | `false` | `src/settings.rs:829` |
 | `window.x`, `window.y` (необяз.) | целое | `i32` | нет: решает оконный менеджер | `src/settings.rs:776-781` |
 | `window.width`, `window.height` (необяз.) | целое | > 0 | нет: размер по умолчанию | `src/settings.rs:782-786` |
+| `window.units` | строка | `"physical"`, `"logical"` | `"physical"` (файлы до SP1.0-B4) | ADR-22, SP1.0-B4 |
 | `window.maximized`, `window.fullscreen` | bool | — | `false` | `src/settings.rs:787-793` |
 | `last_dir` (необяз.) | строка | абсолютный путь | нет | §2 ТЗ |
 
@@ -2885,10 +2893,10 @@ flush(budget): tx.send(Flush(ack)); ack.recv_timeout(budget).is_ok()
 Выполняет: ТЗ-11; ОВ-3; ОВС-5 а; ADR-22.
 
 ```
-до показа: восстановление из state.window → set_size/set_position/maximized/fullscreen; geometry.program_set(g)
+до показа: восстановление из state.window → set_size (Logical | Physical по size_units)/set_position (не на Wayland)/maximized/fullscreen; geometry.program_set(g)
 после show(): повторное применение (src/main.rs:70-75) → program_set(g); geometry.window_shown()
 
-на тике: g := прочитать (size, position — Wayland: None, maximized, fullscreen)
+на тике: g := прочитать (size — Wayland: логические px, size_units = Logical; иначе физические; position — Wayland: None; maximized, fullscreen)
   if g.position is None: g.position := state.window.position       // Wayland: положение не меняется (ADR-22)
   observe(g):
     if awaiting_first: awaiting_first := false; remembered := g;

@@ -2,20 +2,41 @@
 # _STATE_.md генерируется из этого файла — не редактировать его руками.
 # Редактируйте этот файл, затем: python tools/state_tool.py render
 
-status: done
+status: in_progress
 
 task:
-  roadmap_id: null
-  title: null
+  roadmap_id: "SP1.0-B4"
+  title: "Мигание размера окна на Wayland — размер в логических px"
 
-whitelist: []
+whitelist:
+  - docs/02_settings_persistence_v1.0/03_spec.md
+  - src/persist/state_file.rs
+  - src/core/geometry.rs
+  - src/core/testing.rs
+  - src/app/ui_manager.rs
+  - src/app/mod.rs
+  - _STATE_.yaml
+  - _STATE_.md
+  - ROADMAP.md
 
-dod: null
+dod: "На нативном Wayland окно открывается сразу с сохранённым размером без перескока: размер пишется в логических px с window.units = \"logical\" и применяется set_size(LogicalSize); на X11 — физические px; обход повторного применения SP1.0-B2 удалён; cargo test/clippy зелёные; ручная проверка cargo run под Wayland и X11 — пользователь"
 
-steps: []
+steps:
+  - id: 1
+    description: "Спецификация: ADR-22 (размер на Wayland — логические px), §2 WindowGeometry.size_units/SizeUnits, ключ window.units в таблице state.toml, §6.17, строка заходов (решение пользователя: вариант 1). Файл: docs/02_settings_persistence_v1.0/03_spec.md. Проверка: pre-commit traceability OK"
+    done: true
+  - id: 2
+    description: "Модель и файл: SizeUnits {Physical (default), Logical} и поле WindowGeometry.size_units; ключ window.units (\"physical\"/\"logical\", отсутствие → physical, неверное значение → заметка + physical) в разборе и записи state.toml; тест раундтрипа (ADR-22, §2, §6.17). Файлы: src/persist/state_file.rs (+ литералы WindowGeometry в src/core/geometry.rs, src/core/testing.rs). Проверка: cargo check; cargo test state_file"
+    done: false
+  - id: 3
+    description: "Окно: на Wayland window_geometry читает size().to_logical(scale) с size_units = Logical, apply_window_geometry задаёт set_size(LogicalSize) для Logical и PhysicalSize для Physical; обход SP1.0-B2 (geometry_scale, geometry_rescale_until, reapply_geometry_on_scale_change, GEOMETRY_RESCALE_WINDOW) удалён (ADR-22, §6.17). Файлы: src/app/ui_manager.rs, src/app/mod.rs. Проверка: cargo check; cargo run под Wayland — окно сразу нужного размера"
+    done: false
+  - id: 4
+    description: "ЧЕКПОИНТ: cargo test, cargo clippy (0 новых в вайтлисте); ROADMAP SP1.0-B4 → ✅. Проверка: зелёные"
+    done: false
 
-current_step: null
-next_action: null
+current_step: 2
+next_action: "Шаг 2: SizeUnits и ключ window.units в src/persist/state_file.rs"
 
 fail_counter: 0
 fail_counter_max: 3
