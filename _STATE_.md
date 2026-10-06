@@ -2,10 +2,30 @@
      Source of truth: _STATE_.yaml — edit that, then run:
      python tools/state_tool.py render -->
 
-# Состояние сессии
 
-- **Текущая задача:** Нет (все шаги завершены)
-- **Состояние:** done
+# Текущая микро-сессия
+
+- **Задача из ROADMAP:** SP1.0-B2 — Размер и положение окна не восстанавливаются под Wayland
+- **Вайтлист файлов в работе (Изменяемые файлы):**
+  - Cargo.toml
+  - Cargo.lock
+  - src/app/ui_manager.rs
+  - src/app/mod.rs
+  - _STATE_.yaml
+  - _STATE_.md
+  - ROADMAP.md
+- **Критерий успеха (Definition of Done):** Под нативным Wayland окно открывается с сохранённым размером (физ. px не удваиваются масштабом 1 до первого configure); позиция на Wayland не читается и не пишется 0,0 (ADR-22, §6.17); первое показание после восстановления — эхо Program; cargo test/clippy зелёные; ручная проверка cargo run под Wayland и X11 — пользователь
+
+## Итерационный трекер
+[x] Шаг 1: Диагностика (временный eprintln, откатан). Итог: до show() и сразу после show() scale_factor()=1, реальный масштаб 2 приходит позже → set_size(Physical 1600×1000) понимается как логический 1600×1000 и окно открывается 526×2000 физ. (высота удвоена); каждый запуск+выход портит размер дальше (526×3360). position() на Wayland всегда 0,0 и пишется в state.toml вопреки §6.17. Под X11/XWayland размер восстанавливается верно
+[ ] Шаг 2: Wayland: положение окна не читается и не применяется — window_geometry оставляет state.window.position, apply_window_geometry не зовёт set_position; сеанс определяется по типу дескриптора окна (raw-window-handle 0.6, фича slint raw-window-handle-06) (ADR-22, §6.17). Файлы: Cargo.toml (+Cargo.lock), src/app/ui_manager.rs. Проверка: cargo check
+[ ] Шаг 3: Повторное применение сохранённого физического размера, когда масштаб окна стал известен (scale_factor на тике ≠ масштабу при последнем применении): apply_window_geometry + program_set_geometry + window_shown — показание остаётся эхом Program (ОВС-5 а, ADR-22, §6.17). Файлы: src/app/mod.rs, src/app/ui_manager.rs. Проверка: cargo check; cargo run под Wayland — окно 1600×1000 физ. при сохранённых 1600×1000
+[ ] Шаг 4: ЧЕКПОИНТ: cargo test, cargo clippy (0 новых в вайтлисте); ROADMAP SP1.0-B2 → ✅. Проверка: зелёные
+
+- **Текущий шаг (current_step):** Шаг 2
+- **Следующий ход:** Шаг 2: определение Wayland-сеанса и отказ от чтения/установки позиции
+- **Счетчик безуспешных компиляций:** 0/3
+- **Состояние:** in_progress
 
 ## План: Executable workflow: правила AGENTS.md → исполняемые механизмы
 _Источник: чат с пользователем (ноутбук), начат в 67686ce; перенесён в репо 2026-09-22_
