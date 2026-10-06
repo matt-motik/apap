@@ -425,6 +425,9 @@ impl AppCore {
                 return Some(ReplyEffect::Failed(WorkFile::Settings, err.class));
             }
         };
+        if !self.tracker.toml_needs_write(ConfigFile::Settings, &bytes) {
+            return None;
+        }
         self.send_snapshot(WorkFile::Settings, bytes, None);
         None
     }

@@ -13,7 +13,7 @@
 //! продвигают `ManualClock` и дожидаются ответа писателя (§7.1).
 
 use super::{AppCore, AppDeps, FlushOutcome, TickOutput};
-use crate::audio::clock::Clock;
+use crate::audio::clock::{Clock, ClockInstant};
 use crate::audio::testing::ManualClock;
 use crate::core::exit::{ManualWaiter, ReplyWaiter};
 use crate::journal::{Journal, JournalRecord, VecJournal};
@@ -197,6 +197,13 @@ impl Harness {
     pub(crate) fn disk_bytes(&self, file: WorkFile) -> Option<Vec<u8>> {
         self.fs.get(self.paths.work(file))
     }
+
+    /// Текущий момент инжектируемых часов стенда (ТЗ-32, §6.10
+    /// `exit_budget_five_seconds`): нужен, чтобы измерить длительность
+    /// синхронного `exit()` по симулированному времени.
+    pub(crate) fn now(&self) -> ClockInstant {
+        self.clock.now()
+    }
 }
 
 #[cfg(test)]
@@ -205,9 +212,9 @@ mod tests {
     use crate::audio::visualizer::VisualizationMode;
     use crate::core::exit::ExitReason;
     use crate::persist::keys::{KeyPath, LoadNoteKind};
-    use crate::persist::settings_file::{SaveInterval, Settings};
+    use crate::persist::settings_file::{SaveInterval, Settings, ThemeName};
     use crate::persist::state_file::{Origin, PhysPos, PhysSize, SessionState, StateChange, WindowGeometry};
-    use crate::settings::RepeatMode;
+    use crate::settings::{RepeatMode, ResamplerAlgorithm};
 
     /// Нечитаемый `settings.toml` (ОВС-6 в, ТЗ-7, §6.1): автозаписи
     /// запрещены на весь сеанс, `flush` не пишет файл.
@@ -852,5 +859,52 @@ mod tests {
         assert_event_does_not_write_settings(|core| {
             core.change_state(Origin::User, StateChange::LastDir(PathBuf::from("/music")));
         });
+    }
+
+    /// «Сохранить» в диалоге настроек с изменением темы, устройства вывода
+    /// и алгоритма ресемплинга (SRC-фильтра) — один немедленный `flush` с
+    /// байтами, содержащими все три новых значения (ТЗ-28, §6.9).
+    #[test]
+    fn dialog_save_single_write_all_fields() {
+        let h = Harness::new();
+        h.put_settings(b"");
+        h.put_state(b"");
+        let mut core = h.boot();
+
+        let mut settings = core.settings().clone();
+        settings.theme = ThemeName::new("dark").expect("valid theme name");
+        settings.playback.audio_device = "hw:1,0".to_string();
+        settings.playback.audio.resampler.algorithm = ResamplerAlgorithm::SincFast;
+        core.save_settings_now(settings);
+        h.settle(&mut core);
+
+        assert_eq!(h.writes(WorkFile::Settings), 1);
+        let bytes = h.disk_bytes(WorkFile::Settings).expect("settings written");
+        let text = String::from_utf8(bytes).expect("settings.toml is valid utf-8");
+        assert!(text.contains("theme = \"dark\""));
+        assert!(text.contains("audio_device = \"hw:1,0\""));
+        assert!(text.contains("[audio.resampler]\nalgorithm = \"sinc_fast\""));
+    }
+
+    /// «Сохранить» без изменений относительно текущего состояния — запись
+    /// не отправляется, даже когда дедлайн затем срабатывает (ТЗ-28, §6.9).
+    #[test]
+    fn dialog_save_without_changes_does_not_write() {
+        let h = Harness::new();
+        let settings_bytes = crate::persist::settings_file::serialize_settings(&Settings::default())
+            .expect("serialize settings");
+        h.put_settings(&settings_bytes);
+        h.put_state(b"");
+        let mut core = h.boot();
+
+        let result = core.save_settings_now(core.settings().clone());
+        assert!(result.is_none());
+        h.settle(&mut core);
+        assert_eq!(h.writes(WorkFile::Settings), 0);
+
+        let interval = core.settings().save_interval.duration();
+        h.advance(&mut core, interval * 2);
+        h.settle(&mut core);
+        assert_eq!(h.writes(WorkFile::Settings), 0);
     }
 }
