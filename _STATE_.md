@@ -39,7 +39,7 @@
 [x] Шаг 8: Harness на писателе: AppDeps из MemStore+spawn_writer, ManualClock, ManualWaiter, VecJournal; advance(d), settle(), writes(f); перевод тестов С3 с flush на новый путь (§7.1). Файлы: src/core/testing.rs, src/core/mod.rs (тесты). Проверка: cargo test core:: зелёный
 [x] Шаг 9: Тесты §7.2 ТЗ-3/10/11/12/16/38 на Harness (state_written_after_n_seconds_once, continuous_series_written_every_n, interval_change_shortens_deadline, change_and_revert_writes_nothing, idle_ten_minutes_writes_nothing, program_change_does_not_start_timer, playlist_dirty_written_by_timer, playlist_write_error_stops_timer_writes, unreadable_playlist_never_written, playlist_flag_kept_if_changed_during_write, crash_keeps_last_written_version, mute_starts_timer, event_*_does_not_write_settings). Файл: src/core/mod.rs (тесты). Проверка: cargo test core:: зелёный
 [x] Шаг 10: Тесты «Сохранить» §7.2 ТЗ-28 на Harness: dialog_save_single_write_all_fields, dialog_save_without_changes_does_not_write; save_settings_now не пишет без отличий от эталона (§6.9). Файлы: src/core/testing.rs, src/core/mod.rs. Проверка: cargo test core:: зелёный
-[ ] Шаг 11: Тесты ошибок записи §7.2 ТЗ-20 на Harness: no_space_state_one_window_no_timer_retries, retry_after_space_freed, ok_keeps_timer_writes_stopped, readonly_media_one_window_two_files (§6.8). Файл: src/core/testing.rs. Проверка: cargo test по именам новых тестов
+[x] Шаг 11: Тесты ошибок записи §7.2 ТЗ-20 на Harness: no_space_state_one_window_no_timer_retries, retry_after_space_freed, ok_keeps_timer_writes_stopped, readonly_media_one_window_two_files (§6.8). Файл: src/core/testing.rs. Проверка: cargo test по именам новых тестов
 [ ] Шаг 12: Тесты выхода §7.2 ТЗ-14/32, НФ-9 на Harness: exit_budget_five_seconds, exit_partial_within_budget, exit_retries_previously_failed_file_once, repeated_tray_quit_ignored, exit_after_space_freed_without_retry (§6.10). В задании агенту — как ManualWaiter продвигает ManualClock во время синхронного exit(). Файл: src/core/testing.rs. Проверка: cargo test core:: целиком (блок тестов шагов 9–12)
 [ ] Шаг 13: Сериализация плейлиста в байты для снимка: serialize_m3u(&[Track]) -> Arc<[u8]>; save_track_list пишет через неё (ADR-1, §6.5). Файл: src/playlist.rs. Проверка: cargo test playlist
 [ ] Шаг 14: main и конструктор MusicApp: spawn_writer на отдельном экземпляре ФС (self.fs в MusicApp остаётся мостом для flush/save_playlist до шага 23), копии *.bad через WriterCmd::BadCopy до Write, AppCore::with_deps с MonotonicClock/ChannelWaiter/journal (ADR-23, ТЗ-6, ТЗ-22, §6.1). Файлы: src/main.rs, src/app/mod.rs (конструктор). Проверка: cargo check
@@ -55,8 +55,8 @@
 [ ] Шаг 24: Очистка моста в core/persist: удалить AppCore::new(boot)/flush/FlushOutcome/journal_records_for_flush и их тесты, синхронный persist::write_bad_copies (§8.1 С4). Файлы: src/core/mod.rs, src/persist/mod.rs. Проверка: cargo check; ЧЕКПОИНТ — полный cargo test + cargo clippy (test-runner, haiku)
 [ ] Шаг 25: Тест no_file_io_on_ui_thread (MemStore::calls — только поток apap-persist) и финальная верификация (ТЗ-22, НФ-5). Файл: src/core/testing.rs. Проверка: cargo test и cargo clippy зелёные, 0 новых варнингов
 
-- **Текущий шаг (current_step):** Шаг 11
-- **Следующий ход:** Шаг 11: тесты ошибок записи ТЗ-20 на Harness (core/testing.rs) — новый code-writer, sonnet. Harness::now() пока даёт dead_code (используется в шаге 12). Отложено из шага 9: unreadable_playlist_never_written — нет чтения плейлиста в AppCore до С6
+- **Текущий шаг (current_step):** Шаг 12
+- **Следующий ход:** Шаг 12: тесты выхода ТЗ-14/32, НФ-9 на Harness (core/testing.rs) — новый code-writer, sonnet; в задании — механизм ManualWaiter/ManualClock. Отложено из шага 9: unreadable_playlist_never_written — нет чтения плейлиста в AppCore до С6
 - **Счетчик безуспешных компиляций:** 0/3
 - **Состояние:** in_progress
 

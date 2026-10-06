@@ -17,6 +17,7 @@ use crate::audio::clock::{Clock, ClockInstant};
 use crate::audio::testing::ManualClock;
 use crate::core::exit::{ManualWaiter, ReplyWaiter};
 use crate::journal::{Journal, JournalRecord, VecJournal};
+use crate::persist::tracker::ReplyEffect;
 use crate::persist::writer::spawn_writer;
 use crate::persist::{self, ConfigFile, ConfigPaths, WorkFile};
 use crate::platform::fs::{MemStore, OpCounts, ReadErrorClass, WriteErrorClass, WriteStep};
@@ -173,6 +174,30 @@ impl Harness {
         }
     }
 
+    /// Как `settle`, но возвращает эффекты `tick` каждого отдельного тика
+    /// (ТЗ-20, §6.8): нужно тестам окна ошибки записи, которым важно, какие
+    /// `ReplyEffect` пришли В ОДНОМ тике (слияние нескольких неудач писателя
+    /// в одно окно), а не только их общее число.
+    pub(crate) fn settle_ticks(&self, core: &mut AppCore) -> Vec<Vec<ReplyEffect>> {
+        let start = Instant::now();
+        let mut ticks = Vec::new();
+        loop {
+            let out = core.tick(None, &|| self.playlist_snapshot());
+            ticks.push(out.effects);
+            let pending = [WorkFile::Playlist, WorkFile::State, WorkFile::Settings]
+                .into_iter()
+                .any(|f| core.tracker().last_in_flight(f).is_some());
+            if !pending {
+                return ticks;
+            }
+            if let Some(wake) = self.fs.next_wake() {
+                self.clock.advance(wake.saturating_since(self.clock.now()));
+            }
+            assert!(start.elapsed() < Duration::from_secs(2), "settle_ticks: писатель не ответил за 2 с реального времени");
+            std::thread::sleep(Duration::from_millis(5));
+        }
+    }
+
     /// Число успешных записей рабочего файла `file` (§7.1) — по счётчикам
     /// `MemStore`, независимо от журнала.
     pub(crate) fn writes(&self, file: WorkFile) -> usize {
@@ -211,6 +236,7 @@ mod tests {
     use super::*;
     use crate::audio::visualizer::VisualizationMode;
     use crate::core::exit::ExitReason;
+    use crate::journal::WriteTarget;
     use crate::persist::keys::{KeyPath, LoadNoteKind};
     use crate::persist::settings_file::{SaveInterval, Settings, ThemeName};
     use crate::persist::state_file::{Origin, PhysPos, PhysSize, SessionState, StateChange, WindowGeometry};
@@ -906,5 +932,147 @@ mod tests {
         h.advance(&mut core, interval * 2);
         h.settle(&mut core);
         assert_eq!(h.writes(WorkFile::Settings), 0);
+    }
+
+    /// Нет места на диске при записи `state.toml` по отсчёту: файл на диске
+    /// не меняется, в журнале — одна запись с классом/текстом ОС/путём,
+    /// эффект тика — ровно один `Failed` (одно окно Error); следующие 10 мин
+    /// простоя/тиков — 0 новых попыток записи, несмотря на новое изменение
+    /// (ТЗ-20, §6.8).
+    #[test]
+    fn no_space_state_one_window_no_timer_retries() {
+        let h = Harness::new();
+        h.put_settings(b"");
+        h.put_state(b"");
+        let mut core = h.boot();
+
+        h.fail_write_work(WorkFile::State, WriteStep::WriteData, WriteErrorClass::NoSpace, 1);
+        core.change_state(Origin::User, StateChange::Volume(42));
+        let interval = core.settings().save_interval.duration();
+        h.advance(&mut core, interval);
+        let effects: Vec<ReplyEffect> = h.settle_ticks(&mut core).into_iter().flatten().collect();
+
+        assert_eq!(effects, vec![ReplyEffect::Failed(WorkFile::State, WriteErrorClass::NoSpace)]);
+        assert_eq!(h.writes(WorkFile::State), 0);
+        assert_eq!(h.disk_bytes(WorkFile::State), Some(b"".to_vec()));
+
+        let records = h.journal();
+        let fails: Vec<&JournalRecord> = records
+            .iter()
+            .filter(|r| matches!(r, JournalRecord::WriteFailed { target: WriteTarget::Work(WorkFile::State), .. }))
+            .collect();
+        assert_eq!(fails.len(), 1);
+        match fails[0] {
+            JournalRecord::WriteFailed { err, .. } => {
+                assert_eq!(err.class, WriteErrorClass::NoSpace);
+                assert!(!err.os_text.is_empty());
+                assert_eq!(err.path, h.paths.state);
+            }
+            other => panic!("unexpected: {other:?}"),
+        }
+
+        // Новое изменение взводит срок заново, но попытки по таймеру
+        // всё равно блокированы (`stopped`), пока нет явного `retry`.
+        core.change_state(Origin::User, StateChange::Volume(99));
+        h.advance(&mut core, Duration::from_secs(600));
+        h.settle(&mut core);
+        assert_eq!(h.writes(WorkFile::State), 0);
+    }
+
+    /// После «освобождения места» (ошибка снята — однократный `fail_write`
+    /// уже отработал) «Повторить» немедленно отправляет снимок: запись
+    /// доходит до диска, эффект тика — один `Succeeded` (окно закрывается);
+    /// следующее изменение снова пишется по отсчёту через N (ТЗ-20, §6.8).
+    #[test]
+    fn retry_after_space_freed() {
+        let h = Harness::new();
+        h.put_settings(b"");
+        h.put_state(b"");
+        let mut core = h.boot();
+
+        h.fail_write_work(WorkFile::State, WriteStep::WriteData, WriteErrorClass::NoSpace, 1);
+        core.change_state(Origin::User, StateChange::Volume(42));
+        let interval = core.settings().save_interval.duration();
+        h.advance(&mut core, interval);
+        h.settle(&mut core);
+        assert_eq!(h.writes(WorkFile::State), 0);
+        assert!(core.tracker().timer_stopped(WorkFile::State));
+
+        let retry_effects = core.retry(&[WorkFile::State], &|| Arc::from(&b""[..]));
+        assert!(retry_effects.is_empty());
+        let reply_effects: Vec<ReplyEffect> = h.settle_ticks(&mut core).into_iter().flatten().collect();
+        assert_eq!(reply_effects, vec![ReplyEffect::Succeeded(WorkFile::State)]);
+        assert_eq!(h.writes(WorkFile::State), 1);
+        assert!(!core.tracker().timer_stopped(WorkFile::State));
+
+        core.change_state(Origin::User, StateChange::Volume(77));
+        h.advance(&mut core, interval);
+        h.settle(&mut core);
+        assert_eq!(h.writes(WorkFile::State), 2);
+    }
+
+    /// Пользователь нажал «ОК» без «Повторить»: запись по отсчёту остаётся
+    /// остановленной на весь сеанс, несмотря на дальнейшие изменения —
+    /// 10 минут простоя/тиков дают 0 попыток записи (ТЗ-20, §6.8).
+    #[test]
+    fn ok_keeps_timer_writes_stopped() {
+        let h = Harness::new();
+        h.put_settings(b"");
+        h.put_state(b"");
+        let mut core = h.boot();
+
+        h.fail_write_work(WorkFile::State, WriteStep::WriteData, WriteErrorClass::NoSpace, 1);
+        core.change_state(Origin::User, StateChange::Volume(42));
+        let interval = core.settings().save_interval.duration();
+        h.advance(&mut core, interval);
+        h.settle(&mut core);
+        assert_eq!(h.writes(WorkFile::State), 0);
+
+        for i in 0..10u32 {
+            core.change_state(Origin::User, StateChange::Volume(u8::try_from(i).expect("fits u8")));
+            h.advance(&mut core, Duration::from_secs(60));
+            h.settle(&mut core);
+        }
+
+        assert_eq!(h.writes(WorkFile::State), 0);
+    }
+
+    /// Файловая система только для чтения на обоих рабочих файлах: изменение
+    /// громкости и плейлиста по одному отсчёту приводят к двум неудачным
+    /// записям — по одной на файл; UI сводит их в одно окно Error (ТЗ-20, §6.8).
+    #[test]
+    fn readonly_media_one_window_two_files() {
+        let h = Harness::new();
+        h.put_settings(b"");
+        h.put_state(b"");
+        let mut core = h.boot();
+
+        h.fail_write_work(WorkFile::State, WriteStep::WriteData, WriteErrorClass::ReadOnlyFs, 1);
+        h.fail_write_work(WorkFile::Playlist, WriteStep::WriteData, WriteErrorClass::ReadOnlyFs, 1);
+
+        h.set_playlist(b"track1.flac\n");
+        core.change_state(Origin::User, StateChange::Volume(42));
+        core.playlist_changed();
+
+        let interval = core.settings().save_interval.duration();
+        h.advance(&mut core, interval);
+        let ticks = h.settle_ticks(&mut core);
+
+        // Ответы писателя могут прийти в разные тики (опрос раз в 5 мс), поэтому
+        // проверяется весь отсчёт: ровно одна ошибка на файл. Сведение в одно
+        // окно — забота MessageCenter (§6.15).
+        let mut failed: Vec<WorkFile> = ticks
+            .iter()
+            .flatten()
+            .filter_map(|e| match e {
+                ReplyEffect::Failed(f, WriteErrorClass::ReadOnlyFs) => Some(*f),
+                _ => None,
+            })
+            .collect();
+        failed.sort();
+        assert_eq!(failed, vec![WorkFile::Playlist, WorkFile::State], "по одной ошибке на state.toml и playlist.m3u");
+
+        assert_eq!(h.writes(WorkFile::State), 0);
+        assert_eq!(h.writes(WorkFile::Playlist), 0);
     }
 }
