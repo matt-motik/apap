@@ -20,12 +20,12 @@
 
 ## Итерационный трекер
 [x] Шаг 1: Спецификация: ADR-22 (размер на Wayland — логические px), §2 WindowGeometry.size_units/SizeUnits, ключ window.units в таблице state.toml, §6.17, строка заходов (решение пользователя: вариант 1). Файл: docs/02_settings_persistence_v1.0/03_spec.md. Проверка: pre-commit traceability OK
-[ ] Шаг 2: Модель и файл: SizeUnits {Physical (default), Logical} и поле WindowGeometry.size_units; ключ window.units ("physical"/"logical", отсутствие → physical, неверное значение → заметка + physical) в разборе и записи state.toml; тест раундтрипа (ADR-22, §2, §6.17). Файлы: src/persist/state_file.rs (+ литералы WindowGeometry в src/core/geometry.rs, src/core/testing.rs). Проверка: cargo check; cargo test state_file
+[x] Шаг 2: Модель и файл: SizeUnits {Physical (default), Logical} и поле WindowGeometry.size_units; ключ window.units ("physical"/"logical", отсутствие → physical, неверное значение → заметка + physical) в разборе и записи state.toml; тест раундтрипа (ADR-22, §2, §6.17). Файлы: src/persist/state_file.rs (+ литералы WindowGeometry в src/core/geometry.rs, src/core/testing.rs). Проверка: cargo check; cargo test state_file
 [ ] Шаг 3: Окно: на Wayland window_geometry читает size().to_logical(scale) с size_units = Logical, apply_window_geometry задаёт set_size(LogicalSize) для Logical и PhysicalSize для Physical; обход SP1.0-B2 (geometry_scale, geometry_rescale_until, reapply_geometry_on_scale_change, GEOMETRY_RESCALE_WINDOW) удалён (ADR-22, §6.17). Файлы: src/app/ui_manager.rs, src/app/mod.rs. Проверка: cargo check; cargo run под Wayland — окно сразу нужного размера
 [ ] Шаг 4: ЧЕКПОИНТ: cargo test, cargo clippy (0 новых в вайтлисте); ROADMAP SP1.0-B4 → ✅. Проверка: зелёные
 
-- **Текущий шаг (current_step):** Шаг 2
-- **Следующий ход:** Шаг 2: SizeUnits и ключ window.units в src/persist/state_file.rs
+- **Текущий шаг (current_step):** Шаг 3
+- **Следующий ход:** Шаг 3: логический размер на Wayland в ui_manager.rs, удалить обход SP1.0-B2
 - **Счетчик безуспешных компиляций:** 0/3
 - **Состояние:** in_progress
 

@@ -63,12 +63,13 @@ impl GeometryTracker {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::persist::state_file::{PhysPos, PhysSize};
+    use crate::persist::state_file::{PhysPos, PhysSize, SizeUnits};
 
     fn geom(x: i32) -> WindowGeometry {
         WindowGeometry {
             position: Some(PhysPos { x, y: 0 }),
             size: Some(PhysSize { width: 800, height: 600 }),
+            size_units: SizeUnits::Physical,
             maximized: false,
             fullscreen: false,
         }

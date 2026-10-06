@@ -271,12 +271,25 @@ pub struct PhysSize {
     pub height: u32,
 }
 
-/// Геометрия окна (§2.5, `src/settings.rs:776-793`).
+/// Единицы размера окна в `state.toml` (`window.units`, ADR-22, SP1.0-B4):
+/// на Wayland — логические px (размеры поверхности Wayland логические),
+/// иначе — физические.
+#[derive(Clone, Copy, PartialEq, Eq, Debug, Default)]
+pub enum SizeUnits {
+    #[default]
+    Physical,
+    Logical,
+}
+
+/// Геометрия окна (§2.5, `src/settings.rs:776-793`): положение — физические
+/// px, размер `size` — в единицах `size_units` (ADR-22, SP1.0-B4, §6.17).
 #[derive(Clone, Copy, PartialEq, Eq, Debug, Default)]
 pub struct WindowGeometry {
     /// `None` — не известно; на Wayland положение не читается (ADR-22).
     pub position: Option<PhysPos>,
     pub size: Option<PhysSize>,
+    /// Единицы `size` (ADR-22, SP1.0-B4, §6.17).
+    pub size_units: SizeUnits,
     pub maximized: bool,
     pub fullscreen: bool,
 }
@@ -499,7 +512,28 @@ fn window_specs() -> Vec<KeySpec<SessionState>> {
             false,
             "bool",
         ),
+        window_units_spec(),
     ]
+}
+
+/// `window.units` (ADR-22, SP1.0-B4, §6.17): единицы `window.size` — строки
+/// нижнего регистра, как `repeat`. Отсутствие ключа — файлы до SP1.0-B4,
+/// физические px.
+fn window_units_spec() -> KeySpec<SessionState> {
+    KeySpec {
+        path: "window.units".to_string(),
+        optional: false,
+        read: Box::new(|v, t: &mut SessionState| {
+            let s = v.as_str().ok_or("\"physical\"/\"logical\"")?;
+            t.window.size_units = match s {
+                "physical" => SizeUnits::Physical,
+                "logical" => SizeUnits::Logical,
+                _ => return Err("\"physical\"/\"logical\""),
+            };
+            Ok(())
+        }),
+        default: Box::new(|t: &mut SessionState| t.window.size_units = SizeUnits::Physical),
+    }
 }
 
 /// `repeat` (§2.5): строки нижнего регистра, `RepeatMode`'s `Deserialize` —
@@ -692,6 +726,7 @@ struct WindowDto {
     height: Option<u32>,
     maximized: bool,
     fullscreen: bool,
+    units: &'static str,
 }
 
 /// DTO записи `state.toml` (§2.6). Порядок полей — не буквальный порядок
@@ -752,6 +787,10 @@ pub fn serialize_state(s: &SessionState) -> Result<Arc<[u8]>, SerializeError> {
             height: s.window.size.map(|sz| sz.height),
             maximized: s.window.maximized,
             fullscreen: s.window.fullscreen,
+            units: match s.window.size_units {
+                SizeUnits::Physical => "physical",
+                SizeUnits::Logical => "logical",
+            },
         },
     };
 
@@ -915,6 +954,46 @@ mod tests {
         assert_eq!(value.window().size, Some(PhysSize { width: 800, height: 600 }));
     }
 
+    /// `window.units` отсутствует (файл до SP1.0-B4) → физические px
+    /// (ADR-22, SP1.0-B4, §6.17).
+    #[test]
+    fn window_units_absent_gives_physical() {
+        let (value, _notes) = parsed(bytes("window.width = 800\nwindow.height = 600\n"));
+        assert_eq!(value.window().size_units, SizeUnits::Physical);
+    }
+
+    /// `window.units` с недопустимым значением → физические px и заметка
+    /// `Invalid` (ADR-22, SP1.0-B4, §6.17).
+    #[test]
+    fn window_units_invalid_falls_back_to_physical() {
+        let (value, notes) = parsed(bytes("window.units = \"bogus\"\n"));
+        assert_eq!(value.window().size_units, SizeUnits::Physical);
+        let note = notes.iter().find(|n| n.key == KeyPath::new("window.units")).expect("note present");
+        match &note.kind {
+            LoadNoteKind::Invalid { allowed, .. } => assert_eq!(*allowed, "\"physical\"/\"logical\""),
+            other => panic!("unexpected note kind: {other:?}"),
+        }
+    }
+
+    /// `window.units = "logical"` записывается и разбирается обратно без
+    /// потерь (ADR-22, SP1.0-B4, §6.17).
+    #[test]
+    fn window_units_logical_roundtrip() {
+        let mut state = SessionState::default();
+        state.apply(StateChange::Window(WindowGeometry {
+            position: Some(PhysPos { x: 10, y: 20 }),
+            size: Some(PhysSize { width: 1024, height: 768 }),
+            size_units: SizeUnits::Logical,
+            maximized: false,
+            fullscreen: false,
+        }));
+
+        let written = serialize_state(&state).expect("serialize ok");
+        let (value, notes) = parsed(FileRead::Bytes(written));
+        assert_eq!(value.window(), state.window());
+        assert!(notes.is_empty(), "expected zero notes, got: {notes:?}");
+    }
+
     #[test]
     fn column_width_parses_and_rejects_out_of_range() {
         let (value, notes) = parsed(bytes("columns.widths.title = 42.5\ncolumns.widths.artist = 0\n"));
@@ -974,6 +1053,7 @@ mod tests {
         let window = WindowGeometry {
             position: Some(PhysPos { x: 1, y: 2 }),
             size: Some(PhysSize { width: 3, height: 4 }),
+            size_units: SizeUnits::Physical,
             maximized: true,
             fullscreen: false,
         };
@@ -1113,6 +1193,7 @@ mod tests {
         s.apply(StateChange::Window(WindowGeometry {
             position: Some(PhysPos { x: 10, y: 20 }),
             size: Some(PhysSize { width: 1024, height: 768 }),
+            size_units: SizeUnits::Logical,
             maximized: true,
             fullscreen: true,
         }));

@@ -274,7 +274,7 @@ mod tests {
     use crate::platform::fs::FsOp;
     use crate::persist::keys::{KeyPath, LoadNoteKind};
     use crate::persist::settings_file::{SaveInterval, Settings, ThemeName};
-    use crate::persist::state_file::{Origin, PhysPos, PhysSize, SessionState, StateChange, WindowGeometry};
+    use crate::persist::state_file::{Origin, PhysPos, PhysSize, SessionState, SizeUnits, StateChange, WindowGeometry};
     use crate::settings::{RepeatMode, ResamplerAlgorithm};
 
     /// Нечитаемый `settings.toml` (ОВС-6 в, ТЗ-7, ТЗ-14, ТЗ-32, §6.10):
@@ -415,7 +415,7 @@ mod tests {
         h.put_state(
             b"volume = 200\nrepeat = \"off\"\nshuffle = false\nbogus = 1\n\n\
               [visualization]\nmode = \"off\"\n\n\
-              [window]\nmaximized = false\nfullscreen = false\n",
+              [window]\nmaximized = false\nfullscreen = false\nunits = \"physical\"\n",
         );
         let _core = h.boot();
 
@@ -673,6 +673,7 @@ mod tests {
         let restored = WindowGeometry {
             position: Some(PhysPos { x: 10, y: 20 }),
             size: Some(PhysSize { width: 800, height: 600 }),
+            size_units: SizeUnits::Physical,
             maximized: false,
             fullscreen: false,
         };
@@ -689,6 +690,7 @@ mod tests {
         let actual = WindowGeometry {
             position: Some(PhysPos { x: 30, y: 40 }),
             size: Some(PhysSize { width: 800, height: 600 }),
+            size_units: SizeUnits::Physical,
             maximized: false,
             fullscreen: false,
         };
@@ -870,6 +872,7 @@ mod tests {
             let g = WindowGeometry {
                 position: Some(PhysPos { x: 1, y: 2 }),
                 size: Some(PhysSize { width: 640, height: 480 }),
+                size_units: SizeUnits::Physical,
                 maximized: false,
                 fullscreen: false,
             };
