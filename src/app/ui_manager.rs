@@ -72,6 +72,37 @@ impl MusicApp {
         if win.fullscreen {
             self.ui.window().set_fullscreen(true);
         }
+        // Запоминаем масштаб, под который применена геометрия — `tick`
+        // сравнивает его с текущим, чтобы заметить поздний Wayland-`configure`
+        // (SP1.0-B2, ADR-22, §6.17).
+        self.geometry_scale.set(self.ui.window().scale_factor());
+    }
+
+    /// Догонка масштаба после показа окна (SP1.0-B2, ADR-22, §6.17, ОВС-5 а):
+    /// на нативном Wayland `scale_factor()` может прийти от композитора
+    /// позже первого `show()`, и физический размер, восстановленный под
+    /// ещё не обновлённым масштабом, получается интерпретирован неверно.
+    /// Пока не истёк срок после показа, замечаем смену масштаба и
+    /// переприменяем геометрию заново — уже под верным значением; эхо этого
+    /// повторного применения помечается программным, чтобы не взвести срок
+    /// записи как от действия пользователя.
+    pub(super) fn reapply_geometry_on_scale_change(&mut self) {
+        let Some(deadline) = self.geometry_rescale_until else {
+            return;
+        };
+        if Instant::now() >= deadline {
+            self.geometry_rescale_until = None;
+            return;
+        }
+        if !self.ui.window().is_visible() {
+            return;
+        }
+        if (self.ui.window().scale_factor() - self.geometry_scale.get()).abs() > f32::EPSILON {
+            self.apply_window_geometry();
+            self.core.program_set_geometry(self.core.state().window());
+            self.core.window_shown();
+            self.geometry_rescale_until = None;
+        }
     }
 
     /// Текущее показание геометрии окна для `AppCore::tick` (ADR-22, §6.17):

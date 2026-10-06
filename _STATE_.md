@@ -19,11 +19,11 @@
 ## Итерационный трекер
 [x] Шаг 1: Диагностика (временный eprintln, откатан). Итог: до show() и сразу после show() scale_factor()=1, реальный масштаб 2 приходит позже → set_size(Physical 1600×1000) понимается как логический 1600×1000 и окно открывается 526×2000 физ. (высота удвоена); каждый запуск+выход портит размер дальше (526×3360). position() на Wayland всегда 0,0 и пишется в state.toml вопреки §6.17. Под X11/XWayland размер восстанавливается верно
 [x] Шаг 2: Wayland: положение окна не читается и не применяется — window_geometry оставляет state.window.position, apply_window_geometry не зовёт set_position; сеанс определяется по типу дескриптора окна (raw-window-handle 0.6, фича slint raw-window-handle-06) (ADR-22, §6.17). Файлы: Cargo.toml (+Cargo.lock), src/app/ui_manager.rs. Проверка: cargo check
-[ ] Шаг 3: Повторное применение сохранённого физического размера, когда масштаб окна стал известен (scale_factor на тике ≠ масштабу при последнем применении): apply_window_geometry + program_set_geometry + window_shown — показание остаётся эхом Program (ОВС-5 а, ADR-22, §6.17). Файлы: src/app/mod.rs, src/app/ui_manager.rs. Проверка: cargo check; cargo run под Wayland — окно 1600×1000 физ. при сохранённых 1600×1000
+[x] Шаг 3: Повторное применение сохранённого физического размера, когда масштаб окна стал известен (scale_factor на тике ≠ масштабу при последнем применении): apply_window_geometry + program_set_geometry + window_shown — показание остаётся эхом Program (ОВС-5 а, ADR-22, §6.17). Файлы: src/app/mod.rs, src/app/ui_manager.rs. Проверка: cargo check; cargo run под Wayland — окно 1600×1000 физ. при сохранённых 1600×1000
 [ ] Шаг 4: ЧЕКПОИНТ: cargo test, cargo clippy (0 новых в вайтлисте); ROADMAP SP1.0-B2 → ✅. Проверка: зелёные
 
-- **Текущий шаг (current_step):** Шаг 3
-- **Следующий ход:** Шаг 3: повторное применение размера, когда масштаб окна стал известен
+- **Текущий шаг (current_step):** Шаг 4
+- **Следующий ход:** Шаг 4: ЧЕКПОИНТ — cargo test, cargo clippy, закрыть SP1.0-B2 в ROADMAP
 - **Счетчик безуспешных компиляций:** 0/3
 - **Состояние:** in_progress
 

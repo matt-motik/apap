@@ -28,13 +28,13 @@ steps:
     done: true
   - id: 3
     description: "Повторное применение сохранённого физического размера, когда масштаб окна стал известен (scale_factor на тике ≠ масштабу при последнем применении): apply_window_geometry + program_set_geometry + window_shown — показание остаётся эхом Program (ОВС-5 а, ADR-22, §6.17). Файлы: src/app/mod.rs, src/app/ui_manager.rs. Проверка: cargo check; cargo run под Wayland — окно 1600×1000 физ. при сохранённых 1600×1000"
-    done: false
+    done: true
   - id: 4
     description: "ЧЕКПОИНТ: cargo test, cargo clippy (0 новых в вайтлисте); ROADMAP SP1.0-B2 → ✅. Проверка: зелёные"
     done: false
 
-current_step: 3
-next_action: "Шаг 3: повторное применение размера, когда масштаб окна стал известен"
+current_step: 4
+next_action: "Шаг 4: ЧЕКПОИНТ — cargo test, cargo clippy, закрыть SP1.0-B2 в ROADMAP"
 
 fail_counter: 0
 fail_counter_max: 3

@@ -383,7 +383,23 @@ pub struct MusicApp {
     /// детекции возможностей на С5 (ADR-9) оба поля считаются доступными,
     /// когда трей запущен.
     caps: PlatformCaps,
+    /// `scale_factor()` окна на момент последнего `apply_window_geometry`
+    /// (SP1.0-B2, ADR-22, §6.17): на нативном Wayland композитор сообщает
+    /// реальный масштаб не сразу (до и сразу после `show()` он равен 1.0,
+    /// пока не придёт первый `configure`), поэтому физический размер,
+    /// применённый на старте, может быть интерпретирован неверно.
+    geometry_scale: std::cell::Cell<f32>,
+    /// Срок, до которого `tick` перепроверяет смену `scale_factor()` после
+    /// показа окна и переприменяет геометрию (ОВС-5 а, SP1.0-B2, §6.17).
+    /// `None` — окно устоялось или это уже не ранний запуск.
+    geometry_rescale_until: Option<Instant>,
 }
+
+/// Окно догонки масштаба после показа: поздний `configure` от композитора
+/// Wayland приходит в пределах нескольких кадров, 2 секунд с запасом
+/// достаточно и не заденет пользовательский ресайз/перенос окна на другой
+/// монитор позже сессии (SP1.0-B2, ADR-22, §6.17).
+const GEOMETRY_RESCALE_WINDOW: std::time::Duration = std::time::Duration::from_secs(2);
 
 impl MusicApp {
     /// `paths` и `AppCore` (с писателем и журналом) строит `main` (ADR-19): приложение не ищет
@@ -535,6 +551,8 @@ impl MusicApp {
             gate: UiGate::default(),
             messages: MessageCenter::default(),
             caps: PlatformCaps { tray: true, notifications: true },
+            geometry_scale: std::cell::Cell::new(1.0),
+            geometry_rescale_until: None,
         };
         // Загрузка плейлиста при старте ещё не завершена (фон, выше) —
         // список недоступен до её окончания (ТЗ-48, §2.11).
@@ -670,6 +688,11 @@ impl MusicApp {
         // Следующее показание геометрии — эхо повторного применения после
         // `show()`, источник — программа (ОВС-5 а, ТЗ-11, §6.17).
         self.core.window_shown();
+        // На нативном Wayland реальный `scale_factor()` может прийти от
+        // композитора через несколько кадров после `show()` — взводим срок,
+        // в пределах которого `tick` следит за его сменой и переприменяет
+        // геометрию (SP1.0-B2, ADR-22, §6.17).
+        self.geometry_rescale_until = Some(Instant::now() + GEOMETRY_RESCALE_WINDOW);
         let effect = self.messages.window_shown();
         self.apply_msg_effect(effect);
     }
@@ -1919,6 +1942,11 @@ impl MusicApp {
         self.handle_reservation();
         self.handle_auto_advance();
         self.sync_playback_state_to_ui();
+        // Поздний `scale_factor()` от композитора Wayland после показа окна
+        // (SP1.0-B2, ADR-22, §6.17): переприменить геометрию, пока не истёк
+        // срок, иначе физический размер останется интерпретирован под
+        // стартовым (обычно ошибочным) масштабом.
+        self.reapply_geometry_on_scale_change();
         // Показание геометрии окна: `AppCore` отличает эхо программной
         // установки от действия пользователя и взводит срок записи только
         // для последнего (ОВС-5 а, ADR-22, §6.17, V5.1-B7).
