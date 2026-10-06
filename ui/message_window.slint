@@ -10,6 +10,8 @@ import { Button, ScrollView } from "std-widgets.slint";
 // `retry` — true для сводного окна ошибок записи (§6.8): кнопки
 // «Повторить» (primary) + «OK» (close); false — одна кнопка «OK», которая
 // сама по себе primary (Ok-окну всё равно, какая кнопка нажата, §6.15).
+// Кнопки без акцента стиля — как в окне настроек (SP1.0-B3); Enter
+// вызывает `primary` через обработчик клавиш, а не через свойство кнопки.
 export component MessageWindow inherits Rectangle {
     in property <bool> shown: false;
     in property <int> level: 2;
@@ -112,14 +114,12 @@ export component MessageWindow inherits Rectangle {
                         if root.retry: Button {
                             text: "Повторить";
                             preferred-height: 28px;
-                            primary: true;
                             clicked => { root.primary(); }
                         }
 
                         Button {
                             text: "OK";
                             preferred-height: 28px;
-                            primary: !root.retry;
                             clicked => {
                                 if (root.retry) {
                                     root.close();
