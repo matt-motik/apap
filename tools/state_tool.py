@@ -145,10 +145,14 @@ def render_plan(plan: dict | None) -> str:
         lines.append(f"_Источник: {plan['source']}_")
     lines.append("")
     for item in plan["items"]:
-        line = f"[{PLAN_MARKS[item['status']]}] {item['id']}. {item['description']}"
-        if item.get("note"):
-            line += f" — {item['note']}"
+        line = f"- [{PLAN_MARKS[item['status']]}] **{item['id']}.** {item['description']}"
+        note = item.get("note")
+        if isinstance(note, str) and note:
+            line += f" — {note}"
         lines.append(line)
+        # Список строк → маркированный список под пунктом (читаемость для человека).
+        if isinstance(note, list):
+            lines.extend(f"  - {n}" for n in note)
     lines.append("")
     lines.append("Легенда: [x] сделано · [~] частично · [>] в работе · [ ] не начато · [-] отменено")
     return "\n".join(lines) + "\n"
