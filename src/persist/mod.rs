@@ -10,7 +10,7 @@ pub mod tracker;
 pub mod writer;
 
 use crate::journal::JournalRecord;
-use crate::platform::fs::{FileReader, FileWriter, ReadErrorClass, WriteError};
+use crate::platform::fs::{FileReader, ReadErrorClass, WriteError};
 use keys::{FileRead, Parsed};
 use settings_file::{parse_settings, Settings};
 use state_file::{parse_state, SessionState};
@@ -175,38 +175,12 @@ pub struct BadCopyOutcome {
     pub result: Result<PathBuf, WriteError>,
 }
 
-/// Для каждого неразбираемого файла из `boot` записывает его исходные байты в
-/// `<файл>.bad` (не более одной копии на файл — И-Р12) до первой записи этого
-/// файла писателем (И-Р18; на этапе С3 копия пишется синхронно в `main` до
-/// появления писателя `apap-persist`, §8 С3). Файлы, разобранные успешно или
-/// отсутствующие, не порождают записи.
-pub fn write_bad_copies(boot: &Boot, writer: &mut dyn FileWriter, paths: &ConfigPaths) -> Vec<BadCopyOutcome> {
-    let mut out = Vec::new();
-    if let Parsed::Unparsable { original, .. } = &boot.settings {
-        out.push(write_bad_copy(writer, paths, ConfigFile::Settings, original));
-    }
-    if let Parsed::Unparsable { original, .. } = &boot.state {
-        out.push(write_bad_copy(writer, paths, ConfigFile::State, original));
-    }
-    out
-}
-
-fn write_bad_copy(
-    writer: &mut dyn FileWriter,
-    paths: &ConfigPaths,
-    file: ConfigFile,
-    original: &[u8],
-) -> BadCopyOutcome {
-    let path = paths.bad_copy(file.work());
-    let result = writer.write_atomic(&path, original).map(|()| path);
-    BadCopyOutcome { file, result }
-}
-
 /// Записи журнала для шага 2 ADR-23 (§6.1): ошибка чтения файла —
 /// `JournalRecord::ReadFailed`; успешный разбор с заметками — `LoadNotes`
 /// (ТЗ-5). Неразбираемый файл в журнал здесь не попадает — его запись
 /// `Unparsable` объединяет текст ошибки разбора с итогом копии `*.bad` и
-/// строится из результата `write_bad_copies` (`journal_records_for_bad_copies`).
+/// строится из результата отправки `WriterCmd::BadCopy` писателю
+/// (`journal_records_for_bad_copies`).
 pub fn journal_records_for_boot(boot: &Boot) -> Vec<JournalRecord> {
     let mut out = Vec::new();
     push_boot_file_records(&mut out, ConfigFile::Settings, &boot.settings);
@@ -334,8 +308,7 @@ mod tests {
         let p = paths();
         fs.put(&p.settings, b"[[\n");
         let b = boot(&fs, &p);
-        let mut writer = fs.clone();
-        let outcomes = write_bad_copies(&b, &mut writer, &p);
+        let outcomes = vec![BadCopyOutcome { file: ConfigFile::Settings, result: Ok(p.bad_copy(WorkFile::Settings)) }];
         let records = journal_records_for_bad_copies(&b, &outcomes);
         assert_eq!(records.len(), 1);
         match &records[0] {
@@ -349,55 +322,25 @@ mod tests {
     }
 
     #[test]
-    fn write_bad_copies_writes_original_bytes_once_each() {
-        let fs = MemStore::new();
-        let p = paths();
-        fs.put(&p.settings, b"[[\n");
-        fs.put(&p.state, b"[[\n");
-        let b = boot(&fs, &p);
-        assert!(matches!(b.settings, Parsed::Unparsable { .. }));
-        assert!(matches!(b.state, Parsed::Unparsable { .. }));
-        let mut writer = fs.clone();
-        let outcomes = write_bad_copies(&b, &mut writer, &p);
-        assert_eq!(outcomes.len(), 2);
-        assert_eq!(fs.get(&p.bad_copy(WorkFile::Settings)).as_deref(), Some(&b"[[\n"[..]));
-        assert_eq!(fs.get(&p.bad_copy(WorkFile::State)).as_deref(), Some(&b"[[\n"[..]));
-        assert_eq!(fs.counts(&p.bad_copy(WorkFile::Settings)).writes, 1);
-        assert_eq!(fs.counts(&p.bad_copy(WorkFile::State)).writes, 1);
-    }
-
-    #[test]
-    fn write_bad_copies_reports_write_failure() {
+    fn journal_records_for_bad_copies_reports_write_failure() {
         use crate::platform::fs::{WriteErrorClass, WriteStep};
         let fs = MemStore::new();
         let p = paths();
         fs.put(&p.settings, b"[[\n");
-        let bad = p.bad_copy(WorkFile::Settings);
-        fs.fail_write(&bad, WriteStep::WriteData, WriteErrorClass::NoSpace, 1);
         let b = boot(&fs, &p);
-        let mut writer = fs.clone();
-        let outcomes = write_bad_copies(&b, &mut writer, &p);
-        assert_eq!(outcomes.len(), 1);
-        assert!(outcomes[0].result.is_err());
+        let err = WriteError {
+            class: WriteErrorClass::NoSpace,
+            step: WriteStep::WriteData,
+            os_code: None,
+            os_text: "x".into(),
+            path: p.bad_copy(WorkFile::Settings),
+        };
+        let outcomes = vec![BadCopyOutcome { file: ConfigFile::Settings, result: Err(err) }];
         let records = journal_records_for_bad_copies(&b, &outcomes);
         assert_eq!(records.len(), 1);
         assert!(matches!(
             &records[0],
             JournalRecord::Unparsable { file: ConfigFile::Settings, copy: Err(_), .. }
         ));
-    }
-
-    #[test]
-    fn write_bad_copies_no_writes_when_files_are_fine() {
-        let fs = MemStore::new();
-        let p = paths();
-        fs.put(&p.settings, b"theme = \"dark\"\n");
-        fs.put(&p.state, b"");
-        let b = boot(&fs, &p);
-        let mut writer = fs.clone();
-        let outcomes = write_bad_copies(&b, &mut writer, &p);
-        assert!(outcomes.is_empty());
-        assert_eq!(fs.counts(&p.bad_copy(WorkFile::Settings)).writes, 0);
-        assert_eq!(fs.counts(&p.bad_copy(WorkFile::State)).writes, 0);
     }
 }

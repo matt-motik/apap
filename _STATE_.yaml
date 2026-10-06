@@ -103,13 +103,13 @@ steps:
     done: true
   - id: 24
     description: "Очистка моста в core/persist: удалить AppCore::new(boot)/flush/FlushOutcome/journal_records_for_flush и их тесты, синхронный persist::write_bad_copies (§8.1 С4). Файлы: src/core/mod.rs, src/persist/mod.rs. Проверка: cargo check; ЧЕКПОИНТ — полный cargo test + cargo clippy (test-runner, haiku)"
-    done: false
+    done: true
   - id: 25
     description: "Тест no_file_io_on_ui_thread (MemStore::calls — только поток apap-persist) и финальная верификация (ТЗ-22, НФ-5). Файл: src/core/testing.rs. Проверка: cargo test и cargo clippy зелёные, 0 новых варнингов"
     done: false
 
-current_step: 24
-next_action: "Шаг 24: очистка моста в core/persist (AppCore::new, flush, FlushOutcome, write_bad_copies); ЧЕКПОИНТ. Отложено из шага 9: unreadable_playlist_never_written — нет чтения плейлиста в AppCore до С6"
+current_step: 25
+next_action: "Шаг 25: тест no_file_io_on_ui_thread и финальная верификация. Отложено из шага 9: unreadable_playlist_never_written — нет чтения плейлиста в AppCore до С6"
 
 fail_counter: 0
 fail_counter_max: 3

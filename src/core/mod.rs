@@ -11,7 +11,6 @@ pub mod messages;
 #[cfg(test)]
 pub(crate) mod testing;
 
-use std::path::Path;
 use std::sync::Arc;
 
 use exit::{ExitCoordinator, ExitOutcome, ExitPhase, ExitReason, ExitReport, ReplyWaiter};
@@ -26,7 +25,7 @@ use crate::persist::state_file::{serialize_state, Origin, SessionState, StateCha
 use crate::persist::tracker::{PersistTracker, ReplyEffect};
 use crate::persist::writer::{WriterCmd, WriterHandle, WriterReply};
 use crate::persist::{Boot, ConfigFile, ConfigPaths, ReferenceText, SerializeError, Snapshot, SnapshotId, WorkFile};
-use crate::platform::fs::{FileWriter, ReadError, WriteError};
+use crate::platform::fs::{ReadError, WriteError};
 
 /// Эталон и запрет автозаписи одного файла (§2.2, §2.12, И-Р3, И-Р20).
 /// Упрощённый аналог `FileTrack` (§2.7) без очереди «в пути» и дедлайнов —
@@ -65,63 +64,7 @@ fn split_parsed<T>(parsed: Parsed<T>) -> (T, FileState, Vec<LoadNote>, Option<Re
     }
 }
 
-/// Итог попытки синхронно записать один файл во `flush` (§2.6, §2.12,
-/// И-Р3, И-Р20).
-#[derive(Debug)]
-pub enum FlushOutcome {
-    /// Сериализованный текст не отличается от эталона — запись не нужна (И-Р3).
-    Unchanged(ConfigFile),
-    /// Автозапись файла запрещена до конца сеанса (И-Р20, ОВС-6 в).
-    Forbidden(ConfigFile),
-    /// Файл записан; эталон обновлён.
-    Written(ConfigFile),
-    /// Сериализация или запись завершились ошибкой (ТЗ-20).
-    Failed { file: ConfigFile, err: WriteError },
-}
-
-/// Записи журнала о неудачной записи рабочего файла (ТЗ-20) — для случаев
-/// `FlushOutcome::Failed`, по образцу `persist::journal_records_for_bad_copies`.
-pub fn journal_records_for_flush(outcomes: &[FlushOutcome]) -> Vec<JournalRecord> {
-    outcomes
-        .iter()
-        .filter_map(|o| match o {
-            FlushOutcome::Failed { file, err } => {
-                Some(JournalRecord::WriteFailed { target: WriteTarget::Work(file.work()), err: err.clone() })
-            }
-            _ => None,
-        })
-        .collect()
-}
-
-/// Пишет один файл, если это разрешено и текст отличается от эталона;
-/// обновляет эталон при успехе (И-Р3, И-Р20).
-fn flush_file(
-    file: ConfigFile,
-    track: &mut FileState,
-    bytes: Result<Arc<[u8]>, SerializeError>,
-    writer: &mut dyn FileWriter,
-    path: &Path,
-) -> FlushOutcome {
-    if track.auto_forbidden {
-        return FlushOutcome::Forbidden(file);
-    }
-    let bytes = match bytes {
-        Ok(bytes) => bytes,
-        Err(SerializeError(msg)) => return FlushOutcome::Failed { file, err: WriteError::serialize(&msg, path) },
-    };
-    if !track.reference.differs(&bytes) {
-        return FlushOutcome::Unchanged(file);
-    }
-    match writer.write_atomic(path, &bytes) {
-        Ok(()) => {
-            track.reference = ReferenceText::of(bytes);
-            FlushOutcome::Written(file)
-        }
-        Err(err) => FlushOutcome::Failed { file, err },
-    }
-}
-
-/// Внешние зависимости нового API `AppCore` (ADR-19, §2.12): писатель
+/// Внешние зависимости `AppCore` (ADR-19, §2.12): писатель
 /// `apap-persist`, пути конфигурации, инжектируемые часы, ожидание ответа
 /// на пути выхода и журнал.
 ///
@@ -140,14 +83,12 @@ pub struct AppDeps {
 }
 
 /// Ядро приложения без Slint (ADR-19, §2.12): владеет настройками и
-/// состоянием сессии, их эталонными текстами и запретом автозаписи, а также
-/// (при наличии `deps`) `PersistTracker`, координатором выхода и трекером
-/// геометрии окна.
+/// состоянием сессии, их эталонными текстами и запретом автозаписи,
+/// `PersistTracker`, координатором выхода и трекером геометрии окна.
 /// Полный состав `AppCore` по спецификации (`Playlist`, `UiGate`,
 /// `MessageCenter`, `LoadState` и т. д.) появляется поэтапно; на этом шаге —
-/// то, что нужно для чтения/изменения настроек и состояния, синхронной
-/// записи (старый мост) и отложенной записи через писателя (новый API,
-/// §6.4, §6.8, §6.10).
+/// то, что нужно для чтения/изменения настроек и состояния и отложенной
+/// записи через писателя `apap-persist` (§6.4, §6.8, §6.10).
 pub struct AppCore {
     settings: Settings,
     settings_file: FileState,
@@ -155,21 +96,18 @@ pub struct AppCore {
     /// `state.toml` не даёт сообщения — только запрет автозаписи (И-Р20).
     settings_read_failed: Option<ReadError>,
     state: SessionState,
-    state_file: FileState,
     startup_notes: StartupNotes,
-    /// `None` в режиме старого моста (`new(boot)`) — методы нового API
-    /// в этом режиме не выполняют I/O (§2.12).
     deps: Option<AppDeps>,
     tracker: PersistTracker,
     exit: ExitCoordinator,
     geometry: GeometryTracker,
 }
 
-/// Общая часть `new`/`with_deps`: разбирает `boot` и строит `PersistTracker`
-/// с тем же эталоном и запретом автозаписи, что уже применяет старый мост
+/// Общая часть загрузки `with_deps`: разбирает `boot` и строит
+/// `PersistTracker` с эталоном и запретом автозаписи по разбору файлов
 /// (ТЗ-11, И-Р20, §2.7, §2.12).
 #[allow(clippy::type_complexity)]
-fn from_boot(boot: Boot) -> (Settings, FileState, Option<ReadError>, SessionState, FileState, StartupNotes, PersistTracker) {
+fn from_boot(boot: Boot) -> (Settings, FileState, Option<ReadError>, SessionState, StartupNotes, PersistTracker) {
     let (settings, settings_file, settings_notes, settings_read_failed) = split_parsed(boot.settings);
     let (state, state_file, state_notes, _) = split_parsed(boot.state);
 
@@ -182,41 +120,22 @@ fn from_boot(boot: Boot) -> (Settings, FileState, Option<ReadError>, SessionStat
     }
 
     let startup_notes = StartupNotes { settings: settings_notes, state: state_notes };
-    (settings, settings_file, settings_read_failed, state, state_file, startup_notes, tracker)
+    (settings, settings_file, settings_read_failed, state, startup_notes, tracker)
 }
 
 impl AppCore {
-    /// Строит `AppCore` из результата `persist::boot` без зависимостей
-    /// писателя (ADR-23 шаг 2, §2.12) — старый мост `src/app/`: `flush` пишет
-    /// синхронно, методы нового API (`tick`, `exit`, ...) не выполняют I/O.
-    pub fn new(boot: Boot) -> AppCore {
-        let (settings, settings_file, settings_read_failed, state, state_file, startup_notes, tracker) = from_boot(boot);
-        AppCore {
-            settings,
-            settings_file,
-            settings_read_failed,
-            state,
-            state_file,
-            startup_notes,
-            deps: None,
-            tracker,
-            exit: ExitCoordinator::new(),
-            geometry: GeometryTracker::new(),
-        }
-    }
-
-    /// Строит `AppCore` с зависимостями нового API (ADR-19, §2.12).
+    /// Строит `AppCore` с зависимостями писателя `apap-persist` (ADR-19,
+    /// §2.12).
     ///
-    /// ОТКЛОНЕНИЕ от §2.12: там это тот же конструктор `new(deps, boot)`;
-    /// здесь — отдельное имя, так как `new(boot)` уже занят старым мостом.
+    /// ОТКЛОНЕНИЕ от §2.12: там это конструктор `new(deps, boot)`; здесь —
+    /// отдельное имя `with_deps`, чтобы не путать с обычным `new()`.
     pub fn with_deps(deps: AppDeps, boot: Boot) -> AppCore {
-        let (settings, settings_file, settings_read_failed, state, state_file, startup_notes, tracker) = from_boot(boot);
+        let (settings, settings_file, settings_read_failed, state, startup_notes, tracker) = from_boot(boot);
         AppCore {
             settings,
             settings_file,
             settings_read_failed,
             state,
-            state_file,
             startup_notes,
             deps: Some(deps),
             tracker,
@@ -225,8 +144,8 @@ impl AppCore {
         }
     }
 
-    /// Текущее время по инжектируемым часам (ADR-20); без `deps` (мост) —
-    /// начало отсчёта `ClockInstant::START`.
+    /// Текущее время по инжектируемым часам (ADR-20); без `deps` — начало
+    /// отсчёта `ClockInstant::START`.
     fn now(&self) -> ClockInstant {
         match &self.deps {
             Some(deps) => deps.clock.now(),
@@ -287,19 +206,6 @@ impl AppCore {
     /// эхо повторного применения после `show()` (ОВС-5 а, ТЗ-11, §6.17).
     pub fn window_shown(&mut self) {
         self.geometry.window_shown();
-    }
-
-    /// Синхронно пишет `settings.toml`/`state.toml`, если текст отличается
-    /// от эталона (И-Р3) и автозапись файла не запрещена (И-Р20). Временная
-    /// реализация до писателя `apap-persist`: пишет файл целиком в прежние
-    /// моменты (С4, §8 С3).
-    pub fn flush(&mut self, writer: &mut dyn FileWriter, paths: &ConfigPaths) -> Vec<FlushOutcome> {
-        let settings_bytes = serialize_settings(&self.settings);
-        let settings_outcome =
-            flush_file(ConfigFile::Settings, &mut self.settings_file, settings_bytes, writer, &paths.settings);
-        let state_bytes = serialize_state(&self.state);
-        let state_outcome = flush_file(ConfigFile::State, &mut self.state_file, state_bytes, writer, &paths.state);
-        vec![settings_outcome, state_outcome]
     }
 
     /// Отправляет снимок писателю `apap-persist`: заводит `SnapshotId`,
@@ -625,72 +531,3 @@ pub struct TickOutput {
     pub other: Vec<WriterReply>,
 }
 
-#[cfg(test)]
-mod tests {
-    use super::*;
-    use crate::persist::{self, ConfigPaths};
-    use crate::platform::fs::{MemStore, ReadErrorClass};
-    use std::path::PathBuf;
-
-    fn paths() -> ConfigPaths {
-        ConfigPaths::in_dir(PathBuf::from("/cfg"))
-    }
-
-    fn boot_with_defaults(fs: &MemStore, p: &ConfigPaths) -> Boot {
-        let settings_bytes = serialize_settings(&Settings::default()).expect("serialize settings");
-        let state_bytes = serialize_state(&SessionState::default()).expect("serialize state");
-        fs.put(&p.settings, &settings_bytes);
-        fs.put(&p.state, &state_bytes);
-        persist::boot(fs, p)
-    }
-
-    #[test]
-    fn flush_skips_unchanged_files() {
-        let fs = MemStore::new();
-        let p = paths();
-        let boot = boot_with_defaults(&fs, &p);
-        let mut core = AppCore::new(boot);
-        let mut writer = fs.clone();
-
-        let outcomes = core.flush(&mut writer, &p);
-
-        assert!(outcomes.iter().all(|o| matches!(o, FlushOutcome::Unchanged(_))));
-        assert_eq!(fs.counts(&p.settings).writes, 0);
-        assert_eq!(fs.counts(&p.state).writes, 0);
-    }
-
-    #[test]
-    fn flush_writes_state_after_change_state() {
-        let fs = MemStore::new();
-        let p = paths();
-        let boot = boot_with_defaults(&fs, &p);
-        let mut core = AppCore::new(boot);
-        core.change_state(Origin::User, StateChange::Volume(42));
-        let mut writer = fs.clone();
-
-        let outcomes = core.flush(&mut writer, &p);
-
-        assert!(matches!(outcomes[0], FlushOutcome::Unchanged(ConfigFile::Settings)));
-        assert!(matches!(outcomes[1], FlushOutcome::Written(ConfigFile::State)));
-        assert_eq!(fs.counts(&p.settings).writes, 0);
-        assert_eq!(fs.counts(&p.state).writes, 1);
-    }
-
-    #[test]
-    fn flush_skips_forbidden_settings_after_read_failure() {
-        let fs = MemStore::new();
-        let p = paths();
-        fs.fail_read(&p.settings, ReadErrorClass::NoAccess);
-        let boot = persist::boot(&fs, &p);
-        assert!(matches!(boot.settings, Parsed::ReadFailed { .. }));
-        let mut core = AppCore::new(boot);
-        assert!(core.settings_read_failed_message().is_some());
-        assert_eq!(core.settings_save_notice(), Some("Файл настроек не прочитан — «Сохранить» заменит его значениями из этого окна"));
-        let mut writer = fs.clone();
-
-        let outcomes = core.flush(&mut writer, &p);
-
-        assert!(matches!(outcomes[0], FlushOutcome::Forbidden(ConfigFile::Settings)));
-        assert_eq!(fs.counts(&p.settings).writes, 0);
-    }
-}

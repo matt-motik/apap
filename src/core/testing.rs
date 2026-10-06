@@ -2,25 +2,26 @@
 //!
 //! `Harness` оборачивает `MemStore` и воссоздаёт порядок `main` для С3
 //! (ADR-23 шаги 0–2, §8 С3): чтение и разбор обоих файлов (`persist::boot`),
-//! затем копии `*.bad` до появления окна (`persist::write_bad_copies`).
+//! затем копии `*.bad` до появления окна — на стенде пишутся прямо в
+//! `MemStore` (детерминированно, без ожидания ответа писателя по часам).
 //! Дальше стенд собирает `AppDeps` (ADR-19, §2.12): писатель `apap-persist`
 //! через `spawn_writer` на той же `MemStore`, инжектируемые `ManualClock` и
 //! `ManualWaiter` (ожидание ответа без сна по симулированному времени,
 //! §6.10) и общий `Arc<VecJournal>` — и строит `AppCore::with_deps`.
 //!
-//! `flush` остаётся для старого синхронного моста (бывший С3, удаляется на
-//! последующем этапе); новый путь — `advance`/`settle` поверх `tick`:
-//! продвигают `ManualClock` и дожидаются ответа писателя (§7.1).
+//! `advance`/`settle` поверх `tick` продвигают `ManualClock` и дожидаются
+//! ответа писателя (§7.1).
 
-use super::{AppCore, AppDeps, FlushOutcome, TickOutput};
+use super::{AppCore, AppDeps, TickOutput};
 use crate::audio::clock::{Clock, ClockInstant};
 use crate::audio::testing::ManualClock;
 use crate::core::exit::{ManualWaiter, ReplyWaiter};
 use crate::journal::{Journal, JournalRecord, VecJournal};
+use crate::persist::keys::Parsed;
 use crate::persist::tracker::ReplyEffect;
 use crate::persist::writer::spawn_writer;
-use crate::persist::{self, ConfigFile, ConfigPaths, WorkFile};
-use crate::platform::fs::{MemStore, OpCounts, ReadErrorClass, WriteErrorClass, WriteStep};
+use crate::persist::{self, BadCopyOutcome, ConfigFile, ConfigPaths, WorkFile};
+use crate::platform::fs::{FileWriter, MemStore, OpCounts, ReadErrorClass, WriteErrorClass, WriteStep};
 use std::cell::RefCell;
 use std::path::PathBuf;
 use std::sync::Arc;
@@ -89,19 +90,20 @@ impl Harness {
     }
 
     /// Запуск (ADR-23 шаги 0–2, §8 С3): чтение + разбор, копии `*.bad` до
-    /// появления окна, затем `AppCore` с зависимостями нового API (ADR-19,
-    /// §2.12) — писатель `apap-persist` на той же `MemStore`, инжектируемые
-    /// `ManualClock`/`ManualWaiter` и общий журнал. Записи журнала для
-    /// обоих шагов (ТЗ-5, ТЗ-6, ТЗ-7, §6.1) накапливаются в `journal()`;
-    /// результат самих копий также проверяется через
+    /// появления окна (пишутся прямо в `MemStore` стенда — детерминированный
+    /// аналог `WriterCmd::BadCopy` из `bad_copies_via_writer`, без ожидания
+    /// по реальным часам), затем `AppCore` с зависимостями нового API
+    /// (ADR-19, §2.12) — писатель `apap-persist` на той же `MemStore`,
+    /// инжектируемые `ManualClock`/`ManualWaiter` и общий журнал. Записи
+    /// журнала для обоих шагов (ТЗ-5, ТЗ-6, ТЗ-7, §6.1) накапливаются в
+    /// `journal()`; результат самих копий также проверяется через
     /// `bad_copy_bytes`/`bad_copy_counts`.
     pub(crate) fn boot(&self) -> AppCore {
         let boot = persist::boot(&self.fs, &self.paths);
         for rec in persist::journal_records_for_boot(&boot) {
             self.journal.record(rec);
         }
-        let mut bad_copy_writer = self.fs.clone();
-        let outcomes = persist::write_bad_copies(&boot, &mut bad_copy_writer, &self.paths);
+        let outcomes = self.write_bad_copies(&boot);
         for rec in persist::journal_records_for_bad_copies(&boot, &outcomes) {
             self.journal.record(rec);
         }
@@ -114,15 +116,30 @@ impl Harness {
         AppCore::with_deps(deps, boot)
     }
 
+    /// Копии `*.bad` неразбираемых файлов (И-Р12, И-Р18) — прямая запись в
+    /// `MemStore` стенда вместо `WriterCmd::BadCopy` писателю: тот же итог,
+    /// без недетерминированного ожидания ответа по реальным часам.
+    fn write_bad_copies(&self, boot: &persist::Boot) -> Vec<BadCopyOutcome> {
+        let mut writer = self.fs.clone();
+        let mut out = Vec::new();
+        if let Parsed::Unparsable { original, .. } = &boot.settings {
+            out.push(self.write_bad_copy(&mut writer, ConfigFile::Settings, original));
+        }
+        if let Parsed::Unparsable { original, .. } = &boot.state {
+            out.push(self.write_bad_copy(&mut writer, ConfigFile::State, original));
+        }
+        out
+    }
+
+    fn write_bad_copy(&self, writer: &mut dyn FileWriter, file: ConfigFile, original: &[u8]) -> BadCopyOutcome {
+        let path = self.paths.bad_copy(file.work());
+        let result = writer.write_atomic(&path, original).map(|()| path);
+        BadCopyOutcome { file, result }
+    }
+
     /// Записи журнала, накопленные за `boot` (ТЗ-5, ТЗ-6, ТЗ-7, §6.1).
     pub(crate) fn journal(&self) -> Vec<JournalRecord> {
         self.journal.records()
-    }
-
-    /// `AppCore::flush` через стенд (старый синхронный мост С3).
-    pub(crate) fn flush(&self, core: &mut AppCore) -> Vec<FlushOutcome> {
-        let mut writer = self.fs.clone();
-        core.flush(&mut writer, &self.paths)
     }
 
     pub(crate) fn bad_copy_bytes(&self, file: WorkFile) -> Option<Vec<u8>> {
@@ -254,10 +271,11 @@ mod tests {
     use crate::persist::state_file::{Origin, PhysPos, PhysSize, SessionState, StateChange, WindowGeometry};
     use crate::settings::{RepeatMode, ResamplerAlgorithm};
 
-    /// Нечитаемый `settings.toml` (ОВС-6 в, ТЗ-7, §6.1): автозаписи
-    /// запрещены на весь сеанс, `flush` не пишет файл.
+    /// Нечитаемый `settings.toml` (ОВС-6 в, ТЗ-7, ТЗ-14, ТЗ-32, §6.10):
+    /// автозаписи запрещены на весь сеанс — `exit` не отправляет снимок
+    /// настроек, файл остаётся в `report.forbidden`.
     #[test]
-    fn unreadable_settings_forbids_auto_write() {
+    fn unreadable_settings_forbids_exit_write() {
         let h = Harness::new();
         h.put_state(b"");
         h.fail_read_settings(ReadErrorClass::NoAccess);
@@ -265,42 +283,33 @@ mod tests {
         assert!(core.settings_read_failed_message().is_some());
         assert_eq!(h.settings_counts().writes, 0);
 
-        let outcomes = h.flush(&mut core);
-        assert!(matches!(outcomes[0], FlushOutcome::Forbidden(ConfigFile::Settings)));
+        let outcome = core.exit(ExitReason::WindowClose, &mut || true, &|| Arc::from(&b""[..]));
+        assert_eq!(outcome, ExitOutcome::Completed);
         assert_eq!(h.settings_counts().writes, 0);
-    }
 
-    /// То же для `state.toml` (ОВС-6 в, ТЗ-7, §6.1): запрет действует
-    /// независимо на каждый файл.
-    #[test]
-    fn unreadable_state_forbids_auto_write() {
-        let h = Harness::new();
-        h.put_settings(b"");
-        h.fail_read_state(ReadErrorClass::NoAccess);
-        let mut core = h.boot();
-        assert_eq!(h.state_counts().writes, 0);
-
-        let outcomes = h.flush(&mut core);
-        assert!(matches!(outcomes[1], FlushOutcome::Forbidden(ConfigFile::State)));
-        assert_eq!(h.state_counts().writes, 0);
+        let report = h
+            .journal()
+            .into_iter()
+            .find_map(|r| match r {
+                JournalRecord::ExitSummary(report) => Some(report),
+                _ => None,
+            })
+            .expect("ExitSummary journaled");
+        assert!(report.forbidden.contains(&WorkFile::Settings));
     }
 
     /// Неразбираемый `settings.toml` (ТЗ-6, ТЗ-21, И-Р12, И-Р18, §2.13):
-    /// копия `*.bad` с исходными байтами пишется один раз до любой `flush`
-    /// (до появления окна), значения в памяти — по умолчанию.
+    /// копия `*.bad` с исходными байтами пишется один раз при запуске (до
+    /// появления окна), значения в памяти — по умолчанию.
     #[test]
     fn unparsable_settings_writes_bad_copy_once() {
         let h = Harness::new();
         h.put_settings(b"[[\n");
         h.put_state(b"");
-        let mut core = h.boot();
+        let core = h.boot();
 
         assert_eq!(core.settings(), &Settings::default());
         assert_eq!(h.bad_copy_bytes(WorkFile::Settings).as_deref(), Some(&b"[[\n"[..]));
-        assert_eq!(h.bad_copy_counts(WorkFile::Settings).writes, 1);
-
-        h.flush(&mut core);
-        // Повторная запись копии при flush не происходит (И-Р12: одна копия на файл).
         assert_eq!(h.bad_copy_counts(WorkFile::Settings).writes, 1);
     }
 
@@ -310,13 +319,10 @@ mod tests {
         let h = Harness::new();
         h.put_settings(b"");
         h.put_state(b"[[\n");
-        let mut core = h.boot();
+        let core = h.boot();
 
         assert_eq!(core.state(), &SessionState::default());
         assert_eq!(h.bad_copy_bytes(WorkFile::State).as_deref(), Some(&b"[[\n"[..]));
-        assert_eq!(h.bad_copy_counts(WorkFile::State).writes, 1);
-
-        h.flush(&mut core);
         assert_eq!(h.bad_copy_counts(WorkFile::State).writes, 1);
     }
 
@@ -336,10 +342,12 @@ mod tests {
         assert_eq!(h.bad_copy_counts(WorkFile::State).writes, 0);
     }
 
-    /// Файл без изменений не перезаписывается (ТЗ-9, §6.1): эталон из
-    /// прочитанных байт совпадает с сериализацией значений по умолчанию.
+    /// Файл без изменений не перезаписывается на выходе (ТЗ-9, ТЗ-14, §6.10):
+    /// эталон из прочитанных байт совпадает с сериализацией значений по
+    /// умолчанию, плейлист не отправляется — все три файла попадают в
+    /// `report.unchanged`.
     #[test]
-    fn unchanged_files_not_rewritten() {
+    fn exit_skips_unchanged_files() {
         let h = Harness::new();
         let settings_bytes = crate::persist::settings_file::serialize_settings(&Settings::default())
             .expect("serialize settings");
@@ -349,32 +357,24 @@ mod tests {
         h.put_state(&state_bytes);
         let mut core = h.boot();
 
-        let outcomes = h.flush(&mut core);
-        assert!(matches!(outcomes[0], FlushOutcome::Unchanged(ConfigFile::Settings)));
-        assert!(matches!(outcomes[1], FlushOutcome::Unchanged(ConfigFile::State)));
+        let outcome = core.exit(ExitReason::WindowClose, &mut || true, &|| Arc::from(&b""[..]));
+        assert_eq!(outcome, ExitOutcome::Completed);
         assert_eq!(h.settings_counts().writes, 0);
         assert_eq!(h.state_counts().writes, 0);
-    }
 
-    /// Изменение состояния доходит до диска за один `flush` (ADR-4, §6.1):
-    /// сквозная проверка пути записи через стенд.
-    #[test]
-    fn changed_state_written_once() {
-        let h = Harness::new();
-        h.put_settings(b"");
-        h.put_state(b"");
-        let mut core = h.boot();
-
-        core.change_state(Origin::User, StateChange::Shuffle(true));
-        let outcomes = h.flush(&mut core);
-        assert!(matches!(outcomes[1], FlushOutcome::Written(ConfigFile::State)));
-        assert_eq!(h.state_counts().writes, 1);
-        assert!(core.state().shuffle());
-
-        // Повторный flush без новых изменений не пишет снова.
-        let outcomes = h.flush(&mut core);
-        assert!(matches!(outcomes[1], FlushOutcome::Unchanged(ConfigFile::State)));
-        assert_eq!(h.state_counts().writes, 1);
+        let report = h
+            .journal()
+            .into_iter()
+            .find_map(|r| match r {
+                JournalRecord::ExitSummary(report) => Some(report),
+                _ => None,
+            })
+            .expect("ExitSummary journaled");
+        let mut unchanged = report.unchanged.clone();
+        unchanged.sort_by_key(|f| format!("{f:?}"));
+        let mut expected = vec![WorkFile::Playlist, WorkFile::State, WorkFile::Settings];
+        expected.sort_by_key(|f| format!("{f:?}"));
+        assert_eq!(unchanged, expected);
     }
 
     /// Заметки разбора по ключам (ТЗ-5, ТЗ-8, ТЗ-9, §6.2) доходят до
