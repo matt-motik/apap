@@ -43,7 +43,7 @@ steps:
     done: true
   - id: 2
     description: "exit() в app: для WindowsSessionEnd/MacosTerminate — Completed без slint::quit_event_loop (ADR-7, §6.10, ТЗ-15). Файл: src/app/mod.rs. Проверка: cargo check"
-    done: false
+    done: true
   - id: 3
     description: "Трейт Notifier + NoneNotifier (ADR-9, §2.8, ТЗ-54 п.4). Файлы: src/platform/notify/mod.rs, src/platform/notify/none.rs. Проверка: cargo check"
     done: false
@@ -120,8 +120,8 @@ steps:
     description: "Финал: grep cfg(target_os вне src/platform (аудио-места AM1.0 — вне задач SP1.0), полный cargo test + cargo clippy, ROADMAP ✅ (ТЗ-54 приёмка). Файлы: ROADMAP.md, _STATE_.yaml. Проверка: всё зелёное"
     done: false
 
-current_step: 2
-next_action: "Шаг 2: app exit() возвращает ExitOutcome; WindowsSessionEnd/MacosTerminate — без quit_event_loop (свежий субагент code-writer/sonnet)"
+current_step: 3
+next_action: "Шаг 3: трейт Notifier + NoneNotifier в src/platform/notify (свежий субагент code-writer/sonnet)"
 
 fail_counter: 0
 fail_counter_max: 3

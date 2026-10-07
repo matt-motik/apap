@@ -628,8 +628,10 @@ impl MusicApp {
     /// геометрия окна фиксируется в состоянии; `AppCore::exit` освобождает
     /// движок, отправляет итоговые снимки писателю и ждёт ответов не дольше
     /// бюджета выхода. Повторный запрос во время/после выхода игнорируется
-    /// (`ExitOutcome::Ignored`).
-    pub(super) fn exit(&mut self, reason: ExitReason) {
+    /// (`ExitOutcome::Ignored`). Для `WindowsSessionEnd`/`MacosTerminate`
+    /// цикл событий Slint не останавливается — процесс завершит ОС (ADR-7,
+    /// ТЗ-15, §6.10).
+    pub(super) fn exit(&mut self, reason: ExitReason) -> ExitOutcome {
         self.dialog = None;
         self.ui.set_settings_open(false);
         self.gate.unblock(BlockReason::Dialog);
@@ -651,9 +653,12 @@ impl MusicApp {
         let outcome = self.core.exit(reason, &mut release_engine, &|| playlist::serialize_m3u(&self.disk_tracks));
         if outcome == ExitOutcome::Ignored {
             eprintln!("[app] exit {reason:?}: уже выполняется, повтор проигнорирован");
-            return;
+            return outcome;
         }
-        let _ = slint::quit_event_loop();
+        if !matches!(reason, ExitReason::WindowsSessionEnd | ExitReason::MacosTerminate) {
+            let _ = slint::quit_event_loop();
+        }
+        outcome
     }
 
     /// Поставить сообщение в `MessageCenter` и сразу применить эффект
