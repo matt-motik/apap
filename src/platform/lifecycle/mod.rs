@@ -63,3 +63,6 @@ pub struct PlatformError {
     pub what: &'static str,
     pub detail: Box<str>,
 }
+
+pub mod fake;
+pub use fake::FakeLifecycle;
