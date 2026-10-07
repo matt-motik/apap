@@ -27,6 +27,7 @@ use super::worker::{
     start_fill_frames, DecodeConfig, DecodeEvent, DecodeLoop, DecodeWorker, ExactFeed, FloatFeed,
     VizTap,
 };
+use crate::engine::spawner::{StdSpawner, ThreadSpawner};
 use crate::settings::{
     clamp_ring_buffer_ms, ClockFamily, DsdMode, ExclusiveMode, FallbackPolicy,
     FallbackRatePolicy, ResamplerAlgorithm, ResamplerDither, ResamplerMode, RING_BUFFER_MS_DEFAULT,
@@ -394,6 +395,9 @@ pub struct Player {
     bit_perfect: bool,
     dither_idx: u8,
     viz_active: bool,
+    /// Подмена запуска потоков движком (ТЗ-88, ADR-20); по умолчанию — боевой
+    /// `StdSpawner`.
+    spawner: Arc<dyn ThreadSpawner>,
 }
 
 impl Player {
@@ -437,7 +441,13 @@ impl Player {
             bit_perfect: false,
             dither_idx: DITHER_INDEX_TPDF,
             viz_active: false,
+            spawner: Arc::new(StdSpawner),
         }
+    }
+
+    /// Подмена запуска потоков (ТЗ-88, ADR-20): движок передаёт свой `ThreadSpawner`.
+    pub fn set_spawner(&mut self, spawner: Arc<dyn ThreadSpawner>) {
+        self.spawner = spawner;
     }
 
     pub fn set_resampler_algorithm(&mut self, algo: ResamplerAlgorithm) {
@@ -738,20 +748,21 @@ impl Player {
             tail_samples: DECODE_TAIL_FRAMES.saturating_mul(plan.channels.max(1)),
         };
         let tap = Some(self.viz_tap.clone());
+        let spawner = self.spawner.as_ref();
         let spawned = match (feed, ring) {
             // DoP: tap отсутствует (ТЗ-108).
             (EngineFeed::Exact(f), EngineRing::I32(p)) if plan.kind == RingKind::Dop => {
-                DecodeWorker::spawn(DecodeLoop::new(f, p, shared.clone(), cfg, tx, None))
+                DecodeWorker::spawn(spawner, DecodeLoop::new(f, p, shared.clone(), cfg, tx, None))
             }
             (EngineFeed::Exact(f), EngineRing::I32(p)) => {
-                DecodeWorker::spawn(DecodeLoop::new(f, p, shared.clone(), cfg, tx, tap))
+                DecodeWorker::spawn(spawner, DecodeLoop::new(f, p, shared.clone(), cfg, tx, tap))
             }
             (EngineFeed::Float(f), EngineRing::F32(p)) => {
-                DecodeWorker::spawn(DecodeLoop::new(f, p, shared.clone(), cfg, tx, tap))
+                DecodeWorker::spawn(spawner, DecodeLoop::new(f, p, shared.clone(), cfg, tx, tap))
             }
             _ => return Err("internal: ring type does not match the feed".into()),
         };
-        let worker = spawned.map_err(|e| format!("cannot spawn decode thread: {e}"))?;
+        let worker = spawned.map_err(|e| format!("cannot spawn decode thread: {e:?}"))?;
         match rx.recv_timeout(START_FILL_TIMEOUT) {
             Ok(DecodeEvent::Ready) => Ok(worker),
             Ok(DecodeEvent::Failed(e)) => Err(format!("decoding failed: {e:?}")),
@@ -1370,6 +1381,7 @@ impl Player {
             bit_perfect: false,
             dither_idx: DITHER_INDEX_TPDF,
             viz_active: false,
+            spawner: Arc::new(StdSpawner),
         }
     }
 }

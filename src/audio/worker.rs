@@ -9,11 +9,12 @@ use std::thread::{self, JoinHandle};
 use std::time::Duration;
 
 use super::decoder::AudioSource;
-use super::error::FileError;
+use super::error::{EngineFault, FileError};
 use super::format::SampleBlock;
 use super::output::Resampler;
 use super::render::RingSample;
 use super::session::SessionShared;
+use crate::engine::spawner::ThreadSpawner;
 
 /// Кадров выхода за один `FloatFeed::refill`: малая латентность seek при
 /// амортизации обращений к ring.
@@ -512,8 +513,9 @@ pub struct DecodeWorker {
 }
 
 impl DecodeWorker {
-    /// Отказ `spawn` → `OpenFailed(Internal(SpawnFailed))` у движка (ТЗ-88).
-    pub fn spawn<P, F>(mut lp: DecodeLoop<P, F>) -> std::io::Result<Self>
+    /// Отказ `spawn` → `EngineFault::SpawnFailed` (ТЗ-88, ADR-20); у движка —
+    /// `OpenFailed(Internal(SpawnFailed))`.
+    pub fn spawn<P, F>(spawner: &dyn ThreadSpawner, mut lp: DecodeLoop<P, F>) -> Result<Self, EngineFault>
     where
         P: TapSample,
         F: Feed<P> + 'static,
@@ -521,18 +523,17 @@ impl DecodeWorker {
         let stop = Arc::new(AtomicBool::new(false));
         let decode_errors = lp.decode_errors_handle();
         let flag = stop.clone();
-        let handle = thread::Builder::new()
-            .name("apap-decode".into())
-            .spawn(move || {
-                while !flag.load(Ordering::Relaxed) {
-                    match lp.step() {
-                        Step::Wrote(_) => {}
-                        Step::RingFull | Step::WaitAck => thread::sleep(Duration::from_millis(1)),
-                        Step::Ended => thread::sleep(Duration::from_millis(5)),
-                    }
+        let job = Box::new(move || {
+            while !flag.load(Ordering::Relaxed) {
+                match lp.step() {
+                    Step::Wrote(_) => {}
+                    Step::RingFull | Step::WaitAck => thread::sleep(Duration::from_millis(1)),
+                    Step::Ended => thread::sleep(Duration::from_millis(5)),
                 }
-                // Stop: `PendingTail` уходит вместе с `lp` (§6.17).
-            })?;
+            }
+            // Stop: `PendingTail` уходит вместе с `lp` (§6.17).
+        });
+        let handle = spawner.spawn("apap-decode", job)?;
         Ok(Self {
             handle: Some(handle),
             stop,
@@ -564,6 +565,7 @@ impl Drop for DecodeWorker {
 mod tests {
     use super::*;
     use crate::audio::decoder::TrackInfo;
+    use crate::engine::spawner::{FailingSpawner, StdSpawner};
     use std::time::Instant;
 
     /// Deterministic mono source of constant amplitude.
@@ -861,7 +863,8 @@ mod tests {
             1,
         );
         let cfg = DecodeConfig { channels: 1, start_frame: 0, start_fill: 2048, tail_samples: 1024 };
-        let mut w = DecodeWorker::spawn(DecodeLoop::new(feed, p, shared.clone(), cfg, tx, None)).unwrap();
+        let mut w = DecodeWorker::spawn(&StdSpawner, DecodeLoop::new(feed, p, shared.clone(), cfg, tx, None))
+            .unwrap();
         assert_eq!(rx.recv_timeout(Duration::from_secs(2)), Ok(DecodeEvent::Ready));
         let deadline = Instant::now() + Duration::from_secs(2);
         while !shared.eof_known() && Instant::now() < deadline {
@@ -871,5 +874,26 @@ mod tests {
         assert_eq!(c.slots(), 3000);
         assert_eq!(c.pop().unwrap(), 0.5);
         w.stop();
+    }
+
+    #[test]
+    fn decode_worker_spawn_failure_is_reported() {
+        let shared = Arc::new(SessionShared::new());
+        let (p, _c) = rtrb::RingBuffer::<f32>::new(4096);
+        let (tx, _rx) = mpsc::channel();
+        let feed = FloatFeed::new(
+            Box::new(MockSource::new(3000)),
+            Resampler::new(44_100, 44_100, 1, 1),
+            44_100,
+            1,
+            1,
+        );
+        let cfg = DecodeConfig { channels: 1, start_frame: 0, start_fill: 2048, tail_samples: 1024 };
+        let spawner = FailingSpawner::new(1);
+        let result = DecodeWorker::spawn(&spawner, DecodeLoop::new(feed, p, shared, cfg, tx, None));
+        assert!(matches!(
+            result,
+            Err(EngineFault::SpawnFailed { what: "apap-decode" })
+        ));
     }
 }

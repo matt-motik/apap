@@ -63,7 +63,7 @@ steps:
     done: true
   - id: 6
     description: "DecodeWorker::spawn принимает &dyn ThreadSpawner; Player пробрасывает StdSpawner (мост) (§6.18 шаг 6, ТЗ-88). Файлы: src/audio/worker.rs, src/audio/player.rs. Проверка: cargo check"
-    done: false
+    done: true
   - id: 7
     description: "SourceOpener + FakeSource (заданный SourceFormat/FileError, счётчики probe/open) по §2.10 (§6.18 шаги 3, 6). Файл: src/engine/source.rs. Проверка: cargo check"
     done: false
@@ -161,8 +161,8 @@ steps:
     description: "Финал: полный cargo test + clippy, tools/check_rt_imports.py, grep Player вне src/engine и src/audio, ROADMAP ✅, ручные проверки за пользователем (UI не блокируется, ошибки треков видны, Exclusive через старый путь). Файлы: ROADMAP.md, _STATE_.yaml. Проверка: всё зелёное"
     done: false
 
-current_step: 6
-next_action: "Шаг 6: DecodeWorker::spawn принимает &dyn ThreadSpawner; Player пробрасывает StdSpawner. ЧЕКПОИНТ 4 зелёный (cargo test 533 ok, clippy 0). Решения пользователя 2026-10-07: мост SetLegacyAudio (вместо SetModeSettings/SetActiveMode до С4); ModeKind временно в src/settings.rs. Player — внутренняя деталь apap-engine (мост). Тесты — только на ЧЕКПОИНТ-шагах."
+current_step: 7
+next_action: "Шаг 7: SourceOpener + FakeSource в src/engine/source.rs (§2.10, §6.18 шаги 3, 6). Шаг 6 готов: DecodeWorker::spawn(&dyn ThreadSpawner) -> Result<_, EngineFault>, Player.spawner (StdSpawner по умолчанию, set_spawner). Решения пользователя 2026-10-07: мост SetLegacyAudio (вместо SetModeSettings/SetActiveMode до С4); ModeKind временно в src/settings.rs. Player — внутренняя деталь apap-engine (мост). Тесты — только на ЧЕКПОИНТ-шагах."
 fail_counter: 0
 fail_counter_max: 3
 failed_attempts: []
