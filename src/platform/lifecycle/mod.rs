@@ -2,10 +2,11 @@
 //! трей (ADR-6, ADR-7, §2.8). Трейт `Lifecycle` ставит обработчики ОС на
 //! шаге 8 порядка запуска (ADR-23); путь выхода входит через `ExitEntry`.
 
-use crate::audio::clock::ClockInstant;
+use crate::audio::clock::{Clock, ClockInstant};
 use crate::core::exit::{ExitOutcome, ExitReason};
 use std::rc::Rc;
 use std::sync::mpsc::Sender;
+use crate::platform::tray::TrayPort;
 
 /// Возможности платформы во время работы: код приложения проверяет
 /// возможность, а не ОС (ADR-6, §2 заход 2).
@@ -70,15 +71,18 @@ pub use fake::FakeLifecycle;
 #[cfg(unix)]
 pub mod unix;
 
-/// Реализация жизненного цикла этой ОС (ADR-6, ADR-7).
+/// Реализация жизненного цикла этой ОС (ADR-6, ADR-7); `tray` запускается
+/// в `install` (ADR-23 шаг 8).
 #[cfg(unix)]
-pub fn platform_lifecycle() -> Box<dyn Lifecycle> {
-    Box::new(unix::UnixLifecycle::new())
+pub fn platform_lifecycle(tray: Option<(TrayPort, Box<dyn Clock>)>) -> Box<dyn Lifecycle> {
+    Box::new(unix::UnixLifecycle::new(tray))
 }
 
 /// Реализация жизненного цикла этой ОС (ADR-6, ADR-7): Windows — без
 /// перехватов, пока нет сабклассинга HWND (ADR-7 п. 4).
 #[cfg(not(unix))]
-pub fn platform_lifecycle() -> Box<dyn Lifecycle> {
+pub fn platform_lifecycle(tray: Option<(TrayPort, Box<dyn Clock>)>) -> Box<dyn Lifecycle> {
+    // Трея нет (В-1): закрытый `ready` оставляет `PlatformCaps.tray = false`.
+    drop(tray);
     Box::new(FakeLifecycle::new())
 }

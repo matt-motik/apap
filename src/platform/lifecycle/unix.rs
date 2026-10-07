@@ -5,7 +5,9 @@
 //! кодом `128 + номер_сигнала`.
 
 use super::{ExitEntry, Lifecycle, PlatformCaps, PlatformError, ProcessExit, TrayEvent};
+use crate::audio::clock::Clock;
 use crate::core::exit::{ExitReason, TermSignal};
+use crate::platform::tray::{self, TrayPort};
 use std::cell::RefCell;
 use std::sync::mpsc::Sender;
 use tokio::signal::unix::{signal, Signal, SignalKind};
@@ -16,16 +18,17 @@ thread_local! {
     static EXIT_ENTRY: RefCell<Option<ExitEntry>> = const { RefCell::new(None) };
 }
 
-/// Жизненный цикл Linux/macOS (ADR-7): поток `apap-signals`.
-#[derive(Default)]
+/// Жизненный цикл Linux/macOS (ADR-7): поток `apap-signals`, затем трей.
 pub struct UnixLifecycle {
     caps: PlatformCaps,
     signals: Option<std::thread::JoinHandle<()>>,
+    /// Трей запускается в `install` (ADR-23 шаг 8); `clock` — метки `TrayScroll`.
+    tray: Option<(TrayPort, Box<dyn Clock>)>,
 }
 
 impl UnixLifecycle {
-    pub fn new() -> UnixLifecycle {
-        UnixLifecycle::default()
+    pub fn new(tray: Option<(TrayPort, Box<dyn Clock>)>) -> UnixLifecycle {
+        UnixLifecycle { caps: PlatformCaps::default(), signals: None, tray }
     }
 }
 
@@ -34,16 +37,15 @@ impl Lifecycle for UnixLifecycle {
         self.caps
     }
 
-    /// Шаг 8 порядка запуска (ADR-23): `ExitEntry` — в UI-поток, затем
-    /// поток `apap-signals`; первый сигнал → `ExitEntry(Signal)` (ТЗ-14).
+    /// Шаг 8 порядка запуска (ADR-23): `ExitEntry` — в UI-поток, поток
+    /// `apap-signals` (первый сигнал → `ExitEntry(Signal)`, ТЗ-14), трей.
+    /// Готовность трея приходит в `TrayPort::ready` (`PlatformCaps.tray`).
     fn install(
         &mut self,
         _window: Option<&slint::Window>,
         entry: ExitEntry,
         tray_tx: Sender<TrayEvent>,
     ) -> Result<(), PlatformError> {
-        // Трей переходит в `install` на шаге 8 порядка запуска отдельно (ADR-23).
-        drop(tray_tx);
         EXIT_ENTRY.with(|e| *e.borrow_mut() = Some(entry));
         let on_first: Box<dyn Fn(TermSignal) + Send> = Box::new(|sig| {
             let _ = slint::invoke_from_event_loop(move || {
@@ -54,6 +56,9 @@ impl Lifecycle for UnixLifecycle {
             });
         });
         self.signals = Some(spawn_signals(on_first, process_exit())?);
+        if let Some((port, clock)) = self.tray.take() {
+            tray::run(port, tray_tx, clock);
+        }
         Ok(())
     }
 }

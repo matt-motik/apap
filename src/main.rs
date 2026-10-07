@@ -149,7 +149,7 @@ fn main() {
     app.borrow().apply_window_geometry();
     // Шаг 8 порядка запуска (ADR-23): перехваты ОС ставятся после показа
     // окна, все пути выхода сходятся в одну точку `exit` (ADR-7, ТЗ-14).
-    let mut lifecycle = platform_lifecycle();
+    let mut lifecycle = platform_lifecycle(None);
     // Трей пока запускает `MusicApp::new`; канал событий трея здесь не слушается.
     let (tray_tx, _tray_rx) = std::sync::mpsc::channel();
     if let Err(e) = lifecycle.install(Some(ui.window()), exit_entry(&app), tray_tx) {

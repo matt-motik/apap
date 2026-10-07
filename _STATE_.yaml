@@ -97,7 +97,7 @@ steps:
     done: true
   - id: 20
     description: "UnixLifecycle::new(Option<TrayPort>, clock): install запускает трей с tray_tx после сигналов; platform_lifecycle(port, clock) (ADR-23 шаг 8). Файлы: src/platform/lifecycle/unix.rs, src/platform/lifecycle/mod.rs. Проверка: cargo check"
-    done: false
+    done: true
   - id: 21
     description: "main создаёт каналы трея (events/updates/ready), MusicApp::new получает концы UI, TrayPort → platform_lifecycle; tray::start из MusicApp::new убран (ADR-23 шаг 8). Файлы: src/main.rs, src/app/mod.rs. Проверка: cargo check"
     done: false
@@ -135,8 +135,8 @@ steps:
     description: "Финал: grep cfg(target_os вне src/platform (аудио-места AM1.0 — вне задач SP1.0), полный cargo test + cargo clippy, ROADMAP ✅ (ТЗ-54 приёмка). Файлы: ROADMAP.md, _STATE_.yaml. Проверка: всё зелёное"
     done: false
 
-current_step: 20
-next_action: "Шаг 20: UnixLifecycle::new(Option<TrayPort>, clock) — install запускает трей tray::run после сигналов; platform_lifecycle(port, clock). Ветку не-Linux (трей, platform_lifecycle) проверить при кросс-ОС приёмке"
+current_step: 21
+next_action: "Шаг 21: main создаёт каналы трея, MusicApp::new получает UI-концы, TrayPort → platform_lifecycle (сейчас там None-мост); tray::start из MusicApp::new убрать. Ветку не-Linux (трей, platform_lifecycle) проверить при кросс-ОС приёмке"
 
 fail_counter: 0
 fail_counter_max: 3
