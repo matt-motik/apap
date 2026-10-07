@@ -269,7 +269,10 @@ fn num_str(v: u32, suffix: &str) -> SharedString {
 }
 
 pub struct MusicApp {
-    ui: AppWindow,
+    /// Слабая ссылка на окно (R-20, ADR-01, ТЗ-45): сильный `AppWindow` держит
+    /// только `main` на весь цикл событий. Сильное поле здесь замыкало бы цикл
+    /// window → callback (захватывает `Rc<RefCell<MusicApp>>`) → `MusicApp` → window.
+    ui: slint::Weak<AppWindow>,
     /// Пути файлов настроек, состояния, плейлиста и журнала (ADR-19).
     paths: ConfigPaths,
     /// Владелец действующих настроек и состояния сессии (ADR-19, И-Т7, §8.1 С3).
@@ -421,7 +424,7 @@ impl MusicApp {
     /// запущенные в `main` до `AppCore` (ADR-01, ADR-19, ТЗ-88); движок ещё
     /// не подключён к логике приложения на этом шаге.
     pub fn new(
-        ui: AppWindow,
+        ui: slint::Weak<AppWindow>,
         core: AppCore,
         paths: ConfigPaths,
         tray: tray::TrayChannels,
@@ -483,12 +486,15 @@ impl MusicApp {
 
         // Wire the persistent playlist row model to the table once; later
         // mutations flow through it without re-creating ModelRc objects.
+        let ui_handle = ui
+            .upgrade()
+            .expect("AppWindow outlives MusicApp: main holds it until the event loop ends");
         let playlist_rows: Rc<VecModel<ModelRc<StandardListViewItem>>> =
             Rc::new(slint::VecModel::default());
-        ui.set_playlist_rows(ModelRc::from(playlist_rows.clone()));
+        ui_handle.set_playlist_rows(ModelRc::from(playlist_rows.clone()));
 
         let playlist_cols: Rc<VecModel<TableColumn>> = Rc::new(slint::VecModel::default());
-        ui.set_playlist_cols(ModelRc::from(playlist_cols.clone()));
+        ui_handle.set_playlist_cols(ModelRc::from(playlist_cols.clone()));
 
         let repeat = core.state().repeat();
         let shuffle = core.state().shuffle();
@@ -532,7 +538,7 @@ impl MusicApp {
             );
 
         let mut app = Self {
-            ui: ui.clone_strong(),
+            ui,
             paths,
             core,
             player,
@@ -627,10 +633,16 @@ impl MusicApp {
         app
     }
 
-    /// Окно приложения. Мост R-20 (ADR-01, ТЗ-45): все обращения идут через этот метод,
-    /// чтобы на последнем подшаге поле стало `slint::Weak<AppWindow>` без правки мест вызова.
+    /// Окно приложения (R-20, ADR-01, ТЗ-45). Поле хранит `slint::Weak<AppWindow>`,
+    /// чтобы разорвать цикл window → callback → `MusicApp` → window; все обращения
+    /// идут через этот метод. Инвариант: `main` держит сильный `AppWindow` весь цикл
+    /// событий, и каждый вызов `MusicApp` происходит внутри этого цикла, поэтому
+    /// `upgrade()` не может провалиться на практике. `.unwrap()` запрещён — используем
+    /// `expect()`.
     pub(super) fn ui(&self) -> AppWindow {
-        self.ui.clone_strong()
+        self.ui
+            .upgrade()
+            .expect("AppWindow outlives MusicApp: main holds it until the event loop ends")
     }
 
     /// Применить эффекты ответов писателя из `AppCore::tick`/`AppCore::retry`

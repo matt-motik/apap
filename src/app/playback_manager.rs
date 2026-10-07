@@ -74,19 +74,19 @@ impl MusicApp {
         if let Some(i) = self.current {
             if let Some(t) = self.tracks.get(i) {
                 self.ui().set_info_artist(opt_str(&t.artist));
-                self.ui
+                self.ui()
                     .set_info_track(fmt_num(t.track_number, t.track_total));
                 self.ui().set_info_title(if t.title.is_empty() {
                     "—".into()
                 } else {
                     t.title.as_str().into()
                 });
-                self.ui
+                self.ui()
                     .set_info_duration(playlist::get_duration_string(t.duration).into());
                 self.ui().set_info_year(empty_dash(&t.year));
                 self.ui().set_info_album(opt_str(&t.album));
                 self.ui().set_info_disc(fmt_num(t.disc, t.disc_total));
-                self.ui
+                self.ui()
                     .set_info_genre(empty_dash(t.genre.as_deref().unwrap_or("")));
                 self.ui().set_info_format(empty_dash(&t.format));
                 self.ui().set_info_bitrate(if t.bitrate > 0 {
