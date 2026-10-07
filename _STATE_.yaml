@@ -91,7 +91,7 @@ steps:
     done: true
   - id: 18
     description: "main.rs: ExitEntry (try_borrow_mut → Busy) и lifecycle.install после показа окна (ADR-23 шаг 8, ТЗ-14). Файл: src/main.rs. Проверка: cargo check"
-    done: false
+    done: true
   - id: 19
     description: "Запуск трея перенести из MusicApp::new в Lifecycle::install (после сигналов; ADR-23 шаг 8). Файлы: src/app/mod.rs, src/platform/lifecycle/unix.rs. Проверка: cargo check. ЧЕКПОИНТ: cargo test + cargo clippy"
     done: false
@@ -126,8 +126,8 @@ steps:
     description: "Финал: grep cfg(target_os вне src/platform (аудио-места AM1.0 — вне задач SP1.0), полный cargo test + cargo clippy, ROADMAP ✅ (ТЗ-54 приёмка). Файлы: ROADMAP.md, _STATE_.yaml. Проверка: всё зелёное"
     done: false
 
-current_step: 18
-next_action: "Шаг 18: main.rs — ExitEntry (try_borrow_mut → Busy) + platform_lifecycle().install после ui.show() (ADR-23 шаг 8). Ветку не-Linux (трей, platform_lifecycle) проверить при кросс-ОС приёмке"
+current_step: 19
+next_action: "Шаг 19: старт трея из MusicApp::new → Lifecycle::install (tray_tx), ЧЕКПОИНТ cargo test + clippy. Ветку не-Linux (трей, platform_lifecycle) проверить при кросс-ОС приёмке"
 
 fail_counter: 0
 fail_counter_max: 3

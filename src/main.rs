@@ -4,13 +4,14 @@ mod app;
 
 use app::MusicApp;
 use music_player_rs::audio::clock::MonotonicClock;
-use music_player_rs::core::exit::ChannelWaiter;
+use music_player_rs::core::exit::{ChannelWaiter, ExitOutcome, ExitReason};
 use music_player_rs::core::{AppCore, AppDeps};
 use music_player_rs::journal::{FileJournal, Journal};
 use music_player_rs::persist::keys::Parsed;
 use music_player_rs::persist::writer::{spawn_writer, WriterCmd, WriterHandle, WriterReply};
 use music_player_rs::persist::{self, BadCopyOutcome, Boot, ConfigFile, ConfigPaths};
 use music_player_rs::platform::fs::os_fs;
+use music_player_rs::platform::lifecycle::{platform_lifecycle, ExitEntry};
 use music_player_rs::theme::create_default_themes;
 use slint::ComponentHandle;
 use std::cell::RefCell;
@@ -146,6 +147,14 @@ fn main() {
     // схлопнуться до минимального размера контента. Повторно применяем
     // сохранённую геометрию (V5.1-B7) из видимого состояния.
     app.borrow().apply_window_geometry();
+    // Шаг 8 порядка запуска (ADR-23): перехваты ОС ставятся после показа
+    // окна, все пути выхода сходятся в одну точку `exit` (ADR-7, ТЗ-14).
+    let mut lifecycle = platform_lifecycle();
+    // Трей пока запускает `MusicApp::new`; канал событий трея здесь не слушается.
+    let (tray_tx, _tray_rx) = std::sync::mpsc::channel();
+    if let Err(e) = lifecycle.install(Some(ui.window()), exit_entry(&app), tray_tx) {
+        eprintln!("перехваты ОС не установлены: {}: {}", e.what, e.detail);
+    }
     if let Err(e) = slint::run_event_loop_until_quit() {
         eprintln!("цикл событий завершился с ошибкой: {e}");
     }
@@ -154,6 +163,22 @@ fn main() {
     drop(timer);
     // Дописать строки журнала до выхода процесса (ADR-21).
     journal.flush(JOURNAL_FLUSH_BUDGET);
+}
+
+/// Единая точка выхода для обработчиков ОС (ADR-7, ТЗ-14). Слабая ссылка —
+/// без цикла `Rc`; приложение уже заимствовано (вложенный цикл сообщений ОС)
+/// → `Busy`, без записи (ADR-7 п. 4).
+fn exit_entry(app: &Rc<RefCell<MusicApp>>) -> ExitEntry {
+    let weak = Rc::downgrade(app);
+    Rc::new(move |reason: ExitReason| {
+        let Some(app) = weak.upgrade() else {
+            return ExitOutcome::Ignored;
+        };
+        let Ok(mut app) = app.try_borrow_mut() else {
+            return ExitOutcome::Busy;
+        };
+        app.exit(reason)
+    })
 }
 
 /// Копии `*.bad` неразбираемых файлов через писателя `apap-persist` (ТЗ-6,
