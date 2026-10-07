@@ -244,12 +244,29 @@ impl Engine {
                 self.player.set_dither(audio.dither);
             }
             EngineCmd::Shutdown => {
-                self.player.release_engine();
-                self.deps.events.emit(EngineEvent::ShutdownComplete);
+                self.shutdown();
                 return true;
             }
         }
         false
+    }
+
+    /// Выход (§6.28 п. 2 в рамках моста, ТЗ-45): остановка транспорта
+    /// (колбэк пишет тишину) → `release_engine` — сначала поток вывода
+    /// (закрыть PCM, затем снять резервирование, И-Р1), затем декодер →
+    /// `ShutdownComplete`. `CancelTest` и `lock_step(Shutdown)` появятся с
+    /// тестом и замком (С8/С9). `PersistStore::save` здесь не вызывается:
+    /// данных `bp_tests.toml`/`track_marks.toml` в движке моста ещё нет, а
+    /// запись пустого содержимого затёрла бы файлы; запись добавляется вместе
+    /// с их владельцем. `settings.toml`/`state.toml` пишет UI (ОВС-16).
+    fn shutdown(&mut self) {
+        if self.player.is_playing() {
+            self.player.toggle();
+        }
+        self.player.release_engine();
+        self.current = None;
+        self.stopped = true;
+        self.deps.events.emit(EngineEvent::ShutdownComplete);
     }
 
     /// Перечисляет Shared-устройства и уведомляет UI (ТЗ-104, ТЗ-105, ADR-16,
