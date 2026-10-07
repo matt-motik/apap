@@ -4,9 +4,9 @@
 
 use crate::audio::clock::{Clock, ClockInstant};
 use crate::core::exit::{ExitOutcome, ExitReason};
+use crate::platform::tray::TrayPort;
 use std::rc::Rc;
 use std::sync::mpsc::Sender;
-use crate::platform::tray::TrayPort;
 
 /// Возможности платформы во время работы: код приложения проверяет
 /// возможность, а не ОС (ADR-6, §2 заход 2).

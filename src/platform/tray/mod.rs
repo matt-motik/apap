@@ -1,5 +1,5 @@
 //! Трей (ADR-6, В-1, §2.8): StatusNotifier через ksni — только Linux; на
-//! прочих ОС трея нет, `start()` возвращает `None`.
+//! прочих ОС трея нет, `run()` сразу сообщает `ready = false`.
 
 use std::sync::mpsc;
 
@@ -191,7 +191,8 @@ pub fn run(port: TrayPort, events: mpsc::Sender<TrayEvent>, clock: Box<dyn Clock
     let _ = port.ready.send(false);
 }
 
-/// Каналы трея (§2.8, ADR-6).
+/// UI-концы каналов трея (§2.8, ADR-6); пару с `TrayPort` создаёт `main`
+/// (ADR-23 шаг 8).
 pub struct TrayChannels {
     /// События трея в UI (разбор на тике).
     pub events: mpsc::Receiver<TrayEvent>,
@@ -200,22 +201,4 @@ pub struct TrayChannels {
     /// Одно значение после попытки регистрации: `true` — хост StatusNotifier
     /// найден, значок показан (`PlatformCaps.tray`, ADR-6, В-1).
     pub ready: mpsc::Receiver<bool>,
-}
-
-/// Запуск трея (ADR-6, В-1); `None` — на этой ОС трея нет. `clock` ставит
-/// метки `TrayScroll` (ADR-8).
-#[cfg(target_os = "linux")]
-pub fn start(clock: Box<dyn Clock>) -> Option<TrayChannels> {
-    let (events_tx, events) = mpsc::channel();
-    let (updates, updates_rx) = tokio::sync::mpsc::unbounded_channel();
-    let (ready_tx, ready) = mpsc::channel();
-    run(TrayPort { updates: updates_rx, ready: ready_tx }, events_tx, clock);
-    Some(TrayChannels { events, updates, ready })
-}
-
-/// Трея нет (ADR-6, В-1).
-#[cfg(not(target_os = "linux"))]
-pub fn start(clock: Box<dyn Clock>) -> Option<TrayChannels> {
-    let _ = clock;
-    None
 }
