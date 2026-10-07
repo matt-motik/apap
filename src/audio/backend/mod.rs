@@ -5,6 +5,7 @@
 use crate::audio::format::SampleRate;
 use smallvec::SmallVec;
 
+pub mod catalog;
 pub mod shared;
 
 /// Стабильный идентификатор Shared-устройства: имя PCM/CoreAudio-узла, в
