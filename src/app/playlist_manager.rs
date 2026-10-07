@@ -19,7 +19,7 @@ impl MusicApp {
         let (tx, rx): (std::sync::mpsc::Sender<ScanMsg>, Receiver<ScanMsg>) = channel();
         self.scan_rx = Some(rx);
         self.status = format!("Adding tracks\u{2026} {} item(s)", paths.len()).into();
-        self.ui.set_busy(true);
+        self.ui().set_busy(true);
         // Список недоступен для ТЗ-48 команд до конца фонового сканирования.
         self.gate.set_loading(Some(LoadKind::Command));
         thread::spawn(move || {
@@ -74,7 +74,7 @@ impl MusicApp {
         }
         if finished {
             self.scan_rx = None;
-            self.ui.set_busy(false);
+            self.ui().set_busy(false);
             self.gate.set_loading(None);
             // Flush leftovers if the stream ended without a final Done message.
             if !self.scan_pending.is_empty() {
