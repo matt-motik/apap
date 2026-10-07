@@ -2,7 +2,7 @@
 //! Реализация по умолчанию — `FileJournal` (stderr + `apap.log`), подмена для
 //! автотестов — `VecJournal`. В аудио-колбэке журнал не используется.
 
-use crate::core::exit::{ExitReason, ExitReport};
+use crate::core::exit::{ExitReason, ExitReport, TermSignal};
 use crate::persist::keys::{LoadNote, LoadNoteKind};
 use crate::persist::{ConfigFile, WorkFile};
 use crate::platform::fs::{ReadError, WriteError};
@@ -116,6 +116,11 @@ fn exit_reason_text(reason: ExitReason) -> &'static str {
     match reason {
         ExitReason::WindowClose => "закрытие окна",
         ExitReason::TrayQuit => "«Выход» в трее",
+        ExitReason::Signal(TermSignal::Term) => "сигнал SIGTERM",
+        ExitReason::Signal(TermSignal::Int) => "сигнал SIGINT",
+        ExitReason::Signal(TermSignal::Hup) => "сигнал SIGHUP",
+        ExitReason::WindowsSessionEnd => "завершение сеанса Windows",
+        ExitReason::MacosTerminate => "завершение macOS",
     }
 }
 

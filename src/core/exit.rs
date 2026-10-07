@@ -15,17 +15,26 @@ use std::time::Duration;
 pub const EXIT_BUDGET: Duration = Duration::from_secs(5);
 
 /// Причина выхода (ТЗ-14).
-///
-/// ОТКЛОНЕНИЕ от §6.10: полный перечень причин спецификации — `WindowClose`,
-/// `TrayQuit`, `Signal(TermSignal)`, `WindowsSessionEnd`, `MacosTerminate`.
-/// На этом микро-шаге определены только `WindowClose` и `TrayQuit` — сигналы
-/// (`apap-signals`) и завершение сессии ОС приходят вместе с жизненным
-/// циклом платформы (`Lifecycle`) на этапе С5.
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub enum ExitReason {
     WindowClose,
     /// Только при `PlatformCaps.tray` (В-1).
     TrayQuit,
+    /// Сигнал завершения процесса (Unix, поток `apap-signals`, ADR-7, ТЗ-14).
+    Signal(TermSignal),
+    /// Завершение сеанса Windows (`WM_ENDSESSION`), путь выхода синхронный,
+    /// без `quit_event_loop` (ADR-7, ТЗ-15).
+    WindowsSessionEnd,
+    /// `applicationShouldTerminate:` macOS (ADR-7, ТЗ-15).
+    MacosTerminate,
+}
+
+/// Сигнал завершения процесса (ТЗ-14, ADR-7).
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub enum TermSignal {
+    Term,
+    Int,
+    Hup,
 }
 
 /// Итог запроса на выход (§6.10).

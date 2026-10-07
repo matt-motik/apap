@@ -29,6 +29,7 @@ whitelist:
   - src/platform/notify/none.rs
   - src/platform/notify/linux.rs
   - src/core/exit.rs
+  - src/journal.rs
   - src/core/mod.rs
   - src/core/messages.rs
   - src/core/testing.rs
@@ -38,8 +39,8 @@ dod: "Все пути выхода (окно, трей, SIGTERM/INT/HUP, сеа�
 
 steps:
   - id: 1
-    description: "ExitReason: варианты Signal(TermSignal), WindowsSessionEnd, MacosTerminate + enum TermSignal (§2.8, ТЗ-14, ТЗ-15). Файлы: src/core/exit.rs (+ src/app/mod.rs только если match неисчерпывающий). Проверка: cargo check"
-    done: false
+    description: "ExitReason: варианты Signal(TermSignal), WindowsSessionEnd, MacosTerminate + enum TermSignal (§2.8, ТЗ-14, ТЗ-15). Файлы: src/core/exit.rs, src/journal.rs (exit_reason_text; + src/app/mod.rs только если match неисчерпывающий). Проверка: cargo check"
+    done: true
   - id: 2
     description: "exit() в app: для WindowsSessionEnd/MacosTerminate — Completed без slint::quit_event_loop (ADR-7, §6.10, ТЗ-15). Файл: src/app/mod.rs. Проверка: cargo check"
     done: false
@@ -107,20 +108,20 @@ steps:
     description: "macOS: applicationShouldTerminate: через class_addMethod на делегат winit, фолбэк NSApplicationWillTerminateNotification (ADR-7, ТЗ-15). Файлы: src/platform/lifecycle/macos.rs, Cargo.toml (objc2*). Проверка: cargo check (Linux) + ревью"
     done: false
   - id: 24
-    description: "Тесты выхода: exit_writes_settings_once (по каждой причине; без TrayQuit без трея), repeated_tray_quit_ignored, windows_session_end_runs_exit_synchronously (§7.2, ТЗ-14, ТЗ-15). Файл: src/core/testing.rs. Проверка: cargo test exit_"
+    description: "Тесты выхода: exit_writes_settings_once (по каждой причине; без TrayQuit без трея), repeated_tray_quit_ignored, windows_session_end_runs_exit_synchronously (§7.2, ТЗ-14, ТЗ-15). Файл: src/core/testing.rs. Проверка: cargo test --no-run (прогон группой на Шаге 26)"
     done: false
   - id: 25
-    description: "Тесты сообщений: tray_hidden_error_notifies_once, no_tray_error_shows_window, tray_quit_closes_error_window_one_attempt (§7.2, ТЗ-52). Файл: src/core/testing.rs. Проверка: cargo test tray_ / no_tray"
+    description: "Тесты сообщений: tray_hidden_error_notifies_once, no_tray_error_shows_window, tray_quit_closes_error_window_one_attempt (§7.2, ТЗ-52). Файл: src/core/testing.rs. Проверка: cargo test --no-run (прогон группой на Шаге 26)"
     done: false
   - id: 26
-    description: "Тесты: platform_fakes_cover_exit_fs_input_notify_pick (части exit/fs/notify), tray_works_during_dialog/message без колёсика (колёсико — С11) (§7.2, ТЗ-24, ТЗ-54). Файл: src/core/testing.rs. Проверка: cargo test platform_fakes / tray_works"
+    description: "Тесты: platform_fakes_cover_exit_fs_input_notify_pick (части exit/fs/notify), tray_works_during_dialog/message без колёсика (колёсико — С11) (§7.2, ТЗ-24, ТЗ-54). Файл: src/core/testing.rs. Проверка: ЧЕКПОИНТ группы тестов 24–26: полный cargo test + cargo clippy"
     done: false
   - id: 27
     description: "Финал: grep cfg(target_os вне src/platform (аудио-места AM1.0 — вне задач SP1.0), полный cargo test + cargo clippy, ROADMAP ✅ (ТЗ-54 приёмка). Файлы: ROADMAP.md, _STATE_.yaml. Проверка: всё зелёное"
     done: false
 
-current_step: 1
-next_action: "Шаг 1: расширить ExitReason в src/core/exit.rs (свежий субагент code-writer/sonnet)"
+current_step: 2
+next_action: "Шаг 2: app exit() возвращает ExitOutcome; WindowsSessionEnd/MacosTerminate — без quit_event_loop (свежий субагент code-writer/sonnet)"
 
 fail_counter: 0
 fail_counter_max: 3
