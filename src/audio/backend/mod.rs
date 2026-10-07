@@ -5,6 +5,42 @@
 use crate::audio::format::SampleRate;
 use smallvec::SmallVec;
 
+pub mod shared;
+
+/// Стабильный идентификатор Shared-устройства: имя PCM/CoreAudio-узла, в
+/// отличие от `HwDeviceId` не привязан к конкретной карте ALSA (§2.3, ADR-07).
+#[derive(Clone, PartialEq, Eq, Hash, Debug)]
+pub struct SharedDeviceId(String);
+
+impl SharedDeviceId {
+    pub fn new(id: impl Into<String>) -> SharedDeviceId {
+        SharedDeviceId(id.into())
+    }
+
+    pub fn as_str(&self) -> &str {
+        &self.0
+    }
+}
+
+/// Устройство в Shared-перечислении (§2.3). Перечисление кэшируется и
+/// обновляется только по событию или «Обновить» (ADR-16).
+#[derive(Clone, Debug)]
+pub struct SharedDeviceInfo {
+    pub id: SharedDeviceId,
+    pub name: String,
+    pub is_default: bool,
+    /// Мост этапа С3: пока таблица устройств в UI не переведена на
+    /// `DeviceCaps`, легаси-поля `DeviceInfo` нужны для отрисовки того же
+    /// списка (§2.3).
+    pub legacy: crate::audio::output::DeviceInfo,
+}
+
+/// Перечисление Shared-устройств недоступно — хост не ответил (§2.3).
+#[derive(Clone, PartialEq, Eq, Debug)]
+pub enum BackendError {
+    Unavailable(String),
+}
+
 /// Частоты, которые принимает устройство: перечень или диапазон (§2.3).
 /// `PartialEq` нужен `Incompatibility::RateUnsupported` (§2.4).
 #[derive(Clone, PartialEq, Eq, Debug)]
