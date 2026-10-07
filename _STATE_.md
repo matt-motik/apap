@@ -49,7 +49,7 @@
 [x] Шаг 4: ЧЕКПОИНТ шагов 1–3. ЧЕКПОИНТ: полный cargo test + cargo clippy (0 новых варнингов в файлах вайтлиста)
 [x] Шаг 5: ThreadSpawner + StdSpawner + FailingSpawner (отказ на N-м вызове) по §2.10 (ТЗ-88, ADR-20). Файл: src/engine/spawner.rs. Проверка: cargo check
 [x] Шаг 6: DecodeWorker::spawn принимает &dyn ThreadSpawner; Player пробрасывает StdSpawner (мост) (§6.18 шаг 6, ТЗ-88). Файлы: src/audio/worker.rs, src/audio/player.rs. Проверка: cargo check
-[ ] Шаг 7: SourceOpener + FakeSource (заданный SourceFormat/FileError, счётчики probe/open) по §2.10 (§6.18 шаги 3, 6). Файл: src/engine/source.rs. Проверка: cargo check
+[x] Шаг 7: SourceOpener + FakeSource (заданный SourceFormat/FileError, счётчики probe/open) по §2.10 (§6.18 шаги 3, 6). Файл: src/engine/source.rs. Проверка: cargo check
 [ ] Шаг 8: SymphoniaSourceOpener: probe — заголовок без seek-индекса (новая функция probe_header в decoder.rs; DSF/DFF через dsd.rs-заголовок), open — существующий Decoder::open/DSD (§2.10, §6.18 шаг 3, ТЗ-103). Файлы: src/audio/decoder.rs, src/engine/source.rs. Проверка: cargo test probe_header
 [ ] Шаг 9: ЧЕКПОИНТ шагов 5–8. ЧЕКПОИНТ: полный cargo test + cargo clippy (0 новых варнингов в файлах вайтлиста)
 [ ] Шаг 10: SharedBackend (§2.3, ADR-07) — перечисление и устройство по умолчанию; CpalSharedBackend поверх существующих AudioHost/CpalHost (не переписывать). Файлы: src/audio/backend/shared.rs (новый), src/audio/backend/mod.rs. Проверка: cargo check
@@ -82,8 +82,8 @@
 [ ] Шаг 37: Убрать мост AudioFacade в mod.rs и удалить audio_facade.rs. Файлы: src/app/mod.rs, src/app/audio_facade.rs. Проверка: cargo check
 [ ] Шаг 38: Финал: полный cargo test + clippy, tools/check_rt_imports.py, grep Player вне src/engine и src/audio, ROADMAP ✅, ручные проверки за пользователем (UI не блокируется, ошибки треков видны, Exclusive через старый путь). Файлы: ROADMAP.md, _STATE_.yaml. Проверка: всё зелёное
 
-- **Текущий шаг (current_step):** Шаг 7
-- **Следующий ход:** Шаг 7: SourceOpener + FakeSource в src/engine/source.rs (§2.10, §6.18 шаги 3, 6). Шаг 6 готов: DecodeWorker::spawn(&dyn ThreadSpawner) -> Result<_, EngineFault>, Player.spawner (StdSpawner по умолчанию, set_spawner). Решения пользователя 2026-10-07: мост SetLegacyAudio (вместо SetModeSettings/SetActiveMode до С4); ModeKind временно в src/settings.rs. Player — внутренняя деталь apap-engine (мост). Тесты — только на ЧЕКПОИНТ-шагах.
+- **Текущий шаг (current_step):** Шаг 8
+- **Следующий ход:** Шаг 8: SymphoniaSourceOpener + probe_header (decoder.rs, source.rs). Шаг 7 готов: SourceOpener, FakeSource (with_format/with_error/with_probe_delay, probes/opens).spawner (StdSpawner по умолчанию, set_spawner). Решения пользователя 2026-10-07: мост SetLegacyAudio (вместо SetModeSettings/SetActiveMode до С4); ModeKind временно в src/settings.rs. Player — внутренняя деталь apap-engine (мост). Тесты — только на ЧЕКПОИНТ-шагах.
 - **Счетчик безуспешных компиляций:** 0/3
 - **Состояние:** in_progress
 
