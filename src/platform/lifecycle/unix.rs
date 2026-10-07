@@ -76,3 +76,41 @@ async fn run_loop(
         first_done = true;
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::sync::mpsc;
+    use std::time::Duration;
+
+    /// Двойной сигнал → немедленное завершение (§7.2, ТЗ-14): UI «завис» на
+    /// записи (первый запрос выхода не обработан), второй SIGTERM вызывает
+    /// подменённый `ProcessExit(128 + 15)` прямо из потока `apap-signals`.
+    #[test]
+    fn double_signal_exits_immediately() {
+        let (first_tx, first_rx) = mpsc::channel();
+        let (exit_tx, exit_rx) = mpsc::channel();
+        let handle = spawn_signals(
+            Box::new(move |sig| {
+                let _ = first_tx.send(sig);
+            }),
+            Box::new(move |code| {
+                let _ = exit_tx.send(code);
+            }),
+        )
+        .expect("регистрация сигналов");
+
+        // SAFETY: kill(getpid(), SIGTERM) — сигнал самому процессу; обработчик
+        // tokio уже установлен spawn_signals, процесс не завершается.
+        let send_term = || unsafe { libc::kill(libc::getpid(), libc::SIGTERM) };
+
+        assert_eq!(send_term(), 0);
+        assert_eq!(first_rx.recv_timeout(Duration::from_secs(5)), Ok(TermSignal::Term));
+        // Запрос выхода «завис» в UI (запись 10 с): ответа нет, ждём только apap-signals.
+        assert!(exit_rx.try_recv().is_err());
+
+        assert_eq!(send_term(), 0);
+        assert_eq!(exit_rx.recv_timeout(Duration::from_secs(1)), Ok(143));
+        handle.join().expect("поток apap-signals");
+    }
+}

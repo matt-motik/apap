@@ -70,7 +70,7 @@ steps:
     done: true
   - id: 11
     description: "Тест double_signal_exits_immediately (подменный ProcessExit, задержка записи 10 с, два SIGTERM → 143 сразу) (§7.2, ТЗ-14). Файл: src/platform/lifecycle/unix.rs. Проверка: cargo test double_signal. ЧЕКПОИНТ: cargo test + cargo clippy"
-    done: false
+    done: true
   - id: 12
     description: "Перенос src/tray.rs → src/platform/tray/mod.rs (git mv) с мостом `pub use platform::tray;` в lib.rs (§8.1 С5). Файлы: src/lib.rs, src/platform/mod.rs (+ перемещённый файл). Проверка: cargo check"
     done: false
@@ -126,8 +126,8 @@ steps:
     description: "Финал: grep cfg(target_os вне src/platform (аудио-места AM1.0 — вне задач SP1.0), полный cargo test + cargo clippy, ROADMAP ✅ (ТЗ-54 приёмка). Файлы: ROADMAP.md, _STATE_.yaml. Проверка: всё зелёное"
     done: false
 
-current_step: 11
-next_action: "Шаг 11: тест double_signal_exits_immediately в unix.rs; ЧЕКПОИНТ cargo test + clippy"
+current_step: 12
+next_action: "Шаг 12 (свежий субагент code-writer/sonnet)"
 
 fail_counter: 0
 fail_counter_max: 3
