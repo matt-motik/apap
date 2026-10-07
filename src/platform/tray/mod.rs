@@ -1,21 +1,12 @@
 use std::sync::mpsc;
 
+use super::lifecycle::{TrayEvent, TrayScroll};
+use crate::audio::clock::Clock;
+
 use ksni::menu::{MenuItem, StandardItem};
 
 /// Minimum interval between tray tooltip pushes from the tick loop (ms).
 pub const TRAY_UPDATE_INTERVAL_MS: u128 = 300;
-
-/// Commands sent by the tray menu to the application.
-#[derive(Debug, Clone, Copy)]
-pub enum TrayCmd {
-    TogglePlay,
-    Stop,
-    Prev,
-    Next,
-    ShowHide,
-    Quit,
-    Wheel(i32),
-}
 
 /// Text shown as a transient tray tooltip the moment bit-perfect (Direct
 /// Output) is enabled: the software volume stage is bypassed.
@@ -36,14 +27,15 @@ pub struct TrayState {
     pub notice: Option<String>,
 }
 
-#[derive(Debug)]
 struct PlayerTray {
-    notifier: mpsc::Sender<TrayCmd>,
+    notifier: mpsc::Sender<TrayEvent>,
+    /// Метка времени `TrayScroll` для модуля ввода (ADR-8, ТЗ-24).
+    clock: Box<dyn Clock>,
     state: TrayState,
 }
 
 impl PlayerTray {
-    fn item(&self, label: &str, icon: &str, cmd: TrayCmd) -> MenuItem<Self> {
+    fn item(&self, label: &str, icon: &str, cmd: TrayEvent) -> MenuItem<Self> {
         let tx = self.notifier.clone();
         StandardItem {
             label: label.into(),
@@ -63,15 +55,20 @@ impl ksni::Tray for PlayerTray {
     }
 
     fn activate(&mut self, _x: i32, _y: i32) {
-        let _ = self.notifier.send(TrayCmd::TogglePlay);
+        let _ = self.notifier.send(TrayEvent::TogglePlay);
     }
 
     fn secondary_activate(&mut self, _x: i32, _y: i32) {
-        let _ = self.notifier.send(TrayCmd::ShowHide);
+        let _ = self.notifier.send(TrayEvent::ShowHide);
     }
 
-    fn scroll(&mut self, delta: i32, _orientation: ksni::Orientation) {
-        let _ = self.notifier.send(TrayCmd::Wheel(delta));
+    fn scroll(&mut self, delta: i32, orientation: ksni::Orientation) {
+        let ev = TrayScroll {
+            t: self.clock.now(),
+            delta,
+            vertical: matches!(orientation, ksni::Orientation::Vertical),
+        };
+        let _ = self.notifier.send(TrayEvent::Scroll(ev));
     }
 
     fn icon_name(&self) -> String {
@@ -112,25 +109,25 @@ impl ksni::Tray for PlayerTray {
 
     fn menu(&self) -> Vec<MenuItem<Self>> {
         vec![
-            self.item("Play / Pause", "media-playback-start", TrayCmd::TogglePlay),
-            self.item("Stop", "media-playback-stop", TrayCmd::Stop),
-            self.item("Previous", "media-skip-backward", TrayCmd::Prev),
-            self.item("Next", "media-skip-forward", TrayCmd::Next),
+            self.item("Play / Pause", "media-playback-start", TrayEvent::TogglePlay),
+            self.item("Stop", "media-playback-stop", TrayEvent::Stop),
+            self.item("Previous", "media-skip-backward", TrayEvent::Prev),
+            self.item("Next", "media-skip-forward", TrayEvent::Next),
             MenuItem::Separator,
-            self.item("Show / Hide window", "view-restore", TrayCmd::ShowHide),
+            self.item("Show / Hide window", "view-restore", TrayEvent::ShowHide),
             MenuItem::Separator,
-            self.item("Quit", "application-exit", TrayCmd::Quit),
+            self.item("Quit", "application-exit", TrayEvent::Quit),
         ]
     }
 }
 
 /// Spawns the StatusNotifierItem tray service on a background thread.
 ///
-/// Returns a receiver for tray commands and a sender for updating the tray
+/// `clock` ставит метки `TrayScroll` (ADR-8). Returns a receiver for tray events and a sender for updating the tray
 /// state. Fails silently when no StatusNotifier host / D-Bus is available,
 /// in which case the returned receiver simply stays empty.
-pub fn start() -> (
-    mpsc::Receiver<TrayCmd>,
+pub fn start(clock: Box<dyn Clock>) -> (
+    mpsc::Receiver<TrayEvent>,
     tokio::sync::mpsc::UnboundedSender<TrayState>,
 ) {
     use ksni::TrayMethods;
@@ -149,6 +146,7 @@ pub fn start() -> (
         rt.block_on(async move {
             let tray = PlayerTray {
                 notifier: cmd_tx,
+                clock,
                 state: TrayState::default(),
             };
             let Ok(handle) = tray.spawn().await else {

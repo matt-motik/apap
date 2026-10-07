@@ -79,7 +79,7 @@ steps:
     done: true
   - id: 14
     description: "Трей шлёт TrayEvent вместо TrayCmd; Wheel → Scroll(TrayScroll), в poll_tray прежний шаг громкости до С11 (§2.8, ТЗ-24). Файлы: src/platform/tray/mod.rs, src/app/mod.rs. Проверка: cargo check"
-    done: false
+    done: true
   - id: 15
     description: "ksni — Linux target dep; реализация трея под cfg внутри platform/tray, на прочих ОС start() → None (ADR-6, В-1). Файлы: Cargo.toml, src/platform/tray/mod.rs. Проверка: cargo check. ЧЕКПОИНТ: cargo test + cargo clippy"
     done: false
@@ -126,8 +126,8 @@ steps:
     description: "Финал: grep cfg(target_os вне src/platform (аудио-места AM1.0 — вне задач SP1.0), полный cargo test + cargo clippy, ROADMAP ✅ (ТЗ-54 приёмка). Файлы: ROADMAP.md, _STATE_.yaml. Проверка: всё зелёное"
     done: false
 
-current_step: 14
-next_action: "Шаг 14: трей шлёт TrayEvent вместо TrayCmd (свежий субагент code-writer/sonnet)"
+current_step: 15
+next_action: "Шаг 15: ksni — Linux target dep, cfg в platform/tray; ЧЕКПОИНТ"
 
 fail_counter: 0
 fail_counter_max: 3

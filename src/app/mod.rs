@@ -41,7 +41,8 @@ use music_player_rs::theme::{
     ColorsData, ThemeData, ThemeError, DEFAULT_LIGHT_TOML, parse_hex,
     scan_themes_dir,
 };
-use music_player_rs::platform::tray::{self, TrayCmd};
+use music_player_rs::platform::lifecycle::TrayEvent;
+use music_player_rs::platform::tray;
 
 /// Фиксированные частоты выхода для `ResamplerMode::Fixed` (ТЗ A3.0 §7.3):
 /// индекс ComboBox («Авто», «44.1k» … «192k») → Гц. «Авто» (0) → 0 = не задано.
@@ -297,7 +298,7 @@ pub struct MusicApp {
     audio_error: Option<String>,
     /// Effective output device name (from the probe or last successful switch).
     active_device: String,
-    tray_rx: Option<std::sync::mpsc::Receiver<TrayCmd>>,
+    tray_rx: Option<std::sync::mpsc::Receiver<TrayEvent>>,
     tray_up_tx: Option<tokio::sync::mpsc::UnboundedSender<tray::TrayState>>,
     last_tray_update: Instant,
     /// Deadline + текст транзитного тултипа трея (None = выключен).
@@ -417,7 +418,7 @@ impl MusicApp {
         });
         let tracks = Vec::new();
         let known_paths: HashSet<PathBuf> = HashSet::new();
-        let (tray_rx, tray_up_tx) = tray::start();
+        let (tray_rx, tray_up_tx) = tray::start(Box::new(music_player_rs::audio::clock::MonotonicClock::new()));
 
         let (cover_tx, cover_job_rx) = channel::<CoverJob>();
         let (cover_done_tx, cover_done_rx) = channel::<CoverDone>();
@@ -2021,7 +2022,7 @@ impl MusicApp {
         while let Ok(cmd) = rx.try_recv() {
             eprintln!("[tray] cmd={cmd:?}");
             match cmd {
-                TrayCmd::TogglePlay => {
+                TrayEvent::TogglePlay => {
                     self.player.toggle();
                     if self.player.is_playing() {
                         self.emit(AppEvent::PlaybackStarted);
@@ -2029,13 +2030,13 @@ impl MusicApp {
                         self.emit(AppEvent::PlaybackPaused);
                     }
                 }
-                TrayCmd::Stop => {
+                TrayEvent::Stop => {
                     self.player.stop();
                     self.emit(AppEvent::PlaybackStopped);
                 }
-                TrayCmd::Prev => self.play_prev(),
-                TrayCmd::Next => self.play_next(1),
-                TrayCmd::ShowHide => {
+                TrayEvent::Prev => self.play_prev(),
+                TrayEvent::Next => self.play_next(1),
+                TrayEvent::ShowHide => {
                     let visible = self.ui.window().is_visible();
                     let res = if visible {
                         // Window hides into the tray: free an exclusive raw-`hw:`
@@ -2056,12 +2057,14 @@ impl MusicApp {
                         self.apply_msg_effect(effect);
                     }
                 }
-                TrayCmd::Quit => {
+                TrayEvent::Quit => {
                     // Путь выхода (ТЗ-14, ТЗ-22, §6.10); повтор во время
                     // выхода игнорируется (`ExitOutcome::Ignored`).
                     self.exit(ExitReason::TrayQuit);
                 }
-                TrayCmd::Wheel(delta) => {
+                TrayEvent::Scroll(ev) => {
+                    let delta = ev.delta;
+                    // До С11 (модуль ввода) — прежний шаг громкости (ТЗ-24).
                     const WHEEL_VOLUME_STEP: f32 = 0.02;
                     // Hosts differ in the raw magnitude per event (Ubuntu: ±1,
                     // KDE/4k: ±120); only the sign matters — each scroll notch
