@@ -132,8 +132,8 @@ steps:
     description: "Тесты выхода: exit_writes_settings_once (по каждой причине; без TrayQuit без трея), repeated_tray_quit_ignored, windows_session_end_runs_exit_synchronously (§7.2, ТЗ-14, ТЗ-15); ExitReason::quits_event_loop для проверки «quit_event_loop не вызывается». Файлы: src/core/testing.rs, src/core/exit.rs, src/app/mod.rs. Проверка: cargo test --no-run (прогон группой на Шаге 33)"
     done: true
   - id: 32
-    description: "Тесты сообщений: tray_hidden_error_notifies_once, no_tray_error_shows_window, tray_quit_closes_error_window_one_attempt (§7.2, ТЗ-52). Файл: src/core/testing.rs. Проверка: cargo test --no-run (прогон группой на Шаге 33)"
-    done: false
+    description: "Тесты сообщений: tray_hidden_error_notifies_once, no_tray_error_shows_window, tray_quit_closes_error_window_one_attempt (§7.2, ТЗ-52); правка устаревшего doc-комментария apply_msg_effect. Файлы: src/core/testing.rs, src/app/mod.rs. Проверка: cargo test --no-run (прогон группой на Шаге 33)"
+    done: true
   - id: 33
     description: "Тесты: platform_fakes_cover_exit_fs_input_notify_pick (части exit/fs/notify), tray_works_during_dialog/message без колёсика (колёсико — С11) (§7.2, ТЗ-24, ТЗ-54). Файл: src/core/testing.rs. Проверка: ЧЕКПОИНТ группы тестов 31–33: полный cargo test + cargo clippy"
     done: false
@@ -141,8 +141,8 @@ steps:
     description: "Финал: grep cfg(target_os вне src/platform (аудио-места AM1.0 — вне задач SP1.0), полный cargo test + cargo clippy, ROADMAP ✅ (ТЗ-54 приёмка). Файлы: ROADMAP.md, _STATE_.yaml. Проверка: всё зелёное"
     done: false
 
-current_step: 32
-next_action: "Шаг 32: тесты сообщений в src/core/testing.rs (cargo test --no-run; прогон группой на Шаге 33). Не-Linux ветки (трей, platform_lifecycle, platform_notifier, windows.rs сабкласс, macos.rs делегат) не компилировались локально — собрать на ноутбуке/macOS при кросс-ОС приёмке"
+current_step: 33
+next_action: "Шаг 33: тесты фейков платформы и трея при диалоге/сообщении в src/core/testing.rs; ЧЕКПОИНТ: полный cargo test + cargo clippy. Не-Linux ветки (трей, platform_lifecycle, platform_notifier, windows.rs сабкласс, macos.rs делегат) не компилировались локально — собрать на ноутбуке/macOS при кросс-ОС приёмке"
 
 fail_counter: 0
 fail_counter_max: 3

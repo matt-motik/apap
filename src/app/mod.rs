@@ -583,8 +583,8 @@ impl MusicApp {
 
     /// Применить эффект `MessageCenter` к Slint-свойствам окна сообщения и
     /// к шлюзу главного окна (ADR-13, §6.15). `notify` — уведомление при окне
-    /// в трее (ТЗ-52 п. 3); до трейта `Notifier` этапа С5 (ADR-9) доставляется
-    /// существующей подсказкой трея.
+    /// в трее (ТЗ-52 п. 3); доставляется через инжектируемый трейт
+    /// `Notifier` (ADR-9).
     pub(super) fn apply_msg_effect(&mut self, effect: MsgEffect) {
         let MsgEffect { show, hide, notify } = effect;
         if let Some(n) = notify {

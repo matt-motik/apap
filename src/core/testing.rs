@@ -270,8 +270,11 @@ mod tests {
     use super::*;
     use crate::audio::visualizer::VisualizationMode;
     use crate::core::exit::{ExitOutcome, ExitPhase, ExitReason, TermSignal};
+    use crate::core::messages::{MessageCenter, MessageLevel};
     use crate::journal::WriteTarget;
     use crate::platform::fs::FsOp;
+    use crate::platform::lifecycle::PlatformCaps;
+    use crate::platform::notify::{FakeNotifier, Notifier};
     use crate::persist::keys::{KeyPath, LoadNoteKind};
     use crate::persist::settings_file::{SaveInterval, Settings, ThemeName};
     use crate::persist::state_file::{Origin, PhysPos, PhysSize, SessionState, SizeUnits, StateChange, WindowGeometry};
@@ -1405,5 +1408,133 @@ mod tests {
         assert!(h.writes(WorkFile::Settings) >= 1);
         assert!(h.writes(WorkFile::State) >= 1);
         assert!(h.writes(WorkFile::Playlist) >= 1);
+    }
+
+    /// Проводит эффекты `ReplyEffect::Failed` тика через `MessageCenter` →
+    /// `Notifier`, как это делает `apply_reply_effects`/`apply_msg_effect`
+    /// в `app/mod.rs` (ADR-9, §7.2): здесь — минимальный повтор того же
+    /// провода для тестов стенда `AppCore` без Slint.
+    fn apply_write_failures(
+        effects: Vec<ReplyEffect>,
+        messages: &mut MessageCenter,
+        notifier: &FakeNotifier,
+        caps: PlatformCaps,
+    ) {
+        for effect in effects {
+            if let ReplyEffect::Failed(file, class) = effect {
+                let msg_effect = messages.write_failed(file, class, caps);
+                if let Some(n) = msg_effect.notify {
+                    notifier.notify(n);
+                }
+            }
+        }
+    }
+
+    /// Окно скрыто в трей — ошибка записи `state.toml` уведомляет через
+    /// `Notifier` ровно один раз, даже если следом падает ещё один файл
+    /// (`settings.toml`); при открытии окна (`set_in_tray(false)`)
+    /// показывается сводное окно Error, упоминающее `state.toml` (ADR-9,
+    /// §7.2, ТЗ-52 `tray_hidden_error_notifies_once`).
+    #[test]
+    fn tray_hidden_error_notifies_once() {
+        let h = Harness::new();
+        h.put_default_settings();
+        h.put_state(b"");
+        let mut core = h.boot();
+
+        let caps = PlatformCaps { tray: true, notifications: true };
+        let mut messages = MessageCenter::default();
+        let notifier = FakeNotifier::new();
+        messages.window_shown();
+        messages.set_in_tray(true);
+
+        h.fail_write_work(WorkFile::State, WriteStep::WriteData, WriteErrorClass::NoSpace, 1);
+        core.change_state(Origin::User, StateChange::Volume(42));
+        let interval = core.settings().save_interval.duration();
+        h.advance(&mut core, interval);
+        let effects: Vec<ReplyEffect> = h.settle_ticks(&mut core).into_iter().flatten().collect();
+        apply_write_failures(effects, &mut messages, &notifier, caps);
+
+        h.fail_write_work(WorkFile::Settings, WriteStep::WriteData, WriteErrorClass::NoSpace, 1);
+        let mut settings = core.settings().clone();
+        settings.playback.audio_device = "hw:1,0".into();
+        core.save_settings_now(settings);
+        let effects: Vec<ReplyEffect> = h.settle_ticks(&mut core).into_iter().flatten().collect();
+        apply_write_failures(effects, &mut messages, &notifier, caps);
+
+        assert_eq!(notifier.count(), 1, "уведомление — одно на появление сводной записи");
+
+        let effect = messages.set_in_tray(false);
+        let shown = effect.show.expect("окно ошибок записи показано при открытии");
+        assert_eq!(shown.level, MessageLevel::Error);
+        assert!(shown.body.contains("state.toml"));
+    }
+
+    /// Без трея (`PlatformCaps::default()`) ошибка записи `state.toml` сразу
+    /// открывает окно Error, без единого уведомления через `Notifier`
+    /// (ADR-9, §7.2, ТЗ-52 `no_tray_error_shows_window`).
+    #[test]
+    fn no_tray_error_shows_window() {
+        let h = Harness::new();
+        h.put_default_settings();
+        h.put_state(b"");
+        let mut core = h.boot();
+
+        let caps = PlatformCaps::default();
+        let mut messages = MessageCenter::default();
+        let notifier = FakeNotifier::new();
+        messages.window_shown();
+
+        h.fail_write_work(WorkFile::State, WriteStep::WriteData, WriteErrorClass::NoSpace, 1);
+        core.change_state(Origin::User, StateChange::Volume(42));
+        let interval = core.settings().save_interval.duration();
+        h.advance(&mut core, interval);
+        let effects: Vec<ReplyEffect> = h.settle_ticks(&mut core).into_iter().flatten().collect();
+        apply_write_failures(effects, &mut messages, &notifier, caps);
+
+        let shown = messages.shown().expect("окно ошибки записи показано без трея");
+        assert_eq!(shown.level, MessageLevel::Error);
+        assert_eq!(notifier.count(), 0);
+    }
+
+    /// `TrayQuit` при открытом окне Error закрывает его без вопроса —
+    /// `messages.dismiss_for_exit()` вызывается ДО `core.exit()`, как в
+    /// `app::exit` (ADR-7, §6.10); путь выхода делает ровно одну новую
+    /// попытку записи `state.toml`, которая проходит (ADR-9, §7.2, ТЗ-14,
+    /// ТЗ-52 `tray_quit_closes_error_window_one_attempt`).
+    #[test]
+    fn tray_quit_closes_error_window_one_attempt() {
+        let h = Harness::new();
+        h.put_default_settings();
+        h.put_state(b"");
+        let mut core = h.boot();
+
+        let caps = PlatformCaps { tray: true, notifications: true };
+        let mut messages = MessageCenter::default();
+        let notifier = FakeNotifier::new();
+        messages.window_shown();
+
+        h.fail_write_work(WorkFile::State, WriteStep::WriteData, WriteErrorClass::NoSpace, 1);
+        core.change_state(Origin::User, StateChange::Volume(42));
+        let interval = core.settings().save_interval.duration();
+        h.advance(&mut core, interval);
+        let effects: Vec<ReplyEffect> = h.settle_ticks(&mut core).into_iter().flatten().collect();
+        apply_write_failures(effects, &mut messages, &notifier, caps);
+        assert!(messages.is_shown(), "окно Error открыто после неудачной записи");
+
+        let before = h.state_counts();
+
+        messages.dismiss_for_exit();
+        assert!(!messages.is_shown(), "окно закрыто без вопроса");
+
+        let outcome = core.exit(ExitReason::TrayQuit, &mut || true, &|| Arc::from(&b""[..]));
+        assert_eq!(outcome, ExitOutcome::Completed);
+
+        let after = h.state_counts();
+        let attempts_before = before.writes + before.failures;
+        let attempts_after = after.writes + after.failures;
+        assert_eq!(attempts_after - attempts_before, 1, "путь выхода делает ровно одну новую попытку");
+        assert_eq!(after.writes, before.writes + 1, "вторая попытка успешна — файл записан");
+        assert!(!messages.is_shown(), "после выхода ничего не показано заново");
     }
 }

@@ -66,12 +66,12 @@
 [x] Шаг 29: Windows: SetWindowSubclass на HWND (WM_QUERYENDSESSION→TRUE; WM_ENDSESSION wParam=TRUE → синхронный выход, return 0) (ADR-7, ТЗ-15). Файлы: src/platform/lifecycle/windows.rs, Cargo.toml (windows-sys features). Проверка: cargo check (Linux) + ревью; сборка Windows — на ноутбуке
 [x] Шаг 30: macOS: applicationShouldTerminate: через class_addMethod на делегат winit, фолбэк NSApplicationWillTerminateNotification (ADR-7, ТЗ-15). Файлы: src/platform/lifecycle/macos.rs, Cargo.toml (objc2*). Проверка: cargo check (Linux) + ревью
 [x] Шаг 31: Тесты выхода: exit_writes_settings_once (по каждой причине; без TrayQuit без трея), repeated_tray_quit_ignored, windows_session_end_runs_exit_synchronously (§7.2, ТЗ-14, ТЗ-15); ExitReason::quits_event_loop для проверки «quit_event_loop не вызывается». Файлы: src/core/testing.rs, src/core/exit.rs, src/app/mod.rs. Проверка: cargo test --no-run (прогон группой на Шаге 33)
-[ ] Шаг 32: Тесты сообщений: tray_hidden_error_notifies_once, no_tray_error_shows_window, tray_quit_closes_error_window_one_attempt (§7.2, ТЗ-52). Файл: src/core/testing.rs. Проверка: cargo test --no-run (прогон группой на Шаге 33)
+[x] Шаг 32: Тесты сообщений: tray_hidden_error_notifies_once, no_tray_error_shows_window, tray_quit_closes_error_window_one_attempt (§7.2, ТЗ-52); правка устаревшего doc-комментария apply_msg_effect. Файлы: src/core/testing.rs, src/app/mod.rs. Проверка: cargo test --no-run (прогон группой на Шаге 33)
 [ ] Шаг 33: Тесты: platform_fakes_cover_exit_fs_input_notify_pick (части exit/fs/notify), tray_works_during_dialog/message без колёсика (колёсико — С11) (§7.2, ТЗ-24, ТЗ-54). Файл: src/core/testing.rs. Проверка: ЧЕКПОИНТ группы тестов 31–33: полный cargo test + cargo clippy
 [ ] Шаг 34: Финал: grep cfg(target_os вне src/platform (аудио-места AM1.0 — вне задач SP1.0), полный cargo test + cargo clippy, ROADMAP ✅ (ТЗ-54 приёмка). Файлы: ROADMAP.md, _STATE_.yaml. Проверка: всё зелёное
 
-- **Текущий шаг (current_step):** Шаг 32
-- **Следующий ход:** Шаг 32: тесты сообщений в src/core/testing.rs (cargo test --no-run; прогон группой на Шаге 33). Не-Linux ветки (трей, platform_lifecycle, platform_notifier, windows.rs сабкласс, macos.rs делегат) не компилировались локально — собрать на ноутбуке/macOS при кросс-ОС приёмке
+- **Текущий шаг (current_step):** Шаг 33
+- **Следующий ход:** Шаг 33: тесты фейков платформы и трея при диалоге/сообщении в src/core/testing.rs; ЧЕКПОИНТ: полный cargo test + cargo clippy. Не-Linux ветки (трей, platform_lifecycle, platform_notifier, windows.rs сабкласс, macos.rs делегат) не компилировались локально — собрать на ноутбуке/macOS при кросс-ОС приёмке
 - **Счетчик безуспешных компиляций:** 0/3
 - **Состояние:** in_progress
 
