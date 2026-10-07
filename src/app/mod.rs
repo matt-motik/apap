@@ -642,7 +642,6 @@ impl MusicApp {
 
     /// Окно приложения без паники (R-20, ТЗ-45, ТЗ-101). `None` — окно уже
     /// уничтожено (выход); вызывающий молча пропускает обновление UI.
-    #[allow(dead_code)] // мост: первые вызовы — шаг 44
     pub(super) fn try_ui(&self) -> Option<AppWindow> {
         self.ui.upgrade()
     }
@@ -676,8 +675,11 @@ impl MusicApp {
         if let Some(n) = notify {
             self.notifier.notify(n);
         }
+        let ui = self.try_ui();
         if hide {
-            self.ui().set_msg_shown(false);
+            if let Some(ui) = &ui {
+                ui.set_msg_shown(false);
+            }
             self.gate.unblock(BlockReason::Message);
         }
         if let Some(message) = show {
@@ -687,11 +689,13 @@ impl MusicApp {
                 MessageLevel::Error => 2,
             };
             let retry = message.buttons == MessageButtons::RetryOk;
-            self.ui().set_msg_level(level);
-            self.ui().set_msg_title(message.title.as_ref().into());
-            self.ui().set_msg_body(message.body.as_ref().into());
-            self.ui().set_msg_retry(retry);
-            self.ui().set_msg_shown(true);
+            if let Some(ui) = &ui {
+                ui.set_msg_level(level);
+                ui.set_msg_title(message.title.as_ref().into());
+                ui.set_msg_body(message.body.as_ref().into());
+                ui.set_msg_retry(retry);
+                ui.set_msg_shown(true);
+            }
             self.gate.block(BlockReason::Message);
         }
         self.sync_gate_ui();
@@ -700,7 +704,9 @@ impl MusicApp {
     /// Синхронизировать `window-blocked` со шлюзом после любой его мутации
     /// (ADR-12, ТЗ-23).
     pub(super) fn sync_gate_ui(&mut self) {
-        self.ui().set_window_blocked(self.gate.window_blocked());
+        if let Some(ui) = self.try_ui() {
+            ui.set_window_blocked(self.gate.window_blocked());
+        }
     }
 
     /// Повторить запись перечисленных рабочих файлов (кнопка «Повторить»
@@ -726,10 +732,14 @@ impl MusicApp {
     /// ТЗ-15, §6.10).
     pub(super) fn exit(&mut self, reason: ExitReason) -> ExitOutcome {
         self.dialog = None;
-        self.ui().set_settings_open(false);
+        if let Some(ui) = self.try_ui() {
+            ui.set_settings_open(false);
+        }
         self.gate.unblock(BlockReason::Dialog);
         self.messages.dismiss_for_exit();
-        self.ui().set_msg_shown(false);
+        if let Some(ui) = self.try_ui() {
+            ui.set_msg_shown(false);
+        }
         self.gate.unblock(BlockReason::Message);
         self.sync_gate_ui();
         // Последнее показание геометрии — в состояние до итоговых снимков.
@@ -854,8 +864,9 @@ impl MusicApp {
     }
 
     fn push_bp_report_to_ui(&self, report: bp_report::BpReport) {
-        self.ui().set_bp_stream_desc(report.stream_desc.into());
-        self.ui().set_bp_source_desc(report.source_desc.into());
+        let Some(ui) = self.try_ui() else { return };
+        ui.set_bp_stream_desc(report.stream_desc.into());
+        ui.set_bp_source_desc(report.source_desc.into());
 
         let reasons: Vec<BpReason> = report
             .reasons
@@ -871,10 +882,10 @@ impl MusicApp {
                 },
             })
             .collect();
-        self.ui().set_bp_reasons(ModelRc::from(reasons.as_slice()));
+        ui.set_bp_reasons(ModelRc::from(reasons.as_slice()));
 
         let positives: Vec<SharedString> = report.positives.into_iter().map(SharedString::from).collect();
-        self.ui().set_bp_positives(ModelRc::from(positives.as_slice()));
+        ui.set_bp_positives(ModelRc::from(positives.as_slice()));
     }
 
     // ---------------- Тема: состояние диалога настроек (T1.0) ----------------
@@ -907,9 +918,11 @@ impl MusicApp {
             ),
             None => ("(тема не найдена)".to_string(), String::new(), false),
         };
-        self.ui().set_theme_name(name.into());
-        self.ui().set_theme_description(desc.into());
-        self.ui().set_theme_save_enabled(valid);
+        if let Some(ui) = self.try_ui() {
+            ui.set_theme_name(name.into());
+            ui.set_theme_description(desc.into());
+            ui.set_theme_save_enabled(valid);
+        }
     }
 
     /// Заполняет список тем и метаданные при открытии диалога (§6.2).
@@ -919,9 +932,11 @@ impl MusicApp {
         let themes_dir = self.paths.dir.join("themes");
         let entries = scan_themes_dir(&themes_dir);
         let names: Vec<SharedString> = entries.iter().map(|e| e.file_stem.clone().into()).collect();
-        self.ui().set_theme_list_model(ModelRc::from(names.as_slice()));
         let current = self.core.settings().theme.as_str().to_string();
-        self.ui().set_theme_current(current.clone().into());
+        if let Some(ui) = self.try_ui() {
+            ui.set_theme_list_model(ModelRc::from(names.as_slice()));
+            ui.set_theme_current(current.clone().into());
+        }
         let meta = if entries.iter().any(|e| e.file_stem == current) {
             match Self::load_theme_meta(&current, &themes_dir) {
                 Some(m) => Some(m),
@@ -953,7 +968,7 @@ impl MusicApp {
     }
 
     fn bind_callbacks(this: &Rc<RefCell<Self>>) {
-        let ui = this.borrow().ui();
+        let Some(ui) = this.borrow().try_ui() else { return };
 
         // 1. play-pause
         {
@@ -1046,7 +1061,9 @@ impl MusicApp {
                 let shuffle = a.shuffle;
                 a.core.change_state(Origin::User, StateChange::Shuffle(shuffle));
                 a.rebuild_shuffle();
-                a.ui().set_shuffle(a.shuffle);
+                if let Some(ui) = a.try_ui() {
+                    ui.set_shuffle(a.shuffle);
+                }
             });
         }
 
@@ -1190,7 +1207,9 @@ impl MusicApp {
                 a.sync_dsd_chain_desc();
                 a.sync_cover_settings_to_ui();
                 a.sync_cache_stats_to_ui();
-                a.ui().set_settings_open(true);
+                if let Some(ui) = a.try_ui() {
+                    ui.set_settings_open(true);
+                }
                 a.gate.block(BlockReason::Dialog);
                 a.sync_gate_ui();
             });
@@ -1308,7 +1327,9 @@ impl MusicApp {
                 // Discard the draft; the dialog itself is recreated from the
                 // real settings on the next open, so no field resync is needed.
                 a.dialog = None;
-                a.ui().set_settings_open(false);
+                if let Some(ui) = a.try_ui() {
+                    ui.set_settings_open(false);
+                }
                 a.gate.unblock(BlockReason::Dialog);
                 a.sync_gate_ui();
             });
@@ -1458,7 +1479,9 @@ impl MusicApp {
         {
             let app = this.clone();
             ui.on_settings_set_audio_toggle_advanced(move |open| {
-                app.borrow().ui().set_settings_audio_advanced_open(open);
+                if let Some(ui) = app.borrow().try_ui() {
+                    ui.set_settings_audio_advanced_open(open);
+                }
             });
         }
 
@@ -1467,7 +1490,9 @@ impl MusicApp {
             let app = this.clone();
             ui.on_bp_clicked(move || {
                 let a = app.borrow_mut();
-                a.ui().set_bp_report_open(true);
+                if let Some(ui) = a.try_ui() {
+                    ui.set_bp_report_open(true);
+                }
                 let report = bp_report::build_bp_report(&bp_report::bp_inputs(&a));
                 a.push_bp_report_to_ui(report);
             });
@@ -1476,7 +1501,9 @@ impl MusicApp {
         {
             let app = this.clone();
             ui.on_bp_report_close(move || {
-                app.borrow().ui().set_bp_report_open(false);
+                if let Some(ui) = app.borrow().try_ui() {
+                    ui.set_bp_report_open(false);
+                }
             });
         }
 
@@ -1494,8 +1521,10 @@ impl MusicApp {
             let app = this.clone();
             ui.on_bp_report_open_settings(move || {
                 let mut a = app.borrow_mut();
-                a.ui().set_bp_report_open(false);
-                a.ui().set_settings_open(true);
+                if let Some(ui) = a.try_ui() {
+                    ui.set_bp_report_open(false);
+                    ui.set_settings_open(true);
+                }
                 a.open_dialog_draft();
                 a.sync_audio_devices();
                 a.sync_audio_advanced();
@@ -1672,7 +1701,9 @@ impl MusicApp {
                 a.sync_dialog_cols();
                 let new_ordered = a.cfg().columns.ordered_columns();
                 let new_idx = new_ordered.iter().position(|&c| c == col_id).unwrap_or(idx - 1);
-                a.ui().set_settings_selected_col(new_idx as i32);
+                if let Some(ui) = a.try_ui() {
+                    ui.set_settings_selected_col(new_idx as i32);
+                }
             });
         }
 
@@ -1692,7 +1723,9 @@ impl MusicApp {
                 a.sync_dialog_cols();
                 let new_ordered = a.cfg().columns.ordered_columns();
                 let new_idx = new_ordered.iter().position(|&c| c == col_id).unwrap_or(idx + 1);
-                a.ui().set_settings_selected_col(new_idx as i32);
+                if let Some(ui) = a.try_ui() {
+                    ui.set_settings_selected_col(new_idx as i32);
+                }
             });
         }
 
@@ -1808,13 +1841,17 @@ impl MusicApp {
                 {
                     a.apply_theme(&theme);
                 }
-                a.ui().set_cover_size(cur.top_panel.cover_size);
-                a.ui().set_col_info_w(cur.top_panel.col_info_w);
-                a.ui().set_col_gap(cur.top_panel.col_gap);
+                if let Some(ui) = a.try_ui() {
+                    ui.set_cover_size(cur.top_panel.cover_size);
+                    ui.set_col_info_w(cur.top_panel.col_info_w);
+                    ui.set_col_gap(cur.top_panel.col_gap);
+                }
                 a.sync_cover_settings_to_ui();
                 a.sync_playlist_to_ui();
                 a.sync_audio_devices();
-                a.ui().set_settings_open(false);
+                if let Some(ui) = a.try_ui() {
+                    ui.set_settings_open(false);
+                }
                 a.gate.unblock(BlockReason::Dialog);
                 a.sync_gate_ui();
                 eprintln!("[gui] settings_save: applied and closed");
@@ -1991,7 +2028,9 @@ impl MusicApp {
                 eprintln!("[gui] close_requested minimize={minimize}");
                 if minimize {
                     let mut a = app.borrow_mut();
-                    let _ = a.ui().hide();
+                    if let Some(ui) = a.try_ui() {
+                        let _ = ui.hide();
+                    }
                     let effect = a.messages.set_in_tray(true);
                     a.apply_msg_effect(effect);
                     slint::CloseRequestResponse::KeepWindowShown
@@ -2029,13 +2068,13 @@ impl MusicApp {
         // `output.other` (экспорт/бэд-копии/карантин) — разбор добавится на
         // этапе писателя для этих путей; пока ответы отбрасываются.
         self.sync_dsd_status_ui();
-        if self.ui().get_bp_report_open() {
+        if self.try_ui().is_some_and(|ui| ui.get_bp_report_open()) {
             let report = bp_report::build_bp_report(&bp_report::bp_inputs(self));
             self.push_bp_report_to_ui(report);
         }
         // §10.5: пока диалог открыт, обновлять размеры кэша (билды полнотрековых
         // изображений и LRU-вытеснение меняют их в реальном времени).
-        if self.ui().get_settings_open() {
+        if self.try_ui().is_some_and(|ui| ui.get_settings_open()) {
             self.sync_cache_stats_to_ui();
         }
         self.push_tray_status();
@@ -2065,7 +2104,8 @@ impl MusicApp {
     /// freeze the columns (no live rewriting, no fighting); once it has been
     /// stable for `REFLOW_SETTLE_TICKS` (~64 ms ≈ mouse release), we reflow.
     pub fn reflow(&mut self) {
-        let w = self.ui().get_playlist_view_width();
+        let Some(ui) = self.try_ui() else { return };
+        let w = ui.get_playlist_view_width();
         if w <= 100.0 {
             return;
         }
@@ -2145,15 +2185,16 @@ impl MusicApp {
                 TrayEvent::Prev => self.play_prev(),
                 TrayEvent::Next => self.play_next(1),
                 TrayEvent::ShowHide => {
-                    let visible = self.ui().window().is_visible();
+                    let Some(ui) = self.try_ui() else { continue };
+                    let visible = ui.window().is_visible();
                     let res = if visible {
                         // Window hides into the tray: free an exclusive raw-`hw:`
                         // node so the device is usable by other apps while the
                         // player waits in the background (V5.1-B6).
                         self.player.release_if_exclusive();
-                        self.ui().hide()
+                        ui.hide()
                     } else {
-                        self.ui().show()
+                        ui.show()
                     };
                     if let Err(e) = res {
                         eprintln!("tray show/hide failed: {e}");
