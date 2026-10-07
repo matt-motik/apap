@@ -2,10 +2,70 @@
      Source of truth: _STATE_.yaml — edit that, then run:
      python tools/state_tool.py render -->
 
-# Состояние сессии
 
-- **Текущая задача:** Нет (все шаги завершены)
-- **Состояние:** done
+# Текущая микро-сессия
+
+- **Задача из ROADMAP:** SP1.0-8.5 — С5. Жизненный цикл, трей, уведомления (ТЗ-14, 15, 24, 52 п.2, 54 п.1, п.4)
+- **Вайтлист файлов в работе (Изменяемые файлы):**
+  - Cargo.toml
+  - Cargo.lock
+  - ROADMAP.md
+  - _STATE_.yaml
+  - _STATE_.md
+  - src/lib.rs
+  - src/main.rs
+  - src/tray.rs
+  - src/platform/mod.rs
+  - src/platform/tray/mod.rs
+  - src/platform/lifecycle/mod.rs
+  - src/platform/lifecycle/fake.rs
+  - src/platform/lifecycle/unix.rs
+  - src/platform/lifecycle/windows.rs
+  - src/platform/lifecycle/macos.rs
+  - src/platform/notify/mod.rs
+  - src/platform/notify/fake.rs
+  - src/platform/notify/none.rs
+  - src/platform/notify/linux.rs
+  - src/core/exit.rs
+  - src/core/mod.rs
+  - src/core/messages.rs
+  - src/core/testing.rs
+  - src/app/mod.rs
+- **Критерий успеха (Definition of Done):** Все пути выхода (окно, трей, SIGTERM/INT/HUP, сеанс Windows, macOS terminate) идут в единый путь выхода через модуль жизненного цикла; второй сигнал завершает сразу; трей только Linux; уведомления через Notifier; тесты §7.2 для С5 зелёные; cargo test/clippy без новых варнингов; cfg(target_os) для задач SP1.0 только в src/platform
+
+## Итерационный трекер
+[ ] Шаг 1: ExitReason: варианты Signal(TermSignal), WindowsSessionEnd, MacosTerminate + enum TermSignal (§2.8, ТЗ-14, ТЗ-15). Файлы: src/core/exit.rs (+ src/app/mod.rs только если match неисчерпывающий). Проверка: cargo check
+[ ] Шаг 2: exit() в app: для WindowsSessionEnd/MacosTerminate — Completed без slint::quit_event_loop (ADR-7, §6.10, ТЗ-15). Файл: src/app/mod.rs. Проверка: cargo check
+[ ] Шаг 3: Трейт Notifier + NoneNotifier (ADR-9, §2.8, ТЗ-54 п.4). Файлы: src/platform/notify/mod.rs, src/platform/notify/none.rs. Проверка: cargo check
+[ ] Шаг 4: FakeNotifier — записывает вызовы, всегда компилируется (ADR-6, ADR-9). Файл: src/platform/notify/fake.rs. Проверка: cargo check
+[ ] Шаг 5: Linux D-Bus Notifier (org.freedesktop.Notifications.Notify, zbus) + выбор реализации по cfg внутри notify/mod.rs (ADR-9, ТЗ-52 п.2). Файлы: src/platform/notify/linux.rs, src/platform/notify/mod.rs. Проверка: cargo check. ЧЕКПОИНТ: cargo test + cargo clippy
+[ ] Шаг 6: Типы жизненного цикла: TrayEvent, TrayScroll, PlatformError, ExitEntry, ProcessExit, трейт Lifecycle (§2.8, ADR-7, ТЗ-54 п.1). Файл: src/platform/lifecycle/mod.rs. Проверка: cargo check
+[ ] Шаг 7: FakeLifecycle: caps задаёт тест, fire(ExitReason) вызывает ExitEntry (ADR-6, §2.8). Файл: src/platform/lifecycle/fake.rs. Проверка: cargo check
+[ ] Шаг 8: Поток apap-signals: tokio current_thread + signal (SIGTERM/INT/HUP) будит цикл событий; второй сигнал → ProcessExit(128+signo) (ADR-7, ТЗ-14, ТЗ-15). Файлы: src/platform/lifecycle/unix.rs, Cargo.toml (tokio feature signal). Проверка: cargo check
+[ ] Шаг 9: Тест double_signal_exits_immediately (подменный ProcessExit, задержка записи 10 с, два SIGTERM → 143 сразу) (§7.2, ТЗ-14). Файл: src/platform/lifecycle/unix.rs. Проверка: cargo test double_signal. ЧЕКПОИНТ: cargo test + cargo clippy
+[ ] Шаг 10: Перенос src/tray.rs → src/platform/tray/mod.rs (git mv) с мостом `pub use platform::tray;` в lib.rs (§8.1 С5). Файлы: src/lib.rs, src/platform/mod.rs (+ перемещённый файл). Проверка: cargo check
+[ ] Шаг 11: Импорты app/main на crate::platform::tray, удалить мост из lib.rs (§8.1 С5). Файлы: src/app/mod.rs, src/lib.rs (main.rs — если импортирует tray). Проверка: cargo check
+[ ] Шаг 12: Трей шлёт TrayEvent вместо TrayCmd; Wheel → Scroll(TrayScroll), в poll_tray прежний шаг громкости до С11 (§2.8, ТЗ-24). Файлы: src/platform/tray/mod.rs, src/app/mod.rs. Проверка: cargo check
+[ ] Шаг 13: ksni — Linux target dep; реализация трея под cfg внутри platform/tray, на прочих ОС start() → None (ADR-6, В-1). Файлы: Cargo.toml, src/platform/tray/mod.rs. Проверка: cargo check. ЧЕКПОИНТ: cargo test + cargo clippy
+[ ] Шаг 14: Реальные PlatformCaps: tray = хост StatusNotifier найден, notifications = tray (вместо допущения) (§2.8, ADR-6, ТЗ-52 п.2). Файлы: src/platform/tray/mod.rs, src/app/mod.rs. Проверка: cargo check
+[ ] Шаг 15: UnixLifecycle: impl Lifecycle (install запускает apap-signals) + фабрика платформенной реализации в lifecycle/mod.rs (ADR-7, ADR-23 шаг 8). Файлы: src/platform/lifecycle/unix.rs, src/platform/lifecycle/mod.rs. Проверка: cargo check
+[ ] Шаг 16: main.rs: ExitEntry (try_borrow_mut → Busy) и lifecycle.install после показа окна (ADR-23 шаг 8, ТЗ-14). Файл: src/main.rs. Проверка: cargo check
+[ ] Шаг 17: Запуск трея перенести из MusicApp::new в Lifecycle::install (после сигналов; ADR-23 шаг 8). Файлы: src/app/mod.rs, src/platform/lifecycle/unix.rs. Проверка: cargo check. ЧЕКПОИНТ: cargo test + cargo clippy
+[ ] Шаг 18: TrayEvent::Quit → тот же ExitEntry(TrayQuit); удалить отдельный путь выхода в poll_tray (§8.1 «удаляется», ТЗ-14). Файл: src/app/mod.rs. Проверка: cargo check
+[ ] Шаг 19: on_close_requested: сворачивание в трей только при minimize_to_tray && caps.tray, иначе exit(WindowClose) (§6.10, ТЗ-52 п.2, В-1). Файл: src/app/mod.rs. Проверка: cargo check
+[ ] Шаг 20: apply_msg_effect: notify через Notifier вместо set_tray_notice; Notifier внедряется из main (§6.15, ADR-9, ТЗ-52 п.2). Файлы: src/app/mod.rs, src/main.rs. Проверка: cargo check
+[ ] Шаг 21: Удалить BP_NOTICE_TEXT/notice как канал сообщений (§8.1 «удаляется»). Файлы: src/platform/tray/mod.rs, src/app/mod.rs. Проверка: cargo check. ЧЕКПОИНТ: cargo test + cargo clippy
+[ ] Шаг 22: Windows: SetWindowSubclass на HWND (WM_QUERYENDSESSION→TRUE; WM_ENDSESSION wParam=TRUE → синхронный выход, return 0) (ADR-7, ТЗ-15). Файлы: src/platform/lifecycle/windows.rs, Cargo.toml (windows-sys features). Проверка: cargo check (Linux) + ревью; сборка Windows — на ноутбуке
+[ ] Шаг 23: macOS: applicationShouldTerminate: через class_addMethod на делегат winit, фолбэк NSApplicationWillTerminateNotification (ADR-7, ТЗ-15). Файлы: src/platform/lifecycle/macos.rs, Cargo.toml (objc2*). Проверка: cargo check (Linux) + ревью
+[ ] Шаг 24: Тесты выхода: exit_writes_settings_once (по каждой причине; без TrayQuit без трея), repeated_tray_quit_ignored, windows_session_end_runs_exit_synchronously (§7.2, ТЗ-14, ТЗ-15). Файл: src/core/testing.rs. Проверка: cargo test exit_
+[ ] Шаг 25: Тесты сообщений: tray_hidden_error_notifies_once, no_tray_error_shows_window, tray_quit_closes_error_window_one_attempt (§7.2, ТЗ-52). Файл: src/core/testing.rs. Проверка: cargo test tray_ / no_tray
+[ ] Шаг 26: Тесты: platform_fakes_cover_exit_fs_input_notify_pick (части exit/fs/notify), tray_works_during_dialog/message без колёсика (колёсико — С11) (§7.2, ТЗ-24, ТЗ-54). Файл: src/core/testing.rs. Проверка: cargo test platform_fakes / tray_works
+[ ] Шаг 27: Финал: grep cfg(target_os вне src/platform (аудио-места AM1.0 — вне задач SP1.0), полный cargo test + cargo clippy, ROADMAP ✅ (ТЗ-54 приёмка). Файлы: ROADMAP.md, _STATE_.yaml. Проверка: всё зелёное
+
+- **Текущий шаг (current_step):** Шаг 1
+- **Следующий ход:** Шаг 1: расширить ExitReason в src/core/exit.rs (свежий субагент code-writer/sonnet)
+- **Счетчик безуспешных компиляций:** 0/3
+- **Состояние:** in_progress
 
 ## План: Executable workflow: правила AGENTS.md → исполняемые механизмы
 _Источник: чат с пользователем (ноутбук), начат в 67686ce; перенесён в репо 2026-09-22_
