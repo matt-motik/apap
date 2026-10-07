@@ -50,6 +50,7 @@ use music_player_rs::platform::tray;
 const FIXED_RATES: [u32; 7] = [0, 44_100, 48_000, 88_200, 96_000, 176_400, 192_000];
 
 pub mod bp_report;
+mod engine_sink;
 pub mod events;
 pub mod fulltrack_manager;
 pub mod playback_manager;
