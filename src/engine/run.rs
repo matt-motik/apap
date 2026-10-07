@@ -10,10 +10,14 @@ use std::thread::JoinHandle;
 use std::time::Duration;
 
 use crate::audio::backend::catalog::DeviceCatalog;
-use crate::audio::error::{EngineFault, FileError, OpenError};
-use crate::audio::player::Player;
+use crate::audio::clock::ClockInstant;
+use crate::audio::error::{CaptureFailure, EngineFault, FileError, OpenError};
+use crate::audio::player::{Player, ReservationEvent};
 use crate::engine::deps::EngineDeps;
-use crate::engine::messages::{EngineCmd, EngineEvent, SkipReason, TransportState};
+use crate::engine::messages::{EngineCmd, EngineEvent, Notice, SkipReason, TransportState};
+
+/// Минимальный интервал между событиями `Position` (§6.1, И-Р13).
+const POSITION_INTERVAL: Duration = Duration::from_millis(100);
 
 /// Цикл обработки команд (мост С3): владеет `Player` целиком, пока
 /// `SignalPath`/`BadgeState`/`DeviceCatalog.hw` не появились (С4…С6).
@@ -26,19 +30,43 @@ struct Engine {
     /// Кэш перечисления Shared-устройств (ADR-16, §2.3); пополняется по
     /// `RefreshDevices`. Событие `Devices` и разбор ошибок — шаг 20.
     catalog: DeviceCatalog,
+    /// Явная остановка транспорта (ADR-20, мост С3): легаси `Player` держит
+    /// декодер загруженным и после `stop()` (`has_decoder()` остаётся
+    /// `true`), поэтому `Stopped` отслеживается здесь, а не выводится из
+    /// `Player`. `true` до первого успешного `Open`, после `Stop` и после
+    /// отказа/потери резервирования.
+    stopped: bool,
+    /// Последнее отправленное состояние `Transport` — для дедупликации
+    /// (§6.1 п. 3, И-Р13): событие не шлётся повторно с тем же состоянием.
+    last_transport: Option<TransportState>,
+    /// Последняя отправленная позиция — для дедупликации `Position`.
+    last_pos: Option<f64>,
+    /// Момент последней отправки `Position` — минимальный интервал 100 мс
+    /// (§6.1 п. 4, И-Р13).
+    last_pos_at: Option<ClockInstant>,
 }
 
 impl Engine {
     fn new(deps: EngineDeps) -> Engine {
         let mut player = Player::new();
         player.set_spawner(Arc::clone(&deps.spawner));
-        Engine { player, deps, current: None, catalog: DeviceCatalog::default() }
+        Engine {
+            player,
+            deps,
+            current: None,
+            catalog: DeviceCatalog::default(),
+            stopped: true,
+            last_transport: None,
+            last_pos: None,
+            last_pos_at: None,
+        }
     }
 
     /// Цикл движка (§6.1): команда — сразу `handle`, тайм-аут 20 мс —
-    /// следующая итерация. Опрос сессии (`Position`/`Transport`/`Ended`,
-    /// §6.1 п. 1–5) добавляется в шаге 18; здесь взять движку ещё нечего —
-    /// сессии и `SignalPath` нет (мост С3).
+    /// следующая итерация; после каждой обработанной команды и на каждом
+    /// тайм-ауте — опрос сессии `poll_session` (`Position`/`Transport`/
+    /// `Ended`/резервирование, §6.1 п. 1–5, И-Р13, ТЗ-60, ТЗ-102). Опрос не
+    /// выполняется после `Shutdown`/`Disconnected` — цикл уже завершается.
     fn run(mut self, rx: Receiver<EngineCmd>) {
         loop {
             match rx.recv_timeout(Duration::from_millis(20)) {
@@ -46,8 +74,12 @@ impl Engine {
                     if self.handle(cmd) {
                         break;
                     }
+                    self.poll_session();
                 }
-                Err(RecvTimeoutError::Timeout) => continue,
+                Err(RecvTimeoutError::Timeout) => {
+                    self.poll_session();
+                    continue;
+                }
                 // UI исчез без Shutdown (§6.1): реагируем так же, как на Shutdown.
                 Err(RecvTimeoutError::Disconnected) => {
                     self.handle(EngineCmd::Shutdown);
@@ -71,9 +103,11 @@ impl Engine {
                             self.player.play();
                         }
                         self.current = Some((req_gen, Arc::clone(&path)));
+                        self.stopped = false;
+                        self.last_pos = None;
                         let stream = self.player.stream_desc().cloned();
                         self.deps.events.emit(EngineEvent::Opened { req_gen, info, stream });
-                        self.emit_transport();
+                        self.refresh_transport();
                     }
                     Err(msg) => {
                         // Мост С3: ошибка открытия ещё не классифицирована
@@ -89,7 +123,8 @@ impl Engine {
             }
             EngineCmd::Play => {
                 self.player.play();
-                self.emit_transport();
+                self.stopped = false;
+                self.refresh_transport();
             }
             EngineCmd::Pause => {
                 // `Player::toggle` переключает play/pause; команда `Pause`
@@ -98,11 +133,12 @@ impl Engine {
                 if self.player.is_playing() {
                     self.player.toggle();
                 }
-                self.emit_transport();
+                self.refresh_transport();
             }
             EngineCmd::Stop => {
                 self.player.stop();
-                self.deps.events.emit(EngineEvent::Transport { state: TransportState::Stopped });
+                self.stopped = true;
+                self.refresh_transport();
             }
             EngineCmd::Seek { secs } => {
                 self.player.seek(secs);
@@ -120,7 +156,7 @@ impl Engine {
                 };
                 let (_, pos, _) = self.player.snapshot();
                 match self.player.set_device(id, path, pos) {
-                    Ok(()) => self.emit_transport(),
+                    Ok(()) => self.refresh_transport(),
                     Err(_msg) => {
                         // Мост С3: `set_device` возвращает текст ошибки, а не
                         // классифицированный `CaptureFailure` (§6.6 — будущий
@@ -166,19 +202,84 @@ impl Engine {
         false
     }
 
-    /// `Transport` по текущему состоянию `Player` (мост С3): `Playing`, если
-    /// идёт воспроизведение; `Paused`, если трек загружен, но не играет;
-    /// иначе `Stopped`. `Stop` формирует `Transport::Stopped` напрямую — у
-    /// легаси `Player` декодер остаётся загруженным и после `stop()`.
-    fn emit_transport(&self) {
-        let state = if self.player.is_playing() {
+    /// `Transport` по текущему состоянию (мост С3): `self.stopped` имеет
+    /// приоритет (у легаси `Player` декодер остаётся загруженным и после
+    /// `stop()`, `has_decoder()` не различает «остановлено» и «на паузе»);
+    /// иначе `Playing`, если идёт воспроизведение, `Paused`, если трек
+    /// загружен, но не играет, иначе `Stopped`. Шлёт событие только при
+    /// изменении состояния (§6.1 п. 3, И-Р13) — повторный вызов с тем же
+    /// состоянием не даёт дубликата.
+    fn refresh_transport(&mut self) {
+        let state = if self.stopped {
+            TransportState::Stopped
+        } else if self.player.is_playing() {
             TransportState::Playing
         } else if self.player.has_decoder() {
             TransportState::Paused
         } else {
             TransportState::Stopped
         };
-        self.deps.events.emit(EngineEvent::Transport { state });
+        if self.last_transport != Some(state) {
+            self.last_transport = Some(state);
+            self.deps.events.emit(EngineEvent::Transport { state });
+        }
+    }
+
+    /// Опрос сессии на каждой итерации цикла (§6.1 п. 1–5, И-Р13, ТЗ-60,
+    /// ТЗ-102): только чтение состояния `Player`, без I/O. Порядок —
+    /// резервирование, затем конец трека, затем транспорт, затем позиция.
+    fn poll_session(&mut self) {
+        if let Some(ev) = self.player.poll_reservation() {
+            self.deps.events.emit(EngineEvent::Notice(Notice::Reservation(ev.clone())));
+            match ev {
+                ReservationEvent::Opened => {
+                    self.stopped = false;
+                    self.refresh_transport();
+                }
+                ReservationEvent::Failed(_) => {
+                    self.player.stop();
+                    self.stopped = true;
+                    let req_gen = self.current.as_ref().map_or(0, |(gen, _)| *gen);
+                    // Мост С3: легаси `Player` отдаёт только текст ошибки;
+                    // точная классификация `CaptureFailure` — следующий этап.
+                    self.deps.events.emit(EngineEvent::OpenFailed {
+                        req_gen,
+                        err: OpenError::Capture(CaptureFailure::ReservationDenied { owner: None }),
+                    });
+                    self.refresh_transport();
+                }
+                ReservationEvent::Lost(_) => {
+                    // `Player` уже освободил движок внутри себя (И-Р20).
+                    self.stopped = true;
+                    let req_gen = self.current.as_ref().map_or(0, |(gen, _)| *gen);
+                    self.deps.events.emit(EngineEvent::OpenFailed {
+                        req_gen,
+                        err: OpenError::Capture(CaptureFailure::ReservationLost),
+                    });
+                    self.refresh_transport();
+                }
+            }
+        }
+
+        if self.player.ended() {
+            if let Some((req_gen, _)) = &self.current {
+                self.deps.events.emit(EngineEvent::Ended { session: *req_gen });
+            }
+            // Движок — единственный потребитель флага конца трека теперь
+            // (легаси UI-слой флаг больше не читает).
+            self.player.clear_end();
+        }
+
+        self.refresh_transport();
+
+        let (_, pos, _) = self.player.snapshot();
+        let now = self.deps.clock.now();
+        let due = self.last_pos_at.is_none_or(|at| now.saturating_since(at) >= POSITION_INTERVAL);
+        if due && self.last_pos != Some(pos) {
+            self.last_pos = Some(pos);
+            self.last_pos_at = Some(now);
+            self.deps.events.emit(EngineEvent::Position { secs: pos });
+        }
     }
 }
 
