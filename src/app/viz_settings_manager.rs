@@ -13,7 +13,6 @@
 use std::cell::RefCell;
 use std::rc::Rc;
 
-use slint::ComponentHandle as _;
 use slint::SharedString;
 
 use super::MusicApp;
@@ -195,78 +194,68 @@ impl MusicApp {
     pub(super) fn sync_viz_settings_to_ui(&self) {
         let s = self.cfg();
         let v = &s.visualization;
+        let ui = self.ui();
 
-        self.ui.set_settings_viz_mode(self.cfg_viz_mode().index());
-        self.ui.set_settings_viz_skip_dsd(v.skip_fulltrack_for_dsd);
+        ui.set_settings_viz_mode(self.cfg_viz_mode().index());
+        ui.set_settings_viz_skip_dsd(v.skip_fulltrack_for_dsd);
 
         let o = &v.oscilloscope;
-        self.ui.set_settings_viz_osc_channels(channel_index(o.channels));
-        self.ui.set_settings_viz_osc_sensitivity(o.sensitivity);
-        self.ui.set_settings_viz_osc_line_width(o.line_width);
-        self.ui.set_settings_viz_osc_center_line(o.draw_center_line);
-        self.ui.set_settings_viz_osc_max_columns(o.max_columns as i32);
-        self.ui.set_settings_viz_osc_cache_mem(o.cache_in_memory);
-        self.ui.set_settings_viz_osc_cache_disk(o.cache_on_disk);
+        ui.set_settings_viz_osc_channels(channel_index(o.channels));
+        ui.set_settings_viz_osc_sensitivity(o.sensitivity);
+        ui.set_settings_viz_osc_line_width(o.line_width);
+        ui.set_settings_viz_osc_center_line(o.draw_center_line);
+        ui.set_settings_viz_osc_max_columns(o.max_columns as i32);
+        ui.set_settings_viz_osc_cache_mem(o.cache_in_memory);
+        ui.set_settings_viz_osc_cache_disk(o.cache_on_disk);
 
         let sp = &v.spectrogram;
-        self.ui.set_settings_viz_spec_channels(channel_index(sp.channels));
-        self.ui.set_settings_viz_spec_sensitivity(sp.sensitivity);
-        self.ui.set_settings_viz_spec_fft(fft_index(sp.fft_size));
-        self.ui.set_settings_viz_spec_window(window_index(sp.window_type));
-        self.ui.set_settings_viz_spec_scale(freq_scale_index(sp.freq_scale));
-        self.ui
-            .set_settings_viz_spec_gain(sp.gain_db);
-        self.ui
-            .set_settings_viz_spec_range(sp.range_db);
-        self.ui
-            .set_settings_viz_spec_boost(sp.high_boost_db);
-        self.ui
-            .set_settings_viz_spec_palette(palette_index(sp.palette));
-        self.ui.set_settings_viz_spec_max_frames(sp.max_frames as i32);
-        self.ui.set_settings_viz_spec_dsd_comp(sp.dsd_cic_compensation);
-        self.ui
-            .set_settings_viz_spec_cache_mem(sp.cache_in_memory);
-        self.ui
-            .set_settings_viz_spec_cache_disk(sp.cache_on_disk);
+        ui.set_settings_viz_spec_channels(channel_index(sp.channels));
+        ui.set_settings_viz_spec_sensitivity(sp.sensitivity);
+        ui.set_settings_viz_spec_fft(fft_index(sp.fft_size));
+        ui.set_settings_viz_spec_window(window_index(sp.window_type));
+        ui.set_settings_viz_spec_scale(freq_scale_index(sp.freq_scale));
+        ui.set_settings_viz_spec_gain(sp.gain_db);
+        ui.set_settings_viz_spec_range(sp.range_db);
+        ui.set_settings_viz_spec_boost(sp.high_boost_db);
+        ui.set_settings_viz_spec_palette(palette_index(sp.palette));
+        ui.set_settings_viz_spec_max_frames(sp.max_frames as i32);
+        ui.set_settings_viz_spec_dsd_comp(sp.dsd_cic_compensation);
+        ui.set_settings_viz_spec_cache_mem(sp.cache_in_memory);
+        ui.set_settings_viz_spec_cache_disk(sp.cache_on_disk);
 
         let sm = &v.spectrum;
-        self.ui.set_settings_viz_sp_channels(channel_index(sm.channels));
-        self.ui.set_settings_viz_sp_sensitivity(sm.sensitivity);
-        self.ui.set_settings_viz_sp_freq_scale(freq_scale_index(sm.freq_scale));
-        self.ui.set_settings_viz_sp_level_scale(level_scale_index(sm.level_scale));
-        self.ui.set_settings_viz_sp_smoothing(sm.smoothing);
-        self.ui.set_settings_viz_sp_peak_hold(sm.peak_hold);
-        self.ui.set_settings_viz_sp_peak_decay(sm.peak_decay_ms as i32);
-        self.ui.set_settings_viz_sp_bar_gap(sm.bar_gap as i32);
-        self.ui.set_settings_viz_sp_bar_radius(sm.bar_radius as i32);
-        self.ui.set_settings_viz_sp_gradient(sm.gradient);
-        self.ui.set_settings_viz_sp_dsd_comp(sm.dsd_cic_compensation);
+        ui.set_settings_viz_sp_channels(channel_index(sm.channels));
+        ui.set_settings_viz_sp_sensitivity(sm.sensitivity);
+        ui.set_settings_viz_sp_freq_scale(freq_scale_index(sm.freq_scale));
+        ui.set_settings_viz_sp_level_scale(level_scale_index(sm.level_scale));
+        ui.set_settings_viz_sp_smoothing(sm.smoothing);
+        ui.set_settings_viz_sp_peak_hold(sm.peak_hold);
+        ui.set_settings_viz_sp_peak_decay(sm.peak_decay_ms as i32);
+        ui.set_settings_viz_sp_bar_gap(sm.bar_gap as i32);
+        ui.set_settings_viz_sp_bar_radius(sm.bar_radius as i32);
+        ui.set_settings_viz_sp_gradient(sm.gradient);
+        ui.set_settings_viz_sp_dsd_comp(sm.dsd_cic_compensation);
 
         // Текстовые (валидируемые) поля: фактическое применяемое значение.
-        self.ui
-            .set_settings_viz_freq_min_text(SharedString::from(format!("{}", sp.freq_min)));
-        self.ui
-            .set_settings_viz_freq_max_text(SharedString::from(format!("{}", sp.freq_max)));
-        self.ui
-            .set_settings_viz_bands_text(SharedString::from(format!("{}", sm.bands)));
+        ui.set_settings_viz_freq_min_text(SharedString::from(format!("{}", sp.freq_min)));
+        ui.set_settings_viz_freq_max_text(SharedString::from(format!("{}", sp.freq_max)));
+        ui.set_settings_viz_bands_text(SharedString::from(format!("{}", sm.bands)));
     }
 
     /// Перечитать текстовые поля (`freq_min`/`freq_max`/`bands`) из UI,
     /// применить валидные значения в draft и выставить флаги подсветки (§9.3,
     /// §8.1 С3). Некорректные значения не применяются; поля помечаются красным.
     pub(super) fn viz_apply_validated_texts(&mut self) {
-        let fmin_t = self
-            .ui
+        let ui = self.ui();
+        let fmin_t = ui
             .get_settings_viz_freq_min_text()
             .trim()
             .to_string();
-        let fmax_t = self
-            .ui
+        let fmax_t = ui
             .get_settings_viz_freq_max_text()
             .trim()
             .to_string();
-        let bands_t = self
-            .ui
+        let bands_t = ui
             .get_settings_viz_bands_text()
             .trim()
             .to_string();
@@ -303,14 +292,10 @@ impl MusicApp {
             self.edit_viz(|viz| viz.spectrum.bands = v);
         }
 
-        self.ui
-            .set_settings_viz_freq_min_invalid(fmin_invalid);
-        self.ui
-            .set_settings_viz_freq_max_invalid(fmax_invalid);
-        self.ui
-            .set_settings_viz_bands_invalid(!bands_ok);
-        self.ui
-            .set_settings_viz_error(SharedString::from(err.join("\n")));
+        ui.set_settings_viz_freq_min_invalid(fmin_invalid);
+        ui.set_settings_viz_freq_max_invalid(fmax_invalid);
+        ui.set_settings_viz_bands_invalid(!bands_ok);
+        ui.set_settings_viz_error(SharedString::from(err.join("\n")));
     }
 }
 
@@ -441,7 +426,7 @@ pub fn bind_viz_settings_callbacks(this: &Rc<RefCell<MusicApp>>) {
 
     // Кнопка «Сбросить настройки типа».
     let app = this.clone();
-    let ui = app.borrow().ui.clone_strong();
+    let ui = app.borrow().ui();
     ui.on_settings_set_viz_reset_type(move || {
         eprintln!("[gui] settings_viz_reset_type");
         app.borrow_mut().reset_viz_type();
@@ -449,7 +434,7 @@ pub fn bind_viz_settings_callbacks(this: &Rc<RefCell<MusicApp>>) {
 
     // Горячая клавиша V (срабатывает, когда диалог настроек закрыт).
     let app = this.clone();
-    let ui = app.borrow().ui.clone_strong();
+    let ui = app.borrow().ui();
     ui.on_cycle_viz(move || {
         eprintln!("[gui] cycle_viz");
         app.borrow_mut().cycle_viz_mode();
@@ -457,7 +442,7 @@ pub fn bind_viz_settings_callbacks(this: &Rc<RefCell<MusicApp>>) {
 
     // Меню «Визуализация» в MenuBar (ТЗ §3.2): клик по пункту.
     let app = this.clone();
-    let ui = app.borrow().ui.clone_strong();
+    let ui = app.borrow().ui();
     ui.on_menu_select_viz(move |i| {
         eprintln!("[gui] menu_select_viz {i}");
         app.borrow_mut().menu_select_viz_mode(i);
@@ -468,7 +453,7 @@ type AppRef = Rc<RefCell<MusicApp>>;
 
 fn bind_int(app: &AppRef, name: &'static str, mut f: impl FnMut(&mut MusicApp, i32) + 'static) {
     let app = app.clone();
-    let ui = app.borrow().ui.clone_strong();
+    let ui = app.borrow().ui();
     match name {
         "viz-mode" => ui.on_settings_set_viz_mode(move |i| {
             let mut a = app.borrow_mut();
@@ -536,7 +521,7 @@ fn bind_int(app: &AppRef, name: &'static str, mut f: impl FnMut(&mut MusicApp, i
 
 fn bind_bool(app: &AppRef, name: &'static str, mut f: impl FnMut(&mut MusicApp, bool) + 'static) {
     let app = app.clone();
-    let ui = app.borrow().ui.clone_strong();
+    let ui = app.borrow().ui();
     match name {
         "viz-skip-dsd" => ui.on_settings_set_viz_skip_dsd(move |b| {
             let mut a = app.borrow_mut();
@@ -584,7 +569,7 @@ fn bind_bool(app: &AppRef, name: &'static str, mut f: impl FnMut(&mut MusicApp, 
 
 fn bind_float(app: &AppRef, name: &'static str, mut f: impl FnMut(&mut MusicApp, f32) + 'static) {
     let app = app.clone();
-    let ui = app.borrow().ui.clone_strong();
+    let ui = app.borrow().ui();
     match name {
         "viz-osc-sensitivity" => ui.on_settings_set_viz_osc_sensitivity(move |v| {
             let mut a = app.borrow_mut();
@@ -624,7 +609,7 @@ fn bind_float(app: &AppRef, name: &'static str, mut f: impl FnMut(&mut MusicApp,
 
 fn bind_str(app: &AppRef, name: &'static str, f: impl FnMut(&mut MusicApp, &str) + 'static) {
     let app = app.clone();
-    let ui = app.borrow().ui.clone_strong();
+    let ui = app.borrow().ui();
     let mut f = Box::new(f);
     match name {
         "viz-spec-freq-min" => ui.on_settings_set_viz_spec_freq_min(move |t| {
