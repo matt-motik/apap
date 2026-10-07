@@ -67,6 +67,7 @@ pub mod viz_settings_manager;
 use engine_sink::EngineEventQueue;
 use events::AppEvent;
 use fulltrack_manager::{FullCmd, FullEvt};
+use ui_audio_state::Applied;
 
 /// Last values pushed to the UI by the delta playback sync. Kept so the
 /// 100 ms tick only re-writes properties that actually changed (e.g. no
@@ -398,10 +399,12 @@ pub struct MusicApp {
     /// конструировании (ADR-01, шаг 30); здесь хранится только причина
     /// отказа — для стартового сообщения пользователю.
     engine_fault: Option<EngineFault>,
-    /// Приёмная сторона канала событий движка (ADR-02); слив подключается
-    /// на следующем шаге.
-    #[allow(dead_code)]
+    /// Приёмная сторона канала событий движка (ADR-02); разбирается в
+    /// `drain_engine_events` каждый тик.
     engine_events: EngineEventQueue,
+    /// Буфер разобранных событий движка, переиспользуется между тиками
+    /// (ADR-02, И-Р13).
+    engine_applied: Vec<Applied>,
 }
 
 impl MusicApp {
@@ -588,6 +591,7 @@ impl MusicApp {
             notifier,
             engine_fault,
             engine_events,
+            engine_applied: Vec::new(),
         };
         // Загрузка плейлиста при старте ещё не завершена (фон, выше) —
         // список недоступен до её окончания (ТЗ-48, §2.11).
@@ -1979,6 +1983,7 @@ impl MusicApp {
     }
 
     pub fn tick(&mut self) {
+        self.drain_engine_events();
         self.poll_tray();
         self.drain_events();
         self.drain_startup_tracks();
@@ -2181,6 +2186,34 @@ impl MusicApp {
     /// Drain the event feed. Discrete transitions that matter to the tray
     /// (track switch, play/pause/stop, device change) push a fresh tray state
     /// immediately instead of waiting for the throttled status interval.
+    /// Разобрать все накопленные события движка и применить принятый
+    /// `Opened` к плейлисту (ADR-02, И-Р13). Буфер `engine_applied`
+    /// переиспользуется между тиками — здесь только `clear()`, без
+    /// аллокации; остальные варианты `Applied` (Skipped/OpenFailed/
+    /// Ended/DeviceLost/Notice) диспетчеризуются на следующем шаге.
+    fn drain_engine_events(&mut self) {
+        let mut applied = std::mem::take(&mut self.engine_applied);
+        applied.clear();
+
+        let player = &mut self.player;
+        self.engine_events.drain(|ev| {
+            let a = player.on_event(ev);
+            if a != Applied::None {
+                applied.push(a);
+            }
+        });
+
+        if let Some(info) = self.player.take_opened() {
+            if let Some((index, prev_current)) = self.pending_open.take() {
+                if index < self.tracks.len() {
+                    self.on_track_opened(index, prev_current, &info);
+                }
+            }
+        }
+
+        self.engine_applied = applied;
+    }
+
     fn drain_events(&mut self) {
         while let Ok(event) = self.events_rx.try_recv() {
             match event {

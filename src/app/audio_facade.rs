@@ -63,6 +63,9 @@ pub(crate) struct AudioFacade {
     transport: Option<TransportState>,
     position_secs: f64,
     track: Option<Arc<TrackInfo>>,
+    /// Вновь принятый `Opened`, ещё не забранный вызывающей стороной —
+    /// снимается один раз через `take_opened` (ADR-02, И-Р13).
+    opened: Option<Arc<TrackInfo>>,
     stream: Option<Arc<Option<StreamDesc>>>,
     /// Зеркало `Player::device_desc` — публичное поле, не метод (сохраняет
     /// синтаксис вызывающей стороны `self.player.device_desc`).
@@ -83,6 +86,7 @@ impl AudioFacade {
             transport: None,
             position_secs: 0.0,
             track: None,
+            opened: None,
             stream: None,
             device_desc: "none".to_string(),
         }
@@ -103,6 +107,7 @@ impl AudioFacade {
         let applied = self.state.apply(ev);
 
         if let Some(info) = self.state.take_track_dirty() {
+            self.opened = Some(info.clone());
             self.track = Some(info);
         }
         if let Some(stream) = self.state.take_stream_dirty() {
@@ -129,6 +134,13 @@ impl AudioFacade {
         }
 
         applied
+    }
+
+    /// Снять вновь принятый `Opened`, если он есть, — одноразовое чтение
+    /// для вызывающей стороны (ADR-02, И-Р13); повторный вызов до
+    /// следующего `Opened` вернёт `None`.
+    pub(crate) fn take_opened(&mut self) -> Option<Arc<TrackInfo>> {
+        self.opened.take()
     }
 
     /// Завершить сессию движка: отдать и уронить `EngineHandle` — его `Drop`
@@ -490,6 +502,17 @@ mod tests {
         // Устаревшее открытие не должно взвести кэш трека/потока.
         assert!(!f.has_decoder());
         assert_eq!(f.snapshot().2, None);
+    }
+
+    #[test]
+    fn take_opened_returns_once_after_opened_event() {
+        let mut f = facade();
+        let _ = f.open(Path::new("/tmp/a.flac"));
+        assert!(f.take_opened().is_none());
+
+        f.on_event(opened(1));
+        assert!(f.take_opened().is_some());
+        assert!(f.take_opened().is_none());
     }
 
     #[test]
