@@ -380,21 +380,21 @@ pub struct MusicApp {
     /// ошибок записи с «Повторить»/«OK» (ADR-13, §6.15, §6.8, ТЗ-52, ТЗ-20).
     messages: MessageCenter,
     /// Возможности платформы, которыми руководствуется `MessageCenter` при
-    /// решении «окно или уведомление» (ADR-9, ТЗ-52 п. 3). `tray::start()`
-    /// не возвращает и не присылает сигнал успеха/неуспеха запуска трея
-    /// (поток ksni молча завершается при ошибке spawn) — до реальной
-    /// детекции возможностей на С5 (ADR-9) оба поля считаются доступными,
-    /// когда трей запущен.
+    /// решении «окно или уведомление» (ADR-9, ТЗ-52 п. 3). До итога
+    /// регистрации трея (`tray_ready`) — без трея и уведомлений (В-1).
     caps: PlatformCaps,
 }
 
 impl MusicApp {
     /// `paths` и `AppCore` (с писателем и журналом) строит `main` (ADR-19): приложение не ищет
     /// каталог настроек пользователя само, поэтому тесты его не трогают (ТЗ-49).
+    /// `tray` — UI-концы каналов трея; сам трей запускает `Lifecycle::install`
+    /// (ADR-23 шаг 8).
     pub fn new(
         ui: AppWindow,
         core: AppCore,
         paths: ConfigPaths,
+        tray: tray::TrayChannels,
     ) -> Self {
         let mut player = Player::new();
         let pb_state = core.state().playback();
@@ -420,11 +420,8 @@ impl MusicApp {
         });
         let tracks = Vec::new();
         let known_paths: HashSet<PathBuf> = HashSet::new();
-        let tray = tray::start(Box::new(music_player_rs::audio::clock::MonotonicClock::new()));
-        let (tray_rx, tray_up_tx, tray_ready) = match tray {
-            Some(t) => (Some(t.events), Some(t.updates), Some(t.ready)),
-            None => (None, None, None),
-        };
+        let (tray_rx, tray_up_tx, tray_ready) =
+            (Some(tray.events), Some(tray.updates), Some(tray.ready));
 
         let (cover_tx, cover_job_rx) = channel::<CoverJob>();
         let (cover_done_tx, cover_done_rx) = channel::<CoverDone>();

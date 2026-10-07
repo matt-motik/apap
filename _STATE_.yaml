@@ -100,9 +100,9 @@ steps:
     done: true
   - id: 21
     description: "main создаёт каналы трея (events/updates/ready), MusicApp::new получает концы UI, TrayPort → platform_lifecycle; tray::start из MusicApp::new убран (ADR-23 шаг 8). Файлы: src/main.rs, src/app/mod.rs. Проверка: cargo check"
-    done: false
+    done: true
   - id: 22
-    description: "Удалить мост tray::start(clock) и TrayChannels (ADR-23 шаг 8). Файл: src/platform/tray/mod.rs. Проверка: cargo check. ЧЕКПОИНТ: cargo test + cargo clippy"
+    description: "Удалить мост tray::start(clock) (TrayChannels остаётся — UI-концы каналов); порядок use в lifecycle/mod.rs (ADR-23 шаг 8). Файлы: src/platform/tray/mod.rs, src/platform/lifecycle/mod.rs. Проверка: cargo check. ЧЕКПОИНТ: cargo test + cargo clippy"
     done: false
   - id: 23
     description: "TrayEvent::Quit → тот же ExitEntry(TrayQuit); удалить отдельный путь выхода в poll_tray (§8.1 «удаляется», ТЗ-14). Файл: src/app/mod.rs. Проверка: cargo check"
@@ -135,8 +135,8 @@ steps:
     description: "Финал: grep cfg(target_os вне src/platform (аудио-места AM1.0 — вне задач SP1.0), полный cargo test + cargo clippy, ROADMAP ✅ (ТЗ-54 приёмка). Файлы: ROADMAP.md, _STATE_.yaml. Проверка: всё зелёное"
     done: false
 
-current_step: 21
-next_action: "Шаг 21: main создаёт каналы трея, MusicApp::new получает UI-концы, TrayPort → platform_lifecycle (сейчас там None-мост); tray::start из MusicApp::new убрать. Ветку не-Linux (трей, platform_lifecycle) проверить при кросс-ОС приёмке"
+current_step: 22
+next_action: "Шаг 22: удалить мост tray::start(clock), ЧЕКПОИНТ cargo test + clippy. Ветку не-Linux (трей, platform_lifecycle) проверить при кросс-ОС приёмке"
 
 fail_counter: 0
 fail_counter_max: 3

@@ -55,8 +55,8 @@
 [x] Шаг 18: main.rs: ExitEntry (try_borrow_mut → Busy) и lifecycle.install после показа окна (ADR-23 шаг 8, ТЗ-14). Файл: src/main.rs. Проверка: cargo check
 [x] Шаг 19: Трей: TrayPort {updates_rx, ready_tx} — концы каналов на стороне трея создаёт main; linux::start(port, events_tx, clock); старый start(clock) — временный мост через новый (ADR-23 шаг 8, ADR-6). Файл: src/platform/tray/mod.rs. Проверка: cargo check
 [x] Шаг 20: UnixLifecycle::new(Option<TrayPort>, clock): install запускает трей с tray_tx после сигналов; platform_lifecycle(port, clock) (ADR-23 шаг 8). Файлы: src/platform/lifecycle/unix.rs, src/platform/lifecycle/mod.rs. Проверка: cargo check
-[ ] Шаг 21: main создаёт каналы трея (events/updates/ready), MusicApp::new получает концы UI, TrayPort → platform_lifecycle; tray::start из MusicApp::new убран (ADR-23 шаг 8). Файлы: src/main.rs, src/app/mod.rs. Проверка: cargo check
-[ ] Шаг 22: Удалить мост tray::start(clock) и TrayChannels (ADR-23 шаг 8). Файл: src/platform/tray/mod.rs. Проверка: cargo check. ЧЕКПОИНТ: cargo test + cargo clippy
+[x] Шаг 21: main создаёт каналы трея (events/updates/ready), MusicApp::new получает концы UI, TrayPort → platform_lifecycle; tray::start из MusicApp::new убран (ADR-23 шаг 8). Файлы: src/main.rs, src/app/mod.rs. Проверка: cargo check
+[ ] Шаг 22: Удалить мост tray::start(clock) (TrayChannels остаётся — UI-концы каналов); порядок use в lifecycle/mod.rs (ADR-23 шаг 8). Файлы: src/platform/tray/mod.rs, src/platform/lifecycle/mod.rs. Проверка: cargo check. ЧЕКПОИНТ: cargo test + cargo clippy
 [ ] Шаг 23: TrayEvent::Quit → тот же ExitEntry(TrayQuit); удалить отдельный путь выхода в poll_tray (§8.1 «удаляется», ТЗ-14). Файл: src/app/mod.rs. Проверка: cargo check
 [ ] Шаг 24: on_close_requested: сворачивание в трей только при minimize_to_tray && caps.tray, иначе exit(WindowClose) (§6.10, ТЗ-52 п.2, В-1). Файл: src/app/mod.rs. Проверка: cargo check
 [ ] Шаг 25: apply_msg_effect: notify через Notifier вместо set_tray_notice; Notifier внедряется из main (§6.15, ADR-9, ТЗ-52 п.2). Файлы: src/app/mod.rs, src/main.rs. Проверка: cargo check
@@ -68,8 +68,8 @@
 [ ] Шаг 31: Тесты: platform_fakes_cover_exit_fs_input_notify_pick (части exit/fs/notify), tray_works_during_dialog/message без колёсика (колёсико — С11) (§7.2, ТЗ-24, ТЗ-54). Файл: src/core/testing.rs. Проверка: ЧЕКПОИНТ группы тестов 29–31: полный cargo test + cargo clippy
 [ ] Шаг 32: Финал: grep cfg(target_os вне src/platform (аудио-места AM1.0 — вне задач SP1.0), полный cargo test + cargo clippy, ROADMAP ✅ (ТЗ-54 приёмка). Файлы: ROADMAP.md, _STATE_.yaml. Проверка: всё зелёное
 
-- **Текущий шаг (current_step):** Шаг 21
-- **Следующий ход:** Шаг 21: main создаёт каналы трея, MusicApp::new получает UI-концы, TrayPort → platform_lifecycle (сейчас там None-мост); tray::start из MusicApp::new убрать. Ветку не-Linux (трей, platform_lifecycle) проверить при кросс-ОС приёмке
+- **Текущий шаг (current_step):** Шаг 22
+- **Следующий ход:** Шаг 22: удалить мост tray::start(clock), ЧЕКПОИНТ cargo test + clippy. Ветку не-Linux (трей, platform_lifecycle) проверить при кросс-ОС приёмке
 - **Счетчик безуспешных компиляций:** 0/3
 - **Состояние:** in_progress
 

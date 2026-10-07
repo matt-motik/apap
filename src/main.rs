@@ -12,6 +12,7 @@ use music_player_rs::persist::writer::{spawn_writer, WriterCmd, WriterHandle, Wr
 use music_player_rs::persist::{self, BadCopyOutcome, Boot, ConfigFile, ConfigPaths};
 use music_player_rs::platform::fs::os_fs;
 use music_player_rs::platform::lifecycle::{platform_lifecycle, ExitEntry};
+use music_player_rs::platform::tray::{TrayChannels, TrayPort};
 use music_player_rs::theme::create_default_themes;
 use slint::ComponentHandle;
 use std::cell::RefCell;
@@ -89,7 +90,14 @@ fn main() {
             return;
         }
     };
-    let app = Rc::new(RefCell::new(MusicApp::new(ui.clone_strong(), core, paths)));
+    // Каналы трея (ADR-23 шаг 8): UI-концы — приложению, концы трея — в
+    // `Lifecycle::install` после показа окна.
+    let (tray_tx, tray_events) = std::sync::mpsc::channel();
+    let (tray_updates, tray_updates_rx) = tokio::sync::mpsc::unbounded_channel();
+    let (tray_ready_tx, tray_ready) = std::sync::mpsc::channel();
+    let tray_port = TrayPort { updates: tray_updates_rx, ready: tray_ready_tx };
+    let tray = TrayChannels { events: tray_events, updates: tray_updates, ready: tray_ready };
+    let app = Rc::new(RefCell::new(MusicApp::new(ui.clone_strong(), core, paths, tray)));
     MusicApp::init(&app);
 
     let weak = ui.as_weak();
@@ -149,9 +157,8 @@ fn main() {
     app.borrow().apply_window_geometry();
     // Шаг 8 порядка запуска (ADR-23): перехваты ОС ставятся после показа
     // окна, все пути выхода сходятся в одну точку `exit` (ADR-7, ТЗ-14).
-    let mut lifecycle = platform_lifecycle(None);
-    // Трей пока запускает `MusicApp::new`; канал событий трея здесь не слушается.
-    let (tray_tx, _tray_rx) = std::sync::mpsc::channel();
+    let mut lifecycle =
+        platform_lifecycle(Some((tray_port, Box::new(MonotonicClock::new()))));
     if let Err(e) = lifecycle.install(Some(ui.window()), exit_entry(&app), tray_tx) {
         eprintln!("перехваты ОС не установлены: {}: {}", e.what, e.detail);
     }
