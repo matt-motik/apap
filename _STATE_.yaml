@@ -52,7 +52,7 @@ steps:
     done: true
   - id: 5
     description: "Запись журнала JournalRecord::Notify { error } + текст строки (§2.9, ADR-9, ADR-21). Файл: src/journal.rs. Проверка: cargo check"
-    done: false
+    done: true
   - id: 6
     description: "LinuxNotifier (cfg linux): tokio Handle потока трея + Arc<dyn Journal>; notify() спавнит вызов org.freedesktop.Notifications.Notify через zbus, ошибка → JournalRecord::Notify (ADR-9, ТЗ-52 п.2). Файлы: src/platform/notify/linux.rs, src/platform/notify/mod.rs (только объявление модуля). Проверка: cargo check"
     done: false
@@ -126,8 +126,8 @@ steps:
     description: "Финал: grep cfg(target_os вне src/platform (аудио-места AM1.0 — вне задач SP1.0), полный cargo test + cargo clippy, ROADMAP ✅ (ТЗ-54 приёмка). Файлы: ROADMAP.md, _STATE_.yaml. Проверка: всё зелёное"
     done: false
 
-current_step: 5
-next_action: "Шаг 5: JournalRecord::Notify в src/journal.rs (свежий субагент code-writer/sonnet)"
+current_step: 6
+next_action: "Шаг 6: LinuxNotifier в src/platform/notify/linux.rs (свежий субагент code-writer/sonnet)"
 
 fail_counter: 0
 fail_counter_max: 3

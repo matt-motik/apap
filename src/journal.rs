@@ -39,6 +39,9 @@ pub enum JournalRecord {
     TempRemoveFailed { err: WriteError },
     /// ТЗ-14: итог пути выхода.
     ExitSummary(ExitReport),
+    /// Системное уведомление не доставлено (ошибка D-Bus); окно сообщения
+    /// покажется при открытии плеера (ADR-9, ADR-13).
+    Notify { error: Box<str> },
 }
 
 /// Что записывалось (§2.9).
@@ -60,6 +63,7 @@ impl JournalRecord {
             JournalRecord::WriteFailed { .. } => "ошибка записи",
             JournalRecord::TempRemoveFailed { .. } => "временный файл не удалён",
             JournalRecord::ExitSummary(_) => "итог выхода",
+            JournalRecord::Notify { .. } => "уведомление не доставлено",
         }
     }
 
@@ -107,6 +111,7 @@ impl JournalRecord {
                     if report.engine_ack { "да" } else { "нет" }
                 )
             }
+            JournalRecord::Notify { error } => format!("D-Bus: {error}"),
         }
     }
 }
