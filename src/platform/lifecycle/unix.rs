@@ -4,9 +4,59 @@
 //! сигнал (любого из трёх видов) завершает процесс напрямую из этого потока
 //! кодом `128 + номер_сигнала`.
 
-use super::{PlatformError, ProcessExit};
-use crate::core::exit::TermSignal;
+use super::{ExitEntry, Lifecycle, PlatformCaps, PlatformError, ProcessExit, TrayEvent};
+use crate::core::exit::{ExitReason, TermSignal};
+use std::cell::RefCell;
+use std::sync::mpsc::Sender;
 use tokio::signal::unix::{signal, Signal, SignalKind};
+
+thread_local! {
+    /// `ExitEntry` UI-потока: сигнал доставляется в него через
+    /// `invoke_from_event_loop` (`Rc` не пересекает границу потоков, ADR-7 п. 1).
+    static EXIT_ENTRY: RefCell<Option<ExitEntry>> = const { RefCell::new(None) };
+}
+
+/// Жизненный цикл Linux/macOS (ADR-7): поток `apap-signals`.
+#[derive(Default)]
+pub struct UnixLifecycle {
+    caps: PlatformCaps,
+    signals: Option<std::thread::JoinHandle<()>>,
+}
+
+impl UnixLifecycle {
+    pub fn new() -> UnixLifecycle {
+        UnixLifecycle::default()
+    }
+}
+
+impl Lifecycle for UnixLifecycle {
+    fn caps(&self) -> PlatformCaps {
+        self.caps
+    }
+
+    /// Шаг 8 порядка запуска (ADR-23): `ExitEntry` — в UI-поток, затем
+    /// поток `apap-signals`; первый сигнал → `ExitEntry(Signal)` (ТЗ-14).
+    fn install(
+        &mut self,
+        _window: Option<&slint::Window>,
+        entry: ExitEntry,
+        tray_tx: Sender<TrayEvent>,
+    ) -> Result<(), PlatformError> {
+        // Трей переходит в `install` на шаге 8 порядка запуска отдельно (ADR-23).
+        drop(tray_tx);
+        EXIT_ENTRY.with(|e| *e.borrow_mut() = Some(entry));
+        let on_first: Box<dyn Fn(TermSignal) + Send> = Box::new(|sig| {
+            let _ = slint::invoke_from_event_loop(move || {
+                let entry = EXIT_ENTRY.with(|e| e.borrow().clone());
+                if let Some(entry) = entry {
+                    entry(ExitReason::Signal(sig));
+                }
+            });
+        });
+        self.signals = Some(spawn_signals(on_first, process_exit())?);
+        Ok(())
+    }
+}
 
 /// Код завершения процесса по второму сигналу (ТЗ-14): `128 + номер сигнала`.
 fn exit_code(sig: TermSignal) -> i32 {

@@ -69,3 +69,16 @@ pub use fake::FakeLifecycle;
 
 #[cfg(unix)]
 pub mod unix;
+
+/// Реализация жизненного цикла этой ОС (ADR-6, ADR-7).
+#[cfg(unix)]
+pub fn platform_lifecycle() -> Box<dyn Lifecycle> {
+    Box::new(unix::UnixLifecycle::new())
+}
+
+/// Реализация жизненного цикла этой ОС (ADR-6, ADR-7): Windows — без
+/// перехватов, пока нет сабклассинга HWND (ADR-7 п. 4).
+#[cfg(not(unix))]
+pub fn platform_lifecycle() -> Box<dyn Lifecycle> {
+    Box::new(FakeLifecycle::new())
+}
