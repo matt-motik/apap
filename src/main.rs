@@ -107,7 +107,7 @@ fn main() {
     let notifier = platform_notifier(notify_rt, journal.clone());
     let tray = TrayChannels { events: tray_events, updates: tray_updates, ready: tray_ready };
     let app = Rc::new(RefCell::new(MusicApp::new(
-        ui.as_weak(),
+        &ui,
         core,
         paths,
         tray,

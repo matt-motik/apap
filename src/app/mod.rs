@@ -432,7 +432,7 @@ impl MusicApp {
     /// запущенные в `main` до `AppCore` (ADR-01, ADR-19, ТЗ-88); движок ещё
     /// не подключён к логике приложения на этом шаге.
     pub fn new(
-        ui: slint::Weak<AppWindow>,
+        window: &AppWindow,
         core: AppCore,
         paths: ConfigPaths,
         tray: tray::TrayChannels,
@@ -494,9 +494,9 @@ impl MusicApp {
 
         // Wire the persistent playlist row model to the table once; later
         // mutations flow through it without re-creating ModelRc objects.
-        let ui_handle = ui
-            .upgrade()
-            .expect("AppWindow outlives MusicApp: main holds it until the event loop ends");
+        // Сильная ссылка нужна только здесь; хранится `Weak` (R-20, ТЗ-45, ТЗ-101).
+        let ui_handle = window;
+        let ui = window.as_weak();
         let playlist_rows: Rc<VecModel<ModelRc<StandardListViewItem>>> =
             Rc::new(slint::VecModel::default());
         ui_handle.set_playlist_rows(ModelRc::from(playlist_rows.clone()));
@@ -638,6 +638,13 @@ impl MusicApp {
         self.ui
             .upgrade()
             .expect("AppWindow outlives MusicApp: main holds it until the event loop ends")
+    }
+
+    /// Окно приложения без паники (R-20, ТЗ-45, ТЗ-101). `None` — окно уже
+    /// уничтожено (выход); вызывающий молча пропускает обновление UI.
+    #[allow(dead_code)] // мост: первые вызовы — шаг 44
+    pub(super) fn try_ui(&self) -> Option<AppWindow> {
+        self.ui.upgrade()
     }
 
     /// Применить эффекты ответов писателя из `AppCore::tick`/`AppCore::retry`
