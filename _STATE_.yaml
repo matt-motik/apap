@@ -46,7 +46,7 @@ steps:
     done: true
   - id: 3
     description: "Трейт Notifier + NoneNotifier (ADR-9, §2.8, ТЗ-54 п.4). Файлы: src/platform/notify/mod.rs, src/platform/notify/none.rs. Проверка: cargo check"
-    done: false
+    done: true
   - id: 4
     description: "FakeNotifier — записывает вызовы, всегда компилируется (ADR-6, ADR-9). Файл: src/platform/notify/fake.rs. Проверка: cargo check"
     done: false
@@ -120,8 +120,8 @@ steps:
     description: "Финал: grep cfg(target_os вне src/platform (аудио-места AM1.0 — вне задач SP1.0), полный cargo test + cargo clippy, ROADMAP ✅ (ТЗ-54 приёмка). Файлы: ROADMAP.md, _STATE_.yaml. Проверка: всё зелёное"
     done: false
 
-current_step: 3
-next_action: "Шаг 3: трейт Notifier + NoneNotifier в src/platform/notify (свежий субагент code-writer/sonnet)"
+current_step: 4
+next_action: "Шаг 4: FakeNotifier в src/platform/notify/fake.rs (свежий субагент code-writer/sonnet)"
 
 fail_counter: 0
 fail_counter_max: 3
