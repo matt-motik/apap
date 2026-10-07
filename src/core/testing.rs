@@ -271,14 +271,17 @@ mod tests {
     use crate::audio::visualizer::VisualizationMode;
     use crate::core::exit::{ExitOutcome, ExitPhase, ExitReason, TermSignal};
     use crate::core::messages::{MessageCenter, MessageLevel};
+    use crate::core::gate::{BlockReason, MainCmd, UiGate};
     use crate::journal::WriteTarget;
     use crate::platform::fs::FsOp;
-    use crate::platform::lifecycle::PlatformCaps;
-    use crate::platform::notify::{FakeNotifier, Notifier};
+    use crate::platform::lifecycle::{ExitEntry, FakeLifecycle, Lifecycle, PlatformCaps, TrayEvent};
+    use crate::platform::notify::{FakeNotifier, Notification, Notifier};
     use crate::persist::keys::{KeyPath, LoadNoteKind};
     use crate::persist::settings_file::{SaveInterval, Settings, ThemeName};
     use crate::persist::state_file::{Origin, PhysPos, PhysSize, SessionState, SizeUnits, StateChange, WindowGeometry};
     use crate::settings::{RepeatMode, ResamplerAlgorithm};
+    use std::rc::Rc;
+    use std::sync::mpsc;
 
     /// Нечитаемый `settings.toml` (ОВС-6 в, ТЗ-7, ТЗ-14, ТЗ-32, §6.10):
     /// автозаписи запрещены на весь сеанс — `exit` не отправляет снимок
@@ -1536,5 +1539,102 @@ mod tests {
         assert_eq!(attempts_after - attempts_before, 1, "путь выхода делает ровно одну новую попытку");
         assert_eq!(after.writes, before.writes + 1, "вторая попытка успешна — файл записан");
         assert!(!messages.is_shown(), "после выхода ничего не показано заново");
+    }
+
+    /// Подмены платформы покрывают выход, ФС и уведомления уже на этом
+    /// этапе (ТЗ-54): поведение работает целиком на подменах, на любой ОС,
+    /// без `cfg(target_os)`. Подмены ввода и выбора файла (ТЗ-54 п.2–3)
+    /// появятся на следующих этапах — здесь не проверяются. `FakeLifecycle`
+    /// принимает `ExitEntry`, которая приводит в действие `AppCore::exit`
+    /// того же стенда: запись уходит в `MemStore`, как и в прямых вызовах
+    /// `core.exit` в тестах выше.
+    #[test]
+    fn platform_fakes_cover_exit_fs_input_notify_pick() {
+        let h = Harness::new();
+        h.put_default_settings();
+        h.put_state(b"");
+        let core = Rc::new(RefCell::new(h.boot()));
+        core.borrow_mut().change_state(Origin::User, StateChange::Volume(42));
+
+        let mut lifecycle = FakeLifecycle::with_tray();
+        let (tray_tx, _tray_rx) = mpsc::channel::<TrayEvent>();
+        let core_for_exit = Rc::clone(&core);
+        let entry: ExitEntry = Rc::new(move |reason| {
+            core_for_exit.borrow_mut().exit(reason, &mut || true, &|| Arc::from(&b""[..]))
+        });
+        lifecycle.install(None, entry, tray_tx).expect("install succeeds on the fake");
+
+        let outcome = lifecycle.fire(ExitReason::WindowClose).expect("ExitEntry installed");
+        assert_eq!(outcome, ExitOutcome::Completed);
+        assert_eq!(h.writes(WorkFile::State), 1, "exit пишет через ту же ФС-подмену");
+
+        let notifier = FakeNotifier::new();
+        notifier.notify(Notification { level: MessageLevel::Error, title: "title".into(), body: "body".into() });
+        assert_eq!(notifier.count(), 1);
+        assert_eq!(&*notifier.calls()[0].body, "body");
+    }
+
+    /// Трей работает во время диалога настроек, без колёсика (ТЗ-24, §5.1:
+    /// строка «с треем; диалог»; колёсико — отдельный этап С11): `UiGate`
+    /// блокирует команды главного окна, но трей не ходит через `UiGate`
+    /// (`poll_tray` в `app/mod.rs` вызывает `core.change_state` напрямую) —
+    /// изменение громкости тем же путём и «Сохранить» с одним изменённым
+    /// параметром (SRC-фильтр ресемплера) проходят несмотря на блокировку:
+    /// одна запись `settings.toml`, затем одна запись `state.toml` по
+    /// отсчёту с новой громкостью.
+    #[test]
+    fn tray_works_during_dialog() {
+        let h = Harness::new();
+        h.put_settings(b"");
+        h.put_state(b"");
+        let mut core = h.boot();
+
+        let mut gate = UiGate::default();
+        gate.block(BlockReason::Dialog);
+        assert!(!gate.allows(MainCmd::PlayPause), "главное окно блокировано диалогом настроек");
+
+        // Тот же путь, что `TrayEvent::Scroll` в `poll_tray`: минует `UiGate`.
+        core.change_state(Origin::User, StateChange::Volume(42));
+
+        let mut settings = core.settings().clone();
+        settings.playback.audio.resampler.algorithm = ResamplerAlgorithm::SincFast;
+        core.save_settings_now(settings);
+        h.settle(&mut core);
+        assert_eq!(h.writes(WorkFile::Settings), 1, "«Сохранить» — одна запись settings.toml");
+
+        let interval = core.settings().save_interval.duration();
+        h.advance(&mut core, interval);
+        h.settle(&mut core);
+        assert_eq!(h.writes(WorkFile::State), 1, "громкость уходит в state.toml по отсчёту");
+        assert_eq!(core.state().playback().volume, 42);
+    }
+
+    /// Трей работает во время открытого окна сообщения (ТЗ-24, ТЗ-52):
+    /// `UiGate` блокирован причиной `Message` (как при открытом окне
+    /// ошибки записи), но трей шлёт изменение громкости тем же путём, что
+    /// и `TrayEvent::Scroll` (шаг колёсика 0.02 = 2%, до модуля ввода С11);
+    /// изменение доходит до `state.toml` по отсчёту, несмотря на блокировку.
+    #[test]
+    fn tray_works_during_message() {
+        let h = Harness::new();
+        h.put_settings(b"");
+        h.put_state(b"");
+        let mut core = h.boot();
+
+        let mut gate = UiGate::default();
+        gate.block(BlockReason::Message);
+        assert!(!gate.allows(MainCmd::Volume), "главное окно блокировано сообщением");
+
+        // Исходный уровень ниже максимума, чтобы щелчок колёсика вверх
+        // (+2 %, шаг 0.02 до С11) был виден.
+        core.change_state(Origin::User, StateChange::Volume(50));
+        let after = core.state().playback().volume + 2;
+        core.change_state(Origin::User, StateChange::Volume(after));
+
+        let interval = core.settings().save_interval.duration();
+        h.advance(&mut core, interval);
+        h.settle(&mut core);
+        assert_eq!(h.writes(WorkFile::State), 1);
+        assert_eq!(core.state().playback().volume, after);
     }
 }

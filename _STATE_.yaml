@@ -136,13 +136,13 @@ steps:
     done: true
   - id: 33
     description: "Тесты: platform_fakes_cover_exit_fs_input_notify_pick (части exit/fs/notify), tray_works_during_dialog/message без колёсика (колёсико — С11) (§7.2, ТЗ-24, ТЗ-54). Файл: src/core/testing.rs. Проверка: ЧЕКПОИНТ группы тестов 31–33: полный cargo test + cargo clippy"
-    done: false
+    done: true
   - id: 34
     description: "Финал: grep cfg(target_os вне src/platform (аудио-места AM1.0 — вне задач SP1.0), полный cargo test + cargo clippy, ROADMAP ✅ (ТЗ-54 приёмка). Файлы: ROADMAP.md, _STATE_.yaml. Проверка: всё зелёное"
     done: false
 
-current_step: 33
-next_action: "Шаг 33: тесты фейков платформы и трея при диалоге/сообщении в src/core/testing.rs; ЧЕКПОИНТ: полный cargo test + cargo clippy. Не-Linux ветки (трей, platform_lifecycle, platform_notifier, windows.rs сабкласс, macos.rs делегат) не компилировались локально — собрать на ноутбуке/macOS при кросс-ОС приёмке"
+current_step: 34
+next_action: "Шаг 34: финал — grep cfg(target_os вне src/platform, полный cargo test + clippy, ROADMAP ✅. ЧЕКПОИНТ 31–33 зелёный: 492 lib + 30 bin, clippy чист. SetModeSettings из строки tray_works_during_dialog в коде нет (появится с модулем режимов) — проверено одна запись settings.toml. Не-Linux ветки (трей, platform_lifecycle, platform_notifier, windows.rs сабкласс, macos.rs делегат) не компилировались локально — собрать на ноутбуке/macOS при кросс-ОС приёмке"
 
 fail_counter: 0
 fail_counter_max: 3
