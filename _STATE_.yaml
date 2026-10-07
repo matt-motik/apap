@@ -85,7 +85,7 @@ steps:
     done: true
   - id: 16
     description: "Реальные PlatformCaps: tray = хост StatusNotifier найден, notifications = tray (вместо допущения) (§2.8, ADR-6, ТЗ-52 п.2). Файлы: src/platform/tray/mod.rs, src/app/mod.rs. Проверка: cargo check"
-    done: false
+    done: true
   - id: 17
     description: "UnixLifecycle: impl Lifecycle (install запускает apap-signals) + фабрика платформенной реализации в lifecycle/mod.rs (ADR-7, ADR-23 шаг 8). Файлы: src/platform/lifecycle/unix.rs, src/platform/lifecycle/mod.rs. Проверка: cargo check"
     done: false
@@ -126,8 +126,8 @@ steps:
     description: "Финал: grep cfg(target_os вне src/platform (аудио-места AM1.0 — вне задач SP1.0), полный cargo test + cargo clippy, ROADMAP ✅ (ТЗ-54 приёмка). Файлы: ROADMAP.md, _STATE_.yaml. Проверка: всё зелёное"
     done: false
 
-current_step: 16
-next_action: "Шаг 16: реальные PlatformCaps (tray = хост StatusNotifier найден). Ветку не-Linux трея проверить при кросс-ОС приёмке (rustup/Windows-таргета на десктопе нет)"
+current_step: 17
+next_action: "Шаг 17: UnixLifecycle (impl Lifecycle, install запускает apap-signals) + фабрика. Ветку не-Linux трея проверить при кросс-ОС приёмке"
 
 fail_counter: 0
 fail_counter_max: 3

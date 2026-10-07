@@ -50,7 +50,7 @@
 [x] Шаг 13: Импорты app/main на crate::platform::tray, удалить мост из lib.rs (§8.1 С5). Файлы: src/app/mod.rs, src/lib.rs (main.rs — если импортирует tray). Проверка: cargo check
 [x] Шаг 14: Трей шлёт TrayEvent вместо TrayCmd; Wheel → Scroll(TrayScroll), в poll_tray прежний шаг громкости до С11 (§2.8, ТЗ-24). Файлы: src/platform/tray/mod.rs, src/app/mod.rs. Проверка: cargo check
 [x] Шаг 15: ksni — Linux target dep; реализация трея под cfg внутри platform/tray, на прочих ОС start() → None (ADR-6, В-1). Файлы: Cargo.toml, src/platform/tray/mod.rs. Проверка: cargo check. ЧЕКПОИНТ: cargo test + cargo clippy
-[ ] Шаг 16: Реальные PlatformCaps: tray = хост StatusNotifier найден, notifications = tray (вместо допущения) (§2.8, ADR-6, ТЗ-52 п.2). Файлы: src/platform/tray/mod.rs, src/app/mod.rs. Проверка: cargo check
+[x] Шаг 16: Реальные PlatformCaps: tray = хост StatusNotifier найден, notifications = tray (вместо допущения) (§2.8, ADR-6, ТЗ-52 п.2). Файлы: src/platform/tray/mod.rs, src/app/mod.rs. Проверка: cargo check
 [ ] Шаг 17: UnixLifecycle: impl Lifecycle (install запускает apap-signals) + фабрика платформенной реализации в lifecycle/mod.rs (ADR-7, ADR-23 шаг 8). Файлы: src/platform/lifecycle/unix.rs, src/platform/lifecycle/mod.rs. Проверка: cargo check
 [ ] Шаг 18: main.rs: ExitEntry (try_borrow_mut → Busy) и lifecycle.install после показа окна (ADR-23 шаг 8, ТЗ-14). Файл: src/main.rs. Проверка: cargo check
 [ ] Шаг 19: Запуск трея перенести из MusicApp::new в Lifecycle::install (после сигналов; ADR-23 шаг 8). Файлы: src/app/mod.rs, src/platform/lifecycle/unix.rs. Проверка: cargo check. ЧЕКПОИНТ: cargo test + cargo clippy
@@ -65,8 +65,8 @@
 [ ] Шаг 28: Тесты: platform_fakes_cover_exit_fs_input_notify_pick (части exit/fs/notify), tray_works_during_dialog/message без колёсика (колёсико — С11) (§7.2, ТЗ-24, ТЗ-54). Файл: src/core/testing.rs. Проверка: ЧЕКПОИНТ группы тестов 26–28: полный cargo test + cargo clippy
 [ ] Шаг 29: Финал: grep cfg(target_os вне src/platform (аудио-места AM1.0 — вне задач SP1.0), полный cargo test + cargo clippy, ROADMAP ✅ (ТЗ-54 приёмка). Файлы: ROADMAP.md, _STATE_.yaml. Проверка: всё зелёное
 
-- **Текущий шаг (current_step):** Шаг 16
-- **Следующий ход:** Шаг 16: реальные PlatformCaps (tray = хост StatusNotifier найден). Ветку не-Linux трея проверить при кросс-ОС приёмке (rustup/Windows-таргета на десктопе нет)
+- **Текущий шаг (current_step):** Шаг 17
+- **Следующий ход:** Шаг 17: UnixLifecycle (impl Lifecycle, install запускает apap-signals) + фабрика. Ветку не-Linux трея проверить при кросс-ОС приёмке
 - **Счетчик безуспешных компиляций:** 0/3
 - **Состояние:** in_progress
 

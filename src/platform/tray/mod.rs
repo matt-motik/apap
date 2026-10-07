@@ -30,7 +30,7 @@ pub struct TrayState {
 
 #[cfg(target_os = "linux")]
 mod linux {
-    use super::{mpsc, Clock, TrayEvent, TrayState};
+    use super::{mpsc, Clock, TrayChannels, TrayEvent, TrayState};
     use crate::platform::lifecycle::TrayScroll;
     use ksni::menu::{MenuItem, StandardItem};
 
@@ -137,16 +137,12 @@ mod linux {
     /// `clock` ставит метки `TrayScroll` (ADR-8). Returns a receiver for tray
     /// events and a sender for updating the tray state. Fails silently when no StatusNotifier host / D-Bus is available,
     /// in which case the returned receiver simply stays empty.
-    pub(super) fn start(
-        clock: Box<dyn Clock>,
-    ) -> (
-        mpsc::Receiver<TrayEvent>,
-        tokio::sync::mpsc::UnboundedSender<TrayState>,
-    ) {
+    pub(super) fn start(clock: Box<dyn Clock>) -> TrayChannels {
         use ksni::TrayMethods;
 
         let (cmd_tx, cmd_rx) = mpsc::channel();
         let (up_tx, mut up_rx) = tokio::sync::mpsc::unbounded_channel::<TrayState>();
+        let (ready_tx, ready_rx) = mpsc::channel();
 
         std::thread::spawn(move || {
             let rt = match tokio::runtime::Builder::new_current_thread()
@@ -154,7 +150,10 @@ mod linux {
                 .build()
             {
                 Ok(rt) => rt,
-                Err(_) => return,
+                Err(_) => {
+                    let _ = ready_tx.send(false);
+                    return;
+                }
             };
             rt.block_on(async move {
                 let tray = PlayerTray {
@@ -163,23 +162,34 @@ mod linux {
                     state: TrayState::default(),
                 };
                 let Ok(handle) = tray.spawn().await else {
+                    let _ = ready_tx.send(false);
                     return;
                 };
+                let _ = ready_tx.send(true);
                 while let Some(state) = up_rx.recv().await {
                     handle.update(|t: &mut PlayerTray| t.state = state).await;
                 }
             });
         });
 
-        (cmd_rx, up_tx)
+        TrayChannels {
+            events: cmd_rx,
+            updates: up_tx,
+            ready: ready_rx,
+        }
     }
 }
 
-/// Каналы трея: события `TrayEvent` и обновление состояния (§2.8).
-pub type TrayChannels = (
-    mpsc::Receiver<TrayEvent>,
-    tokio::sync::mpsc::UnboundedSender<TrayState>,
-);
+/// Каналы трея (§2.8, ADR-6).
+pub struct TrayChannels {
+    /// События трея в UI (разбор на тике).
+    pub events: mpsc::Receiver<TrayEvent>,
+    /// Обновление состояния значка из UI.
+    pub updates: tokio::sync::mpsc::UnboundedSender<TrayState>,
+    /// Одно значение после попытки регистрации: `true` — хост StatusNotifier
+    /// найден, значок показан (`PlatformCaps.tray`, ADR-6, В-1).
+    pub ready: mpsc::Receiver<bool>,
+}
 
 /// Запуск трея (ADR-6, В-1); `None` — на этой ОС трея нет. `clock` ставит
 /// метки `TrayScroll` (ADR-8).

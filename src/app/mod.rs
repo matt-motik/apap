@@ -299,6 +299,8 @@ pub struct MusicApp {
     /// Effective output device name (from the probe or last successful switch).
     active_device: String,
     tray_rx: Option<std::sync::mpsc::Receiver<TrayEvent>>,
+    /// Итог регистрации трея → `caps` (ADR-6, В-1); `None` — итог получен.
+    tray_ready: Option<std::sync::mpsc::Receiver<bool>>,
     tray_up_tx: Option<tokio::sync::mpsc::UnboundedSender<tray::TrayState>>,
     last_tray_update: Instant,
     /// Deadline + текст транзитного тултипа трея (None = выключен).
@@ -418,7 +420,11 @@ impl MusicApp {
         });
         let tracks = Vec::new();
         let known_paths: HashSet<PathBuf> = HashSet::new();
-        let (tray_rx, tray_up_tx) = tray::start(Box::new(music_player_rs::audio::clock::MonotonicClock::new())).unzip();
+        let tray = tray::start(Box::new(music_player_rs::audio::clock::MonotonicClock::new()));
+        let (tray_rx, tray_up_tx, tray_ready) = match tray {
+            Some(t) => (Some(t.events), Some(t.updates), Some(t.ready)),
+            None => (None, None, None),
+        };
 
         let (cover_tx, cover_job_rx) = channel::<CoverJob>();
         let (cover_done_tx, cover_done_rx) = channel::<CoverDone>();
@@ -499,6 +505,7 @@ impl MusicApp {
             active_device,
             disk_tracks: Vec::new(),
             tray_rx,
+            tray_ready,
             tray_up_tx,
             last_tray_update: Instant::now(),
             tray_notice: None,
@@ -535,7 +542,8 @@ impl MusicApp {
             viz_debounce: None,
             gate: UiGate::default(),
             messages: MessageCenter::default(),
-            caps: PlatformCaps { tray: true, notifications: true },
+            // Трей и уведомления — после регистрации значка (poll_tray, ADR-6).
+            caps: PlatformCaps::default(),
         };
         // Загрузка плейлиста при старте ещё не завершена (фон, выше) —
         // список недоступен до её окончания (ТЗ-48, §2.11).
@@ -2016,6 +2024,18 @@ impl MusicApp {
     }
 
     fn poll_tray(&mut self) {
+        // Хост StatusNotifier найден → трей и уведомления есть (ADR-6, В-1,
+        // ТЗ-52 п.2): уведомления идут через рантайм потока трея (ADR-9).
+        if let Some(ready) = &self.tray_ready {
+            match ready.try_recv() {
+                Ok(up) => {
+                    self.caps = PlatformCaps { tray: up, notifications: up };
+                    self.tray_ready = None;
+                }
+                Err(std::sync::mpsc::TryRecvError::Empty) => {}
+                Err(std::sync::mpsc::TryRecvError::Disconnected) => self.tray_ready = None,
+            }
+        }
         let Some(rx) = self.tray_rx.take() else {
             return;
         };
