@@ -59,17 +59,19 @@
 [x] Шаг 22: Удалить мост tray::start(clock) (TrayChannels остаётся — UI-концы каналов); порядок use в lifecycle/mod.rs (ADR-23 шаг 8). Файлы: src/platform/tray/mod.rs, src/platform/lifecycle/mod.rs. Проверка: cargo check. ЧЕКПОИНТ: cargo test + cargo clippy
 [x] Шаг 23: TrayEvent::Quit → тот же ExitEntry(TrayQuit); удалить отдельный путь выхода в poll_tray (§8.1 «удаляется», ТЗ-14). Файл: src/app/mod.rs. Проверка: cargo check Итог: правка не нужна — poll_tray уже вызывает self.exit(TrayQuit) (тело ExitEntry); вызов Rc-входа под borrow_mut дал бы Busy.
 [x] Шаг 24: on_close_requested: сворачивание в трей только при minimize_to_tray && caps.tray, иначе exit(WindowClose) (§6.10, ТЗ-52 п.2, В-1). Файл: src/app/mod.rs. Проверка: cargo check
-[ ] Шаг 25: apply_msg_effect: notify через Notifier вместо set_tray_notice; Notifier внедряется из main (§6.15, ADR-9, ТЗ-52 п.2). Файлы: src/app/mod.rs, src/main.rs. Проверка: cargo check
-[ ] Шаг 26: Удалить BP_NOTICE_TEXT/notice как канал сообщений (§8.1 «удаляется»). Файлы: src/platform/tray/mod.rs, src/app/mod.rs. Проверка: cargo check. ЧЕКПОИНТ: cargo test + cargo clippy
-[ ] Шаг 27: Windows: SetWindowSubclass на HWND (WM_QUERYENDSESSION→TRUE; WM_ENDSESSION wParam=TRUE → синхронный выход, return 0) (ADR-7, ТЗ-15). Файлы: src/platform/lifecycle/windows.rs, Cargo.toml (windows-sys features). Проверка: cargo check (Linux) + ревью; сборка Windows — на ноутбуке
-[ ] Шаг 28: macOS: applicationShouldTerminate: через class_addMethod на делегат winit, фолбэк NSApplicationWillTerminateNotification (ADR-7, ТЗ-15). Файлы: src/platform/lifecycle/macos.rs, Cargo.toml (objc2*). Проверка: cargo check (Linux) + ревью
-[ ] Шаг 29: Тесты выхода: exit_writes_settings_once (по каждой причине; без TrayQuit без трея), repeated_tray_quit_ignored, windows_session_end_runs_exit_synchronously (§7.2, ТЗ-14, ТЗ-15). Файл: src/core/testing.rs. Проверка: cargo test --no-run (прогон группой на Шаге 28)
-[ ] Шаг 30: Тесты сообщений: tray_hidden_error_notifies_once, no_tray_error_shows_window, tray_quit_closes_error_window_one_attempt (§7.2, ТЗ-52). Файл: src/core/testing.rs. Проверка: cargo test --no-run (прогон группой на Шаге 28)
-[ ] Шаг 31: Тесты: platform_fakes_cover_exit_fs_input_notify_pick (части exit/fs/notify), tray_works_during_dialog/message без колёсика (колёсико — С11) (§7.2, ТЗ-24, ТЗ-54). Файл: src/core/testing.rs. Проверка: ЧЕКПОИНТ группы тестов 29–31: полный cargo test + cargo clippy
-[ ] Шаг 32: Финал: grep cfg(target_os вне src/platform (аудио-места AM1.0 — вне задач SP1.0), полный cargo test + cargo clippy, ROADMAP ✅ (ТЗ-54 приёмка). Файлы: ROADMAP.md, _STATE_.yaml. Проверка: всё зелёное
+[x] Шаг 25: Notifier: RtSlot = Arc<OnceLock<tokio Handle>> — LinuxNotifier берёт рантайм потока трея из слота (слот пуст — трея нет, вызов пропускается); platform_notifier(slot, journal) (ADR-9, §2.8). Файлы: src/platform/notify/mod.rs, src/platform/notify/linux.rs. Проверка: cargo check
+[ ] Шаг 26: Трей: TrayPort.rt: RtSlot — поток трея кладёт Handle рантайма до ready=true; main создаёт слот (ADR-9). Файлы: src/platform/tray/mod.rs, src/main.rs. Проверка: cargo check
+[ ] Шаг 27: apply_msg_effect: notify через Notifier вместо set_tray_notice; MusicApp::new получает Box<dyn Notifier> от main (platform_notifier) (§6.15, ADR-9, ТЗ-52 п.2). Файлы: src/app/mod.rs, src/main.rs. Проверка: cargo check
+[ ] Шаг 28: Удалить BP_NOTICE_TEXT/notice как канал сообщений (§8.1 «удаляется»). Файлы: src/platform/tray/mod.rs, src/app/mod.rs. Проверка: cargo check. ЧЕКПОИНТ: cargo test + cargo clippy
+[ ] Шаг 29: Windows: SetWindowSubclass на HWND (WM_QUERYENDSESSION→TRUE; WM_ENDSESSION wParam=TRUE → синхронный выход, return 0) (ADR-7, ТЗ-15). Файлы: src/platform/lifecycle/windows.rs, Cargo.toml (windows-sys features). Проверка: cargo check (Linux) + ревью; сборка Windows — на ноутбуке
+[ ] Шаг 30: macOS: applicationShouldTerminate: через class_addMethod на делегат winit, фолбэк NSApplicationWillTerminateNotification (ADR-7, ТЗ-15). Файлы: src/platform/lifecycle/macos.rs, Cargo.toml (objc2*). Проверка: cargo check (Linux) + ревью
+[ ] Шаг 31: Тесты выхода: exit_writes_settings_once (по каждой причине; без TrayQuit без трея), repeated_tray_quit_ignored, windows_session_end_runs_exit_synchronously (§7.2, ТЗ-14, ТЗ-15). Файл: src/core/testing.rs. Проверка: cargo test --no-run (прогон группой на Шаге 28)
+[ ] Шаг 32: Тесты сообщений: tray_hidden_error_notifies_once, no_tray_error_shows_window, tray_quit_closes_error_window_one_attempt (§7.2, ТЗ-52). Файл: src/core/testing.rs. Проверка: cargo test --no-run (прогон группой на Шаге 28)
+[ ] Шаг 33: Тесты: platform_fakes_cover_exit_fs_input_notify_pick (части exit/fs/notify), tray_works_during_dialog/message без колёсика (колёсико — С11) (§7.2, ТЗ-24, ТЗ-54). Файл: src/core/testing.rs. Проверка: ЧЕКПОИНТ группы тестов 31–33: полный cargo test + cargo clippy
+[ ] Шаг 34: Финал: grep cfg(target_os вне src/platform (аудио-места AM1.0 — вне задач SP1.0), полный cargo test + cargo clippy, ROADMAP ✅ (ТЗ-54 приёмка). Файлы: ROADMAP.md, _STATE_.yaml. Проверка: всё зелёное
 
-- **Текущий шаг (current_step):** Шаг 25
-- **Следующий ход:** Шаг 25: apply_msg_effect → Notifier вместо set_tray_notice; Notifier внедряется из main. Ветку не-Linux (трей, platform_lifecycle) проверить при кросс-ОС приёмке
+- **Текущий шаг (current_step):** Шаг 26
+- **Следующий ход:** Шаг 26: TrayPort.rt: RtSlot — поток трея кладёт Handle до ready=true; main создаёт слот. Ветку не-Linux (трей, platform_lifecycle, platform_notifier) проверить при кросс-ОС приёмке
 - **Счетчик безуспешных компиляций:** 0/3
 - **Состояние:** in_progress
 

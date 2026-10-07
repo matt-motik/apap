@@ -3,7 +3,7 @@
 //! поток трея: задача порождается на рантайме tokio, ошибка D-Bus — только в
 //! журнал (ADR-13). Только Linux.
 
-use super::{Notification, Notifier};
+use super::{Notification, Notifier, RtSlot};
 use crate::core::messages::MessageLevel;
 use crate::journal::{Journal, JournalRecord};
 use std::collections::HashMap;
@@ -15,21 +15,27 @@ const NOTIFICATIONS_PATH: &str = "/org/freedesktop/Notifications";
 const NOTIFICATIONS_IFACE: &str = "org.freedesktop.Notifications";
 
 /// `Notifier` для Linux: `Notify` на сессионной шине (ADR-9, ТЗ-52 п.2).
+/// Рантайм — потока трея (ADR-9): слот заполняется после регистрации значка.
 pub struct LinuxNotifier {
-    rt: tokio::runtime::Handle,
+    rt: RtSlot,
     journal: Arc<dyn Journal>,
 }
 
 impl LinuxNotifier {
-    pub fn new(rt: tokio::runtime::Handle, journal: Arc<dyn Journal>) -> LinuxNotifier {
+    pub fn new(rt: RtSlot, journal: Arc<dyn Journal>) -> LinuxNotifier {
         LinuxNotifier { rt, journal }
     }
 }
 
 impl Notifier for LinuxNotifier {
+    /// Слот пуст — трея нет, окно в трей не скрывается и уведомление не
+    /// нужно (ADR-9, `PlatformCaps.notifications = false`).
     fn notify(&self, n: Notification) {
+        let Some(rt) = self.rt.get() else {
+            return;
+        };
         let journal = Arc::clone(&self.journal);
-        self.rt.spawn(async move {
+        rt.spawn(async move {
             if let Err(e) = send(&n).await {
                 journal.record(JournalRecord::Notify { error: e.to_string().into() });
             }

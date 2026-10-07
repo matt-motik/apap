@@ -29,17 +29,21 @@ pub mod linux;
 #[cfg(target_os = "linux")]
 pub use linux::LinuxNotifier;
 
-/// Notifier платформы (ADR-6, ADR-9, ТЗ-54 п.4): на Linux при наличии рантайма
-/// потока трея — `LinuxNotifier`, иначе `NoneNotifier`.
+/// Слот рантайма tokio потока трея (ADR-9): заполняет поток трея после
+/// регистрации значка, читает `LinuxNotifier`.
+pub type RtSlot = std::sync::Arc<std::sync::OnceLock<tokio::runtime::Handle>>;
+
+/// Notifier платформы (ADR-6, ADR-9, ТЗ-54 п.4): на Linux — `LinuxNotifier`
+/// на рантайме трея из `rt`, на прочих ОС — `NoneNotifier`.
 pub fn platform_notifier(
-    rt: Option<tokio::runtime::Handle>,
+    rt: RtSlot,
     journal: std::sync::Arc<dyn crate::journal::Journal>,
 ) -> Box<dyn Notifier> {
     #[cfg(target_os = "linux")]
-    if let Some(rt) = rt {
-        return Box::new(LinuxNotifier::new(rt, journal));
-    }
+    return Box::new(LinuxNotifier::new(rt, journal));
     #[cfg(not(target_os = "linux"))]
-    let _ = (rt, journal);
-    Box::new(NoneNotifier)
+    {
+        let _ = (rt, journal);
+        Box::new(NoneNotifier)
+    }
 }
