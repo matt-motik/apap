@@ -11,5 +11,3 @@ pub mod playlist;
 pub mod playlist_layout;
 pub mod settings;
 pub mod theme;
-/// Мост на время переноса трея в `platform` (§8.1 С5).
-pub use platform::tray;

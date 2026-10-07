@@ -41,7 +41,7 @@ use music_player_rs::theme::{
     ColorsData, ThemeData, ThemeError, DEFAULT_LIGHT_TOML, parse_hex,
     scan_themes_dir,
 };
-use music_player_rs::tray::{self, TrayCmd};
+use music_player_rs::platform::tray::{self, TrayCmd};
 
 /// Фиксированные частоты выхода для `ResamplerMode::Fixed` (ТЗ A3.0 §7.3):
 /// индекс ComboBox («Авто», «44.1k» … «192k») → Гц. «Авто» (0) → 0 = не задано.
