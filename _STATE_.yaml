@@ -76,7 +76,7 @@ steps:
     done: true
   - id: 10
     description: "SymphoniaSourceOpener: probe — DSF/DFF по расширению → шаг 9, иначе probe_header; open — DsdDecoder::open (PCM) / Decoder::open, String-ошибка → FileError (мост) (§2.10, §6.18 шаги 3, 6). Файл: src/engine/source.rs. Проверка: cargo test engine::source"
-    done: false
+    done: true
   - id: 11
     description: "ЧЕКПОИНТ шагов 5–10. ЧЕКПОИНТ: полный cargo test + cargo clippy (0 новых варнингов в файлах вайтлиста)"
     done: false
@@ -168,8 +168,8 @@ steps:
     description: "Финал: полный cargo test + clippy, tools/check_rt_imports.py, grep Player вне src/engine и src/audio, ROADMAP ✅, ручные проверки за пользователем (UI не блокируется, ошибки треков видны, Exclusive через старый путь). Файлы: ROADMAP.md, _STATE_.yaml. Проверка: всё зелёное"
     done: false
 
-current_step: 10
-next_action: "Шаг 10: SymphoniaSourceOpener в source.rs. Шаг 9 готов: dsd::probe_dsd_format(path) -> Result<SourceFormat, FileError>. Шаг 8 готов: decoder::probe_header(path) -> Result<SourceFormat, FileError> (прежний шаг 8 разбит на 8–10, нумерация сдвинута на +2). Шаг 7 готов: SourceOpener, FakeSource (with_format/with_error/with_probe_delay, probes/opens). Шаг 6 готов: DecodeWorker::spawn(&dyn ThreadSpawner) -> Result<_, EngineFault>, Player.spawner. Решения пользователя 2026-10-07: мост SetLegacyAudio (вместо SetModeSettings/SetActiveMode до С4); ModeKind временно в src/settings.rs. Player — внутренняя деталь apap-engine (мост). Тесты — только на ЧЕКПОИНТ-шагах."
+current_step: 11
+next_action: "Шаг 11: ЧЕКПОИНТ шагов 5–10 (полный cargo test + clippy). Шаг 10 готов: SymphoniaSourceOpener (probe: dsf/dff → probe_dsd_format, иначе probe_header; open: DsdDecoder/Decoder, String → FileError мост). Шаг 9 готов: dsd::probe_dsd_format(path) -> Result<SourceFormat, FileError>. Шаг 8 готов: decoder::probe_header(path) -> Result<SourceFormat, FileError> (прежний шаг 8 разбит на 8–10, нумерация сдвинута на +2). Шаг 7 готов: SourceOpener, FakeSource (with_format/with_error/with_probe_delay, probes/opens). Шаг 6 готов: DecodeWorker::spawn(&dyn ThreadSpawner) -> Result<_, EngineFault>, Player.spawner. Решения пользователя 2026-10-07: мост SetLegacyAudio (вместо SetModeSettings/SetActiveMode до С4); ModeKind временно в src/settings.rs. Player — внутренняя деталь apap-engine (мост). Тесты — только на ЧЕКПОИНТ-шагах."
 fail_counter: 0
 fail_counter_max: 3
 failed_attempts: []
