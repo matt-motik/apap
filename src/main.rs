@@ -117,6 +117,17 @@ fn main() {
     )));
     MusicApp::init(&app);
 
+    // Пробуждение UI событием движка: слив очереди сразу, не дожидаясь тика
+    // 100 мс. `Weak` — хук не продлевает жизнь `MusicApp`; `try_borrow_mut`
+    // занят (вызов изнутри обработчика) — события догонит ближайший тик
+    // (ADR-02, ТЗ-60, ТЗ-106).
+    let app_for_drain = Rc::downgrade(&app);
+    app::engine_sink::install_drain_hook(Box::new(move || {
+        let Some(app) = app_for_drain.upgrade() else { return };
+        let Ok(mut app) = app.try_borrow_mut() else { return };
+        app.drain_engine_events();
+    }));
+
     let weak = ui.as_weak();
     let app_for_tick = app.clone();
     let timer = slint::Timer::default();

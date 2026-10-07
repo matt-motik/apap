@@ -97,14 +97,14 @@ pub(crate) fn slint_wake() -> Arc<dyn Fn() + Send + Sync> {
 }
 
 thread_local! {
-    /// Хук слива очереди, выставляется в UI-потоке в шаге 28 (там же —
+    /// Хук слива очереди, выставляется в UI-потоке из `main` (там же —
     /// `Weak<RefCell<MusicApp>>`, `try_borrow_mut`: если занято, слив
     /// довершит тик 100 мс).
     static DRAIN_HOOK: RefCell<Option<Box<dyn Fn()>>> = RefCell::new(None);
 }
 
-/// Установить хук слива очереди. Вызывается один раз при инициализации
-/// `MusicApp` (шаг 28).
+/// Установить хук слива очереди. Вызывается один раз в `main` после
+/// `MusicApp::init`.
 pub(crate) fn install_drain_hook(f: Box<dyn Fn()>) {
     DRAIN_HOOK.with(|cell| {
         *cell.borrow_mut() = Some(f);

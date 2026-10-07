@@ -2189,14 +2189,11 @@ impl MusicApp {
         let _ = self.events_tx.send(event);
     }
 
-    /// Drain the event feed. Discrete transitions that matter to the tray
-    /// (track switch, play/pause/stop, device change) push a fresh tray state
-    /// immediately instead of waiting for the throttled status interval.
     /// Разобрать все накопленные события движка, применить принятый
     /// `Opened` к плейлисту и раздать остальные варианты `Applied` в
     /// `dispatch_applied` (ADR-02, И-Р13). Буфер `engine_applied`
     /// переиспользуется между тиками — без аллокации.
-    fn drain_engine_events(&mut self) {
+    pub fn drain_engine_events(&mut self) {
         let mut applied = std::mem::take(&mut self.engine_applied);
         applied.clear();
 
@@ -2338,6 +2335,9 @@ impl MusicApp {
         }
     }
 
+    /// Drain the event feed. Discrete transitions that matter to the tray
+    /// (track switch, play/pause/stop, device change) push a fresh tray state
+    /// immediately instead of waiting for the throttled status interval.
     fn drain_events(&mut self) {
         while let Ok(event) = self.events_rx.try_recv() {
             match event {
