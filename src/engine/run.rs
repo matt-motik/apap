@@ -4,6 +4,7 @@
 #![deny(clippy::unwrap_used, clippy::expect_used, clippy::unreachable)]
 
 use std::path::Path;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::mpsc::{self, Receiver, RecvTimeoutError};
 use std::sync::Arc;
 use std::thread::JoinHandle;
@@ -27,9 +28,14 @@ struct Engine {
     /// `req_gen` и путь последнего успешно открытого трека — для `SetDevice`
     /// (переоткрытие на новом устройстве) и для `req_gen` в `OpenFailed`.
     current: Option<(u64, Arc<Path>)>,
-    /// Кэш перечисления Shared-устройств (ADR-16, §2.3); пополняется по
-    /// `RefreshDevices`. Событие `Devices` и разбор ошибок — шаг 20.
+    /// Кэш перечисления Shared-устройств (ADR-16, §2.3); пополняется при
+    /// старте движка, по сигналу `DeviceWatcher` и по команде `RefreshDevices`
+    /// (ТЗ-104, ТЗ-105, §6.2 п.3).
     catalog: DeviceCatalog,
+    /// Флаг «список устройств мог измениться», выставляемый колбэком
+    /// `DeviceWatcher` из произвольного потока (ADR-16, ТЗ-105); `poll_session`
+    /// снимает его и перечисляет устройства не чаще одного раза на событие.
+    devices_dirty: Arc<AtomicBool>,
     /// Явная остановка транспорта (ADR-20, мост С3): легаси `Player` держит
     /// декодер загруженным и после `stop()` (`has_decoder()` остаётся
     /// `true`), поэтому `Stopped` отслеживается здесь, а не выводится из
@@ -61,6 +67,7 @@ impl Engine {
             deps,
             current: None,
             catalog: DeviceCatalog::default(),
+            devices_dirty: Arc::new(AtomicBool::new(false)),
             stopped: true,
             last_transport: None,
             last_pos: None,
@@ -74,7 +81,18 @@ impl Engine {
     /// тайм-ауте — опрос сессии `poll_session` (`Position`/`Transport`/
     /// `Ended`/резервирование, §6.1 п. 1–5, И-Р13, ТЗ-60, ТЗ-102). Опрос не
     /// выполняется после `Shutdown`/`Disconnected` — цикл уже завершается.
+    ///
+    /// Перед циклом (§6.2 п.3, ТЗ-104, ТЗ-105): запускается `DeviceWatcher` и
+    /// выполняется первое перечисление устройств — UI должен получить ответ
+    /// при старте даже при пустом списке (заменяет прежний busy-wait пробник
+    /// вывода на стороне UI).
     fn run(mut self, rx: Receiver<EngineCmd>) {
+        let dirty = Arc::clone(&self.devices_dirty);
+        self.deps.watcher.start(Box::new(move || {
+            dirty.store(true, Ordering::Release);
+        }));
+        self.refresh_devices(true);
+
         loop {
             match rx.recv_timeout(Duration::from_millis(20)) {
                 Ok(cmd) => {
@@ -198,9 +216,7 @@ impl Engine {
                 }
             }
             EngineCmd::RefreshDevices => {
-                // Мост С3: событие `Devices` и разбор `BackendError` — шаг 20;
-                // здесь каталог просто обновляется, если устройства сменились.
-                let _ = self.catalog.refresh(self.deps.shared.as_mut());
+                self.refresh_devices(false);
             }
             EngineCmd::SetVizTap(on) => {
                 self.player.set_viz_tap_active(on);
@@ -232,6 +248,23 @@ impl Engine {
         false
     }
 
+    /// Перечисляет Shared-устройства и уведомляет UI (ТЗ-104, ТЗ-105, ADR-16,
+    /// §6.2 п.3). `force_emit` шлёт `Devices` даже без изменения списка —
+    /// нужно для первого перечисления при старте движка; по `RefreshDevices`
+    /// и по сигналу `DeviceWatcher` событие шлётся только при изменении.
+    fn refresh_devices(&mut self, force_emit: bool) {
+        match self.catalog.refresh(self.deps.shared.as_mut()) {
+            Ok(changed) => {
+                if changed || force_emit {
+                    self.deps.events.emit(EngineEvent::Devices(Arc::new(self.catalog.clone())));
+                }
+            }
+            Err(e) => {
+                self.deps.events.emit(EngineEvent::Notice(Notice::DevicesUnavailable(e)));
+            }
+        }
+    }
+
     /// `Transport` по текущему состоянию (мост С3): `self.stopped` имеет
     /// приоритет (у легаси `Player` декодер остаётся загруженным и после
     /// `stop()`, `has_decoder()` не различает «остановлено» и «на паузе»);
@@ -256,10 +289,15 @@ impl Engine {
     }
 
     /// Опрос сессии на каждой итерации цикла (§6.1 п. 1–5, И-Р13, ТЗ-60,
-    /// ТЗ-102): только чтение состояния `Player`, без I/O. Порядок —
-    /// резервирование, мид-трековый отказ декодера, затем конец трека, затем
-    /// транспорт, затем позиция.
+    /// ТЗ-102): только чтение состояния `Player`, без I/O (перечисление
+    /// устройств по сигналу `DeviceWatcher` — исключение, ТЗ-105). Порядок —
+    /// каталог устройств, резервирование, мид-трековый отказ декодера, затем
+    /// конец трека, затем транспорт, затем позиция.
     fn poll_session(&mut self) {
+        if self.devices_dirty.swap(false, Ordering::Acquire) {
+            self.refresh_devices(false);
+        }
+
         if let Some(ev) = self.player.poll_reservation() {
             self.deps.events.emit(EngineEvent::Notice(Notice::Reservation(ev.clone())));
             match ev {
@@ -389,7 +427,8 @@ impl Drop for EngineHandle {
 mod tests {
     use super::*;
     use crate::audio::backend::catalog::FakeDeviceWatcher;
-    use crate::audio::backend::shared::FakeSharedBackend;
+    use crate::audio::backend::shared::{fake_device, FakeSharedBackend};
+    use crate::audio::backend::{BackendError, SharedDeviceId};
     use crate::audio::format::{ChannelLayout, Codec, Container, SampleRate, SourceFormat, SourceKind};
     use crate::audio::clock::MonotonicClock;
     use crate::engine::sink::VecSink;
@@ -410,10 +449,19 @@ mod tests {
     }
 
     fn fake_deps(events: Box<dyn crate::engine::sink::EventSink>, spawner: Arc<dyn crate::engine::spawner::ThreadSpawner>) -> EngineDeps {
+        fake_deps_with(events, spawner, Box::new(FakeSharedBackend::with_devices(Vec::new())), Box::new(FakeDeviceWatcher::new()))
+    }
+
+    fn fake_deps_with(
+        events: Box<dyn crate::engine::sink::EventSink>,
+        spawner: Arc<dyn crate::engine::spawner::ThreadSpawner>,
+        shared: Box<dyn crate::audio::backend::shared::SharedBackend>,
+        watcher: Box<dyn crate::audio::backend::catalog::DeviceWatcher>,
+    ) -> EngineDeps {
         let mem = MemStore::new();
         EngineDeps {
-            shared: Box::new(FakeSharedBackend::with_devices(Vec::new())),
-            watcher: Box::new(FakeDeviceWatcher::new()),
+            shared,
+            watcher,
             sources: Arc::new(FakeSource::with_format(pcm_format())),
             clock: Box::new(MonotonicClock::new()),
             store: Box::new(FsPersistStore::new(Arc::new(mem.clone()), Box::new(mem.clone()), PathBuf::from("/cfg"))),
@@ -446,5 +494,68 @@ mod tests {
             Err(other) => panic!("expected SpawnFailed, got {other:?}"),
             Ok(_) => panic!("expected spawn to fail"),
         }
+    }
+
+    #[test]
+    fn engine_startup_emits_devices_once() {
+        let sink = VecSink::new();
+        let shared = FakeSharedBackend::with_devices(vec![fake_device("hw:0", "Speakers")]);
+        let deps =
+            fake_deps_with(Box::new(sink.clone()), Arc::new(StdSpawner), Box::new(shared), Box::new(FakeDeviceWatcher::new()));
+
+        let handle = EngineHandle::spawn(deps).expect("spawn ok");
+        assert!(handle.send(EngineCmd::Shutdown));
+        handle.join();
+
+        let events = sink.take();
+        let devices: Vec<_> = events
+            .iter()
+            .filter_map(|e| match e {
+                EngineEvent::Devices(catalog) => Some(catalog.clone()),
+                _ => None,
+            })
+            .collect();
+        assert_eq!(devices.len(), 1);
+        assert_eq!(devices[0].shared.len(), 1);
+        assert_eq!(devices[0].shared[0].id, SharedDeviceId::new("hw:0"));
+    }
+
+    #[test]
+    fn engine_device_watcher_fire_unchanged_emits_no_duplicate() {
+        let sink = VecSink::new();
+        let shared = FakeSharedBackend::with_devices(vec![fake_device("hw:0", "Speakers")]);
+        let watcher = FakeDeviceWatcher::new();
+        let trigger = watcher.trigger_handle();
+        let deps =
+            fake_deps_with(Box::new(sink.clone()), Arc::new(StdSpawner), Box::new(shared), Box::new(watcher));
+
+        let handle = EngineHandle::spawn(deps).expect("spawn ok");
+        trigger.fire();
+        assert!(handle.send(EngineCmd::SetVolume(0.5)));
+        assert!(handle.send(EngineCmd::Shutdown));
+        handle.join();
+
+        let events = sink.take();
+        let devices_count = events.iter().filter(|e| matches!(e, EngineEvent::Devices(_))).count();
+        assert_eq!(devices_count, 1);
+    }
+
+    #[test]
+    fn engine_startup_device_error_emits_notice() {
+        let sink = VecSink::new();
+        let shared = FakeSharedBackend::with_error(BackendError::Unavailable("no host".to_string()));
+        let deps =
+            fake_deps_with(Box::new(sink.clone()), Arc::new(StdSpawner), Box::new(shared), Box::new(FakeDeviceWatcher::new()));
+
+        let handle = EngineHandle::spawn(deps).expect("spawn ok");
+        assert!(handle.send(EngineCmd::Shutdown));
+        handle.join();
+
+        let events = sink.take();
+        assert!(events.iter().any(|e| matches!(
+            e,
+            EngineEvent::Notice(Notice::DevicesUnavailable(BackendError::Unavailable(msg))) if msg == "no host"
+        )));
+        assert!(!events.iter().any(|e| matches!(e, EngineEvent::Devices(_))));
     }
 }

@@ -6,6 +6,8 @@
 use std::path::Path;
 use std::sync::Arc;
 
+use crate::audio::backend::catalog::DeviceCatalog;
+use crate::audio::backend::BackendError;
 use crate::audio::decoder::TrackInfo;
 use crate::audio::error::{FileError, OpenError, Reaction};
 use crate::audio::player::{ReservationEvent, StreamDesc};
@@ -97,6 +99,8 @@ pub enum SkipReason {
 #[derive(Clone, PartialEq, Debug)]
 pub enum Notice {
     Reservation(ReservationEvent),
+    /// Перечисление устройств упало — хост не ответил (ТЗ-104, ТЗ-105, ADR-16, §6.2 п.3).
+    DevicesUnavailable(BackendError),
 }
 
 /// События движок → UI (мост С3).
@@ -116,6 +120,9 @@ pub enum EngineEvent {
     /// Только из цикла движка, при изменении (И-Р13); мост: секунды.
     Position { secs: f64 },
     DeviceLost { reaction: Reaction },
+    /// Каталог устройств после перечисления (ТЗ-104, ТЗ-105, ADR-16, §6.2 п.3):
+    /// шлётся при старте движка и затем только при изменении списка.
+    Devices(Arc<DeviceCatalog>),
     Notice(Notice),
     ShutdownComplete,
 }
