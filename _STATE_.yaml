@@ -73,7 +73,7 @@ steps:
     done: true
   - id: 12
     description: "Перенос src/tray.rs → src/platform/tray/mod.rs (git mv) с мостом `pub use platform::tray;` в lib.rs (§8.1 С5). Файлы: src/lib.rs, src/platform/mod.rs (+ перемещённый файл). Проверка: cargo check"
-    done: false
+    done: true
   - id: 13
     description: "Импорты app/main на crate::platform::tray, удалить мост из lib.rs (§8.1 С5). Файлы: src/app/mod.rs, src/lib.rs (main.rs — если импортирует tray). Проверка: cargo check"
     done: false
@@ -126,8 +126,8 @@ steps:
     description: "Финал: grep cfg(target_os вне src/platform (аудио-места AM1.0 — вне задач SP1.0), полный cargo test + cargo clippy, ROADMAP ✅ (ТЗ-54 приёмка). Файлы: ROADMAP.md, _STATE_.yaml. Проверка: всё зелёное"
     done: false
 
-current_step: 12
-next_action: "Шаг 12 (свежий субагент code-writer/sonnet)"
+current_step: 13
+next_action: "Шаг 13: импорты на crate::platform::tray, удалить мост"
 
 fail_counter: 0
 fail_counter_max: 3
