@@ -44,6 +44,12 @@ struct Engine {
     /// Момент последней отправки `Position` — минимальный интервал 100 мс
     /// (§6.1 п. 4, И-Р13).
     last_pos_at: Option<ClockInstant>,
+    /// Мид-трековый отказ декодера уже разобран в текущей сессии (ТЗ-87,
+    /// §6.18 шаг 19): `poll_session` уже отправил `Skipped` и не должен затем
+    /// отправить `Ended` по тому же `ended()` (мид-трековый отказ — это
+    /// пропуск, а не штатный конец трека). Сбрасывается на следующий успешный
+    /// `Open`.
+    session_failed: bool,
 }
 
 impl Engine {
@@ -59,6 +65,7 @@ impl Engine {
             last_transport: None,
             last_pos: None,
             last_pos_at: None,
+            session_failed: false,
         }
     }
 
@@ -94,6 +101,17 @@ impl Engine {
     fn handle(&mut self, cmd: EngineCmd) -> bool {
         match cmd {
             EngineCmd::Open { req_gen, path, start_secs, autoplay } => {
+                // §6.18 шаг 3: сначала только заголовок через `SourceOpener`,
+                // без касания `Player` (ТЗ-86, ТЗ-103, ADR-20). Ошибка —
+                // классифицированный `FileError`, сразу `Skipped`.
+                if let Err(e) = self.deps.sources.probe(&path) {
+                    self.deps.events.emit(EngineEvent::Skipped {
+                        req_gen,
+                        path,
+                        reason: SkipReason::File(e),
+                    });
+                    return false;
+                }
                 match self.player.open(&path) {
                     Ok(info) => {
                         if start_secs > 0.0 {
@@ -105,19 +123,31 @@ impl Engine {
                         self.current = Some((req_gen, Arc::clone(&path)));
                         self.stopped = false;
                         self.last_pos = None;
+                        self.session_failed = false;
                         let stream = self.player.stream_desc().cloned();
                         self.deps.events.emit(EngineEvent::Opened { req_gen, info, stream });
                         self.refresh_transport();
                     }
                     Err(msg) => {
-                        // Мост С3: ошибка открытия ещё не классифицирована
-                        // (`FileError` точнее — §6.18 шаг 19); пока заворачиваем
-                        // текст легаси-ошибки в `Unsupported`.
-                        self.deps.events.emit(EngineEvent::Skipped {
-                            req_gen,
-                            path,
-                            reason: SkipReason::File(FileError::Unsupported { codec: msg }),
-                        });
+                        // §6.18 шаг 19 (ТЗ-87, ТЗ-88): отказ запуска потока
+                        // `apap-decode` (`ThreadSpawner`) — внутренняя ошибка
+                        // движка, а не файла; иначе — мост С3: легаси `Player`
+                        // пока отдаёт только текст, заворачиваем в `Unsupported`.
+                        match self.player.take_fault() {
+                            Some(fault) => {
+                                self.deps.events.emit(EngineEvent::OpenFailed {
+                                    req_gen,
+                                    err: OpenError::Internal(fault),
+                                });
+                            }
+                            None => {
+                                self.deps.events.emit(EngineEvent::Skipped {
+                                    req_gen,
+                                    path,
+                                    reason: SkipReason::File(FileError::Unsupported { codec: msg }),
+                                });
+                            }
+                        }
                     }
                 }
             }
@@ -227,7 +257,8 @@ impl Engine {
 
     /// Опрос сессии на каждой итерации цикла (§6.1 п. 1–5, И-Р13, ТЗ-60,
     /// ТЗ-102): только чтение состояния `Player`, без I/O. Порядок —
-    /// резервирование, затем конец трека, затем транспорт, затем позиция.
+    /// резервирование, мид-трековый отказ декодера, затем конец трека, затем
+    /// транспорт, затем позиция.
     fn poll_session(&mut self) {
         if let Some(ev) = self.player.poll_reservation() {
             self.deps.events.emit(EngineEvent::Notice(Notice::Reservation(ev.clone())));
@@ -261,9 +292,33 @@ impl Engine {
             }
         }
 
+        // §6.18 шаг 19 (ТЗ-87): мид-трековый отказ декодера после `Ready` —
+        // `DecodeWorker` после `Failed` сам доходит до EOF (`shared.ended`),
+        // поэтому без этой проверки трек выглядел бы штатно доигранным.
+        // Это пропуск, а не конец трека — `session_failed` гасит `Ended` ниже.
+        if let Some(e) = self.player.poll_decode_failure() {
+            if let Some((req_gen, path)) = &self.current {
+                let reason = match e {
+                    // Кадр отказа недоступен дёшево на этой границе (мост С3,
+                    // без `as`-приведений позиции): фиксируется 0, точная
+                    // позиция — следующий этап.
+                    FileError::Io(kind) => FileError::ReadDuringPlayback { at_frame: 0, kind },
+                    other => other,
+                };
+                self.deps.events.emit(EngineEvent::Skipped {
+                    req_gen: *req_gen,
+                    path: Arc::clone(path),
+                    reason: SkipReason::File(reason),
+                });
+            }
+            self.session_failed = true;
+        }
+
         if self.player.ended() {
-            if let Some((req_gen, _)) = &self.current {
-                self.deps.events.emit(EngineEvent::Ended { session: *req_gen });
+            if !self.session_failed {
+                if let Some((req_gen, _)) = &self.current {
+                    self.deps.events.emit(EngineEvent::Ended { session: *req_gen });
+                }
             }
             // Движок — единственный потребитель флага конца трека теперь
             // (легаси UI-слой флаг больше не читает).

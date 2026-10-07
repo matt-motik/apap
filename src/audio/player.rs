@@ -12,7 +12,7 @@ use cpal::{BufferSize, SampleFormat};
 use super::decoder::{AudioSource, Decoder, TrackInfo};
 use super::dsd::{DecodeMode, DsdDecoder};
 use super::clock::{Clock, ClockInstant, MonotonicClock};
-use super::error::CaptureFailure;
+use super::error::{CaptureFailure, EngineFault, FileError};
 use super::reservation::gate::{ExclusiveGate, GateEvent, GateStatus, OpenOutcome};
 use super::output::{
     build_output_stream_raw, dop_render_for, pcm_render_for, select_output_for, FallbackReason,
@@ -398,6 +398,15 @@ pub struct Player {
     /// Подмена запуска потоков движком (ТЗ-88, ADR-20); по умолчанию — боевой
     /// `StdSpawner`.
     spawner: Arc<dyn ThreadSpawner>,
+    /// Отказ запуска потока `apap-decode` последнего `open` (ТЗ-88, §6.18
+    /// шаг 19): движок читает его через [`Player::take_fault`], чтобы отличить
+    /// `OpenFailed(Internal(..))` от классификации по файлу.
+    last_fault: Option<EngineFault>,
+    /// Приёмник событий декодера, оставленный живым после `Ready` (ТЗ-87,
+    /// §6.18 шаг 19): мид-трековый `DecodeEvent::Failed` до этого терялся —
+    /// воркер уходил в EOF, и трек выглядел нормально доигранным. Опрашивается
+    /// неблокирующе через [`Player::poll_decode_failure`].
+    decode_events: Option<mpsc::Receiver<DecodeEvent>>,
 }
 
 impl Player {
@@ -442,6 +451,8 @@ impl Player {
             dither_idx: DITHER_INDEX_TPDF,
             viz_active: false,
             spawner: Arc::new(StdSpawner),
+            last_fault: None,
+            decode_events: None,
         }
     }
 
@@ -581,7 +592,31 @@ impl Player {
     /// step that succeeds wins. `FallbackPolicy::Fail` stops the chain after
     /// the first failed step. Returns the track info; errors are strings.
     pub fn open(&mut self, path: &Path) -> Result<TrackInfo, String> {
+        self.last_fault = None;
         self.open_at(path, 0.0)
+    }
+
+    /// Забирает отказ запуска `apap-decode` последнего `open`, если он был
+    /// (ТЗ-88, §6.18 шаг 19): движок различает `OpenFailed(Internal(..))` и
+    /// классификацию по файлу (`SkipReason::File`) по наличию этого отказа.
+    pub fn take_fault(&mut self) -> Option<EngineFault> {
+        self.last_fault.take()
+    }
+
+    /// Неблокирующий опрос мид-трекового отказа декодера (ТЗ-87, §6.18
+    /// шаг 19): `Ready` игнорируется, пустой/отключённый канал — `None`.
+    /// Вызывается на каждой итерации цикла движка ([`Engine::poll_session`]),
+    /// пока трек играет — до этого `DecodeEvent::Failed` после `Ready` терялся,
+    /// и воркер молча уходил в EOF (трек выглядел доигранным штатно).
+    pub fn poll_decode_failure(&mut self) -> Option<FileError> {
+        let rx = self.decode_events.as_ref()?;
+        loop {
+            match rx.try_recv() {
+                Ok(DecodeEvent::Ready) => continue,
+                Ok(DecodeEvent::Failed(e)) => return Some(e),
+                Err(_) => return None,
+            }
+        }
     }
 
     /// [`Player::open`] с началом сессии в `start_secs` (фаза 1 seek, §6.16):
@@ -713,8 +748,9 @@ impl Player {
             return Ok(None);
         };
         match self.spawn_decoder(feed, ring, &plan, &shared, cap_frames, start_frame) {
-            Ok(worker) => {
+            Ok((worker, rx)) => {
                 self.worker = Some(worker);
+                self.decode_events = Some(rx);
                 Ok(Some(stream))
             }
             Err(e) => {
@@ -731,15 +767,20 @@ impl Player {
 
     /// Поток `apap-decode` над ring сессии; возврат — после `Ready` (§6.18).
     /// Ошибка декодирования или таймаут заполнения — отказ открытия (ТЗ-87).
+    /// Отказ самого запуска потока (`ThreadSpawner`) сохраняется в
+    /// `last_fault` (ТЗ-88, §6.18 шаг 19) — движок отличает его от
+    /// классификации по файлу. Приёмник `rx` возвращается вместе с воркером:
+    /// он остаётся живым после `Ready`, чтобы мид-трековый `Failed` не терялся
+    /// ([`Player::poll_decode_failure`]).
     fn spawn_decoder(
-        &self,
+        &mut self,
         feed: EngineFeed,
         ring: EngineRing,
         plan: &EnginePlan,
         shared: &Arc<SessionShared>,
         cap_frames: usize,
         start_frame: u64,
-    ) -> Result<DecodeWorker, String> {
+    ) -> Result<(DecodeWorker, mpsc::Receiver<DecodeEvent>), String> {
         let (tx, rx) = mpsc::channel();
         let cfg = DecodeConfig {
             channels: plan.channels,
@@ -762,9 +803,15 @@ impl Player {
             }
             _ => return Err("internal: ring type does not match the feed".into()),
         };
-        let worker = spawned.map_err(|e| format!("cannot spawn decode thread: {e:?}"))?;
+        let worker = match spawned {
+            Ok(w) => w,
+            Err(e) => {
+                self.last_fault = Some(e.clone());
+                return Err(format!("cannot spawn decode thread: {e:?}"));
+            }
+        };
         match rx.recv_timeout(START_FILL_TIMEOUT) {
-            Ok(DecodeEvent::Ready) => Ok(worker),
+            Ok(DecodeEvent::Ready) => Ok((worker, rx)),
             Ok(DecodeEvent::Failed(e)) => Err(format!("decoding failed: {e:?}")),
             Err(_) => Err("decoder did not fill the start buffer in time".into()),
         }
@@ -1382,6 +1429,8 @@ impl Player {
             dither_idx: DITHER_INDEX_TPDF,
             viz_active: false,
             spawner: Arc::new(StdSpawner),
+            last_fault: None,
+            decode_events: None,
         }
     }
 }
