@@ -51,7 +51,7 @@ steps:
     done: true
   - id: 2
     description: "EventSink + VecSink (фейк, cfg(test)/testing) (§2.8, ADR-02, ADR-20). Файл: src/engine/sink.rs. Проверка: cargo check"
-    done: false
+    done: true
   - id: 3
     description: "Классы ошибок: OpenError (подмножество С3: Capture, DeviceLost, File, Internal; Incompatible/ModeUnavailable — С4/С5), Reaction, classify, reaction(class, ModeKind, DeviceChoiceKind) по таблице ADR-14; ModeKind {Compatible, Optimal, Strict} временно в src/settings.rs (в С4 переезжает в settings/playback.rs, решение пользователя 2026-10-07); юнит-тест error_classes_distinct_reactions (ADR-14, §2.4, ТЗ-86). Выполняется ДО шага 1 (OpenError нужен событиям). Файлы: src/audio/error.rs, src/settings.rs. Проверка: cargo test error_classes"
     done: true
@@ -161,8 +161,8 @@ steps:
     description: "Финал: полный cargo test + clippy, tools/check_rt_imports.py, grep Player вне src/engine и src/audio, ROADMAP ✅, ручные проверки за пользователем (UI не блокируется, ошибки треков видны, Exclusive через старый путь). Файлы: ROADMAP.md, _STATE_.yaml. Проверка: всё зелёное"
     done: false
 
-current_step: 2
-next_action: "Шаг 2: EventSink + VecSink в src/engine/sink.rs (EngineEvent уже в messages.rs), затем ЧЕКПОИНТ 4. Шаги 3 и 1 сделаны. Решения пользователя 2026-10-07: мост SetLegacyAudio (вместо SetModeSettings/SetActiveMode до С4); ModeKind временно в src/settings.rs. Player — внутренняя деталь apap-engine (мост). Тесты — только на ЧЕКПОИНТ-шагах."
+current_step: 4
+next_action: "Шаг 4: ЧЕКПОИНТ шагов 1–3 (полный cargo test + clippy), затем шаг 5 ThreadSpawner. Решения пользователя 2026-10-07: мост SetLegacyAudio (вместо SetModeSettings/SetActiveMode до С4); ModeKind временно в src/settings.rs. Player — внутренняя деталь apap-engine (мост). Тесты — только на ЧЕКПОИНТ-шагах."
 fail_counter: 0
 fail_counter_max: 3
 failed_attempts: []
