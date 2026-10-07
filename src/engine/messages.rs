@@ -51,6 +51,10 @@ pub enum EngineCmd {
     /// Мост С3: передача producer'а tap в движок (сейчас `Player::set_viz_tap`).
     AttachVizTap(Option<rtrb::Producer<f32>>),
     SetLegacyAudio(LegacyAudio),
+    /// Мост С3: освободить монопольный узел `hw:` без перемотки (конец
+    /// плейлиста, уход в трей — V5.1-B5/B6). В С6 заменяется `release`
+    /// монопольного бэкенда (ТЗ-48).
+    ReleaseExclusive,
     Shutdown,
 }
 
@@ -77,6 +81,7 @@ impl std::fmt::Debug for EngineCmd {
                 f.debug_tuple("AttachVizTap").field(&producer.as_ref().map(|_| "<producer>")).finish()
             }
             EngineCmd::SetLegacyAudio(audio) => f.debug_tuple("SetLegacyAudio").field(audio).finish(),
+            EngineCmd::ReleaseExclusive => write!(f, "ReleaseExclusive"),
             EngineCmd::Shutdown => write!(f, "Shutdown"),
         }
     }

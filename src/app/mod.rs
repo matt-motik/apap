@@ -49,6 +49,7 @@ use music_player_rs::platform::tray;
 /// индекс ComboBox («Авто», «44.1k» … «192k») → Гц. «Авто» (0) → 0 = не задано.
 const FIXED_RATES: [u32; 7] = [0, 44_100, 48_000, 88_200, 96_000, 176_400, 192_000];
 
+mod audio_facade;
 pub mod bp_report;
 mod engine_sink;
 pub mod events;

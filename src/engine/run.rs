@@ -218,6 +218,10 @@ impl Engine {
             EngineCmd::RefreshDevices => {
                 self.refresh_devices(false);
             }
+            EngineCmd::ReleaseExclusive => {
+                self.player.release_if_exclusive();
+                self.refresh_transport();
+            }
             EngineCmd::SetVizTap(on) => {
                 self.player.set_viz_tap_active(on);
             }
