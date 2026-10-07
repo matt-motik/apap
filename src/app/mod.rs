@@ -12,6 +12,7 @@ use slint::{ComponentHandle, Model, ModelRc, SharedString, StandardListViewItem,
 use slint::language::{SortOrder, TableColumn};
 
 use music_player_rs::audio::analyzer::TAP_CAPACITY;
+use music_player_rs::audio::error::EngineFault;
 use music_player_rs::audio::output::{default_device_name, probe_output, DeviceInfo};
 use music_player_rs::audio::player::{Player, ReservationEvent};
 use music_player_rs::audio::visualizer::{
@@ -24,6 +25,7 @@ use music_player_rs::core::messages::{
 use music_player_rs::core::exit::{ExitOutcome, ExitReason};
 use music_player_rs::core::AppCore;
 use music_player_rs::cover::{self, CoverDone, CoverJob};
+use music_player_rs::engine::run::EngineHandle;
 use music_player_rs::persist::settings_file::Settings as PersistSettings;
 use music_player_rs::persist::settings_file::{ColumnsConfig, ThemeName};
 use music_player_rs::persist::state_file::{
@@ -51,7 +53,7 @@ const FIXED_RATES: [u32; 7] = [0, 44_100, 48_000, 88_200, 96_000, 176_400, 192_0
 
 mod audio_facade;
 pub mod bp_report;
-mod engine_sink;
+pub(crate) mod engine_sink;
 pub mod events;
 pub mod fulltrack_manager;
 pub mod playback_manager;
@@ -61,6 +63,7 @@ pub mod ui_manager;
 pub mod visualizer_manager;
 pub mod viz_settings_manager;
 
+use engine_sink::EngineEventQueue;
 use events::AppEvent;
 use fulltrack_manager::{FullCmd, FullEvt};
 
@@ -386,6 +389,18 @@ pub struct MusicApp {
     caps: PlatformCaps,
     /// Системные уведомления при окне в трее (ADR-9, ТЗ-52 п. 2).
     notifier: Box<dyn Notifier>,
+    /// Поток движка `apap-engine` (ADR-01); `None` — запуск не удался
+    /// (ТЗ-88), причина в `engine_fault`. Мост: до подмены `Player` на
+    /// `AudioFacade` не используется.
+    #[allow(dead_code)]
+    engine: Option<EngineHandle>,
+    /// Причина отказа запуска движка, если `engine` — `None` (ТЗ-88, §2.10).
+    #[allow(dead_code)]
+    engine_fault: Option<EngineFault>,
+    /// Приёмная сторона канала событий движка (ADR-02); слив подключается
+    /// на следующем шаге.
+    #[allow(dead_code)]
+    engine_events: EngineEventQueue,
 }
 
 impl MusicApp {
@@ -393,13 +408,22 @@ impl MusicApp {
     /// каталог настроек пользователя само, поэтому тесты его не трогают (ТЗ-49).
     /// `tray` — UI-концы каналов трея; сам трей запускает `Lifecycle::install`
     /// (ADR-23 шаг 8). `notifier` — системные уведомления (ADR-9).
+    /// `engine`/`engine_events` — поток `apap-engine` и канал его событий,
+    /// запущенные в `main` до `AppCore` (ADR-01, ADR-19, ТЗ-88); движок ещё
+    /// не подключён к логике приложения на этом шаге.
     pub fn new(
         ui: AppWindow,
         core: AppCore,
         paths: ConfigPaths,
         tray: tray::TrayChannels,
         notifier: Box<dyn Notifier>,
+        engine: Result<EngineHandle, EngineFault>,
+        engine_events: EngineEventQueue,
     ) -> Self {
+        let (engine, engine_fault) = match engine {
+            Ok(handle) => (Some(handle), None),
+            Err(fault) => (None, Some(fault)),
+        };
         let mut player = Player::new();
         let pb_state = core.state().playback();
         let pb = &core.settings().playback;
@@ -545,6 +569,9 @@ impl MusicApp {
             // Трей и уведомления — после регистрации значка (poll_tray, ADR-6).
             caps: PlatformCaps::default(),
             notifier,
+            engine,
+            engine_fault,
+            engine_events,
         };
         // Загрузка плейлиста при старте ещё не завершена (фон, выше) —
         // список недоступен до её окончания (ТЗ-48, §2.11).

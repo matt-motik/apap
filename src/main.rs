@@ -6,6 +6,8 @@ use app::MusicApp;
 use music_player_rs::audio::clock::MonotonicClock;
 use music_player_rs::core::exit::{ChannelWaiter, ExitOutcome, ExitReason};
 use music_player_rs::core::{AppCore, AppDeps};
+use music_player_rs::engine::deps::EngineDeps;
+use music_player_rs::engine::run::EngineHandle;
 use music_player_rs::journal::{FileJournal, Journal};
 use music_player_rs::persist::keys::Parsed;
 use music_player_rs::persist::writer::{spawn_writer, WriterCmd, WriterHandle, WriterReply};
@@ -69,6 +71,9 @@ fn main() {
     // `Write` — FIFO писателя (§6.6) гарантирует нужный порядок без
     // синхронной записи (§8 С4, ADR-23 шаг 3).
     bad_copies_via_writer(&boot, &writer, journal.as_ref());
+    // Движок запускается до AppCore — `deps` строит только main (ADR-19, ADR-01, ADR-20).
+    let (engine_sink, engine_events) = app::engine_sink::event_channel(app::engine_sink::slint_wake());
+    let engine = EngineHandle::spawn(EngineDeps::system(Box::new(engine_sink), paths.dir.clone(), journal.clone()));
     // `AppCore` — владелец действующих настроек и состояния, писателя и
     // инжектируемых часов/ожидания (ADR-19, ADR-23, §2.12, §6.1). `MusicApp`
     // владеет этим экземпляром; старое плоское поле настроек заполняется из
@@ -101,7 +106,15 @@ fn main() {
     let tray_port = TrayPort { updates: tray_updates_rx, ready: tray_ready_tx, rt: notify_rt.clone() };
     let notifier = platform_notifier(notify_rt, journal.clone());
     let tray = TrayChannels { events: tray_events, updates: tray_updates, ready: tray_ready };
-    let app = Rc::new(RefCell::new(MusicApp::new(ui.clone_strong(), core, paths, tray, notifier)));
+    let app = Rc::new(RefCell::new(MusicApp::new(
+        ui.clone_strong(),
+        core,
+        paths,
+        tray,
+        notifier,
+        engine,
+        engine_events,
+    )));
     MusicApp::init(&app);
 
     let weak = ui.as_weak();
