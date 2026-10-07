@@ -124,7 +124,7 @@ steps:
     done: true
   - id: 29
     description: "Windows: SetWindowSubclass на HWND (WM_QUERYENDSESSION→TRUE; WM_ENDSESSION wParam=TRUE → синхронный выход, return 0) (ADR-7, ТЗ-15). Файлы: src/platform/lifecycle/windows.rs, Cargo.toml (windows-sys features). Проверка: cargo check (Linux) + ревью; сборка Windows — на ноутбуке"
-    done: false
+    done: true
   - id: 30
     description: "macOS: applicationShouldTerminate: через class_addMethod на делегат winit, фолбэк NSApplicationWillTerminateNotification (ADR-7, ТЗ-15). Файлы: src/platform/lifecycle/macos.rs, Cargo.toml (objc2*). Проверка: cargo check (Linux) + ревью"
     done: false
@@ -141,8 +141,8 @@ steps:
     description: "Финал: grep cfg(target_os вне src/platform (аудио-места AM1.0 — вне задач SP1.0), полный cargo test + cargo clippy, ROADMAP ✅ (ТЗ-54 приёмка). Файлы: ROADMAP.md, _STATE_.yaml. Проверка: всё зелёное"
     done: false
 
-current_step: 29
-next_action: "Шаг 29: Windows SetWindowSubclass в lifecycle/windows.rs (только cargo check на Linux; сборка Windows — на ноутбуке). Ветку не-Linux (трей, platform_lifecycle, platform_notifier) проверить при кросс-ОС приёмке"
+current_step: 30
+next_action: "Шаг 30: macOS applicationShouldTerminate: (class_addMethod на WinitApplicationDelegate, фолбэк NSApplicationWillTerminateNotification) в lifecycle/macos.rs. Не-Linux ветки (трей, platform_lifecycle, platform_notifier, windows.rs сабкласс) не компилировались локально — собрать на ноутбуке при кросс-ОС приёмке"
 
 fail_counter: 0
 fail_counter_max: 3

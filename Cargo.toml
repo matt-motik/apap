@@ -43,9 +43,15 @@ ksni = "0.3.6"
 zbus = "5.19"
 tokio = { version = "1.53.1", features = ["rt-multi-thread"] }
 
-# `MoveFileExW` с `MOVEFILE_WRITE_THROUGH` (ADR-4).
+# `MoveFileExW` с `MOVEFILE_WRITE_THROUGH` (ADR-4); `SetWindowSubclass` для
+# завершения сеанса (ADR-7 п. 4).
 [target.'cfg(windows)'.dependencies]
-windows-sys = { version = "0.61", features = ["Win32_Storage_FileSystem"] }
+windows-sys = { version = "0.61", features = [
+    "Win32_Foundation",
+    "Win32_Storage_FileSystem",
+    "Win32_UI_Shell",
+    "Win32_UI_WindowsAndMessaging",
+] }
 
 # Линтер прод-кода (AM1.0 §6.29, §7.7, ТЗ-101): deny; в тестах unwrap/expect
 # разрешены через clippy.toml, unreachable! в тестах не используется.

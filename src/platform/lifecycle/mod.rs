@@ -71,6 +71,9 @@ pub use fake::FakeLifecycle;
 #[cfg(unix)]
 pub mod unix;
 
+#[cfg(windows)]
+pub mod windows;
+
 /// Реализация жизненного цикла этой ОС (ADR-6, ADR-7); `tray` запускается
 /// в `install` (ADR-23 шаг 8).
 #[cfg(unix)]
@@ -78,11 +81,17 @@ pub fn platform_lifecycle(tray: Option<(TrayPort, Box<dyn Clock>)>) -> Box<dyn L
     Box::new(unix::UnixLifecycle::new(tray))
 }
 
-/// Реализация жизненного цикла этой ОС (ADR-6, ADR-7): Windows — без
-/// перехватов, пока нет сабклассинга HWND (ADR-7 п. 4).
-#[cfg(not(unix))]
+/// Реализация жизненного цикла Windows (ADR-6, ADR-7 п. 4): сабкласс HWND.
+#[cfg(windows)]
 pub fn platform_lifecycle(tray: Option<(TrayPort, Box<dyn Clock>)>) -> Box<dyn Lifecycle> {
     // Трея нет (В-1): закрытый `ready` оставляет `PlatformCaps.tray = false`.
+    drop(tray);
+    Box::new(windows::WindowsLifecycle::new())
+}
+
+/// Прочие ОС: перехватов нет (ADR-6).
+#[cfg(not(any(unix, windows)))]
+pub fn platform_lifecycle(tray: Option<(TrayPort, Box<dyn Clock>)>) -> Box<dyn Lifecycle> {
     drop(tray);
     Box::new(FakeLifecycle::new())
 }
