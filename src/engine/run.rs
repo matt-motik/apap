@@ -225,8 +225,12 @@ impl Engine {
                 self.player.set_viz_tap(producer);
             }
             EngineCmd::SetLegacyAudio(audio) => {
-                // Применение старых настроек звука в памяти движка без I/O
-                // (ТЗ-134, И-Р24); заменяется `SetModeSettings`/`SetActiveMode` в С4.
+                // Применение старых настроек звука в памяти движка без
+                // файлового I/O (ТЗ-134, И-Р24): сеттеры `Player` только
+                // пишут поля, применяемые на следующем `open`; `bit_perfect` и
+                // `dither` при изменении переоткрывают поток с текущей позиции
+                // (I/O устройства, не настроек). Сохранение — дело UI.
+                // Заменяется `SetModeSettings`/`SetActiveMode` в С4.
                 self.player.set_exclusive_mode(audio.exclusive_mode);
                 self.player.set_fallback_policy(audio.fallback_policy);
                 self.player.set_dsd_mode(audio.dsd_mode);
