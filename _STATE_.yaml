@@ -61,7 +61,7 @@ steps:
     done: true
   - id: 8
     description: "Типы жизненного цикла: TrayEvent, TrayScroll, PlatformError, ExitEntry, ProcessExit, трейт Lifecycle (§2.8, ADR-7, ТЗ-54 п.1). Файл: src/platform/lifecycle/mod.rs. Проверка: cargo check"
-    done: false
+    done: true
   - id: 9
     description: "FakeLifecycle: caps задаёт тест, fire(ExitReason) вызывает ExitEntry (ADR-6, §2.8). Файл: src/platform/lifecycle/fake.rs. Проверка: cargo check"
     done: false
@@ -126,8 +126,8 @@ steps:
     description: "Финал: grep cfg(target_os вне src/platform (аудио-места AM1.0 — вне задач SP1.0), полный cargo test + cargo clippy, ROADMAP ✅ (ТЗ-54 приёмка). Файлы: ROADMAP.md, _STATE_.yaml. Проверка: всё зелёное"
     done: false
 
-current_step: 8
-next_action: "Шаг 8: типы lifecycle в src/platform/lifecycle/mod.rs (свежий субагент code-writer/sonnet)"
+current_step: 9
+next_action: "Шаг 9: FakeLifecycle в src/platform/lifecycle/fake.rs"
 
 fail_counter: 0
 fail_counter_max: 3
