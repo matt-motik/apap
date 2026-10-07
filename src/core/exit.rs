@@ -29,6 +29,14 @@ pub enum ExitReason {
     MacosTerminate,
 }
 
+impl ExitReason {
+    /// Завершать ли цикл событий после пути выхода (ADR-7 п. 2.7): обработчики
+    /// ОС Windows и macOS ждут возврата, процесс завершает сама ОС (ТЗ-15).
+    pub fn quits_event_loop(self) -> bool {
+        !matches!(self, ExitReason::WindowsSessionEnd | ExitReason::MacosTerminate)
+    }
+}
+
 /// Сигнал завершения процесса (ТЗ-14, ADR-7).
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub enum TermSignal {

@@ -662,7 +662,7 @@ impl MusicApp {
             eprintln!("[app] exit {reason:?}: уже выполняется, повтор проигнорирован");
             return outcome;
         }
-        if !matches!(reason, ExitReason::WindowsSessionEnd | ExitReason::MacosTerminate) {
+        if reason.quits_event_loop() {
             let _ = slint::quit_event_loop();
         }
         outcome

@@ -269,7 +269,7 @@ impl Harness {
 mod tests {
     use super::*;
     use crate::audio::visualizer::VisualizationMode;
-    use crate::core::exit::{ExitOutcome, ExitReason};
+    use crate::core::exit::{ExitOutcome, ExitPhase, ExitReason, TermSignal};
     use crate::journal::WriteTarget;
     use crate::platform::fs::FsOp;
     use crate::persist::keys::{KeyPath, LoadNoteKind};
@@ -1235,6 +1235,79 @@ mod tests {
             })
             .expect("ExitSummary journaled");
         assert_eq!(report.written, vec![WorkFile::State]);
+    }
+
+    /// Запись `state.toml` и `settings.toml` путём выхода — ровно по одному
+    /// снимку на изменённый файл для КАЖДОЙ причины выхода, включая все три
+    /// сигнала завершения процесса и обработчики ОС (ТЗ-14, ТЗ-15, §7.2
+    /// `exit_writes_settings_once`): без изменений оба файла остаются в
+    /// `report.unchanged` без единой записи, изменение обоих — по одной
+    /// записи на файл.
+    #[test]
+    fn exit_writes_settings_once() {
+        let reasons = [
+            ExitReason::WindowClose,
+            ExitReason::TrayQuit,
+            ExitReason::Signal(TermSignal::Term),
+            ExitReason::Signal(TermSignal::Int),
+            ExitReason::Signal(TermSignal::Hup),
+            ExitReason::WindowsSessionEnd,
+            ExitReason::MacosTerminate,
+        ];
+        let settings_bytes =
+            crate::persist::settings_file::serialize_settings(&Settings::default()).expect("serialize settings");
+        let state_bytes =
+            crate::persist::state_file::serialize_state(&SessionState::default()).expect("serialize state");
+
+        for reason in reasons {
+            let h = Harness::new();
+            h.put_settings(&settings_bytes);
+            h.put_state(&state_bytes);
+            let mut core = h.boot();
+
+            let outcome = core.exit(reason, &mut || true, &|| Arc::from(&b""[..]));
+            assert_eq!(outcome, ExitOutcome::Completed, "{reason:?}: без изменений");
+            assert_eq!(h.writes(WorkFile::State), 0, "{reason:?}: state.toml не пишется без изменений");
+            assert_eq!(h.writes(WorkFile::Settings), 0, "{reason:?}: settings.toml не пишется без изменений");
+
+            let h = Harness::new();
+            h.put_settings(&settings_bytes);
+            h.put_state(&state_bytes);
+            let mut core = h.boot();
+
+            core.change_state(Origin::User, StateChange::Volume(42));
+            let mut settings = core.settings().clone();
+            settings.playback.audio_device = "hw:1,0".into();
+            core.set_settings(settings);
+
+            let outcome = core.exit(reason, &mut || true, &|| Arc::from(&b""[..]));
+            assert_eq!(outcome, ExitOutcome::Completed, "{reason:?}: с изменениями");
+            assert_eq!(h.writes(WorkFile::State), 1, "{reason:?}: state.toml записан ровно раз");
+            assert_eq!(h.writes(WorkFile::Settings), 1, "{reason:?}: settings.toml записан ровно раз");
+        }
+    }
+
+    /// Завершение сеанса Windows выполняет путь выхода синхронно: к моменту
+    /// возврата `exit()` запись уже на диске, без дополнительного
+    /// тика/`settle` (ADR-7, ТЗ-15, §7.2
+    /// `windows_session_end_runs_exit_synchronously`). Цикл событий решение
+    /// не завершает (`quits_event_loop() == false`) — это остаётся
+    /// обработчику ОС.
+    #[test]
+    fn windows_session_end_runs_exit_synchronously() {
+        let h = Harness::new();
+        h.put_default_settings();
+        h.put_state(b"");
+        let mut core = h.boot();
+
+        core.change_state(Origin::User, StateChange::Volume(42));
+
+        let outcome = core.exit(ExitReason::WindowsSessionEnd, &mut || true, &|| Arc::from(&b""[..]));
+
+        assert_eq!(outcome, ExitOutcome::Completed);
+        assert_eq!(h.writes(WorkFile::State), 1);
+        assert_eq!(core.exit_phase(), ExitPhase::Done);
+        assert!(!ExitReason::WindowsSessionEnd.quits_event_loop());
     }
 
     /// Повторный запрос на выход во время уже идущего (синхронного) пути
