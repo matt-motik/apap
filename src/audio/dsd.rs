@@ -19,7 +19,10 @@ use std::path::Path;
 use super::decoder::{AudioSource, Tags, TrackInfo};
 use super::dop::DoPFramer;
 use super::error::{CorruptKind, FileError};
-use super::format::{BitDepth, SampleBlock};
+use super::format::{
+    BitDepth, ChannelLayout, ChannelPos, Codec, Container, DsdRate, SampleBlock, SampleRate,
+    SourceFormat, SourceKind,
+};
 
 /// DSD decode path selected at open time (ТЗ 5.1 §8.2 / этап 6.8).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -745,6 +748,57 @@ pub fn probe_dsd(path: &Path) -> crate::meta::FileMeta {
     }
 }
 
+/// Раскладка каналов DSD-контейнера по их числу: mono/stereo — именованные
+/// раскладки, иное число — позиции `Unknown(i)` по порядку; точная карта
+/// позиций контейнер не хранит (ТЗ-12). Лимит §6.29 (1..=8) уже применён
+/// `check_channels` при разборе заголовка, так что `None` здесь практически
+/// недостижимо, но проверяется явно.
+fn dsd_channel_layout(n: usize) -> Option<ChannelLayout> {
+    match n {
+        0 => None,
+        1 => Some(ChannelLayout::mono()),
+        2 => Some(ChannelLayout::stereo()),
+        _ => {
+            let positions: Vec<ChannelPos> = (0..n)
+                .map(|i| ChannelPos::Unknown(u8::try_from(i).unwrap_or(u8::MAX)))
+                .collect();
+            ChannelLayout::new(&positions)
+        }
+    }
+}
+
+/// Лёгкая проба DSD-контейнера (DSF/DFF): разбирает только заголовок и
+/// строит `SourceFormat`, не создавая декодер (§2.1, §2.10, §6.18 шаг 3,
+/// ТЗ-103). Частота DSD, не кратная 64·44100 (например, 64·48000), не входит
+/// в `DsdRate` (ОВ/ADR на 44,1 кГц семейство) и отклоняется как `Unsupported`.
+pub fn probe_dsd_format(path: &Path) -> Result<SourceFormat, FileError> {
+    let mut file = BufReader::new(File::open(path).map_err(|e| FileError::Io(e.kind()))?);
+    let (container, codec, header) = match path.extension().and_then(|e| e.to_str()) {
+        Some(e) if e.eq_ignore_ascii_case("dsf") => {
+            let (header, _) = parse_dsf(&mut file)?;
+            (Container::Dsf, Codec::Dsf, header)
+        }
+        Some(e) if e.eq_ignore_ascii_case("dff") => {
+            let (header, _) = parse_dff(&mut file)?;
+            (Container::Dff, Codec::Dff, header)
+        }
+        _ => return Err(FileError::Unsupported { codec: "не DSD-контейнер".into() }),
+    };
+    let rate = SampleRate::new(header.dsd_rate).ok_or(corrupt(CorruptKind::BadHeader))?;
+    let layout = dsd_channel_layout(header.channels).ok_or(corrupt(CorruptKind::ZeroChannels))?;
+    let dsd = DsdRate::from_bit_rate(header.dsd_rate).ok_or_else(|| FileError::Unsupported {
+        codec: format!("DSD с частотой {} Гц", header.dsd_rate),
+    })?;
+    Ok(SourceFormat {
+        container,
+        codec,
+        lossy: false,
+        rate,
+        layout,
+        kind: SourceKind::Dsd { dsd },
+    })
+}
+
 pub struct DsdDecoder {
     file: BufReader<File>,
     header: DsdHeader,
@@ -1439,6 +1493,37 @@ mod tests {
         let mut b = data("dff_dsd64_1k.dff");
         b[fs + 4..fs + 12].copy_from_slice(&(1u64 << 40).to_be_bytes());
         assert!(matches!(dff(b), Err(FileError::Corrupt(_))));
+    }
+
+    /// §2.10, §6.18 шаг 3, ТЗ-103: проба DSF строит `SourceFormat` без декодера.
+    #[test]
+    fn probe_dsd_format_dsf() {
+        let fmt = probe_dsd_format(&data_path("dsf_dsd64_1k.dsf")).expect("probe dsf");
+        assert_eq!(fmt.container, Container::Dsf);
+        assert_eq!(fmt.codec, Codec::Dsf);
+        assert!(!fmt.lossy);
+        assert_eq!(fmt.rate.hz(), 2_822_400);
+        assert_eq!(fmt.layout.count().get(), 2);
+        assert_eq!(fmt.kind, SourceKind::Dsd { dsd: DsdRate::Dsd64 });
+    }
+
+    /// §2.10, §6.18 шаг 3, ТЗ-103: проба DFF строит `SourceFormat` без декодера.
+    #[test]
+    fn probe_dsd_format_dff() {
+        let fmt = probe_dsd_format(&data_path("dff_dsd64_1k.dff")).expect("probe dff");
+        assert_eq!(fmt.container, Container::Dff);
+        assert_eq!(fmt.codec, Codec::Dff);
+        assert!(!fmt.lossy);
+        assert_eq!(fmt.rate.hz(), 2_822_400);
+        assert_eq!(fmt.layout.count().get(), 2);
+        assert_eq!(fmt.kind, SourceKind::Dsd { dsd: DsdRate::Dsd64 });
+    }
+
+    /// Отсутствующий файл → `FileError::Io`, без паники.
+    #[test]
+    fn probe_dsd_format_missing_file_is_io_error() {
+        let path = data_path("no_such_file.dsf");
+        assert!(matches!(probe_dsd_format(&path), Err(FileError::Io(_))));
     }
 
     /// ТЗ-92: обрезанные DSF/DFF → `Corrupt(Truncated)`.
