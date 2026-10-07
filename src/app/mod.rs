@@ -1893,11 +1893,16 @@ impl MusicApp {
             });
         }
 
-        // 33. window close -> minimize to tray (if enabled), otherwise quit
+        // 33. window close -> minimize to tray (if enabled and shown), otherwise quit
         {
             let app = this.clone();
             ui.window().on_close_requested(move || {
-                let minimize = app.borrow().core.settings().minimize_to_tray;
+                // В трей — только если значок трея действительно показан
+                // (§6.10, ТЗ-52 п. 2, В-1); иначе окно исчезло бы без выхода.
+                let minimize = {
+                    let a = app.borrow();
+                    a.core.settings().minimize_to_tray && a.caps.tray
+                };
                 eprintln!("[gui] close_requested minimize={minimize}");
                 if minimize {
                     let mut a = app.borrow_mut();
@@ -1909,7 +1914,7 @@ impl MusicApp {
                     // Путь выхода (ТЗ-14, ТЗ-22, §6.10): освобождение движка,
                     // итоговые снимки писателю, ожидание в бюджете выхода.
                     app.borrow_mut().exit(ExitReason::WindowClose);
-                    slint::CloseRequestResponse::KeepWindowShown
+                    slint::CloseRequestResponse::HideWindow
                 }
             });
         }

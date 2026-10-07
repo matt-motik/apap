@@ -109,7 +109,7 @@ steps:
     done: true
   - id: 24
     description: "on_close_requested: сворачивание в трей только при minimize_to_tray && caps.tray, иначе exit(WindowClose) (§6.10, ТЗ-52 п.2, В-1). Файл: src/app/mod.rs. Проверка: cargo check"
-    done: false
+    done: true
   - id: 25
     description: "apply_msg_effect: notify через Notifier вместо set_tray_notice; Notifier внедряется из main (§6.15, ADR-9, ТЗ-52 п.2). Файлы: src/app/mod.rs, src/main.rs. Проверка: cargo check"
     done: false
@@ -135,8 +135,8 @@ steps:
     description: "Финал: grep cfg(target_os вне src/platform (аудио-места AM1.0 — вне задач SP1.0), полный cargo test + cargo clippy, ROADMAP ✅ (ТЗ-54 приёмка). Файлы: ROADMAP.md, _STATE_.yaml. Проверка: всё зелёное"
     done: false
 
-current_step: 24
-next_action: "Шаг 24: on_close_requested — minimize_to_tray && caps.tray, иначе exit(WindowClose) + HideWindow. Ветку не-Linux (трей, platform_lifecycle) проверить при кросс-ОС приёмке"
+current_step: 25
+next_action: "Шаг 25: apply_msg_effect → Notifier вместо set_tray_notice; Notifier внедряется из main. Ветку не-Linux (трей, platform_lifecycle) проверить при кросс-ОС приёмке"
 
 fail_counter: 0
 fail_counter_max: 3

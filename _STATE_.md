@@ -58,7 +58,7 @@
 [x] Шаг 21: main создаёт каналы трея (events/updates/ready), MusicApp::new получает концы UI, TrayPort → platform_lifecycle; tray::start из MusicApp::new убран (ADR-23 шаг 8). Файлы: src/main.rs, src/app/mod.rs. Проверка: cargo check
 [x] Шаг 22: Удалить мост tray::start(clock) (TrayChannels остаётся — UI-концы каналов); порядок use в lifecycle/mod.rs (ADR-23 шаг 8). Файлы: src/platform/tray/mod.rs, src/platform/lifecycle/mod.rs. Проверка: cargo check. ЧЕКПОИНТ: cargo test + cargo clippy
 [x] Шаг 23: TrayEvent::Quit → тот же ExitEntry(TrayQuit); удалить отдельный путь выхода в poll_tray (§8.1 «удаляется», ТЗ-14). Файл: src/app/mod.rs. Проверка: cargo check Итог: правка не нужна — poll_tray уже вызывает self.exit(TrayQuit) (тело ExitEntry); вызов Rc-входа под borrow_mut дал бы Busy.
-[ ] Шаг 24: on_close_requested: сворачивание в трей только при minimize_to_tray && caps.tray, иначе exit(WindowClose) (§6.10, ТЗ-52 п.2, В-1). Файл: src/app/mod.rs. Проверка: cargo check
+[x] Шаг 24: on_close_requested: сворачивание в трей только при minimize_to_tray && caps.tray, иначе exit(WindowClose) (§6.10, ТЗ-52 п.2, В-1). Файл: src/app/mod.rs. Проверка: cargo check
 [ ] Шаг 25: apply_msg_effect: notify через Notifier вместо set_tray_notice; Notifier внедряется из main (§6.15, ADR-9, ТЗ-52 п.2). Файлы: src/app/mod.rs, src/main.rs. Проверка: cargo check
 [ ] Шаг 26: Удалить BP_NOTICE_TEXT/notice как канал сообщений (§8.1 «удаляется»). Файлы: src/platform/tray/mod.rs, src/app/mod.rs. Проверка: cargo check. ЧЕКПОИНТ: cargo test + cargo clippy
 [ ] Шаг 27: Windows: SetWindowSubclass на HWND (WM_QUERYENDSESSION→TRUE; WM_ENDSESSION wParam=TRUE → синхронный выход, return 0) (ADR-7, ТЗ-15). Файлы: src/platform/lifecycle/windows.rs, Cargo.toml (windows-sys features). Проверка: cargo check (Linux) + ревью; сборка Windows — на ноутбуке
@@ -68,8 +68,8 @@
 [ ] Шаг 31: Тесты: platform_fakes_cover_exit_fs_input_notify_pick (части exit/fs/notify), tray_works_during_dialog/message без колёсика (колёсико — С11) (§7.2, ТЗ-24, ТЗ-54). Файл: src/core/testing.rs. Проверка: ЧЕКПОИНТ группы тестов 29–31: полный cargo test + cargo clippy
 [ ] Шаг 32: Финал: grep cfg(target_os вне src/platform (аудио-места AM1.0 — вне задач SP1.0), полный cargo test + cargo clippy, ROADMAP ✅ (ТЗ-54 приёмка). Файлы: ROADMAP.md, _STATE_.yaml. Проверка: всё зелёное
 
-- **Текущий шаг (current_step):** Шаг 24
-- **Следующий ход:** Шаг 24: on_close_requested — minimize_to_tray && caps.tray, иначе exit(WindowClose) + HideWindow. Ветку не-Linux (трей, platform_lifecycle) проверить при кросс-ОС приёмке
+- **Текущий шаг (current_step):** Шаг 25
+- **Следующий ход:** Шаг 25: apply_msg_effect → Notifier вместо set_tray_notice; Notifier внедряется из main. Ветку не-Linux (трей, platform_lifecycle) проверить при кросс-ОС приёмке
 - **Счетчик безуспешных компиляций:** 0/3
 - **Состояние:** in_progress
 
