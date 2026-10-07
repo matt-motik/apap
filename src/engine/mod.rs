@@ -7,3 +7,6 @@ pub mod run;
 pub mod sink;
 pub mod source;
 pub mod spawner;
+
+#[cfg(test)]
+mod tests;

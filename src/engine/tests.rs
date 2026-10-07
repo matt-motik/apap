@@ -1,0 +1,336 @@
+//! Тесты движка `apap-engine` на фейках (§7, ADR-20, ТЗ-103, ТЗ-88, ТЗ-105,
+//! ТЗ-134, ТЗ-45): неблокирующая отправка команд при медленном `probe`
+//! (ТЗ-103), отчёт об отказе запуска потока движка (ТЗ-88), разовое
+//! перечисление устройств при старте и по сигналу `DeviceWatcher` (ТЗ-105,
+//! ADR-16), отсутствие файлового I/O при `SetLegacyAudio` (ТЗ-134, И-Р24) и
+//! ровно один `ShutdownComplete` при явном `Shutdown` и при `Drop`
+//! `EngineHandle` (ТЗ-45). Все тесты работают только через фейковые
+//! зависимости — без реального аудио-устройства (ТЗ-114).
+#![allow(clippy::unwrap_used, clippy::expect_used)]
+
+use std::path::{Path, PathBuf};
+use std::sync::{Arc, Mutex};
+use std::time::{Duration, Instant};
+
+use crate::audio::backend::catalog::{DeviceWatcher, FakeDeviceWatcher};
+use crate::audio::backend::shared::{fake_device, FakeSharedBackend, SharedBackend};
+use crate::audio::backend::{BackendError, SharedDeviceInfo};
+use crate::audio::clock::MonotonicClock;
+use crate::audio::error::EngineFault;
+use crate::audio::format::{ChannelLayout, Codec, Container, SampleRate, SourceFormat, SourceKind};
+use crate::engine::deps::EngineDeps;
+use crate::engine::messages::{EngineCmd, EngineEvent, LegacyAudio};
+use crate::engine::run::EngineHandle;
+use crate::engine::sink::{EventSink, VecSink};
+use crate::engine::source::{FakeSource, SourceOpener};
+use crate::engine::spawner::{FailingSpawner, StdSpawner, ThreadSpawner};
+use crate::platform::fs::{FsPersistStore, MemStore};
+use crate::settings::{
+    ClockFamily, DsdMode, ExclusiveMode, FallbackPolicy, FallbackRatePolicy, ResamplerAlgorithm,
+    ResamplerDither, ResamplerMode,
+};
+
+fn pcm_format() -> SourceFormat {
+    SourceFormat {
+        container: Container::Flac,
+        codec: Codec::Flac,
+        lossy: false,
+        rate: SampleRate::new(44_100).expect("rate"),
+        layout: ChannelLayout::stereo(),
+        kind: SourceKind::Pcm { bits: crate::audio::format::BitDepth::new(16).expect("bits") },
+    }
+}
+
+/// Значения `LegacyAudio` по умолчанию (все поля — дефолты соответствующих
+/// enum'ов настроек), для теста отсутствия I/O при `SetLegacyAudio`.
+fn legacy_audio_defaults() -> LegacyAudio {
+    LegacyAudio {
+        exclusive_mode: ExclusiveMode::default(),
+        fallback_policy: FallbackPolicy::default(),
+        dsd_mode: DsdMode::default(),
+        resampler_mode: ResamplerMode::default(),
+        resampler_algorithm: ResamplerAlgorithm::default(),
+        fixed_rate: 48_000,
+        prefer_family: ClockFamily::default(),
+        fallback_rate: FallbackRatePolicy::default(),
+        ring_buffer_ms: 200,
+        bit_perfect: false,
+        dither: ResamplerDither::default(),
+    }
+}
+
+/// Собирает `EngineDeps` целиком из переданных фейков (§2.10, ADR-20):
+/// каждый тест выбирает только то, что ему нужно подменить, остальное — через
+/// `fake_deps`.
+fn build_deps(
+    sources: Arc<dyn SourceOpener>,
+    shared: Box<dyn SharedBackend>,
+    watcher: Box<dyn DeviceWatcher>,
+    events: Box<dyn EventSink>,
+    spawner: Arc<dyn ThreadSpawner>,
+    mem: MemStore,
+) -> EngineDeps {
+    EngineDeps {
+        shared,
+        watcher,
+        sources,
+        clock: Box::new(MonotonicClock::new()),
+        store: Box::new(FsPersistStore::new(Arc::new(mem.clone()), Box::new(mem), PathBuf::from("/cfg"))),
+        events,
+        spawner,
+    }
+}
+
+/// Минимальный набор зависимостей: пустой список устройств, тихий `FakeSource`.
+fn fake_deps(events: Box<dyn EventSink>, spawner: Arc<dyn ThreadSpawner>) -> EngineDeps {
+    build_deps(
+        Arc::new(FakeSource::with_format(pcm_format())),
+        Box::new(FakeSharedBackend::with_devices(Vec::new())),
+        Box::new(FakeDeviceWatcher::new()),
+        events,
+        spawner,
+        MemStore::new(),
+    )
+}
+
+/// Ждёт, пока `cond` не станет `true`, но не дольше `timeout` (шаг 5 мс
+/// между проверками). Нужен для детерминированного ожидания фонового события
+/// движка без безусловного `sleep`.
+fn wait_for<F: FnMut() -> bool>(timeout: Duration, mut cond: F) -> bool {
+    let start = Instant::now();
+    loop {
+        if cond() {
+            return true;
+        }
+        if start.elapsed() >= timeout {
+            return false;
+        }
+        std::thread::sleep(Duration::from_millis(5));
+    }
+}
+
+/// Фейковый `SharedBackend`, считающий вызовы `enumerate` извне (через
+/// клон), с изменяемым на ходу списком устройств (ТЗ-105): `FakeSharedBackend`
+/// не подходит — счётчик недоступен после перемещения в `Box<dyn SharedBackend>`.
+#[derive(Clone)]
+struct CountingShared {
+    state: Arc<Mutex<CountingState>>,
+}
+
+struct CountingState {
+    devices: Vec<SharedDeviceInfo>,
+    enumerations: usize,
+}
+
+impl CountingShared {
+    fn new(devices: Vec<SharedDeviceInfo>) -> CountingShared {
+        CountingShared { state: Arc::new(Mutex::new(CountingState { devices, enumerations: 0 })) }
+    }
+
+    fn enumerations(&self) -> usize {
+        self.state.lock().expect("lock").enumerations
+    }
+
+    fn set_devices(&self, devices: Vec<SharedDeviceInfo>) {
+        self.state.lock().expect("lock").devices = devices;
+    }
+}
+
+impl SharedBackend for CountingShared {
+    fn enumerate(&mut self) -> Result<Vec<SharedDeviceInfo>, BackendError> {
+        let mut state = self.state.lock().expect("lock");
+        state.enumerations += 1;
+        Ok(state.devices.clone())
+    }
+}
+
+/// ТЗ-103: отправка команд в движок (`EngineHandle::send`) не ждёт, пока
+/// движок закончит обработку предыдущей — даже если та заняла сотни
+/// миллисекунд на медленном `probe`.
+#[test]
+fn ui_handlers_do_not_block_on_slow_open() {
+    let sink = VecSink::new();
+    let slow_source: Arc<dyn SourceOpener> =
+        Arc::new(FakeSource::with_format(pcm_format()).with_probe_delay(Duration::from_millis(300)));
+    let deps = build_deps(
+        slow_source,
+        Box::new(FakeSharedBackend::with_devices(Vec::new())),
+        Box::new(FakeDeviceWatcher::new()),
+        Box::new(sink.clone()),
+        Arc::new(StdSpawner),
+        MemStore::new(),
+    );
+
+    let handle = EngineHandle::spawn(deps).expect("spawn ok");
+
+    let start = Instant::now();
+    assert!(handle.send(EngineCmd::Open {
+        req_gen: 1,
+        path: Arc::from(Path::new("fake.flac")),
+        start_secs: 0.0,
+        autoplay: false,
+    }));
+    assert!(handle.send(EngineCmd::SetVolume(0.5)));
+    let elapsed = start.elapsed();
+    assert!(elapsed < Duration::from_millis(50), "send() заняла {elapsed:?}, хотя probe идёт в движке (ТЗ-103)");
+
+    assert!(handle.send(EngineCmd::Shutdown));
+    handle.join();
+
+    let events = sink.take();
+    assert!(events.iter().any(|e| matches!(e, EngineEvent::ShutdownComplete)));
+}
+
+/// ТЗ-88: отказ запуска самого потока `apap-engine` — `EngineHandle::spawn`
+/// возвращает ошибку синхронно, без запуска движка.
+///
+/// Под-вариант «отказ запуска `apap-decode` при `Open`» не покрывается
+/// здесь: в легаси-пути (мост С3) `Player::open` сначала строит реальный
+/// `cpal`-поток (`start_engine`/`build_engine_stream`) и только потом
+/// запускает поток декодера — то есть дойти до `spawn_decoder` без реального
+/// аудио-устройства невозможно, а тесты обязаны работать без него (ТЗ-114).
+#[test]
+fn spawn_failure_reports_error() {
+    let sink = VecSink::new();
+    let deps = fake_deps(Box::new(sink), Arc::new(FailingSpawner::new(1)));
+
+    match EngineHandle::spawn(deps) {
+        Err(EngineFault::SpawnFailed { what: "apap-engine" }) => {}
+        Err(other) => panic!("expected SpawnFailed, got {other:?}"),
+        Ok(_) => panic!("expected spawn to fail"),
+    }
+}
+
+/// ТЗ-105, ADR-16, §6.2 п.3: за время сессии (старт + несколько команд,
+/// список устройств не меняется) `enumerate` вызывается ровно один раз, и UI
+/// получает ровно одно событие `Devices`.
+#[test]
+fn device_catalog_enumerated_once() {
+    let sink = VecSink::new();
+    let shared = CountingShared::new(vec![fake_device("hw:0", "Speakers")]);
+    let probe = shared.clone();
+    let deps = build_deps(
+        Arc::new(FakeSource::with_format(pcm_format())),
+        Box::new(shared),
+        Box::new(FakeDeviceWatcher::new()),
+        Box::new(sink.clone()),
+        Arc::new(StdSpawner),
+        MemStore::new(),
+    );
+
+    let handle = EngineHandle::spawn(deps).expect("spawn ok");
+    assert!(handle.send(EngineCmd::SetVolume(0.4)));
+    assert!(handle.send(EngineCmd::SetVolume(0.6)));
+    assert!(handle.send(EngineCmd::Shutdown));
+    handle.join();
+
+    assert_eq!(probe.enumerations(), 1);
+    let events = sink.take();
+    assert_eq!(events.iter().filter(|e| matches!(e, EngineEvent::Devices(_))).count(), 1);
+}
+
+/// ТЗ-105, ADR-16: сигнал `DeviceWatcher` вызывает ровно одно повторное
+/// перечисление (не больше, даже если между обработкой команд были
+/// тайм-ауты цикла), и второе событие `Devices` отражает новый список.
+#[test]
+fn device_hotplug_single_enumeration() {
+    let sink = VecSink::new();
+    let shared = CountingShared::new(vec![fake_device("hw:0", "Speakers")]);
+    let probe = shared.clone();
+    let watcher = FakeDeviceWatcher::new();
+    let trigger = watcher.trigger_handle();
+    let deps = build_deps(
+        Arc::new(FakeSource::with_format(pcm_format())),
+        Box::new(shared),
+        Box::new(watcher),
+        Box::new(sink.clone()),
+        Arc::new(StdSpawner),
+        MemStore::new(),
+    );
+
+    let handle = EngineHandle::spawn(deps).expect("spawn ok");
+
+    // Дождаться первого (стартового) перечисления, прежде чем менять список
+    // и дёргать триггер: иначе возможна гонка, при которой первое
+    // перечисление уже увидело бы новый список.
+    assert!(wait_for(Duration::from_secs(1), || probe.enumerations() >= 1));
+
+    probe.set_devices(vec![fake_device("hw:0", "Speakers"), fake_device("hw:1", "HDMI")]);
+    assert!(trigger.fire());
+    assert!(handle.send(EngineCmd::SetVolume(0.5)));
+    assert!(handle.send(EngineCmd::Shutdown));
+    handle.join();
+
+    assert_eq!(probe.enumerations(), 2);
+    let events = sink.take();
+    let devices: Vec<_> = events
+        .iter()
+        .filter_map(|e| match e {
+            EngineEvent::Devices(catalog) => Some(catalog.clone()),
+            _ => None,
+        })
+        .collect();
+    assert_eq!(devices.len(), 2);
+    assert_eq!(devices[0].shared.len(), 1);
+    assert_eq!(devices[1].shared.len(), 2);
+}
+
+/// ТЗ-134, И-Р24: `SetLegacyAudio` применяет параметры в памяти движка без
+/// файлового I/O — `MemStore` не фиксирует ни одного вызова.
+#[test]
+fn set_mode_settings_performs_no_io() {
+    let sink = VecSink::new();
+    let mem = MemStore::new();
+    let deps = build_deps(
+        Arc::new(FakeSource::with_format(pcm_format())),
+        Box::new(FakeSharedBackend::with_devices(Vec::new())),
+        Box::new(FakeDeviceWatcher::new()),
+        Box::new(sink.clone()),
+        Arc::new(StdSpawner),
+        mem.clone(),
+    );
+
+    let handle = EngineHandle::spawn(deps).expect("spawn ok");
+    assert!(handle.send(EngineCmd::SetLegacyAudio(legacy_audio_defaults())));
+    assert!(handle.send(EngineCmd::Shutdown));
+    handle.join();
+
+    assert!(mem.calls().is_empty(), "SetLegacyAudio не должен трогать файловую систему (ТЗ-134, И-Р24)");
+
+    // `poll_session` синхронизирует `Transport`/`Position` по состоянию
+    // `Player` (§6.1 п.4-5, И-Р13) независимо от `SetLegacyAudio` — это
+    // не файловый I/O, поэтому тест проверяет только отсутствие записи на
+    // диск (выше), а не точный список событий.
+    let events = sink.take();
+    assert!(events
+        .iter()
+        .all(|e| matches!(e, EngineEvent::Devices(_) | EngineEvent::ShutdownComplete | EngineEvent::Transport { .. } | EngineEvent::Position { .. })));
+}
+
+/// ТЗ-45: явный `Shutdown` и `Drop` без него дают ровно один
+/// `ShutdownComplete`, и он — последнее событие сессии.
+#[test]
+fn shutdown_emits_complete() {
+    let sink = VecSink::new();
+    let deps = fake_deps(Box::new(sink.clone()), Arc::new(StdSpawner));
+
+    let handle = EngineHandle::spawn(deps).expect("spawn ok");
+    assert!(handle.send(EngineCmd::SetVolume(0.3)));
+    assert!(handle.send(EngineCmd::Shutdown));
+    handle.join();
+
+    let events = sink.take();
+    let complete_count = events.iter().filter(|e| matches!(e, EngineEvent::ShutdownComplete)).count();
+    assert_eq!(complete_count, 1);
+    assert!(matches!(events.last(), Some(EngineEvent::ShutdownComplete)));
+
+    let sink2 = VecSink::new();
+    let deps2 = fake_deps(Box::new(sink2.clone()), Arc::new(StdSpawner));
+    let handle2 = EngineHandle::spawn(deps2).expect("spawn ok");
+    // `Drop` сам шлёт `Shutdown` и join'ится синхронно (ТЗ-45) — к моменту
+    // возврата из `drop` события уже на месте.
+    drop(handle2);
+
+    let events2 = sink2.take();
+    assert_eq!(events2.iter().filter(|e| matches!(e, EngineEvent::ShutdownComplete)).count(), 1);
+}
