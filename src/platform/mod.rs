@@ -2,6 +2,7 @@
 //! по ОС и подмены для автотестов. `cfg(target_os)` для этих задач
 //! встречается только внутри `src/platform/`.
 
+pub mod devwatch;
 pub mod fs;
 pub mod lifecycle;
 pub mod notify;
