@@ -43,7 +43,7 @@
 - **Критерий успеха (Definition of Done):** UI не держит Player и не делает блокирующего I/O звука (ТЗ-103/104); EngineCmd/EngineEvent через apap-engine; Rc-цикл убран; выход через Shutdown, запись settings/state не ждёт ShutdownComplete; cargo test + clippy зелёные; плеер играет в Совместимом режиме
 
 ## Итерационный трекер
-[ ] Шаг 1: Типы команд/событий движка: EngineCmd/EngineEvent (подмножество С3: Open{req_gen,path,start_secs,autoplay}, Play, Pause, Stop, Seek, SetVolume, SetMuted, SetDevice, RefreshDevices, SetVizTap, SetLegacyAudio, Shutdown; события Opened, OpenFailed, Skipped, Ended, Transport, Position, Devices, DeviceLost, Notice, ShutdownComplete), только варианты, которые С3 обрабатывает (§2.8, ADR-01). Файлы: src/engine/mod.rs (новый, объявление модулей), src/engine/messages.rs (новый), src/lib.rs. Проверка: cargo check
+[x] Шаг 1: Типы команд/событий движка: EngineCmd/EngineEvent (подмножество С3: Open{req_gen,path,start_secs,autoplay}, Play, Pause, Stop, Seek, SetVolume, SetMuted, SetDevice, RefreshDevices, SetVizTap, SetLegacyAudio, Shutdown; события Opened, OpenFailed, Skipped, Ended, Transport, Position, Devices, DeviceLost, Notice, ShutdownComplete), только варианты, которые С3 обрабатывает (§2.8, ADR-01). Файлы: src/engine/mod.rs (новый, объявление модулей), src/engine/messages.rs (новый), src/lib.rs. Проверка: cargo check
 [ ] Шаг 2: EventSink + VecSink (фейк, cfg(test)/testing) (§2.8, ADR-02, ADR-20). Файл: src/engine/sink.rs. Проверка: cargo check
 [x] Шаг 3: Классы ошибок: OpenError (подмножество С3: Capture, DeviceLost, File, Internal; Incompatible/ModeUnavailable — С4/С5), Reaction, classify, reaction(class, ModeKind, DeviceChoiceKind) по таблице ADR-14; ModeKind {Compatible, Optimal, Strict} временно в src/settings.rs (в С4 переезжает в settings/playback.rs, решение пользователя 2026-10-07); юнит-тест error_classes_distinct_reactions (ADR-14, §2.4, ТЗ-86). Выполняется ДО шага 1 (OpenError нужен событиям). Файлы: src/audio/error.rs, src/settings.rs. Проверка: cargo test error_classes
 [ ] Шаг 4: ЧЕКПОИНТ шагов 1–3. ЧЕКПОИНТ: полный cargo test + cargo clippy (0 новых варнингов в файлах вайтлиста)
@@ -82,8 +82,8 @@
 [ ] Шаг 37: Убрать мост AudioFacade в mod.rs и удалить audio_facade.rs. Файлы: src/app/mod.rs, src/app/audio_facade.rs. Проверка: cargo check
 [ ] Шаг 38: Финал: полный cargo test + clippy, tools/check_rt_imports.py, grep Player вне src/engine и src/audio, ROADMAP ✅, ручные проверки за пользователем (UI не блокируется, ошибки треков видны, Exclusive через старый путь). Файлы: ROADMAP.md, _STATE_.yaml. Проверка: всё зелёное
 
-- **Текущий шаг (current_step):** Шаг 1
-- **Следующий ход:** Шаг 3 (выполняется до шага 1): OpenError/Reaction/classify/reaction + ModeKind в settings.rs. Затем шаг 1 (EngineCmd/EngineEvent; Devices-событие добавляется на шаге 11 вместе с DeviceCatalog), шаг 2, ЧЕКПОИНТ 4. Решения пользователя 2026-10-07: мост SetLegacyAudio (вместо SetModeSettings/SetActiveMode до С4); ModeKind временно в src/settings.rs. Player — внутренняя деталь apap-engine (мост). Тесты — только на ЧЕКПОИНТ-шагах.
+- **Текущий шаг (current_step):** Шаг 2
+- **Следующий ход:** Шаг 2: EventSink + VecSink в src/engine/sink.rs (EngineEvent уже в messages.rs), затем ЧЕКПОИНТ 4. Шаги 3 и 1 сделаны. Решения пользователя 2026-10-07: мост SetLegacyAudio (вместо SetModeSettings/SetActiveMode до С4); ModeKind временно в src/settings.rs. Player — внутренняя деталь apap-engine (мост). Тесты — только на ЧЕКПОИНТ-шагах.
 - **Счетчик безуспешных компиляций:** 0/3
 - **Состояние:** in_progress
 
