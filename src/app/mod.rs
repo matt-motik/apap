@@ -304,9 +304,6 @@ pub struct MusicApp {
     tray_ready: Option<std::sync::mpsc::Receiver<bool>>,
     tray_up_tx: Option<tokio::sync::mpsc::UnboundedSender<tray::TrayState>>,
     last_tray_update: Instant,
-    /// Deadline + текст транзитного тултипа трея (None = выключен).
-    /// Сообщения: bit-perfect volume notice, theme-fallback (T1.0 §6.1).
-    tray_notice: Option<(Instant, String)>,
     last_view_width: f32,
     view_w_stable_ticks: u32,
     col_model_sig: u64,
@@ -509,7 +506,6 @@ impl MusicApp {
             tray_ready,
             tray_up_tx,
             last_tray_update: Instant::now(),
-            tray_notice: None,
             last_view_width: 0.0,
             view_w_stable_ticks: 0,
             col_model_sig: 0,
@@ -1669,9 +1665,6 @@ impl MusicApp {
                         a.player.set_muted(false);
                         a.core.change_state(Origin::User, StateChange::Volume(100));
                         a.core.change_state(Origin::User, StateChange::Muted(false));
-                        // V5.1-8.7: показать тултип трея про громкость
-                        // на момент включения Direct Output.
-                        a.set_tray_notice(tray::BP_NOTICE_TEXT.to_string());
                     }
                     a.emit(AppEvent::BitPerfectChanged);
                     eprintln!("[gui] settings_save: bit_perfect applied -> {bp}");
@@ -2122,12 +2115,6 @@ impl MusicApp {
         }
     }
 
-    /// Показать временный тултип трея (~5 с) поверх штатного статуса.
-    /// Используется для bit-perfect (Direct Output) и fallback темы (§6.1).
-    fn set_tray_notice(&mut self, text: String) {
-        self.tray_notice = Some((Instant::now() + std::time::Duration::from_secs(5), text));
-    }
-
     /// Emit a state-change event for the direction-feed (surfaces react in
     /// `drain_events`, which runs every tick before the UI sync).
     fn emit(&mut self, event: AppEvent) {
@@ -2177,11 +2164,6 @@ impl MusicApp {
             playing: self.player.is_playing(),
             bit_perfect: self.player.bit_perfect(),
             error: self.audio_error.clone(),
-            notice: self
-                .tray_notice
-                .as_ref()
-                .filter(|(deadline, _)| Instant::now() < *deadline)
-                .map(|(_, text)| text.clone()),
         }
     }
 }
