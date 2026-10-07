@@ -19,6 +19,7 @@ whitelist:
   - src/engine/run.rs
   - src/engine/tests.rs
   - src/audio/error.rs
+  - src/settings.rs
   - src/audio/worker.rs
   - src/audio/player.rs
   - src/audio/decoder.rs
@@ -52,8 +53,8 @@ steps:
     description: "EventSink + VecSink (фейк, cfg(test)/testing) (§2.8, ADR-02, ADR-20). Файл: src/engine/sink.rs. Проверка: cargo check"
     done: false
   - id: 3
-    description: "Классы ошибок: ErrorClass, OpenError, classify, reaction() поверх существующих FileError/EngineFault/CaptureFailure; юнит-тест error_classes_distinct_reactions (ADR-14, §2.4, ТЗ-86). Файл: src/audio/error.rs. Проверка: cargo test error_classes"
-    done: false
+    description: "Классы ошибок: OpenError (подмножество С3: Capture, DeviceLost, File, Internal; Incompatible/ModeUnavailable — С4/С5), Reaction, classify, reaction(class, ModeKind, DeviceChoiceKind) по таблице ADR-14; ModeKind {Compatible, Optimal, Strict} временно в src/settings.rs (в С4 переезжает в settings/playback.rs, решение пользователя 2026-10-07); юнит-тест error_classes_distinct_reactions (ADR-14, §2.4, ТЗ-86). Выполняется ДО шага 1 (OpenError нужен событиям). Файлы: src/audio/error.rs, src/settings.rs. Проверка: cargo test error_classes"
+    done: true
   - id: 4
     description: "ЧЕКПОИНТ шагов 1–3. ЧЕКПОИНТ: полный cargo test + cargo clippy (0 новых варнингов в файлах вайтлиста)"
     done: false
@@ -161,7 +162,7 @@ steps:
     done: false
 
 current_step: 1
-next_action: "Шаг 1: типы EngineCmd/EngineEvent в src/engine/messages.rs. Сигнатуры SourceOpener/ThreadSpawner — spec §2.10 (согласованы 2026-10-07). Решение пользователя: вариант 1 — Player переезжает в apap-engine как внутренняя деталь (мост). SetModeSettings/SetActiveMode: ModeSettings/ModeKind появятся в С4 — в С3 мост SetLegacyAudio (подтвердить у пользователя). Тесты — только на ЧЕКПОИНТ-шагах."
+next_action: "Шаг 3 (выполняется до шага 1): OpenError/Reaction/classify/reaction + ModeKind в settings.rs. Затем шаг 1 (EngineCmd/EngineEvent; Devices-событие добавляется на шаге 11 вместе с DeviceCatalog), шаг 2, ЧЕКПОИНТ 4. Решения пользователя 2026-10-07: мост SetLegacyAudio (вместо SetModeSettings/SetActiveMode до С4); ModeKind временно в src/settings.rs. Player — внутренняя деталь apap-engine (мост). Тесты — только на ЧЕКПОИНТ-шагах."
 fail_counter: 0
 fail_counter_max: 3
 failed_attempts: []

@@ -317,6 +317,16 @@ pub(crate) fn default_info_labels() -> std::collections::HashMap<String, String>
     .collect()
 }
 
+/// Режим вывода (ADR-04, §2.2). Мост С3: в С4 переезжает в
+/// settings/playback.rs вместе с ModeSettings.
+#[derive(Clone, Copy, PartialEq, Eq, Debug, Default)]
+pub enum ModeKind {
+    #[default]
+    Compatible,
+    Optimal,
+    Strict,
+}
+
 /// Режим вывода DSD (ТЗ 5.1 §8.2). `Pcm` — единственный реализованный;
 /// `Native`/`DoP` зарезервированы под этап 6.6 (bit-perfect / native / DoP).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]

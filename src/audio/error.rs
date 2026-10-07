@@ -1,10 +1,13 @@
-//! Ошибки тракта (AM1.0 §2.4). В С0 — типы, не зависящие от плана пути и
-//! режимов; `OpenError`, `Reaction`, `classify`, `reaction` — в С3 вместе с
-//! движком (таблица «Трейт → этап» под §8).
+//! Ошибки тракта (AM1.0 §2.4). `OpenError`, `Reaction`, `classify`, `reaction`
+//! (С3, ADR-14, ТЗ-86) классифицируют ошибку открытия трека и определяют
+//! реакцию по режиму; `Incompatible(Blocked)` (С5) и `ModeUnavailable(ModeKind)`
+//! (С4) — ещё не представлены в `OpenError`, добавляются позже (таблица
+//! «Трейт → этап» под §8).
 #![deny(clippy::unwrap_used, clippy::expect_used, clippy::unreachable)]
 
 use crate::audio::backend::RateSet;
 use crate::audio::format::{BitDepth, DsdRate, OutputSampleFormat, SampleRate};
+use crate::settings::ModeKind;
 use smallvec::SmallVec;
 
 /// Несовместимость (только Строгий режим, термин ТЗ §2).
@@ -110,6 +113,86 @@ pub enum DeviceChoiceKind {
     Hw,
 }
 
+/// Ошибка открытия трека на границе движка (§2.4). Подмножество С3:
+/// `Incompatible(Blocked)` — С5, `ModeUnavailable(ModeKind)` — С4.
+#[derive(Clone, PartialEq, Debug)]
+pub enum OpenError {
+    Capture(CaptureFailure),
+    DeviceLost,
+    File(FileError),
+    Internal(EngineFault),
+}
+
+/// Реакция плеера на ошибку открытия трека (ADR-14, ТЗ-86).
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub enum Reaction {
+    Skip,
+    LockFailed,
+    StopWithError,
+    FollowSystemDefault,
+}
+
+/// Классификация `OpenError` для таблицы реакций (ADR-14, §2.4).
+pub fn classify(e: &OpenError) -> ErrorClass {
+    match e {
+        OpenError::Capture(_) => ErrorClass::CaptureFailed,
+        OpenError::DeviceLost => ErrorClass::DeviceLost,
+        OpenError::File(FileError::ReadDuringPlayback { .. }) => ErrorClass::ReadError,
+        OpenError::File(_) => ErrorClass::BadFile,
+        OpenError::Internal(_) => ErrorClass::Internal,
+    }
+}
+
+/// Реакция по классу ошибки, режиму и выбору устройства (ADR-14, таблица §2.4,
+/// ОВС-10 п. 3). Матчи по `ErrorClass`/`ModeKind`/`DeviceChoiceKind` без
+/// wildcard-веток: новый вариант любого из них обязан провалить сборку здесь.
+pub fn reaction(class: ErrorClass, mode: ModeKind, device: DeviceChoiceKind) -> Reaction {
+    match class {
+        ErrorClass::Incompatible => match mode {
+            // Планировщик Совместимого и Оптимального режимов не формирует
+            // Incompatible (несовпадение частот/форматов отличает только
+            // Строгий, ТЗ §2) — ветка документирует недостижимость, не паникует.
+            ModeKind::Compatible => Reaction::StopWithError,
+            ModeKind::Optimal => Reaction::StopWithError,
+            ModeKind::Strict => Reaction::Skip,
+        },
+        ErrorClass::CaptureFailed => match mode {
+            // Совместимый режим не держит эксклюзивный захват устройства —
+            // CaptureFailed в нём недостижим (ADR-14); ветка не паникует.
+            ModeKind::Compatible => Reaction::StopWithError,
+            ModeKind::Optimal => Reaction::LockFailed,
+            ModeKind::Strict => Reaction::LockFailed,
+        },
+        ErrorClass::DeviceLost => match mode {
+            ModeKind::Compatible => match device {
+                DeviceChoiceKind::SystemDefault => Reaction::FollowSystemDefault,
+                DeviceChoiceKind::Named => Reaction::StopWithError,
+                DeviceChoiceKind::Hw => Reaction::StopWithError,
+            },
+            // Оптимальный/Строгий: LockFailed(DeviceDisconnected) и точка
+            // реакуайра — поведение движка (позже); реакция верхнего уровня
+            // здесь — остановка с ошибкой (ADR-14).
+            ModeKind::Optimal => Reaction::StopWithError,
+            ModeKind::Strict => Reaction::StopWithError,
+        },
+        ErrorClass::BadFile => match mode {
+            ModeKind::Compatible => Reaction::Skip,
+            ModeKind::Optimal => Reaction::Skip,
+            ModeKind::Strict => Reaction::Skip,
+        },
+        ErrorClass::ReadError => match mode {
+            ModeKind::Compatible => Reaction::Skip,
+            ModeKind::Optimal => Reaction::Skip,
+            ModeKind::Strict => Reaction::Skip,
+        },
+        ErrorClass::Internal => match mode {
+            ModeKind::Compatible => Reaction::StopWithError,
+            ModeKind::Optimal => Reaction::StopWithError,
+            ModeKind::Strict => Reaction::StopWithError,
+        },
+    }
+}
+
 #[cfg(test)]
 #[allow(clippy::unwrap_used, clippy::expect_used, clippy::unreachable)]
 mod tests {
@@ -130,5 +213,46 @@ mod tests {
         let a = Incompatibility::RateUnsupported { rate: r, supported: set.clone() };
         assert_eq!(a, Incompatibility::RateUnsupported { rate: r, supported: set });
         assert_ne!(a, Incompatibility::FloatUnsupported);
+    }
+
+    #[test]
+    fn classify_maps_open_error_variants() {
+        assert_eq!(classify(&OpenError::Capture(CaptureFailure::OwnerNotResponding)), ErrorClass::CaptureFailed);
+        assert_eq!(classify(&OpenError::DeviceLost), ErrorClass::DeviceLost);
+        assert_eq!(
+            classify(&OpenError::File(FileError::ReadDuringPlayback { at_frame: 10, kind: std::io::ErrorKind::Other })),
+            ErrorClass::ReadError
+        );
+        assert_eq!(classify(&OpenError::File(FileError::Corrupt(CorruptKind::BadHeader))), ErrorClass::BadFile);
+        assert_eq!(classify(&OpenError::Internal(EngineFault::StoreFailed)), ErrorClass::Internal);
+    }
+
+    #[test]
+    fn error_classes_distinct_reactions() {
+        use DeviceChoiceKind::{Hw, Named, SystemDefault};
+        use ErrorClass::{BadFile, CaptureFailed, DeviceLost, Internal, ReadError};
+        use ModeKind::{Compatible, Optimal, Strict};
+        use Reaction::{FollowSystemDefault, LockFailed, Skip, StopWithError};
+
+        // Incompatible: только Строгий различает несовпадение частот/формата (ТЗ §2).
+        assert_eq!(reaction(ErrorClass::Incompatible, Strict, SystemDefault), Skip);
+
+        for (class, expected) in [
+            (CaptureFailed, [StopWithError, LockFailed, LockFailed]),
+            (BadFile, [Skip, Skip, Skip]),
+            (ReadError, [Skip, Skip, Skip]),
+            (Internal, [StopWithError, StopWithError, StopWithError]),
+        ] {
+            assert_eq!(reaction(class, Compatible, SystemDefault), expected[0]);
+            assert_eq!(reaction(class, Optimal, SystemDefault), expected[1]);
+            assert_eq!(reaction(class, Strict, SystemDefault), expected[2]);
+        }
+
+        // DeviceLost: Совместимый следует за системным дефолтом, иначе — стоп.
+        assert_eq!(reaction(DeviceLost, Compatible, SystemDefault), FollowSystemDefault);
+        assert_eq!(reaction(DeviceLost, Compatible, Named), StopWithError);
+        assert_eq!(reaction(DeviceLost, Compatible, Hw), StopWithError);
+        assert_eq!(reaction(DeviceLost, Optimal, SystemDefault), StopWithError);
+        assert_eq!(reaction(DeviceLost, Strict, SystemDefault), StopWithError);
     }
 }
