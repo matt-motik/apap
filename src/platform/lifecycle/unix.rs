@@ -18,7 +18,8 @@ thread_local! {
     static EXIT_ENTRY: RefCell<Option<ExitEntry>> = const { RefCell::new(None) };
 }
 
-/// Жизненный цикл Linux/macOS (ADR-7): поток `apap-signals`, затем трей.
+/// Жизненный цикл Linux/macOS (ADR-7): поток `apap-signals`, перехват
+/// завершения macOS, затем трей.
 pub struct UnixLifecycle {
     caps: PlatformCaps,
     signals: Option<std::thread::JoinHandle<()>>,
@@ -38,7 +39,8 @@ impl Lifecycle for UnixLifecycle {
     }
 
     /// Шаг 8 порядка запуска (ADR-23): `ExitEntry` — в UI-поток, поток
-    /// `apap-signals` (первый сигнал → `ExitEntry(Signal)`, ТЗ-14), трей.
+    /// `apap-signals` (первый сигнал → `ExitEntry(Signal)`, ТЗ-14), на macOS —
+    /// `applicationShouldTerminate:` (ADR-7 п. 5), трей.
     /// Готовность трея приходит в `TrayPort::ready` (`PlatformCaps.tray`).
     fn install(
         &mut self,
@@ -46,6 +48,8 @@ impl Lifecycle for UnixLifecycle {
         entry: ExitEntry,
         tray_tx: Sender<TrayEvent>,
     ) -> Result<(), PlatformError> {
+        #[cfg(target_os = "macos")]
+        let mac_entry = entry.clone();
         EXIT_ENTRY.with(|e| *e.borrow_mut() = Some(entry));
         let on_first: Box<dyn Fn(TermSignal) + Send> = Box::new(|sig| {
             let _ = slint::invoke_from_event_loop(move || {
@@ -56,6 +60,9 @@ impl Lifecycle for UnixLifecycle {
             });
         });
         self.signals = Some(spawn_signals(on_first, process_exit())?);
+        // Метод делегата `applicationShouldTerminate:` (ADR-7 п. 5, ТЗ-15).
+        #[cfg(target_os = "macos")]
+        super::macos::install_terminate(mac_entry)?;
         if let Some((port, clock)) = self.tray.take() {
             tray::run(port, tray_tx, clock);
         }

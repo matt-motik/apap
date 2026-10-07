@@ -2741,6 +2741,7 @@ dependencies = [
  "image",
  "ksni",
  "libc",
+ "objc2 0.5.2",
  "rand 0.8.8",
  "raw-window-handle",
  "rfd",

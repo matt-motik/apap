@@ -127,7 +127,7 @@ steps:
     done: true
   - id: 30
     description: "macOS: applicationShouldTerminate: через class_addMethod на делегат winit, фолбэк NSApplicationWillTerminateNotification (ADR-7, ТЗ-15). Файлы: src/platform/lifecycle/macos.rs, Cargo.toml (objc2*). Проверка: cargo check (Linux) + ревью"
-    done: false
+    done: true
   - id: 31
     description: "Тесты выхода: exit_writes_settings_once (по каждой причине; без TrayQuit без трея), repeated_tray_quit_ignored, windows_session_end_runs_exit_synchronously (§7.2, ТЗ-14, ТЗ-15). Файл: src/core/testing.rs. Проверка: cargo test --no-run (прогон группой на Шаге 33)"
     done: false
@@ -141,8 +141,8 @@ steps:
     description: "Финал: grep cfg(target_os вне src/platform (аудио-места AM1.0 — вне задач SP1.0), полный cargo test + cargo clippy, ROADMAP ✅ (ТЗ-54 приёмка). Файлы: ROADMAP.md, _STATE_.yaml. Проверка: всё зелёное"
     done: false
 
-current_step: 30
-next_action: "Шаг 30: macOS applicationShouldTerminate: (class_addMethod на WinitApplicationDelegate, фолбэк NSApplicationWillTerminateNotification) в lifecycle/macos.rs. Не-Linux ветки (трей, platform_lifecycle, platform_notifier, windows.rs сабкласс) не компилировались локально — собрать на ноутбуке при кросс-ОС приёмке"
+current_step: 31
+next_action: "Шаг 31: тесты выхода в src/core/testing.rs (cargo test --no-run; прогон группой на Шаге 33). Не-Linux ветки (трей, platform_lifecycle, platform_notifier, windows.rs сабкласс, macos.rs делегат) не компилировались локально — собрать на ноутбуке/macOS при кросс-ОС приёмке"
 
 fail_counter: 0
 fail_counter_max: 3

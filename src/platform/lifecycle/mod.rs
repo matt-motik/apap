@@ -74,6 +74,9 @@ pub mod unix;
 #[cfg(windows)]
 pub mod windows;
 
+#[cfg(target_os = "macos")]
+pub mod macos;
+
 /// Реализация жизненного цикла этой ОС (ADR-6, ADR-7); `tray` запускается
 /// в `install` (ADR-23 шаг 8).
 #[cfg(unix)]
