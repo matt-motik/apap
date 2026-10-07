@@ -2,6 +2,7 @@
 //! shuffle state, playback-state sync to the UI and cover-art handling.
 
 use super::*;
+use music_player_rs::audio::decoder::TrackInfo;
 use music_player_rs::persist::state_file::{Origin, StateChange};
 
 impl MusicApp {
@@ -276,78 +277,95 @@ impl MusicApp {
             return;
         }
         let path = self.tracks[index].path.clone();
-        let title = self.tracks[index].title.clone();
         let prev_current = self.current;
         match self.player.open(&path) {
-            Ok(info) => {
-                self.tracks[index].duration =
-                    info.num_frames.map(|n| n as f64 / info.sample_rate as f64);
-                if let Some(t) = &info.tags.title {
-                    if !t.trim().is_empty() {
-                        self.tracks[index].title = t.clone();
-                    }
-                }
-                self.tracks[index].artist = info.tags.artist.clone();
-                self.tracks[index].album = info.tags.album.clone();
-                self.tracks[index].genre = info.tags.genre.clone();
-                self.tracks[index].year = info.tags.year.clone().unwrap_or_default();
-                self.stream_desc = self.player.stream_desc().cloned();
-                if info.tags.track_number > 0 || self.tracks[index].track_number == 0 {
-                    self.tracks[index].track_number = info.tags.track_number;
-                }
-                if info.tags.track_total > 0 {
-                    self.tracks[index].track_total = info.tags.track_total;
-                }
-                if info.tags.disc_number > 0 {
-                    self.tracks[index].disc = info.tags.disc_number;
-                }
-                if info.tags.disc_total > 0 {
-                    self.tracks[index].disc_total = info.tags.disc_total;
-                }
-                self.tracks[index].channels = info.channels as u32;
-                self.tracks[index].bitrate = info.bitrate;
-                if info.format_name.starts_with("DSD") {
-                    self.tracks[index].bit_depth = info.format_name.to_lowercase();
-                } else {
-                    self.tracks[index].sample_rate = info.sample_rate;
-                    self.tracks[index].bit_depth = match info.bits {
-                        Some(b) if b > 0 => format!("{b} bit"),
-                        _ => self.tracks[index].bit_depth.clone(),
-                    };
-                }
-                self.current = Some(index);
-                self.sync_shuffle_pos();
-                self.status = if self.player.reservation_pending() {
-                    // ТЗ-119: ожидание резервирования не блокирует UI.
-                    "Захват устройства…".into()
-                } else {
-                    self.playing_status().into()
-                };
-                self.player.play();
-                // Only the affected rows change: metadata of the new current
-                // track and the `>` marker on the old/new current indices.
-                self.refresh_playlist_rows_at(prev_current);
-                self.refresh_playlist_rows_at(self.current);
-                self.sync_track_info_to_ui();
-                self.ui.set_current_row(index as i32);
-                if self.core.settings().scroll_to_playing {
-                    self.ui.invoke_scroll_to_row(index as i32);
-                }
-                self.emit(AppEvent::TrackChanged(self.current));
-                self.emit(AppEvent::PlaybackStarted);
-            }
-            Err(e) => {
-                self.player.stop();
-                // Явное действие (воспроизведение трека) не выполнено — окно
-                // Error, не строка состояния (ТЗ-52, ОВ-7).
-                self.push_message(Message {
-                    level: MessageLevel::Error,
-                    title: "Не удалось воспроизвести трек".into(),
-                    body: format!("{title}: {e}").into(),
-                    buttons: MessageButtons::Ok,
-                });
+            Ok(info) => self.on_track_opened(index, prev_current, &info),
+            Err(e) => self.on_open_failed(index, &e),
+        }
+    }
+
+    /// Применить результат успешного открытия трека: метаданные, текущий
+    /// индекс, запуск, синхронизация UI. Вынесено для асинхронного open
+    /// (ADR-01, ТЗ-103).
+    pub(super) fn on_track_opened(
+        &mut self,
+        index: usize,
+        prev_current: Option<usize>,
+        info: &TrackInfo,
+    ) {
+        self.tracks[index].duration = info.num_frames.map(|n| n as f64 / info.sample_rate as f64);
+        if let Some(t) = &info.tags.title {
+            if !t.trim().is_empty() {
+                self.tracks[index].title = t.clone();
             }
         }
+        self.tracks[index].artist = info.tags.artist.clone();
+        self.tracks[index].album = info.tags.album.clone();
+        self.tracks[index].genre = info.tags.genre.clone();
+        self.tracks[index].year = info.tags.year.clone().unwrap_or_default();
+        self.stream_desc = self.player.stream_desc().cloned();
+        if info.tags.track_number > 0 || self.tracks[index].track_number == 0 {
+            self.tracks[index].track_number = info.tags.track_number;
+        }
+        if info.tags.track_total > 0 {
+            self.tracks[index].track_total = info.tags.track_total;
+        }
+        if info.tags.disc_number > 0 {
+            self.tracks[index].disc = info.tags.disc_number;
+        }
+        if info.tags.disc_total > 0 {
+            self.tracks[index].disc_total = info.tags.disc_total;
+        }
+        self.tracks[index].channels = info.channels as u32;
+        self.tracks[index].bitrate = info.bitrate;
+        if info.format_name.starts_with("DSD") {
+            self.tracks[index].bit_depth = info.format_name.to_lowercase();
+        } else {
+            self.tracks[index].sample_rate = info.sample_rate;
+            self.tracks[index].bit_depth = match info.bits {
+                Some(b) if b > 0 => format!("{b} bit"),
+                _ => self.tracks[index].bit_depth.clone(),
+            };
+        }
+        self.current = Some(index);
+        self.sync_shuffle_pos();
+        self.status = if self.player.reservation_pending() {
+            // ТЗ-119: ожидание резервирования не блокирует UI.
+            "Захват устройства…".into()
+        } else {
+            self.playing_status().into()
+        };
+        self.player.play();
+        // Only the affected rows change: metadata of the new current
+        // track and the `>` marker on the old/new current indices.
+        self.refresh_playlist_rows_at(prev_current);
+        self.refresh_playlist_rows_at(self.current);
+        self.sync_track_info_to_ui();
+        self.ui.set_current_row(index as i32);
+        if self.core.settings().scroll_to_playing {
+            self.ui.invoke_scroll_to_row(index as i32);
+        }
+        self.emit(AppEvent::TrackChanged(self.current));
+        self.emit(AppEvent::PlaybackStarted);
+    }
+
+    /// Открытие трека не удалось: остановка и окно Error (ТЗ-52, ОВ-7).
+    /// Вынесено для асинхронного open (ADR-01, ТЗ-103).
+    pub(super) fn on_open_failed(&mut self, index: usize, err: &str) {
+        let title = self
+            .tracks
+            .get(index)
+            .map(|t| t.title.clone())
+            .unwrap_or_default();
+        self.player.stop();
+        // Явное действие (воспроизведение трека) не выполнено — окно
+        // Error, не строка состояния (ТЗ-52, ОВ-7).
+        self.push_message(Message {
+            level: MessageLevel::Error,
+            title: "Не удалось воспроизвести трек".into(),
+            body: format!("{title}: {err}").into(),
+            buttons: MessageButtons::Ok,
+        });
     }
 
     pub(super) fn rebuild_shuffle(&mut self) {
