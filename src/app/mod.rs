@@ -12,9 +12,9 @@ use slint::{ComponentHandle, Model, ModelRc, SharedString, StandardListViewItem,
 use slint::language::{SortOrder, TableColumn};
 
 use music_player_rs::audio::analyzer::TAP_CAPACITY;
-use music_player_rs::audio::backend::BackendError;
+use music_player_rs::audio::backend::{BackendError, SharedDeviceId};
 use music_player_rs::audio::error::{EngineFault, FileError, OpenError, Reaction};
-use music_player_rs::audio::output::{default_device_name, probe_output, DeviceInfo};
+use music_player_rs::audio::output::{default_device_name, DeviceInfo};
 use music_player_rs::audio::player::ReservationEvent;
 use music_player_rs::audio::visualizer::{
     FreqScale, LevelScale, VisualizationMode, VisualizerConfig,
@@ -26,7 +26,7 @@ use music_player_rs::core::messages::{
 use music_player_rs::core::exit::{ExitOutcome, ExitReason};
 use music_player_rs::core::AppCore;
 use music_player_rs::cover::{self, CoverDone, CoverJob};
-use music_player_rs::engine::messages::{LegacyAudio, Notice, SkipReason};
+use music_player_rs::engine::messages::{EngineEvent, LegacyAudio, Notice, SkipReason};
 use music_player_rs::engine::run::EngineHandle;
 use music_player_rs::persist::settings_file::Settings as PersistSettings;
 use music_player_rs::persist::settings_file::{ColumnsConfig, ThemeName};
@@ -308,11 +308,19 @@ pub struct MusicApp {
     shuffle: bool,
     shuffle_order: Vec<usize>,
     shuffle_pos: usize,
-    /// True when the output device probe succeeded at startup.
+    /// `true`, once the engine has confirmed a usable output device —
+    /// either by enumerating it in a `Devices` catalog update or by opening
+    /// a stream on it. No synchronous probe blocks `new()` any more; the
+    /// window shows before availability is known (ТЗ-104, ADR-16).
     audio_ready: bool,
-    /// Startup probe error (unavailable configured/default device).
+    /// Device-unavailable message from `Notice::DevicesUnavailable`, if the
+    /// engine's last catalog refresh failed. `None` while availability is
+    /// still unknown (not yet an error) and once a device is confirmed
+    /// ready (ТЗ-104).
     audio_error: Option<String>,
-    /// Effective output device name (from the probe or last successful switch).
+    /// Effective output device name: the saved/preferred device until the
+    /// engine's device catalog confirms one, then the catalog's name for it
+    /// (ТЗ-104, ADR-16).
     active_device: String,
     tray_rx: Option<std::sync::mpsc::Receiver<TrayEvent>>,
     /// Итог регистрации трея → `caps` (ADR-6, В-1); `None` — итог получен.
@@ -499,34 +507,21 @@ impl MusicApp {
         let repeat = core.state().repeat();
         let shuffle = core.state().shuffle();
 
-        // Probe the configured (or default) output device so availability is
-        // known before the UI is shown.
+        // Output device availability is no longer probed synchronously here:
+        // the engine thread enumerates devices in the background and reports
+        // them via `EngineEvent::Devices`/`Notice::DevicesUnavailable`, applied
+        // in `drain_engine_events`/`dispatch_applied` (ТЗ-104, ADR-16). The
+        // window must show before that first report arrives, so the initial
+        // state is "unknown", not an error.
         let saved_device = core.settings().playback.audio_device.clone();
-        let preferred = if saved_device.is_empty() {
-            None
+        let audio_ready = false;
+        let audio_error = None;
+        let active_device = if saved_device.is_empty() {
+            String::from("default")
         } else {
-            Some(saved_device.as_str())
+            saved_device.clone()
         };
-        eprintln!("[init] probing audio device: {:?}", preferred.unwrap_or("(default)"));
-        let probe = probe_output(preferred);
-        let (audio_ready, audio_error, active_device) = match probe {
-            Ok(name) => (true, None, name),
-            Err(e) => {
-                eprintln!("[init] audio probe failed: {e}");
-                let active = if saved_device.is_empty() {
-                    String::from("none")
-                } else {
-                    saved_device.clone()
-                };
-                (false, Some(e), active)
-            }
-        };
-        let startup_status = match &audio_error {
-            Some(e) => format!(
-                "Audio device unavailable \u{2014} playback will not start: {e}"
-            ),
-            None => format!("Audio: {active_device} ready"),
-        };
+        let startup_status = String::from("Audio: checking device\u{2026}");
 
         // Visualization tap (ТЗ §16.2): кольцо PCM для анализатора, consumer
         // уходит в LiveWorker, producer — в audio-callback плеера.
@@ -2215,13 +2210,42 @@ impl MusicApp {
         let mut applied = std::mem::take(&mut self.engine_applied);
         applied.clear();
 
+        // Device readiness is decided here, from the raw `EngineEvent`
+        // stream, before it's handed to `player.on_event` — the catalog
+        // update itself reduces to a field inside `AudioFacade`/
+        // `UiAudioState` and never reaches `Applied` (ТЗ-104, ADR-16).
+        let saved_device = self.core.settings().playback.audio_device.clone();
+        let mut ready_device: Option<String> = None;
+
         let player = &mut self.player;
         self.engine_events.drain(|ev| {
+            if let EngineEvent::Devices(ref catalog) = ev {
+                let found = if saved_device.is_empty() {
+                    catalog.default_device()
+                } else {
+                    catalog
+                        .find(&SharedDeviceId::new(saved_device.as_str()))
+                        .or_else(|| catalog.default_device())
+                };
+                if let Some(dev) = found {
+                    ready_device = Some(dev.name.clone());
+                }
+            }
             let a = player.on_event(ev);
             if a != Applied::None {
                 applied.push(a);
             }
         });
+
+        if let Some(name) = ready_device {
+            if !self.audio_ready {
+                // Первое подтверждение устройства заменяет стартовое «checking device…» (ТЗ-104).
+                self.status = format!("Audio: {name} ready").into();
+            }
+            self.audio_ready = true;
+            self.audio_error = None;
+            self.active_device = name;
+        }
 
         if let Some(info) = self.player.take_opened() {
             if let Some((index, prev_current)) = self.pending_open.take() {
@@ -2345,7 +2369,10 @@ impl MusicApp {
             Applied::Notice(Notice::Reservation(_)) => {}
             Applied::Notice(Notice::DevicesUnavailable(BackendError::Unavailable(msg))) => {
                 // Фоновый сбой перечисления устройств (ТЗ-104, ТЗ-105, ADR-16) —
-                // строка состояния, не окно.
+                // строка состояния, не окно. То же сообщение, что раньше
+                // выдавал синхронный startup-probe, теперь приходит событием.
+                self.audio_ready = false;
+                self.audio_error = Some(msg.clone());
                 self.status = format!("Не удалось получить список устройств вывода: {msg}").into();
             }
             // Путь завершения приложения обрабатывается отдельным шагом моста.
