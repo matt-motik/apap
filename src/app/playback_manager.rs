@@ -186,22 +186,7 @@ impl MusicApp {
                     self.emit(AppEvent::PlaybackStarted);
                 }
                 _ => {
-                    let next = if self.shuffle && !self.shuffle_order.is_empty() {
-                        match playlist::advance_shuffle(
-                            &self.shuffle_order,
-                            self.shuffle_pos,
-                            1,
-                            self.repeat,
-                        ) {
-                            Some((idx, new_pos)) => {
-                                self.shuffle_pos = new_pos;
-                                Some(idx)
-                            }
-                            None => None,
-                        }
-                    } else {
-                        playlist::advance_index(self.current, 1, self.tracks.len(), self.repeat)
-                    };
+                    let next = self.next_track_index(self.repeat);
                     match next {
                         Some(idx) => self.play_track(idx),
                         None => {
@@ -215,6 +200,27 @@ impl MusicApp {
                     }
                 }
             }
+        }
+    }
+
+    /// Индекс следующего трека с учётом shuffle и `repeat` (мутирует
+    /// `shuffle_pos` при переходе по shuffle-порядку). `repeat` передаётся
+    /// отдельно от `self.repeat`, чтобы вызывающий код (пропуск повреждённого
+    /// трека, ТЗ-86/ТЗ-87) мог подставить `RepeatMode::All` вместо `One` —
+    /// иначе пропуск зациклился бы на одном и том же треке. Вынесено из
+    /// `handle_auto_advance`, используется также из `dispatch_applied`
+    /// (мост С3).
+    pub(super) fn next_track_index(&mut self, repeat: RepeatMode) -> Option<usize> {
+        if self.shuffle && !self.shuffle_order.is_empty() {
+            match playlist::advance_shuffle(&self.shuffle_order, self.shuffle_pos, 1, repeat) {
+                Some((idx, new_pos)) => {
+                    self.shuffle_pos = new_pos;
+                    Some(idx)
+                }
+                None => None,
+            }
+        } else {
+            playlist::advance_index(self.current, 1, self.tracks.len(), repeat)
         }
     }
 

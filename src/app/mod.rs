@@ -12,7 +12,8 @@ use slint::{ComponentHandle, Model, ModelRc, SharedString, StandardListViewItem,
 use slint::language::{SortOrder, TableColumn};
 
 use music_player_rs::audio::analyzer::TAP_CAPACITY;
-use music_player_rs::audio::error::EngineFault;
+use music_player_rs::audio::backend::BackendError;
+use music_player_rs::audio::error::{EngineFault, FileError, OpenError, Reaction};
 use music_player_rs::audio::output::{default_device_name, probe_output, DeviceInfo};
 use music_player_rs::audio::player::ReservationEvent;
 use music_player_rs::audio::visualizer::{
@@ -25,7 +26,7 @@ use music_player_rs::core::messages::{
 use music_player_rs::core::exit::{ExitOutcome, ExitReason};
 use music_player_rs::core::AppCore;
 use music_player_rs::cover::{self, CoverDone, CoverJob};
-use music_player_rs::engine::messages::LegacyAudio;
+use music_player_rs::engine::messages::{LegacyAudio, Notice, SkipReason};
 use music_player_rs::engine::run::EngineHandle;
 use music_player_rs::persist::settings_file::Settings as PersistSettings;
 use music_player_rs::persist::settings_file::{ColumnsConfig, ThemeName};
@@ -405,6 +406,10 @@ pub struct MusicApp {
     /// Буфер разобранных событий движка, переиспользуется между тиками
     /// (ADR-02, И-Р13).
     engine_applied: Vec<Applied>,
+    /// Счётчик треков, пропущенных подряд из-за ошибки файла; мост до
+    /// SkipSeries С8 (ТЗ-85, ТЗ-86) — защита от бесконечного пропуска, если
+    /// повреждена вся библиотека при Repeat All.
+    skip_streak: usize,
 }
 
 impl MusicApp {
@@ -592,6 +597,7 @@ impl MusicApp {
             engine_fault,
             engine_events,
             engine_applied: Vec::new(),
+            skip_streak: 0,
         };
         // Загрузка плейлиста при старте ещё не завершена (фон, выше) —
         // список недоступен до её окончания (ТЗ-48, §2.11).
@@ -2186,11 +2192,10 @@ impl MusicApp {
     /// Drain the event feed. Discrete transitions that matter to the tray
     /// (track switch, play/pause/stop, device change) push a fresh tray state
     /// immediately instead of waiting for the throttled status interval.
-    /// Разобрать все накопленные события движка и применить принятый
-    /// `Opened` к плейлисту (ADR-02, И-Р13). Буфер `engine_applied`
-    /// переиспользуется между тиками — здесь только `clear()`, без
-    /// аллокации; остальные варианты `Applied` (Skipped/OpenFailed/
-    /// Ended/DeviceLost/Notice) диспетчеризуются на следующем шаге.
+    /// Разобрать все накопленные события движка, применить принятый
+    /// `Opened` к плейлисту и раздать остальные варианты `Applied` в
+    /// `dispatch_applied` (ADR-02, И-Р13). Буфер `engine_applied`
+    /// переиспользуется между тиками — без аллокации.
     fn drain_engine_events(&mut self) {
         let mut applied = std::mem::take(&mut self.engine_applied);
         applied.clear();
@@ -2207,11 +2212,130 @@ impl MusicApp {
             if let Some((index, prev_current)) = self.pending_open.take() {
                 if index < self.tracks.len() {
                     self.on_track_opened(index, prev_current, &info);
+                    // Успешное открытие прерывает серию пропусков (ТЗ-85, ТЗ-86).
+                    self.skip_streak = 0;
                 }
             }
         }
 
+        for a in applied.drain(..) {
+            self.dispatch_applied(a);
+        }
         self.engine_applied = applied;
+    }
+
+    /// Раздать принятое событие движка (кроме `Opened`, обработанного в
+    /// `drain_engine_events`) соответствующей реакции UI (ADR-02, С3).
+    fn dispatch_applied(&mut self, a: Applied) {
+        match a {
+            // Поглощено полями состояния `UiAudioState`, либо устаревшее
+            // событие отброшено по `req_gen` (И-Р14) — действий не требуется.
+            Applied::None => {}
+            Applied::Skipped { path, reason } => {
+                // Порча/ошибка чтения файла посреди трека — пропуск, а не
+                // естественное завершение (ТЗ-86, ТЗ-87). Открытие, на
+                // которое ссылался пропущенный трек, уже не актуально.
+                self.pending_open = None;
+                self.skip_streak += 1;
+                let name = path
+                    .file_name()
+                    .map(|n| n.to_string_lossy().into_owned())
+                    .unwrap_or_else(|| path.display().to_string());
+                // Фоновое событие (не результат явного действия пользователя
+                // над этим треком) — строка состояния, не окно (ТЗ-52, ОВ-7).
+                self.status = format!("Пропущен трек «{name}»: {}", describe_skip_reason(&reason)).into();
+
+                if self.tracks.is_empty() || self.skip_streak >= self.tracks.len() {
+                    // Защита от бесконечного пропуска при Repeat All, если
+                    // вся библиотека повреждена (мост до SkipSeries С8).
+                    self.player.stop();
+                    self.emit(AppEvent::PlaybackStopped);
+                    self.status = "Все треки пропущены".into();
+                    return;
+                }
+                // `RepeatMode::One` на пропуске ведёт себя как `All`/`Off` —
+                // иначе плеер зациклился бы на одном и том же повреждённом
+                // треке.
+                let repeat = if self.repeat == RepeatMode::One {
+                    RepeatMode::All
+                } else {
+                    self.repeat
+                };
+                match self.next_track_index(repeat) {
+                    Some(idx) => self.play_track(idx),
+                    None => {
+                        self.player.stop();
+                        self.emit(AppEvent::PlaybackStopped);
+                    }
+                }
+            }
+            Applied::OpenFailed { err } => {
+                // `Capture` дублирует уведомление о резервировании
+                // (`Notice::Reservation`, обрабатывается в `handle_reservation`) —
+                // второе сообщение не нужно, только снять ожидание открытия.
+                if matches!(err, OpenError::Capture(_)) {
+                    self.pending_open = None;
+                    return;
+                }
+                let index = self.pending_open.take().map(|(index, _)| index).or(self.current);
+                let text = describe_open_error(&err);
+                match index {
+                    Some(index) => self.on_open_failed(index, &text),
+                    None => {
+                        self.player.stop();
+                        self.push_message(Message {
+                            level: MessageLevel::Error,
+                            title: "Не удалось воспроизвести трек".into(),
+                            body: text.into(),
+                            buttons: MessageButtons::Ok,
+                        });
+                    }
+                }
+            }
+            // `AudioFacade` уже взвела флаг `ended`; авто-переход на
+            // следующий трек делает `handle_auto_advance` на тике — повторная
+            // обработка здесь продублировала бы переход.
+            Applied::Ended => {}
+            Applied::DeviceLost(reaction) => match reaction {
+                Reaction::StopWithError | Reaction::LockFailed => {
+                    self.player.stop();
+                    self.emit(AppEvent::PlaybackStopped);
+                    self.push_message(Message {
+                        level: MessageLevel::Error,
+                        title: "Устройство вывода потеряно".into(),
+                        body: "Воспроизведение остановлено (ТЗ-51, ADR-14).".into(),
+                        buttons: MessageButtons::Ok,
+                    });
+                }
+                Reaction::FollowSystemDefault => {
+                    // Фоновое переключение на устройство по умолчанию — не
+                    // явное действие пользователя (ТЗ-52, ОВ-7) — строка
+                    // состояния.
+                    self.status = "Вывод переключён на устройство по умолчанию".into();
+                }
+                Reaction::Skip => {
+                    // Трактуется как пропуск трека без отдельного сообщения —
+                    // избегаем спама сообщениями при частых потерях устройства.
+                    if let Some(idx) = self.next_track_index(self.repeat) {
+                        self.play_track(idx);
+                    } else {
+                        self.player.stop();
+                        self.emit(AppEvent::PlaybackStopped);
+                    }
+                }
+            },
+            // Уведомление о резервировании уже поставлено в очередь
+            // `AudioFacade` и опрашивается `handle_reservation` — повторная
+            // обработка здесь не нужна.
+            Applied::Notice(Notice::Reservation(_)) => {}
+            Applied::Notice(Notice::DevicesUnavailable(BackendError::Unavailable(msg))) => {
+                // Фоновый сбой перечисления устройств (ТЗ-104, ТЗ-105, ADR-16) —
+                // строка состояния, не окно.
+                self.status = format!("Не удалось получить список устройств вывода: {msg}").into();
+            }
+            // Путь завершения приложения обрабатывается отдельным шагом моста.
+            Applied::ShutdownComplete => {}
+        }
     }
 
     fn drain_events(&mut self) {
@@ -2272,6 +2396,38 @@ fn resampler_fixed_fallback_guard(mode: ResamplerMode, fallback: FallbackPolicy)
         FallbackPolicy::Nearest
     } else {
         fallback
+    }
+}
+
+/// Короткий русский текст причины отказа открытия трека для сообщений
+/// пользователю (ADR-14, ТЗ-86). `Capture` не описывается здесь — он не
+/// доходит до этой функции, т.к. `dispatch_applied` гасит его отдельно
+/// (дублирует уведомление о резервировании).
+fn describe_open_error(err: &OpenError) -> String {
+    match err {
+        OpenError::Capture(_) => String::new(),
+        OpenError::DeviceLost => "устройство вывода потеряно".to_string(),
+        OpenError::File(file_err) => describe_file_error(file_err),
+        OpenError::Internal(fault) => format!("внутренняя ошибка движка: {fault:?}"),
+    }
+}
+
+/// Короткий русский текст ошибки файла (ТЗ-86, ТЗ-87).
+fn describe_file_error(err: &FileError) -> String {
+    match err {
+        FileError::Corrupt(kind) => format!("файл повреждён ({kind:?})"),
+        FileError::Unsupported { codec } => format!("неподдерживаемый формат: {codec}"),
+        FileError::Io(kind) => format!("ошибка чтения: {kind:?}"),
+        FileError::ReadDuringPlayback { at_frame, kind } => {
+            format!("ошибка чтения на кадре {at_frame}: {kind:?}")
+        }
+    }
+}
+
+/// Короткий русский текст причины пропуска трека (ТЗ-86, ТЗ-87).
+fn describe_skip_reason(reason: &SkipReason) -> String {
+    match reason {
+        SkipReason::File(err) => describe_file_error(err),
     }
 }
 
