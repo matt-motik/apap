@@ -61,7 +61,7 @@
 [x] Шаг 24: on_close_requested: сворачивание в трей только при minimize_to_tray && caps.tray, иначе exit(WindowClose) (§6.10, ТЗ-52 п.2, В-1). Файл: src/app/mod.rs. Проверка: cargo check
 [x] Шаг 25: Notifier: RtSlot = Arc<OnceLock<tokio Handle>> — LinuxNotifier берёт рантайм потока трея из слота (слот пуст — трея нет, вызов пропускается); platform_notifier(slot, journal) (ADR-9, §2.8). Файлы: src/platform/notify/mod.rs, src/platform/notify/linux.rs. Проверка: cargo check
 [x] Шаг 26: Трей: TrayPort.rt: RtSlot — поток трея кладёт Handle рантайма до ready=true; main создаёт слот (ADR-9). Файлы: src/platform/tray/mod.rs, src/main.rs. Проверка: cargo check
-[ ] Шаг 27: apply_msg_effect: notify через Notifier вместо set_tray_notice; MusicApp::new получает Box<dyn Notifier> от main (platform_notifier) (§6.15, ADR-9, ТЗ-52 п.2). Файлы: src/app/mod.rs, src/main.rs. Проверка: cargo check
+[x] Шаг 27: apply_msg_effect: notify через Notifier вместо set_tray_notice; MusicApp::new получает Box<dyn Notifier> от main (platform_notifier) (§6.15, ADR-9, ТЗ-52 п.2). Файлы: src/app/mod.rs, src/main.rs. Проверка: cargo check
 [ ] Шаг 28: Удалить BP_NOTICE_TEXT/notice как канал сообщений (§8.1 «удаляется»). Файлы: src/platform/tray/mod.rs, src/app/mod.rs. Проверка: cargo check. ЧЕКПОИНТ: cargo test + cargo clippy
 [ ] Шаг 29: Windows: SetWindowSubclass на HWND (WM_QUERYENDSESSION→TRUE; WM_ENDSESSION wParam=TRUE → синхронный выход, return 0) (ADR-7, ТЗ-15). Файлы: src/platform/lifecycle/windows.rs, Cargo.toml (windows-sys features). Проверка: cargo check (Linux) + ревью; сборка Windows — на ноутбуке
 [ ] Шаг 30: macOS: applicationShouldTerminate: через class_addMethod на делегат winit, фолбэк NSApplicationWillTerminateNotification (ADR-7, ТЗ-15). Файлы: src/platform/lifecycle/macos.rs, Cargo.toml (objc2*). Проверка: cargo check (Linux) + ревью
@@ -70,8 +70,8 @@
 [ ] Шаг 33: Тесты: platform_fakes_cover_exit_fs_input_notify_pick (части exit/fs/notify), tray_works_during_dialog/message без колёсика (колёсико — С11) (§7.2, ТЗ-24, ТЗ-54). Файл: src/core/testing.rs. Проверка: ЧЕКПОИНТ группы тестов 31–33: полный cargo test + cargo clippy
 [ ] Шаг 34: Финал: grep cfg(target_os вне src/platform (аудио-места AM1.0 — вне задач SP1.0), полный cargo test + cargo clippy, ROADMAP ✅ (ТЗ-54 приёмка). Файлы: ROADMAP.md, _STATE_.yaml. Проверка: всё зелёное
 
-- **Текущий шаг (current_step):** Шаг 27
-- **Следующий ход:** Шаг 27: MusicApp::new получает notifier (platform_notifier(notify_rt, journal) в main); apply_msg_effect → notifier.notify. Ветку не-Linux (трей, platform_lifecycle, platform_notifier) проверить при кросс-ОС приёмке
+- **Текущий шаг (current_step):** Шаг 28
+- **Следующий ход:** Шаг 28: удалить BP_NOTICE_TEXT/notice как канал сообщений, ЧЕКПОИНТ cargo test + clippy. Ветку не-Linux (трей, platform_lifecycle, platform_notifier) проверить при кросс-ОС приёмке
 - **Счетчик безуспешных компиляций:** 0/3
 - **Состояние:** in_progress
 

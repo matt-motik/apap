@@ -32,6 +32,7 @@ use music_player_rs::persist::state_file::{
 use music_player_rs::persist::tracker::ReplyEffect;
 use music_player_rs::persist::{ConfigPaths, WorkFile};
 use music_player_rs::platform::lifecycle::PlatformCaps;
+use music_player_rs::platform::notify::Notifier;
 use music_player_rs::playlist::{self, ScanMsg, Track};
 use music_player_rs::settings::{
     ClockFamily, ColumnId, DsdMode, ExclusiveMode, FallbackPolicy, FallbackRatePolicy, RepeatMode,
@@ -383,18 +384,21 @@ pub struct MusicApp {
     /// решении «окно или уведомление» (ADR-9, ТЗ-52 п. 3). До итога
     /// регистрации трея (`tray_ready`) — без трея и уведомлений (В-1).
     caps: PlatformCaps,
+    /// Системные уведомления при окне в трее (ADR-9, ТЗ-52 п. 2).
+    notifier: Box<dyn Notifier>,
 }
 
 impl MusicApp {
     /// `paths` и `AppCore` (с писателем и журналом) строит `main` (ADR-19): приложение не ищет
     /// каталог настроек пользователя само, поэтому тесты его не трогают (ТЗ-49).
     /// `tray` — UI-концы каналов трея; сам трей запускает `Lifecycle::install`
-    /// (ADR-23 шаг 8).
+    /// (ADR-23 шаг 8). `notifier` — системные уведомления (ADR-9).
     pub fn new(
         ui: AppWindow,
         core: AppCore,
         paths: ConfigPaths,
         tray: tray::TrayChannels,
+        notifier: Box<dyn Notifier>,
     ) -> Self {
         let mut player = Player::new();
         let pb_state = core.state().playback();
@@ -541,6 +545,7 @@ impl MusicApp {
             messages: MessageCenter::default(),
             // Трей и уведомления — после регистрации значка (poll_tray, ADR-6).
             caps: PlatformCaps::default(),
+            notifier,
         };
         // Загрузка плейлиста при старте ещё не завершена (фон, выше) —
         // список недоступен до её окончания (ТЗ-48, §2.11).
@@ -587,7 +592,7 @@ impl MusicApp {
     pub(super) fn apply_msg_effect(&mut self, effect: MsgEffect) {
         let MsgEffect { show, hide, notify } = effect;
         if let Some(n) = notify {
-            self.set_tray_notice(format!("{}: {}", n.title, n.body));
+            self.notifier.notify(n);
         }
         if hide {
             self.ui.set_msg_shown(false);
