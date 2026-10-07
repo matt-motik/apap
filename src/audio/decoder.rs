@@ -2,10 +2,20 @@ use std::fs::File;
 use std::io::ErrorKind;
 use std::path::Path;
 
-use symphonia::core::audio::GenericAudioBufferRef;
+use symphonia::core::audio::{Channels, GenericAudioBufferRef};
 use symphonia::core::codecs::audio::well_known::{
-    CODEC_ID_PCM_F32BE, CODEC_ID_PCM_F32BE_PLANAR, CODEC_ID_PCM_F32LE, CODEC_ID_PCM_F32LE_PLANAR,
-    CODEC_ID_PCM_F64BE, CODEC_ID_PCM_F64BE_PLANAR, CODEC_ID_PCM_F64LE, CODEC_ID_PCM_F64LE_PLANAR,
+    CODEC_ID_AAC, CODEC_ID_ADPCM_G722, CODEC_ID_ADPCM_G726, CODEC_ID_ADPCM_G726LE,
+    CODEC_ID_ADPCM_IMA_QT, CODEC_ID_ADPCM_IMA_WAV, CODEC_ID_ADPCM_MS, CODEC_ID_ALAC,
+    CODEC_ID_FLAC, CODEC_ID_MP1, CODEC_ID_MP2, CODEC_ID_MP3, CODEC_ID_PCM_F32BE,
+    CODEC_ID_PCM_F32BE_PLANAR, CODEC_ID_PCM_F32LE, CODEC_ID_PCM_F32LE_PLANAR, CODEC_ID_PCM_F64BE,
+    CODEC_ID_PCM_F64BE_PLANAR, CODEC_ID_PCM_F64LE, CODEC_ID_PCM_F64LE_PLANAR, CODEC_ID_PCM_S16BE,
+    CODEC_ID_PCM_S16BE_PLANAR, CODEC_ID_PCM_S16LE, CODEC_ID_PCM_S16LE_PLANAR, CODEC_ID_PCM_S24BE,
+    CODEC_ID_PCM_S24BE_PLANAR, CODEC_ID_PCM_S24LE, CODEC_ID_PCM_S24LE_PLANAR, CODEC_ID_PCM_S32BE,
+    CODEC_ID_PCM_S32BE_PLANAR, CODEC_ID_PCM_S32LE, CODEC_ID_PCM_S32LE_PLANAR, CODEC_ID_PCM_S8,
+    CODEC_ID_PCM_S8_PLANAR, CODEC_ID_PCM_U16BE, CODEC_ID_PCM_U16BE_PLANAR, CODEC_ID_PCM_U16LE,
+    CODEC_ID_PCM_U16LE_PLANAR, CODEC_ID_PCM_U24BE, CODEC_ID_PCM_U24BE_PLANAR, CODEC_ID_PCM_U24LE,
+    CODEC_ID_PCM_U24LE_PLANAR, CODEC_ID_PCM_U32BE, CODEC_ID_PCM_U32BE_PLANAR, CODEC_ID_PCM_U32LE,
+    CODEC_ID_PCM_U32LE_PLANAR, CODEC_ID_PCM_U8, CODEC_ID_PCM_U8_PLANAR, CODEC_ID_VORBIS,
 };
 use symphonia::core::codecs::audio::{AudioCodecId, AudioDecoder, AudioDecoderOptions};
 use symphonia::core::errors::Error as SymError;
@@ -16,7 +26,10 @@ use symphonia::core::meta::MetadataOptions;
 use symphonia::core::units::Time;
 
 use super::error::{CorruptKind, FileError};
-use super::format::{BitDepth, SampleBlock};
+use super::format::{
+    BitDepth, ChannelLayout, ChannelPos, Codec, Container, SampleBlock, SampleRate, SourceFormat,
+    SourceKind,
+};
 use super::session::RingPayload;
 
 #[derive(Debug, Clone)]
@@ -615,6 +628,167 @@ impl AudioSource for Decoder {
     }
 }
 
+/// Контейнер по короткому имени ридера symphonia (ТЗ-74): ALAC/AAC в M4A —
+/// `Container::Mp4`, «голый» AAC (ADTS) — `Adts`, Vorbis — `Ogg`.
+fn container_from_probe(short_name: &str) -> Container {
+    match short_name {
+        "wave" => Container::Wav,
+        "aiff" => Container::Aiff,
+        "flac" => Container::Flac,
+        "ogg" => Container::Ogg,
+        "isomp4" => Container::Mp4,
+        "aac" => Container::Adts,
+        "mp1" | "mp2" | "mp3" => Container::Mp3,
+        _ => Container::Other,
+    }
+}
+
+/// Целочисленный линейный PCM (контейнер WAV/AIFF).
+fn is_int_pcm(codec: AudioCodecId) -> bool {
+    [
+        CODEC_ID_PCM_S8,
+        CODEC_ID_PCM_S8_PLANAR,
+        CODEC_ID_PCM_U8,
+        CODEC_ID_PCM_U8_PLANAR,
+        CODEC_ID_PCM_S16LE,
+        CODEC_ID_PCM_S16LE_PLANAR,
+        CODEC_ID_PCM_S16BE,
+        CODEC_ID_PCM_S16BE_PLANAR,
+        CODEC_ID_PCM_U16LE,
+        CODEC_ID_PCM_U16LE_PLANAR,
+        CODEC_ID_PCM_U16BE,
+        CODEC_ID_PCM_U16BE_PLANAR,
+        CODEC_ID_PCM_S24LE,
+        CODEC_ID_PCM_S24LE_PLANAR,
+        CODEC_ID_PCM_S24BE,
+        CODEC_ID_PCM_S24BE_PLANAR,
+        CODEC_ID_PCM_U24LE,
+        CODEC_ID_PCM_U24LE_PLANAR,
+        CODEC_ID_PCM_U24BE,
+        CODEC_ID_PCM_U24BE_PLANAR,
+        CODEC_ID_PCM_S32LE,
+        CODEC_ID_PCM_S32LE_PLANAR,
+        CODEC_ID_PCM_S32BE,
+        CODEC_ID_PCM_S32BE_PLANAR,
+        CODEC_ID_PCM_U32LE,
+        CODEC_ID_PCM_U32LE_PLANAR,
+        CODEC_ID_PCM_U32BE,
+        CODEC_ID_PCM_U32BE_PLANAR,
+    ]
+    .contains(&codec)
+}
+
+/// float64 WAV/AIFF (ОВС-1): true — двойная точность.
+fn is_double_pcm(codec: AudioCodecId) -> bool {
+    [CODEC_ID_PCM_F64LE, CODEC_ID_PCM_F64LE_PLANAR, CODEC_ID_PCM_F64BE, CODEC_ID_PCM_F64BE_PLANAR]
+        .contains(&codec)
+}
+
+/// Кодек по `AudioCodecId` symphonia и уже определённому контейнеру (ТЗ-74):
+/// целочисленный и float-PCM в WAV/AIFF отдаются как `Codec::Wav`/`Codec::Aiff`;
+/// ADPCM — отдельным вариантом независимо от контейнера.
+fn codec_from_probe(codec: AudioCodecId, container: Container) -> Codec {
+    match codec {
+        CODEC_ID_FLAC => Codec::Flac,
+        CODEC_ID_ALAC => Codec::Alac,
+        CODEC_ID_MP1 | CODEC_ID_MP2 | CODEC_ID_MP3 => Codec::Mp3,
+        CODEC_ID_AAC => Codec::Aac,
+        CODEC_ID_VORBIS => Codec::Vorbis,
+        CODEC_ID_ADPCM_G722
+        | CODEC_ID_ADPCM_G726
+        | CODEC_ID_ADPCM_G726LE
+        | CODEC_ID_ADPCM_MS
+        | CODEC_ID_ADPCM_IMA_WAV
+        | CODEC_ID_ADPCM_IMA_QT => Codec::Adpcm,
+        _ if is_float_pcm(codec) || is_int_pcm(codec) => match container {
+            Container::Aiff => Codec::Aiff,
+            _ => Codec::Wav,
+        },
+        _ => Codec::Other,
+    }
+}
+
+/// Раскладка каналов по их числу (ТЗ-12): mono/stereo — именованные
+/// раскладки; иное число — позиции `Unknown(i)` по порядку, точная карта
+/// позиций symphonia здесь не разбирается (не нужна для пробы заголовка,
+/// §2.10). `None` при нуле каналов.
+fn channel_layout_from_count(n: usize) -> Option<ChannelLayout> {
+    match n {
+        0 => None,
+        1 => Some(ChannelLayout::mono()),
+        2 => Some(ChannelLayout::stereo()),
+        _ => {
+            let positions: Vec<ChannelPos> = (0..n)
+                .map(|i| ChannelPos::Unknown(u8::try_from(i).unwrap_or(u8::MAX)))
+                .collect();
+            ChannelLayout::new(&positions)
+        }
+    }
+}
+
+/// Факты об источнике по заголовку контейнера и параметрам дефолтного
+/// трека, без декодирования пакетов, построения seek-индекса и создания
+/// декодера (§2.10, §6.18 шаг 3, ТЗ-103, ТЗ-74). DSD (DSF/DFF) здесь не
+/// распознаётся (отдельный шаг): такие файлы идут через обычный проб
+/// symphonia и отдают ту ошибку, что он вернёт.
+pub fn probe_header(path: &Path) -> Result<SourceFormat, FileError> {
+    let file = File::open(path).map_err(|e| FileError::Io(e.kind()))?;
+    let mss = MediaSourceStream::new(Box::new(file), Default::default());
+
+    let mut hint = Hint::new();
+    if let Some(ext) = path.extension().and_then(|e| e.to_str()) {
+        hint.with_extension(ext);
+    }
+
+    let fmt_opts: FormatOptions = Default::default();
+    let meta_opts: MetadataOptions = Default::default();
+
+    let format = symphonia::default::get_probe()
+        .probe(&hint, mss, fmt_opts, meta_opts)
+        .map_err(|e| FileError::Unsupported { codec: e.to_string() })?;
+
+    let track = format
+        .default_track(TrackType::Audio)
+        .ok_or_else(|| FileError::Unsupported { codec: "no audio track found".into() })?;
+
+    let params = track
+        .codec_params
+        .as_ref()
+        .and_then(|c| c.audio())
+        .ok_or_else(|| FileError::Unsupported { codec: "no audio codec parameters".into() })?;
+
+    let rate = params
+        .sample_rate
+        .and_then(SampleRate::new)
+        .ok_or(FileError::Corrupt(CorruptKind::BadHeader))?;
+
+    let channel_count = params.channels.as_ref().map(Channels::count).unwrap_or(0);
+    let layout = channel_layout_from_count(channel_count)
+        .ok_or(FileError::Corrupt(CorruptKind::ZeroChannels))?;
+
+    let container = container_from_probe(format.format_info().short_name);
+    let codec = codec_from_probe(params.codec, container);
+    if codec == Codec::Other {
+        return Err(FileError::Unsupported { codec: format!("{:?}", params.codec) });
+    }
+    let lossy = codec.is_lossy();
+
+    let kind = if is_float_pcm(params.codec) {
+        SourceKind::FloatPcm { double: is_double_pcm(params.codec) }
+    } else if lossy {
+        SourceKind::Pcm { bits: BITS_24 }
+    } else {
+        let bits = params
+            .bits_per_sample
+            .and_then(|b| u8::try_from(b).ok())
+            .and_then(BitDepth::new)
+            .unwrap_or(BITS_16);
+        SourceKind::Pcm { bits }
+    };
+
+    Ok(SourceFormat { container, codec, lossy, rate, layout, kind })
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -814,5 +988,54 @@ mod tests {
         // `seek` fails cleanly instead of being unimplementable.
         let mut src = src;
         assert!(src.seek(10.0).is_err());
+    }
+
+    #[test]
+    fn probe_header_wav_int16() {
+        let src: Vec<i16> = vec![0, 1, -1, 7];
+        let data: Vec<u8> = src.iter().flat_map(|s| s.to_le_bytes()).collect();
+        let path = write_wav("probe-i16.wav", 1, 16, 2, &data);
+        let fmt = probe_header(&path).expect("probe");
+        assert_eq!(fmt.container, Container::Wav);
+        assert_eq!(fmt.codec, Codec::Wav);
+        assert!(!fmt.lossy);
+        assert_eq!(fmt.kind, SourceKind::Pcm { bits: BITS_16 });
+        assert_eq!(fmt.rate.hz(), 44_100);
+        assert_eq!(fmt.layout.count().get(), 2);
+        let _ = std::fs::remove_file(path);
+    }
+
+    #[test]
+    fn probe_header_wav_float32() {
+        let src: Vec<f32> = vec![0.0, 0.5, -1.0, 1.5];
+        let data: Vec<u8> = src.iter().flat_map(|s| s.to_le_bytes()).collect();
+        let path = write_wav("probe-f32.wav", 3, 32, 2, &data);
+        let fmt = probe_header(&path).expect("probe");
+        assert_eq!(fmt.container, Container::Wav);
+        assert_eq!(fmt.codec, Codec::Wav);
+        assert!(!fmt.lossy);
+        assert_eq!(fmt.kind, SourceKind::FloatPcm { double: false });
+        let _ = std::fs::remove_file(path);
+    }
+
+    #[test]
+    fn probe_header_missing_file_is_io_error() {
+        let path = PathBuf::from("/nonexistent/path/does-not-exist.wav");
+        match probe_header(&path) {
+            Err(FileError::Io(ErrorKind::NotFound)) => {}
+            other => panic!("ожидалась Io(NotFound): {other:?}"),
+        }
+    }
+
+    #[test]
+    fn probe_header_garbage_is_unsupported() {
+        let data = vec![0x42u8; 256];
+        let path = std::env::temp_dir().join(format!("{}-probe-garbage.bin", std::process::id()));
+        std::fs::write(&path, &data).expect("write garbage");
+        match probe_header(&path) {
+            Err(FileError::Unsupported { .. }) => {}
+            other => panic!("ожидалась Unsupported: {other:?}"),
+        }
+        let _ = std::fs::remove_file(path);
     }
 }
