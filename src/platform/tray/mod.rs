@@ -138,7 +138,7 @@ mod linux {
     pub(super) fn spawn(port: TrayPort, events: mpsc::Sender<TrayEvent>, clock: Box<dyn Clock>) {
         use ksni::TrayMethods;
 
-        let TrayPort { updates: mut up_rx, ready: ready_tx } = port;
+        let TrayPort { updates: mut up_rx, ready: ready_tx, rt: rt_slot } = port;
         std::thread::spawn(move || {
             let rt = match tokio::runtime::Builder::new_current_thread()
                 .enable_all()
@@ -160,6 +160,8 @@ mod linux {
                     let _ = ready_tx.send(false);
                     return;
                 };
+                // Рантайм трея — для `LinuxNotifier` (ADR-9), до `ready = true`.
+                let _ = rt_slot.set(tokio::runtime::Handle::current());
                 let _ = ready_tx.send(true);
                 while let Some(state) = up_rx.recv().await {
                     handle.update(|t: &mut PlayerTray| t.state = state).await;
@@ -176,6 +178,8 @@ pub struct TrayPort {
     pub updates: tokio::sync::mpsc::UnboundedReceiver<TrayState>,
     /// Одно значение после попытки регистрации (`PlatformCaps.tray`, В-1).
     pub ready: mpsc::Sender<bool>,
+    /// Слот рантайма трея для системных уведомлений (ADR-9).
+    pub rt: crate::platform::notify::RtSlot,
 }
 
 /// Запуск трея (ADR-6, ADR-23 шаг 8): события идут в `events`.

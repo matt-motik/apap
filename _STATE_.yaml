@@ -115,7 +115,7 @@ steps:
     done: true
   - id: 26
     description: "Трей: TrayPort.rt: RtSlot — поток трея кладёт Handle рантайма до ready=true; main создаёт слот (ADR-9). Файлы: src/platform/tray/mod.rs, src/main.rs. Проверка: cargo check"
-    done: false
+    done: true
   - id: 27
     description: "apply_msg_effect: notify через Notifier вместо set_tray_notice; MusicApp::new получает Box<dyn Notifier> от main (platform_notifier) (§6.15, ADR-9, ТЗ-52 п.2). Файлы: src/app/mod.rs, src/main.rs. Проверка: cargo check"
     done: false
@@ -141,8 +141,8 @@ steps:
     description: "Финал: grep cfg(target_os вне src/platform (аудио-места AM1.0 — вне задач SP1.0), полный cargo test + cargo clippy, ROADMAP ✅ (ТЗ-54 приёмка). Файлы: ROADMAP.md, _STATE_.yaml. Проверка: всё зелёное"
     done: false
 
-current_step: 26
-next_action: "Шаг 26: TrayPort.rt: RtSlot — поток трея кладёт Handle до ready=true; main создаёт слот. Ветку не-Linux (трей, platform_lifecycle, platform_notifier) проверить при кросс-ОС приёмке"
+current_step: 27
+next_action: "Шаг 27: MusicApp::new получает notifier (platform_notifier(notify_rt, journal) в main); apply_msg_effect → notifier.notify. Ветку не-Linux (трей, platform_lifecycle, platform_notifier) проверить при кросс-ОС приёмке"
 
 fail_counter: 0
 fail_counter_max: 3

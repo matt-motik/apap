@@ -12,6 +12,7 @@ use music_player_rs::persist::writer::{spawn_writer, WriterCmd, WriterHandle, Wr
 use music_player_rs::persist::{self, BadCopyOutcome, Boot, ConfigFile, ConfigPaths};
 use music_player_rs::platform::fs::os_fs;
 use music_player_rs::platform::lifecycle::{platform_lifecycle, ExitEntry};
+use music_player_rs::platform::notify::RtSlot;
 use music_player_rs::platform::tray::{TrayChannels, TrayPort};
 use music_player_rs::theme::create_default_themes;
 use slint::ComponentHandle;
@@ -95,7 +96,9 @@ fn main() {
     let (tray_tx, tray_events) = std::sync::mpsc::channel();
     let (tray_updates, tray_updates_rx) = tokio::sync::mpsc::unbounded_channel();
     let (tray_ready_tx, tray_ready) = std::sync::mpsc::channel();
-    let tray_port = TrayPort { updates: tray_updates_rx, ready: tray_ready_tx };
+    // Рантайм трея для системных уведомлений (ADR-9): заполняет поток трея.
+    let notify_rt: RtSlot = Arc::default();
+    let tray_port = TrayPort { updates: tray_updates_rx, ready: tray_ready_tx, rt: notify_rt.clone() };
     let tray = TrayChannels { events: tray_events, updates: tray_updates, ready: tray_ready };
     let app = Rc::new(RefCell::new(MusicApp::new(ui.clone_strong(), core, paths, tray)));
     MusicApp::init(&app);
