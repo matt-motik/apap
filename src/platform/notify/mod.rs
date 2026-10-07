@@ -1,6 +1,7 @@
 //! Системные уведомления (ADR-9, §2.8). Этап С5: трейт `Notifier`.
 //! Реализации: `none` — пустая, для ОС без системных уведомлений (Windows,
-//! macOS); D-Bus (Linux) и fake (тесты) приходят следующими шагами (ADR-9).
+//! macOS); `fake` — подмена для автотестов; D-Bus (Linux) приходит следующим
+//! шагом (ADR-9).
 
 use crate::core::messages::MessageLevel;
 
@@ -18,5 +19,7 @@ pub trait Notifier: Send {
     fn notify(&self, n: Notification);
 }
 
+pub mod fake;
 pub mod none;
+pub use fake::FakeNotifier;
 pub use none::NoneNotifier;
