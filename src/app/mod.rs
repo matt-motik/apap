@@ -14,7 +14,7 @@ use slint::language::{SortOrder, TableColumn};
 use music_player_rs::audio::analyzer::TAP_CAPACITY;
 use music_player_rs::audio::error::EngineFault;
 use music_player_rs::audio::output::{default_device_name, probe_output, DeviceInfo};
-use music_player_rs::audio::player::{Player, ReservationEvent};
+use music_player_rs::audio::player::ReservationEvent;
 use music_player_rs::audio::visualizer::{
     FreqScale, LevelScale, VisualizationMode, VisualizerConfig,
 };
@@ -25,6 +25,7 @@ use music_player_rs::core::messages::{
 use music_player_rs::core::exit::{ExitOutcome, ExitReason};
 use music_player_rs::core::AppCore;
 use music_player_rs::cover::{self, CoverDone, CoverJob};
+use music_player_rs::engine::messages::LegacyAudio;
 use music_player_rs::engine::run::EngineHandle;
 use music_player_rs::persist::settings_file::Settings as PersistSettings;
 use music_player_rs::persist::settings_file::{ColumnsConfig, ThemeName};
@@ -37,8 +38,8 @@ use music_player_rs::platform::lifecycle::PlatformCaps;
 use music_player_rs::platform::notify::Notifier;
 use music_player_rs::playlist::{self, ScanMsg, Track};
 use music_player_rs::settings::{
-    ClockFamily, ColumnId, DsdMode, ExclusiveMode, FallbackPolicy, FallbackRatePolicy, RepeatMode,
-    ResamplerMode,
+    clamp_ring_buffer_ms, ClockFamily, ColumnId, DsdMode, ExclusiveMode, FallbackPolicy,
+    FallbackRatePolicy, RepeatMode, ResamplerMode,
 };
 use music_player_rs::theme::{
     ColorsData, ThemeData, ThemeError, DEFAULT_LIGHT_TOML, parse_hex,
@@ -271,7 +272,7 @@ pub struct MusicApp {
     paths: ConfigPaths,
     /// Владелец действующих настроек и состояния сессии (ADR-19, И-Т7, §8.1 С3).
     core: AppCore,
-    player: Player,
+    player: audio_facade::AudioFacade,
     tracks: Vec<Track>,
     /// On-disk playlist order (original load + scanned additions), kept
     /// separate from the on-screen `tracks` order so sorting never rewrites
@@ -288,6 +289,9 @@ pub struct MusicApp {
     /// window size.
     playlist_cols: Rc<VecModel<TableColumn>>,
     current: Option<usize>,
+    /// Трек, открытие которого отправлено движку; применяется по событию
+    /// Opened (ADR-01, ТЗ-103).
+    pending_open: Option<(usize, Option<usize>)>,
     stream_desc: Option<music_player_rs::audio::player::StreamDesc>,
     scan_rx: Option<Receiver<ScanMsg>>,
     /// Tracks buffered by `drain_scan` while a background scan runs; committed
@@ -389,13 +393,10 @@ pub struct MusicApp {
     caps: PlatformCaps,
     /// Системные уведомления при окне в трее (ADR-9, ТЗ-52 п. 2).
     notifier: Box<dyn Notifier>,
-    /// Поток движка `apap-engine` (ADR-01); `None` — запуск не удался
-    /// (ТЗ-88), причина в `engine_fault`. Мост: до подмены `Player` на
-    /// `AudioFacade` не используется.
-    #[allow(dead_code)]
-    engine: Option<EngineHandle>,
     /// Причина отказа запуска движка, если `engine` — `None` (ТЗ-88, §2.10).
-    #[allow(dead_code)]
+    /// Сам `EngineHandle` передан в `AudioFacade` (`self.player`) при
+    /// конструировании (ADR-01, шаг 30); здесь хранится только причина
+    /// отказа — для стартового сообщения пользователю.
     engine_fault: Option<EngineFault>,
     /// Приёмная сторона канала событий движка (ADR-02); слив подключается
     /// на следующем шаге.
@@ -424,16 +425,31 @@ impl MusicApp {
             Ok(handle) => (Some(handle), None),
             Err(fault) => (None, Some(fault)),
         };
-        let mut player = Player::new();
         let pb_state = core.state().playback();
         let pb = &core.settings().playback;
+        // Мост С3: стартовые звуковые настройки движка уходят в `LegacyAudio`
+        // через `AudioFacade::new` (ADR-01, ADR-04, ТЗ-134), а не поштучными
+        // сеттерами `Player` — так конструктор фасада сразу знает полную
+        // легаси-конфигурацию (`SetLegacyAudio` на старте не нужен).
+        let legacy = LegacyAudio {
+            exclusive_mode: pb.audio.exclusive,
+            fallback_policy: pb.audio.fallback,
+            dsd_mode: pb.dsd.mode,
+            resampler_mode: pb.audio.resampler.mode,
+            resampler_algorithm: pb.audio.resampler.algorithm,
+            fixed_rate: pb.audio.resampler.fixed_rate,
+            prefer_family: pb.audio.resampler.prefer_family,
+            fallback_rate: pb.audio.resampler.fallback_rate,
+            ring_buffer_ms: clamp_ring_buffer_ms(pb.audio.ring_buffer_ms),
+            bit_perfect: pb.audio.bit_perfect,
+            dither: pb.audio.resampler.dither,
+        };
+        let mut player = audio_facade::AudioFacade::new(engine, legacy);
+        // Громкость/mute/предпочитаемое устройство — не часть `LegacyAudio`
+        // (это UI-состояние и выбор устройства, не DSP-политика движка),
+        // поэтому применяются сеттерами фасада после конструирования.
         player.set_volume(pb_state.gain());
         player.set_muted(pb_state.muted);
-        player.set_resampler_algorithm(pb.audio.resampler.algorithm);
-        player.set_dither(pb.audio.resampler.dither);
-        player.set_bit_perfect(pb.audio.bit_perfect);
-        player.set_dsd_mode(pb.dsd.mode);
-        player.set_ring_buffer_ms(pb.audio.ring_buffer_ms);
         if !pb.audio_device.is_empty() {
             player.set_preferred_device(pb.audio_device.clone());
         }
@@ -516,6 +532,7 @@ impl MusicApp {
             playlist_rows,
             playlist_cols,
             current: None,
+            pending_open: None,
             stream_desc: None,
             scan_rx: None,
             scan_pending: Vec::new(),
@@ -569,7 +586,6 @@ impl MusicApp {
             // Трей и уведомления — после регистрации значка (poll_tray, ADR-6).
             caps: PlatformCaps::default(),
             notifier,
-            engine,
             engine_fault,
             engine_events,
         };
@@ -587,6 +603,16 @@ impl MusicApp {
         // не взводит срок записи (ADR-22, §6.17).
         let restored = app.core.state().window();
         app.core.program_set_geometry(restored);
+        // Движок не запустился — показать пользователю окно ошибки сразу
+        // при старте, не дожидаясь первого обращения к звуку (ТЗ-88).
+        if let Some(fault) = app.engine_fault.clone() {
+            app.push_message(Message {
+                level: MessageLevel::Error,
+                title: "Аудио-движок не запущен".into(),
+                body: format!("{fault:?}").into(),
+                buttons: MessageButtons::Ok,
+            });
+        }
         // Запуск ничего не пишет (ТЗ-4, §8.1 С3).
         app
     }
@@ -683,8 +709,9 @@ impl MusicApp {
             }
         }
         let player = &mut self.player;
+        // Мост С3: остановка движка через фасад до шага AppCore::exit (§6.28).
         let mut release_engine = || {
-            player.release_engine();
+            player.shutdown();
             true
         };
         let outcome = self.core.exit(reason, &mut release_engine, &|| playlist::serialize_m3u(&self.disk_tracks));

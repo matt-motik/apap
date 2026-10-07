@@ -279,7 +279,9 @@ impl MusicApp {
         let path = self.tracks[index].path.clone();
         let prev_current = self.current;
         match self.player.open(&path) {
-            Ok(info) => self.on_track_opened(index, prev_current, &info),
+            // Открытие асинхронное: успех здесь — команда отправлена
+            // движку, применяется по событию Opened (ADR-01, ТЗ-103).
+            Ok(()) => self.pending_open = Some((index, prev_current)),
             Err(e) => self.on_open_failed(index, &e),
         }
     }
@@ -287,6 +289,7 @@ impl MusicApp {
     /// Применить результат успешного открытия трека: метаданные, текущий
     /// индекс, запуск, синхронизация UI. Вынесено для асинхронного open
     /// (ADR-01, ТЗ-103).
+    #[allow(dead_code)] // подключается по событию Opened на следующем шаге
     pub(super) fn on_track_opened(
         &mut self,
         index: usize,
