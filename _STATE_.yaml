@@ -58,7 +58,7 @@ steps:
     done: true
   - id: 7
     description: "Фабрика platform_notifier(Option<Handle>, journal) в notify/mod.rs: Linux+Handle → LinuxNotifier, иначе NoneNotifier (ADR-6, ADR-9, ТЗ-54 п.4). Файл: src/platform/notify/mod.rs. Проверка: cargo check. ЧЕКПОИНТ: cargo test + cargo clippy"
-    done: false
+    done: true
   - id: 8
     description: "Типы жизненного цикла: TrayEvent, TrayScroll, PlatformError, ExitEntry, ProcessExit, трейт Lifecycle (§2.8, ADR-7, ТЗ-54 п.1). Файл: src/platform/lifecycle/mod.rs. Проверка: cargo check"
     done: false
@@ -126,8 +126,8 @@ steps:
     description: "Финал: grep cfg(target_os вне src/platform (аудио-места AM1.0 — вне задач SP1.0), полный cargo test + cargo clippy, ROADMAP ✅ (ТЗ-54 приёмка). Файлы: ROADMAP.md, _STATE_.yaml. Проверка: всё зелёное"
     done: false
 
-current_step: 7
-next_action: "Шаг 7: фабрика platform_notifier в src/platform/notify/mod.rs; затем ЧЕКПОИНТ cargo test + clippy"
+current_step: 8
+next_action: "Шаг 8: типы lifecycle в src/platform/lifecycle/mod.rs (свежий субагент code-writer/sonnet)"
 
 fail_counter: 0
 fail_counter_max: 3

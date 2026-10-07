@@ -41,7 +41,7 @@
 [x] Шаг 4: FakeNotifier — записывает вызовы, всегда компилируется (ADR-6, ADR-9). Файл: src/platform/notify/fake.rs. Проверка: cargo check
 [x] Шаг 5: Запись журнала JournalRecord::Notify { error } + текст строки (§2.9, ADR-9, ADR-21). Файл: src/journal.rs. Проверка: cargo check
 [x] Шаг 6: LinuxNotifier (cfg linux): tokio Handle потока трея + Arc<dyn Journal>; notify() спавнит вызов org.freedesktop.Notifications.Notify через zbus, ошибка → JournalRecord::Notify (ADR-9, ТЗ-52 п.2). Файлы: src/platform/notify/linux.rs, src/platform/notify/mod.rs (только объявление модуля). Проверка: cargo check
-[ ] Шаг 7: Фабрика platform_notifier(Option<Handle>, journal) в notify/mod.rs: Linux+Handle → LinuxNotifier, иначе NoneNotifier (ADR-6, ADR-9, ТЗ-54 п.4). Файл: src/platform/notify/mod.rs. Проверка: cargo check. ЧЕКПОИНТ: cargo test + cargo clippy
+[x] Шаг 7: Фабрика platform_notifier(Option<Handle>, journal) в notify/mod.rs: Linux+Handle → LinuxNotifier, иначе NoneNotifier (ADR-6, ADR-9, ТЗ-54 п.4). Файл: src/platform/notify/mod.rs. Проверка: cargo check. ЧЕКПОИНТ: cargo test + cargo clippy
 [ ] Шаг 8: Типы жизненного цикла: TrayEvent, TrayScroll, PlatformError, ExitEntry, ProcessExit, трейт Lifecycle (§2.8, ADR-7, ТЗ-54 п.1). Файл: src/platform/lifecycle/mod.rs. Проверка: cargo check
 [ ] Шаг 9: FakeLifecycle: caps задаёт тест, fire(ExitReason) вызывает ExitEntry (ADR-6, §2.8). Файл: src/platform/lifecycle/fake.rs. Проверка: cargo check
 [ ] Шаг 10: Поток apap-signals: tokio current_thread + signal (SIGTERM/INT/HUP) будит цикл событий; второй сигнал → ProcessExit(128+signo) (ADR-7, ТЗ-14, ТЗ-15). Файлы: src/platform/lifecycle/unix.rs, Cargo.toml (tokio feature signal). Проверка: cargo check
@@ -65,8 +65,8 @@
 [ ] Шаг 28: Тесты: platform_fakes_cover_exit_fs_input_notify_pick (части exit/fs/notify), tray_works_during_dialog/message без колёсика (колёсико — С11) (§7.2, ТЗ-24, ТЗ-54). Файл: src/core/testing.rs. Проверка: ЧЕКПОИНТ группы тестов 26–28: полный cargo test + cargo clippy
 [ ] Шаг 29: Финал: grep cfg(target_os вне src/platform (аудио-места AM1.0 — вне задач SP1.0), полный cargo test + cargo clippy, ROADMAP ✅ (ТЗ-54 приёмка). Файлы: ROADMAP.md, _STATE_.yaml. Проверка: всё зелёное
 
-- **Текущий шаг (current_step):** Шаг 7
-- **Следующий ход:** Шаг 7: фабрика platform_notifier в src/platform/notify/mod.rs; затем ЧЕКПОИНТ cargo test + clippy
+- **Текущий шаг (current_step):** Шаг 8
+- **Следующий ход:** Шаг 8: типы lifecycle в src/platform/lifecycle/mod.rs (свежий субагент code-writer/sonnet)
 - **Счетчик безуспешных компиляций:** 0/3
 - **Состояние:** in_progress
 
