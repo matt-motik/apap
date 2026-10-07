@@ -1,26 +1,22 @@
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 
-use cpal::traits::{DeviceTrait, HostTrait, StreamTrait};
+use cpal::traits::{DeviceTrait, HostTrait};
 use cpal::{BufferSize, SampleFormat, StreamConfig, SupportedBufferSize};
 
 use crate::audio::render::dop::DopRender;
-use crate::audio::render::gain::{GainStage, NoGain};
+use crate::audio::render::gain::GainStage;
 use crate::audio::render::out::{F32Le, OutFormat, S16Le, S24Le, S32Le};
 use crate::audio::render::pcm::{PcmRender, PcmSample};
 use crate::audio::render::tpdf::Tpdf;
 use crate::audio::render::RenderCore;
-use crate::audio::session::{RingPayload, SessionShared};
+use crate::audio::session::RingPayload;
 use crate::audio::reservation::gate::PcmOpenError;
 use crate::persist::settings_file::LegacyPlayback;
 use crate::settings::{
     ClockFamily, DsdMode, ExclusiveMode, FallbackPolicy, FallbackRatePolicy, ResamplerAlgorithm,
     ResamplerMode,
 };
-
-/// How long the startup device probe holds the stream open (ms). Long enough
-/// for the backend to surface early ALSA errors, short enough to not delay UI.
-pub const PROBE_OPEN_MS: u64 = 50;
 
 /// Hard cap on the resampler's buffered source frames (in frames).
 ///
@@ -363,7 +359,7 @@ pub struct OutputSpec {
 /// to be unit-tested with a mock).
 ///
 /// `id` is the stable, backend-usable key that settings persist and
-/// `select_output` uses to re-open the device (on ALSA it is the pcm id, e.g.
+/// `select_output_for` uses to re-open the device (on ALSA it is the pcm id, e.g.
 /// `hw:CARD=4,DEV=0`); `name` is the human-readable label shown in the UI.
 #[derive(Debug, Clone)]
 pub struct DeviceInfo {
@@ -1177,32 +1173,6 @@ pub fn choose_output(
     })
 }
 
-/// Pick an output device and a stream config close to the track's native
-/// parameters. Resolves the config against the live cpal backend.
-///
-/// Плеер пока не прокидывает политики через этот вход (§4 — A3.4 использует
-/// [`select_output_for`]), поэтому запрос собирается как «деградирующая»
-/// конфигурация по умолчанию (shared, Auto/Nearest) — поведение, идентичное
-/// выбору до A3.3.
-pub fn select_output(
-    track_rate: u32,
-    track_channels: usize,
-    preferred_name: Option<&str>,
-) -> Result<OutputSpec, String> {
-    let req = OutputRequest {
-        track_rate,
-        track_channels,
-        preferred_device: preferred_name.map(String::from),
-        exclusive: ExclusiveMode::Off,
-        fallback: FallbackPolicy::Nearest,
-        resampler: ResamplerMode::Auto,
-        fallback_rate: FallbackRatePolicy::Nearest,
-        clock_family: ClockFamily::Auto,
-        fixed_rate: 0,
-    };
-    select_output_for(&req)
-}
-
 /// Полный выбор устройства/конфигурации по запросу политик (ТЗ A3.0 §3.4),
 /// против живого cpal-бэкенда. Используется плеером начиная с A3.4
 /// (`ExclusiveMode`, `FallbackPolicy`, `ResamplerMode` реально применяются).
@@ -1492,7 +1462,7 @@ pub fn device_pairs_from_infos(infos: &[DeviceInfo]) -> Vec<(String, String)> {
 ///
 /// The first element is the stable, backend-openable key (ALSA pcm id, e.g.
 /// `hw:CARD=4,DEV=0`) persisted in settings and passed back to
-/// `select_output`; the second is the deduplicated, grouped human-readable
+/// [`select_output_for`]; the second is the deduplicated, grouped human-readable
 /// label shown in the settings dialog (see [`label_device_names`]).
 pub fn output_devices() -> Vec<(String, String)> {
     device_pairs_from_infos(&output_device_infos())
@@ -1509,66 +1479,6 @@ pub fn default_device_id() -> Option<String> {
     host.default_output_device()
         .and_then(|d| d.id().ok())
         .map(|d| d.id().to_string())
-}
-
-/// Probe the configured output device (or the host default when `preferred` is
-/// empty/`None`).
-///
-/// The probe opens a real (silent) output stream for a short moment so that
-/// runtime failures — e.g. ALSA `snd_pcm_dmix_open: unable to open slave` —
-/// surface at startup instead of on the first Play. `preferred` may be a
-/// stable id or a human-readable name (legacy configs). Returns the name of
-/// the effective device.
-pub fn probe_output(preferred: Option<&str>) -> Result<String, String> {
-    let preferred = preferred.filter(|n| !n.is_empty());
-    let infos = CpalHost.devices();
-
-    // A configured device that is not enumerable counts as unavailable.
-    if let Some(key) = preferred {
-        let found = infos.iter().any(|d| d.id == key) || infos.iter().any(|d| d.name == key);
-        if !found {
-            return Err(format!("Configured audio device '{key}' not found"));
-        }
-    }
-    if infos.is_empty() {
-        return Err(String::from("No audio output device found"));
-    }
-
-    let mut spec = select_output(44100, 2, preferred)?;
-    let error_flag = Arc::new(AtomicBool::new(false));
-    let attempt = |cfg: &OutputSpec| -> Result<cpal::Stream, String> {
-        // Пустой ring и `playing = false`: колбэк пишет тишину формата (§6.14).
-        let channels = usize::from(cfg.config.channels);
-        let (_producer, ring) = rtrb::RingBuffer::<f32>::new(2048);
-        let core = RenderCore::new(ring, Arc::new(SessionShared::new()), channels, 0);
-        let render = pcm_render_for::<f32, NoGain>(cfg.sample_format, core, RingPayload::F32, Tpdf::off())
-            .ok_or_else(|| format!("Unsupported output sample format: {:?}", cfg.sample_format))?;
-        build_output_stream_raw(cfg, render, Some(error_flag.clone())).map_err(|e| e.message)
-    };
-    let stream = match attempt(&spec) {
-        Ok(s) => s,
-        Err(_) if matches!(spec.config.buffer_size, BufferSize::Fixed(_)) => {
-            spec.config.buffer_size = BufferSize::Default;
-            attempt(&spec)?
-        }
-        Err(e) => return Err(e),
-    };
-    stream
-        .play()
-        .map_err(|e| format!("Cannot start audio stream: {e}"))?;
-    // Non-blocking probe: poll the error flag with a short timeout instead
-    // of blocking the UI thread with a sleep. The error callback sets the
-    // flag when ALSA/PipeWire surfaces a runtime failure.
-    let deadline = std::time::Instant::now()
-        + std::time::Duration::from_millis(PROBE_OPEN_MS);
-    while !error_flag.load(Ordering::Relaxed) && std::time::Instant::now() < deadline {
-        std::thread::yield_now();
-    }
-    drop(stream);
-    if error_flag.load(Ordering::Relaxed) {
-        return Err(String::from("Audio device rejected the stream"));
-    }
-    Ok(spec.device_name)
 }
 
 /// Отказ сборки потока: класс ошибки открытия PCM для ворот резервирования
@@ -1734,6 +1644,8 @@ pub fn build_output_stream_raw<R: RawRender>(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::audio::render::gain::NoGain;
+    use crate::audio::session::SessionShared;
 
     /// Test double for [`AudioHost`]: serves canned device info.
     struct MockHost {
