@@ -38,6 +38,7 @@
   - src/core/mod.rs
   - src/core/testing.rs
   - ROADMAP.md
+  - docs/01_audio_modes_v1.0/03_spec.md
 - **Критерий успеха (Definition of Done):** UI не держит Player и не делает блокирующего I/O звука (ТЗ-103/104); EngineCmd/EngineEvent через apap-engine; Rc-цикл убран; выход через Shutdown, запись settings/state не ждёт ShutdownComplete; cargo test + clippy зелёные; плеер играет в Совместимом режиме
 
 ## Итерационный трекер
