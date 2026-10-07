@@ -54,6 +54,7 @@ pub mod events;
 pub mod fulltrack_manager;
 pub mod playback_manager;
 pub mod playlist_manager;
+mod ui_audio_state;
 pub mod ui_manager;
 pub mod visualizer_manager;
 pub mod viz_settings_manager;
