@@ -14,7 +14,7 @@ toml = "1"
 dirs = "6"
 walkdir = "2"
 ksni = "0.3.6"
-tokio = { version = "1.53.1", features = ["rt", "macros", "sync"] }
+tokio = { version = "1.53.1", features = ["rt", "macros", "sync", "signal"] }
 rand = "0.8"
 slint = { version = "1.17", default-features = false, features = [
     "std",

@@ -67,7 +67,7 @@ steps:
     done: true
   - id: 10
     description: "Поток apap-signals: tokio current_thread + signal (SIGTERM/INT/HUP) будит цикл событий; второй сигнал → ProcessExit(128+signo) (ADR-7, ТЗ-14, ТЗ-15). Файлы: src/platform/lifecycle/unix.rs, Cargo.toml (tokio feature signal). Проверка: cargo check"
-    done: false
+    done: true
   - id: 11
     description: "Тест double_signal_exits_immediately (подменный ProcessExit, задержка записи 10 с, два SIGTERM → 143 сразу) (§7.2, ТЗ-14). Файл: src/platform/lifecycle/unix.rs. Проверка: cargo test double_signal. ЧЕКПОИНТ: cargo test + cargo clippy"
     done: false
@@ -126,8 +126,8 @@ steps:
     description: "Финал: grep cfg(target_os вне src/platform (аудио-места AM1.0 — вне задач SP1.0), полный cargo test + cargo clippy, ROADMAP ✅ (ТЗ-54 приёмка). Файлы: ROADMAP.md, _STATE_.yaml. Проверка: всё зелёное"
     done: false
 
-current_step: 10
-next_action: "Шаг 10: поток apap-signals (свежий субагент code-writer/sonnet)"
+current_step: 11
+next_action: "Шаг 11: тест double_signal_exits_immediately в unix.rs; ЧЕКПОИНТ cargo test + clippy"
 
 fail_counter: 0
 fail_counter_max: 3

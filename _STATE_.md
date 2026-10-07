@@ -44,7 +44,7 @@
 [x] Шаг 7: Фабрика platform_notifier(Option<Handle>, journal) в notify/mod.rs: Linux+Handle → LinuxNotifier, иначе NoneNotifier (ADR-6, ADR-9, ТЗ-54 п.4). Файл: src/platform/notify/mod.rs. Проверка: cargo check. ЧЕКПОИНТ: cargo test + cargo clippy
 [x] Шаг 8: Типы жизненного цикла: TrayEvent, TrayScroll, PlatformError, ExitEntry, ProcessExit, трейт Lifecycle (§2.8, ADR-7, ТЗ-54 п.1). Файл: src/platform/lifecycle/mod.rs. Проверка: cargo check
 [x] Шаг 9: FakeLifecycle: caps задаёт тест, fire(ExitReason) вызывает ExitEntry (ADR-6, §2.8). Файл: src/platform/lifecycle/fake.rs. Проверка: cargo check
-[ ] Шаг 10: Поток apap-signals: tokio current_thread + signal (SIGTERM/INT/HUP) будит цикл событий; второй сигнал → ProcessExit(128+signo) (ADR-7, ТЗ-14, ТЗ-15). Файлы: src/platform/lifecycle/unix.rs, Cargo.toml (tokio feature signal). Проверка: cargo check
+[x] Шаг 10: Поток apap-signals: tokio current_thread + signal (SIGTERM/INT/HUP) будит цикл событий; второй сигнал → ProcessExit(128+signo) (ADR-7, ТЗ-14, ТЗ-15). Файлы: src/platform/lifecycle/unix.rs, Cargo.toml (tokio feature signal). Проверка: cargo check
 [ ] Шаг 11: Тест double_signal_exits_immediately (подменный ProcessExit, задержка записи 10 с, два SIGTERM → 143 сразу) (§7.2, ТЗ-14). Файл: src/platform/lifecycle/unix.rs. Проверка: cargo test double_signal. ЧЕКПОИНТ: cargo test + cargo clippy
 [ ] Шаг 12: Перенос src/tray.rs → src/platform/tray/mod.rs (git mv) с мостом `pub use platform::tray;` в lib.rs (§8.1 С5). Файлы: src/lib.rs, src/platform/mod.rs (+ перемещённый файл). Проверка: cargo check
 [ ] Шаг 13: Импорты app/main на crate::platform::tray, удалить мост из lib.rs (§8.1 С5). Файлы: src/app/mod.rs, src/lib.rs (main.rs — если импортирует tray). Проверка: cargo check
@@ -65,8 +65,8 @@
 [ ] Шаг 28: Тесты: platform_fakes_cover_exit_fs_input_notify_pick (части exit/fs/notify), tray_works_during_dialog/message без колёсика (колёсико — С11) (§7.2, ТЗ-24, ТЗ-54). Файл: src/core/testing.rs. Проверка: ЧЕКПОИНТ группы тестов 26–28: полный cargo test + cargo clippy
 [ ] Шаг 29: Финал: grep cfg(target_os вне src/platform (аудио-места AM1.0 — вне задач SP1.0), полный cargo test + cargo clippy, ROADMAP ✅ (ТЗ-54 приёмка). Файлы: ROADMAP.md, _STATE_.yaml. Проверка: всё зелёное
 
-- **Текущий шаг (current_step):** Шаг 10
-- **Следующий ход:** Шаг 10: поток apap-signals (свежий субагент code-writer/sonnet)
+- **Текущий шаг (current_step):** Шаг 11
+- **Следующий ход:** Шаг 11: тест double_signal_exits_immediately в unix.rs; ЧЕКПОИНТ cargo test + clippy
 - **Счетчик безуспешных компиляций:** 0/3
 - **Состояние:** in_progress
 

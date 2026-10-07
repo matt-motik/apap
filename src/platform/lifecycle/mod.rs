@@ -66,3 +66,6 @@ pub struct PlatformError {
 
 pub mod fake;
 pub use fake::FakeLifecycle;
+
+#[cfg(unix)]
+pub mod unix;
