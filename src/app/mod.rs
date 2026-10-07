@@ -418,7 +418,7 @@ impl MusicApp {
         });
         let tracks = Vec::new();
         let known_paths: HashSet<PathBuf> = HashSet::new();
-        let (tray_rx, tray_up_tx) = tray::start(Box::new(music_player_rs::audio::clock::MonotonicClock::new()));
+        let (tray_rx, tray_up_tx) = tray::start(Box::new(music_player_rs::audio::clock::MonotonicClock::new())).unzip();
 
         let (cover_tx, cover_job_rx) = channel::<CoverJob>();
         let (cover_done_tx, cover_done_rx) = channel::<CoverDone>();
@@ -498,8 +498,8 @@ impl MusicApp {
             audio_error,
             active_device,
             disk_tracks: Vec::new(),
-            tray_rx: Some(tray_rx),
-            tray_up_tx: Some(tray_up_tx),
+            tray_rx,
+            tray_up_tx,
             last_tray_update: Instant::now(),
             tray_notice: None,
             last_view_width: 0.0,

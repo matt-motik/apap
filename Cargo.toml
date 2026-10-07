@@ -13,7 +13,6 @@ serde = { version = "1", features = ["derive"] }
 toml = "1"
 dirs = "6"
 walkdir = "2"
-ksni = "0.3.6"
 tokio = { version = "1.53.1", features = ["rt", "macros", "sync", "signal"] }
 rand = "0.8"
 slint = { version = "1.17", default-features = false, features = [
@@ -39,6 +38,8 @@ libc = "0.2"
 # zbus собирается с бэкендом tokio (feature-унификация через ksni): диспетчер
 # объектов запускается на собственном рантайме службы (rt-multi-thread).
 [target.'cfg(target_os = "linux")'.dependencies]
+# Трей StatusNotifier — только Linux (ADR-6, В-1).
+ksni = "0.3.6"
 zbus = "5.19"
 tokio = { version = "1.53.1", features = ["rt-multi-thread"] }
 

@@ -1,9 +1,10 @@
+//! Трей (ADR-6, В-1, §2.8): StatusNotifier через ksni — только Linux; на
+//! прочих ОС трея нет, `start()` возвращает `None`.
+
 use std::sync::mpsc;
 
-use super::lifecycle::{TrayEvent, TrayScroll};
+use super::lifecycle::TrayEvent;
 use crate::audio::clock::Clock;
-
-use ksni::menu::{MenuItem, StandardItem};
 
 /// Minimum interval between tray tooltip pushes from the tick loop (ms).
 pub const TRAY_UPDATE_INTERVAL_MS: u128 = 300;
@@ -23,140 +24,173 @@ pub struct TrayState {
     /// Non-empty when audio is unavailable (e.g. device missing at startup).
     pub error: Option<String>,
     /// Transient tooltip override (e.g. bit-perfect volume notice). When set,
-    /// [`PlayerTray::tool_tip`] shows this text instead of the regular status.
+    /// the tray tooltip shows this text instead of the regular status.
     pub notice: Option<String>,
 }
 
-struct PlayerTray {
-    notifier: mpsc::Sender<TrayEvent>,
-    /// Метка времени `TrayScroll` для модуля ввода (ADR-8, ТЗ-24).
-    clock: Box<dyn Clock>,
-    state: TrayState,
-}
+#[cfg(target_os = "linux")]
+mod linux {
+    use super::{mpsc, Clock, TrayEvent, TrayState};
+    use crate::platform::lifecycle::TrayScroll;
+    use ksni::menu::{MenuItem, StandardItem};
 
-impl PlayerTray {
-    fn item(&self, label: &str, icon: &str, cmd: TrayEvent) -> MenuItem<Self> {
-        let tx = self.notifier.clone();
-        StandardItem {
-            label: label.into(),
-            icon_name: icon.into(),
-            activate: Box::new(move |_| {
-                let _ = tx.send(cmd);
-            }),
-            ..Default::default()
-        }
-        .into()
-    }
-}
-
-impl ksni::Tray for PlayerTray {
-    fn id(&self) -> String {
-        "music-player".into()
+    struct PlayerTray {
+        notifier: mpsc::Sender<TrayEvent>,
+        /// Метка времени `TrayScroll` для модуля ввода (ADR-8, ТЗ-24).
+        clock: Box<dyn Clock>,
+        state: TrayState,
     }
 
-    fn activate(&mut self, _x: i32, _y: i32) {
-        let _ = self.notifier.send(TrayEvent::TogglePlay);
-    }
-
-    fn secondary_activate(&mut self, _x: i32, _y: i32) {
-        let _ = self.notifier.send(TrayEvent::ShowHide);
-    }
-
-    fn scroll(&mut self, delta: i32, orientation: ksni::Orientation) {
-        let ev = TrayScroll {
-            t: self.clock.now(),
-            delta,
-            vertical: matches!(orientation, ksni::Orientation::Vertical),
-        };
-        let _ = self.notifier.send(TrayEvent::Scroll(ev));
-    }
-
-    fn icon_name(&self) -> String {
-        "multimedia-player".into()
-    }
-
-    fn title(&self) -> String {
-        if self.state.now_playing.is_empty() {
-            "Music Player".into()
-        } else {
-            self.state.now_playing.clone()
+    impl PlayerTray {
+        fn item(&self, label: &str, icon: &str, cmd: TrayEvent) -> MenuItem<Self> {
+            let tx = self.notifier.clone();
+            StandardItem {
+                label: label.into(),
+                icon_name: icon.into(),
+                activate: Box::new(move |_| {
+                    let _ = tx.send(cmd);
+                }),
+                ..Default::default()
+            }
+            .into()
         }
     }
 
-    fn tool_tip(&self) -> ksni::ToolTip {
-        let description = match &self.state.notice {
-            Some(n) if !n.is_empty() => n.clone(),
-            _ => match &self.state.error {
-                Some(e) => format!("Playback unavailable: {e}"),
-                None if self.state.bit_perfect => {
-                    "Playing \u{2014} Bit-perfect (Direct Output, volume on DAC)".into()
-                }
-                None if self.state.playing => "Playing".into(),
-                None => "Paused".into(),
-            },
-        };
-        ksni::ToolTip {
-            icon_name: "multimedia-player".into(),
-            icon_pixmap: Vec::new(),
-            title: if self.state.now_playing.is_empty() {
+    impl ksni::Tray for PlayerTray {
+        fn id(&self) -> String {
+            "music-player".into()
+        }
+
+        fn activate(&mut self, _x: i32, _y: i32) {
+            let _ = self.notifier.send(TrayEvent::TogglePlay);
+        }
+
+        fn secondary_activate(&mut self, _x: i32, _y: i32) {
+            let _ = self.notifier.send(TrayEvent::ShowHide);
+        }
+
+        fn scroll(&mut self, delta: i32, orientation: ksni::Orientation) {
+            let ev = TrayScroll {
+                t: self.clock.now(),
+                delta,
+                vertical: matches!(orientation, ksni::Orientation::Vertical),
+            };
+            let _ = self.notifier.send(TrayEvent::Scroll(ev));
+        }
+
+        fn icon_name(&self) -> String {
+            "multimedia-player".into()
+        }
+
+        fn title(&self) -> String {
+            if self.state.now_playing.is_empty() {
                 "Music Player".into()
             } else {
                 self.state.now_playing.clone()
-            },
-            description,
+            }
+        }
+
+        fn tool_tip(&self) -> ksni::ToolTip {
+            let description = match &self.state.notice {
+                Some(n) if !n.is_empty() => n.clone(),
+                _ => match &self.state.error {
+                    Some(e) => format!("Playback unavailable: {e}"),
+                    None if self.state.bit_perfect => {
+                        "Playing \u{2014} Bit-perfect (Direct Output, volume on DAC)".into()
+                    }
+                    None if self.state.playing => "Playing".into(),
+                    None => "Paused".into(),
+                },
+            };
+            ksni::ToolTip {
+                icon_name: "multimedia-player".into(),
+                icon_pixmap: Vec::new(),
+                title: if self.state.now_playing.is_empty() {
+                    "Music Player".into()
+                } else {
+                    self.state.now_playing.clone()
+                },
+                description,
+            }
+        }
+
+        fn menu(&self) -> Vec<MenuItem<Self>> {
+            vec![
+                self.item(
+                    "Play / Pause",
+                    "media-playback-start",
+                    TrayEvent::TogglePlay,
+                ),
+                self.item("Stop", "media-playback-stop", TrayEvent::Stop),
+                self.item("Previous", "media-skip-backward", TrayEvent::Prev),
+                self.item("Next", "media-skip-forward", TrayEvent::Next),
+                MenuItem::Separator,
+                self.item("Show / Hide window", "view-restore", TrayEvent::ShowHide),
+                MenuItem::Separator,
+                self.item("Quit", "application-exit", TrayEvent::Quit),
+            ]
         }
     }
 
-    fn menu(&self) -> Vec<MenuItem<Self>> {
-        vec![
-            self.item("Play / Pause", "media-playback-start", TrayEvent::TogglePlay),
-            self.item("Stop", "media-playback-stop", TrayEvent::Stop),
-            self.item("Previous", "media-skip-backward", TrayEvent::Prev),
-            self.item("Next", "media-skip-forward", TrayEvent::Next),
-            MenuItem::Separator,
-            self.item("Show / Hide window", "view-restore", TrayEvent::ShowHide),
-            MenuItem::Separator,
-            self.item("Quit", "application-exit", TrayEvent::Quit),
-        ]
+    /// Spawns the StatusNotifierItem tray service on a background thread.
+    ///
+    /// `clock` ставит метки `TrayScroll` (ADR-8). Returns a receiver for tray
+    /// events and a sender for updating the tray state. Fails silently when no StatusNotifier host / D-Bus is available,
+    /// in which case the returned receiver simply stays empty.
+    pub(super) fn start(
+        clock: Box<dyn Clock>,
+    ) -> (
+        mpsc::Receiver<TrayEvent>,
+        tokio::sync::mpsc::UnboundedSender<TrayState>,
+    ) {
+        use ksni::TrayMethods;
+
+        let (cmd_tx, cmd_rx) = mpsc::channel();
+        let (up_tx, mut up_rx) = tokio::sync::mpsc::unbounded_channel::<TrayState>();
+
+        std::thread::spawn(move || {
+            let rt = match tokio::runtime::Builder::new_current_thread()
+                .enable_all()
+                .build()
+            {
+                Ok(rt) => rt,
+                Err(_) => return,
+            };
+            rt.block_on(async move {
+                let tray = PlayerTray {
+                    notifier: cmd_tx,
+                    clock,
+                    state: TrayState::default(),
+                };
+                let Ok(handle) = tray.spawn().await else {
+                    return;
+                };
+                while let Some(state) = up_rx.recv().await {
+                    handle.update(|t: &mut PlayerTray| t.state = state).await;
+                }
+            });
+        });
+
+        (cmd_rx, up_tx)
     }
 }
 
-/// Spawns the StatusNotifierItem tray service on a background thread.
-///
-/// `clock` ставит метки `TrayScroll` (ADR-8). Returns a receiver for tray events and a sender for updating the tray
-/// state. Fails silently when no StatusNotifier host / D-Bus is available,
-/// in which case the returned receiver simply stays empty.
-pub fn start(clock: Box<dyn Clock>) -> (
+/// Каналы трея: события `TrayEvent` и обновление состояния (§2.8).
+pub type TrayChannels = (
     mpsc::Receiver<TrayEvent>,
     tokio::sync::mpsc::UnboundedSender<TrayState>,
-) {
-    use ksni::TrayMethods;
+);
 
-    let (cmd_tx, cmd_rx) = mpsc::channel();
-    let (up_tx, mut up_rx) = tokio::sync::mpsc::unbounded_channel::<TrayState>();
+/// Запуск трея (ADR-6, В-1); `None` — на этой ОС трея нет. `clock` ставит
+/// метки `TrayScroll` (ADR-8).
+#[cfg(target_os = "linux")]
+pub fn start(clock: Box<dyn Clock>) -> Option<TrayChannels> {
+    Some(linux::start(clock))
+}
 
-    std::thread::spawn(move || {
-        let rt = match tokio::runtime::Builder::new_current_thread()
-            .enable_all()
-            .build()
-        {
-            Ok(rt) => rt,
-            Err(_) => return,
-        };
-        rt.block_on(async move {
-            let tray = PlayerTray {
-                notifier: cmd_tx,
-                clock,
-                state: TrayState::default(),
-            };
-            let Ok(handle) = tray.spawn().await else {
-                return;
-            };
-            while let Some(state) = up_rx.recv().await {
-                handle.update(|t: &mut PlayerTray| t.state = state).await;
-            }
-        });
-    });
-
-    (cmd_rx, up_tx)
+/// Трея нет (ADR-6, В-1).
+#[cfg(not(target_os = "linux"))]
+pub fn start(clock: Box<dyn Clock>) -> Option<TrayChannels> {
+    let _ = clock;
+    None
 }

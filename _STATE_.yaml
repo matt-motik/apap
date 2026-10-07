@@ -82,7 +82,7 @@ steps:
     done: true
   - id: 15
     description: "ksni — Linux target dep; реализация трея под cfg внутри platform/tray, на прочих ОС start() → None (ADR-6, В-1). Файлы: Cargo.toml, src/platform/tray/mod.rs. Проверка: cargo check. ЧЕКПОИНТ: cargo test + cargo clippy"
-    done: false
+    done: true
   - id: 16
     description: "Реальные PlatformCaps: tray = хост StatusNotifier найден, notifications = tray (вместо допущения) (§2.8, ADR-6, ТЗ-52 п.2). Файлы: src/platform/tray/mod.rs, src/app/mod.rs. Проверка: cargo check"
     done: false
@@ -126,8 +126,8 @@ steps:
     description: "Финал: grep cfg(target_os вне src/platform (аудио-места AM1.0 — вне задач SP1.0), полный cargo test + cargo clippy, ROADMAP ✅ (ТЗ-54 приёмка). Файлы: ROADMAP.md, _STATE_.yaml. Проверка: всё зелёное"
     done: false
 
-current_step: 15
-next_action: "Шаг 15: ksni — Linux target dep, cfg в platform/tray; ЧЕКПОИНТ"
+current_step: 16
+next_action: "Шаг 16: реальные PlatformCaps (tray = хост StatusNotifier найден). Ветку не-Linux трея проверить при кросс-ОС приёмке (rustup/Windows-таргета на десктопе нет)"
 
 fail_counter: 0
 fail_counter_max: 3
