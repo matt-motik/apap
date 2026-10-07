@@ -16,6 +16,8 @@
 
 Обновление 2026-10-03: §6.29 — разрешение `unwrap`/`expect` в тестах задаётся через `clippy.toml` (`allow-unwrap-in-tests`, `allow-expect-in-tests`) вместо `#[cfg_attr(test, allow(...))]` в модулях тестов (решение пользователя, этап С1).
 
+Обновление 2026-10-07: С3 — сигнатуры `SourceOpener` и `ThreadSpawner` определены в §2.10 и согласованы с пользователем; в `EngineDeps` (ADR-20) `sources` и `spawner` — `Arc` (их делят поток движка, служебный поток открытия и `apap-decode`); уточнены фейки `FakeSource`, `FailingSpawner`. В С3 `Player` переезжает в поток `apap-engine` как внутренняя деталь (мост); его разбор по §6.18 — на С5–С8.
+
 Правила документа:
 
 - Спецификация выполняет требования ТЗ-N и не вводит новых требований. Если требование нельзя выполнить выбранной реализацией, это фиксируется в «Открытых вопросах» (§9), а не обходится.
@@ -493,11 +495,11 @@ pub struct EngineDeps {
     pub server_probe: Box<dyn AudioServerProbe>,
     pub os_probe: Box<dyn OsLevelProbe>,
     pub watcher: Box<dyn DeviceWatcher>,
-    pub sources: Box<dyn SourceOpener>,   // открытие файлов и предпроверка
+    pub sources: Arc<dyn SourceOpener>,   // открытие файлов и предпроверка (§2.10)
     pub clock: Box<dyn Clock>,            // монотонное время, управляемое в тестах (ClockInstant)
     pub store: Box<dyn PersistStore>,     // результаты «Теста», пометки; настройки и состояние — нет (ОВС-14)
     pub events: Box<dyn EventSink>,
-    pub spawner: Box<dyn ThreadSpawner>,  // отказ запуска потока подменяется (ТЗ-88)
+    pub spawner: Arc<dyn ThreadSpawner>,  // отказ запуска потока подменяется (ТЗ-88, §2.10)
 }
 
 /// Момент времени инжектируемых часов: смещение от старта движка (ОВС-10 п. 7).
@@ -509,7 +511,7 @@ pub trait Clock: Send {
 }
 ```
 
-Фейки: `FakeSharedBackend`, `FakeExclusiveBackend` (заданные возможности; счётчики захватов, открытий, освобождений; внедряемые отказы и расхождение `hw_params`), `FakeReservation` (ответы «разрешить / отказать / молчать N с»; порядок вызовов), `FakeServerProbe`, `FakeOsProbe`, `FakeDeviceWatcher`, `ManualClock`, `FakeSource` (заданный `SourceFormat` и поток-счётчик), `MemStore`, `VecSink`, `FailingSpawner`. Колбэк тестируется напрямую: фейковый бэкенд вызывает `render` с буфером нужного формата.
+Фейки: `FakeSharedBackend`, `FakeExclusiveBackend` (заданные возможности; счётчики захватов, открытий, освобождений; внедряемые отказы и расхождение `hw_params`), `FakeReservation` (ответы «разрешить / отказать / молчать N с»; порядок вызовов), `FakeServerProbe`, `FakeOsProbe`, `FakeDeviceWatcher`, `ManualClock`, `FakeSource` (заданный `SourceFormat` или `FileError`; счётчики `probe`/`open`), `MemStore`, `VecSink`, `FailingSpawner` (отказ на заданном по номеру вызове `spawn`). Колбэк тестируется напрямую: фейковый бэкенд вызывает `render` с буфером нужного формата.
 
 **Последствия.** Все тесты из перечня §7 ревью переводятся на фейки (ТЗ-115). Таблица «ячейка матрицы сценариев → тест» (ТЗ-116) — в «Плане тестов».
 
@@ -1405,6 +1407,34 @@ pub trait SampleRateConverter: Send {
     fn reset(&mut self);
 }
 ```
+
+### 2.10. Открытие источников и запуск потоков
+
+Сигнатуры согласованы с пользователем 2026-10-07 (этап С3). Обе зависимости делят поток движка, служебный поток открытия и `apap-decode`, поэтому они `Send + Sync` и лежат в `EngineDeps` как `Arc` (ADR-20).
+
+```rust
+/// Открытие источника вне UI-потока (ТЗ-103, ADR-20, §6.18).
+pub trait SourceOpener: Send + Sync {
+    /// §6.18 шаг 3: только заголовок → `SourceFormat`, без seek-индекса;
+    /// вызывается в служебном потоке открытия. Ошибка → `Skipped(File(..))`.
+    fn probe(&self, path: &Path) -> Result<SourceFormat, FileError>;
+    /// §6.18 шаг 6: полное открытие декодера внутри `apap-decode`.
+    /// Ошибка → `SessionFailed` → пропуск с сообщением (ТЗ-86).
+    fn open(&self, path: &Path) -> Result<Box<dyn AudioSource>, FileError>;
+}
+
+/// Запуск потоков движка (ТЗ-88, ADR-20). Отказ → `EngineFault::SpawnFailed { what: name }`,
+/// у движка — `OpenFailed(Internal(..))`: сообщение вместо тишины.
+pub trait ThreadSpawner: Send + Sync {
+    fn spawn(
+        &self,
+        name: &'static str,
+        job: Box<dyn FnOnce() + Send + 'static>,
+    ) -> Result<JoinHandle<()>, EngineFault>;
+}
+```
+
+`probe` и `open` открывают файл независимо: заголовок читается дважды. Это принято сознательно — между ними стоят `plan()` и `configure` (§6.18 шаги 4–5), а чтение заголовка дешёвое. Реальные реализации: `SymphoniaSourceOpener` (DSF/DFF — DSD-декодер), `StdSpawner` (`std::thread::Builder`).
 
 ---
 
