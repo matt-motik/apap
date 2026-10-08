@@ -12,10 +12,11 @@
 //! `advance`/`settle` поверх `tick` продвигают `ManualClock` и дожидаются
 //! ответа писателя (§7.1).
 
-use super::{AppCore, AppDeps, TickOutput};
+use super::{AppCore, AppDeps, EngineSink, TickOutput};
 use crate::audio::clock::{Clock, ClockInstant};
 use crate::audio::testing::ManualClock;
 use crate::core::exit::{ManualWaiter, ReplyWaiter};
+use crate::engine::messages::EngineCmd;
 use crate::journal::{Journal, JournalRecord, VecJournal};
 use crate::persist::keys::Parsed;
 use crate::persist::tracker::ReplyEffect;
@@ -23,9 +24,24 @@ use crate::persist::writer::spawn_writer;
 use crate::persist::{self, BadCopyOutcome, ConfigFile, ConfigPaths, WorkFile};
 use crate::platform::fs::{FileWriter, FsCall, MemStore, OpCounts, ReadErrorClass, WriteErrorClass, WriteStep};
 use std::cell::RefCell;
+use std::rc::Rc;
 use std::path::PathBuf;
 use std::sync::Arc;
 use std::time::{Duration, Instant};
+
+/// Фиктивный `EngineSink` стенда (§2.12, ADR-01): команды не уходят
+/// никакому движку, только копятся в общем журнале для проверки в тестах.
+/// `EngineCmd` не `Clone` (несёт `Arc<Path>`/`rtrb::Producer`) — записывается
+/// текст `Debug`, этого достаточно, чтобы различать команды в assert'ах.
+struct RecordingEngine {
+    log: Rc<RefCell<Vec<String>>>,
+}
+
+impl EngineSink for RecordingEngine {
+    fn send(&self, cmd: EngineCmd) {
+        self.log.borrow_mut().push(format!("{cmd:?}"));
+    }
+}
 
 /// Каталог настроек стенда — не каталог пользователя (ТЗ-49).
 fn test_dir() -> PathBuf {
@@ -38,6 +54,7 @@ pub(crate) struct Harness {
     journal: Arc<VecJournal>,
     clock: ManualClock,
     playlist: RefCell<Arc<[u8]>>,
+    engine_log: Rc<RefCell<Vec<String>>>,
 }
 
 impl Harness {
@@ -49,6 +66,7 @@ impl Harness {
             journal: Arc::new(VecJournal::default()),
             clock: ManualClock::new(),
             playlist: RefCell::new(Arc::from(&b""[..])),
+            engine_log: Rc::new(RefCell::new(Vec::new())),
         }
     }
 
@@ -112,8 +130,15 @@ impl Harness {
         let clock: Box<dyn Clock> = Box::new(self.clock.clone());
         let waiter: Box<dyn ReplyWaiter> = Box::new(ManualWaiter::new(self.clock.clone(), self.fs.clone()));
         let journal: Arc<dyn Journal> = Arc::clone(&self.journal) as Arc<dyn Journal>;
-        let deps = AppDeps { writer, paths: self.paths.clone(), clock, waiter, journal };
+        let engine: Box<dyn EngineSink> = Box::new(RecordingEngine { log: Rc::clone(&self.engine_log) });
+        let deps = AppDeps { writer, paths: self.paths.clone(), clock, waiter, journal, engine };
         AppCore::with_deps(deps, boot)
+    }
+
+    /// Команды, отправленные движку через `AppDeps.engine` за всё время
+    /// стенда (§2.12, ADR-01), как текст `Debug` (`EngineCmd` не `Clone`).
+    pub(crate) fn engine_cmds(&self) -> Vec<String> {
+        self.engine_log.borrow().clone()
     }
 
     /// Копии `*.bad` неразбираемых файлов (И-Р12, И-Р18) — прямая запись в
@@ -336,6 +361,19 @@ mod tests {
         assert_eq!(core.state(), &SessionState::default());
         assert_eq!(h.bad_copy_bytes(WorkFile::State).as_deref(), Some(&b"[[\n"[..]));
         assert_eq!(h.bad_copy_counts(WorkFile::State).writes, 1);
+    }
+
+    /// `AppDeps.engine` подключён (§2.12, ADR-01), но ничего в `AppCore` пока
+    /// не отправляет команды движку — это остаётся на последующие шаги
+    /// (например, перевод `exit()` на `deps.engine`, шаг 55).
+    #[test]
+    fn boot_sends_no_engine_commands() {
+        let h = Harness::new();
+        h.put_settings(b"");
+        h.put_state(b"");
+        let _core = h.boot();
+
+        assert_eq!(h.engine_cmds(), Vec::<String>::new());
     }
 
     /// Запуск — чистая функция без записи (ТЗ-4, §8 С3: «запуск ничего не

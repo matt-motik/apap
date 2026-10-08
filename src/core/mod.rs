@@ -18,6 +18,8 @@ use geometry::GeometryTracker;
 use messages::{Message, MessageButtons, MessageLevel};
 
 use crate::audio::clock::{Clock, ClockInstant};
+use crate::engine::messages::EngineCmd;
+use crate::engine::run::EngineSender;
 use crate::journal::{Journal, JournalRecord, WriteTarget};
 use crate::persist::keys::{LoadNote, Parsed};
 use crate::persist::settings_file::{serialize_settings, Settings};
@@ -64,22 +66,47 @@ fn split_parsed<T>(parsed: Parsed<T>) -> (T, FileState, Vec<LoadNote>, Option<Re
     }
 }
 
+/// Команды UI → движок (§2.12, ADR-01): неблокирующая отправка,
+/// без ответа и без доступа к `JoinHandle` движка.
+pub trait EngineSink {
+    fn send(&self, cmd: EngineCmd);
+}
+
+/// `EngineSink` поверх `EngineSender` (§2.12, ADR-01): результат отправки
+/// игнорируется здесь — мёртвый движок доходит до UI отдельно, через
+/// `EngineFault`/`EngineEvent`, а не через возврат `send()`.
+impl EngineSink for EngineSender {
+    fn send(&self, cmd: EngineCmd) {
+        let _ = EngineSender::send(self, cmd);
+    }
+}
+
+/// Пустая реализация `EngineSink` (ТЗ-88): используется `main`, когда поток
+/// `apap-engine` не запустился — окно ошибки показывает `MusicApp`, а
+/// `AppDeps.engine` всё равно должен быть каким-то значением.
+pub struct NoEngine;
+
+impl EngineSink for NoEngine {
+    fn send(&self, _cmd: EngineCmd) {}
+}
+
 /// Внешние зависимости `AppCore` (ADR-19, §2.12): писатель
 /// `apap-persist`, пути конфигурации, инжектируемые часы, ожидание ответа
-/// на пути выхода и журнал.
+/// на пути выхода, журнал и команды движку.
 ///
 /// ОТКЛОНЕНИЕ от §2.12: полный `AppDeps` спецификации содержит также
-/// `Lifecycle`, движок (`EngineSink`) и загрузчик обложек — они появляются
-/// на последующих этапах. Остановка движка на пути выхода здесь не
-/// типизирована отдельным полем — `exit()` принимает её замыканием
-/// `&mut dyn FnMut() -> bool`, чтобы не заводить трейт под ещё не
-/// существующий тип движка.
+/// `Lifecycle` и загрузчик обложек — они появляются на последующих этапах.
+/// Остановка движка на пути выхода здесь всё ещё не идёт через `engine` —
+/// `exit()` принимает её замыканием `&mut dyn FnMut() -> bool` (переводится
+/// на `deps.engine` отдельным шагом 55).
 pub struct AppDeps {
     pub writer: WriterHandle,
     pub paths: ConfigPaths,
     pub clock: Box<dyn Clock>,
     pub waiter: Box<dyn ReplyWaiter>,
     pub journal: Arc<dyn Journal>,
+    /// Команды движку (01_audio_modes, §2.12, ADR-01).
+    pub engine: Box<dyn EngineSink>,
 }
 
 /// Ядро приложения без Slint (ADR-19, §2.12): владеет настройками и

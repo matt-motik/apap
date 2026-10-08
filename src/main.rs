@@ -5,7 +5,7 @@ mod app;
 use app::MusicApp;
 use music_player_rs::audio::clock::MonotonicClock;
 use music_player_rs::core::exit::{ChannelWaiter, ExitOutcome, ExitReason};
-use music_player_rs::core::{AppCore, AppDeps};
+use music_player_rs::core::{AppCore, AppDeps, NoEngine};
 use music_player_rs::engine::deps::EngineDeps;
 use music_player_rs::engine::run::EngineHandle;
 use music_player_rs::journal::{FileJournal, Journal};
@@ -85,6 +85,10 @@ fn main() {
             clock: Box::new(MonotonicClock::new()),
             waiter: Box::new(ChannelWaiter),
             journal: journal.clone(),
+            engine: match &engine {
+                Ok(h) => Box::new(h.sender()),
+                Err(_) => Box::new(NoEngine),
+            },
         },
         boot,
     );
