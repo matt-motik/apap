@@ -429,12 +429,35 @@ impl EngineHandle {
         self.tx.send(cmd).is_ok()
     }
 
+    /// Отдельный отправитель команд для владельцев вне `MusicApp` (ADR-01):
+    /// не держит `JoinHandle`, поэтому его `Drop` не останавливает движок.
+    pub fn sender(&self) -> EngineSender {
+        EngineSender {
+            tx: self.tx.clone(),
+        }
+    }
+
     /// Дожидается завершения потока движка. Берёт `JoinHandle` из `self`,
     /// чтобы `Drop` не пытался join повторно.
     pub fn join(mut self) {
         if let Some(join) = self.join.take() {
             let _ = join.join();
         }
+    }
+}
+
+/// Неблокирующий отправитель команд движка (ADR-01): `Clone + Send`,
+/// выход и `join` остаются за [`EngineHandle`].
+#[derive(Clone)]
+pub struct EngineSender {
+    tx: mpsc::Sender<EngineCmd>,
+}
+
+impl EngineSender {
+    /// Неблокирующая отправка команды (ADR-01). `false`, если движок уже
+    /// завершился (получатель отключён).
+    pub fn send(&self, cmd: EngineCmd) -> bool {
+        self.tx.send(cmd).is_ok()
     }
 }
 
