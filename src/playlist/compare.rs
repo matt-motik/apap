@@ -237,4 +237,150 @@ mod tests {
         let key = TextKey::new("   ");
         assert!(key.is_empty());
     }
+
+    fn keys(f: impl FnOnce(&mut Track)) -> CompareKeys {
+        let mut t = Track::default();
+        f(&mut t);
+        CompareKeys::from_track(&t)
+    }
+
+    /// Порядок индексов по ключу; равные — по исходному индексу (§6.13).
+    fn order(rows: &[CompareKeys], key: SortKey) -> Vec<usize> {
+        let mut idx: Vec<usize> = (0..rows.len()).collect();
+        idx.sort_by(|&a, &b| compare_keys(&rows[a], &rows[b], key).then(a.cmp(&b)));
+        idx
+    }
+
+    fn asc(column: SortColumn) -> SortKey {
+        SortKey { column, dir: SortDir::Asc }
+    }
+
+    fn desc(column: SortColumn) -> SortKey {
+        SortKey { column, dir: SortDir::Desc }
+    }
+
+    /// Правила сравнения всех колонок в обоих направлениях: регистр, числа внутри
+    /// строк, пустые в конце, вторичные ключи по возрастанию, NFC = NFD (ТЗ-43, §6.14).
+    #[test]
+    fn compare_rules_all_columns_both_directions() {
+        use std::path::PathBuf;
+        // Для каждой колонки: [больший, меньший, пустой].
+        let cases: Vec<(SortColumn, [CompareKeys; 3])> = vec![
+            (
+                SortColumn::TrackNumber,
+                [keys(|t| t.track_number = 10), keys(|t| t.track_number = 9), keys(|_| {})],
+            ),
+            (
+                SortColumn::Title,
+                [keys(|t| t.title = "No. 10".into()), keys(|t| t.title = "No. 9".into()), keys(|_| {})],
+            ),
+            (
+                SortColumn::Artist,
+                [
+                    keys(|t| t.artist = Some("Zappa".into())),
+                    keys(|t| t.artist = Some("beatles".into())),
+                    keys(|t| t.artist = Some("  ".into())),
+                ],
+            ),
+            (
+                SortColumn::Album,
+                [
+                    keys(|t| t.album = Some("Hot Rats".into())),
+                    keys(|t| t.album = Some("abbey road".into())),
+                    keys(|_| {}),
+                ],
+            ),
+            (
+                SortColumn::Genre,
+                [keys(|t| t.genre = Some("Rock".into())), keys(|t| t.genre = Some("jazz".into())), keys(|_| {})],
+            ),
+            (
+                SortColumn::Year,
+                [keys(|t| t.year = "2001".into()), keys(|t| t.year = "999".into()), keys(|t| t.year = String::new())],
+            ),
+            (
+                SortColumn::Format,
+                [keys(|t| t.format = "WAV".into()), keys(|t| t.format = "flac".into()), keys(|_| {})],
+            ),
+            (
+                SortColumn::Bitrate,
+                [keys(|t| t.bitrate = 1411), keys(|t| t.bitrate = 320), keys(|_| {})],
+            ),
+            (
+                SortColumn::BitDepth,
+                [keys(|t| t.bit_depth = "24".into()), keys(|t| t.bit_depth = "16".into()), keys(|_| {})],
+            ),
+            (
+                SortColumn::SampleRate,
+                [keys(|t| t.sample_rate = 96000), keys(|t| t.sample_rate = 44100), keys(|_| {})],
+            ),
+            (
+                SortColumn::Duration,
+                [keys(|t| t.duration = Some(300.0)), keys(|t| t.duration = Some(9.5)), keys(|_| {})],
+            ),
+            (
+                SortColumn::FileName,
+                [
+                    keys(|t| t.path = PathBuf::from("/b/track 10.flac")),
+                    keys(|t| t.path = PathBuf::from("/z/track 9.flac")),
+                    keys(|_| {}),
+                ],
+            ),
+            (
+                SortColumn::FilePath,
+                [
+                    keys(|t| t.path = PathBuf::from("/z/a.flac")),
+                    keys(|t| t.path = PathBuf::from("/b/z.flac")),
+                    keys(|_| {}),
+                ],
+            ),
+        ];
+        for (column, rows) in &cases {
+            assert_eq!(order(rows, asc(*column)), vec![1, 0, 2], "{column:?} asc");
+            assert_eq!(order(rows, desc(*column)), vec![0, 1, 2], "{column:?} desc");
+        }
+
+        // Год без цифр — пустой, в конце в обоих направлениях.
+        let years = [keys(|t| t.year = "n/a".into()), keys(|t| t.year = "1969-05".into())];
+        assert_eq!(years[1].year, Some(1969));
+        assert_eq!(order(&years, asc(SortColumn::Year)), vec![1, 0]);
+        assert_eq!(order(&years, desc(SortColumn::Year)), vec![1, 0]);
+
+        // Диски 1/2 одного альбома: вторичные ключи по возрастанию при любом направлении.
+        let album = |disc: u32, no: u32| {
+            keys(move |t| {
+                t.artist = Some("beatles".into());
+                t.album = Some("Abbey Road".into());
+                t.year = "1969".into();
+                t.disc = disc;
+                t.track_number = no;
+            })
+        };
+        let discs = [album(2, 1), album(1, 2), album(1, 1)];
+        for column in [SortColumn::Artist, SortColumn::Album, SortColumn::Year] {
+            assert_eq!(order(&discs, asc(column)), vec![2, 1, 0], "{column:?} asc");
+            assert_eq!(order(&discs, desc(column)), vec![2, 1, 0], "{column:?} desc");
+        }
+
+        // Исполнитель → год → альбом: вторичный год по возрастанию и при «↓».
+        let by_year = [
+            keys(|t| {
+                t.artist = Some("Zappa".into());
+                t.year = "1974".into();
+            }),
+            keys(|t| {
+                t.artist = Some("Zappa".into());
+                t.year = "1969".into();
+            }),
+            keys(|t| t.artist = Some("beatles".into())),
+        ];
+        assert_eq!(order(&by_year, asc(SortColumn::Artist)), vec![2, 1, 0]);
+        assert_eq!(order(&by_year, desc(SortColumn::Artist)), vec![1, 0, 2]);
+
+        // Одно название в NFC и NFD — равные ключи, порядок решает исходный индекс.
+        let nfc = keys(|t| t.title = "Caf\u{e9}".into());
+        let nfd = keys(|t| t.title = "Cafe\u{301}".into());
+        assert_eq!(compare_keys(&nfc, &nfd, asc(SortColumn::Title)), Ordering::Equal);
+        assert_eq!(compare_keys(&nfc, &nfd, desc(SortColumn::Title)), Ordering::Equal);
+    }
 }
