@@ -2738,6 +2738,7 @@ dependencies = [
  "clru",
  "cpal",
  "dirs",
+ "icu_normalizer",
  "image",
  "ksni",
  "libc",

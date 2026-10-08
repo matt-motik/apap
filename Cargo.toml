@@ -26,6 +26,8 @@ slint = { version = "1.17", default-features = false, features = [
 raw-window-handle = "0.6"
 rtrb = "0.4.0"
 rustfft = "6.4.1"
+# Нормализация NFC ключей сравнения плейлиста (ОВС-3 а, §6.14).
+icu_normalizer = { version = "2.3", default-features = false, features = ["compiled_data"] }
 image = { version = "0.25", default-features = false, features = ["png"] }
 clru = "0.6"
 smallvec = "1.16"
