@@ -427,8 +427,10 @@ impl MusicApp {
         } else {
             String::new()
         };
-        if self.ui().get_disabled_text() != disabled_text {
-            self.ui().set_disabled_text(disabled_text.into());
+        if let Some(ui) = self.try_ui() {
+            if ui.get_disabled_text() != disabled_text {
+                ui.set_disabled_text(disabled_text.into());
+            }
         }
 
         // Целевой ключ: path + ключ кэша построения.
@@ -501,7 +503,9 @@ impl MusicApp {
         }
         self.fulltrack_target = target.clone();
         self.fulltrack_key = target.as_ref().map(|(_, k)| k.clone());
-        self.ui().set_build_progress(0.0);
+        if let Some(ui) = self.try_ui() {
+            ui.set_build_progress(0.0);
+        }
 
         if let Some((path, key)) = &target {
             self.fulltrack_id = self.fulltrack_id.wrapping_add(1);
@@ -511,8 +515,10 @@ impl MusicApp {
             // `cache_in_mem` зависит только запись новых изображений (см.
             // `drain_fulltrack_events`). Сборка запускается только при промахе.
             if let Some((img, _)) = self.fulltrack_cache.get(key).cloned() {
-                self.ui().set_osc_image(img);
-                self.ui().set_osc_ready(true);
+                if let Some(ui) = self.try_ui() {
+                    ui.set_osc_image(img);
+                    ui.set_osc_ready(true);
+                }
                 self.fulltrack_key = Some(key.clone());
             } else if let Some(tx) = self.fulltrack_tx.clone() {
                 let _ = tx.send(FullCmd::Build(Box::new(FullBuild {
@@ -521,8 +527,8 @@ impl MusicApp {
                     cfg: cfg.clone(),
                 })));
             }
-        } else {
-            self.ui().set_osc_ready(false);
+        } else if let Some(ui) = self.try_ui() {
+            ui.set_osc_ready(false);
         }
     }
 
@@ -547,7 +553,9 @@ impl MusicApp {
             match evt {
                 FullEvt::Progress { id, p } => {
                     if id == self.fulltrack_id {
-                        self.ui().set_build_progress(p);
+                        if let Some(ui) = self.try_ui() {
+                            ui.set_build_progress(p);
+                        }
                     }
                 }
                 FullEvt::Ready { id, rgba, w, h, key } => {
@@ -566,9 +574,11 @@ impl MusicApp {
                         if cache_in_mem {
                             let _ = self.fulltrack_cache.put(key.clone(), (img.clone(), rgba.len()));
                         }
-                        self.ui().set_osc_image(img);
-                        self.ui().set_osc_ready(true);
-                        self.ui().set_build_progress(0.0);
+                        if let Some(ui) = self.try_ui() {
+                            ui.set_osc_image(img);
+                            ui.set_osc_ready(true);
+                            ui.set_build_progress(0.0);
+                        }
                     }
                 }
                 FullEvt::Failed { id, reason } => {
@@ -578,7 +588,9 @@ impl MusicApp {
                             .as_ref()
                             .map(|(p, _)| p.display().to_string())
                             .unwrap_or_default());
-                        self.ui().set_build_progress(0.0);
+                        if let Some(ui) = self.try_ui() {
+                            ui.set_build_progress(0.0);
+                        }
                     }
                 }
             }

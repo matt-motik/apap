@@ -24,38 +24,55 @@ impl MusicApp {
         // or stopped player does not churn the seekbar/status every tick.
         // While the user drags the seekbar, the position/seekbar are driven by
         // the grab (top_panel.slint); restore only after seek-commit lands.
-        let seeking = self.ui().get_seekbar_dragging();
+        let ui = self.try_ui();
+        let seeking = ui.as_ref().is_some_and(|u| u.get_seekbar_dragging());
         let cur = &self.last_ui;
         if playing != cur.playing {
-            self.ui().set_playing(playing);
+            if let Some(ui) = &ui {
+                ui.set_playing(playing);
+            }
         }
         if muted != cur.muted {
-            self.ui().set_muted(muted);
+            if let Some(ui) = &ui {
+                ui.set_muted(muted);
+            }
         }
         if v != cur.volume {
-            self.ui().set_volume(v);
+            if let Some(ui) = &ui {
+                ui.set_volume(v);
+            }
         }
         if bit_perfect != cur.bit_perfect {
-            self.ui().set_bit_perfect(bit_perfect);
-            // ТЗ-52, §8 С1: бейдж не следует флагу настроек — только status_badge.
-            let (bp_active, bp_text) = super::bp_report::status_badge(bit_perfect);
-            self.ui().set_status_bp_active(bp_active);
-            self.ui().set_status_bp_text(bp_text.into());
+            if let Some(ui) = &ui {
+                ui.set_bit_perfect(bit_perfect);
+                // ТЗ-52, §8 С1: бейдж не следует флагу настроек — только status_badge.
+                let (bp_active, bp_text) = super::bp_report::status_badge(bit_perfect);
+                ui.set_status_bp_active(bp_active);
+                ui.set_status_bp_text(bp_text.into());
+            }
         }
         if bp_resample != cur.bp_resample {
-            self.ui().set_status_bp_resample(bp_resample);
+            if let Some(ui) = &ui {
+                ui.set_status_bp_resample(bp_resample);
+            }
         }
         if !seeking && (pos_s != cur.pos || seek_f != cur.seek_fraction) {
-            self.ui().set_pos(pos_s.clone().into());
-            self.ui().set_seek_fraction(seek_f);
+            if let Some(ui) = &ui {
+                ui.set_pos(pos_s.clone().into());
+                ui.set_seek_fraction(seek_f);
+            }
         }
         let dur_s = playlist::format_duration(dur_f);
         if !seeking && dur_s != cur.dur {
-            self.ui().set_dur(dur_s.clone().into());
+            if let Some(ui) = &ui {
+                ui.set_dur(dur_s.clone().into());
+            }
         }
         let status_s = self.status.to_string();
         if status_s != cur.status {
-            self.ui().set_status_text(self.status.clone());
+            if let Some(ui) = &ui {
+                ui.set_status_text(self.status.clone());
+            }
         }
         self.last_ui = UiState {
             playing,
@@ -71,72 +88,74 @@ impl MusicApp {
     }
 
     fn sync_track_info_to_ui(&mut self) {
+        let ui = self.try_ui();
         if let Some(i) = self.current {
             if let Some(t) = self.tracks.get(i) {
-                self.ui().set_info_artist(opt_str(&t.artist));
-                self.ui()
-                    .set_info_track(fmt_num(t.track_number, t.track_total));
-                self.ui().set_info_title(if t.title.is_empty() {
-                    "—".into()
-                } else {
-                    t.title.as_str().into()
-                });
-                self.ui()
-                    .set_info_duration(playlist::get_duration_string(t.duration).into());
-                self.ui().set_info_year(empty_dash(&t.year));
-                self.ui().set_info_album(opt_str(&t.album));
-                self.ui().set_info_disc(fmt_num(t.disc, t.disc_total));
-                self.ui()
-                    .set_info_genre(empty_dash(t.genre.as_deref().unwrap_or("")));
-                self.ui().set_info_format(empty_dash(&t.format));
-                self.ui().set_info_bitrate(if t.bitrate > 0 {
-                    format!("{} kbps", t.bitrate).into()
-                } else {
-                    "—".into()
-                });
-                self.ui().set_info_bit_depth(empty_dash(&t.bit_depth));
-                self.ui().set_info_sample_rate(num_str(t.sample_rate, " Hz"));
-                self.ui().set_info_channels(num_str(t.channels, " ch"));
+                if let Some(ui) = &ui {
+                    ui.set_info_artist(opt_str(&t.artist));
+                    ui.set_info_track(fmt_num(t.track_number, t.track_total));
+                    ui.set_info_title(if t.title.is_empty() {
+                        "—".into()
+                    } else {
+                        t.title.as_str().into()
+                    });
+                    ui.set_info_duration(playlist::get_duration_string(t.duration).into());
+                    ui.set_info_year(empty_dash(&t.year));
+                    ui.set_info_album(opt_str(&t.album));
+                    ui.set_info_disc(fmt_num(t.disc, t.disc_total));
+                    ui.set_info_genre(empty_dash(t.genre.as_deref().unwrap_or("")));
+                    ui.set_info_format(empty_dash(&t.format));
+                    ui.set_info_bitrate(if t.bitrate > 0 {
+                        format!("{} kbps", t.bitrate).into()
+                    } else {
+                        "—".into()
+                    });
+                    ui.set_info_bit_depth(empty_dash(&t.bit_depth));
+                    ui.set_info_sample_rate(num_str(t.sample_rate, " Hz"));
+                    ui.set_info_channels(num_str(t.channels, " ch"));
 
-                        let mut parts: Vec<String> = Vec::new();
-                if !t.format.is_empty() {
-                    parts.push(t.format.clone());
+                    let mut parts: Vec<String> = Vec::new();
+                    if !t.format.is_empty() {
+                        parts.push(t.format.clone());
+                    }
+                    if !t.bit_depth.is_empty() {
+                        parts.push(t.bit_depth.clone());
+                    }
+                    if t.sample_rate > 0 {
+                        parts.push(format!("{} Hz", t.sample_rate));
+                    }
+                    if t.bitrate > 0 {
+                        parts.push(format!("{} kbps", t.bitrate));
+                    }
+                    if t.channels > 0 {
+                        parts.push(format!("{} ch", t.channels));
+                    }
+                    let track_count = format!("{} tracks", self.tracks.len());
+                    ui.set_track_info(parts.join(" \u{2022} ").into());
+                    ui.set_track_count(track_count.into());
                 }
-                if !t.bit_depth.is_empty() {
-                    parts.push(t.bit_depth.clone());
-                }
-                if t.sample_rate > 0 {
-                    parts.push(format!("{} Hz", t.sample_rate));
-                }
-                if t.bitrate > 0 {
-                    parts.push(format!("{} kbps", t.bitrate));
-                }
-                if t.channels > 0 {
-                    parts.push(format!("{} ch", t.channels));
-                }
-                let track_count = format!("{} tracks", self.tracks.len());
-                self.ui().set_track_info(parts.join(" \u{2022} ").into());
-                self.ui().set_track_count(track_count.into());
                 self.request_cover(i);
                 return;
             }
         }
-        self.ui().set_info_artist("—".into());
-        self.ui().set_info_track("—".into());
-        self.ui().set_info_title("—".into());
-        self.ui().set_info_duration("—".into());
-        self.ui().set_info_year("—".into());
-        self.ui().set_info_album("—".into());
-        self.ui().set_info_disc("—".into());
-        self.ui().set_info_genre("—".into());
-        self.ui().set_info_format("—".into());
-        self.ui().set_info_bitrate("—".into());
-        self.ui().set_info_bit_depth("—".into());
-        self.ui().set_info_sample_rate("—".into());
-        self.ui().set_info_channels("—".into());
-        let track_count = format!("{} tracks", self.tracks.len());
-        self.ui().set_track_info("".into());
-        self.ui().set_track_count(track_count.into());
+        if let Some(ui) = &ui {
+            ui.set_info_artist("—".into());
+            ui.set_info_track("—".into());
+            ui.set_info_title("—".into());
+            ui.set_info_duration("—".into());
+            ui.set_info_year("—".into());
+            ui.set_info_album("—".into());
+            ui.set_info_disc("—".into());
+            ui.set_info_genre("—".into());
+            ui.set_info_format("—".into());
+            ui.set_info_bitrate("—".into());
+            ui.set_info_bit_depth("—".into());
+            ui.set_info_sample_rate("—".into());
+            ui.set_info_channels("—".into());
+            let track_count = format!("{} tracks", self.tracks.len());
+            ui.set_track_info("".into());
+            ui.set_track_count(track_count.into());
+        }
         self.reset_cover();
     }
 
@@ -244,7 +263,9 @@ impl MusicApp {
     /// Clear the displayed cover and invalidate any in-flight request.
     pub(super) fn reset_cover(&mut self) {
         self.cover_gen = self.cover_gen.wrapping_add(1);
-        self.ui().set_cover_art(slint::Image::default());
+        if let Some(ui) = self.try_ui() {
+            ui.set_cover_art(slint::Image::default());
+        }
     }
 
     /// Apply cover results from the worker, keeping only the most recent one
@@ -274,7 +295,9 @@ impl MusicApp {
             Some(p) => slint::Image::load_from_path(p).unwrap_or_default(),
             None => slint::Image::default(),
         };
-        self.ui().set_cover_art(img);
+        if let Some(ui) = self.try_ui() {
+            ui.set_cover_art(img);
+        }
         self.emit(AppEvent::CoverChanged);
     }
 
@@ -349,9 +372,11 @@ impl MusicApp {
         self.refresh_playlist_rows_at(prev_current);
         self.refresh_playlist_rows_at(self.current);
         self.sync_track_info_to_ui();
-        self.ui().set_current_row(index as i32);
-        if self.core.settings().scroll_to_playing {
-            self.ui().invoke_scroll_to_row(index as i32);
+        if let Some(ui) = self.try_ui() {
+            ui.set_current_row(index as i32);
+            if self.core.settings().scroll_to_playing {
+                ui.invoke_scroll_to_row(index as i32);
+            }
         }
         self.emit(AppEvent::TrackChanged(self.current));
         self.emit(AppEvent::PlaybackStarted);
@@ -406,8 +431,10 @@ impl MusicApp {
         // Изменение состояния — через `change_state` (И-Т7, §8.1 С3).
         self.core.change_state(Origin::User, StateChange::Repeat(self.repeat));
         // Persisted at exit (save-at-exit).
-        self.ui().set_repeat(self.repeat == RepeatMode::All);
-        self.ui().set_repeat_one(self.repeat == RepeatMode::One);
+        if let Some(ui) = self.try_ui() {
+            ui.set_repeat(self.repeat == RepeatMode::All);
+            ui.set_repeat_one(self.repeat == RepeatMode::One);
+        }
     }
 
     pub(super) fn play_next(&mut self, direction: i32) {
@@ -469,9 +496,9 @@ impl MusicApp {
             Some(path) => {
                 if let Err(e) = self.player.set_device(name.clone(), Some(&path), pos) {
                     self.audio_error = Some(e.clone());
-                    self.ui().set_settings_active_error(
-                        self.audio_error.clone().unwrap_or_default().into(),
-                    );
+                    if let Some(ui) = self.try_ui() {
+                        ui.set_settings_active_error(e.as_str().into());
+                    }
                     // Явное действие (переключение устройства) не выполнено —
                     // окно Error, не строка состояния (ТЗ-52, ОВ-7).
                     self.push_message(Message {
@@ -490,8 +517,10 @@ impl MusicApp {
                     self.audio_ready = true;
                     self.audio_error = None;
                     self.active_device = human.clone();
-                    self.ui().set_settings_active_device(human.into());
-                    self.ui().set_settings_active_error(String::new().into());
+                    if let Some(ui) = self.try_ui() {
+                        ui.set_settings_active_device(human.into());
+                        ui.set_settings_active_error(String::new().into());
+                    }
                 }
             }
             None => {
@@ -500,7 +529,9 @@ impl MusicApp {
                     .device_display_name(&name)
                     .unwrap_or_else(|| self.player.device_desc.clone());
                 self.active_device = human.clone();
-                self.ui().set_settings_active_device(human.into());
+                if let Some(ui) = self.try_ui() {
+                    ui.set_settings_active_device(human.into());
+                }
             }
         }
         self.emit(AppEvent::DeviceChanged);

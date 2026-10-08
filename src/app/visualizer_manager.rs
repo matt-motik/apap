@@ -85,11 +85,13 @@ impl MusicApp {
                 self.viz_tap_active = active;
                 self.player.set_viz_tap_active(active);
             }
-            self.ui().set_viz_mode(mode.index());
-            self.ui().set_viz_channels(channels as i32);
-            self.ui().set_bar_gap(style.0 as f32);
-            self.ui().set_bar_radius(style.1 as f32);
-            self.ui().set_gradient(style.2);
+            if let Some(ui) = self.try_ui() {
+                ui.set_viz_mode(mode.index());
+                ui.set_viz_channels(channels as i32);
+                ui.set_bar_gap(style.0 as f32);
+                ui.set_bar_radius(style.1 as f32);
+                ui.set_gradient(style.2);
+            }
         }
 
         if mode != VisualizationMode::Spectrum {
@@ -123,17 +125,18 @@ impl MusicApp {
         if bands == 0 {
             return;
         }
+        let Some(ui) = self.try_ui() else { return };
         if self.viz_bars.len() >= bands * 2 {
             let l = self.viz_bars[0..bands].to_vec();
             let r = self.viz_bars[bands..bands * 2].to_vec();
-            self.ui().set_spectrum_l(ModelRc::from(l.as_slice()));
-            self.ui().set_spectrum_r(ModelRc::from(r.as_slice()));
+            ui.set_spectrum_l(ModelRc::from(l.as_slice()));
+            ui.set_spectrum_r(ModelRc::from(r.as_slice()));
         } else if self.viz_bars.len() == bands {
-            self.ui().set_spectrum_l(ModelRc::from(self.viz_bars.as_slice()));
-            self.ui().set_spectrum_r(ModelRc::from(Vec::<f32>::new().as_slice()));
+            ui.set_spectrum_l(ModelRc::from(self.viz_bars.as_slice()));
+            ui.set_spectrum_r(ModelRc::from(Vec::<f32>::new().as_slice()));
         } else {
-            self.ui().set_spectrum_l(ModelRc::from(self.viz_bars.as_slice()));
-            self.ui().set_spectrum_r(ModelRc::from(self.viz_bars.as_slice()));
+            ui.set_spectrum_l(ModelRc::from(self.viz_bars.as_slice()));
+            ui.set_spectrum_r(ModelRc::from(self.viz_bars.as_slice()));
         }
     }
 }

@@ -194,7 +194,7 @@ impl MusicApp {
     pub(super) fn sync_viz_settings_to_ui(&self) {
         let s = self.cfg();
         let v = &s.visualization;
-        let ui = self.ui();
+        let Some(ui) = self.try_ui() else { return };
 
         ui.set_settings_viz_mode(self.cfg_viz_mode().index());
         ui.set_settings_viz_skip_dsd(v.skip_fulltrack_for_dsd);
@@ -246,7 +246,7 @@ impl MusicApp {
     /// применить валидные значения в draft и выставить флаги подсветки (§9.3,
     /// §8.1 С3). Некорректные значения не применяются; поля помечаются красным.
     pub(super) fn viz_apply_validated_texts(&mut self) {
-        let ui = self.ui();
+        let Some(ui) = self.try_ui() else { return };
         let fmin_t = ui
             .get_settings_viz_freq_min_text()
             .trim()
@@ -426,7 +426,7 @@ pub fn bind_viz_settings_callbacks(this: &Rc<RefCell<MusicApp>>) {
 
     // Кнопка «Сбросить настройки типа».
     let app = this.clone();
-    let ui = app.borrow().ui();
+    let Some(ui) = app.borrow().try_ui() else { return };
     ui.on_settings_set_viz_reset_type(move || {
         eprintln!("[gui] settings_viz_reset_type");
         app.borrow_mut().reset_viz_type();
@@ -434,7 +434,7 @@ pub fn bind_viz_settings_callbacks(this: &Rc<RefCell<MusicApp>>) {
 
     // Горячая клавиша V (срабатывает, когда диалог настроек закрыт).
     let app = this.clone();
-    let ui = app.borrow().ui();
+    let Some(ui) = app.borrow().try_ui() else { return };
     ui.on_cycle_viz(move || {
         eprintln!("[gui] cycle_viz");
         app.borrow_mut().cycle_viz_mode();
@@ -442,7 +442,7 @@ pub fn bind_viz_settings_callbacks(this: &Rc<RefCell<MusicApp>>) {
 
     // Меню «Визуализация» в MenuBar (ТЗ §3.2): клик по пункту.
     let app = this.clone();
-    let ui = app.borrow().ui();
+    let Some(ui) = app.borrow().try_ui() else { return };
     ui.on_menu_select_viz(move |i| {
         eprintln!("[gui] menu_select_viz {i}");
         app.borrow_mut().menu_select_viz_mode(i);
@@ -453,7 +453,7 @@ type AppRef = Rc<RefCell<MusicApp>>;
 
 fn bind_int(app: &AppRef, name: &'static str, mut f: impl FnMut(&mut MusicApp, i32) + 'static) {
     let app = app.clone();
-    let ui = app.borrow().ui();
+    let Some(ui) = app.borrow().try_ui() else { return };
     match name {
         "viz-mode" => ui.on_settings_set_viz_mode(move |i| {
             let mut a = app.borrow_mut();
@@ -521,7 +521,7 @@ fn bind_int(app: &AppRef, name: &'static str, mut f: impl FnMut(&mut MusicApp, i
 
 fn bind_bool(app: &AppRef, name: &'static str, mut f: impl FnMut(&mut MusicApp, bool) + 'static) {
     let app = app.clone();
-    let ui = app.borrow().ui();
+    let Some(ui) = app.borrow().try_ui() else { return };
     match name {
         "viz-skip-dsd" => ui.on_settings_set_viz_skip_dsd(move |b| {
             let mut a = app.borrow_mut();
@@ -569,7 +569,7 @@ fn bind_bool(app: &AppRef, name: &'static str, mut f: impl FnMut(&mut MusicApp, 
 
 fn bind_float(app: &AppRef, name: &'static str, mut f: impl FnMut(&mut MusicApp, f32) + 'static) {
     let app = app.clone();
-    let ui = app.borrow().ui();
+    let Some(ui) = app.borrow().try_ui() else { return };
     match name {
         "viz-osc-sensitivity" => ui.on_settings_set_viz_osc_sensitivity(move |v| {
             let mut a = app.borrow_mut();
@@ -609,7 +609,7 @@ fn bind_float(app: &AppRef, name: &'static str, mut f: impl FnMut(&mut MusicApp,
 
 fn bind_str(app: &AppRef, name: &'static str, f: impl FnMut(&mut MusicApp, &str) + 'static) {
     let app = app.clone();
-    let ui = app.borrow().ui();
+    let Some(ui) = app.borrow().try_ui() else { return };
     let mut f = Box::new(f);
     match name {
         "viz-spec-freq-min" => ui.on_settings_set_viz_spec_freq_min(move |t| {
