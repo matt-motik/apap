@@ -37,7 +37,7 @@
 [x] Шаг 7: Тест compare_rules_all_columns_both_directions (+ натуральный порядок/NFC/пустые) (§7, ТЗ-40, ТЗ-41). Файл: src/playlist/compare.rs. Проверка: cargo test playlist::compare
 [x] Шаг 8: Playlist: Row, PlaylistEffect, new/replace/add (вставка partition_point по ключу, затем pos)/remove/clear, accessors source_order/visible/sort_key/get/first_visible/len/index_of (ADR-15, §3.1, §6.13, ТЗ-45, И-Р14). Файл: src/playlist/model.rs. Проверка: cargo check
 [x] Шаг 9: Playlist::header_click(c, hidden): цикл Asc→Desc→нет, другая колонка → Asc, NowPlaying — no-op, скрытая колонка сохраняет ключ; стабильная сортировка из source order (§6.13, ТЗ-31, ТЗ-42, ТЗ-43). Файл: src/playlist/model.rs. Проверка: cargo check
-[ ] Шаг 10: ЧЕКПОИНТ: cargo test + cargo clippy (фильтр по src/playlist/). Файлы: — . Проверка: зелёные, 0 новых варнингов
+[x] Шаг 10: ЧЕКПОИНТ: cargo test + cargo clippy (фильтр по src/playlist/). Файлы: — . Проверка: зелёные, 0 новых варнингов
 [ ] Шаг 11: Playlist::reorder(moved, before) — перестановка source order по visible, снятие ключа (sort_changed) (§6.13, ТЗ-44 только модель, ОВ-14 б). Файл: src/playlist/model.rs. Проверка: cargo check
 [ ] Шаг 12: Playlist::update_tags(id, track, keys) — пересчёт ключей, видимый порядок не меняется до следующей сортировки (§3.1, ADR-15). Файл: src/playlist/model.rs. Проверка: cargo check
 [ ] Шаг 13: Тесты модели: added_track_takes_place_by_key, added_equal_key_goes_after_equals, header_click_cycles_asc_desc_none, other_column_click_starts_asc, now_playing_column_not_sortable, drag_reorder_clears_sort_key, hide_sorted_column_keeps_order (§7, ТЗ-31, 42–45). Файл: src/playlist/model.rs. Проверка: cargo test playlist::model
@@ -60,8 +60,8 @@
 [ ] Шаг 30: Очистка: удалить advance_shuffle, sort_rows_compare и тест advance_shuffle_navigates_order; тесты advance_index → repeat_all_wraps_visible_order, next_without_current_plays_first_visible; удалить тест sort_rows_compare_orders_by_column (§7.5, §8 С6). Файлы: src/playlist/mod.rs, src/app/mod.rs. Проверка: cargo test
 [ ] Шаг 31: ФИНАЛ: cargo build + cargo test + cargo clippy зелёные; ручная проверка: сортировка/снятие ключа не пишет playlist.m3u, Shuffle; закрытие этапа (Шаг 5). Проверка: всё зелёное
 
-- **Текущий шаг (current_step):** Шаг 10
-- **Следующий ход:** Шаг 10: ЧЕКПОИНТ cargo test + clippy
+- **Текущий шаг (current_step):** Шаг 11
+- **Следующий ход:** Шаг 11: Playlist::reorder (model.rs)
 - **Счетчик безуспешных компиляций:** 0/3
 - **Состояние:** in_progress
 
