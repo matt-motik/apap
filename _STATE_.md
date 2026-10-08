@@ -31,7 +31,7 @@
 [x] Шаг 1: Перенос модуля: git mv src/playlist.rs src/playlist/mod.rs, объявить подмодули не нужно (§2.1). Файлы: src/playlist.rs → src/playlist/mod.rs. Проверка: cargo check
 [x] Шаг 2: Зависимость icu_normalizer 2.3 (features compiled_data; уже в Cargo.lock) (ОВС-3 а, §6.14). Файлы: Cargo.toml, Cargo.lock. Проверка: cargo check
 [x] Шаг 3: compare.rs: TextKey(Box<[Seg]>), Seg{Text,Num}, TextKey::new (trim → to_lowercase → NFC, цифровые прогоны без ведущих нулей), is_empty, cmp_text (Num/Num по длине→лекс., Num<Text, затем число сегментов) (§3.1, §6.14, ТЗ-40). Файлы: src/playlist/compare.rs (новый), src/playlist/mod.rs. Проверка: cargo check
-[ ] Шаг 4: model.rs: TrackId, SortColumn (from_column/column; NowPlaying → None, И-Т4), SortDir, SortKey (§3.1, ТЗ-42, ТЗ-43). Файлы: src/playlist/model.rs (новый), src/playlist/mod.rs. Проверка: cargo check
+[x] Шаг 4: model.rs: TrackId, SortColumn (from_column/column; NowPlaying → None, И-Т4), SortDir, SortKey (§3.1, ТЗ-42, ТЗ-43). Файлы: src/playlist/model.rs (новый), src/playlist/mod.rs. Проверка: cargo check
 [ ] Шаг 5: CompareKeys + CompareKeys::from_track (year — первый цифровой прогон; 0 → None для track_no/disc/bitrate/sample_rate; file_name/file_path из path) (§3.1, §6.14, ТЗ-40). Файл: src/playlist/compare.rs. Проверка: cargo check
 [ ] Шаг 6: compare_keys(a,b,key): пустые всегда в конце, Desc разворачивает только непустые, вторичные ключи Artist/Album/Year по возрастанию (§6.14, ТЗ-40, ТЗ-41). Файл: src/playlist/compare.rs. Проверка: cargo check
 [ ] Шаг 7: Тест compare_rules_all_columns_both_directions (+ натуральный порядок/NFC/пустые) (§7, ТЗ-40, ТЗ-41). Файл: src/playlist/compare.rs. Проверка: cargo test playlist::compare
@@ -60,8 +60,8 @@
 [ ] Шаг 30: Очистка: удалить advance_shuffle, sort_rows_compare и тест advance_shuffle_navigates_order; тесты advance_index → repeat_all_wraps_visible_order, next_without_current_plays_first_visible; удалить тест sort_rows_compare_orders_by_column (§7.5, §8 С6). Файлы: src/playlist/mod.rs, src/app/mod.rs. Проверка: cargo test
 [ ] Шаг 31: ФИНАЛ: cargo build + cargo test + cargo clippy зелёные; ручная проверка: сортировка/снятие ключа не пишет playlist.m3u, Shuffle; закрытие этапа (Шаг 5). Проверка: всё зелёное
 
-- **Текущий шаг (current_step):** Шаг 4
-- **Следующий ход:** Шаг 4: model.rs — TrackId, SortColumn, SortDir, SortKey
+- **Текущий шаг (current_step):** Шаг 5
+- **Следующий ход:** Шаг 5: CompareKeys + from_track в compare.rs
 - **Счетчик безуспешных компиляций:** 0/3
 - **Состояние:** in_progress
 
