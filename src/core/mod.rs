@@ -423,15 +423,21 @@ impl AppCore {
     /// не дольше `EXIT_BUDGET` от запроса и журналирует итог
     /// (`JournalRecord::ExitSummary`). Повторный запрос — `Ignored` (И-Т8).
     ///
-    /// ОТКЛОНЕНИЯ от §2.12/§6.10 (мост до С5/С6): остановка движка —
-    /// замыкание `release_engine` (вызывается один раз до записи, его итог —
-    /// `engine_ack`), а не `EngineSink`; текст плейлиста — замыкание
+    /// Движок останавливается командой `EngineCmd::Shutdown` через
+    /// `EngineSink` до записи; запись от его ответа не зависит (ОВС-16,
+    /// ТЗ-136, §6.28 п. 2а).
+    ///
+    /// ОТКЛОНЕНИЯ от §2.12/§6.10 (мост до С5/С6): `ShutdownComplete`
+    /// принимается не в ожидании писателя, а замыканием `await_engine`
+    /// (вызывается один раз, после отправки снимков — писатель уже пишет;
+    /// своё ожидание до 2 с от запроса, §6.28 п. 3; итог — `engine_ack`):
+    /// события движка читает `MusicApp`; текст плейлиста — замыкание
     /// `playlist_bytes` (модель `Playlist` переходит в `AppCore` на С6);
     /// черновик диалога и сообщения закрывает `MusicApp` до вызова.
     pub fn exit(
         &mut self,
         reason: ExitReason,
-        release_engine: &mut dyn FnMut() -> bool,
+        await_engine: &mut dyn FnMut() -> bool,
         playlist_bytes: &dyn Fn() -> Arc<[u8]>,
     ) -> ExitOutcome {
         let now = self.now();
@@ -444,7 +450,9 @@ impl AppCore {
         }
 
         let mut report = ExitReport::new(reason);
-        report.engine_ack = release_engine();
+        if let Some(deps) = &self.deps {
+            deps.engine.send(EngineCmd::Shutdown);
+        }
 
         // Итоговый снимок каждого файла, ответ на который ждём.
         let mut waiting: Vec<(WorkFile, SnapshotId)> = Vec::new();
@@ -478,6 +486,9 @@ impl AppCore {
                 }
             }
         }
+
+        // Снимки уже у писателя: ожидание движка запись не задерживает (ТЗ-136).
+        report.engine_ack = await_engine();
 
         while !waiting.is_empty() {
             let Some(deps) = &self.deps else { break };
