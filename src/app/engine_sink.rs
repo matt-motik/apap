@@ -18,6 +18,7 @@ use std::cell::RefCell;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::mpsc;
 use std::sync::Arc;
+use std::time::{Duration, Instant};
 
 use music_player_rs::engine::messages::EngineEvent;
 use music_player_rs::engine::sink::EventSink;
@@ -68,6 +69,32 @@ impl EngineEventQueue {
         self.wake_pending.store(false, Ordering::Release);
         while let Ok(ev) = self.rx.try_recv() {
             f(ev);
+        }
+    }
+
+    /// Ждать события, для которого `pred` вернёт `true`, не дольше
+    /// `timeout` (§6.28 п. 3: `ShutdownComplete` или 2 с). Каждое
+    /// полученное событие, включая искомое, по порядку передаётся в `f` —
+    /// прочие события не теряются. `false` — истёк срок или движок
+    /// отключил канал.
+    pub(crate) fn wait_for(
+        &self,
+        timeout: Duration,
+        mut pred: impl FnMut(&EngineEvent) -> bool,
+        mut f: impl FnMut(EngineEvent),
+    ) -> bool {
+        self.wake_pending.store(false, Ordering::Release);
+        let deadline = Instant::now() + timeout;
+        loop {
+            let left = deadline.saturating_duration_since(Instant::now());
+            let Ok(ev) = self.rx.recv_timeout(left) else {
+                return false;
+            };
+            let found = pred(&ev);
+            f(ev);
+            if found {
+                return true;
+            }
         }
     }
 }
@@ -217,5 +244,59 @@ mod tests {
         drop(queue);
 
         sink.emit(EngineEvent::ShutdownComplete);
+    }
+
+    #[test]
+    fn wait_for_delivers_preceding_events_and_stops_at_match() {
+        let (wake, _count) = counting_wake();
+        let (sink, queue) = event_channel(wake);
+
+        sink.emit(EngineEvent::Position { secs: 1.0 });
+        sink.emit(EngineEvent::ShutdownComplete);
+        sink.emit(EngineEvent::Position { secs: 2.0 });
+
+        let mut received = Vec::new();
+        let found = queue.wait_for(
+            Duration::from_secs(2),
+            |ev| matches!(ev, EngineEvent::ShutdownComplete),
+            |ev| received.push(ev),
+        );
+
+        assert!(found);
+        assert_eq!(received.len(), 2);
+        assert!(matches!(received[0], EngineEvent::Position { .. }));
+        assert!(matches!(received[1], EngineEvent::ShutdownComplete));
+
+        let mut rest = Vec::new();
+        queue.drain(|ev| rest.push(ev));
+        assert_eq!(rest.len(), 1);
+    }
+
+    #[test]
+    fn wait_for_times_out_without_match() {
+        let (wake, _count) = counting_wake();
+        let (sink, queue) = event_channel(wake);
+
+        sink.emit(EngineEvent::Position { secs: 1.0 });
+
+        let mut received = Vec::new();
+        let found = queue.wait_for(
+            Duration::from_millis(30),
+            |ev| matches!(ev, EngineEvent::ShutdownComplete),
+            |ev| received.push(ev),
+        );
+
+        assert!(!found);
+        assert_eq!(received.len(), 1);
+    }
+
+    #[test]
+    fn wait_for_returns_false_when_engine_disconnected() {
+        let (wake, _count) = counting_wake();
+        let (sink, queue) = event_channel(wake);
+        drop(sink);
+
+        let found = queue.wait_for(Duration::from_secs(2), |_| true, |_| {});
+        assert!(!found);
     }
 }
