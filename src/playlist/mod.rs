@@ -7,6 +7,8 @@ use walkdir::WalkDir;
 use crate::platform::fs::{FileWriter, WriteError};
 use crate::settings::ColumnId;
 
+pub mod compare;
+
 pub const SUPPORTED_EXTENSIONS: &[&str] = &[
     "flac", "wav", "aiff", "aif", "alac", "m4a", "m4b", "mp4", "mp3", "mp2", "ogg", "oga", "opus",
     "aac", "dsf", "dff",

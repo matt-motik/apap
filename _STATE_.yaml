@@ -39,7 +39,7 @@ steps:
     done: true
   - id: 3
     description: "compare.rs: TextKey(Box<[Seg]>), Seg{Text,Num}, TextKey::new (trim → to_lowercase → NFC, цифровые прогоны без ведущих нулей), is_empty, cmp_text (Num/Num по длине→лекс., Num<Text, затем число сегментов) (§3.1, §6.14, ТЗ-40). Файлы: src/playlist/compare.rs (новый), src/playlist/mod.rs. Проверка: cargo check"
-    done: false
+    done: true
   - id: 4
     description: "model.rs: TrackId, SortColumn (from_column/column; NowPlaying → None, И-Т4), SortDir, SortKey (§3.1, ТЗ-42, ТЗ-43). Файлы: src/playlist/model.rs (новый), src/playlist/mod.rs. Проверка: cargo check"
     done: false
@@ -65,7 +65,7 @@ steps:
     description: "Playlist::reorder(moved, before) — перестановка source order по visible, снятие ключа (sort_changed) (§6.13, ТЗ-44 только модель, ОВ-14 б). Файл: src/playlist/model.rs. Проверка: cargo check"
     done: false
   - id: 12
-    description: "Playlist::update_tags(id, track, keys) — перестановка строки при активном ключе (§6.13, ТЗ-45). Файл: src/playlist/model.rs. Проверка: cargo check"
+    description: "Playlist::update_tags(id, track, keys) — пересчёт ключей, видимый порядок не меняется до следующей сортировки (§3.1, ADR-15). Файл: src/playlist/model.rs. Проверка: cargo check"
     done: false
   - id: 13
     description: "Тесты модели: added_track_takes_place_by_key, added_equal_key_goes_after_equals, header_click_cycles_asc_desc_none, other_column_click_starts_asc, now_playing_column_not_sortable, drag_reorder_clears_sort_key, hide_sorted_column_keeps_order (§7, ТЗ-31, 42–45). Файл: src/playlist/model.rs. Проверка: cargo test playlist::model"
@@ -125,8 +125,8 @@ steps:
     description: "ФИНАЛ: cargo build + cargo test + cargo clippy зелёные; ручная проверка: сортировка/снятие ключа не пишет playlist.m3u, Shuffle; закрытие этапа (Шаг 5). Проверка: всё зелёное"
     done: false
 
-current_step: 3
-next_action: "Шаг 3: compare.rs — TextKey/Seg, TextKey::new, cmp_text (субагент code-writer)"
+current_step: 4
+next_action: "Шаг 4: model.rs — TrackId, SortColumn, SortDir, SortKey"
 fail_counter: 0
 fail_counter_max: 3
 failed_attempts: []

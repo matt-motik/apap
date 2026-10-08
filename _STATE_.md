@@ -30,7 +30,7 @@
 ## Итерационный трекер
 [x] Шаг 1: Перенос модуля: git mv src/playlist.rs src/playlist/mod.rs, объявить подмодули не нужно (§2.1). Файлы: src/playlist.rs → src/playlist/mod.rs. Проверка: cargo check
 [x] Шаг 2: Зависимость icu_normalizer 2.3 (features compiled_data; уже в Cargo.lock) (ОВС-3 а, §6.14). Файлы: Cargo.toml, Cargo.lock. Проверка: cargo check
-[ ] Шаг 3: compare.rs: TextKey(Box<[Seg]>), Seg{Text,Num}, TextKey::new (trim → to_lowercase → NFC, цифровые прогоны без ведущих нулей), is_empty, cmp_text (Num/Num по длине→лекс., Num<Text, затем число сегментов) (§3.1, §6.14, ТЗ-40). Файлы: src/playlist/compare.rs (новый), src/playlist/mod.rs. Проверка: cargo check
+[x] Шаг 3: compare.rs: TextKey(Box<[Seg]>), Seg{Text,Num}, TextKey::new (trim → to_lowercase → NFC, цифровые прогоны без ведущих нулей), is_empty, cmp_text (Num/Num по длине→лекс., Num<Text, затем число сегментов) (§3.1, §6.14, ТЗ-40). Файлы: src/playlist/compare.rs (новый), src/playlist/mod.rs. Проверка: cargo check
 [ ] Шаг 4: model.rs: TrackId, SortColumn (from_column/column; NowPlaying → None, И-Т4), SortDir, SortKey (§3.1, ТЗ-42, ТЗ-43). Файлы: src/playlist/model.rs (новый), src/playlist/mod.rs. Проверка: cargo check
 [ ] Шаг 5: CompareKeys + CompareKeys::from_track (year — первый цифровой прогон; 0 → None для track_no/disc/bitrate/sample_rate; file_name/file_path из path) (§3.1, §6.14, ТЗ-40). Файл: src/playlist/compare.rs. Проверка: cargo check
 [ ] Шаг 6: compare_keys(a,b,key): пустые всегда в конце, Desc разворачивает только непустые, вторичные ключи Artist/Album/Year по возрастанию (§6.14, ТЗ-40, ТЗ-41). Файл: src/playlist/compare.rs. Проверка: cargo check
@@ -39,7 +39,7 @@
 [ ] Шаг 9: Playlist::header_click(c, hidden): цикл Asc→Desc→нет, другая колонка → Asc, NowPlaying — no-op, скрытая колонка сохраняет ключ; стабильная сортировка из source order (§6.13, ТЗ-31, ТЗ-42, ТЗ-43). Файл: src/playlist/model.rs. Проверка: cargo check
 [ ] Шаг 10: ЧЕКПОИНТ: cargo test + cargo clippy (фильтр по src/playlist/). Файлы: — . Проверка: зелёные, 0 новых варнингов
 [ ] Шаг 11: Playlist::reorder(moved, before) — перестановка source order по visible, снятие ключа (sort_changed) (§6.13, ТЗ-44 только модель, ОВ-14 б). Файл: src/playlist/model.rs. Проверка: cargo check
-[ ] Шаг 12: Playlist::update_tags(id, track, keys) — перестановка строки при активном ключе (§6.13, ТЗ-45). Файл: src/playlist/model.rs. Проверка: cargo check
+[ ] Шаг 12: Playlist::update_tags(id, track, keys) — пересчёт ключей, видимый порядок не меняется до следующей сортировки (§3.1, ADR-15). Файл: src/playlist/model.rs. Проверка: cargo check
 [ ] Шаг 13: Тесты модели: added_track_takes_place_by_key, added_equal_key_goes_after_equals, header_click_cycles_asc_desc_none, other_column_click_starts_asc, now_playing_column_not_sortable, drag_reorder_clears_sort_key, hide_sorted_column_keeps_order (§7, ТЗ-31, 42–45). Файл: src/playlist/model.rs. Проверка: cargo test playlist::model
 [ ] Шаг 14: shuffle.rs: ShuffleState{history,current,upcoming}: new_pass, rebuild, order, started, first, конец прохода по RepeatMode (§3.4, ТЗ-46). Файлы: src/playlist/shuffle.rs (новый), src/playlist/mod.rs. Проверка: cargo check
 [ ] Шаг 15: Тесты ShuffleState: shuffle_changes_keep_pass и next_without_current_* (Т-ТЗ-46, §7). Файл: src/playlist/shuffle.rs. Проверка: cargo test playlist::shuffle
@@ -60,8 +60,8 @@
 [ ] Шаг 30: Очистка: удалить advance_shuffle, sort_rows_compare и тест advance_shuffle_navigates_order; тесты advance_index → repeat_all_wraps_visible_order, next_without_current_plays_first_visible; удалить тест sort_rows_compare_orders_by_column (§7.5, §8 С6). Файлы: src/playlist/mod.rs, src/app/mod.rs. Проверка: cargo test
 [ ] Шаг 31: ФИНАЛ: cargo build + cargo test + cargo clippy зелёные; ручная проверка: сортировка/снятие ключа не пишет playlist.m3u, Shuffle; закрытие этапа (Шаг 5). Проверка: всё зелёное
 
-- **Текущий шаг (current_step):** Шаг 3
-- **Следующий ход:** Шаг 3: compare.rs — TextKey/Seg, TextKey::new, cmp_text (субагент code-writer)
+- **Текущий шаг (current_step):** Шаг 4
+- **Следующий ход:** Шаг 4: model.rs — TrackId, SortColumn, SortDir, SortKey
 - **Счетчик безуспешных компиляций:** 0/3
 - **Состояние:** in_progress
 
