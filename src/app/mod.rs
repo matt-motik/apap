@@ -628,18 +628,6 @@ impl MusicApp {
         app
     }
 
-    /// Окно приложения (R-20, ADR-01, ТЗ-45). Поле хранит `slint::Weak<AppWindow>`,
-    /// чтобы разорвать цикл window → callback → `MusicApp` → window; все обращения
-    /// идут через этот метод. Инвариант: `main` держит сильный `AppWindow` весь цикл
-    /// событий, и каждый вызов `MusicApp` происходит внутри этого цикла, поэтому
-    /// `upgrade()` не может провалиться на практике. `.unwrap()` запрещён — используем
-    /// `expect()`.
-    pub(super) fn ui(&self) -> AppWindow {
-        self.ui
-            .upgrade()
-            .expect("AppWindow outlives MusicApp: main holds it until the event loop ends")
-    }
-
     /// Окно приложения без паники (R-20, ТЗ-45, ТЗ-101). `None` — окно уже
     /// уничтожено (выход); вызывающий молча пропускает обновление UI.
     pub(super) fn try_ui(&self) -> Option<AppWindow> {
