@@ -326,3 +326,162 @@ impl Playlist {
         by_key.then_with(|| self.pos.get(&a).cmp(&self.pos.get(&b)))
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn track(title: &str, year: &str) -> (Track, CompareKeys) {
+        let t = Track { title: title.into(), year: year.into(), ..Track::default() };
+        let keys = CompareKeys::from_track(&t);
+        (t, keys)
+    }
+
+    fn playlist(titles: &[&str]) -> Playlist {
+        let mut p = Playlist::new();
+        p.add(titles.iter().map(|t| track(t, "")).collect());
+        p
+    }
+
+    fn visible_titles(p: &Playlist) -> Vec<String> {
+        p.visible().iter().filter_map(|&id| p.get(id)).map(|t| t.title.clone()).collect()
+    }
+
+    fn source_titles(p: &Playlist) -> Vec<String> {
+        p.source_order().map(|t| t.title.clone()).collect()
+    }
+
+    fn key(column: SortColumn, dir: SortDir) -> Option<SortKey> {
+        Some(SortKey { column, dir })
+    }
+
+    const RESORTED: PlaylistEffect = PlaylistEffect { dirty: false, sort_changed: true, order_changed: true };
+
+    /// «Название ↑», добавить «A…»: первая в видимом, последняя в исходном (ТЗ-41, ТЗ-45).
+    #[test]
+    fn added_track_takes_place_by_key() {
+        let mut p = playlist(&["B", "C"]);
+        p.header_click(ColumnId::Title, false);
+        let (ids, effect) = p.add(vec![track("A first", "")]);
+        assert_eq!(effect, PlaylistEffect::EDITED);
+        assert_eq!(p.first_visible(), ids.first().copied());
+        assert_eq!(visible_titles(&p), ["A first", "B", "C"]);
+        assert_eq!(source_titles(&p), ["B", "C", "A first"]);
+    }
+
+    /// Равный ключ — после равных: стабильность по исходному индексу (ТЗ-41, И-Р14).
+    #[test]
+    fn added_equal_key_goes_after_equals() {
+        let mut p = Playlist::new();
+        p.add(vec![track("X", "1"), track("Y", "")]);
+        p.header_click(ColumnId::Title, false);
+        let (ids, _) = p.add(vec![track("x", "2")]);
+        let years: Vec<String> = p.visible().iter().filter_map(|&id| p.get(id)).map(|t| t.year.clone()).collect();
+        assert_eq!(years, ["1", "2", ""]);
+        assert_eq!(p.index_of(ids[0]), Some(1));
+    }
+
+    /// Три щелчка «Название»: ↑, ↓, нет; после третьего видимый = исходный; флаг не
+    /// взводится (ТЗ-40, ТЗ-42).
+    #[test]
+    fn header_click_cycles_asc_desc_none() {
+        let mut p = playlist(&["C", "A", "B"]);
+        assert_eq!(p.header_click(ColumnId::Title, false), RESORTED);
+        assert_eq!(p.sort_key(), key(SortColumn::Title, SortDir::Asc));
+        assert_eq!(visible_titles(&p), ["A", "B", "C"]);
+        assert_eq!(p.header_click(ColumnId::Title, false), RESORTED);
+        assert_eq!(p.sort_key(), key(SortColumn::Title, SortDir::Desc));
+        assert_eq!(visible_titles(&p), ["C", "B", "A"]);
+        assert_eq!(p.header_click(ColumnId::Title, false), RESORTED);
+        assert_eq!(p.sort_key(), None);
+        assert_eq!(visible_titles(&p), source_titles(&p));
+        assert_eq!(source_titles(&p), ["C", "A", "B"]);
+    }
+
+    /// «Название ↓», щелчок «Год» → «Год ↑» (ТЗ-42).
+    #[test]
+    fn other_column_click_starts_asc() {
+        let mut p = playlist(&["A", "B"]);
+        p.header_click(ColumnId::Title, false);
+        p.header_click(ColumnId::Title, false);
+        assert_eq!(p.sort_key(), key(SortColumn::Title, SortDir::Desc));
+        assert_eq!(p.header_click(ColumnId::Year, false), RESORTED);
+        assert_eq!(p.sort_key(), key(SortColumn::Year, SortDir::Asc));
+    }
+
+    /// «Сейчас играет» не сортируется: ключ и порядок без изменений (ТЗ-43, И-Т4).
+    #[test]
+    fn now_playing_column_not_sortable() {
+        let mut p = playlist(&["B", "A"]);
+        p.header_click(ColumnId::Title, false);
+        assert_eq!(p.header_click(ColumnId::NowPlaying, false), PlaylistEffect::default());
+        assert_eq!(p.sort_key(), key(SortColumn::Title, SortDir::Asc));
+        assert_eq!(visible_titles(&p), ["A", "B"]);
+    }
+
+    /// «Название ↑»; 3-я строка на 1-е место: ключ снят, видимый = исходный =
+    /// отсортированный с перемещённой строкой, флаг взведён (ТЗ-44).
+    #[test]
+    fn drag_reorder_clears_sort_key() {
+        let mut p = playlist(&["C", "A", "D", "B"]);
+        p.header_click(ColumnId::Title, false);
+        let moved = p.visible()[2];
+        let before = p.first_visible();
+        let effect = p.reorder(&[moved], before);
+        assert_eq!(effect, PlaylistEffect { dirty: true, sort_changed: true, order_changed: true });
+        assert_eq!(p.sort_key(), None);
+        assert_eq!(visible_titles(&p), ["C", "A", "B", "D"]);
+        assert_eq!(source_titles(&p), visible_titles(&p));
+        // Перенос в конец без ключа: ключ уже снят, sort_changed не повторяется.
+        let first = p.visible()[0];
+        let effect = p.reorder(&[first], None);
+        assert_eq!(effect, PlaylistEffect::EDITED);
+        assert_eq!(source_titles(&p), ["A", "B", "D", "C"]);
+    }
+
+    /// Скрытая колонка ключа: щелчок по ней ничего не меняет, ключ и порядок
+    /// сохраняются (ТЗ-31, §3.3).
+    #[test]
+    fn hide_sorted_column_keeps_order() {
+        let mut p = Playlist::new();
+        p.add(vec![track("A", "1990"), track("B", "2001"), track("C", "1969")]);
+        p.header_click(ColumnId::Year, false);
+        p.header_click(ColumnId::Year, false);
+        assert_eq!(visible_titles(&p), ["B", "A", "C"]);
+        assert_eq!(p.header_click(ColumnId::Year, true), PlaylistEffect::default());
+        assert_eq!(p.sort_key(), key(SortColumn::Year, SortDir::Desc));
+        assert_eq!(visible_titles(&p), ["B", "A", "C"]);
+    }
+
+    /// Новые теги не переставляют строку до следующей сортировки (§3.1).
+    #[test]
+    fn update_tags_keeps_visible_order_until_resort() {
+        let mut p = playlist(&["A", "B"]);
+        p.header_click(ColumnId::Title, false);
+        let a = p.visible()[0];
+        let (t, k) = track("Z", "");
+        p.update_tags(a, t, k);
+        assert_eq!(visible_titles(&p), ["Z", "B"]);
+        p.header_click(ColumnId::Title, false);
+        p.header_click(ColumnId::Title, false);
+        p.header_click(ColumnId::Title, false);
+        assert_eq!(visible_titles(&p), ["B", "Z"]);
+    }
+
+    /// Удаление и очистка: оба порядка, флаг; ключ сохраняется (§6.13).
+    #[test]
+    fn remove_and_clear_update_both_orders() {
+        let mut p = playlist(&["C", "A", "B"]);
+        p.header_click(ColumnId::Title, false);
+        let a = p.visible()[0];
+        assert_eq!(p.remove(&[a]), PlaylistEffect::EDITED);
+        assert!(p.get(a).is_none());
+        assert_eq!(visible_titles(&p), ["B", "C"]);
+        assert_eq!(source_titles(&p), ["C", "B"]);
+        assert_eq!(p.remove(&[a]), PlaylistEffect::default());
+        assert_eq!(p.clear(), PlaylistEffect::EDITED);
+        assert!(p.is_empty());
+        assert_eq!(p.first_visible(), None);
+        assert_eq!(p.sort_key(), key(SortColumn::Title, SortDir::Asc));
+    }
+}
