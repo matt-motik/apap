@@ -5,7 +5,7 @@ use std::rc::Rc;
 use std::sync::mpsc::{channel, Receiver, TryRecvError};
 use std::sync::Arc;
 use std::thread;
-use std::time::Instant;
+use std::time::{Duration, Instant};
 
 use rfd::FileDialog;
 use slint::{ComponentHandle, Model, ModelRc, SharedString, StandardListViewItem, VecModel};
@@ -131,6 +131,10 @@ const COL_SAVE_DEBOUNCE_TICKS: u32 = 6;
 /// to the (settled) window width ≈ the moment the user releases the mouse after
 /// a window resize. ~64 ms.
 const REFLOW_SETTLE_TICKS: u32 = 4;
+
+/// Срок ответа движка `ShutdownComplete` на пути выхода — 2 с от запроса
+/// (§6.28 п. 3); по истечении event loop завершается без ответа.
+const ENGINE_SHUTDOWN_WAIT: Duration = Duration::from_secs(2);
 
 /// Полная сигнатура визуализации для детекта изменений DSP-настроек. Кортежи
 /// std реализуют `PartialEq` только до 12 элементов, поэтому — отдельный тип.
@@ -736,13 +740,24 @@ impl MusicApp {
                 self.core.change_state(Origin::User, StateChange::Window(g));
             }
         }
+        // `Shutdown` шлёт `AppCore::exit`; здесь — синхронное ожидание
+        // `ShutdownComplete` на UI-потоке до 2 с от запроса (§6.28 п. 3,
+        // ТЗ-45). Запись файлов от него не зависит (ТЗ-136). Попутные события
+        // движка доходят до `UiAudioState`, их итог на выходе не нужен.
+        // `EngineHandle` join-ится при drop фасада — поток уже завершён.
+        let requested = Instant::now();
+        let events = &self.engine_events;
         let player = &mut self.player;
-        // Мост С3: остановка движка через фасад до шага AppCore::exit (§6.28).
-        let mut release_engine = || {
-            player.shutdown();
-            true
+        let mut await_engine = || {
+            events.wait_for(
+                ENGINE_SHUTDOWN_WAIT.saturating_sub(requested.elapsed()),
+                |ev| matches!(ev, EngineEvent::ShutdownComplete),
+                |ev| {
+                    let _ = player.on_event(ev);
+                },
+            )
         };
-        let outcome = self.core.exit(reason, &mut release_engine, &|| playlist::serialize_m3u(&self.disk_tracks));
+        let outcome = self.core.exit(reason, &mut await_engine, &|| playlist::serialize_m3u(&self.disk_tracks));
         if outcome == ExitOutcome::Ignored {
             eprintln!("[app] exit {reason:?}: уже выполняется, повтор проигнорирован");
             return outcome;
