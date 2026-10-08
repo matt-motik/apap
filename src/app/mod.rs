@@ -317,8 +317,6 @@ pub struct MusicApp {
     status: SharedString,
     repeat: RepeatMode,
     shuffle: bool,
-    shuffle_order: Vec<usize>,
-    shuffle_pos: usize,
     /// `true`, once the engine has confirmed a usable output device —
     /// either by enumerating it in a `Devices` catalog update or by opening
     /// a stream on it. No synchronous probe blocks `new()` any more; the
@@ -560,8 +558,6 @@ impl MusicApp {
             status: startup_status.into(),
             repeat,
             shuffle,
-            shuffle_order: Vec::new(),
-            shuffle_pos: 0,
             audio_ready,
             audio_error,
             active_device,
@@ -616,7 +612,6 @@ impl MusicApp {
         app.gate.set_loading(Some(LoadKind::Startup));
         app.setup_fulltrack();
         app.setup_visualizer(viz_cfg, viz_prod, viz_cons);
-        app.rebuild_shuffle();
         // Ключ сортировки сессии применяется в `drain_startup_tracks`, когда
         // реальные треки загружены (здесь `tracks` всегда пуст) (§6.13, ТЗ-42).
         app.apply_window_geometry();
@@ -1069,7 +1064,6 @@ impl MusicApp {
                 a.shuffle = !a.shuffle;
                 let shuffle = a.shuffle;
                 a.core.change_state(Origin::User, StateChange::Shuffle(shuffle));
-                a.rebuild_shuffle();
                 if let Some(ui) = a.try_ui() {
                     ui.set_shuffle(a.shuffle);
                 }
@@ -1330,7 +1324,6 @@ impl MusicApp {
                     a.core.playlist_replace(rows, visible, key);
                     a.rebuild_playlist_mirrors();
                     a.current = None;
-                    a.rebuild_shuffle();
                     a.sync_playlist_to_ui();
                     a.emit(AppEvent::QueueChanged);
                 }
@@ -2170,7 +2163,6 @@ impl MusicApp {
         let visible = MusicApp::load_visible_order(&rows, key);
         self.core.playlist_replace(rows, visible, key);
         self.rebuild_playlist_mirrors();
-        self.rebuild_shuffle();
         self.sync_playlist_to_ui();
         // Успешная загрузка стартового плейлиста — результат виден в
         // таблице и track-count, сообщение/строка состояния не нужны
@@ -2277,10 +2269,12 @@ impl MusicApp {
     }
 
     /// МОСТ (временный, удаляется на шаге 26, §6.13, ТЗ-42, ТЗ-45): выполняет
-    /// операцию `op` над моделью плейлиста `AppCore` и переносит `current`,
-    /// `pending_open` и `shuffle_order` через `TrackId`, чтобы они остались
-    /// согласованными после изменения видимого порядка — затем перестраивает
-    /// зеркала `tracks`/`disk_tracks`/`known_paths`.
+    /// операцию `op` над моделью плейлиста `AppCore` и переносит `current` и
+    /// `pending_open` через `TrackId`, чтобы они остались согласованными
+    /// после изменения видимого порядка — затем перестраивает зеркала
+    /// `tracks`/`disk_tracks`/`known_paths`. Shuffle-состояние больше не
+    /// зеркалится здесь: `AppCore` перестраивает его сам в
+    /// `apply_playlist_effect` (§3.4, ТЗ-45, ТЗ-46).
     pub(super) fn playlist_op(&mut self, op: impl FnOnce(&mut AppCore)) {
         let visible_before = self.core.playlist().visible().to_vec();
         let current_id = self.current.and_then(|i| visible_before.get(i).copied());
@@ -2290,11 +2284,6 @@ impl MusicApp {
                 prev.and_then(|p| visible_before.get(p).copied()),
             )
         });
-        let shuffle_ids: Vec<_> = self
-            .shuffle_order
-            .iter()
-            .filter_map(|&i| visible_before.get(i).copied())
-            .collect();
 
         op(&mut self.core);
 
@@ -2305,15 +2294,6 @@ impl MusicApp {
             let idx = idx_id.and_then(|id| self.core.playlist().index_of(id))?;
             Some((idx, prev_id.and_then(|id| self.core.playlist().index_of(id))))
         });
-        self.shuffle_order = shuffle_ids
-            .iter()
-            .filter_map(|&id| self.core.playlist().index_of(id))
-            .collect();
-        if let Some(cur) = self.current {
-            if let Some(p) = self.shuffle_order.iter().position(|&i| i == cur) {
-                self.shuffle_pos = p;
-            }
-        }
     }
 
     /// Зеркала временного моста из модели плейлиста `AppCore` (удаляются на

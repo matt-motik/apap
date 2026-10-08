@@ -4,6 +4,7 @@
 use super::*;
 use music_player_rs::audio::decoder::TrackInfo;
 use music_player_rs::persist::state_file::{Origin, StateChange};
+use music_player_rs::playlist::compare::CompareKeys;
 
 impl MusicApp {
     pub(super) fn sync_playback_state_to_ui(&mut self) {
@@ -222,22 +223,23 @@ impl MusicApp {
         }
     }
 
-    /// Индекс следующего трека с учётом shuffle и `repeat` (мутирует
-    /// `shuffle_pos` при переходе по shuffle-порядку). `repeat` передаётся
-    /// отдельно от `self.repeat`, чтобы вызывающий код (пропуск повреждённого
-    /// трека, ТЗ-86/ТЗ-87) мог подставить `RepeatMode::All` вместо `One` —
-    /// иначе пропуск зациклился бы на одном и том же треке. Вынесено из
-    /// `handle_auto_advance`, используется также из `dispatch_applied`
-    /// (мост С3).
+    /// Индекс следующего трека с учётом shuffle и `repeat`. При shuffle —
+    /// через `AppCore`: `shuffle_first` (первый несыгранный трек прохода,
+    /// §3.4, ТЗ-46) и `shuffle_started` (переводит его в текущий прохода,
+    /// ТЗ-45), индекс — через `index_of` по видимому порядку. `repeat`
+    /// передаётся отдельно от `self.repeat`, чтобы вызывающий код (пропуск
+    /// повреждённого трека, ТЗ-86/ТЗ-87) мог подставить `RepeatMode::All`
+    /// вместо `One` для последовательного порядка — иначе пропуск
+    /// зациклился бы на одном и том же треке; для shuffle это
+    /// переопределение не действует, так как `shuffle_first` использует
+    /// режим повтора сессии в `AppCore` (ограничение временного моста,
+    /// §6.13). Вынесено из `handle_auto_advance`, используется также из
+    /// `dispatch_applied` (мост С3).
     pub(super) fn next_track_index(&mut self, repeat: RepeatMode) -> Option<usize> {
-        if self.shuffle && !self.shuffle_order.is_empty() {
-            match playlist::advance_shuffle(&self.shuffle_order, self.shuffle_pos, 1, repeat) {
-                Some((idx, new_pos)) => {
-                    self.shuffle_pos = new_pos;
-                    Some(idx)
-                }
-                None => None,
-            }
+        if self.shuffle {
+            let id = self.core.shuffle_first()?;
+            self.core.shuffle_started(id);
+            self.core.playlist().index_of(id)
         } else {
             playlist::advance_index(self.current, 1, self.tracks.len(), repeat)
         }
@@ -324,42 +326,51 @@ impl MusicApp {
         prev_current: Option<usize>,
         info: &TrackInfo,
     ) {
-        self.tracks[index].duration = info.num_frames.map(|n| n as f64 / info.sample_rate as f64);
+        let Some(&id) = self.core.playlist().visible().get(index) else {
+            return;
+        };
+        let mut track = self.tracks[index].clone();
+        track.duration = info.num_frames.map(|n| n as f64 / info.sample_rate as f64);
         if let Some(t) = &info.tags.title {
             if !t.trim().is_empty() {
-                self.tracks[index].title = t.clone();
+                track.title = t.clone();
             }
         }
-        self.tracks[index].artist = info.tags.artist.clone();
-        self.tracks[index].album = info.tags.album.clone();
-        self.tracks[index].genre = info.tags.genre.clone();
-        self.tracks[index].year = info.tags.year.clone().unwrap_or_default();
+        track.artist = info.tags.artist.clone();
+        track.album = info.tags.album.clone();
+        track.genre = info.tags.genre.clone();
+        track.year = info.tags.year.clone().unwrap_or_default();
         self.stream_desc = self.player.stream_desc().cloned();
-        if info.tags.track_number > 0 || self.tracks[index].track_number == 0 {
-            self.tracks[index].track_number = info.tags.track_number;
+        if info.tags.track_number > 0 || track.track_number == 0 {
+            track.track_number = info.tags.track_number;
         }
         if info.tags.track_total > 0 {
-            self.tracks[index].track_total = info.tags.track_total;
+            track.track_total = info.tags.track_total;
         }
         if info.tags.disc_number > 0 {
-            self.tracks[index].disc = info.tags.disc_number;
+            track.disc = info.tags.disc_number;
         }
         if info.tags.disc_total > 0 {
-            self.tracks[index].disc_total = info.tags.disc_total;
+            track.disc_total = info.tags.disc_total;
         }
-        self.tracks[index].channels = info.channels as u32;
-        self.tracks[index].bitrate = info.bitrate;
+        track.channels = info.channels as u32;
+        track.bitrate = info.bitrate;
         if info.format_name.starts_with("DSD") {
-            self.tracks[index].bit_depth = info.format_name.to_lowercase();
+            track.bit_depth = info.format_name.to_lowercase();
         } else {
-            self.tracks[index].sample_rate = info.sample_rate;
-            self.tracks[index].bit_depth = match info.bits {
+            track.sample_rate = info.sample_rate;
+            track.bit_depth = match info.bits {
                 Some(b) if b > 0 => format!("{b} bit"),
-                _ => self.tracks[index].bit_depth.clone(),
+                _ => track.bit_depth.clone(),
             };
         }
-        self.current = Some(index);
-        self.sync_shuffle_pos();
+        // МОСТ (§6.13, ТЗ-42, ТЗ-45): тэги трека, уточнённые движком при
+        // открытии, пишутся через модель плейлиста по `TrackId`, а не
+        // напрямую в зеркало `tracks` — обновление может сдвинуть строку
+        // под активной сортировкой, поэтому индекс пересчитывается заново.
+        let keys = CompareKeys::from_track(&track);
+        self.playlist_op(move |core| core.playlist_update_tags(id, track, keys));
+        self.current = self.core.playlist().index_of(id);
         self.status = if self.player.reservation_pending() {
             // ТЗ-119: ожидание резервирования не блокирует UI.
             "Захват устройства…".into()
@@ -373,9 +384,11 @@ impl MusicApp {
         self.refresh_playlist_rows_at(self.current);
         self.sync_track_info_to_ui();
         if let Some(ui) = self.try_ui() {
-            ui.set_current_row(index as i32);
-            if self.core.settings().scroll_to_playing {
-                ui.invoke_scroll_to_row(index as i32);
+            if let Some(cur) = self.current {
+                ui.set_current_row(cur as i32);
+                if self.core.settings().scroll_to_playing {
+                    ui.invoke_scroll_to_row(cur as i32);
+                }
             }
         }
         self.emit(AppEvent::TrackChanged(self.current));
@@ -401,31 +414,6 @@ impl MusicApp {
         });
     }
 
-    pub(super) fn rebuild_shuffle(&mut self) {
-        let n = self.tracks.len();
-        if !self.shuffle || n == 0 {
-            self.shuffle_order.clear();
-            self.shuffle_pos = 0;
-            return;
-        }
-        let mut order: Vec<usize> = (0..n).collect();
-        use rand::seq::SliceRandom;
-        let mut rng = rand::thread_rng();
-        order.shuffle(&mut rng);
-        self.shuffle_order = order;
-        self.sync_shuffle_pos();
-    }
-
-    fn sync_shuffle_pos(&mut self) {
-        let Some(cur) = self.current else { return };
-        if self.shuffle_order.is_empty() {
-            return;
-        }
-        if let Some(p) = self.shuffle_order.iter().position(|&i| i == cur) {
-            self.shuffle_pos = p;
-        }
-    }
-
     pub fn cycle_repeat(&mut self) {
         self.repeat = self.repeat.next();
         // Изменение состояния — через `change_state` (И-Т7, §8.1 С3).
@@ -437,23 +425,26 @@ impl MusicApp {
         }
     }
 
+    /// Переход на соседний трек: `direction` `1` — «Далее», `-1` — «Назад».
+    /// При shuffle — через `AppCore`: вперёд `shuffle_first` (первый
+    /// несыгранный трек прохода, §3.4, ТЗ-46), назад `shuffle_previous`
+    /// (последний сыгранный); оба случая переводятся в текущий прохода через
+    /// `shuffle_started` (ТЗ-45), индекс — через `index_of` по видимому
+    /// порядку.
     pub(super) fn play_next(&mut self, direction: i32) {
         if self.tracks.is_empty() {
             return;
         }
-        let next = if self.shuffle && !self.shuffle_order.is_empty() {
-            match playlist::advance_shuffle(
-                &self.shuffle_order,
-                self.shuffle_pos,
-                direction,
-                self.repeat,
-            ) {
-                Some((idx, new_pos)) => {
-                    self.shuffle_pos = new_pos;
-                    Some(idx)
-                }
-                None => None,
+        let next = if self.shuffle {
+            let id = if direction >= 0 {
+                self.core.shuffle_first()
+            } else {
+                self.core.shuffle_previous()
+            };
+            if let Some(id) = id {
+                self.core.shuffle_started(id);
             }
+            id.and_then(|id| self.core.playlist().index_of(id))
         } else {
             playlist::advance_index(self.current, direction, self.tracks.len(), self.repeat)
         };

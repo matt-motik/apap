@@ -66,7 +66,6 @@ impl MusicApp {
                             self.playlist_op(|core| {
                                 core.playlist_add(rows);
                             });
-                            self.rebuild_shuffle();
                             // Успешное добавление — результат виден в таблице
                             // плейлиста, сообщение не требуется (ТЗ-52, ОВ-7).
                         } else {
@@ -105,7 +104,6 @@ impl MusicApp {
                 self.playlist_op(|core| {
                     core.playlist_add(rows);
                 });
-                self.rebuild_shuffle();
                 // Успешное добавление — результат виден в таблице плейлиста,
                 // сообщение не требуется (ТЗ-52, ОВ-7).
                 self.emit(AppEvent::QueueChanged);
@@ -152,7 +150,6 @@ impl MusicApp {
         // `TrackId`; флаг «изменён» взводит сам эффект `playlist_remove`.
         let id = self.core.playlist().visible()[index];
         self.playlist_op(|core| core.playlist_remove(&[id]));
-        self.rebuild_shuffle();
         // Incremental: drop the row, then refresh the shifted tail (indices and
         // the `>` marker) instead of rebuilding the whole model.
         if self.playlist_rows.row_count() > index {
@@ -173,7 +170,6 @@ impl MusicApp {
         // МОСТ (§6.13, ТЗ-42, ТЗ-45): очистка через модель плейлиста; флаг
         // «изменён» взводит сам эффект `playlist_clear`.
         self.playlist_op(|core| core.playlist_clear());
-        self.rebuild_shuffle();
         self.sync_playlist_to_ui();
         // Успешная очистка — таблица плейлиста уже пуста, сообщение не
         // требуется (ТЗ-52, ОВ-7).

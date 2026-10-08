@@ -49,19 +49,20 @@
 [x] Шаг 19: Harness-тесты sort_change_does_not_write_playlist, sort_key_restored_after_restart (§7, ТЗ-12, ТЗ-43). Файл: src/core/testing.rs. Проверка: cargo test core::
 [x] Шаг 20: ЧЕКПОИНТ: cargo test + cargo clippy. Проверка: зелёные
 [x] Шаг 21: Мост в приложении: операции плейлиста MusicApp (скан, удаление, очистка, загрузка M3U, стартовая загрузка, сортировка по заголовку) идут через AppCore; tracks/disk_tracks — временное зеркало из core.playlist(); current (видимый индекс) переотображается по TrackId после каждой операции (§6.13, ТЗ-42, ТЗ-45). Файлы: src/app/playlist_manager.rs, src/app/mod.rs. Проверка: cargo check
-[ ] Шаг 22: Выбор следующего трека по visible и ShuffleState из AppCore; удалить shuffle_order/shuffle_pos/rebuild_shuffle/sync_shuffle_pos; обновление тегов в on_opened → core.playlist_update_tags (§3.4, §8 С6, ТЗ-45, ТЗ-46). Файлы: src/app/playback_manager.rs, src/app/mod.rs. Проверка: cargo check
-[ ] Шаг 23: Чтения self.tracks в playback_manager → core.playlist() через хелпер track_at(i) в mod.rs (ADR-15). Файлы: src/app/playback_manager.rs, src/app/mod.rs. Проверка: cargo check
-[ ] Шаг 24: Чтения self.tracks в ui_manager/bp_report/fulltrack_manager → track_at(i); таблица Slint строится по visible (§8 С6). Файлы: src/app/ui_manager.rs, src/app/bp_report.rs, src/app/fulltrack_manager.rs. Проверка: cargo check
-[ ] Шаг 25: ЧЕКПОИНТ: cargo test + cargo clippy. Проверка: зелёные; плеер играет
-[ ] Шаг 26: Удалить зеркало tracks/disk_tracks из MusicApp; запись playlist.m3u — снимок core.playlist_m3u() (§8 С6 «что удаляется»). Файлы: src/app/mod.rs, src/app/playlist_manager.rs. Проверка: cargo check
-[ ] Шаг 27: Убрать замыкание playlist_bytes из AppCore::tick/retry/exit (снимок из своего Playlist) (§4.2, ТЗ-12). Файлы: src/core/mod.rs, src/core/testing.rs (+ вызовы в src/app/mod.rs). Проверка: cargo check
-[ ] Шаг 28: state_file: SortKey/SortDirection → тип модели playlist::SortKey (re-export), разбор/запись без изменений формата; ui_manager отображает ключ через SortColumn::column(); убрать мост конверсии в core (§3.1, §2.x, ТЗ-43). Файлы: src/persist/state_file.rs, src/app/ui_manager.rs, src/core/mod.rs. Проверка: cargo check
-[ ] Шаг 29: Заголовок таблицы — три состояния: колбэки sort-ascending/descending → core.header_click, sort-order колонок выставляется из состояния (снятие ключа сбрасывает стрелку) (ТЗ-42). Файлы: src/app/mod.rs, src/app/ui_manager.rs (ui/tableview_fork.slint — при необходимости). Проверка: cargo check
-[ ] Шаг 30: Очистка: удалить advance_shuffle, sort_rows_compare и тест advance_shuffle_navigates_order; тесты advance_index → repeat_all_wraps_visible_order, next_without_current_plays_first_visible; удалить тест sort_rows_compare_orders_by_column (§7.5, §8 С6). Файлы: src/playlist/mod.rs, src/app/mod.rs. Проверка: cargo test
-[ ] Шаг 31: ФИНАЛ: cargo build + cargo test + cargo clippy зелёные; ручная проверка: сортировка/снятие ключа не пишет playlist.m3u, Shuffle; закрытие этапа (Шаг 5). Проверка: всё зелёное
+[x] Шаг 22: Выбор следующего трека по visible и ShuffleState из AppCore; удалить shuffle_order/shuffle_pos/rebuild_shuffle/sync_shuffle_pos; обновление тегов в on_opened → core.playlist_update_tags (§3.4, §8 С6, ТЗ-45, ТЗ-46). Файлы: src/app/playback_manager.rs, src/app/mod.rs (+ удаление вызовов rebuild_shuffle в src/app/playlist_manager.rs). Проверка: cargo check
+[ ] Шаг 23: «Назад» при Shuffle: ShuffleState::back() — текущий трек возвращается в начало upcoming, последний из history становится текущим (повторное «Назад» идёт глубже по истории, без «пинг-понга» через started()); AppCore::shuffle_back(); play_next(-1) вызывает его; тест back_twice_walks_history (§3.4, ТЗ-45). Файлы: src/playlist/shuffle.rs, src/core/mod.rs (+ вызов в src/app/playback_manager.rs). Проверка: cargo test shuffle
+[ ] Шаг 24: Чтения self.tracks в playback_manager → core.playlist() через хелпер track_at(i) в mod.rs (ADR-15). Файлы: src/app/playback_manager.rs, src/app/mod.rs. Проверка: cargo check
+[ ] Шаг 25: Чтения self.tracks в ui_manager/bp_report/fulltrack_manager → track_at(i); таблица Slint строится по visible (§8 С6). Файлы: src/app/ui_manager.rs, src/app/bp_report.rs, src/app/fulltrack_manager.rs. Проверка: cargo check
+[ ] Шаг 26: ЧЕКПОИНТ: cargo test + cargo clippy. Проверка: зелёные; плеер играет
+[ ] Шаг 27: Удалить зеркало tracks/disk_tracks из MusicApp; запись playlist.m3u — снимок core.playlist_m3u() (§8 С6 «что удаляется»). Файлы: src/app/mod.rs, src/app/playlist_manager.rs. Проверка: cargo check
+[ ] Шаг 28: Убрать замыкание playlist_bytes из AppCore::tick/retry/exit (снимок из своего Playlist) (§4.2, ТЗ-12). Файлы: src/core/mod.rs, src/core/testing.rs (+ вызовы в src/app/mod.rs). Проверка: cargo check
+[ ] Шаг 29: state_file: SortKey/SortDirection → тип модели playlist::SortKey (re-export), разбор/запись без изменений формата; ui_manager отображает ключ через SortColumn::column(); убрать мост конверсии в core (§3.1, §2.x, ТЗ-43). Файлы: src/persist/state_file.rs, src/app/ui_manager.rs, src/core/mod.rs. Проверка: cargo check
+[ ] Шаг 30: Заголовок таблицы — три состояния: колбэки sort-ascending/descending → core.header_click, sort-order колонок выставляется из состояния (снятие ключа сбрасывает стрелку) (ТЗ-42). Файлы: src/app/mod.rs, src/app/ui_manager.rs (ui/tableview_fork.slint — при необходимости). Проверка: cargo check
+[ ] Шаг 31: Очистка: удалить advance_shuffle, sort_rows_compare и тест advance_shuffle_navigates_order; тесты advance_index → repeat_all_wraps_visible_order, next_without_current_plays_first_visible; удалить тест sort_rows_compare_orders_by_column (§7.5, §8 С6). Файлы: src/playlist/mod.rs, src/app/mod.rs. Проверка: cargo test
+[ ] Шаг 32: ФИНАЛ: cargo build + cargo test + cargo clippy зелёные; ручная проверка: сортировка/снятие ключа не пишет playlist.m3u, Shuffle; закрытие этапа (Шаг 5). Проверка: всё зелёное
 
-- **Текущий шаг (current_step):** Шаг 22
-- **Следующий ход:** Шаг 22: выбор следующего трека по visible/ShuffleState из AppCore; on_opened → core.playlist_update_tags (src/app/playback_manager.rs, src/app/mod.rs)
+- **Текущий шаг (current_step):** Шаг 23
+- **Следующий ход:** Шаг 23: ShuffleState::back() — «Назад» при Shuffle идёт по истории (src/playlist/shuffle.rs, src/core/mod.rs, вызов в playback_manager.rs)
 - **Счетчик безуспешных компиляций:** 0/3
 - **Состояние:** in_progress
 
