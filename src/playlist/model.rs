@@ -1,5 +1,10 @@
 //! Модель плейлиста: идентификаторы строк и ключ сортировки (ADR-15, §3.1, ТЗ-42, ТЗ-43).
 
+use std::cmp::Ordering;
+use std::collections::{HashMap, HashSet};
+
+use super::compare::{compare_keys, CompareKeys};
+use super::Track;
 use crate::settings::ColumnId;
 
 /// Стабильный идентификатор строки плейлиста в пределах сеанса, не индекс (ADR-15).
@@ -78,4 +83,177 @@ pub enum SortDir {
 pub struct SortKey {
     pub column: SortColumn,
     pub dir: SortDir,
+}
+
+/// Строка плейлиста: трек и его ключи сравнения (§3.1).
+struct Row {
+    id: TrackId,
+    track: Track,
+    keys: CompareKeys,
+}
+
+/// Что изменила операция: для флага «плейлист изменён», `state.toml`, `Sequencer`
+/// и таблицы Slint (§3.1, §6.13).
+#[derive(Clone, Copy, PartialEq, Eq, Debug, Default)]
+pub struct PlaylistEffect {
+    /// Взвести флаг (ТЗ-12).
+    pub dirty: bool,
+    /// Ключ сортировки изменился (`StateChange::Sort`, `Origin::User`).
+    pub sort_changed: bool,
+    /// Видимый порядок изменился: передать `Sequencer`, перестроить `ShuffleState` (ТЗ-45).
+    pub order_changed: bool,
+}
+
+impl PlaylistEffect {
+    /// Изменение состава или исходного порядка: флаг и новый видимый порядок (§6.13).
+    const EDITED: PlaylistEffect = PlaylistEffect { dirty: true, sort_changed: false, order_changed: true };
+}
+
+/// Плейлист (ADR-15): строки в исходном порядке + видимый порядок как перестановка
+/// (§3.1, §3.2, И-Р14).
+pub struct Playlist {
+    /// Исходный порядок = порядок `playlist.m3u` (ТЗ-40).
+    rows: Vec<Row>,
+    /// Индекс строки в `rows` по id.
+    pos: HashMap<TrackId, u32>,
+    /// Видимый порядок: без ключа — порядок `rows`, с ключом — стабильная сортировка `rows`.
+    visible: Vec<TrackId>,
+    sort: Option<SortKey>,
+    /// Следующий id; id не переиспользуются в пределах сеанса (ADR-15).
+    next_id: u64,
+}
+
+impl Default for Playlist {
+    fn default() -> Self {
+        Playlist::new()
+    }
+}
+
+impl Playlist {
+    pub fn new() -> Playlist {
+        Playlist { rows: Vec::new(), pos: HashMap::new(), visible: Vec::new(), sort: None, next_id: 0 }
+    }
+
+    /// Замена целиком по окончании загрузки (ADR-16): строки и уже вычисленный видимый
+    /// порядок — индексы в `rows`; индексы вне диапазона пропускаются (§3.1).
+    pub fn replace(&mut self, rows: Vec<(Track, CompareKeys)>, visible: Vec<u32>, sort: Option<SortKey>) {
+        self.rows = rows.into_iter().map(|(track, keys)| Row { id: self.alloc_id(), track, keys }).collect();
+        self.rebuild_pos();
+        self.visible = visible
+            .into_iter()
+            .filter_map(|i| usize::try_from(i).ok().and_then(|i| self.rows.get(i)).map(|r| r.id))
+            .collect();
+        self.sort = sort;
+    }
+
+    /// Добавление в конец исходного порядка; в видимом — место по ключу, равные —
+    /// перед новой строкой (ТЗ-41, ТЗ-45, §6.13).
+    pub fn add(&mut self, tracks: Vec<(Track, CompareKeys)>) -> (Vec<TrackId>, PlaylistEffect) {
+        if tracks.is_empty() {
+            return (Vec::new(), PlaylistEffect::default());
+        }
+        let mut ids = Vec::with_capacity(tracks.len());
+        for (track, keys) in tracks {
+            let id = self.alloc_id();
+            if let Ok(i) = u32::try_from(self.rows.len()) {
+                self.pos.insert(id, i);
+            }
+            self.rows.push(Row { id, track, keys });
+            let at = match self.sort {
+                None => self.visible.len(),
+                Some(key) => self.visible.partition_point(|&v| self.cmp_ids(v, id, key) != Ordering::Greater),
+            };
+            self.visible.insert(at, id);
+            ids.push(id);
+        }
+        (ids, PlaylistEffect::EDITED)
+    }
+
+    /// Удаление строк из обоих порядков; неизвестные id пропускаются (§6.13).
+    pub fn remove(&mut self, ids: &[TrackId]) -> PlaylistEffect {
+        let gone: HashSet<TrackId> = ids.iter().copied().filter(|id| self.pos.contains_key(id)).collect();
+        if gone.is_empty() {
+            return PlaylistEffect::default();
+        }
+        self.rows.retain(|r| !gone.contains(&r.id));
+        self.visible.retain(|id| !gone.contains(id));
+        self.rebuild_pos();
+        PlaylistEffect::EDITED
+    }
+
+    /// Очистка плейлиста; ключ сортировки сохраняется (§6.13).
+    pub fn clear(&mut self) -> PlaylistEffect {
+        if self.rows.is_empty() {
+            return PlaylistEffect::default();
+        }
+        self.rows.clear();
+        self.pos.clear();
+        self.visible.clear();
+        PlaylistEffect::EDITED
+    }
+
+    /// Треки в исходном порядке — порядок `playlist.m3u` (ТЗ-40, §3.2).
+    pub fn source_order(&self) -> impl Iterator<Item = &Track> {
+        self.rows.iter().map(|r| &r.track)
+    }
+
+    /// Видимый порядок — порядок таблицы и `Sequencer` (§3.2).
+    pub fn visible(&self) -> &[TrackId] {
+        &self.visible
+    }
+
+    pub fn sort_key(&self) -> Option<SortKey> {
+        self.sort
+    }
+
+    pub fn get(&self, id: TrackId) -> Option<&Track> {
+        self.row(id).map(|r| &r.track)
+    }
+
+    /// Первый трек видимого порядка: «Далее» без текущего и без Shuffle (ТЗ-46).
+    pub fn first_visible(&self) -> Option<TrackId> {
+        self.visible.first().copied()
+    }
+
+    pub fn len(&self) -> usize {
+        self.rows.len()
+    }
+
+    pub fn is_empty(&self) -> bool {
+        self.rows.is_empty()
+    }
+
+    /// Позиция строки в видимом порядке (строка таблицы).
+    pub fn index_of(&self, id: TrackId) -> Option<usize> {
+        self.visible.iter().position(|&v| v == id)
+    }
+
+    fn alloc_id(&mut self) -> TrackId {
+        let id = TrackId(self.next_id);
+        self.next_id = self.next_id.saturating_add(1);
+        id
+    }
+
+    fn rebuild_pos(&mut self) {
+        self.pos = self
+            .rows
+            .iter()
+            .enumerate()
+            .filter_map(|(i, r)| u32::try_from(i).ok().map(|i| (r.id, i)))
+            .collect();
+    }
+
+    fn row(&self, id: TrackId) -> Option<&Row> {
+        let i = usize::try_from(*self.pos.get(&id)?).ok()?;
+        self.rows.get(i)
+    }
+
+    /// `cmp(a, b)` §6.13: ключ сравнения, затем исходный индекс — стабильность (И-Р14).
+    fn cmp_ids(&self, a: TrackId, b: TrackId, key: SortKey) -> Ordering {
+        let by_key = match (self.row(a), self.row(b)) {
+            (Some(ra), Some(rb)) => compare_keys(&ra.keys, &rb.keys, key),
+            _ => Ordering::Equal,
+        };
+        by_key.then_with(|| self.pos.get(&a).cmp(&self.pos.get(&b)))
+    }
 }
