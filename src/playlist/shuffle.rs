@@ -84,6 +84,19 @@ impl ShuffleState {
         self.history.last().copied()
     }
 
+    /// «Назад» при Shuffle (§3.4, ТЗ-45): последний трек `history` становится
+    /// текущим, прежний текущий (если был) встаёт в начало `upcoming`, чтобы
+    /// последующее «Далее» снова проиграло трек, с которого ушли назад.
+    /// `history` пуста — `None`, состояние не меняется.
+    pub fn back(&mut self) -> Option<TrackId> {
+        let prev = self.history.pop()?;
+        if let Some(cur) = self.current.take() {
+            self.upcoming.insert(0, cur);
+        }
+        self.current = Some(prev);
+        Some(prev)
+    }
+
     pub fn current(&self) -> Option<TrackId> {
         self.current
     }
@@ -259,5 +272,48 @@ mod tests {
         let mut expected = vec![a, b];
         expected.extend(rest);
         assert_eq!(s.order(), expected);
+    }
+
+    /// «Назад» дважды подряд идёт по `history`, а не колеблется между двумя
+    /// треками: a -> b -> c, назад -> b, назад -> a, назад -> `None` без
+    /// изменения состояния (ТЗ-45, §3.4).
+    #[test]
+    fn back_twice_walks_history() {
+        let mut rng = StdRng::seed_from_u64(7);
+        let p = playlist(4);
+        let mut s = ShuffleState::new_pass(p.visible(), &mut rng);
+        let a = s.upcoming()[0];
+        let b = s.upcoming()[1];
+        let c = s.upcoming()[2];
+
+        s.started(a);
+        s.started(b);
+        s.started(c);
+
+        assert_eq!(s.back(), Some(b));
+        assert_eq!(s.back(), Some(a));
+
+        let before = s.clone();
+        assert_eq!(s.back(), None);
+        assert_eq!(s, before);
+    }
+
+    /// После «Назад» с c на b следующее «Далее» снова играет c — трек, с
+    /// которого ушли назад (ТЗ-45, §3.4).
+    #[test]
+    fn next_after_back_replays_left_track() {
+        let mut rng = StdRng::seed_from_u64(8);
+        let p = playlist(4);
+        let mut s = ShuffleState::new_pass(p.visible(), &mut rng);
+        let a = s.upcoming()[0];
+        let b = s.upcoming()[1];
+        let c = s.upcoming()[2];
+
+        s.started(a);
+        s.started(b);
+        s.started(c);
+
+        assert_eq!(s.back(), Some(b));
+        assert_eq!(s.first(p.visible(), RepeatMode::Off, &mut rng), Some(c));
     }
 }

@@ -427,23 +427,24 @@ impl MusicApp {
 
     /// Переход на соседний трек: `direction` `1` — «Далее», `-1` — «Назад».
     /// При shuffle — через `AppCore`: вперёд `shuffle_first` (первый
-    /// несыгранный трек прохода, §3.4, ТЗ-46), назад `shuffle_previous`
-    /// (последний сыгранный); оба случая переводятся в текущий прохода через
-    /// `shuffle_started` (ТЗ-45), индекс — через `index_of` по видимому
-    /// порядку.
+    /// несыгранный трек прохода, §3.4, ТЗ-46), переводится в текущий прохода
+    /// через `shuffle_started` (ТЗ-45); назад `shuffle_back` уже переводит
+    /// текущий прохода сам (§3.4, ТЗ-45), повторный `shuffle_started` не
+    /// нужен. Индекс — через `index_of` по видимому порядку.
     pub(super) fn play_next(&mut self, direction: i32) {
         if self.tracks.is_empty() {
             return;
         }
         let next = if self.shuffle {
             let id = if direction >= 0 {
-                self.core.shuffle_first()
+                let id = self.core.shuffle_first();
+                if let Some(id) = id {
+                    self.core.shuffle_started(id);
+                }
+                id
             } else {
-                self.core.shuffle_previous()
+                self.core.shuffle_back()
             };
-            if let Some(id) = id {
-                self.core.shuffle_started(id);
-            }
             id.and_then(|id| self.core.playlist().index_of(id))
         } else {
             playlist::advance_index(self.current, direction, self.tracks.len(), self.repeat)

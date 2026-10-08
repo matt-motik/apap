@@ -338,6 +338,13 @@ impl AppCore {
         self.shuffle.previous()
     }
 
+    /// «Назад» в проходе Shuffle (§3.4, ТЗ-45): переводит последний трек
+    /// `history` в текущий, прежний текущий возвращается в начало
+    /// несыгранных. `None`, если `history` пуста.
+    pub fn shuffle_back(&mut self) -> Option<TrackId> {
+        self.shuffle.back()
+    }
+
     /// Байты `playlist.m3u` в исходном порядке — снимок для писателя
     /// `apap-persist` (ТЗ-12, §6.5, §6.13).
     pub fn playlist_m3u(&self) -> Arc<[u8]> {
