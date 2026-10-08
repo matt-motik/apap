@@ -1331,6 +1331,75 @@ mod tests {
         }
     }
 
+    /// Выход шлёт движку ровно одну `EngineCmd::Shutdown` до ожидания его
+    /// ответа (`await_engine` видит команду уже отправленной), ответ даёт
+    /// `engine_ack` (§6.10, §6.28 п. 1 (01_audio_modes)).
+    #[test]
+    fn exit_sends_shutdown_to_engine() {
+        let h = Harness::new();
+        h.put_default_settings();
+        h.put_state(b"");
+        let mut core = h.boot();
+
+        let shutdown = format!("{:?}", crate::engine::messages::EngineCmd::Shutdown);
+        let mut seen_at_await = Vec::new();
+        let outcome = core.exit(
+            ExitReason::WindowClose,
+            &mut || {
+                seen_at_await = h.engine_cmds();
+                true
+            },
+            &|| Arc::from(&b""[..]),
+        );
+        assert_eq!(outcome, ExitOutcome::Completed);
+        assert_eq!(seen_at_await, vec![shutdown.clone()], "Shutdown отправлен до ожидания движка");
+        assert_eq!(h.engine_cmds(), vec![shutdown], "ровно одна команда за выход");
+
+        let report = h
+            .journal()
+            .into_iter()
+            .find_map(|r| match r {
+                JournalRecord::ExitSummary(report) => Some(report),
+                _ => None,
+            })
+            .expect("ExitSummary journaled");
+        assert!(report.engine_ack);
+    }
+
+    /// Движок не ответил `ShutdownComplete` в свой срок — `settings.toml` и
+    /// `state.toml` всё равно записаны, `engine_ack = false` (ОВС-16,
+    /// ТЗ-136, §6.28 п. 2а (01_audio_modes); `exit_does_not_wait_engine`).
+    #[test]
+    fn shutdown_writes_settings_even_on_timeout() {
+        let h = Harness::new();
+        h.put_default_settings();
+        h.put_state(b"");
+        let mut core = h.boot();
+
+        core.change_state(Origin::User, StateChange::Volume(42));
+        let mut settings = core.settings().clone();
+        settings.playback.audio_device = "hw:1,0".into();
+        core.set_settings(settings);
+
+        let outcome = core.exit(ExitReason::WindowClose, &mut || false, &|| Arc::from(&b""[..]));
+        assert_eq!(outcome, ExitOutcome::Completed);
+        assert_eq!(h.writes(WorkFile::Settings), 1, "settings.toml записан без ответа движка");
+        assert_eq!(h.writes(WorkFile::State), 1, "state.toml записан без ответа движка");
+
+        let report = h
+            .journal()
+            .into_iter()
+            .find_map(|r| match r {
+                JournalRecord::ExitSummary(report) => Some(report),
+                _ => None,
+            })
+            .expect("ExitSummary journaled");
+        assert!(!report.engine_ack);
+        assert!(report.written.contains(&WorkFile::Settings));
+        assert!(report.written.contains(&WorkFile::State));
+        assert!(report.timed_out.is_empty());
+    }
+
     /// Завершение сеанса Windows выполняет путь выхода синхронно: к моменту
     /// возврата `exit()` запись уже на диске, без дополнительного
     /// тика/`settle` (ADR-7, ТЗ-15, §7.2
