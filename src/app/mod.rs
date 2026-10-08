@@ -284,16 +284,6 @@ pub struct MusicApp {
     /// Владелец действующих настроек и состояния сессии (ADR-19, И-Т7, §8.1 С3).
     core: AppCore,
     player: audio_facade::AudioFacade,
-    /// МОСТ (временный, удаляется на шаге 26, §6.13): зеркало видимого
-    /// порядка модели плейлиста `AppCore` (`core.playlist().visible()`),
-    /// перестраивается `rebuild_playlist_mirrors` после каждой операции.
-    tracks: Vec<Track>,
-    /// МОСТ (временный, удаляется на шаге 26, §6.13): зеркало исходного
-    /// (файлового) порядка модели плейлиста `AppCore`
-    /// (`core.playlist().source_order()`), отдельное от видимого `tracks`,
-    /// чтобы сортировка на экране не переписывала файл. Перестраивается
-    /// `rebuild_playlist_mirrors` после каждой операции.
-    disk_tracks: Vec<Track>,
     /// Persistent row model for the playlist table. Mutated incrementally
     /// (push/set_row_data) instead of rebuilding the whole list on every
     /// append, so folder scans stay cheap.
@@ -490,7 +480,6 @@ impl MusicApp {
             let tracks = playlist::load_track_list(&startup_path);
             let _ = startup_tx.send(tracks);
         });
-        let tracks = Vec::new();
         let known_paths: HashSet<PathBuf> = HashSet::new();
         let (tray_rx, tray_up_tx, tray_ready) =
             (Some(tray.events), Some(tray.updates), Some(tray.ready));
@@ -546,7 +535,6 @@ impl MusicApp {
             paths,
             core,
             player,
-            tracks,
             playlist_rows,
             playlist_cols,
             current: None,
@@ -561,7 +549,6 @@ impl MusicApp {
             audio_ready,
             audio_error,
             active_device,
-            disk_tracks: Vec::new(),
             tray_rx,
             tray_ready,
             tray_up_tx,
@@ -724,7 +711,8 @@ impl MusicApp {
         if files.is_empty() {
             return;
         }
-        let effects = self.core.retry(&files, &|| playlist::serialize_m3u(&self.disk_tracks));
+        let bytes = self.core.playlist_m3u();
+        let effects = self.core.retry(&files, &move || bytes.clone());
         self.apply_reply_effects(effects);
     }
 
@@ -771,7 +759,8 @@ impl MusicApp {
                 },
             )
         };
-        let outcome = self.core.exit(reason, &mut await_engine, &|| playlist::serialize_m3u(&self.disk_tracks));
+        let bytes = self.core.playlist_m3u();
+        let outcome = self.core.exit(reason, &mut await_engine, &move || bytes.clone());
         if outcome == ExitOutcome::Ignored {
             eprintln!("[app] exit {reason:?}: уже выполняется, повтор проигнорирован");
             return outcome;
@@ -998,7 +987,7 @@ impl MusicApp {
                 }
                 if !a.player.has_decoder() {
                     let idx = a.current.unwrap_or(0);
-                    if idx < a.tracks.len() {
+                    if idx < a.track_count() {
                         a.play_track(idx);
                     }
                     return;
@@ -1335,7 +1324,7 @@ impl MusicApp {
                     let key = a.session_sort_key();
                     let visible = MusicApp::load_visible_order(&rows, key);
                     a.core.playlist_replace(rows, visible, key);
-                    a.rebuild_playlist_mirrors();
+                    a.rebuild_known_paths();
                     a.current = None;
                     a.sync_playlist_to_ui();
                     a.emit(AppEvent::QueueChanged);
@@ -2088,7 +2077,8 @@ impl MusicApp {
         // установки от действия пользователя и взводит срок записи только
         // для последнего (ОВС-5 а, ADR-22, §6.17, V5.1-B7).
         let geometry = self.window_geometry();
-        let output = self.core.tick(geometry, &|| playlist::serialize_m3u(&self.disk_tracks));
+        let bytes = self.core.playlist_m3u();
+        let output = self.core.tick(geometry, &move || bytes.clone());
         self.apply_reply_effects(output.effects);
         // `output.other` (экспорт/бэд-копии/карантин) — разбор добавится на
         // этапе писателя для этих путей; пока ответы отбрасываются.
@@ -2175,7 +2165,7 @@ impl MusicApp {
         let key = self.session_sort_key();
         let visible = MusicApp::load_visible_order(&rows, key);
         self.core.playlist_replace(rows, visible, key);
-        self.rebuild_playlist_mirrors();
+        self.rebuild_known_paths();
         self.sync_playlist_to_ui();
         // Успешная загрузка стартового плейлиста — результат виден в
         // таблице и track-count, сообщение/строка состояния не нужны
@@ -2281,13 +2271,12 @@ impl MusicApp {
         let _ = self.events_tx.send(event);
     }
 
-    /// МОСТ (временный, удаляется на шаге 26, §6.13, ТЗ-42, ТЗ-45): выполняет
-    /// операцию `op` над моделью плейлиста `AppCore` и переносит `current` и
-    /// `pending_open` через `TrackId`, чтобы они остались согласованными
-    /// после изменения видимого порядка — затем перестраивает зеркала
-    /// `tracks`/`disk_tracks`/`known_paths`. Shuffle-состояние больше не
-    /// зеркалится здесь: `AppCore` перестраивает его сам в
-    /// `apply_playlist_effect` (§3.4, ТЗ-45, ТЗ-46).
+    /// Выполняет операцию `op` над моделью плейлиста `AppCore` и переносит
+    /// `current` и `pending_open` через `TrackId`, чтобы они остались
+    /// согласованными после изменения видимого порядка — затем
+    /// перестраивает `known_paths` (§8 С6, §4.2, ТЗ-12). Shuffle-состояние
+    /// зеркалится самим `AppCore` в `apply_playlist_effect` (§3.4, ТЗ-45,
+    /// ТЗ-46).
     pub(super) fn playlist_op(&mut self, op: impl FnOnce(&mut AppCore)) {
         let visible_before = self.core.playlist().visible().to_vec();
         let current_id = self.current.and_then(|i| visible_before.get(i).copied());
@@ -2300,7 +2289,7 @@ impl MusicApp {
 
         op(&mut self.core);
 
-        self.rebuild_playlist_mirrors();
+        self.rebuild_known_paths();
 
         self.current = current_id.and_then(|id| self.core.playlist().index_of(id));
         self.pending_open = pending_open_id.and_then(|(idx_id, prev_id)| {
@@ -2309,15 +2298,11 @@ impl MusicApp {
         });
     }
 
-    /// Зеркала временного моста из модели плейлиста `AppCore` (удаляются на
-    /// шаге 26, §6.13): `tracks` — видимый порядок, `disk_tracks` — исходный
-    /// (файловый) порядок. Клонирование треков допустимо только в этом
-    /// временном мосте.
-    pub(super) fn rebuild_playlist_mirrors(&mut self) {
+    /// Перестраивает `known_paths` (пути видимого порядка плейлиста) из
+    /// модели `AppCore` после операции над плейлистом (§8 С6, §4.2, ТЗ-12).
+    pub(super) fn rebuild_known_paths(&mut self) {
         let p = self.core.playlist();
-        self.tracks = p.visible().iter().filter_map(|&id| p.get(id).cloned()).collect();
-        self.disk_tracks = p.source_order().cloned().collect();
-        self.known_paths = self.tracks.iter().map(|t| t.path.clone()).collect();
+        self.known_paths = p.visible().iter().filter_map(|&id| p.get(id)).map(|t| t.path.clone()).collect();
     }
 
     /// Ключ сортировки сессии (`state.toml`) → ключ модели плейлиста

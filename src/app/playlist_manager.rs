@@ -113,28 +113,19 @@ impl MusicApp {
         }
     }
 
-    /// Плейлист изменён пользователем: взводит срок отложенной записи
-    /// `playlist.m3u` в `AppCore`; сам снимок уходит писателю из `tick`
-    /// (ТЗ-12, §6.4). Временно без вызовов: операции через модель плейлиста
-    /// (§6.13) взводят флаг сами через `apply_playlist_effect`; функция не
-    /// удаляется по правилу Шага 4 п.2 — используется до переноса на модель
-    /// других путей записи (ТЗ-42, ТЗ-45).
-    #[allow(dead_code)]
-    pub(super) fn mark_playlist_dirty(&mut self) {
-        self.core.playlist_changed();
-    }
-
     /// Немедленная запись `playlist.m3u` снимком через писатель `apap-persist`
-    /// (ТЗ-22, §6.8). На диске — всегда `disk_tracks` (загруженный список +
-    /// добавленные), а не порядок сортировки на экране. Результат приходит
-    /// ответом писателя в `tick` и обновляет окно ошибок записи (ТЗ-20).
+    /// (ТЗ-22, §6.8). На диске — всегда исходный (файловый) порядок модели
+    /// плейлиста `AppCore` (§4.2, ТЗ-12), а не порядок сортировки на экране.
+    /// Результат приходит ответом писателя в `tick` и обновляет окно ошибок
+    /// записи (ТЗ-20).
     pub(super) fn save_playlist(&mut self) {
-        let effects = self.core.retry(&[WorkFile::Playlist], &|| playlist::serialize_m3u(&self.disk_tracks));
+        let bytes = self.core.playlist_m3u();
+        let effects = self.core.retry(&[WorkFile::Playlist], &move || bytes.clone());
         self.apply_reply_effects(effects);
     }
 
     pub(super) fn remove_track(&mut self, index: usize) {
-        if index >= self.tracks.len() {
+        if index >= self.track_count() {
             return;
         }
         if let Some(cur) = self.current {
@@ -154,7 +145,7 @@ impl MusicApp {
         // the `>` marker) instead of rebuilding the whole model.
         if self.playlist_rows.row_count() > index {
             self.playlist_rows.remove(index);
-            for i in index..self.tracks.len() {
+            for i in index..self.track_count() {
                 self.refresh_playlist_rows_at(Some(i));
             }
         }
