@@ -192,6 +192,27 @@ impl Playlist {
         PlaylistEffect::EDITED
     }
 
+    /// Щелчок по заголовку `c` (ТЗ-42, ТЗ-43, §3.3): нет ключа или другая колонка → `↑`,
+    /// `↑` → `↓`, `↓` → нет ключа; «Сейчас играет» не сортируется. `hidden` — колонка
+    /// скрыта (ТЗ-31): заголовка нет, щелчок не меняет ключ. Флаг не взводится (ТЗ-40).
+    pub fn header_click(&mut self, c: ColumnId, hidden: bool) -> PlaylistEffect {
+        let Some(column) = SortColumn::from_column(c) else {
+            return PlaylistEffect::default();
+        };
+        if hidden {
+            return PlaylistEffect::default();
+        }
+        self.sort = match self.sort {
+            Some(SortKey { column: cur, dir: SortDir::Asc }) if cur == column => {
+                Some(SortKey { column, dir: SortDir::Desc })
+            }
+            Some(SortKey { column: cur, dir: SortDir::Desc }) if cur == column => None,
+            _ => Some(SortKey { column, dir: SortDir::Asc }),
+        };
+        self.resort();
+        PlaylistEffect { dirty: false, sort_changed: true, order_changed: true }
+    }
+
     /// Треки в исходном порядке — порядок `playlist.m3u` (ТЗ-40, §3.2).
     pub fn source_order(&self) -> impl Iterator<Item = &Track> {
         self.rows.iter().map(|r| &r.track)
@@ -226,6 +247,16 @@ impl Playlist {
     /// Позиция строки в видимом порядке (строка таблицы).
     pub fn index_of(&self, id: TrackId) -> Option<usize> {
         self.visible.iter().position(|&v| v == id)
+    }
+
+    /// Видимый порядок заново из исходного: id в порядке `rows`, затем стабильная
+    /// сортировка по ключу (§3.2, §6.13, И-Р14).
+    fn resort(&mut self) {
+        let mut visible: Vec<TrackId> = self.rows.iter().map(|r| r.id).collect();
+        if let Some(key) = self.sort {
+            visible.sort_by(|&a, &b| self.cmp_ids(a, b, key));
+        }
+        self.visible = visible;
     }
 
     fn alloc_id(&mut self) -> TrackId {
