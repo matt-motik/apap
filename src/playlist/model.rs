@@ -213,6 +213,44 @@ impl Playlist {
         PlaylistEffect { dirty: false, sort_changed: true, order_changed: true }
     }
 
+    /// Ручное изменение порядка (ТЗ-44, §6.13): `moved` — в видимом порядке, `before` —
+    /// строка, перед которой вставить (`None` или перемещаемая — в конец). Новый видимый
+    /// порядок становится исходным, ключ сортировки снимается.
+    pub fn reorder(&mut self, moved: &[TrackId], before: Option<TrackId>) -> PlaylistEffect {
+        let moving: HashSet<TrackId> = moved.iter().copied().filter(|id| self.pos.contains_key(id)).collect();
+        if moving.is_empty() {
+            return PlaylistEffect::default();
+        }
+        let (block, mut vis): (Vec<TrackId>, Vec<TrackId>) =
+            self.visible.iter().copied().partition(|id| moving.contains(id));
+        let at = before.and_then(|b| vis.iter().position(|&v| v == b)).unwrap_or(vis.len());
+        vis.splice(at..at, block);
+
+        let mut by_id: HashMap<TrackId, Row> = self.rows.drain(..).map(|r| (r.id, r)).collect();
+        self.rows = vis.iter().filter_map(|id| by_id.remove(id)).collect();
+        // Строки вне видимого порядка (И-Р14 нарушен) не теряются: в конец.
+        let mut rest: Vec<Row> = by_id.into_values().collect();
+        rest.sort_by_key(|r| r.id);
+        self.rows.extend(rest);
+        self.rebuild_pos();
+        self.visible = self.rows.iter().map(|r| r.id).collect();
+
+        let sort_changed = self.sort.take().is_some();
+        PlaylistEffect { dirty: true, sort_changed, order_changed: true }
+    }
+
+    /// Обновление тегов строки: пересчёт ключей; видимый порядок не меняется до
+    /// следующей сортировки (§3.1, ТЗ-43).
+    pub fn update_tags(&mut self, id: TrackId, track: Track, keys: CompareKeys) {
+        let Some(i) = self.pos.get(&id).and_then(|&i| usize::try_from(i).ok()) else {
+            return;
+        };
+        if let Some(row) = self.rows.get_mut(i) {
+            row.track = track;
+            row.keys = keys;
+        }
+    }
+
     /// Треки в исходном порядке — порядок `playlist.m3u` (ТЗ-40, §3.2).
     pub fn source_order(&self) -> impl Iterator<Item = &Track> {
         self.rows.iter().map(|r| &r.track)
