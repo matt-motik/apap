@@ -32,8 +32,11 @@ use crate::persist::{Boot, ConfigFile, ConfigPaths, ReferenceText, SerializeErro
 use crate::platform::fs::{ReadError, WriteError};
 use crate::playlist::compare::CompareKeys;
 use crate::playlist::model::{Playlist, PlaylistEffect, SortDir, SortKey, TrackId};
+use crate::playlist::shuffle::ShuffleState;
 use crate::playlist::Track;
 use crate::settings::ColumnId;
+use rand::rngs::StdRng;
+use rand::SeedableRng;
 
 /// Эталон и запрет автозаписи одного файла (§2.2, §2.12, И-Р3, И-Р20).
 /// Упрощённый аналог `FileTrack` (§2.7) без очереди «в пути» и дедлайнов —
@@ -131,12 +134,12 @@ pub struct AppDeps {
 
 /// Ядро приложения без Slint (ADR-19, §2.12): владеет настройками и
 /// состоянием сессии, их эталонными текстами и запретом автозаписи,
-/// моделью плейлиста, `PersistTracker`, координатором выхода и трекером
-/// геометрии окна. Полный состав `AppCore` по спецификации (`UiGate`,
-/// `MessageCenter`, `LoadState` и т. д.) появляется поэтапно; на этом шаге —
-/// то, что нужно для чтения/изменения настроек, состояния и плейлиста, и
-/// отложенной записи через писателя `apap-persist` (§4.2, §6.4, §6.8, §6.10,
-/// §6.13).
+/// моделью плейлиста, проходом Shuffle, `PersistTracker`, координатором
+/// выхода и трекером геометрии окна. Полный состав `AppCore` по
+/// спецификации (`UiGate`, `MessageCenter`, `LoadState` и т. д.) появляется
+/// поэтапно; на этом шаге — то, что нужно для чтения/изменения настроек,
+/// состояния, плейлиста и прохода Shuffle, и отложенной записи через
+/// писателя `apap-persist` (§3.4, §3.5, §4.2, §6.4, §6.8, §6.10, §6.13).
 pub struct AppCore {
     settings: Settings,
     settings_file: FileState,
@@ -147,6 +150,11 @@ pub struct AppCore {
     /// Модель плейлиста — состав, исходный и видимый порядок (§4.2, §6.13,
     /// ТЗ-12, ТЗ-43).
     playlist: Playlist,
+    /// Проход Shuffle по видимому порядку плейлиста (§3.4, §3.5, §6.13,
+    /// ТЗ-45, ТЗ-46).
+    shuffle: ShuffleState,
+    /// Генератор для перемешивания прохода Shuffle (§3.4, ТЗ-45).
+    rng: StdRng,
     startup_notes: StartupNotes,
     deps: Option<AppDeps>,
     tracker: PersistTracker,
@@ -188,6 +196,8 @@ impl AppCore {
             settings_read_failed,
             state,
             playlist: Playlist::new(),
+            shuffle: ShuffleState::default(),
+            rng: StdRng::from_entropy(),
             startup_notes,
             deps: Some(deps),
             tracker,
@@ -224,9 +234,14 @@ impl AppCore {
     /// Единственный изменитель состояния сессии (И-Т7, ADR-22, §2.12). При
     /// наличии `deps` взводит дедлайн отложенной записи `state.toml` для
     /// `Origin::User` — `PersistTracker::on_state_changed` сам не взводит
-    /// его для `Origin::Program` (ТЗ-11).
+    /// его для `Origin::Program` (ТЗ-11). Включение Shuffle (переход
+    /// выключено -> включено) начинает новый проход `ShuffleState` (§3.4).
     pub fn change_state(&mut self, origin: Origin, ch: StateChange) {
+        let starts_shuffle = matches!(ch, StateChange::Shuffle(true)) && !self.state.shuffle();
         self.state.apply(ch);
+        if starts_shuffle {
+            self.shuffle = ShuffleState::new_pass(self.playlist.visible(), &mut self.rng);
+        }
         if self.deps.is_some() {
             let now = self.now();
             self.tracker.on_state_changed(origin, now);
@@ -291,9 +306,36 @@ impl AppCore {
     }
 
     /// Замена плейлиста целиком по окончании загрузки (ADR-16): без флага
-    /// «изменён» и без изменения состояния.
+    /// «изменён» и без изменения состояния. При включённом Shuffle —
+    /// новый проход по загруженному видимому порядку (§3.5 п. 2).
     pub fn playlist_replace(&mut self, rows: Vec<(Track, CompareKeys)>, visible: Vec<u32>, sort: Option<SortKey>) {
         self.playlist.replace(rows, visible, sort);
+        if self.state.shuffle() {
+            self.shuffle = ShuffleState::new_pass(self.playlist.visible(), &mut self.rng);
+        }
+    }
+
+    /// Доступ к проходу Shuffle (§3.4, §6.13).
+    pub fn shuffle_state(&self) -> &ShuffleState {
+        &self.shuffle
+    }
+
+    /// Первый несыгранный трек прохода Shuffle — «Далее» (§3.4, ТЗ-46,
+    /// Т-ТЗ-46). Несыгранных нет: при Repeat All начинается новый проход и
+    /// возвращается его первый трек, иначе — `None` (ТЗ-45).
+    pub fn shuffle_first(&mut self) -> Option<TrackId> {
+        let repeat = self.state.repeat();
+        self.shuffle.first(self.playlist.visible(), repeat, &mut self.rng)
+    }
+
+    /// Начато воспроизведение `id` в проходе Shuffle (§3.4, ТЗ-45).
+    pub fn shuffle_started(&mut self, id: TrackId) {
+        self.shuffle.started(id);
+    }
+
+    /// Последний сыгранный трек прохода Shuffle — «Назад» (§3.4, ТЗ-46).
+    pub fn shuffle_previous(&self) -> Option<TrackId> {
+        self.shuffle.previous()
     }
 
     /// Байты `playlist.m3u` в исходном порядке — снимок для писателя
@@ -310,8 +352,9 @@ impl AppCore {
     /// Применяет эффект операции плейлиста (§6.13): `dirty` взводит дедлайн
     /// отложенной записи `playlist.m3u`, `sort_changed` — переносит новый
     /// ключ сортировки в `SessionState` через мост `to_state_sort_key`.
-    /// `order_changed` (передача `Sequencer`, перестройка `ShuffleState`) —
-    /// на следующем шаге (ShuffleState).
+    /// `order_changed` при включённом Shuffle перестраивает `ShuffleState`
+    /// (§3.4, ТЗ-45); передача перестановки `Sequencer` и замыкание серии
+    /// пропусков — на этапе 01_audio_modes С8.
     fn apply_playlist_effect(&mut self, e: PlaylistEffect) {
         if e.dirty {
             self.playlist_changed();
@@ -319,6 +362,9 @@ impl AppCore {
         if e.sort_changed {
             let bridge = to_state_sort_key(self.playlist.sort_key());
             self.change_state(Origin::User, StateChange::Sort(bridge));
+        }
+        if e.order_changed && self.state.shuffle() {
+            self.shuffle.rebuild(self.playlist.visible(), &mut self.rng);
         }
     }
 

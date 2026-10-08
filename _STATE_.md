@@ -45,7 +45,7 @@
 [x] Шаг 15: Тесты ShuffleState: shuffle_changes_keep_pass и next_without_current_* (Т-ТЗ-46, §7). Файл: src/playlist/shuffle.rs. Проверка: cargo test playlist::shuffle
 [x] Шаг 16: ЧЕКПОИНТ: cargo test + cargo clippy (фильтр по src/playlist/). Проверка: зелёные
 [x] Шаг 17: AppCore владеет Playlist: поле + методы playlist()/playlist_add/remove/clear/header_click/reorder/update_tags/replace, применение PlaylistEffect (dirty → tracker.on_playlist_changed; sort_changed → change_state(User, Sort)); playlist_m3u() по source order (§4.2, §6.13, ТЗ-12 источники флага, ТЗ-43). Мост: StateChange::Sort пока в старом SortKey (конверсия SortColumn::column()). Файл: src/core/mod.rs. Проверка: cargo check
-[ ] Шаг 18: AppCore владеет ShuffleState: rebuild при order_changed и Shuffle вкл., new_pass при включении Shuffle, shuffle_first/started (§3.4, §6.13, ТЗ-46). Файл: src/core/mod.rs. Проверка: cargo check
+[x] Шаг 18: AppCore владеет ShuffleState: rebuild при order_changed и Shuffle вкл., new_pass при включении Shuffle, shuffle_first/started (§3.4, §6.13, ТЗ-46). Файл: src/core/mod.rs. Проверка: cargo check
 [ ] Шаг 19: Harness-тесты sort_change_does_not_write_playlist, sort_key_restored_after_restart (§7, ТЗ-12, ТЗ-43). Файл: src/core/testing.rs. Проверка: cargo test core::
 [ ] Шаг 20: ЧЕКПОИНТ: cargo test + cargo clippy. Проверка: зелёные
 [ ] Шаг 21: Мост в приложении: операции плейлиста MusicApp (скан, удаление, очистка, загрузка M3U, стартовая загрузка, сортировка по заголовку) идут через AppCore; tracks/disk_tracks — временное зеркало из core.playlist(); current (видимый индекс) переотображается по TrackId после каждой операции (§6.13, ТЗ-42, ТЗ-45). Файлы: src/app/playlist_manager.rs, src/app/mod.rs. Проверка: cargo check
@@ -60,8 +60,8 @@
 [ ] Шаг 30: Очистка: удалить advance_shuffle, sort_rows_compare и тест advance_shuffle_navigates_order; тесты advance_index → repeat_all_wraps_visible_order, next_without_current_plays_first_visible; удалить тест sort_rows_compare_orders_by_column (§7.5, §8 С6). Файлы: src/playlist/mod.rs, src/app/mod.rs. Проверка: cargo test
 [ ] Шаг 31: ФИНАЛ: cargo build + cargo test + cargo clippy зелёные; ручная проверка: сортировка/снятие ключа не пишет playlist.m3u, Shuffle; закрытие этапа (Шаг 5). Проверка: всё зелёное
 
-- **Текущий шаг (current_step):** Шаг 18
-- **Следующий ход:** Шаг 18: AppCore владеет ShuffleState (src/core/mod.rs)
+- **Текущий шаг (current_step):** Шаг 19
+- **Следующий ход:** Шаг 19: harness-тесты sort_change_does_not_write_playlist, sort_key_restored_after_restart (src/core/testing.rs)
 - **Счетчик безуспешных компиляций:** 0/3
 - **Состояние:** in_progress
 
