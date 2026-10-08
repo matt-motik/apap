@@ -25,7 +25,8 @@ impl MusicApp {
     fn is_wayland_window(&self) -> bool {
         use raw_window_handle::HasWindowHandle;
 
-        let slint_handle = self.ui().window().window_handle();
+        let Some(ui) = self.try_ui() else { return false };
+        let slint_handle = ui.window().window_handle();
         let Ok(handle) = slint_handle.window_handle() else {
             return false;
         };
@@ -45,6 +46,7 @@ impl MusicApp {
     /// предпочтительной, и на Wayland, где окно создаётся уже в цикле
     /// событий, без этого ширина схлопывалась до минимума содержимого.
     pub(crate) fn apply_window_geometry(&self) {
+        let Some(ui) = self.try_ui() else { return };
         let win = self.core.state().window();
         if let Some(size) = win.size {
             if (200..=8000).contains(&size.width) && (200..=8000).contains(&size.height) {
@@ -55,8 +57,8 @@ impl MusicApp {
                         if let (Ok(w), Ok(h)) =
                             (u16::try_from(size.width), u16::try_from(size.height))
                         {
-                            self.ui().set_initial_width(f32::from(w));
-                            self.ui().window().set_size(slint::WindowSize::Logical(
+                            ui.set_initial_width(f32::from(w));
+                            ui.window().set_size(slint::WindowSize::Logical(
                                 slint::LogicalSize::new(f32::from(w), f32::from(h)),
                             ));
                         }
@@ -65,9 +67,9 @@ impl MusicApp {
                         // До показа Slint и так трактует размер как логический
                         // под масштабом 1.0 — та же ширина идёт в `initial-width`.
                         if let Ok(w) = u16::try_from(size.width) {
-                            self.ui().set_initial_width(f32::from(w));
+                            ui.set_initial_width(f32::from(w));
                         }
-                        self.ui().window().set_size(slint::WindowSize::Physical(
+                        ui.window().set_size(slint::WindowSize::Physical(
                             slint::PhysicalSize::new(size.width, size.height),
                         ));
                     }
@@ -79,8 +81,8 @@ impl MusicApp {
             // `preferred-width/height`, so it can be resized freely and fast;
             // without this the first-run window would collapse to its content
             // minimum.
-            self.ui().set_initial_width(1200.0);
-            self.ui()
+            ui.set_initial_width(1200.0);
+            ui
                 .window()
                 .set_size(slint::WindowSize::Logical(slint::LogicalSize::new(1200.0, 760.0)));
         }
@@ -90,7 +92,7 @@ impl MusicApp {
         // геометрии.
         if let Some(pos) = win.position {
             if !self.is_wayland_window() {
-                self.ui().window().set_position(slint::WindowPosition::Physical(
+                ui.window().set_position(slint::WindowPosition::Physical(
                     slint::PhysicalPosition::new(pos.x, pos.y),
                 ));
             }
@@ -98,10 +100,10 @@ impl MusicApp {
         // Восстанавливаем состояние окна поверх обычной геометрии: сначала
         // нормальный размер/позиция, затем максимизация и fullscreen.
         if win.maximized {
-            self.ui().window().set_maximized(true);
+            ui.window().set_maximized(true);
         }
         if win.fullscreen {
-            self.ui().window().set_fullscreen(true);
+            ui.window().set_fullscreen(true);
         }
     }
 
@@ -115,7 +117,7 @@ impl MusicApp {
     /// `configure` композитора ещё не известен) — иначе в физических
     /// (ADR-22, SP1.0-B4, §6.17).
     pub(super) fn window_geometry(&self) -> Option<WindowGeometry> {
-        let ui = self.ui();
+        let ui = self.try_ui()?;
         let w = ui.window();
         if !w.is_visible() {
             return None;
@@ -176,7 +178,7 @@ impl MusicApp {
     /// when those really should change.
     pub(super) fn sync_settings_to_ui(&self) {
         let s = self.cfg();
-        let ui = self.ui();
+        let Some(ui) = self.try_ui() else { return };
         ui.set_theme_palette(if s.theme.as_str() == "dark" { 0 } else { 1 });
         ui
             .set_settings_minimize(s.minimize_to_tray);
@@ -212,7 +214,7 @@ impl MusicApp {
     pub(super) fn sync_cache_stats_to_ui(&self) {
         let (ram, viz_disk) = self.cache_sizes();
         let cover_disk = music_player_rs::cover::cover_cache_size();
-        let ui = self.ui();
+        let Some(ui) = self.try_ui() else { return };
         ui
             .set_settings_cache_ram_size(music_player_rs::audio::fulltrack::fmt_cache_bytes(ram).into());
         ui
@@ -225,7 +227,7 @@ impl MusicApp {
     /// 1=Native, 2=DoP) и признак конфликта «DSD→PCM + bit-perfect» (§8.4).
     pub(super) fn sync_dsd_settings_to_ui(&self) {
         let s = self.cfg();
-        let ui = self.ui();
+        let Some(ui) = self.try_ui() else { return };
         ui.set_settings_dsd_mode(s.playback.dsd.mode.index());
         ui.set_settings_dsd_bp_warn(s.playback.dsd_pcm_breaks_bit_perfect());
         ui.set_settings_bit_perfect(s.playback.audio.bit_perfect);
@@ -237,7 +239,9 @@ impl MusicApp {
     pub(super) fn sync_dsd_status_ui(&self) {
         let warn = self.current_track_is_dsd()
             && self.cfg().playback.dsd_pcm_breaks_bit_perfect();
-        self.ui().set_status_dsd_not_bp(warn);
+        if let Some(ui) = self.try_ui() {
+            ui.set_status_dsd_not_bp(warn);
+        }
     }
 
     /// True, если текущий трек — DSD (DSF/DFF по расширению в `Track.format`).
@@ -259,8 +263,9 @@ impl MusicApp {
     /// (`cover_size`, `col_info_w`, `col_gap`): those are Edit-Commit and must
     /// change only on Save.
     pub(super) fn sync_dialog_cols(&self) {
-        self.ui()
-            .set_settings_cols(ModelRc::from(self.dialog_cols_model().as_slice()));
+        if let Some(ui) = self.try_ui() {
+            ui.set_settings_cols(ModelRc::from(self.dialog_cols_model().as_slice()));
+        }
     }
 
     pub(super) fn sync_cover_settings_to_ui(&self) {
@@ -277,7 +282,7 @@ impl MusicApp {
                 }
             })
             .collect();
-        let ui = self.ui();
+        let Some(ui) = self.try_ui() else { return };
         ui.set_settings_covers(ModelRc::from(covers.as_slice()));
         let names = s.covers.cover_folder_names_list().join(", ");
         ui.set_settings_cover_names(names.into());
@@ -292,16 +297,18 @@ impl MusicApp {
     /// opening the dialog never blocks the UI thread.
     pub(super) fn sync_audio_devices(&mut self) {
         let active = self.active_device.clone();
-        let ui = self.ui();
-        ui.set_settings_active_device(active.into());
-        let err = self.audio_error.clone().unwrap_or_default();
-        ui.set_settings_active_error(err.into());
-        // Отразить фильтры из текущего draft-снапшота (ТЗ A3.0 §8.1): тумблеры
-        // в диалоге — live-превью, показывают то, что применено к списку.
-        ui
-            .set_settings_audio_filter_hardware(self.cfg().playback.audio.filter_hardware_only);
-        ui
-            .set_settings_audio_filter_stereo(self.cfg().playback.audio.filter_stereo_only);
+        let ui = self.try_ui();
+        if let Some(ui) = &ui {
+            ui.set_settings_active_device(active.into());
+            let err = self.audio_error.clone().unwrap_or_default();
+            ui.set_settings_active_error(err.into());
+            // Отразить фильтры из текущего draft-снапшота (ТЗ A3.0 §8.1): тумблеры
+            // в диалоге — live-превью, показывают то, что применено к списку.
+            ui
+                .set_settings_audio_filter_hardware(self.cfg().playback.audio.filter_hardware_only);
+            ui
+                .set_settings_audio_filter_stereo(self.cfg().playback.audio.filter_stereo_only);
+        }
 
         if self.audio_devices_rx.is_some() {
             return;
@@ -318,10 +325,12 @@ impl MusicApp {
         // Show a placeholder on the very first enumeration; on reopen keep the
         // previous list visible until the fresh one lands (no "first item"
         // flash while the active device index is unknown).
-        if ui.get_settings_devices().row_count() == 0 {
-            ui
-                .set_settings_devices(ModelRc::from([SharedString::from("(loading\u{2026})")].as_slice()));
-            ui.set_settings_device_idx(-1);
+        if let Some(ui) = &ui {
+            if ui.get_settings_devices().row_count() == 0 {
+                ui
+                    .set_settings_devices(ModelRc::from([SharedString::from("(loading\u{2026})")].as_slice()));
+                ui.set_settings_device_idx(-1);
+            }
         }
     }
 
@@ -372,15 +381,16 @@ impl MusicApp {
         // показываем плейсхолдер и обнуляем превью, чтобы диалог не держал
         // устаревшие данные скрытого устройства (ТЗ A3.0 §8.1).
         if filtered.is_empty() {
-            let ui = self.ui();
-            ui.set_settings_devices(
-                ModelRc::from(
-                    [SharedString::from("(нет устройств, удовлетворяющих фильтру)")].as_slice(),
-                ),
-            );
-            ui.set_settings_device_idx(-1);
-            ui.set_settings_audio_caps(ModelRc::from(&[][..]));
-            ui.set_settings_audio_validation(ModelRc::from(&[][..]));
+            if let Some(ui) = self.try_ui() {
+                ui.set_settings_devices(
+                    ModelRc::from(
+                        [SharedString::from("(нет устройств, удовлетворяющих фильтру)")].as_slice(),
+                    ),
+                );
+                ui.set_settings_device_idx(-1);
+                ui.set_settings_audio_caps(ModelRc::from(&[][..]));
+                ui.set_settings_audio_validation(ModelRc::from(&[][..]));
+            }
             return;
         }
 
@@ -437,9 +447,10 @@ impl MusicApp {
         // `current-index: root.audio-device-idx` binding. Setting the index
         // *before* the model makes `reset-current` clamp the already-correct
         // value, so the combo ends up highlighting the active device.
-        let ui = self.ui();
-        ui.set_settings_device_idx(sel);
-        ui.set_settings_devices(ModelRc::from(model.as_slice()));
+        if let Some(ui) = self.try_ui() {
+            ui.set_settings_device_idx(sel);
+            ui.set_settings_devices(ModelRc::from(model.as_slice()));
+        }
         self.sync_capabilities_and_validation();
     }
 
@@ -474,7 +485,7 @@ impl MusicApp {
             eprintln!("[theme] apply_theme: невалидные HEX-цвета, применение пропущено");
             return;
         }
-        let ui = self.ui();
+        let Some(ui) = self.try_ui() else { return };
         let c = ui.global::<Colors>();
         ui.global::<FluentPalette>().set_color_scheme(match theme.standard_palette {
             StandardPalette::Dark => slint::private_unstable_api::re_exports::ColorScheme::Dark,
@@ -574,9 +585,11 @@ impl MusicApp {
 
         self.playlist_rows.set_vec(rows);
         self.playlist_cols.set_vec(cols);
-        self.ui().set_current_row(
-            self.current.map(|i| i as i32).unwrap_or(-1),
-        );
+        if let Some(ui) = self.try_ui() {
+            ui.set_current_row(
+                self.current.map(|i| i as i32).unwrap_or(-1),
+            );
+        }
         self.col_model_sig = self.compute_col_sig();
     }
 
@@ -595,7 +608,7 @@ impl MusicApp {
     /// Resolve the visible `TableColumn`s with current pixel widths, reading
     /// ratios/sort from `AppCore` session state (§8.1 С3).
     fn build_table_columns(&self) -> Vec<TableColumn> {
-        let view_w = self.ui().get_playlist_view_width().max(100.0);
+        let view_w = self.try_ui().map(|ui| ui.get_playlist_view_width()).unwrap_or(100.0).max(100.0);
 
         let ids = self.visible_col_ids();
         let cols_cfg = &self.core.settings().columns;
@@ -656,7 +669,8 @@ impl MusicApp {
     }
 
     pub(super) fn compute_col_sig(&self) -> u64 {
-        let cols = self.ui().get_playlist_cols();
+        let Some(ui) = self.try_ui() else { return 0 };
+        let cols = ui.get_playlist_cols();
         let mut sig: u64 = 0;
         let len = cols.row_count();
         for i in 0..len {
@@ -673,7 +687,7 @@ impl MusicApp {
     /// взводит только `Origin::User`; программный пересчёт и неизменённые
     /// ширины срок не запускают (ОВС-5 а, §6.17).
     pub(super) fn save_column_widths_from_ui(&mut self, origin: Origin) {
-        let ui = self.ui();
+        let Some(ui) = self.try_ui() else { return };
         let cols = ui.get_playlist_cols();
         let len = cols.row_count();
         if len == 0 {
@@ -765,14 +779,15 @@ impl MusicApp {
     /// is built for exactly one device: the draft/active one (§8.1 С3).
     pub(super) fn sync_capabilities_and_validation(&mut self) {
         let Some(device) = self.current_audio_device_info() else {
-            let ui = self.ui();
-            ui.set_settings_audio_caps(ModelRc::from(&[][..]));
-            ui.set_settings_audio_validation(ModelRc::from(&[][..]));
+            if let Some(ui) = self.try_ui() {
+                ui.set_settings_audio_caps(ModelRc::from(&[][..]));
+                ui.set_settings_audio_validation(ModelRc::from(&[][..]));
+            }
             return;
         };
 
         let caps = build_capabilities(device);
-        let ui = self.ui();
+        let Some(ui) = self.try_ui() else { return };
         ui.set_settings_audio_caps(ModelRc::from(caps.as_slice()));
 
         let rows = music_player_rs::audio::output::validate_audio_settings(
@@ -801,14 +816,16 @@ impl MusicApp {
             DsdMode::DoP => "DoP → PCM",
             DsdMode::Pcm => "PCM only",
         };
-        self.ui().set_settings_audio_dsd_chain_desc(chain.into());
+        if let Some(ui) = self.try_ui() {
+            ui.set_settings_audio_dsd_chain_desc(chain.into());
+        }
     }
 
     /// Синхронизация Advanced-панели из текущих настроек (draft): индексы
     /// ComboBox, фиксированная частота, глубина ring-буфера (§8.1 С3).
     pub(super) fn sync_audio_advanced(&self) {
         let s = self.cfg();
-        let ui = self.ui();
+        let Some(ui) = self.try_ui() else { return };
         ui.set_settings_audio_exclusive_idx(s.playback.audio.exclusive.index());
         ui.set_settings_audio_fallback_idx(s.playback.audio.fallback.index());
         ui
