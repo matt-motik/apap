@@ -303,8 +303,14 @@ mod tests {
     use crate::platform::notify::{FakeNotifier, Notification, Notifier};
     use crate::persist::keys::{KeyPath, LoadNoteKind};
     use crate::persist::settings_file::{SaveInterval, Settings, ThemeName};
-    use crate::persist::state_file::{Origin, PhysPos, PhysSize, SessionState, SizeUnits, StateChange, WindowGeometry};
-    use crate::settings::{RepeatMode, ResamplerAlgorithm};
+    use crate::persist::state_file::{
+        Origin, PhysPos, PhysSize, SessionState, SizeUnits, SortDirection, SortKey as StateSortKey, StateChange,
+        WindowGeometry,
+    };
+    use crate::playlist::compare::{compare_keys, CompareKeys};
+    use crate::playlist::model::{SortColumn, SortDir, SortKey};
+    use crate::playlist::Track;
+    use crate::settings::{ColumnId, RepeatMode, ResamplerAlgorithm};
     use std::rc::Rc;
     use std::sync::mpsc;
 
@@ -1743,5 +1749,120 @@ mod tests {
         h.settle(&mut core);
         assert_eq!(h.writes(WorkFile::State), 1);
         assert_eq!(core.state().playback().volume, after);
+    }
+
+    /// Трек для тестов сортировки (§7, ТЗ-12, ТЗ-40, ТЗ-43): путь и
+    /// исполнитель — единственные поля, которые задействует сравнение по
+    /// колонке «Исполнитель» (`CompareKeys::from_track`).
+    fn track_with_artist(path: &str, artist: &str) -> (Track, CompareKeys) {
+        let t = Track { path: PathBuf::from(path), artist: Some(artist.into()), ..Track::default() };
+        let keys = CompareKeys::from_track(&t);
+        (t, keys)
+    }
+
+    /// Обратный мост (тестовый, ОТКЛОНЕНИЕ §7, ТЗ-40, ТЗ-43):
+    /// `state_file::SortKey` → `playlist::model::SortKey`. Прямое
+    /// направление — `to_state_sort_key` в `core/mod.rs`; обратное нужно
+    /// только эмуляции стартовой загрузки до С8 (02) в тесте перезапуска.
+    fn from_state_sort_key(key: Option<StateSortKey>) -> Option<SortKey> {
+        key.and_then(|k| {
+            SortColumn::from_column(k.column).map(|column| SortKey {
+                column,
+                dir: match k.direction {
+                    SortDirection::Asc => SortDir::Asc,
+                    SortDirection::Desc => SortDir::Desc,
+                },
+            })
+        })
+    }
+
+    /// Видимый порядок, который построил бы загрузчик (ОТКЛОНЕНИЕ §7,
+    /// ТЗ-40, ТЗ-43): индексы `rows` в исходном порядке, затем стабильная
+    /// сортировка по `key` — та же логика, что `Playlist::resort` (§3.2,
+    /// §6.13, И-Р14), но без сборки `Playlist`.
+    fn loader_visible_order(rows: &[(Track, CompareKeys)], key: Option<SortKey>) -> Vec<u32> {
+        let mut visible: Vec<u32> = (0..rows.len() as u32).collect();
+        if let Some(key) = key {
+            visible.sort_by(|&a, &b| compare_keys(&rows[a as usize].1, &rows[b as usize].1, key));
+        }
+        visible
+    }
+
+    /// Клик по заголовку сортировки взводит срок записи `state.toml`
+    /// (`StateChange::Sort`, ТЗ-40), но не трогает флаг «грязного» плейлиста
+    /// (ТЗ-12, §7): по отсчёту пишется только `state.toml`.
+    #[test]
+    fn sort_change_does_not_write_playlist() {
+        let h = Harness::new();
+        h.put_settings(b"");
+        h.put_state(b"");
+        let mut core = h.boot();
+
+        let rows = vec![track_with_artist("/music/b.flac", "Bob"), track_with_artist("/music/a.flac", "Alice")];
+        core.playlist_replace(rows, vec![0, 1], None);
+        assert!(!core.tracker().playlist_dirty());
+
+        core.playlist_header_click(ColumnId::Artist);
+        assert!(!core.tracker().playlist_dirty());
+        let expected_state = crate::persist::state_file::serialize_state(core.state()).expect("serialize state");
+
+        let interval = core.settings().save_interval.duration();
+        h.advance(&mut core, interval);
+        h.settle(&mut core);
+
+        assert_eq!(h.writes(WorkFile::Playlist), 0);
+        assert_eq!(h.writes(WorkFile::State), 1);
+        assert_eq!(h.disk_bytes(WorkFile::State).as_deref(), Some(expected_state.as_ref()));
+    }
+
+    /// Ключ сортировки переживает перезапуск (ТЗ-40, ТЗ-43, §7).
+    ///
+    /// ОТКЛОНЕНИЕ: стартовая загрузка в `AppCore` — С8 (02). До этого шага
+    /// `AppCore` не читает `playlist.m3u` сам при старте, поэтому тест
+    /// эмулирует загрузчика вручную: переносит `state.toml`, прочитанный
+    /// после перезапуска, в ключ сортировки модели плейлиста
+    /// (`from_state_sort_key`) и пересчитывает видимый порядок так же, как
+    /// это сделал бы загрузчик (`loader_visible_order`).
+    #[test]
+    fn sort_key_restored_after_restart() {
+        let h = Harness::new();
+        h.put_settings(b"");
+        h.put_state(b"");
+        let mut core = h.boot();
+
+        let rows = vec![
+            track_with_artist("/music/b.flac", "Bob"),
+            track_with_artist("/music/a.flac", "Alice"),
+            track_with_artist("/music/c.flac", "Carol"),
+        ];
+        core.playlist_replace(rows.clone(), vec![0, 1, 2], None);
+
+        core.playlist_header_click(ColumnId::Artist); // Asc
+        core.playlist_header_click(ColumnId::Artist); // Desc — нетривиальный ключ
+        let sort_before = core.playlist().sort_key().expect("ключ сортировки взведён");
+        let order_before: Vec<PathBuf> = {
+            let pl = core.playlist();
+            pl.visible().iter().filter_map(|&id| pl.get(id)).map(|t| t.path.clone()).collect()
+        };
+
+        let outcome = core.exit(ExitReason::WindowClose, &mut || true, &|| Arc::from(&b""[..]));
+        assert_eq!(outcome, ExitOutcome::Completed);
+        let state_bytes = h.disk_bytes(WorkFile::State).expect("state.toml записан на выходе");
+
+        let h2 = Harness::new();
+        h2.put_state(&state_bytes);
+        let mut core2 = h2.boot();
+
+        let sort_after = from_state_sort_key(core2.state().sort());
+        assert_eq!(sort_after, Some(sort_before));
+        let visible2 = loader_visible_order(&rows, sort_after);
+        core2.playlist_replace(rows, visible2, sort_after);
+
+        let order_after: Vec<PathBuf> = {
+            let pl = core2.playlist();
+            pl.visible().iter().filter_map(|&id| pl.get(id)).map(|t| t.path.clone()).collect()
+        };
+        assert_eq!(order_after, order_before);
+        assert_eq!(core2.playlist().sort_key(), Some(sort_before));
     }
 }
