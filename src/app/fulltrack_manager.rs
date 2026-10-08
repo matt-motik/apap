@@ -404,7 +404,7 @@ impl MusicApp {
 
         let current = self
             .current
-            .and_then(|i| self.tracks.get(i).map(|t| t.path.clone()));
+            .and_then(|i| self.track_at(i).map(|t| t.path.clone()));
 
         let skip_dsd = cfg.skip_fulltrack_for_dsd
             && current.as_deref().map(is_dsd).unwrap_or(false);

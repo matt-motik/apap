@@ -249,7 +249,7 @@ impl MusicApp {
         let Some(i) = self.current else {
             return false;
         };
-        match self.tracks.get(i) {
+        match self.track_at(i) {
             Some(t) => {
                 let fmt = t.format.to_ascii_lowercase();
                 fmt == "dsf" || fmt == "dff"
@@ -576,11 +576,8 @@ impl MusicApp {
     /// clear and when the visible column set changes).
     pub(super) fn sync_playlist_to_ui(&mut self) {
         let cols = self.build_table_columns();
-        let rows: Vec<ModelRc<StandardListViewItem>> = self
-            .tracks
-            .iter()
-            .enumerate()
-            .map(|(i, t)| self.build_row(i, t))
+        let rows: Vec<ModelRc<StandardListViewItem>> = (0..self.track_count())
+            .filter_map(|i| self.track_at(i).map(|t| self.build_row(i, t)))
             .collect();
 
         self.playlist_rows.set_vec(rows);
@@ -598,8 +595,9 @@ impl MusicApp {
     pub(super) fn refresh_playlist_rows_at(&mut self, index: Option<usize>) {
         if let Some(i) = index {
             if self.playlist_rows.row_count() > i {
-                if let Some(t) = self.tracks.get(i) {
-                    self.playlist_rows.set_row_data(i, self.build_row(i, t));
+                if let Some(t) = self.track_at(i) {
+                    let row = self.build_row(i, t);
+                    self.playlist_rows.set_row_data(i, row);
                 }
             }
         }

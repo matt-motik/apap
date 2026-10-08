@@ -21,7 +21,7 @@ pub fn bp_inputs(app: &super::MusicApp) -> BpInputs<'_> {
     BpInputs {
         bit_perfect: app.player.bit_perfect(),
         stream: app.player.stream_desc(),
-        track: app.current.and_then(|i| app.tracks.get(i)),
+        track: app.current.and_then(|i| app.track_at(i)),
         track_is_dsd: app.current_track_is_dsd(),
         volume: app.player.volume(),
         muted: app.player.muted(),
