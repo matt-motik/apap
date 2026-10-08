@@ -2,7 +2,7 @@
 //! scanning, persistence of the M3U playlist and column sorting.
 
 use super::*;
-use music_player_rs::persist::state_file::{Origin, SortDirection, SortKey, StateChange};
+use music_player_rs::playlist::compare::CompareKeys;
 
 impl MusicApp {
     /// Start a background scan/import of files and/or folders ("Add Files",
@@ -53,9 +53,19 @@ impl MusicApp {
                         let n = self.scan_pending.len();
                         if n > 0 {
                             let added: Vec<Track> = std::mem::take(&mut self.scan_pending);
-                            self.disk_tracks.extend(added.iter().cloned());
-                            self.tracks.extend(added);
-                            self.mark_playlist_dirty();
+                            // МОСТ (§6.13, ТЗ-42, ТЗ-45): добавление через
+                            // модель плейлиста; флаг «изменён» взводит сам
+                            // эффект `playlist_add`.
+                            let rows: Vec<(Track, CompareKeys)> = added
+                                .into_iter()
+                                .map(|t| {
+                                    let keys = CompareKeys::from_track(&t);
+                                    (t, keys)
+                                })
+                                .collect();
+                            self.playlist_op(|core| {
+                                core.playlist_add(rows);
+                            });
                             self.rebuild_shuffle();
                             // Успешное добавление — результат виден в таблице
                             // плейлиста, сообщение не требуется (ТЗ-52, ОВ-7).
@@ -83,9 +93,18 @@ impl MusicApp {
             // Flush leftovers if the stream ended without a final Done message.
             if !self.scan_pending.is_empty() {
                 let added: Vec<Track> = std::mem::take(&mut self.scan_pending);
-                self.disk_tracks.extend(added.iter().cloned());
-                self.tracks.extend(added);
-                self.mark_playlist_dirty();
+                // МОСТ (§6.13, ТЗ-42, ТЗ-45): добавление через модель
+                // плейлиста; флаг «изменён» взводит сам эффект `playlist_add`.
+                let rows: Vec<(Track, CompareKeys)> = added
+                    .into_iter()
+                    .map(|t| {
+                        let keys = CompareKeys::from_track(&t);
+                        (t, keys)
+                    })
+                    .collect();
+                self.playlist_op(|core| {
+                    core.playlist_add(rows);
+                });
                 self.rebuild_shuffle();
                 // Успешное добавление — результат виден в таблице плейлиста,
                 // сообщение не требуется (ТЗ-52, ОВ-7).
@@ -98,7 +117,11 @@ impl MusicApp {
 
     /// Плейлист изменён пользователем: взводит срок отложенной записи
     /// `playlist.m3u` в `AppCore`; сам снимок уходит писателю из `tick`
-    /// (ТЗ-12, §6.4).
+    /// (ТЗ-12, §6.4). Временно без вызовов: операции через модель плейлиста
+    /// (§6.13) взводят флаг сами через `apply_playlist_effect`; функция не
+    /// удаляется по правилу Шага 4 п.2 — используется до переноса на модель
+    /// других путей записи (ТЗ-42, ТЗ-45).
+    #[allow(dead_code)]
     pub(super) fn mark_playlist_dirty(&mut self) {
         self.core.playlist_changed();
     }
@@ -125,11 +148,10 @@ impl MusicApp {
                 self.current = Some(cur - 1);
             }
         }
-        let t = &self.tracks[index];
-        let path = t.path.clone();
-        self.known_paths.remove(&path);
-        self.tracks.remove(index);
-        self.disk_tracks.retain(|d| d.path != path);
+        // МОСТ (§6.13, ТЗ-42, ТЗ-45): удаление через модель плейлиста по
+        // `TrackId`; флаг «изменён» взводит сам эффект `playlist_remove`.
+        let id = self.core.playlist().visible()[index];
+        self.playlist_op(|core| core.playlist_remove(&[id]));
         self.rebuild_shuffle();
         // Incremental: drop the row, then refresh the shifted tail (indices and
         // the `>` marker) instead of rebuilding the whole model.
@@ -139,7 +161,6 @@ impl MusicApp {
                 self.refresh_playlist_rows_at(Some(i));
             }
         }
-        self.mark_playlist_dirty();
         // Успешное удаление — строка уже исчезла из таблицы плейлиста,
         // сообщение не требуется (ТЗ-52, ОВ-7).
         self.emit(AppEvent::QueueChanged);
@@ -149,11 +170,10 @@ impl MusicApp {
         self.player.stop();
         self.current = None;
         self.reset_cover();
-        self.tracks.clear();
-        self.disk_tracks.clear();
-        self.known_paths.clear();
+        // МОСТ (§6.13, ТЗ-42, ТЗ-45): очистка через модель плейлиста; флаг
+        // «изменён» взводит сам эффект `playlist_clear`.
+        self.playlist_op(|core| core.playlist_clear());
         self.rebuild_shuffle();
-        self.mark_playlist_dirty();
         self.sync_playlist_to_ui();
         // Успешная очистка — таблица плейлиста уже пуста, сообщение не
         // требуется (ТЗ-52, ОВ-7).
@@ -161,39 +181,11 @@ impl MusicApp {
     }
 
     pub(super) fn sort_tracks(&mut self, col: ColumnId) {
-        let desc = match self.core.state().sort() {
-            Some(k) if k.column == col => k.direction == SortDirection::Asc,
-            _ => false,
-        };
-        self.apply_sort(col, desc);
-        // Sort prefs persisted at exit (save-at-exit).
+        // МОСТ (§6.13, ТЗ-42, ТЗ-45): щелчок по заголовку через модель
+        // плейлиста — цикл Asc → Desc → «нет ключа» и ключ сессии ведёт
+        // сама модель (`playlist_header_click`/`apply_playlist_effect`).
+        self.playlist_op(|core| core.playlist_header_click(col));
         self.sync_playlist_to_ui();
         self.emit(AppEvent::QueueChanged);
-    }
-
-    pub(super) fn apply_sort(&mut self, col: ColumnId, desc: bool) {
-        if col == ColumnId::NowPlaying {
-            return;
-        }
-        let n = self.tracks.len();
-        let mut idx: Vec<usize> = (0..n).collect();
-        idx.sort_by(|&a, &b| {
-            let ord = playlist::sort_rows_compare(&self.tracks[a], &self.tracks[b], col);
-            if desc { ord.reverse() } else { ord }
-        });
-        let new_tracks: Vec<Track> = idx.iter().map(|&i| self.tracks[i].clone()).collect();
-        let mut new_pos = vec![0usize; n];
-        for (new_i, &old_i) in idx.iter().enumerate() {
-            new_pos[old_i] = new_i;
-        }
-        if let Some(cur) = self.current {
-            self.current = Some(new_pos[cur]);
-        }
-        self.shuffle_order = self.shuffle_order.iter().map(|&i| new_pos[i]).collect();
-        self.tracks = new_tracks;
-        // Ключ сортировки — состояние сессии (ТЗ-43, И-Т7, §8.1 С3).
-        let direction = if desc { SortDirection::Desc } else { SortDirection::Asc };
-        self.core
-            .change_state(Origin::User, StateChange::Sort(Some(SortKey { column: col, direction })));
     }
 }

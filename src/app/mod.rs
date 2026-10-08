@@ -38,6 +38,8 @@ use music_player_rs::persist::{ConfigPaths, WorkFile};
 use music_player_rs::platform::lifecycle::PlatformCaps;
 use music_player_rs::platform::notify::Notifier;
 use music_player_rs::playlist::{self, ScanMsg, Track};
+use music_player_rs::playlist::compare::{compare_keys, CompareKeys};
+use music_player_rs::playlist::model::{SortColumn, SortDir, SortKey};
 use music_player_rs::settings::{
     clamp_ring_buffer_ms, ClockFamily, ColumnId, DsdMode, ExclusiveMode, FallbackPolicy,
     FallbackRatePolicy, RepeatMode, ResamplerMode,
@@ -282,10 +284,15 @@ pub struct MusicApp {
     /// Владелец действующих настроек и состояния сессии (ADR-19, И-Т7, §8.1 С3).
     core: AppCore,
     player: audio_facade::AudioFacade,
+    /// МОСТ (временный, удаляется на шаге 26, §6.13): зеркало видимого
+    /// порядка модели плейлиста `AppCore` (`core.playlist().visible()`),
+    /// перестраивается `rebuild_playlist_mirrors` после каждой операции.
     tracks: Vec<Track>,
-    /// On-disk playlist order (original load + scanned additions), kept
-    /// separate from the on-screen `tracks` order so sorting never rewrites
-    /// the file. Persisted only at exit when `queue_dirty`.
+    /// МОСТ (временный, удаляется на шаге 26, §6.13): зеркало исходного
+    /// (файлового) порядка модели плейлиста `AppCore`
+    /// (`core.playlist().source_order()`), отдельное от видимого `tracks`,
+    /// чтобы сортировка на экране не переписывала файл. Перестраивается
+    /// `rebuild_playlist_mirrors` после каждой операции.
     disk_tracks: Vec<Track>,
     /// Persistent row model for the playlist table. Mutated incrementally
     /// (push/set_row_data) instead of rebuilding the whole list on every
@@ -610,9 +617,8 @@ impl MusicApp {
         app.setup_fulltrack();
         app.setup_visualizer(viz_cfg, viz_prod, viz_cons);
         app.rebuild_shuffle();
-        if let Some(k) = app.core.state().sort() {
-            app.apply_sort(k.column, k.direction == SortDirection::Desc);
-        }
+        // Ключ сортировки сессии применяется в `drain_startup_tracks`, когда
+        // реальные треки загружены (здесь `tracks` всегда пуст) (§6.13, ТЗ-42).
         app.apply_window_geometry();
         // Восстановленная геометрия — программная установка: её эхо на тике
         // не взводит срок записи (ADR-22, §6.17).
@@ -1310,9 +1316,19 @@ impl MusicApp {
                 if let Some(path) = picked {
                     let tracks = playlist::load_track_list(&path);
                     let mut a = app.borrow_mut();
-                    a.disk_tracks = tracks.clone();
-                    a.tracks = tracks;
-                    a.known_paths = a.tracks.iter().map(|t| t.path.clone()).collect();
+                    // МОСТ (§6.13, ТЗ-42, ТЗ-45): строки для модели плейлиста
+                    // и восстановление видимого порядка по ключу сессии.
+                    let rows: Vec<(Track, CompareKeys)> = tracks
+                        .into_iter()
+                        .map(|t| {
+                            let keys = CompareKeys::from_track(&t);
+                            (t, keys)
+                        })
+                        .collect();
+                    let key = a.session_sort_key();
+                    let visible = MusicApp::load_visible_order(&rows, key);
+                    a.core.playlist_replace(rows, visible, key);
+                    a.rebuild_playlist_mirrors();
                     a.current = None;
                     a.rebuild_shuffle();
                     a.sync_playlist_to_ui();
@@ -2141,13 +2157,20 @@ impl MusicApp {
         };
         // Загрузка завершена — снять признак ТЗ-48, список снова доступен.
         self.gate.set_loading(None);
-        self.disk_tracks = tracks.clone();
-        self.tracks = tracks;
-        self.known_paths = self.tracks.iter().map(|t| t.path.clone()).collect();
+        // МОСТ (§6.13, ТЗ-42, ТЗ-45): строки для модели плейлиста и
+        // восстановление видимого порядка по ключу сессии.
+        let rows: Vec<(Track, CompareKeys)> = tracks
+            .into_iter()
+            .map(|t| {
+                let keys = CompareKeys::from_track(&t);
+                (t, keys)
+            })
+            .collect();
+        let key = self.session_sort_key();
+        let visible = MusicApp::load_visible_order(&rows, key);
+        self.core.playlist_replace(rows, visible, key);
+        self.rebuild_playlist_mirrors();
         self.rebuild_shuffle();
-        if let Some(k) = self.core.state().sort() {
-            self.apply_sort(k.column, k.direction == SortDirection::Desc);
-        }
         self.sync_playlist_to_ui();
         // Успешная загрузка стартового плейлиста — результат виден в
         // таблице и track-count, сообщение/строка состояния не нужны
@@ -2251,6 +2274,82 @@ impl MusicApp {
     /// `drain_events`, which runs every tick before the UI sync).
     fn emit(&mut self, event: AppEvent) {
         let _ = self.events_tx.send(event);
+    }
+
+    /// МОСТ (временный, удаляется на шаге 26, §6.13, ТЗ-42, ТЗ-45): выполняет
+    /// операцию `op` над моделью плейлиста `AppCore` и переносит `current`,
+    /// `pending_open` и `shuffle_order` через `TrackId`, чтобы они остались
+    /// согласованными после изменения видимого порядка — затем перестраивает
+    /// зеркала `tracks`/`disk_tracks`/`known_paths`.
+    pub(super) fn playlist_op(&mut self, op: impl FnOnce(&mut AppCore)) {
+        let visible_before = self.core.playlist().visible().to_vec();
+        let current_id = self.current.and_then(|i| visible_before.get(i).copied());
+        let pending_open_id = self.pending_open.map(|(idx, prev)| {
+            (
+                visible_before.get(idx).copied(),
+                prev.and_then(|p| visible_before.get(p).copied()),
+            )
+        });
+        let shuffle_ids: Vec<_> = self
+            .shuffle_order
+            .iter()
+            .filter_map(|&i| visible_before.get(i).copied())
+            .collect();
+
+        op(&mut self.core);
+
+        self.rebuild_playlist_mirrors();
+
+        self.current = current_id.and_then(|id| self.core.playlist().index_of(id));
+        self.pending_open = pending_open_id.and_then(|(idx_id, prev_id)| {
+            let idx = idx_id.and_then(|id| self.core.playlist().index_of(id))?;
+            Some((idx, prev_id.and_then(|id| self.core.playlist().index_of(id))))
+        });
+        self.shuffle_order = shuffle_ids
+            .iter()
+            .filter_map(|&id| self.core.playlist().index_of(id))
+            .collect();
+        if let Some(cur) = self.current {
+            if let Some(p) = self.shuffle_order.iter().position(|&i| i == cur) {
+                self.shuffle_pos = p;
+            }
+        }
+    }
+
+    /// Зеркала временного моста из модели плейлиста `AppCore` (удаляются на
+    /// шаге 26, §6.13): `tracks` — видимый порядок, `disk_tracks` — исходный
+    /// (файловый) порядок. Клонирование треков допустимо только в этом
+    /// временном мосте.
+    pub(super) fn rebuild_playlist_mirrors(&mut self) {
+        let p = self.core.playlist();
+        self.tracks = p.visible().iter().filter_map(|&id| p.get(id).cloned()).collect();
+        self.disk_tracks = p.source_order().cloned().collect();
+        self.known_paths = self.tracks.iter().map(|t| t.path.clone()).collect();
+    }
+
+    /// Ключ сортировки сессии (`state.toml`) → ключ модели плейлиста
+    /// (§6.13, ТЗ-42, ТЗ-43): используется при загрузке плейлиста, чтобы
+    /// восстановить видимый порядок по сохранённому ключу. `None` — ключа
+    /// нет или сохранённая колонка не сортируемая (`NowPlaying`).
+    pub(super) fn session_sort_key(&self) -> Option<SortKey> {
+        let k = self.core.state().sort()?;
+        let column = SortColumn::from_column(k.column)?;
+        let dir = match k.direction {
+            SortDirection::Asc => SortDir::Asc,
+            SortDirection::Desc => SortDir::Desc,
+        };
+        Some(SortKey { column, dir })
+    }
+
+    /// Видимый порядок при загрузке плейлиста (§3.1, §6.13, ТЗ-42, ТЗ-45):
+    /// устойчивая сортировка исходных индексов строк по `compare_keys`; без
+    /// ключа — тождественный порядок (порядок файла).
+    pub(super) fn load_visible_order(rows: &[(Track, CompareKeys)], key: Option<SortKey>) -> Vec<u32> {
+        let mut idx: Vec<usize> = (0..rows.len()).collect();
+        if let Some(key) = key {
+            idx.sort_by(|&a, &b| compare_keys(&rows[a].1, &rows[b].1, key));
+        }
+        idx.into_iter().filter_map(|i| u32::try_from(i).ok()).collect()
     }
 
     /// Разобрать все накопленные события движка, применить принятый

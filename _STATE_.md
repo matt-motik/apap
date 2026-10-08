@@ -48,7 +48,7 @@
 [x] Шаг 18: AppCore владеет ShuffleState: rebuild при order_changed и Shuffle вкл., new_pass при включении Shuffle, shuffle_first/started (§3.4, §6.13, ТЗ-46). Файл: src/core/mod.rs. Проверка: cargo check
 [x] Шаг 19: Harness-тесты sort_change_does_not_write_playlist, sort_key_restored_after_restart (§7, ТЗ-12, ТЗ-43). Файл: src/core/testing.rs. Проверка: cargo test core::
 [x] Шаг 20: ЧЕКПОИНТ: cargo test + cargo clippy. Проверка: зелёные
-[ ] Шаг 21: Мост в приложении: операции плейлиста MusicApp (скан, удаление, очистка, загрузка M3U, стартовая загрузка, сортировка по заголовку) идут через AppCore; tracks/disk_tracks — временное зеркало из core.playlist(); current (видимый индекс) переотображается по TrackId после каждой операции (§6.13, ТЗ-42, ТЗ-45). Файлы: src/app/playlist_manager.rs, src/app/mod.rs. Проверка: cargo check
+[x] Шаг 21: Мост в приложении: операции плейлиста MusicApp (скан, удаление, очистка, загрузка M3U, стартовая загрузка, сортировка по заголовку) идут через AppCore; tracks/disk_tracks — временное зеркало из core.playlist(); current (видимый индекс) переотображается по TrackId после каждой операции (§6.13, ТЗ-42, ТЗ-45). Файлы: src/app/playlist_manager.rs, src/app/mod.rs. Проверка: cargo check
 [ ] Шаг 22: Выбор следующего трека по visible и ShuffleState из AppCore; удалить shuffle_order/shuffle_pos/rebuild_shuffle/sync_shuffle_pos; обновление тегов в on_opened → core.playlist_update_tags (§3.4, §8 С6, ТЗ-45, ТЗ-46). Файлы: src/app/playback_manager.rs, src/app/mod.rs. Проверка: cargo check
 [ ] Шаг 23: Чтения self.tracks в playback_manager → core.playlist() через хелпер track_at(i) в mod.rs (ADR-15). Файлы: src/app/playback_manager.rs, src/app/mod.rs. Проверка: cargo check
 [ ] Шаг 24: Чтения self.tracks в ui_manager/bp_report/fulltrack_manager → track_at(i); таблица Slint строится по visible (§8 С6). Файлы: src/app/ui_manager.rs, src/app/bp_report.rs, src/app/fulltrack_manager.rs. Проверка: cargo check
@@ -60,8 +60,8 @@
 [ ] Шаг 30: Очистка: удалить advance_shuffle, sort_rows_compare и тест advance_shuffle_navigates_order; тесты advance_index → repeat_all_wraps_visible_order, next_without_current_plays_first_visible; удалить тест sort_rows_compare_orders_by_column (§7.5, §8 С6). Файлы: src/playlist/mod.rs, src/app/mod.rs. Проверка: cargo test
 [ ] Шаг 31: ФИНАЛ: cargo build + cargo test + cargo clippy зелёные; ручная проверка: сортировка/снятие ключа не пишет playlist.m3u, Shuffle; закрытие этапа (Шаг 5). Проверка: всё зелёное
 
-- **Текущий шаг (current_step):** Шаг 21
-- **Следующий ход:** Шаг 21: мост в приложении — операции плейлиста MusicApp через AppCore (src/app/playlist_manager.rs, src/app/mod.rs)
+- **Текущий шаг (current_step):** Шаг 22
+- **Следующий ход:** Шаг 22: выбор следующего трека по visible/ShuffleState из AppCore; on_opened → core.playlist_update_tags (src/app/playback_manager.rs, src/app/mod.rs)
 - **Счетчик безуспешных компиляций:** 0/3
 - **Состояние:** in_progress
 
