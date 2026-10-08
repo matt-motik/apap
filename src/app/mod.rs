@@ -711,8 +711,7 @@ impl MusicApp {
         if files.is_empty() {
             return;
         }
-        let bytes = self.core.playlist_m3u();
-        let effects = self.core.retry(&files, &move || bytes.clone());
+        let effects = self.core.retry(&files);
         self.apply_reply_effects(effects);
     }
 
@@ -759,8 +758,7 @@ impl MusicApp {
                 },
             )
         };
-        let bytes = self.core.playlist_m3u();
-        let outcome = self.core.exit(reason, &mut await_engine, &move || bytes.clone());
+        let outcome = self.core.exit(reason, &mut await_engine);
         if outcome == ExitOutcome::Ignored {
             eprintln!("[app] exit {reason:?}: уже выполняется, повтор проигнорирован");
             return outcome;
@@ -2077,8 +2075,7 @@ impl MusicApp {
         // установки от действия пользователя и взводит срок записи только
         // для последнего (ОВС-5 а, ADR-22, §6.17, V5.1-B7).
         let geometry = self.window_geometry();
-        let bytes = self.core.playlist_m3u();
-        let output = self.core.tick(geometry, &move || bytes.clone());
+        let output = self.core.tick(geometry);
         self.apply_reply_effects(output.effects);
         // `output.other` (экспорт/бэд-копии/карантин) — разбор добавится на
         // этапе писателя для этих путей; пока ответы отбрасываются.

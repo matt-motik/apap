@@ -436,9 +436,10 @@ impl AppCore {
     /// Один тик цикла приложения (ADR-3, ADR-22, §6.4): разбирает ответы
     /// писателя, проверяет срок отложенной записи и показание геометрии
     /// окна. `geometry` — текущее показание, если платформа его отдаёт;
-    /// `playlist_bytes` сериализует плейлист лениво — только когда он
-    /// действительно нужен к отправке. Без `deps` (мост) — пустой результат.
-    pub fn tick(&mut self, geometry: Option<WindowGeometry>, playlist_bytes: &dyn Fn() -> Arc<[u8]>) -> TickOutput {
+    /// байты плейлиста (`playlist_m3u`, §4.2, ТЗ-12) берутся лениво —
+    /// только когда запись действительно нужна к отправке. Без `deps`
+    /// (мост) — пустой результат.
+    pub fn tick(&mut self, geometry: Option<WindowGeometry>) -> TickOutput {
         let Some(deps) = &self.deps else {
             return TickOutput { effects: Vec::new(), other: Vec::new() };
         };
@@ -475,7 +476,7 @@ impl AppCore {
         }
 
         if due.playlist && self.tracker.playlist_writable(true) {
-            let bytes = playlist_bytes();
+            let bytes = self.playlist_m3u();
             self.send_snapshot(WorkFile::Playlist, bytes, None);
         }
 
@@ -520,8 +521,9 @@ impl AppCore {
 
     /// «Повторить» (ТЗ-20, §6.8): немедленная отправка снимков указанных
     /// файлов независимо от дедлайна и эталона; плейлист — если он не под
-    /// постоянным запретом (случай 3 ОВ-8). Без `deps` — без эффекта.
-    pub fn retry(&mut self, files: &[WorkFile], playlist_bytes: &dyn Fn() -> Arc<[u8]>) -> Vec<ReplyEffect> {
+    /// постоянным запретом (случай 3 ОВ-8), байты — `playlist_m3u`
+    /// (§4.2, ТЗ-12). Без `deps` — без эффекта.
+    pub fn retry(&mut self, files: &[WorkFile]) -> Vec<ReplyEffect> {
         let mut effects = Vec::new();
         if self.deps.is_none() {
             return effects;
@@ -561,7 +563,7 @@ impl AppCore {
                 },
                 WorkFile::Playlist => {
                     if self.tracker.playlist_writable(false) {
-                        let bytes = playlist_bytes();
+                        let bytes = self.playlist_m3u();
                         self.send_snapshot(WorkFile::Playlist, bytes, None);
                     }
                 }
@@ -584,14 +586,13 @@ impl AppCore {
     /// принимается не в ожидании писателя, а замыканием `await_engine`
     /// (вызывается один раз, после отправки снимков — писатель уже пишет;
     /// своё ожидание до 2 с от запроса, §6.28 п. 3; итог — `engine_ack`):
-    /// события движка читает `MusicApp`; текст плейлиста — замыкание
-    /// `playlist_bytes` (модель `Playlist` переходит в `AppCore` на С6);
-    /// черновик диалога и сообщения закрывает `MusicApp` до вызова.
+    /// события движка читает `MusicApp`; черновик диалога и сообщения
+    /// закрывает `MusicApp` до вызова. Байты плейлиста — `playlist_m3u`
+    /// (§4.2, ТЗ-12).
     pub fn exit(
         &mut self,
         reason: ExitReason,
         await_engine: &mut dyn FnMut() -> bool,
-        playlist_bytes: &dyn Fn() -> Arc<[u8]>,
     ) -> ExitOutcome {
         let now = self.now();
         let Some(until) = self.exit.begin(reason, now) else {
@@ -613,7 +614,8 @@ impl AppCore {
         // Плейлист: флаг и не запрещён (ТЗ-17); `playlist_writable` не
         // учитывается — одна попытка независимо от прежних неудач (ТЗ-20).
         if !self.tracker.playlist_forbidden() && self.tracker.playlist_dirty() {
-            let id = self.send_snapshot(WorkFile::Playlist, playlist_bytes(), None);
+            let bytes = self.playlist_m3u();
+            let id = self.send_snapshot(WorkFile::Playlist, bytes, None);
             waiting.push((WorkFile::Playlist, id));
         } else {
             self.classify_unsent(WorkFile::Playlist, self.tracker.playlist_forbidden(), &mut waiting, &mut report);

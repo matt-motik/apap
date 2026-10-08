@@ -119,8 +119,7 @@ impl MusicApp {
     /// Результат приходит ответом писателя в `tick` и обновляет окно ошибок
     /// записи (ТЗ-20).
     pub(super) fn save_playlist(&mut self) {
-        let bytes = self.core.playlist_m3u();
-        let effects = self.core.retry(&[WorkFile::Playlist], &move || bytes.clone());
+        let effects = self.core.retry(&[WorkFile::Playlist]);
         self.apply_reply_effects(effects);
     }
 

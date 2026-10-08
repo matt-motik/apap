@@ -53,7 +53,6 @@ pub(crate) struct Harness {
     paths: ConfigPaths,
     journal: Arc<VecJournal>,
     clock: ManualClock,
-    playlist: RefCell<Arc<[u8]>>,
     engine_log: Rc<RefCell<Vec<String>>>,
 }
 
@@ -65,7 +64,6 @@ impl Harness {
             paths: ConfigPaths::in_dir(test_dir()),
             journal: Arc::new(VecJournal::default()),
             clock: ManualClock::new(),
-            playlist: RefCell::new(Arc::from(&b""[..])),
             engine_log: Rc::new(RefCell::new(Vec::new())),
         }
     }
@@ -183,23 +181,14 @@ impl Harness {
         self.fs.counts(&self.paths.bad_copy(file))
     }
 
-    /// Текущий снимок плейлиста для `tick`/`advance` (§7.1): источник байт
-    /// настраивается тестом через `set_playlist`.
-    fn playlist_snapshot(&self) -> Arc<[u8]> {
-        self.playlist.borrow().clone()
-    }
-
-    /// Задать байты плейлиста, которые вернёт замыкание `tick` (§7.1).
-    pub(crate) fn set_playlist(&self, bytes: &[u8]) {
-        *self.playlist.borrow_mut() = Arc::from(bytes);
-    }
-
     /// Продвигает инжектируемые часы на `d`, затем выполняет один тик
     /// `AppCore` (ADR-19, §6.4, §7.1): срабатывание дедлайна отложенной
     /// записи и разбор ответов писателя идут по симулированному времени.
+    /// Байты плейлиста (§4.2, ТЗ-12) тик берёт сам, лениво — из реальной
+    /// модели плейлиста `AppCore`.
     pub(crate) fn advance(&self, core: &mut AppCore, d: Duration) -> TickOutput {
         self.clock.advance(d);
-        core.tick(None, &|| self.playlist_snapshot())
+        core.tick(None)
     }
 
     /// Тикает, пока у `PersistTracker` остаётся хоть один файл «в полёте»
@@ -210,7 +199,7 @@ impl Harness {
     pub(crate) fn settle(&self, core: &mut AppCore) {
         let start = Instant::now();
         loop {
-            core.tick(None, &|| self.playlist_snapshot());
+            core.tick(None);
             let pending = [WorkFile::Playlist, WorkFile::State, WorkFile::Settings]
                 .into_iter()
                 .any(|f| core.tracker().last_in_flight(f).is_some());
@@ -236,7 +225,7 @@ impl Harness {
         let start = Instant::now();
         let mut ticks = Vec::new();
         loop {
-            let out = core.tick(None, &|| self.playlist_snapshot());
+            let out = core.tick(None);
             ticks.push(out.effects);
             let pending = [WorkFile::Playlist, WorkFile::State, WorkFile::Settings]
                 .into_iter()
@@ -326,7 +315,7 @@ mod tests {
         assert!(core.settings_read_failed_message().is_some());
         assert_eq!(h.settings_counts().writes, 0);
 
-        let outcome = core.exit(ExitReason::WindowClose, &mut || true, &|| Arc::from(&b""[..]));
+        let outcome = core.exit(ExitReason::WindowClose, &mut || true);
         assert_eq!(outcome, ExitOutcome::Completed);
         assert_eq!(h.settings_counts().writes, 0);
 
@@ -413,7 +402,7 @@ mod tests {
         h.put_state(&state_bytes);
         let mut core = h.boot();
 
-        let outcome = core.exit(ExitReason::WindowClose, &mut || true, &|| Arc::from(&b""[..]));
+        let outcome = core.exit(ExitReason::WindowClose, &mut || true);
         assert_eq!(outcome, ExitOutcome::Completed);
         assert_eq!(h.settings_counts().writes, 0);
         assert_eq!(h.state_counts().writes, 0);
@@ -617,8 +606,8 @@ mod tests {
 
     /// Изменение плейлиста доходит до писателя по тому же дедлайну, что и
     /// состояние (ТЗ-12, §2.7, §6.4, §7.1 `playlist_dirty_written_by_timer`):
-    /// `set_playlist` задаёт байты, которые вернёт замыкание `tick`; после
-    /// успешной записи флаг «грязного» плейлиста снят.
+    /// добавление треков в модель плейлиста взводит флаг «грязного» через
+    /// `playlist_add`; после успешной записи флаг снят.
     #[test]
     fn playlist_dirty_written_by_timer() {
         let h = Harness::new();
@@ -626,8 +615,7 @@ mod tests {
         h.put_state(b"");
         let mut core = h.boot();
 
-        h.set_playlist(b"track1.flac\ntrack2.flac\n");
-        core.playlist_changed();
+        core.playlist_add(vec![track_path("track1.flac"), track_path("track2.flac")]);
         let interval = core.settings().save_interval.duration();
         h.advance(&mut core, interval);
         h.settle(&mut core);
@@ -745,13 +733,13 @@ mod tests {
             fullscreen: false,
         };
         // Первое показание после показа окна — эхо Program, не пользователь.
-        core.tick(Some(actual), &|| Arc::from(&b""[..]));
+        core.tick(Some(actual));
 
         h.advance(&mut core, Duration::from_secs(600));
         h.settle(&mut core);
         assert_eq!(h.writes(WorkFile::State), 0);
 
-        core.exit(ExitReason::WindowClose, &mut || true, &|| Arc::from(&b""[..]));
+        core.exit(ExitReason::WindowClose, &mut || true);
         assert_eq!(h.writes(WorkFile::State), 1);
     }
 
@@ -771,7 +759,7 @@ mod tests {
         h.settle(&mut core);
         assert_eq!(h.writes(WorkFile::State), 0);
 
-        core.exit(ExitReason::WindowClose, &mut || true, &|| Arc::from(&b""[..]));
+        core.exit(ExitReason::WindowClose, &mut || true);
         assert_eq!(h.writes(WorkFile::State), 1);
     }
 
@@ -787,8 +775,7 @@ mod tests {
         let mut core = h.boot();
 
         h.fail_write_work(WorkFile::Playlist, WriteStep::WriteData, WriteErrorClass::NoSpace, 100);
-        h.set_playlist(b"track1.flac\n");
-        core.playlist_changed();
+        core.playlist_add(vec![track_path("track1.flac")]);
 
         let interval = core.settings().save_interval.duration();
         h.advance(&mut core, interval);
@@ -798,8 +785,7 @@ mod tests {
 
         // Новое изменение взводит срок заново, но попытки по таймеру
         // всё равно блокированы (`stopped`), пока нет явного `retry`.
-        h.set_playlist(b"track1.flac\ntrack2.flac\n");
-        core.playlist_changed();
+        core.playlist_add(vec![track_path("track2.flac")]);
         h.advance(&mut core, Duration::from_secs(600));
         h.settle(&mut core);
         assert_eq!(h.writes(WorkFile::Playlist), 0);
@@ -818,13 +804,11 @@ mod tests {
         let interval = core.settings().save_interval.duration();
 
         h.delay_write_work(WorkFile::Playlist, interval + Duration::from_secs(2));
-        h.set_playlist(b"track1.flac\n");
-        core.playlist_changed();
+        core.playlist_add(vec![track_path("track1.flac")]);
         h.advance(&mut core, interval); // срок истёк — первый снимок отправлен, но задержан
 
         // во время задержанной записи плейлист снова меняется
-        h.set_playlist(b"track1.flac\ntrack2.flac\n");
-        core.playlist_changed();
+        core.playlist_add(vec![track_path("track2.flac")]);
 
         h.settle(&mut core); // ждёт ответ на первый снимок, продвигая часы до конца задержки
         assert_eq!(h.writes(WorkFile::Playlist), 1);
@@ -1069,7 +1053,7 @@ mod tests {
         assert_eq!(h.writes(WorkFile::State), 0);
         assert!(core.tracker().timer_stopped(WorkFile::State));
 
-        let retry_effects = core.retry(&[WorkFile::State], &|| Arc::from(&b""[..]));
+        let retry_effects = core.retry(&[WorkFile::State]);
         assert!(retry_effects.is_empty());
         let reply_effects: Vec<ReplyEffect> = h.settle_ticks(&mut core).into_iter().flatten().collect();
         assert_eq!(reply_effects, vec![ReplyEffect::Succeeded(WorkFile::State)]);
@@ -1121,9 +1105,8 @@ mod tests {
         h.fail_write_work(WorkFile::State, WriteStep::WriteData, WriteErrorClass::ReadOnlyFs, 1);
         h.fail_write_work(WorkFile::Playlist, WriteStep::WriteData, WriteErrorClass::ReadOnlyFs, 1);
 
-        h.set_playlist(b"track1.flac\n");
         core.change_state(Origin::User, StateChange::Volume(42));
-        core.playlist_changed();
+        core.playlist_add(vec![track_path("track1.flac")]);
 
         let interval = core.settings().save_interval.duration();
         h.advance(&mut core, interval);
@@ -1168,15 +1151,14 @@ mod tests {
         core.change_state(Origin::User, StateChange::Volume(42));
 
         h.delay_write_work(WorkFile::Playlist, Duration::from_secs(10));
-        h.set_playlist(b"track1.flac\n");
-        core.playlist_changed();
+        core.playlist_add(vec![track_path("track1.flac")]);
 
         let before_settings = h.disk_bytes(WorkFile::Settings);
         let before_state = h.disk_bytes(WorkFile::State);
         let before_playlist = h.disk_bytes(WorkFile::Playlist);
 
         let start = h.now();
-        let outcome = core.exit(ExitReason::WindowClose, &mut || true, &|| Arc::from(&b"track1.flac\n"[..]));
+        let outcome = core.exit(ExitReason::WindowClose, &mut || true);
         let elapsed = h.now().saturating_since(start);
 
         assert_eq!(outcome, ExitOutcome::Completed);
@@ -1222,14 +1204,13 @@ mod tests {
         h.put_state(b"");
         let mut core = h.boot();
 
-        h.set_playlist(b"track1.flac\n");
-        core.playlist_changed();
+        core.playlist_add(vec![track_path("track1.flac")]);
         core.change_state(Origin::User, StateChange::Volume(42));
 
         h.delay_write_work(WorkFile::Playlist, Duration::from_secs(4));
         h.delay_write_work(WorkFile::State, Duration::from_secs(6));
 
-        let outcome = core.exit(ExitReason::WindowClose, &mut || true, &|| Arc::from(&b"track1.flac\n"[..]));
+        let outcome = core.exit(ExitReason::WindowClose, &mut || true);
         assert_eq!(outcome, ExitOutcome::Completed);
 
         assert_eq!(h.disk_bytes(WorkFile::Playlist).as_deref(), Some(&b"track1.flac\n"[..]));
@@ -1272,7 +1253,7 @@ mod tests {
         assert_eq!(h.writes(WorkFile::State), 0);
         assert!(core.tracker().timer_stopped(WorkFile::State));
 
-        let outcome = core.exit(ExitReason::WindowClose, &mut || true, &|| Arc::from(&b""[..]));
+        let outcome = core.exit(ExitReason::WindowClose, &mut || true);
         assert_eq!(outcome, ExitOutcome::Completed);
         assert_eq!(h.writes(WorkFile::State), 1);
 
@@ -1315,7 +1296,7 @@ mod tests {
             h.put_state(&state_bytes);
             let mut core = h.boot();
 
-            let outcome = core.exit(reason, &mut || true, &|| Arc::from(&b""[..]));
+            let outcome = core.exit(reason, &mut || true);
             assert_eq!(outcome, ExitOutcome::Completed, "{reason:?}: без изменений");
             assert_eq!(h.writes(WorkFile::State), 0, "{reason:?}: state.toml не пишется без изменений");
             assert_eq!(h.writes(WorkFile::Settings), 0, "{reason:?}: settings.toml не пишется без изменений");
@@ -1330,7 +1311,7 @@ mod tests {
             settings.playback.audio_device = "hw:1,0".into();
             core.set_settings(settings);
 
-            let outcome = core.exit(reason, &mut || true, &|| Arc::from(&b""[..]));
+            let outcome = core.exit(reason, &mut || true);
             assert_eq!(outcome, ExitOutcome::Completed, "{reason:?}: с изменениями");
             assert_eq!(h.writes(WorkFile::State), 1, "{reason:?}: state.toml записан ровно раз");
             assert_eq!(h.writes(WorkFile::Settings), 1, "{reason:?}: settings.toml записан ровно раз");
@@ -1349,14 +1330,10 @@ mod tests {
 
         let shutdown = format!("{:?}", crate::engine::messages::EngineCmd::Shutdown);
         let mut seen_at_await = Vec::new();
-        let outcome = core.exit(
-            ExitReason::WindowClose,
-            &mut || {
-                seen_at_await = h.engine_cmds();
-                true
-            },
-            &|| Arc::from(&b""[..]),
-        );
+        let outcome = core.exit(ExitReason::WindowClose, &mut || {
+            seen_at_await = h.engine_cmds();
+            true
+        });
         assert_eq!(outcome, ExitOutcome::Completed);
         assert_eq!(seen_at_await, vec![shutdown.clone()], "Shutdown отправлен до ожидания движка");
         assert_eq!(h.engine_cmds(), vec![shutdown], "ровно одна команда за выход");
@@ -1387,7 +1364,7 @@ mod tests {
         settings.playback.audio_device = "hw:1,0".into();
         core.set_settings(settings);
 
-        let outcome = core.exit(ExitReason::WindowClose, &mut || false, &|| Arc::from(&b""[..]));
+        let outcome = core.exit(ExitReason::WindowClose, &mut || false);
         assert_eq!(outcome, ExitOutcome::Completed);
         assert_eq!(h.writes(WorkFile::Settings), 1, "settings.toml записан без ответа движка");
         assert_eq!(h.writes(WorkFile::State), 1, "state.toml записан без ответа движка");
@@ -1421,7 +1398,7 @@ mod tests {
 
         core.change_state(Origin::User, StateChange::Volume(42));
 
-        let outcome = core.exit(ExitReason::WindowsSessionEnd, &mut || true, &|| Arc::from(&b""[..]));
+        let outcome = core.exit(ExitReason::WindowsSessionEnd, &mut || true);
 
         assert_eq!(outcome, ExitOutcome::Completed);
         assert_eq!(h.writes(WorkFile::State), 1);
@@ -1444,11 +1421,11 @@ mod tests {
         h.delay_write_work(WorkFile::State, Duration::from_secs(10));
         core.change_state(Origin::User, StateChange::Volume(42));
 
-        let first = core.exit(ExitReason::WindowClose, &mut || true, &|| Arc::from(&b""[..]));
+        let first = core.exit(ExitReason::WindowClose, &mut || true);
         assert_eq!(first, ExitOutcome::Completed);
         let writes_after_first = h.writes(WorkFile::State);
 
-        let second = core.exit(ExitReason::TrayQuit, &mut || true, &|| Arc::from(&b""[..]));
+        let second = core.exit(ExitReason::TrayQuit, &mut || true);
         assert_eq!(second, ExitOutcome::Ignored);
         assert_eq!(h.writes(WorkFile::State), writes_after_first);
 
@@ -1481,7 +1458,7 @@ mod tests {
         assert_eq!(h.writes(WorkFile::State), 0);
         assert!(core.tracker().timer_stopped(WorkFile::State));
 
-        let outcome = core.exit(ExitReason::WindowClose, &mut || true, &|| Arc::from(&b""[..]));
+        let outcome = core.exit(ExitReason::WindowClose, &mut || true);
         assert_eq!(outcome, ExitOutcome::Completed);
 
         let expected = crate::persist::state_file::serialize_state(core.state()).expect("serialize state");
@@ -1501,8 +1478,7 @@ mod tests {
         let boot_calls = h.fs_calls().len();
 
         core.change_state(Origin::User, StateChange::Shuffle(true));
-        h.set_playlist(b"/music/a.flac\n");
-        core.playlist_changed();
+        core.playlist_add(vec![track_path("/music/a.flac")]);
         let interval = core.settings().save_interval.duration();
         h.advance(&mut core, interval);
         h.settle(&mut core);
@@ -1513,7 +1489,7 @@ mod tests {
         h.settle(&mut core);
 
         core.change_state(Origin::User, StateChange::Volume(17));
-        let outcome = core.exit(ExitReason::TrayQuit, &mut || true, &|| Arc::from(&b"/music/b.flac\n"[..]));
+        let outcome = core.exit(ExitReason::TrayQuit, &mut || true);
         assert_eq!(outcome, ExitOutcome::Completed);
 
         let after_boot = &h.fs_calls()[boot_calls..];
@@ -1643,7 +1619,7 @@ mod tests {
         messages.dismiss_for_exit();
         assert!(!messages.is_shown(), "окно закрыто без вопроса");
 
-        let outcome = core.exit(ExitReason::TrayQuit, &mut || true, &|| Arc::from(&b""[..]));
+        let outcome = core.exit(ExitReason::TrayQuit, &mut || true);
         assert_eq!(outcome, ExitOutcome::Completed);
 
         let after = h.state_counts();
@@ -1673,7 +1649,7 @@ mod tests {
         let (tray_tx, _tray_rx) = mpsc::channel::<TrayEvent>();
         let core_for_exit = Rc::clone(&core);
         let entry: ExitEntry = Rc::new(move |reason| {
-            core_for_exit.borrow_mut().exit(reason, &mut || true, &|| Arc::from(&b""[..]))
+            core_for_exit.borrow_mut().exit(reason, &mut || true)
         });
         lifecycle.install(None, entry, tray_tx).expect("install succeeds on the fake");
 
@@ -1749,6 +1725,14 @@ mod tests {
         h.settle(&mut core);
         assert_eq!(h.writes(WorkFile::State), 1);
         assert_eq!(core.state().playback().volume, after);
+    }
+
+    /// Трек с единственным заданным полем — путём (§4.2, ТЗ-12): тестам
+    /// записи `playlist.m3u`, которым нужен только исходный порядок путей.
+    fn track_path(path: &str) -> (Track, CompareKeys) {
+        let t = Track { path: PathBuf::from(path), ..Track::default() };
+        let keys = CompareKeys::from_track(&t);
+        (t, keys)
     }
 
     /// Трек для тестов сортировки (§7, ТЗ-12, ТЗ-40, ТЗ-43): путь и
@@ -1845,7 +1829,7 @@ mod tests {
             pl.visible().iter().filter_map(|&id| pl.get(id)).map(|t| t.path.clone()).collect()
         };
 
-        let outcome = core.exit(ExitReason::WindowClose, &mut || true, &|| Arc::from(&b""[..]));
+        let outcome = core.exit(ExitReason::WindowClose, &mut || true);
         assert_eq!(outcome, ExitOutcome::Completed);
         let state_bytes = h.disk_bytes(WorkFile::State).expect("state.toml записан на выходе");
 
