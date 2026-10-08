@@ -23,11 +23,17 @@ use crate::engine::run::EngineSender;
 use crate::journal::{Journal, JournalRecord, WriteTarget};
 use crate::persist::keys::{LoadNote, Parsed};
 use crate::persist::settings_file::{serialize_settings, Settings};
-use crate::persist::state_file::{serialize_state, Origin, SessionState, StateChange, WindowGeometry};
+use crate::persist::state_file::{
+    self, serialize_state, Origin, SessionState, StateChange, WindowGeometry,
+};
 use crate::persist::tracker::{PersistTracker, ReplyEffect};
 use crate::persist::writer::{WriterCmd, WriterHandle, WriterReply};
 use crate::persist::{Boot, ConfigFile, ConfigPaths, ReferenceText, SerializeError, Snapshot, SnapshotId, WorkFile};
 use crate::platform::fs::{ReadError, WriteError};
+use crate::playlist::compare::CompareKeys;
+use crate::playlist::model::{Playlist, PlaylistEffect, SortDir, SortKey, TrackId};
+use crate::playlist::Track;
+use crate::settings::ColumnId;
 
 /// Эталон и запрет автозаписи одного файла (§2.2, §2.12, И-Р3, И-Р20).
 /// Упрощённый аналог `FileTrack` (§2.7) без очереди «в пути» и дедлайнов —
@@ -64,6 +70,20 @@ fn split_parsed<T>(parsed: Parsed<T>) -> (T, FileState, Vec<LoadNote>, Option<Re
             (value, FileState { reference: ReferenceText::default(), auto_forbidden: true }, Vec::new(), Some(err))
         }
     }
+}
+
+/// МОСТ (удаляется на шаге 28): `playlist::model::SortKey` →
+/// `persist::state_file::SortKey` для `StateChange::Sort` (§6.13, ТЗ-43).
+/// Пока `SessionState` хранит ключ сортировки в старом представлении —
+/// колонка и направление без типа `SortColumn`.
+fn to_state_sort_key(key: Option<SortKey>) -> Option<state_file::SortKey> {
+    key.map(|k| state_file::SortKey {
+        column: k.column.column(),
+        direction: match k.dir {
+            SortDir::Asc => state_file::SortDirection::Asc,
+            SortDir::Desc => state_file::SortDirection::Desc,
+        },
+    })
 }
 
 /// Команды UI → движок (§2.12, ADR-01): неблокирующая отправка,
@@ -111,11 +131,12 @@ pub struct AppDeps {
 
 /// Ядро приложения без Slint (ADR-19, §2.12): владеет настройками и
 /// состоянием сессии, их эталонными текстами и запретом автозаписи,
-/// `PersistTracker`, координатором выхода и трекером геометрии окна.
-/// Полный состав `AppCore` по спецификации (`Playlist`, `UiGate`,
+/// моделью плейлиста, `PersistTracker`, координатором выхода и трекером
+/// геометрии окна. Полный состав `AppCore` по спецификации (`UiGate`,
 /// `MessageCenter`, `LoadState` и т. д.) появляется поэтапно; на этом шаге —
-/// то, что нужно для чтения/изменения настроек и состояния и отложенной
-/// записи через писателя `apap-persist` (§6.4, §6.8, §6.10).
+/// то, что нужно для чтения/изменения настроек, состояния и плейлиста, и
+/// отложенной записи через писателя `apap-persist` (§4.2, §6.4, §6.8, §6.10,
+/// §6.13).
 pub struct AppCore {
     settings: Settings,
     settings_file: FileState,
@@ -123,6 +144,9 @@ pub struct AppCore {
     /// `state.toml` не даёт сообщения — только запрет автозаписи (И-Р20).
     settings_read_failed: Option<ReadError>,
     state: SessionState,
+    /// Модель плейлиста — состав, исходный и видимый порядок (§4.2, §6.13,
+    /// ТЗ-12, ТЗ-43).
+    playlist: Playlist,
     startup_notes: StartupNotes,
     deps: Option<AppDeps>,
     tracker: PersistTracker,
@@ -163,6 +187,7 @@ impl AppCore {
             settings_file,
             settings_read_failed,
             state,
+            playlist: Playlist::new(),
             startup_notes,
             deps: Some(deps),
             tracker,
@@ -220,6 +245,81 @@ impl AppCore {
     /// Запрещает запись плейлиста до конца сеанса (случай 3 ОВ-8, §2.7).
     pub fn forbid_playlist(&mut self) {
         self.tracker.forbid_playlist();
+    }
+
+    /// Доступ к модели плейлиста (§4.2, §6.13).
+    pub fn playlist(&self) -> &Playlist {
+        &self.playlist
+    }
+
+    /// Добавление треков в плейлист (ТЗ-12, ТЗ-41, ТЗ-45, §6.13).
+    pub fn playlist_add(&mut self, tracks: Vec<(Track, CompareKeys)>) -> Vec<TrackId> {
+        let (ids, effect) = self.playlist.add(tracks);
+        self.apply_playlist_effect(effect);
+        ids
+    }
+
+    /// Удаление строк из плейлиста (ТЗ-12, §6.13).
+    pub fn playlist_remove(&mut self, ids: &[TrackId]) {
+        let effect = self.playlist.remove(ids);
+        self.apply_playlist_effect(effect);
+    }
+
+    /// Очистка плейлиста (ТЗ-12, §6.13).
+    pub fn playlist_clear(&mut self) {
+        let effect = self.playlist.clear();
+        self.apply_playlist_effect(effect);
+    }
+
+    /// Щелчок по заголовку колонки `c` (ТЗ-42, ТЗ-43, §3.3, §6.13): `hidden` —
+    /// колонка не входит в видимые колонки настроек (ТЗ-31).
+    pub fn playlist_header_click(&mut self, c: ColumnId) {
+        let hidden = !self.settings.columns.visible_columns().contains(&c);
+        let effect = self.playlist.header_click(c, hidden);
+        self.apply_playlist_effect(effect);
+    }
+
+    /// Ручное изменение порядка плейлиста (ТЗ-44, §6.13).
+    pub fn playlist_reorder(&mut self, moved: &[TrackId], before: Option<TrackId>) {
+        let effect = self.playlist.reorder(moved, before);
+        self.apply_playlist_effect(effect);
+    }
+
+    /// Обновление тегов строки плейлиста — без эффекта (§3.1, ТЗ-43).
+    pub fn playlist_update_tags(&mut self, id: TrackId, track: Track, keys: CompareKeys) {
+        self.playlist.update_tags(id, track, keys);
+    }
+
+    /// Замена плейлиста целиком по окончании загрузки (ADR-16): без флага
+    /// «изменён» и без изменения состояния.
+    pub fn playlist_replace(&mut self, rows: Vec<(Track, CompareKeys)>, visible: Vec<u32>, sort: Option<SortKey>) {
+        self.playlist.replace(rows, visible, sort);
+    }
+
+    /// Байты `playlist.m3u` в исходном порядке — снимок для писателя
+    /// `apap-persist` (ТЗ-12, §6.5, §6.13).
+    pub fn playlist_m3u(&self) -> Arc<[u8]> {
+        let mut out = String::new();
+        for t in self.playlist.source_order() {
+            out.push_str(&t.path.to_string_lossy());
+            out.push('\n');
+        }
+        Arc::from(out.into_bytes())
+    }
+
+    /// Применяет эффект операции плейлиста (§6.13): `dirty` взводит дедлайн
+    /// отложенной записи `playlist.m3u`, `sort_changed` — переносит новый
+    /// ключ сортировки в `SessionState` через мост `to_state_sort_key`.
+    /// `order_changed` (передача `Sequencer`, перестройка `ShuffleState`) —
+    /// на следующем шаге (ShuffleState).
+    fn apply_playlist_effect(&mut self, e: PlaylistEffect) {
+        if e.dirty {
+            self.playlist_changed();
+        }
+        if e.sort_changed {
+            let bridge = to_state_sort_key(self.playlist.sort_key());
+            self.change_state(Origin::User, StateChange::Sort(bridge));
+        }
     }
 
     /// Программная установка геометрии окна (восстановление при старте или
