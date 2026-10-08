@@ -639,6 +639,19 @@ impl MusicApp {
         self.ui.upgrade()
     }
 
+    /// Трек по индексу видимого порядка плейлиста (ADR-15, §4.2): чтение
+    /// через модель `AppCore` вместо временного зеркала `tracks` —
+    /// `visible()` даёт `TrackId` по индексу, `get` — сам трек.
+    pub(super) fn track_at(&self, i: usize) -> Option<&Track> {
+        let id = *self.core.playlist().visible().get(i)?;
+        self.core.playlist().get(id)
+    }
+
+    /// Число треков в видимом порядке плейлиста (ADR-15, §4.2).
+    pub(super) fn track_count(&self) -> usize {
+        self.core.playlist().visible().len()
+    }
+
     /// Применить эффекты ответов писателя из `AppCore::tick`/`AppCore::retry`
     /// (ADR-22, §6.4, §6.5): `Succeeded`/`Failed` — через те же методы
     /// `MessageCenter` (ТЗ-18, ТЗ-20); `None` отфильтрован самим
@@ -2379,7 +2392,7 @@ impl MusicApp {
 
         if let Some(info) = self.player.take_opened() {
             if let Some((index, prev_current)) = self.pending_open.take() {
-                if index < self.tracks.len() {
+                if index < self.track_count() {
                     self.on_track_opened(index, prev_current, &info);
                     // Успешное открытие прерывает серию пропусков (ТЗ-85, ТЗ-86).
                     self.skip_streak = 0;
@@ -2414,7 +2427,7 @@ impl MusicApp {
                 // над этим треком) — строка состояния, не окно (ТЗ-52, ОВ-7).
                 self.status = format!("Пропущен трек «{name}»: {}", describe_skip_reason(&reason)).into();
 
-                if self.tracks.is_empty() || self.skip_streak >= self.tracks.len() {
+                if self.track_count() == 0 || self.skip_streak >= self.track_count() {
                     // Защита от бесконечного пропуска при Repeat All, если
                     // вся библиотека повреждена (мост до SkipSeries С8).
                     self.player.stop();
@@ -2538,14 +2551,11 @@ impl MusicApp {
     }
 
     fn tray_state(&self) -> tray::TrayState {
-        let now_playing = match self.current {
-            Some(i) => {
-                let t = &self.tracks[i];
-                match &t.artist {
-                    Some(a) if !a.is_empty() => format!("{} \u{2014} {}", t.title, a),
-                    _ => t.title.clone(),
-                }
-            }
+        let now_playing = match self.current.and_then(|i| self.track_at(i)) {
+            Some(t) => match &t.artist {
+                Some(a) if !a.is_empty() => format!("{} \u{2014} {}", t.title, a),
+                _ => t.title.clone(),
+            },
             None => String::new(),
         };
         tray::TrayState {

@@ -102,7 +102,7 @@ steps:
     done: true
   - id: 24
     description: "Чтения self.tracks в playback_manager → core.playlist() через хелпер track_at(i) в mod.rs (ADR-15). Файлы: src/app/playback_manager.rs, src/app/mod.rs. Проверка: cargo check"
-    done: false
+    done: true
   - id: 25
     description: "Чтения self.tracks в ui_manager/bp_report/fulltrack_manager → track_at(i); таблица Slint строится по visible (§8 С6). Файлы: src/app/ui_manager.rs, src/app/bp_report.rs, src/app/fulltrack_manager.rs. Проверка: cargo check"
     done: false
@@ -128,8 +128,8 @@ steps:
     description: "ФИНАЛ: cargo build + cargo test + cargo clippy зелёные; ручная проверка: сортировка/снятие ключа не пишет playlist.m3u, Shuffle; закрытие этапа (Шаг 5). Проверка: всё зелёное"
     done: false
 
-current_step: 24
-next_action: "Шаг 24: чтения self.tracks в playback_manager → track_at(i) (src/app/playback_manager.rs, src/app/mod.rs)"
+current_step: 25
+next_action: "Шаг 25: чтения tracks в ui_manager/bp_report/fulltrack_manager → track_at(i); таблица Slint по visible"
 fail_counter: 0
 fail_counter_max: 3
 failed_attempts: []

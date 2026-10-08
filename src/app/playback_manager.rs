@@ -91,7 +91,7 @@ impl MusicApp {
     fn sync_track_info_to_ui(&mut self) {
         let ui = self.try_ui();
         if let Some(i) = self.current {
-            if let Some(t) = self.tracks.get(i) {
+            if let Some(t) = self.track_at(i) {
                 if let Some(ui) = &ui {
                     ui.set_info_artist(opt_str(&t.artist));
                     ui.set_info_track(fmt_num(t.track_number, t.track_total));
@@ -131,7 +131,7 @@ impl MusicApp {
                     if t.channels > 0 {
                         parts.push(format!("{} ch", t.channels));
                     }
-                    let track_count = format!("{} tracks", self.tracks.len());
+                    let track_count = format!("{} tracks", self.track_count());
                     ui.set_track_info(parts.join(" \u{2022} ").into());
                     ui.set_track_count(track_count.into());
                 }
@@ -153,7 +153,7 @@ impl MusicApp {
             ui.set_info_bit_depth("—".into());
             ui.set_info_sample_rate("—".into());
             ui.set_info_channels("—".into());
-            let track_count = format!("{} tracks", self.tracks.len());
+            let track_count = format!("{} tracks", self.track_count());
             ui.set_track_info("".into());
             ui.set_track_count(track_count.into());
         }
@@ -190,7 +190,7 @@ impl MusicApp {
 
     /// Строка состояния для текущего трека.
     fn playing_status(&self) -> String {
-        let Some(track) = self.current.and_then(|i| self.tracks.get(i)) else {
+        let Some(track) = self.current.and_then(|i| self.track_at(i)) else {
             return String::new();
         };
         let artist = track.artist.as_deref().unwrap_or("");
@@ -241,14 +241,14 @@ impl MusicApp {
             self.core.shuffle_started(id);
             self.core.playlist().index_of(id)
         } else {
-            playlist::advance_index(self.current, 1, self.tracks.len(), repeat)
+            playlist::advance_index(self.current, 1, self.track_count(), repeat)
         }
     }
 
     /// Request a cover for the track; bumps `cover_gen` so stale results are
     /// discarded when `drain_cover` applies them.
     fn request_cover(&mut self, index: usize) {
-        let Some(track) = self.tracks.get(index) else {
+        let Some(track) = self.track_at(index).cloned() else {
             return;
         };
         self.cover_gen = self.cover_gen.wrapping_add(1);
@@ -256,7 +256,7 @@ impl MusicApp {
             let cfg = cover::CoverConfig::from_settings(&self.core.settings().covers);
             let _ = tx.send(CoverJob {
                 id: self.cover_gen,
-                track: track.clone(),
+                track,
                 cfg,
             });
         }
@@ -304,10 +304,10 @@ impl MusicApp {
     }
 
     pub fn play_track(&mut self, index: usize) {
-        if index >= self.tracks.len() {
+        let Some(track) = self.track_at(index) else {
             return;
-        }
-        let path = self.tracks[index].path.clone();
+        };
+        let path = track.path.clone();
         let prev_current = self.current;
         match self.player.open(&path) {
             // Открытие асинхронное: успех здесь — команда отправлена
@@ -329,7 +329,10 @@ impl MusicApp {
         let Some(&id) = self.core.playlist().visible().get(index) else {
             return;
         };
-        let mut track = self.tracks[index].clone();
+        let Some(track) = self.core.playlist().get(id) else {
+            return;
+        };
+        let mut track = track.clone();
         track.duration = info.num_frames.map(|n| n as f64 / info.sample_rate as f64);
         if let Some(t) = &info.tags.title {
             if !t.trim().is_empty() {
@@ -399,8 +402,7 @@ impl MusicApp {
     /// Вынесено для асинхронного open (ADR-01, ТЗ-103).
     pub(super) fn on_open_failed(&mut self, index: usize, err: &str) {
         let title = self
-            .tracks
-            .get(index)
+            .track_at(index)
             .map(|t| t.title.clone())
             .unwrap_or_default();
         self.player.stop();
@@ -432,7 +434,7 @@ impl MusicApp {
     /// текущий прохода сам (§3.4, ТЗ-45), повторный `shuffle_started` не
     /// нужен. Индекс — через `index_of` по видимому порядку.
     pub(super) fn play_next(&mut self, direction: i32) {
-        if self.tracks.is_empty() {
+        if self.track_count() == 0 {
             return;
         }
         let next = if self.shuffle {
@@ -447,7 +449,7 @@ impl MusicApp {
             };
             id.and_then(|id| self.core.playlist().index_of(id))
         } else {
-            playlist::advance_index(self.current, direction, self.tracks.len(), self.repeat)
+            playlist::advance_index(self.current, direction, self.track_count(), self.repeat)
         };
         if let Some(idx) = next {
             self.play_track(idx);
@@ -481,7 +483,7 @@ impl MusicApp {
 
         let path = self
             .current
-            .and_then(|i| self.tracks.get(i))
+            .and_then(|i| self.track_at(i))
             .map(|t| t.path.clone());
         let (_playing, pos, _) = self.player.snapshot();
         match path {
