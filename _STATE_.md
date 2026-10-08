@@ -2,115 +2,10 @@
      Source of truth: _STATE_.yaml — edit that, then run:
      python tools/state_tool.py render -->
 
+# Состояние сессии
 
-# Текущая микро-сессия
-
-- **Задача из ROADMAP:** AM1.0-8.3 — С3. Поток движка apap-engine (мост: Player внутри движка)
-- **Вайтлист файлов в работе (Изменяемые файлы):**
-  - src/lib.rs
-  - src/engine/mod.rs
-  - src/engine/messages.rs
-  - src/engine/sink.rs
-  - src/engine/spawner.rs
-  - src/engine/source.rs
-  - src/engine/deps.rs
-  - src/engine/run.rs
-  - src/engine/tests.rs
-  - src/audio/error.rs
-  - src/settings.rs
-  - src/audio/worker.rs
-  - src/audio/player.rs
-  - src/audio/decoder.rs
-  - src/audio/dsd.rs
-  - src/audio/backend/mod.rs
-  - src/audio/backend/shared.rs
-  - src/audio/backend/catalog.rs
-  - src/audio/output.rs
-  - src/platform/mod.rs
-  - src/platform/devwatch.rs
-  - src/app/mod.rs
-  - src/app/ui_audio_state.rs
-  - src/app/engine_sink.rs
-  - src/app/audio_facade.rs
-  - src/app/playback_manager.rs
-  - src/app/visualizer_manager.rs
-  - src/app/playlist_manager.rs
-  - src/app/bp_report.rs
-  - src/app/ui_manager.rs
-  - src/app/viz_settings_manager.rs
-  - src/app/fulltrack_manager.rs
-  - src/main.rs
-  - src/core/mod.rs
-  - src/core/testing.rs
-  - ROADMAP.md
-  - docs/01_audio_modes_v1.0/03_spec.md
-- **Критерий успеха (Definition of Done):** UI не держит Player и не делает блокирующего I/O звука (ТЗ-103/104); EngineCmd/EngineEvent через apap-engine; Rc-цикл убран; выход через Shutdown, запись settings/state не ждёт ShutdownComplete; cargo test + clippy зелёные; плеер играет в Совместимом режиме
-
-## Итерационный трекер
-[x] Шаг 1: Типы команд/событий движка: EngineCmd/EngineEvent (подмножество С3: Open{req_gen,path,start_secs,autoplay}, Play, Pause, Stop, Seek, SetVolume, SetMuted, SetDevice, RefreshDevices, SetVizTap, SetLegacyAudio, Shutdown; события Opened, OpenFailed, Skipped, Ended, Transport, Position, Devices, DeviceLost, Notice, ShutdownComplete), только варианты, которые С3 обрабатывает (§2.8, ADR-01). Файлы: src/engine/mod.rs (новый, объявление модулей), src/engine/messages.rs (новый), src/lib.rs. Проверка: cargo check
-[x] Шаг 2: EventSink + VecSink (фейк, cfg(test)/testing) (§2.8, ADR-02, ADR-20). Файл: src/engine/sink.rs. Проверка: cargo check
-[x] Шаг 3: Классы ошибок: OpenError (подмножество С3: Capture, DeviceLost, File, Internal; Incompatible/ModeUnavailable — С4/С5), Reaction, classify, reaction(class, ModeKind, DeviceChoiceKind) по таблице ADR-14; ModeKind {Compatible, Optimal, Strict} временно в src/settings.rs (в С4 переезжает в settings/playback.rs, решение пользователя 2026-10-07); юнит-тест error_classes_distinct_reactions (ADR-14, §2.4, ТЗ-86). Выполняется ДО шага 1 (OpenError нужен событиям). Файлы: src/audio/error.rs, src/settings.rs. Проверка: cargo test error_classes
-[x] Шаг 4: ЧЕКПОИНТ шагов 1–3. ЧЕКПОИНТ: полный cargo test + cargo clippy (0 новых варнингов в файлах вайтлиста)
-[x] Шаг 5: ThreadSpawner + StdSpawner + FailingSpawner (отказ на N-м вызове) по §2.10 (ТЗ-88, ADR-20). Файл: src/engine/spawner.rs. Проверка: cargo check
-[x] Шаг 6: DecodeWorker::spawn принимает &dyn ThreadSpawner; Player пробрасывает StdSpawner (мост) (§6.18 шаг 6, ТЗ-88). Файлы: src/audio/worker.rs, src/audio/player.rs. Проверка: cargo check
-[x] Шаг 7: SourceOpener + FakeSource (заданный SourceFormat/FileError, счётчики probe/open) по §2.10 (§6.18 шаги 3, 6). Файл: src/engine/source.rs. Проверка: cargo check
-[x] Шаг 8: probe_header(path) -> Result<SourceFormat, FileError> для symphonia-форматов: только заголовок/параметры трека без декодирования и без seek-индекса; маппинг Container/Codec/lossy/SourceKind (Pcm bits, FloatPcm, lossy → 24 бит) (§2.1, §2.10, §6.18 шаг 3, ТЗ-103, ТЗ-74, ОВ-36, ОВС-1). Файл: src/audio/decoder.rs. Проверка: cargo test probe_header
-[x] Шаг 9: DSD: заголовок DSF/DFF → SourceFormat (Container/Codec Dsf|Dff, rate = DSD-бит/канал, kind Dsd{DsdRate}) без открытия декодера (§2.1, §2.10, §6.18 шаг 3, ТЗ-103). Файл: src/audio/dsd.rs (вайтлист расширен решением пользователя 2026-10-07). Проверка: cargo test probe_dsd
-[x] Шаг 10: SymphoniaSourceOpener: probe — DSF/DFF по расширению → шаг 9, иначе probe_header; open — DsdDecoder::open (PCM) / Decoder::open, String-ошибка → FileError (мост) (§2.10, §6.18 шаги 3, 6). Файл: src/engine/source.rs. Проверка: cargo test engine::source
-[x] Шаг 11: ЧЕКПОИНТ шагов 5–10. ЧЕКПОИНТ: полный cargo test + cargo clippy (0 новых варнингов в файлах вайтлиста)
-[x] Шаг 12: SharedBackend (§2.3, ADR-07) — перечисление и устройство по умолчанию; CpalSharedBackend поверх существующих AudioHost/CpalHost (не переписывать). Файлы: src/audio/backend/shared.rs (новый), src/audio/backend/mod.rs. Проверка: cargo check
-[x] Шаг 13: DeviceCatalog + трейт DeviceWatcher + FakeDeviceWatcher (§2.3, ADR-16, ТЗ-105). Файлы: src/audio/backend/catalog.rs (новый), src/audio/backend/mod.rs. Проверка: cargo check
-[x] Шаг 14: apap-devwatch: Linux — опрос /proc/asound/cards раз в 1 с, событие только при изменении; прочие ОС — DeviceWatcher без событий (ADR-16, ТЗ-105). cfg только здесь. Файлы: src/platform/devwatch.rs (новый), src/platform/mod.rs. Проверка: cargo test devwatch
-[x] Шаг 15: ЧЕКПОИНТ шагов 12–14. ЧЕКПОИНТ: полный cargo test + cargo clippy (0 новых варнингов в файлах вайтлиста)
-[x] Шаг 16: EngineDeps (подмножество С3: shared, watcher, sources: Arc, clock, store, events, spawner: Arc; reservation/exclusive/probes — на С6/С7 у Player) (ADR-20, §2.10). Файл: src/engine/deps.rs. Проверка: cargo check
-[x] Шаг 17: Цикл apap-engine (§6.1): struct Engine { player: Player (мост), deps }, recv_timeout(20 мс), транспорт Play/Pause/Stop/Seek/SetVolume/SetMuted/SetVizTap; EngineHandle {tx, JoinHandle}::spawn через ThreadSpawner, send не блокирует (ADR-01). Файл: src/engine/run.rs (новый). Проверка: cargo check
-[x] Шаг 18: Опрос сессии в цикле: Position/Transport/Ended только при изменении (И-Р13, ТЗ-60 основа); события резервирования → Notice/OpenFailed (ТЗ-102). Файл: src/engine/run.rs. Проверка: cargo check
-[x] Шаг 19: Open в движке: SourceOpener::probe → Skipped(File) с сообщением; затем Player::open (мост); отказ spawn → OpenFailed(Internal(SpawnFailed)); ошибка чтения посреди трека → Skipped/Notice, не Ended (§6.18 шаги 3, 6; ТЗ-86, ТЗ-87, ТЗ-88). Файл: src/engine/run.rs (+ src/audio/player.rs, если Player::open нужен параметр SourceOpener). Проверка: cargo check
-[x] Шаг 20: Устройства: каталог перечисляется один раз при старте движка и по событию DeviceWatcher → Devices; RefreshDevices/SetDevice; стартовая проверка устройства — в движке, вместо busy-wait probe_output (ТЗ-104, ТЗ-105). Файл: src/engine/run.rs. Проверка: cargo check
-[x] Шаг 21: SetLegacyAudio: старые параметры звука (exclusive/dsd/resampler/ring/bit_perfect/dither) применяются в памяти движка без файлового I/O — мост до ModeSettings С4 (ТЗ-134, И-Р24). Файл: src/engine/run.rs. Проверка: cargo check
-[x] Шаг 22: Shutdown (§6.28 в рамках моста): стоп вывода → стоп декодера → Player::release_engine → PersistStore::save → ShutdownComplete → выход из цикла (ТЗ-45). Файл: src/engine/run.rs. Проверка: cargo check
-[x] Шаг 23: Тесты движка на фейках: ui_handlers_do_not_block_on_slow_open (медленный FakeSource, send возвращается сразу), spawn_failure_reports_error, device_catalog_enumerated_once, device_hotplug_single_enumeration, set_mode_settings_performs_no_io (SetLegacyAudio, MemStore без записей), shutdown_emits_complete (§7, ТЗ-103/88/105/134/45). Файл: src/engine/tests.rs (новый). Проверка: cargo test engine::
-[x] Шаг 24: ЧЕКПОИНТ шагов 16–23. ЧЕКПОИНТ: полный cargo test + cargo clippy (0 новых варнингов в файлах вайтлиста)
-[x] Шаг 25: UiAudioState: копии «записано», запись Slint-свойства только при изменении, отброс устаревших событий по req_gen (ADR-02, И-Р13, И-Р14); юнит-тесты. Файл: src/app/ui_audio_state.rs (новый; mod в src/app/mod.rs). Проверка: cargo test ui_audio_state
-[x] Шаг 26: SlintEventSink: mpsc + флаг wake_pending + slint::invoke_from_event_loop, держит Weak (ADR-02). Файл: src/app/engine_sink.rs (новый; mod в src/app/mod.rs). Проверка: cargo check
-[x] Шаг 27: Мост AudioFacade: методы с сигнатурами Player, которые использует app (play/stop/toggle/seek/volume/muted/snapshot/is_playing/stream_desc/format/set_* …), поверх EngineHandle.send + UiAudioState; open — асинхронный (без возврата TrackInfo). Файл: src/app/audio_facade.rs (новый). Проверка: cargo check
-[x] Шаг 28: Вынести обработку результата открытия в playback_manager в отдельные методы: ветка Ok(info) → on_track_opened(index, &TrackInfo), ветка Err → on_open_failed(index, err); поведение не меняется, Player пока прежний (подготовка к асинхронному open, ADR-01, ТЗ-103). Файл: src/app/playback_manager.rs. Проверка: cargo check + cargo test --bin music-player-rs
-[x] Шаг 29: Запуск движка в main.rs ДО AppCore::with_deps (ADR-19: deps строит main): event_channel(slint_wake()) + EngineDeps::system(events, dir, journal) + EngineHandle::spawn; MusicApp::new принимает Result<EngineHandle, EngineFault> и EngineEventQueue и хранит их в новых полях (Player пока прежний). Файлы: src/main.rs, src/app/mod.rs (сигнатура new + поля). Проверка: cargo check
-[x] Шаг 30: MusicApp: поле player: Player → AudioFacade (EngineHandle из поля + LegacyAudio из настроек вместо блока Player::new/set_*; ошибка spawn → AudioFacade без движка + сообщение пользователю); exit: замыкание release_engine → AudioFacade::shutdown (мост до шага AppCore::exit); место вызова open в playback_manager — только отправка Open, индекс трека запоминается до события (ADR-01, ТЗ-103). Файлы: src/app/mod.rs, src/app/playback_manager.rs (только вызов open). Проверка: cargo check
-[x] Шаг 31: drain_engine_events в начале tick: очередь → AudioFacade::on_event (буфер событий переиспользуется); новый открытый трек → on_track_opened (ADR-02, И-Р13). Файл: src/app/mod.rs. Проверка: cargo check
-[x] Шаг 32: Разбор остальных Applied: Skipped → пропуск трека, OpenFailed → on_open_failed, Ended → переход к следующему (без двойного шага с опросом ended() в tick), DeviceLost/Notice → существующие обработчики (ADR-01, ТЗ-103). Файл: src/app/mod.rs. Проверка: cargo check
-[x] Шаг 33: Пробуждение UI по событию: install_drain_hook в main.rs — Weak<RefCell<MusicApp>>, upgrade + try_borrow_mut → drain_engine_events (занято — догонит tick) (ADR-02, ТЗ-60, ТЗ-106). Файл: src/main.rs. Проверка: cargo check
-[x] Шаг 34: Rc-цикл R-20, подшаг 1 (мост): в mod.rs метод fn ui(&self) -> AppWindow (пока self.ui.clone_strong(); поле ещё сильное), все обращения self.ui./a.ui./borrow().ui. в mod.rs → ui() (ADR-01, ТЗ-45). Файл: src/app/mod.rs. Проверка: cargo check
-[x] Шаг 35: Rc-цикл R-20, подшаг 2: обращения к self.ui в playback_manager.rs → self.ui() (ТЗ-45). Файл: src/app/playback_manager.rs. Проверка: cargo check
-[x] Шаг 36: Rc-цикл R-20, подшаг 3: обращения к self.ui в visualizer_manager.rs и playlist_manager.rs → self.ui() (ТЗ-45). Файлы: src/app/visualizer_manager.rs, src/app/playlist_manager.rs. Проверка: cargo check
-[x] Шаг 37: Rc-цикл R-20, подшаг 4: обращения к self.ui в ui_manager.rs → self.ui() (ТЗ-45). Файл: src/app/ui_manager.rs. Проверка: cargo check
-[x] Шаг 38: Rc-цикл R-20, подшаг 5: обращения к self.ui в viz_settings_manager.rs → self.ui() (ТЗ-45). Файл: src/app/viz_settings_manager.rs. Проверка: cargo check
-[x] Шаг 39: Rc-цикл R-20, подшаг 6: обращения к self.ui в fulltrack_manager.rs → self.ui() (ТЗ-45). Файл: src/app/fulltrack_manager.rs. Проверка: cargo check (grep: вне ui() прямых self.ui. не осталось)
-[x] Шаг 40: Rc-цикл R-20, подшаг 7: поле ui: slint::Weak<AppWindow>, ui() = upgrade().expect (окно живёт дольше всех вызовов MusicApp, комментарий почему), MusicApp::new принимает Weak, main.rs передаёт ui.as_weak() (ADR-01, ТЗ-45). Файлы: src/app/mod.rs, src/main.rs. Проверка: cargo check
-[x] Шаг 41: Убрать вызов probe_output из app: окно показывается до проверки устройства, результат — событиями движка Devices / Notice::DevicesUnavailable (ТЗ-104). Файл: src/app/mod.rs. Проверка: cargo check
-[x] Шаг 42: Удалить busy-wait probe_output и PROBE_OPEN_MS (и их тесты) (ТЗ-104). Файл: src/audio/output.rs. Проверка: cargo check
-[x] Шаг 43: ТЗ-101 подшаг 1 (мост): MusicApp::new принимает &AppWindow и сохраняет ui.as_weak() (без upgrade/expect); добавить pub(super) fn try_ui(&self) -> Option<AppWindow> (self.ui.upgrade(), doc: None — окно уже уничтожено, вызывающий молча выходит; R-20, ТЗ-45, ТЗ-101). ui() с expect пока остаётся мостом. Файлы: src/app/mod.rs, src/main.rs. Проверка: cargo check
-[x] Шаг 44: ТЗ-101 подшаг 2: все вызовы ui() в src/app/mod.rs (вкл. bind_callbacks и замыкания) → try_ui() с let-else (`let Some(ui) = self.try_ui() else { return };`, в функциях со значением — нейтральный результат). Файл: src/app/mod.rs. Проверка: cargo check
-[x] Шаг 45: ТЗ-101 подшаг 3: ui() → try_ui() в playback_manager. Файл: src/app/playback_manager.rs. Проверка: cargo check
-[x] Шаг 46: ТЗ-101 подшаг 4: ui() → try_ui() в ui_manager. Файл: src/app/ui_manager.rs. Проверка: cargo check
-[x] Шаг 47: ТЗ-101 подшаг 5: ui() → try_ui() в viz_settings_manager. Файл: src/app/viz_settings_manager.rs. Проверка: cargo check
-[x] Шаг 48: ТЗ-101 подшаг 6: ui() → try_ui() в visualizer_manager и playlist_manager. Файлы: src/app/visualizer_manager.rs, src/app/playlist_manager.rs. Проверка: cargo check
-[x] Шаг 49: ТЗ-101 подшаг 7: ui() → try_ui() в fulltrack_manager. Файл: src/app/fulltrack_manager.rs. Проверка: cargo check
-[x] Шаг 50: ТЗ-101 подшаг 8: удалить мост ui() с expect; grep -rn '.ui()' src/app пуст; cargo clippy без expect_used/unwrap_used. Файл: src/app/mod.rs. Проверка: cargo check + cargo clippy
-[x] Шаг 51: ЧЕКПОИНТ шагов 25–50 + ручной запуск cargo run за пользователем (играет в Совместимом режиме, переключение треков, ошибка файла видна). ЧЕКПОИНТ: полный cargo test + cargo clippy (0 новых варнингов в файлах вайтлиста). После коммита — очистка сессии (/clear) по договорённости с пользователем
-[x] Шаг 52: EngineHandle::sender() → EngineSender (Clone + Send, send(cmd) -> bool) для владельцев вне MusicApp (ADR-01). Файл: src/engine/run.rs. Проверка: cargo check
-[x] Шаг 53: EngineSink в AppDeps (spec 02 §2.12) + RecordingEngine-фейк; main.rs передаёт EngineSender. Файлы: src/core/mod.rs, src/core/testing.rs, src/main.rs (одна строка AppDeps). Проверка: cargo check
-[x] Шаг 54: Ожидание ShutdownComplete: EngineEventQueue::wait_for(pred, timeout) (recv_timeout, прочие события не теряются — возвращаются в разбор) (§6.28 п. 3). Файл: src/app/engine_sink.rs. Проверка: cargo test engine_sink
-[x] Шаг 55: AppCore::exit: release_engine → deps.engine.send(Shutdown); запись settings/state не ждёт ShutdownComplete (ОВС-16, ТЗ-136, §6.28); комментарий «мост до С5/С6» обновить. Файл: src/core/mod.rs. Проверка: cargo check
-[x] Шаг 56: MusicApp::exit: замыкание await_engine = engine_events.wait_for(2 с от запроса, ShutdownComplete, прочие события — в UiAudioState/dispatch), затем quit_event_loop; AudioFacade::shutdown на пути выхода убрать — EngineHandle join-ится при drop после ShutdownComplete (ТЗ-45, §6.28 п. 3, З-3(в) 02_settings: путь выхода синхронный, блокирующее ожидание на UI-потоке допустимо). Файл: src/app/mod.rs. Проверка: cargo check
-[x] Шаг 57: Тесты выхода: существующие тесты на новый путь + shutdown_writes_settings_even_on_timeout (ТЗ-136). Файл: src/core/testing.rs. Проверка: cargo test core::
-[x] Шаг 58: ЧЕКПОИНТ шагов 52–57. ЧЕКПОИНТ: полный cargo test + cargo clippy (0 новых варнингов в файлах вайтлиста)
-[x] Шаг 59: Финал: поправить doc-комментарий модуля src/app/audio_facade.rs (мост снимается на С5, не «шаги 45–49»); полный cargo test + clippy, tools/check_rt_imports.py, grep Player вне src/engine и src/audio, ROADMAP ✅, ручные проверки за пользователем (UI не блокируется, ошибки треков видны, Exclusive через старый путь, выход ≤ 2 с). Файлы: ROADMAP.md, _STATE_.yaml. Проверка: всё зелёное
-
-- **Текущий шаг (current_step):** Шаг 59
-- **Следующий ход:** Шаг 59 (финал С3): doc-комментарий audio_facade.rs → снятие на С5; полный cargo test + clippy, tools/check_rt_imports.py, grep Player вне src/engine и src/audio; ROADMAP ✅; ручные проверки — пользователю. Ручная проверка выхода (≤2 с, настройки сохраняются) подтверждена пользователем 2026-10-08. Решение пользователя 2026-10-08: мост AudioFacade остаётся до С5 (прежние шаги 59–63 сняты).
-- **Счетчик безуспешных компиляций:** 0/3
-- **Состояние:** in_progress
+- **Текущая задача:** Нет (все шаги завершены)
+- **Состояние:** done
 
 ## План: Executable workflow: правила AGENTS.md → исполняемые механизмы
 _Источник: чат с пользователем (ноутбук), начат в 67686ce; перенесён в репо 2026-09-22_
@@ -119,7 +14,8 @@ _Источник: чат с пользователем (ноутбук), нач
   - Инструмент готов; ждёт прогонов пакета baseline-2026-09 на linux и windows (python tools/acceptance.py status)
 - [>] **13.** Реализация AM1.0 + SP1.0 по сквозному порядку (ROADMAP.md): docs/01_audio_modes_v1.0/ (С0…С11) и docs/02_settings_persistence_v1.0/ (С0…С12) — ТЕКУЩАЯ ОСНОВНАЯ ЗАДАЧА
   - Закрытые этапы и баги — в ROADMAP.md (✅ с хэшем); здесь только открытое.
-  - ТЕКУЩИЙ: AM1.0-8.3 (С3 (01) «Поток движка») — микро-шаги в steps; потом SP1.0-8.6.
+  - ТЕКУЩИЙ: AM1.0-8.3 закрыт в 15382f9 (2026-10-08); следующий — SP1.0-8.6 (С6 (02) «Модель плейлиста»).
+  - Ручные проверки за пользователем: AM1.0-8.3 — UI не блокируется при открытии/смене трека и устройства; ошибки треков видны; Exclusive через старый cpal-путь; выход ≤ 2 с (выход подтверждён 2026-10-08).
   - На С5 (решение пользователя 2026-10-08): снять мост src/app/audio_facade.rs — вызовы в playback_manager, visualizer_manager, playlist_manager, bp_report, mod.rs → прямая работа с EngineHandle/SignalPath/BadgeState; удалить файл; снять #![allow(dead_code)] в engine_sink.rs и ui_audio_state.rs. Состояние фасада (req_gen, кэш транспорта/трека/потока, ended, очередь резервирования, volume/muted/LegacyAudio) переносить целиком, не по файлам.
   - Ручные проверки за пользователем: AM1.0-8.1 — сценарии ТЗ-1/2/48/118/119/120/122.
   - Ручные проверки за пользователем: SP1.0-8.2 — меню при открытом диалоге/окне сообщения, Enter/Esc, Совместимый режим.
