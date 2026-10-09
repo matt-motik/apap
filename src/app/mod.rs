@@ -2647,23 +2647,6 @@ mod tests {
     }
 
     #[test]
-    fn sort_rows_compare_orders_by_column() {
-        let mut a = track("Bee", "z", "1999", 100, Some(100.0));
-        let mut b = track("Alfa", "a", "2000", 500, Some(50.0));
-        a.genre = Some("Metal".to_string());
-        b.genre = Some("Blues".to_string());
-        a.track_number = 2;
-        b.track_number = 1;
-        assert_eq!(playlist::sort_rows_compare(&a, &b, ColumnId::Title), std::cmp::Ordering::Greater);
-        assert_eq!(playlist::sort_rows_compare(&a, &b, ColumnId::Artist), std::cmp::Ordering::Greater);
-        assert_eq!(playlist::sort_rows_compare(&a, &b, ColumnId::Genre), std::cmp::Ordering::Greater);
-        assert_eq!(playlist::sort_rows_compare(&a, &b, ColumnId::TrackNumber), std::cmp::Ordering::Greater);
-        assert_eq!(playlist::sort_rows_compare(&a, &b, ColumnId::Year), std::cmp::Ordering::Less);
-        assert_eq!(playlist::sort_rows_compare(&a, &b, ColumnId::Bitrate), std::cmp::Ordering::Less);
-        assert_eq!(playlist::sort_rows_compare(&a, &b, ColumnId::Duration), std::cmp::Ordering::Greater);
-    }
-
-    #[test]
     fn num_slash_total_formats_numbers() {
         assert_eq!(fmt_num(0, 0).as_str(), "\u{2014}");
         assert_eq!(fmt_num(3, 0).as_str(), "3");

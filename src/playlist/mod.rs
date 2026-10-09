@@ -154,9 +154,12 @@ pub fn get_duration_string(duration: Option<f64>) -> String {
         .unwrap_or_else(|| "--:--".into())
 }
 
-/// Linear (non-shuffle) navigation destination. `direction` is +1 for next,
-/// -1 for prev. Repeat::All wraps; Off/One advance without wrapping (manual
-/// navigation under Repeat One still moves to the next track).
+/// Linear (non-shuffle) navigation destination. Indices are positions in the
+/// visible order (`Playlist::visible`, §3.1). `direction` is +1 for next, -1
+/// for prev. `current == None` always returns the first visible track
+/// (§7.5, ТЗ-46), regardless of direction/repeat. Repeat::All wraps;
+/// Off/One advance without wrapping (manual navigation under Repeat One
+/// still moves to the next track).
 pub fn advance_index(
     current: Option<usize>,
     direction: i32,
@@ -166,7 +169,10 @@ pub fn advance_index(
     if n == 0 {
         return None;
     }
-    let cur = current.unwrap_or(0).min(n - 1) as i64;
+    let Some(cur) = current else {
+        return Some(0);
+    };
+    let cur = cur.min(n - 1) as i64;
     match repeat {
         crate::settings::RepeatMode::All => {
             Some((cur + direction as i64).rem_euclid(n as i64) as usize)
@@ -177,36 +183,6 @@ pub fn advance_index(
                 None
             } else {
                 Some(next as usize)
-            }
-        }
-    }
-}
-
-/// Shuffle navigation along a permuted `order`. Returns the destination
-/// playlist index and the new position within `order`, or None when the move
-/// is not allowed (end/start without Repeat::All).
-pub fn advance_shuffle(
-    order: &[usize],
-    pos: usize,
-    direction: i32,
-    repeat: crate::settings::RepeatMode,
-) -> Option<(usize, usize)> {
-    let n = order.len();
-    if n == 0 {
-        return None;
-    }
-    let pos = pos.min(n - 1) as i64;
-    match repeat {
-        crate::settings::RepeatMode::All => {
-            let np = (pos + direction as i64).rem_euclid(n as i64) as usize;
-            Some((order[np], np))
-        }
-        _ => {
-            let np = pos + direction as i64;
-            if np < 0 || np >= n as i64 {
-                None
-            } else {
-                Some((order[np as usize], np as usize))
             }
         }
     }
@@ -287,46 +263,6 @@ pub fn sort_rows_text(track: &Track, col: ColumnId) -> String {
     }
 }
 
-fn opt_str(s: Option<&str>) -> &str {
-    s.filter(|x| !x.is_empty()).unwrap_or("")
-}
-
-/// Compare two tracks for sorting by a column (ascending).
-pub fn sort_rows_compare(a: &Track, b: &Track, col: ColumnId) -> std::cmp::Ordering {
-    use std::cmp::Ordering;
-    match col {
-        ColumnId::TrackNumber => a.track_number.cmp(&b.track_number),
-        ColumnId::Title => a.title.cmp(&b.title),
-        ColumnId::Artist => opt_str(a.artist.as_deref()).cmp(opt_str(b.artist.as_deref())),
-        ColumnId::Album => opt_str(a.album.as_deref()).cmp(opt_str(b.album.as_deref())),
-        ColumnId::Genre => opt_str(a.genre.as_deref()).cmp(opt_str(b.genre.as_deref())),
-        ColumnId::Year => a.year.cmp(&b.year),
-        ColumnId::Format => a.format.cmp(&b.format),
-        ColumnId::Bitrate => a.bitrate.cmp(&b.bitrate),
-        ColumnId::BitDepth => a.bit_depth.cmp(&b.bit_depth),
-        ColumnId::SampleRate => a.sample_rate.cmp(&b.sample_rate),
-        ColumnId::Duration => a
-            .duration
-            .partial_cmp(&b.duration)
-            .unwrap_or(Ordering::Equal),
-        ColumnId::FileName => {
-            let fa = a
-                .path
-                .file_name()
-                .map(|f| f.to_string_lossy().into_owned())
-                .unwrap_or_default();
-            let fb = b
-                .path
-                .file_name()
-                .map(|f| f.to_string_lossy().into_owned())
-                .unwrap_or_default();
-            fa.cmp(&fb)
-        }
-        ColumnId::FilePath => a.path.cmp(&b.path),
-        ColumnId::NowPlaying => Ordering::Equal,
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -387,33 +323,26 @@ mod tests {
         let _ = std::fs::remove_file(&path);
     }
 
+    /// §7, ТЗ-40: Repeat All wraps at both ends of the visible order; Off/One
+    /// clamp instead of wrapping.
     #[test]
-    fn advance_index_wraps_on_repeat_all() {
+    fn repeat_all_wraps_visible_order() {
         use crate::settings::RepeatMode;
         assert_eq!(advance_index(Some(4), 1, 5, RepeatMode::All), Some(0));
         assert_eq!(advance_index(Some(0), -1, 5, RepeatMode::All), Some(4));
         assert_eq!(advance_index(Some(2), -1, 5, RepeatMode::All), Some(1));
-    }
-
-    #[test]
-    fn advance_index_clamps_without_repeat() {
-        use crate::settings::RepeatMode;
         assert_eq!(advance_index(Some(4), 1, 5, RepeatMode::Off), None);
         assert_eq!(advance_index(Some(0), -1, 5, RepeatMode::Off), None);
         assert_eq!(advance_index(Some(2), 1, 5, RepeatMode::One), Some(3));
-        assert_eq!(advance_index(None, 1, 5, RepeatMode::Off), Some(1));
     }
 
+    /// §7, ТЗ-46: «Далее»/«Назад» without a current track plays the first
+    /// track of the visible order, regardless of direction/repeat.
     #[test]
-    fn advance_shuffle_navigates_order() {
+    fn next_without_current_plays_first_visible() {
         use crate::settings::RepeatMode;
-        let order = vec![3usize, 1, 4, 0, 2];
-        assert_eq!(advance_shuffle(&order, 0, 1, RepeatMode::Off), Some((1, 1)));
-        assert_eq!(advance_shuffle(&order, 4, 1, RepeatMode::Off), None);
-        assert_eq!(advance_shuffle(&order, 4, 1, RepeatMode::All), Some((3, 0)));
-        assert_eq!(
-            advance_shuffle(&order, 0, -1, RepeatMode::All),
-            Some((2, 4))
-        );
+        assert_eq!(advance_index(None, 1, 5, RepeatMode::Off), Some(0));
+        assert_eq!(advance_index(None, 1, 5, RepeatMode::All), Some(0));
+        assert_eq!(advance_index(None, 1, 0, RepeatMode::Off), None);
     }
 }

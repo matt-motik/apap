@@ -58,11 +58,11 @@
 [x] Шаг 28: Убрать замыкание playlist_bytes из AppCore::tick/retry/exit (снимок из своего Playlist) (§4.2, ТЗ-12). Файлы: src/core/mod.rs, src/core/testing.rs (+ вызовы в src/app/mod.rs). Проверка: cargo check
 [x] Шаг 29: state_file: SortKey/SortDirection → модельные playlist::model::{SortKey, SortDir} (re-export; sort_column_raw: Option<SortColumn> через from_column), формат state.toml без изменений; убрать мосты to_state_sort_key (core/mod.rs), from_state_sort_key (core/testing.rs), конверсию в session_sort_key (app/mod.rs); ui_manager сравнивает через SortColumn::column() (§3.1, §2.5, ТЗ-43). Файлы: src/persist/state_file.rs, src/core/mod.rs, src/core/testing.rs, src/app/mod.rs, src/app/ui_manager.rs (смена типа lib+bin неделима; все в вайтлисте). Проверка: cargo check + cargo test state_file core::
 [x] Шаг 30: Заголовок таблицы — три состояния: колбэки sort-ascending/descending → core.header_click, sort-order колонок выставляется из состояния (снятие ключа сбрасывает стрелку) (ТЗ-42). Файлы: src/app/mod.rs, src/app/ui_manager.rs (ui/tableview_fork.slint — при необходимости). Проверка: cargo check
-[ ] Шаг 31: Очистка: удалить advance_shuffle, sort_rows_compare и тест advance_shuffle_navigates_order; тесты advance_index → repeat_all_wraps_visible_order, next_without_current_plays_first_visible; удалить тест sort_rows_compare_orders_by_column (§7.5, §8 С6). Файлы: src/playlist/mod.rs, src/app/mod.rs. Проверка: cargo test
+[x] Шаг 31: Очистка: удалить advance_shuffle, sort_rows_compare и тест advance_shuffle_navigates_order; тесты advance_index → repeat_all_wraps_visible_order, next_without_current_plays_first_visible; удалить тест sort_rows_compare_orders_by_column; advance_index(None) → первый видимый (ТЗ-46) (§7.5, §8 С6). Файлы: src/playlist/mod.rs, src/app/mod.rs. Проверка: cargo test
 [ ] Шаг 32: ФИНАЛ: cargo build + cargo test + cargo clippy зелёные; ручная проверка: сортировка/снятие ключа не пишет playlist.m3u, Shuffle; закрытие этапа (Шаг 5). Проверка: всё зелёное
 
-- **Текущий шаг (current_step):** Шаг 31
-- **Следующий ход:** Шаг 31: очистка — удалить advance_shuffle, sort_rows_compare и их тесты; тесты repeat_all_wraps_visible_order, next_without_current_plays_first_visible (src/playlist/mod.rs, src/app/mod.rs)
+- **Текущий шаг (current_step):** Шаг 32
+- **Следующий ход:** Шаг 32: ФИНАЛ — cargo build/test/clippy, ручная проверка, закрытие этапа SP1.0-8.6 (Шаг 5)
 - **Счетчик безуспешных компиляций:** 0/3
 - **Состояние:** in_progress
 
