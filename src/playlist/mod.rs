@@ -8,6 +8,7 @@ use crate::platform::fs::{FileWriter, WriteError};
 use crate::settings::ColumnId;
 
 pub mod compare;
+pub mod load;
 pub mod model;
 pub mod shuffle;
 

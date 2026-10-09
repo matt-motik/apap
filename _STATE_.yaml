@@ -2,15 +2,73 @@
 # _STATE_.md генерируется из этого файла — не редактировать его руками.
 # Редактируйте этот файл, затем: python tools/state_tool.py render
 
-status: done
+status: in_progress
 task:
-  roadmap_id: null
-  title: null
-whitelist: []
-dod: null
-steps: []
-current_step: null
-next_action: null
+  roadmap_id: SP1.0-8.8
+  title: "С8 (02). Загрузка плейлиста, Play Now, экспорт (ТЗ-13, 17, 21, 47, 48)"
+whitelist:
+  - src/playlist/load.rs
+  - src/playlist/mod.rs
+  - src/core/load.rs
+  - src/core/mod.rs
+  - src/core/testing.rs
+  - src/persist/writer.rs
+  - src/main.rs
+  - src/app/mod.rs
+  - src/app/playlist_manager.rs
+  - src/app/playback_manager.rs
+  - ROADMAP.md
+  - _STATE_.yaml
+  - _STATE_.md
+dod: "cargo test и cargo clippy зелёные (0 новых варнингов в файлах вайтлиста); тесты §7 для ТЗ-13/17/21/47/48 (кроме perf_load_playlist_5000 → С12 и проверки Open движка → С5) зелёные; load_track_list, drain_startup_tracks, startup_tracks_rx удалены"
+steps:
+  - id: 1
+    description: "src/playlist/load.rs (новый) + `pub mod load` в src/playlist/mod.rs: типы LoadGen, LoadSource, LoadJob, LoadOutcome (§2.11) и чистые разборщики parse_startup (ОВ-8: UTF-8, BOM, \\r, пусто/#/абсолютный путь, иначе причина «строка N: …») и parse_command (неподдерживаемые/не абсолютные строки пропускаются, повторы отбрасываются) (ADR-5, ADR-16, §6.12, ТЗ-21, ТЗ-13 б). Тесты: load_command_skips_unsupported_lines, разбор startup (`;…`, относительный путь → corrupt; несуществующие абсолютные пути → ок). Проверка: cargo test playlist::load"
+    done: true
+  - id: 2
+    description: "src/playlist/load.rs: run_load(job, reader, probe) — чтение через FileReader (Startup: NotFound → StartupAbsent, иное → ReadFailed; Command: любая ошибка/невалидный UTF-8 → ReadFailed), теги meta::probe_file последовательно, CompareKeys, стабильная сортировка по job.sort; трейт PlaylistLoader, ThreadLoader (поток apap-playlist), ManualLoader (finish/hang) (ADR-16, §2.11, §6.12, ТЗ-47). Тесты run_load на MemStore. Проверка: cargo test playlist::load"
+    done: false
+  - id: 3
+    description: "AppDeps.loader: Box<dyn PlaylistLoader> + reader: Arc<dyn FileReader> (ADR-19, ADR-16): поле в src/core/mod.rs, ManualLoader в Harness (src/core/testing.rs), ThreadLoader в src/main.rs (3 места конструирования — одно поле, без логики). Проверка: cargo check; ЧЕКПОИНТ: cargo test + clippy"
+    done: false
+  - id: 4
+    description: "src/core/load.rs (новый, `mod load` в src/core/mod.rs): LoadState в AppCore; start_startup_load, poll_load → on_load_outcome для Startup: StartupAbsent/StartupCorrupt (journal + WriterCmd::QuarantinePlaylist)/ReadFailed (forbid_playlist + Error)/Loaded (playlist.replace, флаг не взводится); ответы Quarantined → Warning с путём, QuarantineFailed → forbid + Error; устаревшее поколение отбрасывается (ADR-5, ADR-16, §6.12, И-Т9, ТЗ-21, ТЗ-47). Проверка: cargo check"
+    done: false
+  - id: 5
+    description: "src/core/load.rs: start_command_load(path) и Command-исход: ReadFailed → Error, без изменений; Loaded → Play Now: replace + on_playlist_changed, новый проход Shuffle, эффект LoadApplied::PlayNow { first: Option<TrackId> } (stop + open первого — у MusicApp через фасад до С5; поколение Open = req_gen фасада) (ADR-16, §6.12, ТЗ-13 б, ТЗ-48). Проверка: cargo check"
+    done: false
+  - id: 6
+    description: "Тесты ТЗ-21/47/17 (стартовая загрузка) в src/core/testing.rs: startup_playlist_missing, startup_playlist_corrupt_quarantined, startup_playlist_quarantine_failed_is_case_3, startup_playlist_unreadable, startup_playlist_nonexistent_paths_not_corrupt, startup_load_shows_full_sorted_list, startup_load_hang_exit_keeps_playlist, unreadable_playlist_never_written (§7). Проверка: cargo test core::"
+    done: false
+  - id: 7
+    description: "Тесты ТЗ-13 б/17/48 (команда) в src/core/testing.rs: load_playlist_plays_first_by_key (эффект PlayNow первого по ключу, флаг, запись через N), load_playlist_from_pause_and_stop_starts_playback, load_playlist_unreadable_keeps_everything, load_playlist_empty_stops_and_marks_dirty, load_command_exit_writes_old_playlist_if_dirty, load_command_exit_clean_writes_nothing, load_command_timer_writes_old_playlist (§7). Проверка: cargo test core::; ЧЕКПОИНТ: cargo test + clippy"
+    done: false
+  - id: 8
+    description: "src/playlist/mod.rs: serialize_extm3u(tracks в видимом порядке) — #EXTM3U, #EXTINF:<сек|-1>,<«Исполнитель — Название» | одно поле | file_stem>, \\n, без BOM (ADR-17, §6.18, ТЗ-13 а). Тест формата. Проверка: cargo test playlist::"
+    done: false
+  - id: 9
+    description: "src/core/load.rs: AppCore::export(path) → WriterCmd::Export { attempt } из видимого порядка; ExportFailed → Error на попытку, Exported → ничего; PersistTracker не трогается (ADR-17, §6.18, ТЗ-13 а, ТЗ-20). Проверка: cargo check"
+    done: false
+  - id: 10
+    description: "Тесты экспорта: export_writes_visible_order_with_extinf, export_error_window_per_attempt, export_success_no_window в src/core/testing.rs; export_is_atomic в src/persist/writer.rs (ТЗ-13 а, ТЗ-18, ТЗ-20, §7). Проверка: cargo test export"
+    done: false
+  - id: 11
+    description: "src/app/mod.rs: стартовая загрузка через core.start_startup_load + опрос на тике (индикатор busy, сообщения через MessageCenter, гейт set_loading по LoadState); удалить startup_tracks_rx и drain_startup_tracks (ADR-16, ADR-23, ТЗ-47, ТЗ-21). Проверка: cargo check"
+    done: false
+  - id: 12
+    description: "src/app/mod.rs + src/app/playback_manager.rs: «Загрузить плейлист» → core.start_command_load; LoadApplied::PlayNow → stop прежнего, open первого (autoplay), пустой → стоп; убрать синхронный load_track_list из обработчика меню (ADR-16, ТЗ-13 б, ТЗ-48). Проверка: cargo check"
+    done: false
+  - id: 13
+    description: "src/app/playlist_manager.rs + src/app/mod.rs: «Сохранить плейлист» → picker SavePlaylist (.m3u8) → core.export; окно Error по ExportFailed (ADR-17, ADR-10, ТЗ-13 а). Проверка: cargo check"
+    done: false
+  - id: 14
+    description: "src/playlist/mod.rs: удалить load_track_list и тест load_track_list_skips_non_audio_and_comments (заменён тестами шага 1) (§7 «переписать», §8 С8 «удаляется»). Проверка: cargo check"
+    done: false
+  - id: 15
+    description: "ЧЕКПОИНТ финальный: cargo test + cargo clippy (0 новых варнингов в файлах вайтлиста); cargo build"
+    done: false
+current_step: 2
+next_action: "Шаг 2: run_load + PlaylistLoader/ThreadLoader/ManualLoader в src/playlist/load.rs"
 fail_counter: 0
 fail_counter_max: 3
 failed_attempts: []
