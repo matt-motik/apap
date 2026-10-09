@@ -1,6 +1,6 @@
 use std::cell::RefCell;
 use std::collections::{BTreeMap, HashSet};
-use std::path::{Path, PathBuf};
+use std::path::PathBuf;
 use std::rc::Rc;
 use std::sync::mpsc::{channel, Receiver, TryRecvError};
 use std::sync::Arc;
@@ -345,9 +345,16 @@ pub struct MusicApp {
     /// Черновик диалога настроек (§8.1 С3, И-Т7): настройки меняются только
     /// через него и применяются на «Сохранить».
     dialog: Option<DialogDraft>,
-    /// Транзитное состояние выбора темы в диалоге (T1.0 §5.4/§8.2): имя,
-    /// выбранное в ComboBox, не пишется в draft/settings до «Сохранить».
-    theme_selection: Option<String>,
+    /// Транзитное состояние выбора темы в диалоге (T1.0 §5.4/§8.2, ТЗ-22,
+    /// ТЗ-29, ADR-20): имя и уже прочитанные потоком `apap-io` данные темы,
+    /// не пишется в draft/settings до «Сохранить» — «Сохранить» применяет
+    /// сохранённый `Arc<ThemeData>` без повторного чтения файла.
+    theme_selection: Option<(ThemeName, Arc<ThemeData>)>,
+    /// Имя темы, на которое отправлен `IoJob::ReadTheme` по выбору
+    /// пользователя в ComboBox (ТЗ-22, ADR-20); `None` — нет
+    /// пользовательского чтения в полёте (в т.ч. во время чтения текущей
+    /// темы при открытии диалога, которое не является выбором).
+    theme_reading: Option<ThemeName>,
     /// Метаданные темы, показанные под ComboBox (name/description/valid).
     theme_meta: Option<ThemeMeta>,
     cover_tx: Option<std::sync::mpsc::Sender<CoverJob>>,
@@ -590,6 +597,7 @@ impl MusicApp {
             col_sig_stable_ticks: 0,
             dialog: None,
             theme_selection: None,
+            theme_reading: None,
             theme_meta: None,
             cover_tx: Some(cover_tx),
             cover_rx: Some(cover_done_rx),
@@ -928,17 +936,6 @@ impl MusicApp {
 
     // ---------------- Тема: состояние диалога настроек (T1.0) ----------------
 
-    /// Загружает тему по имени файла и валидирует структуру + HEX (§2.3/§6).
-    /// `None` — файл отсутствует или структурно повреждён.
-    fn load_theme_meta(name: &str, themes_dir: &Path) -> Option<ThemeMeta> {
-        let data = ThemeData::load_from_file(&themes_dir.join(format!("{name}.toml"))).ok()?;
-        Some(ThemeMeta {
-            name: data.name,
-            description: data.description,
-            valid: validate_colors(&data.colors).is_ok(),
-        })
-    }
-
     /// Применяет метаданные темы к UI диалога (§5.2/§5.3). `None` — тема не
     /// найдена в `themes/`; `name` пуст — файл есть, но не читается/невалиден.
     fn set_theme_meta(&mut self, meta: Option<ThemeMeta>) {
@@ -997,12 +994,17 @@ impl MusicApp {
         }
     }
 
-    /// Применяет ответ `IoJob::ReadTheme` (ТЗ-22, ADR-20, §5.2/§6.2): `Ok` —
-    /// метаданные с полной валидацией (структура + HEX); `Err` — файл есть,
-    /// но не читается/невалиден (Save заблокирован, как при сломанном файле
-    /// до переноса в `apap-io`).
+    /// Применяет ответ `IoJob::ReadTheme` (ТЗ-22, ТЗ-29, ADR-20, §5.2/§6.2):
+    /// `Ok` — метаданные с полной валидацией (структура + HEX); `Err` — файл
+    /// есть, но не читается/невалиден (Save заблокирован, как при сломанном
+    /// файле до переноса в `apap-io`). Если это ответ на пользовательский
+    /// выбор в ComboBox (`theme_reading`, не чтение текущей темы при
+    /// открытии диалога) и тема валидна — прочитанные данные запоминаются в
+    /// `theme_selection`, чтобы «Сохранить» применила их без повторного
+    /// чтения файла.
     fn apply_theme_read(&mut self, result: Result<Arc<ThemeData>, Box<str>>) {
-        let meta = match result {
+        let reading = self.theme_reading.take();
+        let meta = match &result {
             Ok(data) => Some(ThemeMeta {
                 name: data.name.clone(),
                 description: data.description.clone(),
@@ -1014,22 +1016,34 @@ impl MusicApp {
                 valid: false,
             }),
         };
+        if let (Some(name), Ok(data)) = (reading, result) {
+            if meta.as_ref().is_some_and(|m| m.valid) {
+                self.theme_selection = Some((name, data));
+            }
+        }
         self.set_theme_meta(meta);
     }
 
-    /// Обработчик выбора темы в ComboBox (§5.4/§6.3): в draft/settings не
-    /// пишет — показывает метаданные и запоминает имя в `theme_selection`.
+    /// Обработчик выбора темы в ComboBox (§5.4/§6.3, ТЗ-22, ADR-20): без
+    /// доступа к диску — отправляет `IoJob::ReadTheme` потоку `apap-io` и
+    /// блокирует «Сохранить» до ответа (`apply_theme_read` заполнит
+    /// `theme_selection` при валидной теме).
     fn on_settings_theme_selected(&mut self, name: &str) {
-        let themes_dir = self.paths.dir.join("themes");
-        let meta = Self::load_theme_meta(name, &themes_dir).or(Some(ThemeMeta {
-            name: String::new(),
-            description: None,
-            valid: false,
-        }));
-        if meta.as_ref().is_some_and(|m| m.valid) {
-            self.theme_selection = Some(name.to_string());
+        self.theme_selection = None;
+        let Some(theme_name) = ThemeName::new(name) else {
+            self.set_theme_meta(Some(ThemeMeta {
+                name: String::new(),
+                description: None,
+                valid: false,
+            }));
+            return;
+        };
+        self.io_gens.theme = self.io_gens.theme.wrapping_add(1);
+        self.theme_reading = Some(theme_name.clone());
+        self.io.submit(IoJob::ReadTheme { gen: self.io_gens.theme, name: theme_name });
+        if let Some(ui) = self.try_ui() {
+            ui.set_theme_save_enabled(false);
         }
-        self.set_theme_meta(meta);
     }
 
     /// Table header click (ТЗ-42, §6.13): UI reports only which column was
@@ -1261,6 +1275,7 @@ impl MusicApp {
                 // T1.0 §6.2: свежий диалог → сброс транзитного выбора темы и
                 // пересборка списка/метаданных из themes/*.toml.
                 a.theme_selection = None;
+                a.theme_reading = None;
                 a.populate_theme_ui();
                 // Re-push every dialog field from the real settings: a reopened
                 // dialog must show current values, never a stale un-applied draft.
@@ -1817,10 +1832,13 @@ impl MusicApp {
                 let Some(draft) = a.dialog.take() else { return };
                 let old = a.core.settings().clone();
                 let DialogDraft { settings: mut new, viz_mode, column_widths } = draft;
-                // T1.0 §6.4: коммит выбранной в диалоге темы из транзитного поля
-                // (кнопка Save активна только для валидной темы, §5.3).
-                if let Some(name) = a.theme_selection.take().and_then(ThemeName::new) {
-                    new.theme = name;
+                // T1.0 §6.4 (ТЗ-22, ТЗ-29, ADR-20): коммит выбранной в диалоге
+                // темы из транзитного поля (кнопка Save активна только для
+                // валидной темы, §5.3) — данные уже прочитаны потоком
+                // `apap-io`, применяются ниже без повторного чтения файла.
+                let selected_theme = a.theme_selection.take();
+                if let Some((name, _)) = &selected_theme {
+                    new.theme = name.clone();
                 }
 
                 if new.playback.audio_device != old.playback.audio_device {
@@ -1915,10 +1933,11 @@ impl MusicApp {
                         a.play_track(idx);
                     }
                 }
-                if let Some((theme, _)) =
-                    resolve_startup_theme(cur.theme.as_str(), &a.paths.dir.join("themes"))
-                {
-                    a.apply_theme(&theme);
+                // ТЗ-22, ТЗ-29, ADR-20: без выбора темы в этой сессии диалога
+                // тема не меняется и не перечитывается — применяются только
+                // уже прочитанные `apap-io` данные выбранной темы.
+                if let Some((_, data)) = &selected_theme {
+                    a.apply_theme(data);
                 }
                 if let Some(ui) = a.try_ui() {
                     ui.set_cover_size(cur.top_panel.cover_size);

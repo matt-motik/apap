@@ -65,7 +65,7 @@ steps:
   done: true
 - id: 14
   description: 'app/mod.rs: выбор темы → ReadTheme{gen}; прочитанные данные Arc<ThemeData> хранятся с выбором; «Сохранить» применяет их без повторного чтения файла (убрать resolve_startup_theme из обработчика сохранения) (ТЗ-22, ТЗ-29, ADR-20). Файл: src/app/mod.rs. Проверка: cargo check'
-  done: false
+  done: true
 - id: 15
   description: 'ЧЕКПОИНТ: cargo test + cargo clippy (фильтр по src/app/, src/main.rs, src/core/). Файлы: —. Проверка: зелёные, 0 новых варнингов'
   done: false
@@ -81,8 +81,8 @@ steps:
 - id: 19
   description: 'ЧЕКПОИНТ финальный: cargo test + cargo clippy полностью; grep: нет rfd::FileDialog, sync_cache_stats_to_ui на тике, ThemeData::load_from_file/scan_themes_dir в обработчиках UI. Файлы: —. Проверка: зелёные, 0 новых варнингов'
   done: false
-current_step: 14
-next_action: "Шаг 14: новый субагент — выбор темы через ReadTheme, Save без повторного чтения (src/app/mod.rs)"
+current_step: 15
+next_action: "Шаг 15: ЧЕКПОИНТ — cargo test + clippy (test-runner)"
 fail_counter: 0
 fail_counter_max: 3
 failed_attempts: []
