@@ -28,7 +28,7 @@ steps:
   done: true
 - id: 2
   description: 'pick/fake.rs: FakePicker — ответ заданными путями, Cancelled или «никогда» (std::future::pending), счётчик вызовов; тест platform_fakes_picker (§7.1, ADR-10). Файлы: src/platform/pick/fake.rs (новый), src/platform/pick/mod.rs. Проверка: cargo test platform::pick'
-  done: false
+  done: true
 - id: 3
   description: 'pick/rfd.rs: RfdPicker на rfd::AsyncFileDialog — фильтры (аудио; m3u/m3u8; сохранение с .m3u8 по умолчанию, ОВ-17; тема toml), set_directory(start), set_parent(window_handle) (ADR-10, ТЗ-53). Файлы: src/platform/pick/rfd.rs (новый), src/platform/pick/mod.rs. Проверка: cargo check'
   done: false
@@ -80,8 +80,8 @@ steps:
 - id: 19
   description: 'ЧЕКПОИНТ финальный: cargo test + cargo clippy полностью; grep: нет rfd::FileDialog, sync_cache_stats_to_ui на тике, ThemeData::load_from_file/scan_themes_dir в обработчиках UI. Файлы: —. Проверка: зелёные, 0 новых варнингов'
   done: false
-current_step: 2
-next_action: "Шаг 2: новый субагент — src/platform/pick/fake.rs (FakePicker)"
+current_step: 3
+next_action: "Шаг 3: новый субагент — src/platform/pick/rfd.rs (RfdPicker)"
 fail_counter: 0
 fail_counter_max: 3
 failed_attempts: []

@@ -46,3 +46,6 @@ pub trait FilePicker {
         parent: Option<&slint::Window>,
     ) -> Pin<Box<dyn Future<Output = PickResult>>>;
 }
+
+pub mod fake;
+pub use fake::{FakeAnswer, FakePicker};
