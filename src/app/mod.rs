@@ -24,7 +24,7 @@ use music_player_rs::core::messages::{
     CloseEffect, Message, MessageButton, MessageButtons, MessageCenter, MessageLevel, MsgEffect,
 };
 use music_player_rs::core::exit::{ExitOutcome, ExitReason};
-use music_player_rs::core::io::{CacheSizes, IoDone, IoJob, IoWorker};
+use music_player_rs::core::io::{CacheKind, CacheSizes, IoDone, IoJob, IoWorker};
 use music_player_rs::core::AppCore;
 use music_player_rs::cover::{self, CoverDone, CoverJob};
 use music_player_rs::engine::messages::{EngineEvent, LegacyAudio, Notice, SkipReason};
@@ -1996,42 +1996,45 @@ impl MusicApp {
             });
         }
 
-        // 31f. settings-clear-viz-cache (§10.5): RAM + disk clear + sync stats
+        // 31f. settings-clear-viz-cache (ТЗ-34, ADR-20, §6.9): RAM-кэш — в UI,
+        // диск — apap-io (ClearCache)
         {
             let app = this.clone();
             ui.on_settings_clear_viz_cache(move || {
                 eprintln!("[gui] settings_clear_viz_cache");
                 let mut a = app.borrow_mut();
                 a.fulltrack_cache.clear();
-                let removed_disk = music_player_rs::audio::fulltrack::clear_disk_cache();
-                eprintln!("[gui] viz cache cleared: disk removed={removed_disk}");
-                a.sync_cache_stats_to_ui();
+                a.io_gens.clear = a.io_gens.clear.wrapping_add(1);
+                a.io.submit(IoJob::ClearCache { gen: a.io_gens.clear, which: CacheKind::Visualization });
+                let disk = a.cache_disk;
+                a.apply_cache_sizes(&disk);
             });
         }
 
-        // 31g. settings-clear-cover-cache (§10.5): disk clear + sync stats
+        // 31g. settings-clear-cover-cache (ТЗ-34, ADR-20, §6.9): RAM-кэш — в
+        // UI, диск — apap-io (ClearCache)
         {
             let app = this.clone();
             ui.on_settings_clear_cover_cache(move || {
                 eprintln!("[gui] settings_clear_cover_cache");
-                let a = app.borrow_mut();
-                let removed = cover::clear_cover_cache();
-                eprintln!("[gui] cover cache cleared: removed={removed}");
-                a.sync_cache_stats_to_ui();
+                let mut a = app.borrow_mut();
+                a.io_gens.clear = a.io_gens.clear.wrapping_add(1);
+                a.io.submit(IoJob::ClearCache { gen: a.io_gens.clear, which: CacheKind::Covers });
             });
         }
 
-        // 31h. settings-clear-all-cache (§10.5): viz + cover + sync stats
+        // 31h. settings-clear-all-cache (ТЗ-34, ADR-20, §6.9): RAM-кэш — в
+        // UI, диск — apap-io (ClearCache)
         {
             let app = this.clone();
             ui.on_settings_clear_all_cache(move || {
                 eprintln!("[gui] settings_clear_all_cache");
                 let mut a = app.borrow_mut();
                 a.fulltrack_cache.clear();
-                let removed_viz = music_player_rs::audio::fulltrack::clear_disk_cache();
-                let removed_cover = cover::clear_cover_cache();
-                eprintln!("[gui] all cache cleared: viz_disk={removed_viz}, cover={removed_cover}");
-                a.sync_cache_stats_to_ui();
+                a.io_gens.clear = a.io_gens.clear.wrapping_add(1);
+                a.io.submit(IoJob::ClearCache { gen: a.io_gens.clear, which: CacheKind::All });
+                let disk = a.cache_disk;
+                a.apply_cache_sizes(&disk);
             });
         }
 
@@ -2208,8 +2211,8 @@ impl MusicApp {
 
     /// Разбирает ответы потока `apap-io` на тике: ответы сверяются с
     /// поколением своего вида; устаревшие отбрасываются (ADR-20). Свежий
-    /// `CacheSizes` применяется в UI (ТЗ-22); чтение/список тем и очистка
-    /// кэша приходят отдельными шагами — пока отбрасываются.
+    /// `CacheSizes`/`Cleared` применяется в UI (ТЗ-22, ТЗ-34); чтение/список
+    /// тем приходят отдельными шагами — пока отбрасываются.
     fn drain_io(&mut self) {
         while let Some(done) = self.io.try_recv() {
             let stale = match &done {
@@ -2221,9 +2224,12 @@ impl MusicApp {
             if stale {
                 continue;
             }
-            if let IoDone::CacheSizes { sizes, .. } = done {
-                self.cache_disk = sizes;
-                self.apply_cache_sizes(&sizes);
+            match done {
+                IoDone::CacheSizes { sizes, .. } | IoDone::Cleared { sizes, .. } => {
+                    self.cache_disk = sizes;
+                    self.apply_cache_sizes(&sizes);
+                }
+                _ => {}
             }
         }
     }

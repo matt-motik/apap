@@ -222,16 +222,6 @@ impl MusicApp {
             .set_settings_cache_cover_size(music_player_rs::audio::fulltrack::fmt_cache_bytes(disk.covers).into());
     }
 
-    /// Мост С7: синхронный подсчёт в UI-потоке; удаляется, когда вызовы
-    /// переходят на ответы apap-io (ТЗ-22).
-    pub(super) fn sync_cache_stats_to_ui(&self) {
-        let disk = music_player_rs::core::io::CacheSizes {
-            viz_disk: music_player_rs::audio::fulltrack::disk_cache_size(),
-            covers: music_player_rs::cover::cover_cache_size(),
-        };
-        self.apply_cache_sizes(&disk);
-    }
-
     /// Синхронизация DSD-полей диалога настроек: текущий режим (0=PCM,
     /// 1=Native, 2=DoP) и признак конфликта «DSD→PCM + bit-perfect» (§8.4).
     pub(super) fn sync_dsd_settings_to_ui(&self) {
