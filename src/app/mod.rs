@@ -7,7 +7,6 @@ use std::sync::Arc;
 use std::thread;
 use std::time::{Duration, Instant};
 
-use rfd::FileDialog;
 use slint::{ComponentHandle, Model, ModelRc, SharedString, StandardListViewItem, VecModel};
 use slint::language::{SortOrder, TableColumn};
 
@@ -1388,20 +1387,11 @@ impl MusicApp {
                 if !app.borrow().gate.allows(MainCmd::AddFolder) {
                     return;
                 }
-                {
-                    let mut a = app.borrow_mut();
-                    a.gate.block(BlockReason::FilePicker);
-                    a.sync_gate_ui();
-                }
-                let folder = FileDialog::new().pick_folder();
-                {
-                    let mut a = app.borrow_mut();
-                    a.gate.unblock(BlockReason::FilePicker);
-                    a.sync_gate_ui();
-                }
-                if let Some(folder) = folder {
-                    app.borrow_mut().start_scan(vec![folder]);
-                }
+                MusicApp::pick_async(
+                    &app,
+                    |start| PickRequest::AddFolder { start },
+                    |app, paths| app.borrow_mut().start_scan(paths),
+                );
             });
         }
 
@@ -1426,39 +1416,31 @@ impl MusicApp {
                 if !app.borrow().gate.allows(MainCmd::LoadPlaylist) {
                     return;
                 }
-                {
-                    let mut a = app.borrow_mut();
-                    a.gate.block(BlockReason::FilePicker);
-                    a.sync_gate_ui();
-                }
-                let picked = FileDialog::new()
-                    .add_filter("Playlist", &["m3u", "m3u8"])
-                    .pick_file();
-                {
-                    let mut a = app.borrow_mut();
-                    a.gate.unblock(BlockReason::FilePicker);
-                    a.sync_gate_ui();
-                }
-                if let Some(path) = picked {
-                    let tracks = playlist::load_track_list(&path);
-                    let mut a = app.borrow_mut();
-                    // МОСТ (§6.13, ТЗ-42, ТЗ-45): строки для модели плейлиста
-                    // и восстановление видимого порядка по ключу сессии.
-                    let rows: Vec<(Track, CompareKeys)> = tracks
-                        .into_iter()
-                        .map(|t| {
-                            let keys = CompareKeys::from_track(&t);
-                            (t, keys)
-                        })
-                        .collect();
-                    let key = a.session_sort_key();
-                    let visible = MusicApp::load_visible_order(&rows, key);
-                    a.core.playlist_replace(rows, visible, key);
-                    a.rebuild_known_paths();
-                    a.current = None;
-                    a.sync_playlist_to_ui();
-                    a.emit(AppEvent::QueueChanged);
-                }
+                MusicApp::pick_async(
+                    &app,
+                    |start| PickRequest::OpenPlaylist { start },
+                    |app, paths| {
+                        let path = &paths[0];
+                        let tracks = playlist::load_track_list(path);
+                        let mut a = app.borrow_mut();
+                        // МОСТ (§6.13, ТЗ-42, ТЗ-45): строки для модели плейлиста
+                        // и восстановление видимого порядка по ключу сессии.
+                        let rows: Vec<(Track, CompareKeys)> = tracks
+                            .into_iter()
+                            .map(|t| {
+                                let keys = CompareKeys::from_track(&t);
+                                (t, keys)
+                            })
+                            .collect();
+                        let key = a.session_sort_key();
+                        let visible = MusicApp::load_visible_order(&rows, key);
+                        a.core.playlist_replace(rows, visible, key);
+                        a.rebuild_known_paths();
+                        a.current = None;
+                        a.sync_playlist_to_ui();
+                        a.emit(AppEvent::QueueChanged);
+                    },
+                );
             });
         }
 
