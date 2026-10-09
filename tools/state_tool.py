@@ -178,9 +178,18 @@ def render_markdown(data: dict) -> str:
     lines.append(f"- **Критерий успеха (Definition of Done):** {data['dod']}")
     lines.append("")
     lines.append("## Итерационный трекер")
+    # Пункты списка (`- `), иначе Markdown склеивает строки трекера в один абзац;
+    # текущий незавершённый шаг — `[>]` и жирным, чтобы было видно, над чем идёт работа.
+    current = data.get("current_step")
     for step in data["steps"]:
-        mark = "x" if step["done"] else " "
-        lines.append(f"[{mark}] Шаг {step['id']}: {step['description']}")
+        if step["done"]:
+            lines.append(f"- [x] Шаг {step['id']}: {step['description']}")
+        elif str(step["id"]) == str(current):
+            lines.append(f"- [>] **Шаг {step['id']}: {step['description']}**")
+        else:
+            lines.append(f"- [ ] Шаг {step['id']}: {step['description']}")
+    lines.append("")
+    lines.append("Легенда: [x] сделано · [>] текущий шаг · [ ] не начато")
     lines.append("")
     lines.append(f"- **Текущий шаг (current_step):** Шаг {data.get('current_step')}")
     lines.append(f"- **Следующий ход:** {data.get('next_action') or ''}")

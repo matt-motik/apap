@@ -21,6 +21,7 @@ whitelist:
 - src/app/ui_manager.rs
 - src/app/fulltrack_manager.rs
 - ROADMAP.md
+- tools/state_tool.py
 dod: FilePicker/RfdPicker/FakePicker (§2.8, ADR-10); поток apap-io с IoJob/IoDone и FakeIo (§2.12, ADR-20); выбор файлов не блокирует цикл событий, шлюз держит причину FilePicker (ТЗ-53); размер кэшей считается при открытии диалога и после очистки, не на тике; очистка и чтение тем вне UI-потока (ТЗ-22, ТЗ-34); удалены rfd::FileDialog, sync_cache_stats_to_ui на тике, чтение тем в UI-потоке; cargo test + clippy зелёные; плеер играет в Совместимом режиме
 steps:
 - id: 1
