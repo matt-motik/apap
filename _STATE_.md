@@ -2,69 +2,10 @@
      Source of truth: _STATE_.yaml — edit that, then run:
      python tools/state_tool.py render -->
 
+# Состояние сессии
 
-# Текущая микро-сессия
-
-- **Задача из ROADMAP:** SP1.0-8.6 — С6 (02). Модель плейлиста (Playlist, TrackId, SortKey, CompareKeys, ShuffleState)
-- **Вайтлист файлов в работе (Изменяемые файлы):**
-  - src/playlist.rs
-  - src/playlist/mod.rs
-  - src/playlist/compare.rs
-  - src/playlist/model.rs
-  - src/playlist/shuffle.rs
-  - Cargo.toml
-  - Cargo.lock
-  - src/core/mod.rs
-  - src/core/testing.rs
-  - src/persist/state_file.rs
-  - src/app/mod.rs
-  - src/app/playlist_manager.rs
-  - src/app/playback_manager.rs
-  - src/app/ui_manager.rs
-  - src/app/bp_report.rs
-  - src/app/fulltrack_manager.rs
-  - ui/tableview_fork.slint
-  - ROADMAP.md
-- **Критерий успеха (Definition of Done):** Playlist/TrackId/SortKey/CompareKeys/TextKey/ShuffleState по §3.1/§3.4; сортировка без изменения файла и без записи playlist.m3u (ТЗ-12); снятие ключа третьим кликом (ТЗ-42); правильный Shuffle (Т-ТЗ-46); удалены tracks/disk_tracks/shuffle_order, клоны Track при сортировке, rebuild_shuffle, sort_rows_compare; тесты §7 этапа зелёные; cargo test + clippy зелёные; плеер играет в Совместимом режиме
-
-## Итерационный трекер
-[x] Шаг 1: Перенос модуля: git mv src/playlist.rs src/playlist/mod.rs, объявить подмодули не нужно (§2.1). Файлы: src/playlist.rs → src/playlist/mod.rs. Проверка: cargo check
-[x] Шаг 2: Зависимость icu_normalizer 2.3 (features compiled_data; уже в Cargo.lock) (ОВС-3 а, §6.14). Файлы: Cargo.toml, Cargo.lock. Проверка: cargo check
-[x] Шаг 3: compare.rs: TextKey(Box<[Seg]>), Seg{Text,Num}, TextKey::new (trim → to_lowercase → NFC, цифровые прогоны без ведущих нулей), is_empty, cmp_text (Num/Num по длине→лекс., Num<Text, затем число сегментов) (§3.1, §6.14, ТЗ-40). Файлы: src/playlist/compare.rs (новый), src/playlist/mod.rs. Проверка: cargo check
-[x] Шаг 4: model.rs: TrackId, SortColumn (from_column/column; NowPlaying → None, И-Т4), SortDir, SortKey (§3.1, ТЗ-42, ТЗ-43). Файлы: src/playlist/model.rs (новый), src/playlist/mod.rs. Проверка: cargo check
-[x] Шаг 5: CompareKeys + CompareKeys::from_track (year — первый цифровой прогон; 0 → None для track_no/disc/bitrate/sample_rate; file_name/file_path из path) (§3.1, §6.14, ТЗ-40). Файл: src/playlist/compare.rs. Проверка: cargo check
-[x] Шаг 6: compare_keys(a,b,key): пустые всегда в конце, Desc разворачивает только непустые, вторичные ключи Artist/Album/Year по возрастанию (§6.14, ТЗ-40, ТЗ-41). Файл: src/playlist/compare.rs. Проверка: cargo check
-[x] Шаг 7: Тест compare_rules_all_columns_both_directions (+ натуральный порядок/NFC/пустые) (§7, ТЗ-40, ТЗ-41). Файл: src/playlist/compare.rs. Проверка: cargo test playlist::compare
-[x] Шаг 8: Playlist: Row, PlaylistEffect, new/replace/add (вставка partition_point по ключу, затем pos)/remove/clear, accessors source_order/visible/sort_key/get/first_visible/len/index_of (ADR-15, §3.1, §6.13, ТЗ-45, И-Р14). Файл: src/playlist/model.rs. Проверка: cargo check
-[x] Шаг 9: Playlist::header_click(c, hidden): цикл Asc→Desc→нет, другая колонка → Asc, NowPlaying — no-op, скрытая колонка сохраняет ключ; стабильная сортировка из source order (§6.13, ТЗ-31, ТЗ-42, ТЗ-43). Файл: src/playlist/model.rs. Проверка: cargo check
-[x] Шаг 10: ЧЕКПОИНТ: cargo test + cargo clippy (фильтр по src/playlist/). Файлы: — . Проверка: зелёные, 0 новых варнингов
-[x] Шаг 11: Playlist::reorder(moved, before) — перестановка source order по visible, снятие ключа (sort_changed) (§6.13, ТЗ-44 только модель, ОВ-14 б). Файл: src/playlist/model.rs. Проверка: cargo check
-[x] Шаг 12: Playlist::update_tags(id, track, keys) — пересчёт ключей, видимый порядок не меняется до следующей сортировки (§3.1, ADR-15). Файл: src/playlist/model.rs. Проверка: cargo check
-[x] Шаг 13: Тесты модели: added_track_takes_place_by_key, added_equal_key_goes_after_equals, header_click_cycles_asc_desc_none, other_column_click_starts_asc, now_playing_column_not_sortable, drag_reorder_clears_sort_key, hide_sorted_column_keeps_order (§7, ТЗ-31, 42–45). Файл: src/playlist/model.rs. Проверка: cargo test playlist::model
-[x] Шаг 14: shuffle.rs: ShuffleState{history,current,upcoming}: new_pass, rebuild, order, started, first, конец прохода по RepeatMode (§3.4, ТЗ-46). Файлы: src/playlist/shuffle.rs (новый), src/playlist/mod.rs. Проверка: cargo check
-[x] Шаг 15: Тесты ShuffleState: shuffle_changes_keep_pass и next_without_current_* (Т-ТЗ-46, §7). Файл: src/playlist/shuffle.rs. Проверка: cargo test playlist::shuffle
-[x] Шаг 16: ЧЕКПОИНТ: cargo test + cargo clippy (фильтр по src/playlist/). Проверка: зелёные
-[x] Шаг 17: AppCore владеет Playlist: поле + методы playlist()/playlist_add/remove/clear/header_click/reorder/update_tags/replace, применение PlaylistEffect (dirty → tracker.on_playlist_changed; sort_changed → change_state(User, Sort)); playlist_m3u() по source order (§4.2, §6.13, ТЗ-12 источники флага, ТЗ-43). Мост: StateChange::Sort пока в старом SortKey (конверсия SortColumn::column()). Файл: src/core/mod.rs. Проверка: cargo check
-[x] Шаг 18: AppCore владеет ShuffleState: rebuild при order_changed и Shuffle вкл., new_pass при включении Shuffle, shuffle_first/started (§3.4, §6.13, ТЗ-46). Файл: src/core/mod.rs. Проверка: cargo check
-[x] Шаг 19: Harness-тесты sort_change_does_not_write_playlist, sort_key_restored_after_restart (§7, ТЗ-12, ТЗ-43). Файл: src/core/testing.rs. Проверка: cargo test core::
-[x] Шаг 20: ЧЕКПОИНТ: cargo test + cargo clippy. Проверка: зелёные
-[x] Шаг 21: Мост в приложении: операции плейлиста MusicApp (скан, удаление, очистка, загрузка M3U, стартовая загрузка, сортировка по заголовку) идут через AppCore; tracks/disk_tracks — временное зеркало из core.playlist(); current (видимый индекс) переотображается по TrackId после каждой операции (§6.13, ТЗ-42, ТЗ-45). Файлы: src/app/playlist_manager.rs, src/app/mod.rs. Проверка: cargo check
-[x] Шаг 22: Выбор следующего трека по visible и ShuffleState из AppCore; удалить shuffle_order/shuffle_pos/rebuild_shuffle/sync_shuffle_pos; обновление тегов в on_opened → core.playlist_update_tags (§3.4, §8 С6, ТЗ-45, ТЗ-46). Файлы: src/app/playback_manager.rs, src/app/mod.rs (+ удаление вызовов rebuild_shuffle в src/app/playlist_manager.rs). Проверка: cargo check
-[x] Шаг 23: «Назад» при Shuffle: ShuffleState::back() — текущий трек возвращается в начало upcoming, последний из history становится текущим (повторное «Назад» идёт глубже по истории, без «пинг-понга» через started()); AppCore::shuffle_back(); play_next(-1) вызывает его; тест back_twice_walks_history (§3.4, ТЗ-45). Файлы: src/playlist/shuffle.rs, src/core/mod.rs (+ вызов в src/app/playback_manager.rs). Проверка: cargo test shuffle
-[x] Шаг 24: Чтения self.tracks в playback_manager → core.playlist() через хелпер track_at(i) в mod.rs (ADR-15). Файлы: src/app/playback_manager.rs, src/app/mod.rs. Проверка: cargo check
-[x] Шаг 25: Чтения self.tracks в ui_manager/bp_report/fulltrack_manager → track_at(i); таблица Slint строится по visible (§8 С6). Файлы: src/app/ui_manager.rs, src/app/bp_report.rs, src/app/fulltrack_manager.rs. Проверка: cargo check
-[x] Шаг 26: ЧЕКПОИНТ: cargo test + cargo clippy. Проверка: зелёные; плеер играет
-[x] Шаг 27: Удалить зеркало tracks/disk_tracks из MusicApp; запись playlist.m3u — снимок core.playlist_m3u() (§8 С6 «что удаляется»). Файлы: src/app/mod.rs, src/app/playlist_manager.rs. Проверка: cargo check
-[x] Шаг 28: Убрать замыкание playlist_bytes из AppCore::tick/retry/exit (снимок из своего Playlist) (§4.2, ТЗ-12). Файлы: src/core/mod.rs, src/core/testing.rs (+ вызовы в src/app/mod.rs). Проверка: cargo check
-[x] Шаг 29: state_file: SortKey/SortDirection → модельные playlist::model::{SortKey, SortDir} (re-export; sort_column_raw: Option<SortColumn> через from_column), формат state.toml без изменений; убрать мосты to_state_sort_key (core/mod.rs), from_state_sort_key (core/testing.rs), конверсию в session_sort_key (app/mod.rs); ui_manager сравнивает через SortColumn::column() (§3.1, §2.5, ТЗ-43). Файлы: src/persist/state_file.rs, src/core/mod.rs, src/core/testing.rs, src/app/mod.rs, src/app/ui_manager.rs (смена типа lib+bin неделима; все в вайтлисте). Проверка: cargo check + cargo test state_file core::
-[x] Шаг 30: Заголовок таблицы — три состояния: колбэки sort-ascending/descending → core.header_click, sort-order колонок выставляется из состояния (снятие ключа сбрасывает стрелку) (ТЗ-42). Файлы: src/app/mod.rs, src/app/ui_manager.rs (ui/tableview_fork.slint — при необходимости). Проверка: cargo check
-[x] Шаг 31: Очистка: удалить advance_shuffle, sort_rows_compare и тест advance_shuffle_navigates_order; тесты advance_index → repeat_all_wraps_visible_order, next_without_current_plays_first_visible; удалить тест sort_rows_compare_orders_by_column; advance_index(None) → первый видимый (ТЗ-46) (§7.5, §8 С6). Файлы: src/playlist/mod.rs, src/app/mod.rs. Проверка: cargo test
-[ ] Шаг 32: ФИНАЛ: cargo build + cargo test + cargo clippy зелёные; ручная проверка: сортировка/снятие ключа не пишет playlist.m3u, Shuffle; закрытие этапа (Шаг 5). Проверка: всё зелёное
-
-- **Текущий шаг (current_step):** Шаг 32
-- **Следующий ход:** Шаг 32: ФИНАЛ — cargo build/test/clippy, ручная проверка, закрытие этапа SP1.0-8.6 (Шаг 5)
-- **Счетчик безуспешных компиляций:** 0/3
-- **Состояние:** in_progress
+- **Текущая задача:** Нет (все шаги завершены)
+- **Состояние:** done
 
 ## План: Executable workflow: правила AGENTS.md → исполняемые механизмы
 _Источник: чат с пользователем (ноутбук), начат в 67686ce; перенесён в репо 2026-09-22_
@@ -73,7 +14,8 @@ _Источник: чат с пользователем (ноутбук), нач
   - Инструмент готов; ждёт прогонов пакета baseline-2026-09 на linux и windows (python tools/acceptance.py status)
 - [>] **13.** Реализация AM1.0 + SP1.0 по сквозному порядку (ROADMAP.md): docs/01_audio_modes_v1.0/ (С0…С11) и docs/02_settings_persistence_v1.0/ (С0…С12) — ТЕКУЩАЯ ОСНОВНАЯ ЗАДАЧА
   - Закрытые этапы и баги — в ROADMAP.md (✅ с хэшем); здесь только открытое.
-  - ТЕКУЩИЙ: SP1.0-8.6 (С6 (02) «Модель плейлиста») в работе с 2026-10-08; AM1.0-8.3 закрыт в 15382f9.
+  - ТЕКУЩИЙ: следующий этап SP1.0-8.7 (С7 (02) «Выбор файлов и ввод-вывод вне UI»); SP1.0-8.6 закрыт в 091b0b2 (2026-10-09).
+  - Ручные проверки за пользователем: SP1.0-8.6 — cargo run: щелчок по заголовку Asc→Desc→без ключа (стрелка исчезает), «Сейчас играет» не сортируется; сортировка не меняет mtime playlist.m3u; ключ сортировки восстанавливается после перезапуска; Shuffle проигрывает каждый трек один раз, «Назад» идёт по истории; «Далее» без текущего — первый видимый.
   - Ручные проверки за пользователем: AM1.0-8.3 — UI не блокируется при открытии/смене трека и устройства; ошибки треков видны; Exclusive через старый cpal-путь; выход ≤ 2 с (выход подтверждён 2026-10-08).
   - На С5 (решение пользователя 2026-10-08): снять мост src/app/audio_facade.rs — вызовы в playback_manager, visualizer_manager, playlist_manager, bp_report, mod.rs → прямая работа с EngineHandle/SignalPath/BadgeState; удалить файл; снять #![allow(dead_code)] в engine_sink.rs и ui_audio_state.rs. Состояние фасада (req_gen, кэш транспорта/трека/потока, ended, очередь резервирования, volume/muted/LegacyAudio) переносить целиком, не по файлам.
   - Ручные проверки за пользователем: AM1.0-8.1 — сценарии ТЗ-1/2/48/118/119/120/122.
