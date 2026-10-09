@@ -118,8 +118,8 @@ mod tests {
 
         let start_a = Some(PathBuf::from("/music"));
         let start_b = Some(PathBuf::from("/themes"));
-        let _ = picker.pick(PickRequest::AddFiles { start: start_a.clone() }, None);
-        let _ = picker.pick(PickRequest::ThemeFile { start: start_b.clone() }, None);
+        drop(picker.pick(PickRequest::AddFiles { start: start_a.clone() }, None));
+        drop(picker.pick(PickRequest::ThemeFile { start: start_b.clone() }, None));
 
         assert_eq!(picker.calls(), 2);
         assert_eq!(
