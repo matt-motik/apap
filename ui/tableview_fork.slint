@@ -128,7 +128,6 @@ export component StandardTableView {
     private property <length> min-header-height: 42px;
 
     in property <[[StandardListViewItem]]> rows;
-    out property <int> current-sort-column: -1;
     in-out property <[TableColumn]> columns;
     in-out property <int> current-row: -1;
     in property <bool> enabled <=> scroll-view.enabled;
@@ -164,20 +163,17 @@ export component StandardTableView {
         }
     }
 
+    // Stateless header click (ТЗ-42, §6.13): sort-order is owned by the Rust
+    // model (MusicApp::sort_tracks -> core.playlist_header_click), which
+    // rebuilds `columns` with the Asc -> Desc -> unsorted cycle (or no-op for
+    // a column the model gate rejects). This fork only reports which
+    // direction the column currently shows; it never writes sort-order itself.
     function sort(index: int) {
-        if (root.current-sort-column != index) {
-            root.columns[root.current-sort-column].sort-order = SortOrder.unsorted;
-        }
-
         if(root.columns[index].sort-order == SortOrder.ascending) {
-            root.columns[index].sort-order = SortOrder.descending;
             root.sort-descending(index);
         } else {
-            root.columns[index].sort-order = SortOrder.ascending;
             root.sort-ascending(index);
         }
-
-        root.current-sort-column = index;
     }
 
     min-width: 400px;

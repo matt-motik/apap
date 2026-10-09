@@ -971,6 +971,26 @@ impl MusicApp {
         self.set_theme_meta(meta);
     }
 
+    /// Table header click (ТЗ-42, §6.13): UI reports only which column was
+    /// clicked, not a direction — the Asc -> Desc -> unsorted cycle (and the
+    /// NowPlaying no-op) lives entirely in `core.playlist_header_click` via
+    /// `sort_tracks`. `sort-ascending`/`sort-descending` from the Slint fork
+    /// therefore resolve to the same handling here.
+    fn handle_header_click(app: &Rc<RefCell<Self>>, col_idx: i32) {
+        eprintln!("[gui] header_click col={col_idx}");
+        let col = {
+            let a = app.borrow();
+            visible_col_at_index(&a.core.settings().columns, col_idx)
+        };
+        if let Some(col) = col {
+            let mut a = app.borrow_mut();
+            if !a.gate.allows(MainCmd::SortBy(col)) {
+                return;
+            }
+            a.sort_tracks(col);
+        }
+    }
+
     fn bind_callbacks(this: &Rc<RefCell<Self>>) {
         let Some(ui) = this.borrow().try_ui() else { return };
 
@@ -1151,39 +1171,19 @@ impl MusicApp {
             });
         }
 
-        // 11-12. sort-ascending / sort-descending
+        // 11-12. sort-ascending / sort-descending: both are the same header
+        // click, the UI only tells us which direction it currently shows
+        // (Self::handle_header_click owns the actual cycle).
         {
             let app = this.clone();
             ui.on_sort_ascending(move |col_idx| {
-                eprintln!("[gui] sort_ascending col={col_idx}");
-                let col = {
-                    let a = app.borrow();
-                    visible_col_at_index(&a.core.settings().columns, col_idx)
-                };
-                if let Some(col) = col {
-                    let mut a = app.borrow_mut();
-                    if !a.gate.allows(MainCmd::SortBy(col)) {
-                        return;
-                    }
-                    a.sort_tracks(col);
-                }
+                Self::handle_header_click(&app, col_idx);
             });
         }
         {
             let app = this.clone();
             ui.on_sort_descending(move |col_idx| {
-                eprintln!("[gui] sort_descending col={col_idx}");
-                let col = {
-                    let a = app.borrow();
-                    visible_col_at_index(&a.core.settings().columns, col_idx)
-                };
-                if let Some(col) = col {
-                    let mut a = app.borrow_mut();
-                    if !a.gate.allows(MainCmd::SortBy(col)) {
-                        return;
-                    }
-                    a.sort_tracks(col);
-                }
+                Self::handle_header_click(&app, col_idx);
             });
         }
 
