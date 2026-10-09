@@ -30,8 +30,9 @@ use crate::persist::state_file::{
 use crate::persist::tracker::{PersistTracker, ReplyEffect};
 use crate::persist::writer::{WriterCmd, WriterHandle, WriterReply};
 use crate::persist::{Boot, ConfigFile, ConfigPaths, ReferenceText, SerializeError, Snapshot, SnapshotId, WorkFile};
-use crate::platform::fs::{ReadError, WriteError};
+use crate::platform::fs::{FileReader, ReadError, WriteError};
 use crate::playlist::compare::CompareKeys;
+use crate::playlist::load::PlaylistLoader;
 use crate::playlist::model::{Playlist, PlaylistEffect, SortKey, TrackId};
 use crate::playlist::shuffle::ShuffleState;
 use crate::playlist::Track;
@@ -117,6 +118,10 @@ pub struct AppDeps {
     pub journal: Arc<dyn Journal>,
     /// Команды движку (01_audio_modes, §2.12, ADR-01).
     pub engine: Box<dyn EngineSink>,
+    /// Загрузка плейлиста в потоке `apap-playlist` (ADR-16, §6.12).
+    pub loader: Box<dyn PlaylistLoader>,
+    /// Чтение файлов для загрузчика плейлиста (ADR-16, ADR-5).
+    pub reader: Arc<dyn FileReader>,
 }
 
 /// Ядро приложения без Slint (ADR-19, §2.12): владеет настройками и

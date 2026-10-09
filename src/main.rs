@@ -14,6 +14,7 @@ use music_player_rs::persist::keys::Parsed;
 use music_player_rs::persist::writer::{spawn_writer, WriterCmd, WriterHandle, WriterReply};
 use music_player_rs::persist::{self, BadCopyOutcome, Boot, ConfigFile, ConfigPaths};
 use music_player_rs::platform::fs::os_fs;
+use music_player_rs::playlist::load::ThreadLoader;
 use music_player_rs::platform::pick::{FilePicker, RfdPicker};
 use music_player_rs::platform::lifecycle::{platform_lifecycle, ExitEntry};
 use music_player_rs::platform::notify::{platform_notifier, RtSlot};
@@ -104,6 +105,8 @@ fn main() {
                 Ok(h) => Box::new(h.sender()),
                 Err(_) => Box::new(NoEngine),
             },
+            loader: Box::new(ThreadLoader),
+            reader,
         },
         boot,
     );

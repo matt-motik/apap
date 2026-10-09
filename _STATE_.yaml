@@ -30,7 +30,7 @@ steps:
     done: true
   - id: 3
     description: "AppDeps.loader: Box<dyn PlaylistLoader> + reader: Arc<dyn FileReader> (ADR-19, ADR-16): поле в src/core/mod.rs, ManualLoader в Harness (src/core/testing.rs), ThreadLoader в src/main.rs (3 места конструирования — одно поле, без логики). Проверка: cargo check; ЧЕКПОИНТ: cargo test + clippy"
-    done: false
+    done: true
   - id: 4
     description: "src/core/load.rs (новый, `mod load` в src/core/mod.rs): LoadState в AppCore; start_startup_load, poll_load → on_load_outcome для Startup: StartupAbsent/StartupCorrupt (journal + WriterCmd::QuarantinePlaylist)/ReadFailed (forbid_playlist + Error)/Loaded (playlist.replace, флаг не взводится); ответы Quarantined → Warning с путём, QuarantineFailed → forbid + Error; устаревшее поколение отбрасывается (ADR-5, ADR-16, §6.12, И-Т9, ТЗ-21, ТЗ-47). Проверка: cargo check"
     done: false
@@ -67,8 +67,8 @@ steps:
   - id: 15
     description: "ЧЕКПОИНТ финальный: cargo test + cargo clippy (0 новых варнингов в файлах вайтлиста); cargo build"
     done: false
-current_step: 3
-next_action: "Шаг 3: AppDeps.loader + reader (core/mod.rs, core/testing.rs, main.rs); ЧЕКПОИНТ"
+current_step: 4
+next_action: "Шаг 4: src/core/load.rs — LoadState, стартовая загрузка, poll_load/on_load_outcome, ответы карантина"
 fail_counter: 0
 fail_counter_max: 3
 failed_attempts: []

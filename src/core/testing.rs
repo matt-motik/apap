@@ -24,7 +24,8 @@ use crate::persist::settings_file::ThemeName;
 use crate::persist::tracker::ReplyEffect;
 use crate::persist::writer::spawn_writer;
 use crate::persist::{self, BadCopyOutcome, ConfigFile, ConfigPaths, WorkFile};
-use crate::platform::fs::{FileWriter, FsCall, MemStore, OpCounts, ReadErrorClass, WriteErrorClass, WriteStep};
+use crate::platform::fs::{FileReader, FileWriter, FsCall, MemStore, OpCounts, ReadErrorClass, WriteErrorClass, WriteStep};
+use crate::playlist::load::{ManualLoader, PlaylistLoader};
 use crate::theme::{ThemeData, ThemeEntry};
 use std::cell::{Cell, RefCell};
 use std::collections::VecDeque;
@@ -58,6 +59,9 @@ pub(crate) struct Harness {
     journal: Arc<VecJournal>,
     clock: ManualClock,
     engine_log: Rc<RefCell<Vec<String>>>,
+    /// Загрузчик плейлиста стенда (ADR-16, §6.12): задания копятся здесь,
+    /// тесты разрешают их вызовом `loader.finish(...)`.
+    pub(crate) loader: ManualLoader,
 }
 
 impl Harness {
@@ -69,6 +73,7 @@ impl Harness {
             journal: Arc::new(VecJournal::default()),
             clock: ManualClock::new(),
             engine_log: Rc::new(RefCell::new(Vec::new())),
+            loader: ManualLoader::default(),
         }
     }
 
@@ -133,7 +138,9 @@ impl Harness {
         let waiter: Box<dyn ReplyWaiter> = Box::new(ManualWaiter::new(self.clock.clone(), self.fs.clone()));
         let journal: Arc<dyn Journal> = Arc::clone(&self.journal) as Arc<dyn Journal>;
         let engine: Box<dyn EngineSink> = Box::new(RecordingEngine { log: Rc::clone(&self.engine_log) });
-        let deps = AppDeps { writer, paths: self.paths.clone(), clock, waiter, journal, engine };
+        let loader: Box<dyn PlaylistLoader> = Box::new(self.loader.clone());
+        let reader: Arc<dyn FileReader> = Arc::new(self.fs.clone());
+        let deps = AppDeps { writer, paths: self.paths.clone(), clock, waiter, journal, engine, loader, reader };
         AppCore::with_deps(deps, boot)
     }
 
