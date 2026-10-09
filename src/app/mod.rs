@@ -24,6 +24,7 @@ use music_player_rs::core::messages::{
     CloseEffect, Message, MessageButton, MessageButtons, MessageCenter, MessageLevel, MsgEffect,
 };
 use music_player_rs::core::exit::{ExitOutcome, ExitReason};
+use music_player_rs::core::io::{IoDone, IoWorker};
 use music_player_rs::core::AppCore;
 use music_player_rs::cover::{self, CoverDone, CoverJob};
 use music_player_rs::engine::messages::{EngineEvent, LegacyAudio, Notice, SkipReason};
@@ -274,6 +275,18 @@ fn num_str(v: u32, suffix: &str) -> SharedString {
     if v > 0 { format!("{v}{suffix}").into() } else { "—".into() }
 }
 
+/// Текущее поколение задания на каждый вид ответа потока `apap-io` (ADR-20,
+/// §4): растёт при каждой новой постановке задания своего вида, сверяется
+/// с `gen` пришедшего `IoDone` в `drain_io`, чтобы отбросить устаревший
+/// ответ (обгон предыдущего запроса тем же видом задания).
+#[derive(Default)]
+struct IoGens {
+    theme: u64,
+    themes: u64,
+    sizes: u64,
+    clear: u64,
+}
+
 pub struct MusicApp {
     /// Слабая ссылка на окно (R-20, ADR-01, ТЗ-45): сильный `AppWindow` держит
     /// только `main` на весь цикл событий. Сильное поле здесь замыкало бы цикл
@@ -420,6 +433,14 @@ pub struct MusicApp {
     /// SkipSeries С8 (ТЗ-85, ТЗ-86) — защита от бесконечного пропуска, если
     /// повреждена вся библиотека при Repeat All.
     skip_streak: usize,
+    /// Поток `apap-io` (ADR-20, §2.12): чтение тем, размеры и очистка
+    /// дисковых кэшей вне UI-потока. Спецификация помещает `io` в `AppDeps`
+    /// `AppCore` (§2.12); ОТКЛОНЕНИЕ: до этапа С9 диалог настроек и шлюз UI
+    /// остаются в `MusicApp`, поэтому воркер временно хранится здесь же
+    /// (переезд в `AppCore` — на С9).
+    io: Box<dyn IoWorker>,
+    /// Текущее поколение задания на каждый вид ответа `apap-io` (ADR-20, §4).
+    io_gens: IoGens,
 }
 
 impl MusicApp {
@@ -430,6 +451,12 @@ impl MusicApp {
     /// `engine`/`engine_events` — поток `apap-engine` и канал его событий,
     /// запущенные в `main` до `AppCore` (ADR-01, ADR-19, ТЗ-88); движок ещё
     /// не подключён к логике приложения на этом шаге.
+    /// `io` — поток `apap-io` (ADR-20, §2.12), запущенный в `main`;
+    /// внедряется через параметр, а не создаётся здесь, чтобы тесты могли
+    /// подставить свою реализацию `IoWorker`.
+    // Конструктор собирает инжектируемые зависимости (ADR-19, ADR-20) —
+    // восьмой параметр (`io`) не повод вводить промежуточную структуру.
+    #[allow(clippy::too_many_arguments)]
     pub fn new(
         window: &AppWindow,
         core: AppCore,
@@ -438,6 +465,7 @@ impl MusicApp {
         notifier: Box<dyn Notifier>,
         engine: Result<EngineHandle, EngineFault>,
         engine_events: EngineEventQueue,
+        io: Box<dyn IoWorker>,
     ) -> Self {
         let (engine, engine_fault) = match engine {
             Ok(handle) => (Some(handle), None),
@@ -593,6 +621,8 @@ impl MusicApp {
             engine_events,
             engine_applied: Vec::new(),
             skip_streak: 0,
+            io,
+            io_gens: IoGens::default(),
         };
         // Загрузка плейлиста при старте ещё не завершена (фон, выше) —
         // список недоступен до её окончания (ТЗ-48, §2.11).
@@ -2068,6 +2098,7 @@ impl MusicApp {
         self.drain_cover();
         self.drain_fulltrack();
         self.drain_audio_devices();
+        self.drain_io();
         self.handle_reservation();
         self.handle_auto_advance();
         self.sync_playback_state_to_ui();
@@ -2167,6 +2198,24 @@ impl MusicApp {
         // Успешная загрузка стартового плейлиста — результат виден в
         // таблице и track-count, сообщение/строка состояния не нужны
         // (ТЗ-52, ОВ-7).
+    }
+
+    /// Разбирает ответы потока `apap-io` на тике: ответы сверяются с
+    /// поколением своего вида; устаревшие отбрасываются (ADR-20). Применение
+    /// свежих ответов (чтение/список тем, размеры и очистка кэша) приходит
+    /// отдельными шагами С7 — пока отбрасываются и они.
+    fn drain_io(&mut self) {
+        while let Some(done) = self.io.try_recv() {
+            let stale = match &done {
+                IoDone::Theme { gen, .. } => *gen != self.io_gens.theme,
+                IoDone::Themes { gen, .. } => *gen != self.io_gens.themes,
+                IoDone::CacheSizes { gen, .. } => *gen != self.io_gens.sizes,
+                IoDone::Cleared { gen, .. } => *gen != self.io_gens.clear,
+            };
+            if stale {
+                continue;
+            }
+        }
     }
 
     fn poll_tray(&mut self) {

@@ -5,6 +5,7 @@ mod app;
 use app::MusicApp;
 use music_player_rs::audio::clock::MonotonicClock;
 use music_player_rs::core::exit::{ChannelWaiter, ExitOutcome, ExitReason};
+use music_player_rs::core::io::{spawn_io, IoDone, IoJob, IoPaths, IoWorker};
 use music_player_rs::core::{AppCore, AppDeps, NoEngine};
 use music_player_rs::engine::deps::EngineDeps;
 use music_player_rs::engine::run::EngineHandle;
@@ -43,6 +44,19 @@ const JOURNAL_FLUSH_BUDGET: Duration = Duration::from_secs(1);
 /// (ADR-23 шаг 3, §8 С4). Окна ещё нет — бюджет небольшой и локальный, а не
 /// общий `EXIT_BUDGET` пути выхода.
 const BAD_COPY_WAIT_BUDGET: Duration = Duration::from_secs(2);
+
+/// Пустая реализация `IoWorker` (ADR-20): используется `MusicApp`, когда
+/// поток `apap-io` не запустился — остальной код всё равно получает
+/// какой-то `Box<dyn IoWorker>`, задания просто уходят в никуда, ответов
+/// не бывает.
+struct NoIo;
+
+impl IoWorker for NoIo {
+    fn submit(&self, _job: IoJob) {}
+    fn try_recv(&self) -> Option<IoDone> {
+        None
+    }
+}
 
 fn main() {
     // Каталог настроек пользователя ищется только здесь (ТЗ-49, ADR-19):
@@ -110,6 +124,21 @@ fn main() {
     let tray_port = TrayPort { updates: tray_updates_rx, ready: tray_ready_tx, rt: notify_rt.clone() };
     let notifier = platform_notifier(notify_rt, journal.clone());
     let tray = TrayChannels { events: tray_events, updates: tray_updates, ready: tray_ready };
+    // Поток `apap-io` (ADR-20, §2.12, §4): чтение тем, размеры и очистка
+    // дисковых кэшей вне UI-потока. Не запустился — `MusicApp` получает
+    // пустую реализацию `IoWorker`, остальной путь запуска не прерывается.
+    let io_paths = IoPaths {
+        themes: paths.dir.join("themes"),
+        covers: music_player_rs::cover::covers_cache_dir(),
+        viz: music_player_rs::audio::fulltrack::viz_cache_dir(),
+    };
+    let io: Box<dyn IoWorker> = match spawn_io(io_paths) {
+        Ok(thread) => Box::new(thread),
+        Err(e) => {
+            eprintln!("[io] поток apap-io не запущен: {e}");
+            Box::new(NoIo)
+        }
+    };
     let app = Rc::new(RefCell::new(MusicApp::new(
         &ui,
         core,
@@ -118,6 +147,7 @@ fn main() {
         notifier,
         engine,
         engine_events,
+        io,
     )));
     MusicApp::init(&app);
 
