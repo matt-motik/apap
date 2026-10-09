@@ -24,8 +24,8 @@
 
 ## Итерационный трекер
 - [x] Шаг 1: src/playlist/load.rs (новый) + `pub mod load` в src/playlist/mod.rs: типы LoadGen, LoadSource, LoadJob, LoadOutcome (§2.11) и чистые разборщики parse_startup (ОВ-8: UTF-8, BOM, \r, пусто/#/абсолютный путь, иначе причина «строка N: …») и parse_command (неподдерживаемые/не абсолютные строки пропускаются, повторы отбрасываются) (ADR-5, ADR-16, §6.12, ТЗ-21, ТЗ-13 б). Тесты: load_command_skips_unsupported_lines, разбор startup (`;…`, относительный путь → corrupt; несуществующие абсолютные пути → ок). Проверка: cargo test playlist::load
-- [>] **Шаг 2: src/playlist/load.rs: run_load(job, reader, probe) — чтение через FileReader (Startup: NotFound → StartupAbsent, иное → ReadFailed; Command: любая ошибка/невалидный UTF-8 → ReadFailed), теги meta::probe_file последовательно, CompareKeys, стабильная сортировка по job.sort; трейт PlaylistLoader, ThreadLoader (поток apap-playlist), ManualLoader (finish/hang) (ADR-16, §2.11, §6.12, ТЗ-47). Тесты run_load на MemStore. Проверка: cargo test playlist::load**
-- [ ] Шаг 3: AppDeps.loader: Box<dyn PlaylistLoader> + reader: Arc<dyn FileReader> (ADR-19, ADR-16): поле в src/core/mod.rs, ManualLoader в Harness (src/core/testing.rs), ThreadLoader в src/main.rs (3 места конструирования — одно поле, без логики). Проверка: cargo check; ЧЕКПОИНТ: cargo test + clippy
+- [x] Шаг 2: src/playlist/load.rs: run_load(job, reader, probe) — чтение через FileReader (Startup: NotFound → StartupAbsent, иное → ReadFailed; Command: любая ошибка/невалидный UTF-8 → ReadFailed), теги meta::probe_file последовательно, CompareKeys, стабильная сортировка по job.sort; трейт PlaylistLoader, ThreadLoader (поток apap-playlist), ManualLoader (finish/hang) (ADR-16, §2.11, §6.12, ТЗ-47). Тесты run_load на MemStore. Проверка: cargo test playlist::load
+- [>] **Шаг 3: AppDeps.loader: Box<dyn PlaylistLoader> + reader: Arc<dyn FileReader> (ADR-19, ADR-16): поле в src/core/mod.rs, ManualLoader в Harness (src/core/testing.rs), ThreadLoader в src/main.rs (3 места конструирования — одно поле, без логики). Проверка: cargo check; ЧЕКПОИНТ: cargo test + clippy**
 - [ ] Шаг 4: src/core/load.rs (новый, `mod load` в src/core/mod.rs): LoadState в AppCore; start_startup_load, poll_load → on_load_outcome для Startup: StartupAbsent/StartupCorrupt (journal + WriterCmd::QuarantinePlaylist)/ReadFailed (forbid_playlist + Error)/Loaded (playlist.replace, флаг не взводится); ответы Quarantined → Warning с путём, QuarantineFailed → forbid + Error; устаревшее поколение отбрасывается (ADR-5, ADR-16, §6.12, И-Т9, ТЗ-21, ТЗ-47). Проверка: cargo check
 - [ ] Шаг 5: src/core/load.rs: start_command_load(path) и Command-исход: ReadFailed → Error, без изменений; Loaded → Play Now: replace + on_playlist_changed, новый проход Shuffle, эффект LoadApplied::PlayNow { first: Option<TrackId> } (stop + open первого — у MusicApp через фасад до С5; поколение Open = req_gen фасада) (ADR-16, §6.12, ТЗ-13 б, ТЗ-48). Проверка: cargo check
 - [ ] Шаг 6: Тесты ТЗ-21/47/17 (стартовая загрузка) в src/core/testing.rs: startup_playlist_missing, startup_playlist_corrupt_quarantined, startup_playlist_quarantine_failed_is_case_3, startup_playlist_unreadable, startup_playlist_nonexistent_paths_not_corrupt, startup_load_shows_full_sorted_list, startup_load_hang_exit_keeps_playlist, unreadable_playlist_never_written (§7). Проверка: cargo test core::
@@ -41,8 +41,8 @@
 
 Легенда: [x] сделано · [>] текущий шаг · [ ] не начато
 
-- **Текущий шаг (current_step):** Шаг 2
-- **Следующий ход:** Шаг 2: run_load + PlaylistLoader/ThreadLoader/ManualLoader в src/playlist/load.rs
+- **Текущий шаг (current_step):** Шаг 3
+- **Следующий ход:** Шаг 3: AppDeps.loader + reader (core/mod.rs, core/testing.rs, main.rs); ЧЕКПОИНТ
 - **Счетчик безуспешных компиляций:** 0/3
 - **Состояние:** in_progress
 

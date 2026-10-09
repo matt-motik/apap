@@ -27,7 +27,7 @@ steps:
     done: true
   - id: 2
     description: "src/playlist/load.rs: run_load(job, reader, probe) — чтение через FileReader (Startup: NotFound → StartupAbsent, иное → ReadFailed; Command: любая ошибка/невалидный UTF-8 → ReadFailed), теги meta::probe_file последовательно, CompareKeys, стабильная сортировка по job.sort; трейт PlaylistLoader, ThreadLoader (поток apap-playlist), ManualLoader (finish/hang) (ADR-16, §2.11, §6.12, ТЗ-47). Тесты run_load на MemStore. Проверка: cargo test playlist::load"
-    done: false
+    done: true
   - id: 3
     description: "AppDeps.loader: Box<dyn PlaylistLoader> + reader: Arc<dyn FileReader> (ADR-19, ADR-16): поле в src/core/mod.rs, ManualLoader в Harness (src/core/testing.rs), ThreadLoader в src/main.rs (3 места конструирования — одно поле, без логики). Проверка: cargo check; ЧЕКПОИНТ: cargo test + clippy"
     done: false
@@ -67,8 +67,8 @@ steps:
   - id: 15
     description: "ЧЕКПОИНТ финальный: cargo test + cargo clippy (0 новых варнингов в файлах вайтлиста); cargo build"
     done: false
-current_step: 2
-next_action: "Шаг 2: run_load + PlaylistLoader/ThreadLoader/ManualLoader в src/playlist/load.rs"
+current_step: 3
+next_action: "Шаг 3: AppDeps.loader + reader (core/mod.rs, core/testing.rs, main.rs); ЧЕКПОИНТ"
 fail_counter: 0
 fail_counter_max: 3
 failed_attempts: []
