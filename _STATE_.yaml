@@ -68,7 +68,7 @@ steps:
   done: true
 - id: 15
   description: 'ЧЕКПОИНТ: cargo test + cargo clippy (фильтр по src/app/, src/main.rs, src/core/). Файлы: —. Проверка: зелёные, 0 новых варнингов'
-  done: false
+  done: true
 - id: 16
   description: 'MusicApp: поле picker: Box<dyn FilePicker> (main → RfdPicker); помощник pick_async(app, req, on_paths): gate.block(FilePicker) → slint::spawn_local(future) → unblock → LastDir с Origin::User → колбэк; повторный выбор отклоняет шлюз (ADR-10, ADR-12, ТЗ-53). Файлы: src/main.rs, src/app/mod.rs. Проверка: cargo check'
   done: false
@@ -81,8 +81,8 @@ steps:
 - id: 19
   description: 'ЧЕКПОИНТ финальный: cargo test + cargo clippy полностью; grep: нет rfd::FileDialog, sync_cache_stats_to_ui на тике, ThemeData::load_from_file/scan_themes_dir в обработчиках UI. Файлы: —. Проверка: зелёные, 0 новых варнингов'
   done: false
-current_step: 15
-next_action: "Шаг 15: ЧЕКПОИНТ — cargo test + clippy (test-runner)"
+current_step: 16
+next_action: "Шаг 16: новый субагент — поле picker + pick_async (src/main.rs, src/app/mod.rs)"
 fail_counter: 0
 fail_counter_max: 3
 failed_attempts: []
