@@ -40,15 +40,15 @@
 - [x] Шаг 13: app/mod.rs: темы при открытии диалога → ListThemes + ReadTheme(текущая) через apap-io, ответы заполняют список/метаданные (убрать scan_themes_dir и load_theme_meta из UI-потока) (ТЗ-22, ADR-20). Файл: src/app/mod.rs. Проверка: cargo check
 - [x] Шаг 14: app/mod.rs: выбор темы → ReadTheme{gen}; прочитанные данные Arc<ThemeData> хранятся с выбором; «Сохранить» применяет их без повторного чтения файла (убрать resolve_startup_theme из обработчика сохранения) (ТЗ-22, ТЗ-29, ADR-20). Файл: src/app/mod.rs. Проверка: cargo check
 - [x] Шаг 15: ЧЕКПОИНТ: cargo test + cargo clippy (фильтр по src/app/, src/main.rs, src/core/). Файлы: —. Проверка: зелёные, 0 новых варнингов
-- [>] **Шаг 16: MusicApp: поле picker: Box<dyn FilePicker> (main → RfdPicker); помощник pick_async(app, req, on_paths): gate.block(FilePicker) → slint::spawn_local(future) → unblock → LastDir с Origin::User → колбэк; повторный выбор отклоняет шлюз (ADR-10, ADR-12, ТЗ-53). Файлы: src/main.rs, src/app/mod.rs. Проверка: cargo check**
-- [ ] Шаг 17: Заменить блокирующие rfd::FileDialog в add_files/add_folder/load_playlist на pick_async; удалить use rfd::FileDialog (ТЗ-53). Файл: src/app/mod.rs. Проверка: cargo check; grep rfd::FileDialog пуст
+- [x] Шаг 16: MusicApp: поле picker: Box<dyn FilePicker> (main → RfdPicker); помощник pick_async(app, req, on_paths): gate.block(FilePicker) → slint::spawn_local(future) → unblock → LastDir с Origin::User → колбэк; повторный выбор отклоняет шлюз (ADR-10, ADR-12, ТЗ-53). Файлы: src/main.rs, src/app/mod.rs. Проверка: cargo check. Обработчик add_files переведён на pick_async в этом же шаге (без мёртвого кода).
+- [>] **Шаг 17: Заменить блокирующие rfd::FileDialog в add_folder/load_playlist на pick_async (add_files уже переведён в шаге 16); удалить use rfd::FileDialog (ТЗ-53). Файл: src/app/mod.rs. Проверка: cargo check; grep rfd::FileDialog пуст**
 - [ ] Шаг 18: Тест menu_inactive_while_picker_open: FakePicker «никогда» + UiGate(FilePicker) — команды меню отклонены, второй выбор не открыт (§7.2, ТЗ-23, ТЗ-53). Файл: src/core/testing.rs. Проверка: cargo test menu_inactive_while_picker_open
 - [ ] Шаг 19: ЧЕКПОИНТ финальный: cargo test + cargo clippy полностью; grep: нет rfd::FileDialog, sync_cache_stats_to_ui на тике, ThemeData::load_from_file/scan_themes_dir в обработчиках UI. Файлы: —. Проверка: зелёные, 0 новых варнингов
 
 Легенда: [x] сделано · [>] текущий шаг · [ ] не начато
 
-- **Текущий шаг (current_step):** Шаг 16
-- **Следующий ход:** Шаг 16: новый субагент — поле picker + pick_async (src/main.rs, src/app/mod.rs)
+- **Текущий шаг (current_step):** Шаг 17
+- **Следующий ход:** Шаг 17: новый субагент — add_folder/load_playlist на pick_async, удалить rfd::FileDialog (src/app/mod.rs)
 - **Счетчик безуспешных компиляций:** 0/3
 - **Состояние:** in_progress
 

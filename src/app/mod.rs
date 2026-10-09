@@ -38,6 +38,7 @@ use music_player_rs::persist::tracker::ReplyEffect;
 use music_player_rs::persist::{ConfigPaths, WorkFile};
 use music_player_rs::platform::lifecycle::PlatformCaps;
 use music_player_rs::platform::notify::Notifier;
+use music_player_rs::platform::pick::{FilePicker, PickRequest, PickResult};
 use music_player_rs::playlist::{self, ScanMsg, Track};
 use music_player_rs::playlist::compare::{compare_keys, CompareKeys};
 use music_player_rs::playlist::model::SortKey;
@@ -451,6 +452,9 @@ pub struct MusicApp {
     /// сразу при открытии диалога, пока свежий подсчёт не пришёл (ТЗ-22,
     /// ADR-20).
     cache_disk: CacheSizes,
+    /// Асинхронный выбор файлов/каталогов (ADR-10, ТЗ-53): системные
+    /// диалоги `rfd` в проде, `FakePicker` в тестах.
+    picker: Box<dyn FilePicker>,
 }
 
 impl MusicApp {
@@ -463,9 +467,11 @@ impl MusicApp {
     /// не подключён к логике приложения на этом шаге.
     /// `io` — поток `apap-io` (ADR-20, §2.12), запущенный в `main`;
     /// внедряется через параметр, а не создаётся здесь, чтобы тесты могли
-    /// подставить свою реализацию `IoWorker`.
+    /// подставить свою реализацию `IoWorker`. `picker` — асинхронный выбор
+    /// файлов/каталогов (ADR-10, ТЗ-53), по той же причине внедряется, а не
+    /// создаётся здесь.
     // Конструктор собирает инжектируемые зависимости (ADR-19, ADR-20) —
-    // восьмой параметр (`io`) не повод вводить промежуточную структуру.
+    // девятый параметр (`picker`) не повод вводить промежуточную структуру.
     #[allow(clippy::too_many_arguments)]
     pub fn new(
         window: &AppWindow,
@@ -476,6 +482,7 @@ impl MusicApp {
         engine: Result<EngineHandle, EngineFault>,
         engine_events: EngineEventQueue,
         io: Box<dyn IoWorker>,
+        picker: Box<dyn FilePicker>,
     ) -> Self {
         let (engine, engine_fault) = match engine {
             Ok(handle) => (Some(handle), None),
@@ -635,6 +642,7 @@ impl MusicApp {
             io,
             io_gens: IoGens::default(),
             cache_disk: CacheSizes::default(),
+            picker,
         };
         // Загрузка плейлиста при старте ещё не завершена (фон, выше) —
         // список недоступен до её окончания (ТЗ-48, §2.11).
@@ -741,6 +749,62 @@ impl MusicApp {
     pub(super) fn sync_gate_ui(&mut self) {
         if let Some(ui) = self.try_ui() {
             ui.set_window_blocked(self.gate.window_blocked());
+        }
+    }
+
+    /// Асинхронный выбор файла/каталога, не блокирующий цикл событий
+    /// (ADR-10, ADR-12, ТЗ-53): шлюз держит причину `FilePicker` до
+    /// завершения диалога (успешного или отменённого) — повторный выбор,
+    /// как и остальные пункты меню, за это время отклоняется шлюзом.
+    /// `make_req` строит запрос по стартовому каталогу последнего выбора
+    /// (`SessionState::last_dir`, §2.5); успешный результат запоминает
+    /// каталог первого пути через `StateChange::LastDir` и передаёт все
+    /// пути в `on_paths`. Пустой результат (`Cancelled` или пустой список)
+    /// не вызывает `on_paths`.
+    pub(super) fn pick_async(
+        app: &Rc<RefCell<Self>>,
+        make_req: impl FnOnce(Option<PathBuf>) -> PickRequest,
+        on_paths: impl FnOnce(&Rc<RefCell<Self>>, Vec<PathBuf>) + 'static,
+    ) {
+        let fut = {
+            let mut a = app.borrow_mut();
+            let start = a.core.state().last_dir().map(|p| p.to_path_buf());
+            let req = make_req(start);
+            a.gate.block(BlockReason::FilePicker);
+            a.sync_gate_ui();
+            let parent = a.try_ui();
+            a.picker.pick(req, parent.as_ref().map(|ui| ui.window()))
+        };
+        let app = app.clone();
+        let app_for_err = app.clone();
+        if let Err(e) = slint::spawn_local(async move {
+            let result = fut.await;
+            {
+                let mut a = app.borrow_mut();
+                a.gate.unblock(BlockReason::FilePicker);
+                a.sync_gate_ui();
+            }
+            let PickResult::Paths(paths) = result else {
+                return;
+            };
+            if paths.is_empty() {
+                return;
+            }
+            let first = &paths[0];
+            let dir = if first.is_dir() {
+                Some(first.clone())
+            } else {
+                first.parent().map(|p| p.to_path_buf())
+            };
+            if let Some(dir) = dir {
+                app.borrow_mut().core.change_state(Origin::User, StateChange::LastDir(dir));
+            }
+            on_paths(&app, paths);
+        }) {
+            let mut a = app_for_err.borrow_mut();
+            a.gate.unblock(BlockReason::FilePicker);
+            a.sync_gate_ui();
+            eprintln!("[picker] spawn_local не запустился: {e}");
         }
     }
 
@@ -1308,25 +1372,11 @@ impl MusicApp {
                 if !app.borrow().gate.allows(MainCmd::AddFiles) {
                     return;
                 }
-                {
-                    let mut a = app.borrow_mut();
-                    a.gate.block(BlockReason::FilePicker);
-                    a.sync_gate_ui();
-                }
-                let dialog = FileDialog::new()
-                    .add_filter(
-                        "Audio",
-                        &["flac", "mp3", "ogg", "wav", "aac", "m4a", "dsf", "aiff"],
-                    )
-                    .pick_files();
-                {
-                    let mut a = app.borrow_mut();
-                    a.gate.unblock(BlockReason::FilePicker);
-                    a.sync_gate_ui();
-                }
-                if let Some(paths) = dialog {
-                    app.borrow_mut().start_scan(paths);
-                }
+                MusicApp::pick_async(
+                    &app,
+                    |start| PickRequest::AddFiles { start },
+                    |app, paths| app.borrow_mut().start_scan(paths),
+                );
             });
         }
 

@@ -14,6 +14,7 @@ use music_player_rs::persist::keys::Parsed;
 use music_player_rs::persist::writer::{spawn_writer, WriterCmd, WriterHandle, WriterReply};
 use music_player_rs::persist::{self, BadCopyOutcome, Boot, ConfigFile, ConfigPaths};
 use music_player_rs::platform::fs::os_fs;
+use music_player_rs::platform::pick::{FilePicker, RfdPicker};
 use music_player_rs::platform::lifecycle::{platform_lifecycle, ExitEntry};
 use music_player_rs::platform::notify::{platform_notifier, RtSlot};
 use music_player_rs::platform::tray::{TrayChannels, TrayPort};
@@ -139,6 +140,9 @@ fn main() {
             Box::new(NoIo)
         }
     };
+    // Выбор файлов (ADR-10, ТЗ-53): системные диалоги `rfd` за трейтом
+    // `FilePicker`, чтобы тесты могли подставить `FakePicker`.
+    let picker: Box<dyn FilePicker> = Box::new(RfdPicker);
     let app = Rc::new(RefCell::new(MusicApp::new(
         &ui,
         core,
@@ -148,6 +152,7 @@ fn main() {
         engine,
         engine_events,
         io,
+        picker,
     )));
     MusicApp::init(&app);
 
