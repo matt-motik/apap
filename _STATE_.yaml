@@ -38,7 +38,7 @@ steps:
   done: true
 - id: 5
   description: 'core/io.rs: IoJob {ReadTheme, ListThemes (ОТКЛОНЕНИЕ: список тем при открытии диалога), CacheSizes, ClearCache}, IoDone {Theme, Themes, CacheSizes, Cleared}, CacheKind {Visualization, Covers, All}, CacheSizes {viz_disk, covers}, трейт IoWorker {submit, try_recv} (§2.12, ADR-20, ТЗ-22). Файлы: src/core/io.rs (новый), src/core/mod.rs. Проверка: cargo check'
-  done: false
+  done: true
 - id: 6
   description: 'core/io.rs: spawn_io(IoPaths{themes, covers, viz}) — поток apap-io, два mpsc, поколение возвращается в ответе; тесты на временных каталогах: чтение темы, подсчёт размеров, очистка (ADR-20, ТЗ-22, ТЗ-34). Файл: src/core/io.rs. Проверка: cargo test core::io'
   done: false
@@ -81,8 +81,8 @@ steps:
 - id: 19
   description: 'ЧЕКПОИНТ финальный: cargo test + cargo clippy полностью; grep: нет rfd::FileDialog, sync_cache_stats_to_ui на тике, ThemeData::load_from_file/scan_themes_dir в обработчиках UI. Файлы: —. Проверка: зелёные, 0 новых варнингов'
   done: false
-current_step: 5
-next_action: "Шаг 5: новый субагент — src/core/io.rs типы IoJob/IoDone/CacheKind/CacheSizes и трейт IoWorker"
+current_step: 6
+next_action: "Шаг 6: новый субагент — spawn_io (поток apap-io) и тесты в src/core/io.rs"
 fail_counter: 0
 fail_counter_max: 3
 failed_attempts: []

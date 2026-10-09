@@ -7,6 +7,7 @@
 pub mod exit;
 pub mod gate;
 pub mod geometry;
+pub mod io;
 pub mod messages;
 #[cfg(test)]
 pub(crate) mod testing;
