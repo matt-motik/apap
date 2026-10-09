@@ -35,8 +35,8 @@
 - [x] Шаг 8: FakeIo в core/testing.rs: синхронные ответы IoDone, счётчики заданий по виду; тест platform_fakes_io (§7.1). Файл: src/core/testing.rs. Проверка: cargo test core::testing
 - [x] Шаг 9: MusicApp: поле io: Box<dyn IoWorker>, поколения по виду задания; main строит spawn_io с путями themes/covers/viz; drain_io на тике (пока без применения ответов) (ADR-20, §4). Файлы: src/main.rs, src/app/mod.rs. Проверка: cargo check
 - [x] Шаг 10: UI размеров кэша без обхода диска: fulltrack_manager cache_sizes → только RAM; ui_manager sync_cache_stats_to_ui → apply_cache_sizes(&CacheSizes) (RAM из памяти, диск из ответа apap-io) (ТЗ-22). Файлы: src/app/ui_manager.rs, src/app/fulltrack_manager.rs. Проверка: cargo check
-- [>] **Шаг 11: app/mod.rs: открытие диалога → io.submit(CacheSizes{gen}) один раз; убрать пересчёт на тике; drain_io применяет CacheSizes/Cleared по поколению (ТЗ-22, §6.9). Файл: src/app/mod.rs. Проверка: cargo check**
-- [ ] Шаг 12: app/mod.rs: очистка кэшей (виз./обложки/всё) → RAM-кэш очищается в UI, диск — io.submit(ClearCache{which}); ответ Cleared → новый размер, без сообщений (ТЗ-34, §6.9). Файл: src/app/mod.rs. Проверка: cargo check
+- [x] Шаг 11: app/mod.rs: открытие диалога → io.submit(CacheSizes{gen}) один раз; убрать пересчёт на тике; drain_io применяет CacheSizes/Cleared по поколению (ТЗ-22, §6.9). Файл: src/app/mod.rs. Проверка: cargo check
+- [>] **Шаг 12: app/mod.rs: очистка кэшей (виз./обложки/всё) → RAM-кэш очищается в UI, диск — io.submit(ClearCache{which}); ответ Cleared → новый размер, без сообщений (ТЗ-34, §6.9). Файл: src/app/mod.rs. Проверка: cargo check**
 - [ ] Шаг 13: app/mod.rs: темы при открытии диалога → ListThemes + ReadTheme(текущая) через apap-io, ответы заполняют список/метаданные (убрать scan_themes_dir и load_theme_meta из UI-потока) (ТЗ-22, ADR-20). Файл: src/app/mod.rs. Проверка: cargo check
 - [ ] Шаг 14: app/mod.rs: выбор темы → ReadTheme{gen}; прочитанные данные Arc<ThemeData> хранятся с выбором; «Сохранить» применяет их без повторного чтения файла (убрать resolve_startup_theme из обработчика сохранения) (ТЗ-22, ТЗ-29, ADR-20). Файл: src/app/mod.rs. Проверка: cargo check
 - [ ] Шаг 15: ЧЕКПОИНТ: cargo test + cargo clippy (фильтр по src/app/, src/main.rs, src/core/). Файлы: —. Проверка: зелёные, 0 новых варнингов
@@ -47,8 +47,8 @@
 
 Легенда: [x] сделано · [>] текущий шаг · [ ] не начато
 
-- **Текущий шаг (current_step):** Шаг 11
-- **Следующий ход:** Шаг 11: новый субагент — CacheSizes при открытии диалога, без пересчёта на тике (src/app/mod.rs)
+- **Текущий шаг (current_step):** Шаг 12
+- **Следующий ход:** Шаг 12: новый субагент — очистка кэшей через ClearCache (src/app/mod.rs)
 - **Счетчик безуспешных компиляций:** 0/3
 - **Состояние:** in_progress
 

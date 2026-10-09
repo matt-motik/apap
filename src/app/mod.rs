@@ -24,7 +24,7 @@ use music_player_rs::core::messages::{
     CloseEffect, Message, MessageButton, MessageButtons, MessageCenter, MessageLevel, MsgEffect,
 };
 use music_player_rs::core::exit::{ExitOutcome, ExitReason};
-use music_player_rs::core::io::{IoDone, IoWorker};
+use music_player_rs::core::io::{CacheSizes, IoDone, IoJob, IoWorker};
 use music_player_rs::core::AppCore;
 use music_player_rs::cover::{self, CoverDone, CoverJob};
 use music_player_rs::engine::messages::{EngineEvent, LegacyAudio, Notice, SkipReason};
@@ -441,6 +441,10 @@ pub struct MusicApp {
     io: Box<dyn IoWorker>,
     /// Текущее поколение задания на каждый вид ответа `apap-io` (ADR-20, §4).
     io_gens: IoGens,
+    /// Последние дисковые размеры кэшей, полученные от `apap-io`; показаны
+    /// сразу при открытии диалога, пока свежий подсчёт не пришёл (ТЗ-22,
+    /// ADR-20).
+    cache_disk: CacheSizes,
 }
 
 impl MusicApp {
@@ -623,6 +627,7 @@ impl MusicApp {
             skip_streak: 0,
             io,
             io_gens: IoGens::default(),
+            cache_disk: CacheSizes::default(),
         };
         // Загрузка плейлиста при старте ещё не завершена (фон, выше) —
         // список недоступен до её окончания (ТЗ-48, §2.11).
@@ -1239,7 +1244,13 @@ impl MusicApp {
                 a.sync_audio_advanced();
                 a.sync_dsd_chain_desc();
                 a.sync_cover_settings_to_ui();
-                a.sync_cache_stats_to_ui();
+                // Размеры дисковых кэшей считаются один раз при открытии
+                // диалога потоком `apap-io` (ТЗ-22, ADR-20); до ответа
+                // показываем последние известные значения.
+                a.io_gens.sizes = a.io_gens.sizes.wrapping_add(1);
+                a.io.submit(IoJob::CacheSizes { gen: a.io_gens.sizes });
+                let cache_disk = a.cache_disk;
+                a.apply_cache_sizes(&cache_disk);
                 if let Some(ui) = a.try_ui() {
                     ui.set_settings_open(true);
                 }
@@ -2115,11 +2126,6 @@ impl MusicApp {
             let report = bp_report::build_bp_report(&bp_report::bp_inputs(self));
             self.push_bp_report_to_ui(report);
         }
-        // §10.5: пока диалог открыт, обновлять размеры кэша (билды полнотрековых
-        // изображений и LRU-вытеснение меняют их в реальном времени).
-        if self.try_ui().is_some_and(|ui| ui.get_settings_open()) {
-            self.sync_cache_stats_to_ui();
-        }
         self.push_tray_status();
 
         let sig = self.compute_col_sig();
@@ -2201,9 +2207,9 @@ impl MusicApp {
     }
 
     /// Разбирает ответы потока `apap-io` на тике: ответы сверяются с
-    /// поколением своего вида; устаревшие отбрасываются (ADR-20). Применение
-    /// свежих ответов (чтение/список тем, размеры и очистка кэша) приходит
-    /// отдельными шагами С7 — пока отбрасываются и они.
+    /// поколением своего вида; устаревшие отбрасываются (ADR-20). Свежий
+    /// `CacheSizes` применяется в UI (ТЗ-22); чтение/список тем и очистка
+    /// кэша приходят отдельными шагами — пока отбрасываются.
     fn drain_io(&mut self) {
         while let Some(done) = self.io.try_recv() {
             let stale = match &done {
@@ -2214,6 +2220,10 @@ impl MusicApp {
             };
             if stale {
                 continue;
+            }
+            if let IoDone::CacheSizes { sizes, .. } = done {
+                self.cache_disk = sizes;
+                self.apply_cache_sizes(&sizes);
             }
         }
     }
