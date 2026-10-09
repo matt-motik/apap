@@ -35,7 +35,7 @@ steps:
   done: true
 - id: 4
   description: 'Публичные операции кэша над заданным каталогом: cover_cache_size_in/clear_cover_cache_in, disk_cache_size_in/clear_disk_cache_in → pub (нужны apap-io с инжектируемыми путями, ADR-20). Файлы: src/cover.rs, src/audio/fulltrack.rs. Проверка: cargo check'
-  done: false
+  done: true
 - id: 5
   description: 'core/io.rs: IoJob {ReadTheme, ListThemes (ОТКЛОНЕНИЕ: список тем при открытии диалога), CacheSizes, ClearCache}, IoDone {Theme, Themes, CacheSizes, Cleared}, CacheKind {Visualization, Covers, All}, CacheSizes {viz_disk, covers}, трейт IoWorker {submit, try_recv} (§2.12, ADR-20, ТЗ-22). Файлы: src/core/io.rs (новый), src/core/mod.rs. Проверка: cargo check'
   done: false
@@ -81,8 +81,8 @@ steps:
 - id: 19
   description: 'ЧЕКПОИНТ финальный: cargo test + cargo clippy полностью; grep: нет rfd::FileDialog, sync_cache_stats_to_ui на тике, ThemeData::load_from_file/scan_themes_dir в обработчиках UI. Файлы: —. Проверка: зелёные, 0 новых варнингов'
   done: false
-current_step: 4
-next_action: "Шаг 4: новый субагент — pub операции кэша в src/cover.rs и src/audio/fulltrack.rs"
+current_step: 5
+next_action: "Шаг 5: новый субагент — src/core/io.rs типы IoJob/IoDone/CacheKind/CacheSizes и трейт IoWorker"
 fail_counter: 0
 fail_counter_max: 3
 failed_attempts: []

@@ -328,7 +328,10 @@ pub fn disk_cache_size() -> u64 {
 
 /// Ядро `disk_cache_size` над произвольным каталогом (тестируемое,
 /// без глобального XDG-состояния).
-fn disk_cache_size_in(dir: &Path) -> u64 {
+///
+/// Публичная, т.к. используется I/O-воркером `apap-io` для расчёта
+/// размера кэша по инжектированному пути (ADR-20, ТЗ-22).
+pub fn disk_cache_size_in(dir: &Path) -> u64 {
     let Ok(read_dir) = fs::read_dir(dir) else {
         return 0;
     };
@@ -521,7 +524,10 @@ pub fn clear_disk_cache() -> usize {
 }
 
 /// Ядро `clear_disk_cache` над произвольным каталогом (тестируемое).
-fn clear_disk_cache_in(dir: &Path) -> usize {
+///
+/// Публичная, т.к. используется I/O-воркером `apap-io` для очистки
+/// кэша по инжектированному пути (ADR-20, ТЗ-34).
+pub fn clear_disk_cache_in(dir: &Path) -> usize {
     let Ok(rd) = fs::read_dir(dir) else {
         return 0;
     };
