@@ -532,15 +532,14 @@ impl MusicApp {
         }
     }
 
-    /// Статистика кэша визуализации (§10.5): суммарный объём RAM-кэша по
-    /// фактическим RGBA-байтам записей + суммарный объём дискового кэша.
-    pub(super) fn cache_sizes(&self) -> (u64, u64) {
-        let ram: u64 = self
-            .fulltrack_cache
+    /// Размер RAM-кэша визуализации (ТЗ-22, ADR-20, §10.5): суммарные
+    /// фактические RGBA-байты записей. Дисковые размеры здесь не считаются —
+    /// их возвращает поток `apap-io` (`CacheSizes`).
+    pub(super) fn ram_cache_size(&self) -> u64 {
+        self.fulltrack_cache
             .iter()
             .map(|(_, (_, bytes))| u64::try_from(*bytes).unwrap_or(u64::MAX))
-            .sum();
-        (ram, ft::disk_cache_size())
+            .sum()
     }
 
     /// Разбор событий воркера (прогресс / Ready / Failed).

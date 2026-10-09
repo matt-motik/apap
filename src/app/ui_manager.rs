@@ -208,20 +208,28 @@ impl MusicApp {
         self.sync_dsd_settings_to_ui();
     }
 
-    /// Синхронизация статистики кэша (§10.5): RAM визуализации + дисковый
-    /// кэш визуализации + дисковый кэш обложек. Вызывается при открытии
-    /// диалога и при его тике (размеры меняются из-за билдов полнотрековых
-    /// изображений, вытеснения LRU и подгрузки обложек).
-    pub(super) fn sync_cache_stats_to_ui(&self) {
-        let (ram, viz_disk) = self.cache_sizes();
-        let cover_disk = music_player_rs::cover::cover_cache_size();
+    /// Синхронизация статистики кэша (ТЗ-22, ADR-20, §10.5): RAM
+    /// визуализации (счёт в UI-потоке) + дисковые размеры визуализации и
+    /// обложек из ответа потока `apap-io` (`CacheSizes`).
+    pub(super) fn apply_cache_sizes(&self, disk: &music_player_rs::core::io::CacheSizes) {
+        let ram = self.ram_cache_size();
         let Some(ui) = self.try_ui() else { return };
         ui
             .set_settings_cache_ram_size(music_player_rs::audio::fulltrack::fmt_cache_bytes(ram).into());
         ui
-            .set_settings_cache_viz_size(music_player_rs::audio::fulltrack::fmt_cache_bytes(viz_disk).into());
+            .set_settings_cache_viz_size(music_player_rs::audio::fulltrack::fmt_cache_bytes(disk.viz_disk).into());
         ui
-            .set_settings_cache_cover_size(music_player_rs::audio::fulltrack::fmt_cache_bytes(cover_disk).into());
+            .set_settings_cache_cover_size(music_player_rs::audio::fulltrack::fmt_cache_bytes(disk.covers).into());
+    }
+
+    /// Мост С7: синхронный подсчёт в UI-потоке; удаляется, когда вызовы
+    /// переходят на ответы apap-io (ТЗ-22).
+    pub(super) fn sync_cache_stats_to_ui(&self) {
+        let disk = music_player_rs::core::io::CacheSizes {
+            viz_disk: music_player_rs::audio::fulltrack::disk_cache_size(),
+            covers: music_player_rs::cover::cover_cache_size(),
+        };
+        self.apply_cache_sizes(&disk);
     }
 
     /// Синхронизация DSD-полей диалога настроек: текущий режим (0=PCM,

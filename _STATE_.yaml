@@ -53,7 +53,7 @@ steps:
   done: true
 - id: 10
   description: 'UI размеров кэша без обхода диска: fulltrack_manager cache_sizes → только RAM; ui_manager sync_cache_stats_to_ui → apply_cache_sizes(&CacheSizes) (RAM из памяти, диск из ответа apap-io) (ТЗ-22). Файлы: src/app/ui_manager.rs, src/app/fulltrack_manager.rs. Проверка: cargo check'
-  done: false
+  done: true
 - id: 11
   description: 'app/mod.rs: открытие диалога → io.submit(CacheSizes{gen}) один раз; убрать пересчёт на тике; drain_io применяет CacheSizes/Cleared по поколению (ТЗ-22, §6.9). Файл: src/app/mod.rs. Проверка: cargo check'
   done: false
@@ -81,8 +81,8 @@ steps:
 - id: 19
   description: 'ЧЕКПОИНТ финальный: cargo test + cargo clippy полностью; grep: нет rfd::FileDialog, sync_cache_stats_to_ui на тике, ThemeData::load_from_file/scan_themes_dir в обработчиках UI. Файлы: —. Проверка: зелёные, 0 новых варнингов'
   done: false
-current_step: 10
-next_action: 'Шаг 10: новый субагент — apply_cache_sizes в ui_manager, RAM-only в fulltrack_manager'
+current_step: 11
+next_action: "Шаг 11: новый субагент — CacheSizes при открытии диалога, без пересчёта на тике (src/app/mod.rs)"
 fail_counter: 0
 fail_counter_max: 3
 failed_attempts: []
