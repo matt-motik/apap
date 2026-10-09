@@ -30,8 +30,8 @@
 - [x] Шаг 3: pick/rfd.rs: RfdPicker на rfd::AsyncFileDialog — фильтры (аудио; m3u/m3u8; сохранение с .m3u8 по умолчанию, ОВ-17; тема toml), set_directory(start), set_parent(window_handle) (ADR-10, ТЗ-53). Файлы: src/platform/pick/rfd.rs (новый), src/platform/pick/mod.rs. Проверка: cargo check
 - [x] Шаг 4: Публичные операции кэша над заданным каталогом: cover_cache_size_in/clear_cover_cache_in, disk_cache_size_in/clear_disk_cache_in → pub (нужны apap-io с инжектируемыми путями, ADR-20). Файлы: src/cover.rs, src/audio/fulltrack.rs. Проверка: cargo check
 - [x] Шаг 5: core/io.rs: IoJob {ReadTheme, ListThemes (ОТКЛОНЕНИЕ: список тем при открытии диалога), CacheSizes, ClearCache}, IoDone {Theme, Themes, CacheSizes, Cleared}, CacheKind {Visualization, Covers, All}, CacheSizes {viz_disk, covers}, трейт IoWorker {submit, try_recv} (§2.12, ADR-20, ТЗ-22). Файлы: src/core/io.rs (новый), src/core/mod.rs. Проверка: cargo check
-- [>] **Шаг 6: core/io.rs: spawn_io(IoPaths{themes, covers, viz}) — поток apap-io, два mpsc, поколение возвращается в ответе; тесты на временных каталогах: чтение темы, подсчёт размеров, очистка (ADR-20, ТЗ-22, ТЗ-34). Файл: src/core/io.rs. Проверка: cargo test core::io**
-- [ ] Шаг 7: ЧЕКПОИНТ: cargo test + cargo clippy (фильтр по src/platform/pick, src/core/io.rs, src/cover.rs, src/audio/fulltrack.rs). Файлы: —. Проверка: зелёные, 0 новых варнингов
+- [x] Шаг 6: core/io.rs: spawn_io(IoPaths{themes, covers, viz}) — поток apap-io, два mpsc, поколение возвращается в ответе; тесты на временных каталогах: чтение темы, подсчёт размеров, очистка (ADR-20, ТЗ-22, ТЗ-34). Файл: src/core/io.rs. Проверка: cargo test core::io
+- [>] **Шаг 7: ЧЕКПОИНТ: cargo test + cargo clippy (фильтр по src/platform/pick, src/core/io.rs, src/cover.rs, src/audio/fulltrack.rs). Файлы: —. Проверка: зелёные, 0 новых варнингов**
 - [ ] Шаг 8: FakeIo в core/testing.rs: синхронные ответы IoDone, счётчики заданий по виду; тест platform_fakes_io (§7.1). Файл: src/core/testing.rs. Проверка: cargo test core::testing
 - [ ] Шаг 9: MusicApp: поле io: Box<dyn IoWorker>, поколения по виду задания; main строит spawn_io с путями themes/covers/viz; drain_io на тике (пока без применения ответов) (ADR-20, §4). Файлы: src/main.rs, src/app/mod.rs. Проверка: cargo check
 - [ ] Шаг 10: UI размеров кэша без обхода диска: fulltrack_manager cache_sizes → только RAM; ui_manager sync_cache_stats_to_ui → apply_cache_sizes(&CacheSizes) (RAM из памяти, диск из ответа apap-io) (ТЗ-22). Файлы: src/app/ui_manager.rs, src/app/fulltrack_manager.rs. Проверка: cargo check
@@ -47,8 +47,8 @@
 
 Легенда: [x] сделано · [>] текущий шаг · [ ] не начато
 
-- **Текущий шаг (current_step):** Шаг 6
-- **Следующий ход:** Шаг 6: новый субагент — spawn_io (поток apap-io) и тесты в src/core/io.rs
+- **Текущий шаг (current_step):** Шаг 7
+- **Следующий ход:** Шаг 7: ЧЕКПОИНТ — полный cargo test + cargo clippy (субагент test-runner)
 - **Счетчик безуспешных компиляций:** 0/3
 - **Состояние:** in_progress
 
