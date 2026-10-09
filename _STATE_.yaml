@@ -77,12 +77,12 @@ steps:
   done: true
 - id: 18
   description: 'Тест menu_inactive_while_picker_open: FakePicker «никогда» + UiGate(FilePicker) — команды меню отклонены, второй выбор не открыт (§7.2, ТЗ-23, ТЗ-53). Файл: src/core/testing.rs. Проверка: cargo test menu_inactive_while_picker_open'
-  done: false
+  done: true
 - id: 19
   description: 'ЧЕКПОИНТ финальный: cargo test + cargo clippy полностью; grep: нет rfd::FileDialog, sync_cache_stats_to_ui на тике, ThemeData::load_from_file/scan_themes_dir в обработчиках UI. Файлы: —. Проверка: зелёные, 0 новых варнингов'
   done: false
-current_step: 18
-next_action: "Шаг 18: новый субагент — тест menu_inactive_while_picker_open (src/core/testing.rs)"
+current_step: 19
+next_action: "Шаг 19: финальный ЧЕКПОИНТ (test-runner)"
 fail_counter: 0
 fail_counter_max: 3
 failed_attempts: []

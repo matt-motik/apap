@@ -421,12 +421,17 @@ mod tests {
         Origin, PhysPos, PhysSize, SessionState, SizeUnits, StateChange,
         WindowGeometry,
     };
+    use crate::platform::pick::fake::FakePicker;
+    use crate::platform::pick::{FilePicker, PickRequest};
     use crate::playlist::compare::{compare_keys, CompareKeys};
     use crate::playlist::model::SortKey;
     use crate::playlist::Track;
     use crate::settings::{ColumnId, RepeatMode, ResamplerAlgorithm};
+    use std::future::Future;
+    use std::pin::Pin;
     use std::rc::Rc;
     use std::sync::mpsc;
+    use std::task::{Context, Poll, Waker};
 
     /// Нечитаемый `settings.toml` (ОВС-6 в, ТЗ-7, ТЗ-14, ТЗ-32, §6.10):
     /// автозаписи запрещены на весь сеанс — `exit` не отправляет снимок
@@ -1850,6 +1855,60 @@ mod tests {
         h.settle(&mut core);
         assert_eq!(h.writes(WorkFile::State), 1);
         assert_eq!(core.state().playback().volume, after);
+    }
+
+    /// Опрашивает future один раз без реального исполнителя — как
+    /// `poll_once` в тестах `FakePicker` (`platform/pick/fake.rs`).
+    fn poll_once<F: Future + ?Sized>(fut: &mut Pin<Box<F>>) -> Poll<F::Output> {
+        let waker = Waker::noop();
+        let mut cx = Context::from_waker(waker);
+        fut.as_mut().poll(&mut cx)
+    }
+
+    /// Меню неактивно, пока открыт выбор файла (§4.4 ТЗ, §7.2, ТЗ-23,
+    /// ТЗ-53, ADR-10, ADR-12): модель потока `pick_async` из `app/mod.rs` —
+    /// разрешённая команда блокирует `UiGate` причиной `FilePicker` и
+    /// запускает `FakePicker::never()` (future никогда не завершается,
+    /// диалог «висит открытым»). Пока он не отвечен, остальные команды
+    /// меню отклонены шлюзом, а повторная попытка выбора, как и в
+    /// обработчике `app/mod.rs`, сначала проверяет `gate.allows` и до
+    /// `picker.pick` не доходит — `FakePicker::calls()` остаётся равным 1.
+    /// Снятие блокировки возвращает меню в прежнее состояние.
+    #[test]
+    fn menu_inactive_while_picker_open() {
+        let picker = FakePicker::never();
+        let mut gate = UiGate::default();
+
+        assert!(gate.allows(MainCmd::AddFiles), "выбор файла разрешён до открытия диалога");
+        gate.block(BlockReason::FilePicker);
+        let mut fut = picker.pick(PickRequest::AddFiles { start: None }, None);
+        assert!(matches!(poll_once(&mut fut), Poll::Pending), "диалог «висит открытым»");
+        assert_eq!(picker.calls(), 1);
+
+        for cmd in [
+            MainCmd::AddFiles,
+            MainCmd::AddFolder,
+            MainCmd::LoadPlaylist,
+            MainCmd::SavePlaylist,
+            MainCmd::RemoveCurrent,
+            MainCmd::ClearPlaylist,
+            MainCmd::OpenSettings,
+        ] {
+            assert!(!gate.allows(cmd), "{cmd:?} must be denied while file picker is open");
+        }
+        assert!(gate.window_blocked());
+
+        // Второй выбор, как в обработчике `app/mod.rs`: сначала проверяется
+        // `gate.allows`, и только при `true` вызывается `picker.pick`.
+        if gate.allows(MainCmd::AddFiles) {
+            drop(picker.pick(PickRequest::AddFiles { start: None }, None));
+        }
+        assert_eq!(picker.calls(), 1, "второй выбор не открыт — picker.pick не вызван");
+
+        drop(fut);
+        gate.unblock(BlockReason::FilePicker);
+        assert!(!gate.window_blocked());
+        assert!(gate.allows(MainCmd::AddFiles), "выбор файла снова разрешён после закрытия диалога");
     }
 
     /// Трек с единственным заданным полем — путём (§4.2, ТЗ-12): тестам
