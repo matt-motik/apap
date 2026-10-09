@@ -16,14 +16,18 @@ use super::{AppCore, AppDeps, EngineSink, TickOutput};
 use crate::audio::clock::{Clock, ClockInstant};
 use crate::audio::testing::ManualClock;
 use crate::core::exit::{ManualWaiter, ReplyWaiter};
+use crate::core::io::{CacheKind, CacheSizes, IoDone, IoJob, IoWorker};
 use crate::engine::messages::EngineCmd;
 use crate::journal::{Journal, JournalRecord, VecJournal};
 use crate::persist::keys::Parsed;
+use crate::persist::settings_file::ThemeName;
 use crate::persist::tracker::ReplyEffect;
 use crate::persist::writer::spawn_writer;
 use crate::persist::{self, BadCopyOutcome, ConfigFile, ConfigPaths, WorkFile};
 use crate::platform::fs::{FileWriter, FsCall, MemStore, OpCounts, ReadErrorClass, WriteErrorClass, WriteStep};
-use std::cell::RefCell;
+use crate::theme::{ThemeData, ThemeEntry};
+use std::cell::{Cell, RefCell};
+use std::collections::VecDeque;
 use std::rc::Rc;
 use std::path::PathBuf;
 use std::sync::Arc;
@@ -276,6 +280,127 @@ impl Harness {
     /// синхронного `exit()` по симулированному времени.
     pub(crate) fn now(&self) -> ClockInstant {
         self.clock.now()
+    }
+}
+
+/// Ответ `FakeIo` на `ReadTheme` для одного имени темы (§7.1, ADR-20).
+type ThemeAnswer = Result<Arc<ThemeData>, Box<str>>;
+
+/// Общее мутируемое состояние `FakeIo` за `Rc<RefCell<..>>` (§7.1, ADR-20):
+/// отвечает на задания синхронно внутри `submit`, чтобы не заводить
+/// реальный поток `apap-io` в тестах `AppCore`.
+#[derive(Default)]
+struct FakeIoState {
+    sizes: CacheSizes,
+    themes: Vec<ThemeEntry>,
+    theme_data: Vec<(ThemeName, ThemeAnswer)>,
+    queue: VecDeque<IoDone>,
+    jobs: Vec<IoJob>,
+}
+
+/// Фиктивный `IoWorker` потока `apap-io` для тестов `AppCore` без реального
+/// потока (§7.1, ADR-20): `submit` вычисляет ответ немедленно и кладёт его в
+/// очередь, `try_recv` отдаёт её по порядку — если `hold` не взведён.
+/// `hold` симулирует медленный поток: ответы готовы (посчитаны `submit`), но
+/// не выдаются, пока тест не снимет задержку. Клоны делят одно состояние
+/// через `Rc`, как `FakePicker` делит журнал запросов — нужно, чтобы тест
+/// мог опрашивать `FakeIo` после того, как она ушла в `Box<dyn IoWorker>`.
+#[derive(Clone)]
+pub(crate) struct FakeIo {
+    state: Rc<RefCell<FakeIoState>>,
+    hold: Rc<Cell<bool>>,
+}
+
+impl FakeIo {
+    pub(crate) fn new() -> FakeIo {
+        FakeIo { state: Rc::new(RefCell::new(FakeIoState::default())), hold: Rc::new(Cell::new(false)) }
+    }
+
+    /// Задать размер дисковых кэшей, возвращаемый `CacheSizes`/`Cleared`
+    /// (ТЗ-22, ТЗ-34).
+    pub(crate) fn set_sizes(&self, sizes: CacheSizes) {
+        self.state.borrow_mut().sizes = sizes;
+    }
+
+    /// Задать список тем, возвращаемый `ListThemes` (ТЗ-22).
+    pub(crate) fn set_themes(&self, themes: Vec<ThemeEntry>) {
+        self.state.borrow_mut().themes = themes;
+    }
+
+    /// Задать ответ `ReadTheme` для имени `name`; без вызова — `try_recv`
+    /// вернёт `Err("not found")` (ТЗ-22, ТЗ-27, ТЗ-29).
+    pub(crate) fn set_theme(&self, name: ThemeName, data: ThemeAnswer) {
+        self.state.borrow_mut().theme_data.push((name, data));
+    }
+
+    /// Задержать выдачу уже посчитанных ответов (`try_recv`), не трогая
+    /// `submit` — симуляция медленного потока `apap-io` (§7.1).
+    pub(crate) fn set_hold(&self, hold: bool) {
+        self.hold.set(hold);
+    }
+
+    /// Журнал заданий в порядке `submit` (§7.1).
+    pub(crate) fn jobs(&self) -> Vec<IoJob> {
+        self.state.borrow().jobs.clone()
+    }
+
+    fn count(&self, matches: impl Fn(&IoJob) -> bool) -> usize {
+        self.state.borrow().jobs.iter().filter(|j| matches(j)).count()
+    }
+
+    pub(crate) fn count_cache_sizes(&self) -> usize {
+        self.count(|j| matches!(j, IoJob::CacheSizes { .. }))
+    }
+
+    pub(crate) fn count_clear(&self) -> usize {
+        self.count(|j| matches!(j, IoJob::ClearCache { .. }))
+    }
+
+    pub(crate) fn count_read_theme(&self) -> usize {
+        self.count(|j| matches!(j, IoJob::ReadTheme { .. }))
+    }
+
+    pub(crate) fn count_list_themes(&self) -> usize {
+        self.count(|j| matches!(j, IoJob::ListThemes { .. }))
+    }
+}
+
+impl IoWorker for FakeIo {
+    fn submit(&self, job: IoJob) {
+        let mut state = self.state.borrow_mut();
+        state.jobs.push(job.clone());
+        let done = match job {
+            IoJob::ReadTheme { gen, name } => {
+                let result = state
+                    .theme_data
+                    .iter()
+                    .find(|(n, _)| *n == name)
+                    .map(|(_, r)| r.clone())
+                    .unwrap_or_else(|| Err("not found".into()));
+                IoDone::Theme { gen, result }
+            }
+            IoJob::ListThemes { gen } => IoDone::Themes { gen, entries: state.themes.clone() },
+            IoJob::CacheSizes { gen } => IoDone::CacheSizes { gen, sizes: state.sizes },
+            IoJob::ClearCache { gen, which } => {
+                match which {
+                    CacheKind::Visualization => state.sizes.viz_disk = 0,
+                    CacheKind::Covers => state.sizes.covers = 0,
+                    CacheKind::All => {
+                        state.sizes.viz_disk = 0;
+                        state.sizes.covers = 0;
+                    }
+                }
+                IoDone::Cleared { gen, sizes: state.sizes }
+            }
+        };
+        state.queue.push_back(done);
+    }
+
+    fn try_recv(&self) -> Option<IoDone> {
+        if self.hold.get() {
+            return None;
+        }
+        self.state.borrow_mut().queue.pop_front()
     }
 }
 
@@ -1832,5 +1957,158 @@ mod tests {
         };
         assert_eq!(order_after, order_before);
         assert_eq!(core2.playlist().sort_key(), Some(sort_before));
+    }
+
+    /// Ответы `FakeIo` эхо-возвращают `gen` запроса — сопоставление
+    /// заданий/ответов не теряется (§7.1, ADR-20, ТЗ-22).
+    #[test]
+    fn platform_fakes_io_echoes_gen() {
+        let io = FakeIo::new();
+        io.submit(IoJob::CacheSizes { gen: 7 });
+        io.submit(IoJob::ListThemes { gen: 9 });
+
+        let first = io.try_recv().expect("первый ответ готов");
+        let second = io.try_recv().expect("второй ответ готов");
+        assert_eq!(first.gen(), 7);
+        assert_eq!(second.gen(), 9);
+        assert!(io.try_recv().is_none());
+    }
+
+    /// `ClearCache` обнуляет только размер своего вида кэша и сохраняет
+    /// результат для следующего `CacheSizes` (ТЗ-22, ТЗ-34).
+    #[test]
+    fn platform_fakes_io_clear_cache_zeroes_right_kind() {
+        let io = FakeIo::new();
+        io.set_sizes(CacheSizes { viz_disk: 100, covers: 200 });
+
+        io.submit(IoJob::ClearCache { gen: 1, which: CacheKind::Visualization });
+        match io.try_recv().expect("ответ Cleared готов") {
+            IoDone::Cleared { sizes, .. } => {
+                assert_eq!(sizes, CacheSizes { viz_disk: 0, covers: 200 });
+            }
+            other => panic!("expected Cleared, got {other:?}"),
+        }
+
+        io.submit(IoJob::CacheSizes { gen: 2 });
+        match io.try_recv().expect("ответ CacheSizes готов") {
+            IoDone::CacheSizes { sizes, .. } => {
+                assert_eq!(sizes, CacheSizes { viz_disk: 0, covers: 200 });
+            }
+            other => panic!("expected CacheSizes, got {other:?}"),
+        }
+    }
+
+    /// Запрошенная, но не заданная тема возвращает `Err("not found")`
+    /// (ТЗ-27, ТЗ-29).
+    #[test]
+    fn platform_fakes_io_read_theme_not_found() {
+        let io = FakeIo::new();
+        io.submit(IoJob::ReadTheme { gen: 1, name: ThemeName::default() });
+        match io.try_recv().expect("ответ Theme готов") {
+            IoDone::Theme { result, .. } => {
+                assert_eq!(result.unwrap_err().as_ref(), "not found");
+            }
+            other => panic!("expected Theme, got {other:?}"),
+        }
+    }
+
+    /// Заданная через `set_theme` тема возвращается `Ok`; `set_themes`
+    /// задаёт список для `ListThemes` (ТЗ-22, ТЗ-27, ТЗ-29).
+    #[test]
+    fn platform_fakes_io_read_theme_and_list_themes_configured() {
+        let io = FakeIo::new();
+        let name = ThemeName::new("dark").expect("валидное имя темы");
+        let data = Arc::new(ThemeData {
+            name: "dark".to_string(),
+            description: None,
+            standard_palette: crate::theme::StandardPalette::Dark,
+            colors: crate::theme::ColorsData {
+                bg_window: "#000000".to_string(),
+                bg_surface: "#000000".to_string(),
+                bg_toolbar: "#000000".to_string(),
+                bg_elevated: "#000000".to_string(),
+                bg_overlay: "#000000".to_string(),
+                border_subtle: "#000000".to_string(),
+                border_default: "#000000".to_string(),
+                text_primary: "#000000".to_string(),
+                text_secondary: "#000000".to_string(),
+                text_tertiary: "#000000".to_string(),
+                text_dim: "#000000".to_string(),
+                text_on_accent: "#000000".to_string(),
+                text_error: "#000000".to_string(),
+                accent: "#000000".to_string(),
+                accent_container: "#000000".to_string(),
+                accent_on: "#000000".to_string(),
+                surface_hover: "#000000".to_string(),
+                surface_active: "#000000".to_string(),
+                surface_selected: "#000000".to_string(),
+                viz_1: "#000000".to_string(),
+                viz_2: "#000000".to_string(),
+                viz_3: "#000000".to_string(),
+            },
+        });
+        io.set_theme(name.clone(), Ok(data.clone()));
+        io.set_themes(vec![ThemeEntry {
+            file_stem: "dark".to_string(),
+            name: "dark".to_string(),
+            description: None,
+            valid: true,
+        }]);
+
+        io.submit(IoJob::ReadTheme { gen: 1, name: name.clone() });
+        match io.try_recv().expect("ответ Theme готов") {
+            IoDone::Theme { result, .. } => assert_eq!(result.expect("тема найдена"), data),
+            other => panic!("expected Theme, got {other:?}"),
+        }
+
+        io.submit(IoJob::ListThemes { gen: 2 });
+        match io.try_recv().expect("ответ Themes готов") {
+            IoDone::Themes { entries, .. } => assert_eq!(entries.len(), 1),
+            other => panic!("expected Themes, got {other:?}"),
+        }
+    }
+
+    /// `set_hold(true)` придерживает уже посчитанные ответы — `try_recv`
+    /// отдаёт их только после снятия задержки (§7.1, ADR-20).
+    #[test]
+    fn platform_fakes_io_hold_delays_delivery() {
+        let io = FakeIo::new();
+        io.set_hold(true);
+        io.submit(IoJob::CacheSizes { gen: 1 });
+        assert!(io.try_recv().is_none());
+
+        io.set_hold(false);
+        let done = io.try_recv().expect("ответ выдан после снятия hold");
+        assert_eq!(done.gen(), 1);
+    }
+
+    /// Журнал заданий считает их по виду независимо от порядка (§7.1).
+    #[test]
+    fn platform_fakes_io_journal_counts_by_kind() {
+        let io = FakeIo::new();
+        io.submit(IoJob::CacheSizes { gen: 1 });
+        io.submit(IoJob::ClearCache { gen: 2, which: CacheKind::All });
+        io.submit(IoJob::ReadTheme { gen: 3, name: ThemeName::default() });
+        io.submit(IoJob::ListThemes { gen: 4 });
+        io.submit(IoJob::CacheSizes { gen: 5 });
+
+        assert_eq!(io.count_cache_sizes(), 2);
+        assert_eq!(io.count_clear(), 1);
+        assert_eq!(io.count_read_theme(), 1);
+        assert_eq!(io.count_list_themes(), 1);
+        assert_eq!(io.jobs().len(), 5);
+    }
+
+    /// Клон `FakeIo` делит состояние с оригиналом — как `Box<dyn IoWorker>`
+    /// внутри `AppCore` остаётся наблюдаемым через сохранённый хендл
+    /// (§7.1, ADR-20).
+    #[test]
+    fn platform_fakes_io_clone_shares_state() {
+        let io = FakeIo::new();
+        let boxed: Box<dyn IoWorker> = Box::new(io.clone());
+        boxed.submit(IoJob::ListThemes { gen: 1 });
+
+        assert_eq!(io.count_list_themes(), 1);
+        assert!(boxed.try_recv().is_some());
     }
 }

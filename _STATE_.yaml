@@ -47,7 +47,7 @@ steps:
   done: true
 - id: 8
   description: 'FakeIo в core/testing.rs: синхронные ответы IoDone, счётчики заданий по виду; тест platform_fakes_io (§7.1). Файл: src/core/testing.rs. Проверка: cargo test core::testing'
-  done: false
+  done: true
 - id: 9
   description: 'MusicApp: поле io: Box<dyn IoWorker>, поколения по виду задания; main строит spawn_io с путями themes/covers/viz; drain_io на тике (пока без применения ответов) (ADR-20, §4). Файлы: src/main.rs, src/app/mod.rs. Проверка: cargo check'
   done: false
@@ -81,8 +81,8 @@ steps:
 - id: 19
   description: 'ЧЕКПОИНТ финальный: cargo test + cargo clippy полностью; grep: нет rfd::FileDialog, sync_cache_stats_to_ui на тике, ThemeData::load_from_file/scan_themes_dir в обработчиках UI. Файлы: —. Проверка: зелёные, 0 новых варнингов'
   done: false
-current_step: 8
-next_action: 'Шаг 8: новый субагент — FakeIo в src/core/testing.rs'
+current_step: 9
+next_action: 'Шаг 9: новый субагент — поле io в MusicApp, spawn_io в main, drain_io на тике'
 fail_counter: 0
 fail_counter_max: 3
 failed_attempts: []
