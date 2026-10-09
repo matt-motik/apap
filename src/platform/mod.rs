@@ -6,4 +6,5 @@ pub mod devwatch;
 pub mod fs;
 pub mod lifecycle;
 pub mod notify;
+pub mod pick;
 pub mod tray;
