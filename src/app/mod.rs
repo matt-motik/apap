@@ -46,8 +46,7 @@ use music_player_rs::settings::{
     FallbackRatePolicy, RepeatMode, ResamplerMode,
 };
 use music_player_rs::theme::{
-    ColorsData, ThemeData, ThemeError, DEFAULT_LIGHT_TOML, parse_hex,
-    scan_themes_dir,
+    ColorsData, ThemeData, ThemeEntry, ThemeError, DEFAULT_LIGHT_TOML, parse_hex,
 };
 use music_player_rs::platform::lifecycle::TrayEvent;
 use music_player_rs::platform::tray;
@@ -964,29 +963,56 @@ impl MusicApp {
         }
     }
 
-    /// Заполняет список тем и метаданные при открытии диалога (§6.2).
-    /// Текущая тема может быть удалена (не найдена → Save заблокирован,
-    /// §5.1) или сломана (структура/HEX → Save заблокирован, §5.2).
+    /// Запрашивает список тем при открытии диалога через поток `apap-io`
+    /// (ТЗ-22, ADR-20, §6.2): без обхода каталога `themes/` в UI-потоке. Save
+    /// блокируется до ответа; список и метаданные текущей темы применяются
+    /// `apply_theme_list`/`apply_theme_read` в `drain_io`, когда ответ
+    /// приходит.
     fn populate_theme_ui(&mut self) {
-        let themes_dir = self.paths.dir.join("themes");
-        let entries = scan_themes_dir(&themes_dir);
+        self.io_gens.themes = self.io_gens.themes.wrapping_add(1);
+        self.io.submit(IoJob::ListThemes { gen: self.io_gens.themes });
+        if let Some(ui) = self.try_ui() {
+            ui.set_theme_save_enabled(false);
+        }
+    }
+
+    /// Применяет ответ `IoJob::ListThemes` (ТЗ-22, ADR-20, §6.2): заполняет
+    /// список тем и текущую тему в UI. Текущая тема может быть удалена (не
+    /// найдена в списке → §5.1) — метаданные не запрашиваются, иначе читается
+    /// её файл через `IoJob::ReadTheme` (ответ разбирает `apply_theme_read`).
+    fn apply_theme_list(&mut self, entries: Vec<ThemeEntry>) {
         let names: Vec<SharedString> = entries.iter().map(|e| e.file_stem.clone().into()).collect();
         let current = self.core.settings().theme.as_str().to_string();
         if let Some(ui) = self.try_ui() {
             ui.set_theme_list_model(ModelRc::from(names.as_slice()));
             ui.set_theme_current(current.clone().into());
         }
-        let meta = if entries.iter().any(|e| e.file_stem == current) {
-            match Self::load_theme_meta(&current, &themes_dir) {
-                Some(m) => Some(m),
-                None => Some(ThemeMeta {
-                    name: String::new(),
-                    description: None,
-                    valid: false,
-                }),
+        let found = entries.iter().any(|e| e.file_stem == current);
+        match found.then(|| ThemeName::new(current.clone())).flatten() {
+            Some(name) => {
+                self.io_gens.theme = self.io_gens.theme.wrapping_add(1);
+                self.io.submit(IoJob::ReadTheme { gen: self.io_gens.theme, name });
             }
-        } else {
-            None
+            None => self.set_theme_meta(None),
+        }
+    }
+
+    /// Применяет ответ `IoJob::ReadTheme` (ТЗ-22, ADR-20, §5.2/§6.2): `Ok` —
+    /// метаданные с полной валидацией (структура + HEX); `Err` — файл есть,
+    /// но не читается/невалиден (Save заблокирован, как при сломанном файле
+    /// до переноса в `apap-io`).
+    fn apply_theme_read(&mut self, result: Result<Arc<ThemeData>, Box<str>>) {
+        let meta = match result {
+            Ok(data) => Some(ThemeMeta {
+                name: data.name.clone(),
+                description: data.description.clone(),
+                valid: validate_colors(&data.colors).is_ok(),
+            }),
+            Err(_) => Some(ThemeMeta {
+                name: String::new(),
+                description: None,
+                valid: false,
+            }),
         };
         self.set_theme_meta(meta);
     }
@@ -2211,8 +2237,8 @@ impl MusicApp {
 
     /// Разбирает ответы потока `apap-io` на тике: ответы сверяются с
     /// поколением своего вида; устаревшие отбрасываются (ADR-20). Свежий
-    /// `CacheSizes`/`Cleared` применяется в UI (ТЗ-22, ТЗ-34); чтение/список
-    /// тем приходят отдельными шагами — пока отбрасываются.
+    /// `CacheSizes`/`Cleared` применяется в UI (ТЗ-22, ТЗ-34); `Themes`/`Theme`
+    /// — список тем и метаданные текущей при открытии диалога (ТЗ-22, §6.2).
     fn drain_io(&mut self) {
         while let Some(done) = self.io.try_recv() {
             let stale = match &done {
@@ -2225,11 +2251,12 @@ impl MusicApp {
                 continue;
             }
             match done {
+                IoDone::Themes { entries, .. } => self.apply_theme_list(entries),
+                IoDone::Theme { result, .. } => self.apply_theme_read(result),
                 IoDone::CacheSizes { sizes, .. } | IoDone::Cleared { sizes, .. } => {
                     self.cache_disk = sizes;
                     self.apply_cache_sizes(&sizes);
                 }
-                _ => {}
             }
         }
     }

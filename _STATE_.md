@@ -37,8 +37,8 @@
 - [x] Шаг 10: UI размеров кэша без обхода диска: fulltrack_manager cache_sizes → только RAM; ui_manager sync_cache_stats_to_ui → apply_cache_sizes(&CacheSizes) (RAM из памяти, диск из ответа apap-io) (ТЗ-22). Файлы: src/app/ui_manager.rs, src/app/fulltrack_manager.rs. Проверка: cargo check
 - [x] Шаг 11: app/mod.rs: открытие диалога → io.submit(CacheSizes{gen}) один раз; убрать пересчёт на тике; drain_io применяет CacheSizes/Cleared по поколению (ТЗ-22, §6.9). Файл: src/app/mod.rs. Проверка: cargo check
 - [x] Шаг 12: app/mod.rs: очистка кэшей (виз./обложки/всё) → RAM-кэш очищается в UI, диск — io.submit(ClearCache{which}); ответ Cleared → новый размер, без сообщений (ТЗ-34, §6.9). Файлы: src/app/mod.rs, src/app/ui_manager.rs. Проверка: cargo check. Мост sync_cache_stats_to_ui удалён из ui_manager.rs — вызовов не осталось.
-- [>] **Шаг 13: app/mod.rs: темы при открытии диалога → ListThemes + ReadTheme(текущая) через apap-io, ответы заполняют список/метаданные (убрать scan_themes_dir и load_theme_meta из UI-потока) (ТЗ-22, ADR-20). Файл: src/app/mod.rs. Проверка: cargo check**
-- [ ] Шаг 14: app/mod.rs: выбор темы → ReadTheme{gen}; прочитанные данные Arc<ThemeData> хранятся с выбором; «Сохранить» применяет их без повторного чтения файла (убрать resolve_startup_theme из обработчика сохранения) (ТЗ-22, ТЗ-29, ADR-20). Файл: src/app/mod.rs. Проверка: cargo check
+- [x] Шаг 13: app/mod.rs: темы при открытии диалога → ListThemes + ReadTheme(текущая) через apap-io, ответы заполняют список/метаданные (убрать scan_themes_dir и load_theme_meta из UI-потока) (ТЗ-22, ADR-20). Файл: src/app/mod.rs. Проверка: cargo check
+- [>] **Шаг 14: app/mod.rs: выбор темы → ReadTheme{gen}; прочитанные данные Arc<ThemeData> хранятся с выбором; «Сохранить» применяет их без повторного чтения файла (убрать resolve_startup_theme из обработчика сохранения) (ТЗ-22, ТЗ-29, ADR-20). Файл: src/app/mod.rs. Проверка: cargo check**
 - [ ] Шаг 15: ЧЕКПОИНТ: cargo test + cargo clippy (фильтр по src/app/, src/main.rs, src/core/). Файлы: —. Проверка: зелёные, 0 новых варнингов
 - [ ] Шаг 16: MusicApp: поле picker: Box<dyn FilePicker> (main → RfdPicker); помощник pick_async(app, req, on_paths): gate.block(FilePicker) → slint::spawn_local(future) → unblock → LastDir с Origin::User → колбэк; повторный выбор отклоняет шлюз (ADR-10, ADR-12, ТЗ-53). Файлы: src/main.rs, src/app/mod.rs. Проверка: cargo check
 - [ ] Шаг 17: Заменить блокирующие rfd::FileDialog в add_files/add_folder/load_playlist на pick_async; удалить use rfd::FileDialog (ТЗ-53). Файл: src/app/mod.rs. Проверка: cargo check; grep rfd::FileDialog пуст
@@ -47,8 +47,8 @@
 
 Легенда: [x] сделано · [>] текущий шаг · [ ] не начато
 
-- **Текущий шаг (current_step):** Шаг 13
-- **Следующий ход:** Шаг 13: новый субагент — темы при открытии диалога через ListThemes + ReadTheme (src/app/mod.rs)
+- **Текущий шаг (current_step):** Шаг 14
+- **Следующий ход:** Шаг 14: новый субагент — выбор темы через ReadTheme, Save без повторного чтения (src/app/mod.rs)
 - **Счетчик безуспешных компиляций:** 0/3
 - **Состояние:** in_progress
 
