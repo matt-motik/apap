@@ -49,3 +49,6 @@ pub trait FilePicker {
 
 pub mod fake;
 pub use fake::{FakeAnswer, FakePicker};
+
+pub mod rfd;
+pub use self::rfd::RfdPicker;

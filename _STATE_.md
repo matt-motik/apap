@@ -26,7 +26,7 @@
 ## Итерационный трекер
 [x] Шаг 1: pick/mod.rs: PickRequest {AddFiles, AddFolder, OpenPlaylist, SavePlaylist, ThemeFile} {start: Option<PathBuf>}, PickResult {Paths, Cancelled}, трейт FilePicker::pick(&self, req, parent: Option<&slint::Window>) -> Pin<Box<dyn Future<Output=PickResult>>> (§2.8, ADR-10, ТЗ-53, ТЗ-54 п.5). Файлы: src/platform/pick/mod.rs (новый), src/platform/mod.rs. Проверка: cargo check
 [x] Шаг 2: pick/fake.rs: FakePicker — ответ заданными путями, Cancelled или «никогда» (std::future::pending), счётчик вызовов; тест platform_fakes_picker (§7.1, ADR-10). Файлы: src/platform/pick/fake.rs (новый), src/platform/pick/mod.rs. Проверка: cargo test platform::pick
-[ ] Шаг 3: pick/rfd.rs: RfdPicker на rfd::AsyncFileDialog — фильтры (аудио; m3u/m3u8; сохранение с .m3u8 по умолчанию, ОВ-17; тема toml), set_directory(start), set_parent(window_handle) (ADR-10, ТЗ-53). Файлы: src/platform/pick/rfd.rs (новый), src/platform/pick/mod.rs. Проверка: cargo check
+[x] Шаг 3: pick/rfd.rs: RfdPicker на rfd::AsyncFileDialog — фильтры (аудио; m3u/m3u8; сохранение с .m3u8 по умолчанию, ОВ-17; тема toml), set_directory(start), set_parent(window_handle) (ADR-10, ТЗ-53). Файлы: src/platform/pick/rfd.rs (новый), src/platform/pick/mod.rs. Проверка: cargo check
 [ ] Шаг 4: Публичные операции кэша над заданным каталогом: cover_cache_size_in/clear_cover_cache_in, disk_cache_size_in/clear_disk_cache_in → pub (нужны apap-io с инжектируемыми путями, ADR-20). Файлы: src/cover.rs, src/audio/fulltrack.rs. Проверка: cargo check
 [ ] Шаг 5: core/io.rs: IoJob {ReadTheme, ListThemes (ОТКЛОНЕНИЕ: список тем при открытии диалога), CacheSizes, ClearCache}, IoDone {Theme, Themes, CacheSizes, Cleared}, CacheKind {Visualization, Covers, All}, CacheSizes {viz_disk, covers}, трейт IoWorker {submit, try_recv} (§2.12, ADR-20, ТЗ-22). Файлы: src/core/io.rs (новый), src/core/mod.rs. Проверка: cargo check
 [ ] Шаг 6: core/io.rs: spawn_io(IoPaths{themes, covers, viz}) — поток apap-io, два mpsc, поколение возвращается в ответе; тесты на временных каталогах: чтение темы, подсчёт размеров, очистка (ADR-20, ТЗ-22, ТЗ-34). Файл: src/core/io.rs. Проверка: cargo test core::io
@@ -44,8 +44,8 @@
 [ ] Шаг 18: Тест menu_inactive_while_picker_open: FakePicker «никогда» + UiGate(FilePicker) — команды меню отклонены, второй выбор не открыт (§7.2, ТЗ-23, ТЗ-53). Файл: src/core/testing.rs. Проверка: cargo test menu_inactive_while_picker_open
 [ ] Шаг 19: ЧЕКПОИНТ финальный: cargo test + cargo clippy полностью; grep: нет rfd::FileDialog, sync_cache_stats_to_ui на тике, ThemeData::load_from_file/scan_themes_dir в обработчиках UI. Файлы: —. Проверка: зелёные, 0 новых варнингов
 
-- **Текущий шаг (current_step):** Шаг 3
-- **Следующий ход:** Шаг 3: новый субагент — src/platform/pick/rfd.rs (RfdPicker)
+- **Текущий шаг (current_step):** Шаг 4
+- **Следующий ход:** Шаг 4: новый субагент — pub операции кэша в src/cover.rs и src/audio/fulltrack.rs
 - **Счетчик безуспешных компиляций:** 0/3
 - **Состояние:** in_progress
 

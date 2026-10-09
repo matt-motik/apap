@@ -31,7 +31,7 @@ steps:
   done: true
 - id: 3
   description: 'pick/rfd.rs: RfdPicker на rfd::AsyncFileDialog — фильтры (аудио; m3u/m3u8; сохранение с .m3u8 по умолчанию, ОВ-17; тема toml), set_directory(start), set_parent(window_handle) (ADR-10, ТЗ-53). Файлы: src/platform/pick/rfd.rs (новый), src/platform/pick/mod.rs. Проверка: cargo check'
-  done: false
+  done: true
 - id: 4
   description: 'Публичные операции кэша над заданным каталогом: cover_cache_size_in/clear_cover_cache_in, disk_cache_size_in/clear_disk_cache_in → pub (нужны apap-io с инжектируемыми путями, ADR-20). Файлы: src/cover.rs, src/audio/fulltrack.rs. Проверка: cargo check'
   done: false
@@ -80,8 +80,8 @@ steps:
 - id: 19
   description: 'ЧЕКПОИНТ финальный: cargo test + cargo clippy полностью; grep: нет rfd::FileDialog, sync_cache_stats_to_ui на тике, ThemeData::load_from_file/scan_themes_dir в обработчиках UI. Файлы: —. Проверка: зелёные, 0 новых варнингов'
   done: false
-current_step: 3
-next_action: "Шаг 3: новый субагент — src/platform/pick/rfd.rs (RfdPicker)"
+current_step: 4
+next_action: "Шаг 4: новый субагент — pub операции кэша в src/cover.rs и src/audio/fulltrack.rs"
 fail_counter: 0
 fail_counter_max: 3
 failed_attempts: []
