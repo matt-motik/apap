@@ -5,9 +5,10 @@ use super::*;
 
 use music_player_rs::audio::output::DeviceCategory;
 use music_player_rs::persist::state_file::{
-    effective_width_pct, Origin, PhysPos, PhysSize, SizeUnits, SortDirection, StateChange,
+    effective_width_pct, Origin, PhysPos, PhysSize, SizeUnits, StateChange,
     WindowGeometry,
 };
+use music_player_rs::playlist::model::SortDir;
 use music_player_rs::theme::StandardPalette;
 use music_player_rs::persist::settings_file::SaveInterval;
 
@@ -635,9 +636,9 @@ impl MusicApp {
                 tc.title = cols_cfg.column_title(*c).into();
                 tc.width = w;
                 tc.sort_order = match sort {
-                    Some(k) if k.column == *c => match k.direction {
-                        SortDirection::Desc => SortOrder::Descending,
-                        SortDirection::Asc => SortOrder::Ascending,
+                    Some(k) if k.column.column() == *c => match k.dir {
+                        SortDir::Desc => SortOrder::Descending,
+                        SortDir::Asc => SortOrder::Ascending,
                     },
                     _ => SortOrder::Unsorted,
                 };

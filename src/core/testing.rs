@@ -293,11 +293,11 @@ mod tests {
     use crate::persist::keys::{KeyPath, LoadNoteKind};
     use crate::persist::settings_file::{SaveInterval, Settings, ThemeName};
     use crate::persist::state_file::{
-        Origin, PhysPos, PhysSize, SessionState, SizeUnits, SortDirection, SortKey as StateSortKey, StateChange,
+        Origin, PhysPos, PhysSize, SessionState, SizeUnits, StateChange,
         WindowGeometry,
     };
     use crate::playlist::compare::{compare_keys, CompareKeys};
-    use crate::playlist::model::{SortColumn, SortDir, SortKey};
+    use crate::playlist::model::SortKey;
     use crate::playlist::Track;
     use crate::settings::{ColumnId, RepeatMode, ResamplerAlgorithm};
     use std::rc::Rc;
@@ -1744,22 +1744,6 @@ mod tests {
         (t, keys)
     }
 
-    /// Обратный мост (тестовый, ОТКЛОНЕНИЕ §7, ТЗ-40, ТЗ-43):
-    /// `state_file::SortKey` → `playlist::model::SortKey`. Прямое
-    /// направление — `to_state_sort_key` в `core/mod.rs`; обратное нужно
-    /// только эмуляции стартовой загрузки до С8 (02) в тесте перезапуска.
-    fn from_state_sort_key(key: Option<StateSortKey>) -> Option<SortKey> {
-        key.and_then(|k| {
-            SortColumn::from_column(k.column).map(|column| SortKey {
-                column,
-                dir: match k.direction {
-                    SortDirection::Asc => SortDir::Asc,
-                    SortDirection::Desc => SortDir::Desc,
-                },
-            })
-        })
-    }
-
     /// Видимый порядок, который построил бы загрузчик (ОТКЛОНЕНИЕ §7,
     /// ТЗ-40, ТЗ-43): индексы `rows` в исходном порядке, затем стабильная
     /// сортировка по `key` — та же логика, что `Playlist::resort` (§3.2,
@@ -1803,10 +1787,10 @@ mod tests {
     ///
     /// ОТКЛОНЕНИЕ: стартовая загрузка в `AppCore` — С8 (02). До этого шага
     /// `AppCore` не читает `playlist.m3u` сам при старте, поэтому тест
-    /// эмулирует загрузчика вручную: переносит `state.toml`, прочитанный
-    /// после перезапуска, в ключ сортировки модели плейлиста
-    /// (`from_state_sort_key`) и пересчитывает видимый порядок так же, как
-    /// это сделал бы загрузчик (`loader_visible_order`).
+    /// эмулирует загрузчика вручную: переносит ключ сортировки,
+    /// прочитанный из `state.toml` после перезапуска, напрямую в модель
+    /// плейлиста и пересчитывает видимый порядок так же, как это сделал
+    /// бы загрузчик (`loader_visible_order`).
     #[test]
     fn sort_key_restored_after_restart() {
         let h = Harness::new();
@@ -1837,7 +1821,7 @@ mod tests {
         h2.put_state(&state_bytes);
         let mut core2 = h2.boot();
 
-        let sort_after = from_state_sort_key(core2.state().sort());
+        let sort_after = core2.state().sort();
         assert_eq!(sort_after, Some(sort_before));
         let visible2 = loader_visible_order(&rows, sort_after);
         core2.playlist_replace(rows, visible2, sort_after);

@@ -31,7 +31,7 @@ use music_player_rs::engine::run::EngineHandle;
 use music_player_rs::persist::settings_file::Settings as PersistSettings;
 use music_player_rs::persist::settings_file::{ColumnsConfig, ThemeName};
 use music_player_rs::persist::state_file::{
-    effective_width_pct, LegacyPlaybackState, normalize_visible, widths_on_disable, widths_on_enable, Origin, SortDirection, StateChange, WidthPct,
+    effective_width_pct, LegacyPlaybackState, normalize_visible, widths_on_disable, widths_on_enable, Origin, StateChange, WidthPct,
 };
 use music_player_rs::persist::tracker::ReplyEffect;
 use music_player_rs::persist::{ConfigPaths, WorkFile};
@@ -39,7 +39,7 @@ use music_player_rs::platform::lifecycle::PlatformCaps;
 use music_player_rs::platform::notify::Notifier;
 use music_player_rs::playlist::{self, ScanMsg, Track};
 use music_player_rs::playlist::compare::{compare_keys, CompareKeys};
-use music_player_rs::playlist::model::{SortColumn, SortDir, SortKey};
+use music_player_rs::playlist::model::SortKey;
 use music_player_rs::settings::{
     clamp_ring_buffer_ms, ClockFamily, ColumnId, DsdMode, ExclusiveMode, FallbackPolicy,
     FallbackRatePolicy, RepeatMode, ResamplerMode,
@@ -2302,18 +2302,11 @@ impl MusicApp {
         self.known_paths = p.visible().iter().filter_map(|&id| p.get(id)).map(|t| t.path.clone()).collect();
     }
 
-    /// Ключ сортировки сессии (`state.toml`) → ключ модели плейлиста
-    /// (§6.13, ТЗ-42, ТЗ-43): используется при загрузке плейлиста, чтобы
-    /// восстановить видимый порядок по сохранённому ключу. `None` — ключа
-    /// нет или сохранённая колонка не сортируемая (`NowPlaying`).
+    /// Ключ сортировки сессии (`state.toml`) (§6.13, ТЗ-42, ТЗ-43):
+    /// используется при загрузке плейлиста, чтобы восстановить видимый
+    /// порядок по сохранённому ключу. `None` — ключа нет.
     pub(super) fn session_sort_key(&self) -> Option<SortKey> {
-        let k = self.core.state().sort()?;
-        let column = SortColumn::from_column(k.column)?;
-        let dir = match k.direction {
-            SortDirection::Asc => SortDir::Asc,
-            SortDirection::Desc => SortDir::Desc,
-        };
-        Some(SortKey { column, dir })
+        self.core.state().sort()
     }
 
     /// Видимый порядок при загрузке плейлиста (§3.1, §6.13, ТЗ-42, ТЗ-45):

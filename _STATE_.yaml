@@ -116,8 +116,8 @@ steps:
     description: "Убрать замыкание playlist_bytes из AppCore::tick/retry/exit (снимок из своего Playlist) (§4.2, ТЗ-12). Файлы: src/core/mod.rs, src/core/testing.rs (+ вызовы в src/app/mod.rs). Проверка: cargo check"
     done: true
   - id: 29
-    description: "state_file: SortKey/SortDirection → тип модели playlist::SortKey (re-export), разбор/запись без изменений формата; ui_manager отображает ключ через SortColumn::column(); убрать мост конверсии в core (§3.1, §2.x, ТЗ-43). Файлы: src/persist/state_file.rs, src/app/ui_manager.rs, src/core/mod.rs. Проверка: cargo check"
-    done: false
+    description: "state_file: SortKey/SortDirection → модельные playlist::model::{SortKey, SortDir} (re-export; sort_column_raw: Option<SortColumn> через from_column), формат state.toml без изменений; убрать мосты to_state_sort_key (core/mod.rs), from_state_sort_key (core/testing.rs), конверсию в session_sort_key (app/mod.rs); ui_manager сравнивает через SortColumn::column() (§3.1, §2.5, ТЗ-43). Файлы: src/persist/state_file.rs, src/core/mod.rs, src/core/testing.rs, src/app/mod.rs, src/app/ui_manager.rs (смена типа lib+bin неделима; все в вайтлисте). Проверка: cargo check + cargo test state_file core::"
+    done: true
   - id: 30
     description: "Заголовок таблицы — три состояния: колбэки sort-ascending/descending → core.header_click, sort-order колонок выставляется из состояния (снятие ключа сбрасывает стрелку) (ТЗ-42). Файлы: src/app/mod.rs, src/app/ui_manager.rs (ui/tableview_fork.slint — при необходимости). Проверка: cargo check"
     done: false
@@ -128,8 +128,8 @@ steps:
     description: "ФИНАЛ: cargo build + cargo test + cargo clippy зелёные; ручная проверка: сортировка/снятие ключа не пишет playlist.m3u, Shuffle; закрытие этапа (Шаг 5). Проверка: всё зелёное"
     done: false
 
-current_step: 29
-next_action: "Шаг 29: state_file SortKey → playlist::SortKey, убрать мост конверсии (src/persist/state_file.rs, src/app/ui_manager.rs, src/core/mod.rs)"
+current_step: 30
+next_action: "Шаг 30: заголовок таблицы — три состояния (sort-ascending/descending → core.header_click; sort-order из состояния) (src/app/mod.rs, src/app/ui_manager.rs)"
 fail_counter: 0
 fail_counter_max: 3
 failed_attempts: []

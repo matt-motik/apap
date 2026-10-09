@@ -16,6 +16,7 @@ use crate::audio::visualizer::VisualizationMode;
 use crate::persist::keys::{walk, FileRead, KeyPath, KeySpec, LoadNote, LoadNoteKind, Parsed};
 use crate::persist::settings_file::ColumnsConfig;
 use crate::persist::{ReferenceText, SerializeError};
+use crate::playlist::model::{SortColumn, SortDir};
 use crate::settings::{ColumnId, RepeatMode};
 
 /// Состояние сессии (§2.5): поля приватны, снаружи — только геттеры и
@@ -34,8 +35,8 @@ pub struct SessionState {
     shuffle: bool,
     window: WindowGeometry,
     last_dir: Option<PathBuf>,
-    sort_column_raw: Option<ColumnId>,
-    sort_direction_raw: Option<SortDirection>,
+    sort_column_raw: Option<SortColumn>,
+    sort_direction_raw: Option<SortDir>,
     window_x: Option<i32>,
     window_y: Option<i32>,
     window_width: Option<u32>,
@@ -244,18 +245,8 @@ pub fn widths_on_disable(cols: &ColumnsConfig, widths: &mut BTreeMap<ColumnId, W
     normalize_visible(cols, widths);
 }
 
-#[derive(Clone, Copy, PartialEq, Eq, Debug)]
-pub enum SortDirection {
-    Asc,
-    Desc,
-}
-
 /// Ключ сортировки (§2.5, ТЗ-43): `column` не бывает `ColumnId::NowPlaying`.
-#[derive(Clone, Copy, PartialEq, Eq, Debug)]
-pub struct SortKey {
-    pub column: ColumnId,
-    pub direction: SortDirection,
-}
+pub use crate::playlist::model::SortKey;
 
 /// Позиция окна, физические px (§2.5, `src/settings.rs:776-781`).
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
@@ -420,10 +411,8 @@ fn sort_specs() -> Vec<KeySpec<SessionState>> {
             read: Box::new(|v, t: &mut SessionState| {
                 let s = v.as_str().ok_or("ключ колонки, кроме \"now_playing\"")?;
                 let id = ColumnId::from_key(s).ok_or("ключ колонки, кроме \"now_playing\"")?;
-                if id == ColumnId::NowPlaying {
-                    return Err("ключ колонки, кроме \"now_playing\"");
-                }
-                t.sort_column_raw = Some(id);
+                let column = SortColumn::from_column(id).ok_or("ключ колонки, кроме \"now_playing\"")?;
+                t.sort_column_raw = Some(column);
                 Ok(())
             }),
             default: Box::new(|t: &mut SessionState| t.sort_column_raw = None),
@@ -434,8 +423,8 @@ fn sort_specs() -> Vec<KeySpec<SessionState>> {
             read: Box::new(|v, t: &mut SessionState| {
                 let s = v.as_str().ok_or("\"asc\" или \"desc\"")?;
                 let dir = match s {
-                    "asc" => SortDirection::Asc,
-                    "desc" => SortDirection::Desc,
+                    "asc" => SortDir::Asc,
+                    "desc" => SortDir::Desc,
                     _ => return Err("\"asc\" или \"desc\""),
                 };
                 t.sort_direction_raw = Some(dir);
@@ -598,22 +587,22 @@ pub(crate) fn state_spec() -> Vec<KeySpec<SessionState>> {
 /// присутствующего ключа, ключа сортировки нет).
 fn adjust_sort_pair(value: &mut SessionState, notes: &mut Vec<LoadNote>) {
     match (value.sort_column_raw, value.sort_direction_raw) {
-        (Some(column), Some(direction)) => value.sort = Some(SortKey { column, direction }),
+        (Some(column), Some(dir)) => value.sort = Some(SortKey { column, dir }),
         (Some(column), None) => {
             value.sort = None;
             notes.push(LoadNote {
                 key: KeyPath::new("sort.column"),
                 kind: LoadNoteKind::Invalid {
-                    found: format!("\"{}\"", column.key()).into(),
+                    found: format!("\"{}\"", column.column().key()).into(),
                     allowed: "sort.column и sort.direction задаются только вместе",
                 },
             });
         }
-        (None, Some(direction)) => {
+        (None, Some(dir)) => {
             value.sort = None;
-            let found = match direction {
-                SortDirection::Asc => "\"asc\"",
-                SortDirection::Desc => "\"desc\"",
+            let found = match dir {
+                SortDir::Asc => "\"asc\"",
+                SortDir::Desc => "\"desc\"",
             };
             notes.push(LoadNote {
                 key: KeyPath::new("sort.direction"),
@@ -758,10 +747,10 @@ pub fn serialize_state(s: &SessionState) -> Result<Arc<[u8]>, SerializeError> {
 
     let (sort_column, sort_direction) = match s.sort {
         Some(key) => (
-            Some(key.column.key()),
-            Some(match key.direction {
-                SortDirection::Asc => "asc",
-                SortDirection::Desc => "desc",
+            Some(key.column.column().key()),
+            Some(match key.dir {
+                SortDir::Asc => "asc",
+                SortDir::Desc => "desc",
             }),
         ),
         None => (None, None),
@@ -922,7 +911,7 @@ mod tests {
         let (value, notes) = parsed(bytes("sort.column = \"title\"\nsort.direction = \"desc\"\n"));
         assert_eq!(
             value.sort(),
-            Some(SortKey { column: ColumnId::Title, direction: SortDirection::Desc })
+            Some(SortKey { column: SortColumn::Title, dir: SortDir::Desc })
         );
         assert!(notes.iter().all(|n| n.key != KeyPath::new("sort.column") && n.key != KeyPath::new("sort.direction")));
     }
@@ -1037,7 +1026,7 @@ mod tests {
         state.apply(StateChange::ColumnWidths(widths.clone()));
         assert_eq!(state.column_widths(), &widths);
 
-        let sort = Some(SortKey { column: ColumnId::Artist, direction: SortDirection::Asc });
+        let sort = Some(SortKey { column: SortColumn::Artist, dir: SortDir::Asc });
         state.apply(StateChange::Sort(sort));
         assert_eq!(state.sort(), sort);
 
@@ -1186,7 +1175,7 @@ mod tests {
         widths.insert(ColumnId::Artist, WidthPct::new(25.0).expect("valid"));
         s.apply(StateChange::ColumnWidths(widths));
 
-        s.apply(StateChange::Sort(Some(SortKey { column: ColumnId::Artist, direction: SortDirection::Desc })));
+        s.apply(StateChange::Sort(Some(SortKey { column: SortColumn::Artist, dir: SortDir::Desc })));
         s.apply(StateChange::VizMode(VisualizationMode::Spectrum));
         s.apply(StateChange::Repeat(RepeatMode::All));
         s.apply(StateChange::Shuffle(true));

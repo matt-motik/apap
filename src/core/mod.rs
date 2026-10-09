@@ -24,14 +24,14 @@ use crate::journal::{Journal, JournalRecord, WriteTarget};
 use crate::persist::keys::{LoadNote, Parsed};
 use crate::persist::settings_file::{serialize_settings, Settings};
 use crate::persist::state_file::{
-    self, serialize_state, Origin, SessionState, StateChange, WindowGeometry,
+    serialize_state, Origin, SessionState, StateChange, WindowGeometry,
 };
 use crate::persist::tracker::{PersistTracker, ReplyEffect};
 use crate::persist::writer::{WriterCmd, WriterHandle, WriterReply};
 use crate::persist::{Boot, ConfigFile, ConfigPaths, ReferenceText, SerializeError, Snapshot, SnapshotId, WorkFile};
 use crate::platform::fs::{ReadError, WriteError};
 use crate::playlist::compare::CompareKeys;
-use crate::playlist::model::{Playlist, PlaylistEffect, SortDir, SortKey, TrackId};
+use crate::playlist::model::{Playlist, PlaylistEffect, SortKey, TrackId};
 use crate::playlist::shuffle::ShuffleState;
 use crate::playlist::Track;
 use crate::settings::ColumnId;
@@ -73,20 +73,6 @@ fn split_parsed<T>(parsed: Parsed<T>) -> (T, FileState, Vec<LoadNote>, Option<Re
             (value, FileState { reference: ReferenceText::default(), auto_forbidden: true }, Vec::new(), Some(err))
         }
     }
-}
-
-/// МОСТ (удаляется на шаге 28): `playlist::model::SortKey` →
-/// `persist::state_file::SortKey` для `StateChange::Sort` (§6.13, ТЗ-43).
-/// Пока `SessionState` хранит ключ сортировки в старом представлении —
-/// колонка и направление без типа `SortColumn`.
-fn to_state_sort_key(key: Option<SortKey>) -> Option<state_file::SortKey> {
-    key.map(|k| state_file::SortKey {
-        column: k.column.column(),
-        direction: match k.dir {
-            SortDir::Asc => state_file::SortDirection::Asc,
-            SortDir::Desc => state_file::SortDirection::Desc,
-        },
-    })
 }
 
 /// Команды UI → движок (§2.12, ADR-01): неблокирующая отправка,
@@ -358,7 +344,7 @@ impl AppCore {
 
     /// Применяет эффект операции плейлиста (§6.13): `dirty` взводит дедлайн
     /// отложенной записи `playlist.m3u`, `sort_changed` — переносит новый
-    /// ключ сортировки в `SessionState` через мост `to_state_sort_key`.
+    /// ключ сортировки в `SessionState`.
     /// `order_changed` при включённом Shuffle перестраивает `ShuffleState`
     /// (§3.4, ТЗ-45); передача перестановки `Sequencer` и замыкание серии
     /// пропусков — на этапе 01_audio_modes С8.
@@ -367,8 +353,7 @@ impl AppCore {
             self.playlist_changed();
         }
         if e.sort_changed {
-            let bridge = to_state_sort_key(self.playlist.sort_key());
-            self.change_state(Origin::User, StateChange::Sort(bridge));
+            self.change_state(Origin::User, StateChange::Sort(self.playlist.sort_key()));
         }
         if e.order_changed && self.state.shuffle() {
             self.shuffle.rebuild(self.playlist.visible(), &mut self.rng);
