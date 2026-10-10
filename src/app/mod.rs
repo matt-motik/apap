@@ -60,6 +60,7 @@ pub mod bp_report;
 pub(crate) mod engine_sink;
 pub mod events;
 pub mod fulltrack_manager;
+mod mode_dialog;
 pub mod playback_manager;
 pub mod playlist_manager;
 mod ui_audio_state;
