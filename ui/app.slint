@@ -11,6 +11,7 @@ import {
     CoverSetting,
     DeviceCapability,
     ValidationRow,
+    ModeParamRow,
 } from "settings.slint";
 import { MessageWindow } from "message_window.slint";
 import { Button, ScrollView } from "std-widgets.slint";
@@ -276,6 +277,10 @@ export component AppWindow inherits Window {
     in property <int> settings-audio-clock-family-idx: 0;
     in property <int> settings-audio-fallback-rate-idx: 0;
     in property <int> settings-audio-ring-buffer-ms: 1500;
+    // §6.18, §6.27, ТЗ-41, ТЗ-94: панель построчных настроек режима.
+    in property <int> settings-mode-edit-mode: 0;
+    in property <[ModeParamRow]> settings-mode-rows: [];
+    in property <string> settings-mode-validation: "";
     in property <[ColumnSetting]> settings-cols: [];
     in-out property <int> settings-selected-col: -1;
     in property <[CoverSetting]> settings-covers: [];
@@ -324,6 +329,11 @@ export component AppWindow inherits Window {
     callback settings-set-audio-clock-family(int);
     callback settings-set-audio-fallback-rate(int);
     callback settings-set-audio-ring-buffer-ms(int);
+    // §6.18, §6.27, ТЗ-41, ТЗ-94: панель построчных настроек режима.
+    callback settings-mode-edit-mode-selected(int);
+    callback settings-mode-row-index-changed(int, int);
+    callback settings-mode-row-toggled(int, bool);
+    callback settings-mode-row-slider-changed(int, float);
     callback bp-clicked();
     callback bp-report-close();
     callback bp-report-action(int);
@@ -735,6 +745,9 @@ export component AppWindow inherits Window {
         audio-clock-family-idx: root.settings-audio-clock-family-idx;
         audio-fallback-rate-idx: root.settings-audio-fallback-rate-idx;
         audio-ring-buffer-ms: root.settings-audio-ring-buffer-ms;
+        mode-edit-mode: root.settings-mode-edit-mode;
+        mode-rows: root.settings-mode-rows;
+        mode-validation: root.settings-mode-validation;
         columns-cfg: root.settings-cols;
         selected-col <=> root.settings-selected-col;
         covers: root.settings-covers;
@@ -766,6 +779,10 @@ export component AppWindow inherits Window {
         set-audio-clock-family(i) => { root.settings-set-audio-clock-family(i); }
         set-audio-fallback-rate(i) => { root.settings-set-audio-fallback-rate(i); }
         set-audio-ring-buffer-ms(v) => { root.settings-set-audio-ring-buffer-ms(v); }
+        mode-edit-mode-selected(i) => { root.settings-mode-edit-mode-selected(i); }
+        mode-row-index-changed(param, i) => { root.settings-mode-row-index-changed(param, i); }
+        mode-row-toggled(param, b) => { root.settings-mode-row-toggled(param, b); }
+        mode-row-slider-changed(param, v) => { root.settings-mode-row-slider-changed(param, v); }
         toggle-column(i) => { root.settings-toggle-col(i); }
         reset-columns => { root.settings-reset-cols(); }
         move-col-up(i) => { root.settings-move-col-up(i); }

@@ -1,0 +1,150 @@
+import { Colors } from "theme.slint";
+import { ComboBox, CheckBox, Slider } from "std-widgets.slint";
+
+// Строка панели настроек режима (§6.18, §6.27, ТЗ-41, ТЗ-94, ТЗ-95):
+// зеркало `DialogRow`/`RowKind` из `src/app/mode_dialog.rs` — одна строка
+// `DialogRow` маппится в одну `ModeParamRow` (вид виджета в `kind`,
+// значение — в соответствующих полях, остальные поля вида несущественны).
+export struct ModeParamRow {
+    param: int,
+    label: string,
+    kind: int, // 0=List, 1=Toggle, 2=Slider, 3=Info
+    enabled: bool,
+    note: string,
+    options: [string],
+    selected: int,
+    checked: bool,
+    value: float,
+    min: float,
+    max: float,
+}
+
+component ModeParamLabel inherits Text {
+    in property <bool> row-enabled: true;
+    color: root.row-enabled ? Colors.text-primary : Colors.text-tertiary;
+    font-size: 12px;
+    vertical-alignment: center;
+    min-width: 190px;
+    wrap: word-wrap;
+}
+
+component ModeParamNote inherits Text {
+    color: Colors.text-dim;
+    font-size: 12px;
+    wrap: word-wrap;
+    vertical-alignment: center;
+}
+
+// Панель построчного редактора настроек режима (§6.18, §6.27, ТЗ-41,
+// ТЗ-94): селектор редактируемого режима + строки из `rows`, построенные
+// `mode_dialog::build_rows` на стороне Rust. Панель не хранит состояние —
+// всё приходит через `rows`/`edit-mode` и уходит через колбэки.
+export component ModeParamsPanel inherits VerticalLayout {
+    // Индекс редактируемого режима: 0=Совместимый, 1=Оптимальный, 2=Строгий.
+    in property <int> edit-mode: 0;
+    in property <[ModeParamRow]> rows: [];
+    // ТЗ-94: причина отказа применить правку (несовместимая пара буферов и
+    // т.п.), пусто — ничего не показывается.
+    in property <string> validation: "";
+
+    callback edit-mode-selected(int);
+    callback row-index-changed(int /* param */, int /* selected */);
+    callback row-toggled(int /* param */, bool);
+    callback row-slider-changed(int /* param */, float);
+
+    spacing: 8px;
+
+    HorizontalLayout {
+        padding-left: 8px;
+        padding-right: 8px;
+        spacing: 4px;
+        Text {
+            text: "Режим:";
+            font-weight: 600;
+            color: Colors.text-primary;
+            vertical-alignment: center;
+        }
+
+        ComboBox {
+            model: ["Совместимый", "Оптимальный", "Строгий"];
+            current-index: root.edit-mode;
+            selected(s) => { root.edit-mode-selected(self.current-index); }
+        }
+
+        Rectangle {
+            horizontal-stretch: 1;
+        }
+    }
+
+    if root.validation != "": Text {
+        text: root.validation;
+        color: Colors.text-error;
+        wrap: word-wrap;
+    }
+
+    for row[i] in root.rows: VerticalLayout {
+        spacing: 2px;
+
+        HorizontalLayout {
+            padding-left: 8px;
+            padding-right: 8px;
+            spacing: 6px;
+
+            ModeParamLabel {
+                text: row.label;
+                row-enabled: row.enabled;
+            }
+
+            if row.kind == 0: ComboBox {
+                model: row.options;
+                current-index: row.selected;
+                enabled: row.enabled;
+                selected(s) => { root.row-index-changed(row.param, self.current-index); }
+            }
+
+            if row.kind == 1: CheckBox {
+                checked: row.checked;
+                enabled: row.enabled;
+                toggled => { root.row-toggled(row.param, self.checked); }
+            }
+
+            if row.kind == 2: HorizontalLayout {
+                spacing: 6px;
+                Slider {
+                    minimum: row.min;
+                    maximum: row.max;
+                    value: row.value;
+                    enabled: row.enabled;
+                    preferred-height: 24px;
+                    changed(v) => { root.row-slider-changed(row.param, v); }
+                }
+
+                Text {
+                    text: Math.round(row.value) + " мс";
+                    color: Colors.text-secondary;
+                    vertical-alignment: center;
+                }
+            }
+
+            if row.kind == 3: ModeParamNote {
+                text: row.note;
+            }
+
+            Rectangle {
+                horizontal-stretch: 1;
+            }
+        }
+
+        // Пояснение к редактируемым строкам (ТЗ-94: подсказка «увеличьте
+        // буфер плеера...» и т.п.); для `Info`-строк (kind == 3) текст уже
+        // показан виджетом строки выше.
+        if row.kind != 3 && row.note != "": HorizontalLayout {
+            padding-left: 8px;
+            padding-right: 8px;
+            ModeParamNote {
+                text: row.note;
+                color: Colors.text-warn;
+            }
+        }
+    }
+}
