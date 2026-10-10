@@ -1,7 +1,8 @@
 //! Ошибки тракта (AM1.0 §2.4). `OpenError`, `Reaction`, `classify`, `reaction`
 //! (С3, ADR-14, ТЗ-86) классифицируют ошибку открытия трека и определяют
-//! реакцию по режиму; `Incompatible(Blocked)` (С5) и `ModeUnavailable(ModeKind)`
-//! (С4) — ещё не представлены в `OpenError`, добавляются позже (таблица
+//! реакцию по режиму; `ModeUnavailable(ModeKind)` (С4, ТЗ-109, ТЗ-111, §6.18
+//! п. 2) — сохранённый режим недоступен на платформе. `Incompatible(Blocked)`
+//! (С5) — ещё не представлен в `OpenError`, добавляется позже (таблица
 //! «Трейт → этап» под §8).
 #![deny(clippy::unwrap_used, clippy::expect_used, clippy::unreachable)]
 
@@ -113,14 +114,19 @@ pub enum DeviceChoiceKind {
     Hw,
 }
 
-/// Ошибка открытия трека на границе движка (§2.4). Подмножество С3:
-/// `Incompatible(Blocked)` — С5, `ModeUnavailable(ModeKind)` — С4.
+/// Ошибка открытия трека на границе движка (§2.4). Подмножество С3/С4:
+/// `Incompatible(Blocked)` — С5, ещё не представлен.
 #[derive(Clone, PartialEq, Debug)]
 pub enum OpenError {
     Capture(CaptureFailure),
     DeviceLost,
     File(FileError),
     Internal(EngineFault),
+    /// Сохранённый режим недоступен на платформе (С4, ТЗ-109, ТЗ-111,
+    /// §6.18 п. 2): `BackendCaps::available(mode)` вернул `false` для
+    /// активного режима. Сохранённый активный режим при этом не меняется
+    /// (§6.2 п. 5) — только отказ открытия.
+    ModeUnavailable(ModeKind),
 }
 
 /// Реакция плеера на ошибку открытия трека (ADR-14, ТЗ-86).
@@ -140,6 +146,11 @@ pub fn classify(e: &OpenError) -> ErrorClass {
         OpenError::File(FileError::ReadDuringPlayback { .. }) => ErrorClass::ReadError,
         OpenError::File(_) => ErrorClass::BadFile,
         OpenError::Internal(_) => ErrorClass::Internal,
+        // Спецификация не вводит отдельный класс для ModeUnavailable (§6.2
+        // п. 5, ТЗ-111): показ уведомления с кнопкой переключения — это
+        // остановка с сообщением, а не пропуск трека, поэтому берём класс,
+        // дающий `StopWithError` в любом режиме — `Internal`.
+        OpenError::ModeUnavailable(_) => ErrorClass::Internal,
     }
 }
 
@@ -225,6 +236,7 @@ mod tests {
         );
         assert_eq!(classify(&OpenError::File(FileError::Corrupt(CorruptKind::BadHeader))), ErrorClass::BadFile);
         assert_eq!(classify(&OpenError::Internal(EngineFault::StoreFailed)), ErrorClass::Internal);
+        assert_eq!(classify(&OpenError::ModeUnavailable(ModeKind::Strict)), ErrorClass::Internal);
     }
 
     #[test]

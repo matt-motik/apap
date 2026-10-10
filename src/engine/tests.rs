@@ -16,11 +16,11 @@ use crate::audio::backend::catalog::{DeviceWatcher, FakeDeviceWatcher};
 use crate::audio::backend::shared::{fake_device, FakeSharedBackend, SharedBackend};
 use crate::audio::backend::{BackendError, SharedDeviceInfo};
 use crate::audio::clock::MonotonicClock;
-use crate::audio::error::EngineFault;
+use crate::audio::error::{EngineFault, OpenError};
 use crate::audio::format::{ChannelLayout, Codec, Container, SampleRate, SourceFormat, SourceKind};
 use crate::engine::deps::EngineDeps;
-use crate::engine::messages::{EngineCmd, EngineEvent, LegacyAudio};
-use crate::engine::run::{effective_gain, mode_apply_action, EngineHandle, ModeApplyAction};
+use crate::engine::messages::{EngineCmd, EngineEvent, LegacyAudio, TransportState};
+use crate::engine::run::{effective_gain, mode_apply_action, BackendCaps, EngineHandle, ModeApplyAction};
 use crate::engine::sink::{EventSink, VecSink};
 use crate::engine::source::{FakeSource, SourceOpener};
 use crate::engine::spawner::{FailingSpawner, StdSpawner, ThreadSpawner};
@@ -436,4 +436,68 @@ fn compatible_mode_passes_volume_through() {
     let settings = ModeSettings::default();
 
     assert_eq!(effective_gain(&settings, ModeKind::Compatible, 0.5, false), 0.5);
+}
+
+/// §2.3, ТЗ-109: правило доступности режима — Совместимый доступен всегда,
+/// Оптимальный/Строгий — только при `exclusive`.
+#[test]
+fn modes_availability_from_backend_caps() {
+    let no_exclusive = BackendCaps { exclusive: false };
+    assert!(no_exclusive.available(ModeKind::Compatible));
+    assert!(!no_exclusive.available(ModeKind::Optimal));
+    assert!(!no_exclusive.available(ModeKind::Strict));
+
+    let exclusive = BackendCaps { exclusive: true };
+    assert!(exclusive.available(ModeKind::Compatible));
+    assert!(exclusive.available(ModeKind::Optimal));
+    assert!(exclusive.available(ModeKind::Strict));
+}
+
+/// §6.18 п. 2, §6.2 п. 5, ТЗ-109, ТЗ-111: сохранённый активный режим
+/// недоступен на платформе (здесь — `BackendCaps { exclusive: false }`) —
+/// `Open` не захватывает устройство и не открывает файл, а сразу шлёт
+/// `OpenFailed(ModeUnavailable)`; сохранённый режим при этом не меняется
+/// молча (первый `OpenFailed` всё ещё называет `Strict`, а не какой-то
+/// другой режим). После переключения на доступный Совместимый режим
+/// повторный `Open` не получает `ModeUnavailable` — дошёл до обычного пути
+/// открытия (дальше бридж С3 легаси `Player` требует реального устройства,
+/// ТЗ-114, здесь не проверяется).
+#[test]
+fn saved_unavailable_mode_no_playback() {
+    let sink = VecSink::new();
+    let deps = fake_deps(Box::new(sink.clone()), Arc::new(StdSpawner));
+
+    let (handle, _caps) =
+        EngineHandle::spawn_with_caps(deps, BackendCaps { exclusive: false }).expect("spawn ok");
+
+    assert!(handle.send(EngineCmd::SetActiveMode(ModeKind::Strict)));
+    assert!(handle.send(EngineCmd::Open {
+        req_gen: 1,
+        path: Arc::from(Path::new("fake.flac")),
+        start_secs: 0.0,
+        autoplay: true,
+    }));
+    assert!(handle.send(EngineCmd::SetActiveMode(ModeKind::Compatible)));
+    assert!(handle.send(EngineCmd::Open {
+        req_gen: 2,
+        path: Arc::from(Path::new("fake.flac")),
+        start_secs: 0.0,
+        autoplay: true,
+    }));
+    assert!(handle.send(EngineCmd::Shutdown));
+    handle.join();
+
+    let events = sink.take();
+
+    assert!(events.iter().any(|e| matches!(
+        e,
+        EngineEvent::OpenFailed { req_gen: 1, err: OpenError::ModeUnavailable(ModeKind::Strict) }
+    )));
+    assert!(!events.iter().any(|e| matches!(e, EngineEvent::Opened { req_gen: 1, .. })));
+    assert!(!events.iter().any(|e| matches!(e, EngineEvent::Transport { state: TransportState::Playing })));
+
+    assert!(!events.iter().any(|e| matches!(
+        e,
+        EngineEvent::OpenFailed { req_gen: 2, err: OpenError::ModeUnavailable(_) }
+    )));
 }

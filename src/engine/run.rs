@@ -119,10 +119,14 @@ struct Engine {
     /// mute гасит сигнал во всех режимах, `player.set_muted` вызывается
     /// напрямую, вне правила `effective_gain`.
     last_muted: bool,
+    /// Возможности бэкенда (§2.3, ТЗ-109): определяет доступность
+    /// `active_mode` для проверки в `Open` (§6.18 п. 2). Снимок на момент
+    /// запуска потока — платформа не меняется на ходу.
+    caps: BackendCaps,
 }
 
 impl Engine {
-    fn new(deps: EngineDeps) -> Engine {
+    fn new(deps: EngineDeps, caps: BackendCaps) -> Engine {
         let mut player = Player::new();
         player.set_spawner(Arc::clone(&deps.spawner));
         let player_volume = player.volume();
@@ -141,6 +145,7 @@ impl Engine {
             active_mode: ModeKind::default(),
             last_volume: player_volume,
             last_muted: false,
+            caps,
         }
     }
 
@@ -187,6 +192,16 @@ impl Engine {
     fn handle(&mut self, cmd: EngineCmd) -> bool {
         match cmd {
             EngineCmd::Open { req_gen, path, start_secs, autoplay } => {
+                // §6.18 п. 2 (ТЗ-109, ТЗ-111): режим недоступен на платформе —
+                // без захвата и без открытия файла, сохранённый активный
+                // режим не меняется (§6.2 п. 5).
+                if !self.caps.available(self.active_mode) {
+                    self.deps.events.emit(EngineEvent::OpenFailed {
+                        req_gen,
+                        err: OpenError::ModeUnavailable(self.active_mode),
+                    });
+                    return false;
+                }
                 // §6.18 шаг 3: сначала только заголовок через `SourceOpener`,
                 // без касания `Player` (ТЗ-86, ТЗ-103, ADR-20). Ошибка —
                 // классифицированный `FileError`, сразу `Skipped`.
@@ -650,16 +665,23 @@ impl EngineHandle {
     /// Запускает поток `apap-engine` через `deps.spawner` (ТЗ-88, ADR-20) и
     /// возвращает синхронно `BackendCaps` платформы (§2.8, ОВС-12).
     pub fn spawn(deps: EngineDeps) -> Result<(EngineHandle, BackendCaps), EngineFault> {
+        Self::spawn_with_caps(deps, BackendCaps::current())
+    }
+
+    /// Как [`Self::spawn`], но с явными `BackendCaps` — для тестов
+    /// недоступности режима без зависимости от платформы сборки (ТЗ-109,
+    /// ТЗ-111).
+    pub(crate) fn spawn_with_caps(deps: EngineDeps, caps: BackendCaps) -> Result<(EngineHandle, BackendCaps), EngineFault> {
         let spawner = Arc::clone(&deps.spawner);
         let (tx, rx) = mpsc::channel();
         let join = spawner.spawn(
             "apap-engine",
             Box::new(move || {
-                let engine = Engine::new(deps);
+                let engine = Engine::new(deps, caps);
                 engine.run(rx);
             }),
         )?;
-        Ok((EngineHandle { tx, join: Some(join) }, BackendCaps::current()))
+        Ok((EngineHandle { tx, join: Some(join) }, caps))
     }
 
     /// Неблокирующая отправка команды (ADR-01). `false`, если движок уже

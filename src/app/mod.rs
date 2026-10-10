@@ -2706,6 +2706,8 @@ fn describe_open_error(err: &OpenError) -> String {
         OpenError::DeviceLost => "устройство вывода потеряно".to_string(),
         OpenError::File(file_err) => describe_file_error(file_err),
         OpenError::Internal(fault) => format!("внутренняя ошибка движка: {fault:?}"),
+        // ТЗ-111, §6.18 п. 2: сохранённый режим недоступен на платформе.
+        OpenError::ModeUnavailable(mode) => format!("режим {mode:?} недоступен на этой платформе"),
     }
 }
 
