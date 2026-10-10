@@ -461,6 +461,10 @@ pub struct MusicApp {
     /// всегда открывает с нуля без автовоспроизведения, поэтому восстановить
     /// их нужно явно после прихода `Opened` в `on_track_opened`.
     pending_mode_reopen: Option<(f64, bool)>,
+    /// Уведомление «режим недоступен на этой платформе» уже поставлено и не
+    /// закрыто (ТЗ-111, §6.2 п. 5, ADR-13): не копится повторно при старте и
+    /// при каждом неудачном открытии трека по той же причине.
+    mode_notice_pending: bool,
 }
 
 impl MusicApp {
@@ -651,6 +655,7 @@ impl MusicApp {
             picker,
             backend_caps,
             pending_mode_reopen: None,
+            mode_notice_pending: false,
         };
         // Стартовая загрузка плейлиста в фоне (ADR-16, ADR-23 шаг 9, §6.12,
         // ТЗ-21, ТЗ-47): поток `apap-playlist` через `AppCore`; `tick()`
@@ -683,6 +688,12 @@ impl MusicApp {
         }
         // Стартовая синхронизация переключателя режимов (§6.18, ТЗ-109, ТЗ-110).
         app.sync_mode_to_ui();
+        // Сохранённый активный режим недоступен на этой платформе: звук не
+        // запускается и режим не меняется сам — только уведомление с
+        // кнопкой переключения в Совместимый (ТЗ-111, §6.2 п. 5).
+        if !app.backend_caps.available(app.core.state().active_mode()) {
+            app.push_mode_unavailable_notice();
+        }
         // Запуск ничего не пишет (ТЗ-4, §8.1 С3).
         app
     }
@@ -749,11 +760,20 @@ impl MusicApp {
                 MessageLevel::Error => 2,
             };
             let retry = message.buttons == MessageButtons::RetryOk;
+            // Доп. основная кнопка «Переключить в Совместимый режим» для
+            // окна недоступного режима (ТЗ-111, §6.2 п. 5); пустая строка —
+            // без доп. кнопки (OK закрывает как обычно).
+            let primary_label: SharedString = if message.buttons == MessageButtons::SwitchCompatibleOk {
+                "Переключить в Совместимый режим".into()
+            } else {
+                SharedString::default()
+            };
             if let Some(ui) = &ui {
                 ui.set_msg_level(level);
                 ui.set_msg_title(message.title.as_ref().into());
                 ui.set_msg_body(message.body.as_ref().into());
                 ui.set_msg_retry(retry);
+                ui.set_msg_primary_label(primary_label);
                 ui.set_msg_shown(true);
             }
             self.gate.block(BlockReason::Message);
@@ -930,6 +950,49 @@ impl MusicApp {
     pub(super) fn push_message(&mut self, message: Message) {
         let effect = self.messages.push(message, self.caps);
         self.apply_msg_effect(effect);
+    }
+
+    /// Уведомление «на этой платформе доступен только Совместимый режим,
+    /// для воспроизведения переключите режим» с кнопкой переключения
+    /// (ТЗ-111, §6.2 п. 5, ADR-13): ставится при старте, если сохранённый
+    /// активный режим недоступен, и при отказе открытия трека по той же
+    /// причине (`OpenError::ModeUnavailable`). Звук не запускается и режим
+    /// не меняется сам — выбор остаётся за пользователем. `mode_notice_pending`
+    /// не даёт поставить дубликат, пока предыдущее такое окно не закрыто.
+    pub(super) fn push_mode_unavailable_notice(&mut self) {
+        if self.mode_notice_pending {
+            return;
+        }
+        self.mode_notice_pending = true;
+        self.push_message(Message {
+            level: MessageLevel::Warning,
+            title: "Режим недоступен".into(),
+            body: "на этой платформе доступен только Совместимый режим (Shared), для воспроизведения переключите режим".into(),
+            buttons: MessageButtons::SwitchCompatibleOk,
+        });
+    }
+
+    /// Выбрать активный режим: из переключателя top_panel (`on_select_mode`)
+    /// или из кнопки «Переключить в Совместимый режим» окна уведомления о
+    /// недоступном режиме (§6.18, ТЗ-20, ТЗ-111). Недоступный на платформе
+    /// или уже активный режим — без действий. Иначе: `SetActiveMode`,
+    /// переоткрытие текущего трека с сохранённой позиции, применение
+    /// громкости нового режима и синхронизация переключателя в UI.
+    pub(super) fn select_active_mode(&mut self, mode: ModeKind) {
+        if !self.backend_caps.available(mode) {
+            return;
+        }
+        if self.core.state().active_mode() == mode {
+            return;
+        }
+        self.mode_notice_pending = false;
+        // UI отправляет SetActiveMode, затем переоткрывает тот же
+        // трек с текущей позиции (§6.18 «Смена режима», ТЗ-20).
+        self.core.change_state(Origin::User, StateChange::ActiveMode(mode));
+        self.player.set_active_mode(mode);
+        self.reopen_current_for_mode_switch();
+        self.apply_mode_gain();
+        self.sync_mode_to_ui();
     }
 
     /// Первый показ окна: разблокировать очередь `MessageCenter` (И-Р9,
@@ -1362,19 +1425,7 @@ impl MusicApp {
                     2 => ModeKind::Strict,
                     _ => return,
                 };
-                if !a.backend_caps.available(mode) {
-                    return;
-                }
-                if a.core.state().active_mode() == mode {
-                    return;
-                }
-                // UI отправляет SetActiveMode, затем переоткрывает тот же
-                // трек с текущей позиции (§6.18 «Смена режима», ТЗ-20).
-                a.core.change_state(Origin::User, StateChange::ActiveMode(mode));
-                a.player.set_active_mode(mode);
-                a.reopen_current_for_mode_switch();
-                a.apply_mode_gain();
-                a.sync_mode_to_ui();
+                a.select_active_mode(mode);
             });
         }
 
@@ -2220,8 +2271,14 @@ impl MusicApp {
                 let mut a = app.borrow_mut();
                 let (close_effect, msg_effect) = a.messages.press(MessageButton::Primary);
                 a.apply_msg_effect(msg_effect);
-                if let CloseEffect::Retry(files) = close_effect {
-                    a.retry_writes(files);
+                // Окно недоступного режима закрыто одной из своих кнопок —
+                // снять признак, иначе новое такое окно не поставится
+                // (ТЗ-111, §6.2 п. 5).
+                a.mode_notice_pending = false;
+                match close_effect {
+                    CloseEffect::Retry(files) => a.retry_writes(files),
+                    CloseEffect::SwitchToCompatible => a.select_active_mode(ModeKind::Compatible),
+                    CloseEffect::Closed => {}
                 }
             });
         }
@@ -2232,6 +2289,7 @@ impl MusicApp {
                 let mut a = app.borrow_mut();
                 let (close_effect, msg_effect) = a.messages.press(MessageButton::Close);
                 a.apply_msg_effect(msg_effect);
+                a.mode_notice_pending = false;
                 if let CloseEffect::Retry(files) = close_effect {
                     a.retry_writes(files);
                 }
@@ -2665,6 +2723,17 @@ impl MusicApp {
                 // второе сообщение не нужно, только снять ожидание открытия.
                 if matches!(err, OpenError::Capture(_)) {
                     self.pending_open = None;
+                    return;
+                }
+                // Сохранённый активный режим недоступен на этой платформе
+                // (ТЗ-111, §6.2 п. 5): звук не играет, режим не меняется
+                // сам — только уведомление с кнопкой переключения. Не
+                // `on_open_failed`, чтобы не проскочить дальше по плейлисту.
+                if matches!(err, OpenError::ModeUnavailable(_)) {
+                    self.pending_open = None;
+                    self.player.stop();
+                    self.emit(AppEvent::PlaybackStopped);
+                    self.push_mode_unavailable_notice();
                     return;
                 }
                 let index = self.pending_open.take().map(|(index, _)| index).or(self.current);

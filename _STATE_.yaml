@@ -122,7 +122,7 @@ steps:
     done: true
   - id: 27
     description: "Rust (src/app/mod.rs): ТЗ-111 — при старте, если сохранённый режим недоступен (backend_caps), и на OpenFailed(ModeUnavailable) (стоп без пропуска треков): сообщение «на этой платформе доступен только Совместимый режим (Shared), для воспроизведения переключите режим» с кнопкой «Переключить в Совместимый режим»; CloseEffect::SwitchToCompatible → тот же путь, что select-mode(0); режим сам не меняется (§6.2 п. 5). Проверка: cargo check"
-    done: false
+    done: true
   - id: 28
     description: "src/core/testing.rs: тесты mode_settings_preserved_across_switch_and_restart (стр. 2886) и load_correction_not_written_until_save (стр. 2922). Проверка: cargo test core::; ЧЕКПОИНТ: cargo test + clippy"
     done: false
@@ -159,8 +159,8 @@ steps:
   - id: 39
     description: "Финал: cargo build/test/clippy зелёные; ROADMAP ✅; заметка плана; напомнить пользователю удалить settings.toml (ТЗ-97) и показать расхождение с 02 spec стр. 3342 (решение — за пользователем); ручные проверки (переключатель режимов, Совместимый играет, Оптимальный/Строгий через hw: на Linux). Проверка: cargo test + clippy"
     done: false
-current_step: 27
-next_action: "Шаг 27: Rust (src/app/mod.rs) — уведомление ТЗ-111 на старте и при OpenFailed(ModeUnavailable), SwitchToCompatible → путь select-mode(0)"
+current_step: 28
+next_action: "Шаг 28: src/core/testing.rs — тесты mode_settings_preserved_across_switch_and_restart и load_correction_not_written_until_save; ЧЕКПОИНТ"
 fail_counter: 0
 fail_counter_max: 3
 failed_attempts: []
