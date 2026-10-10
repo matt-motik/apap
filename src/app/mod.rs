@@ -24,6 +24,7 @@ use music_player_rs::core::messages::{
 };
 use music_player_rs::core::exit::{ExitOutcome, ExitReason};
 use music_player_rs::core::io::{CacheKind, CacheSizes, IoDone, IoJob, IoWorker};
+use music_player_rs::core::load::LoadApplied;
 use music_player_rs::core::AppCore;
 use music_player_rs::cover::{self, CoverDone, CoverJob};
 use music_player_rs::engine::messages::{EngineEvent, LegacyAudio, Notice, SkipReason};
@@ -374,9 +375,6 @@ pub struct MusicApp {
     /// toggles so the dialog never re-queries the backend for a filter preview,
     /// ТЗ A3.0 §8.1). Consumed by capabilities/validation sync.
     audio_device_infos: Vec<DeviceInfo>,
-    /// Async startup playlist load: yields the persisted track list once it
-    /// has been read off disk (avoids blocking UI init on large playlists).
-    startup_tracks_rx: Option<Receiver<Vec<Track>>>,
     events_tx: std::sync::mpsc::Sender<AppEvent>,
     events_rx: std::sync::mpsc::Receiver<AppEvent>,
     /// Delta-synced playback values last pushed to the UI.
@@ -516,14 +514,6 @@ impl MusicApp {
             player.set_preferred_device(pb.audio_device.clone());
         }
 
-        // Load the persisted playlist in the background so a large library
-        // doesn't block window construction; `tick()` applies it on arrival.
-        let (startup_tx, startup_tracks_rx) = channel::<Vec<Track>>();
-        let startup_path = paths.playlist.clone();
-        thread::spawn(move || {
-            let tracks = playlist::load_track_list(&startup_path);
-            let _ = startup_tx.send(tracks);
-        });
         let known_paths: HashSet<PathBuf> = HashSet::new();
         let (tray_rx, tray_up_tx, tray_ready) =
             (Some(tray.events), Some(tray.updates), Some(tray.ready));
@@ -611,7 +601,6 @@ impl MusicApp {
             audio_devices_rx: None,
             audio_devices_pairs: Vec::new(),
             audio_device_infos: Vec::new(),
-            startup_tracks_rx: Some(startup_tracks_rx),
             events_tx,
             events_rx,
             last_ui: UiState::default(),
@@ -643,13 +632,20 @@ impl MusicApp {
             cache_disk: CacheSizes::default(),
             picker,
         };
-        // Загрузка плейлиста при старте ещё не завершена (фон, выше) —
-        // список недоступен до её окончания (ТЗ-48, §2.11).
+        // Стартовая загрузка плейлиста в фоне (ADR-16, ADR-23 шаг 9, §6.12,
+        // ТЗ-21, ТЗ-47): поток `apap-playlist` через `AppCore`; `tick()`
+        // (`poll_load_playlist`) разбирает итог. Список недоступен до её
+        // окончания (ТЗ-48, §2.11).
+        app.core.start_startup_load();
         app.gate.set_loading(Some(LoadKind::Startup));
+        if let Some(ui) = app.try_ui() {
+            ui.set_busy(true);
+        }
         app.setup_fulltrack();
         app.setup_visualizer(viz_cfg, viz_prod, viz_cons);
-        // Ключ сортировки сессии применяется в `drain_startup_tracks`, когда
-        // реальные треки загружены (здесь `tracks` всегда пуст) (§6.13, ТЗ-42).
+        // Ключ сортировки сессии применяется в `poll_load_playlist`, когда
+        // стартовая загрузка завершится (здесь `tracks` всегда пуст)
+        // (§6.13, ТЗ-42).
         app.apply_window_geometry();
         // Восстановленная геометрия — программная установка: её эхо на тике
         // не взводит срок записи (ADR-22, §6.17).
@@ -2184,7 +2180,7 @@ impl MusicApp {
         self.drain_engine_events();
         self.poll_tray();
         self.drain_events();
-        self.drain_startup_tracks();
+        self.poll_load_playlist();
         self.drain_scan();
         self.drain_cover();
         self.drain_fulltrack();
@@ -2201,6 +2197,12 @@ impl MusicApp {
         self.apply_reply_effects(output.effects);
         // `output.other` (экспорт/бэд-копии/карантин) — разбор добавится на
         // этапе писателя для этих путей; пока ответы отбрасываются.
+        // Сообщения `tick()` (карантин/нечитаемый файл, ADR-13, §6.15,
+        // ТЗ-52) — через тот же MessageCenter, что и отчёты поллинга
+        // загрузки (ADR-16, ADR-23, §6.12).
+        for message in output.messages {
+            self.push_message(message);
+        }
         self.sync_dsd_status_ui();
         if self.try_ui().is_some_and(|ui| ui.get_bp_report_open()) {
             let report = bp_report::build_bp_report(&bp_report::bp_inputs(self));
@@ -2252,38 +2254,42 @@ impl MusicApp {
     }
 
 
-    /// Apply the async-loaded startup playlist once it arrives from the
-    /// background thread. No-op while the load is still in flight.
-    fn drain_startup_tracks(&mut self) {
-        let Some(rx) = self.startup_tracks_rx.take() else {
+    /// Разбирает итог загрузки плейлиста на каждом тике (ADR-16, ADR-23
+    /// шаг 9, §6.12, ТЗ-21, ТЗ-47): `AppCore::poll_load` сам сверяет
+    /// поколение и завершает `LoadState` -> `Idle`, вернув отчёт только для
+    /// итога ТЕКУЩЕЙ загрузки. `Replaced` (стартовая загрузка) — плейлист
+    /// уже заменён внутри `core` (`playlist_replace` вызван в
+    /// `on_load_outcome`), здесь только перестраивается модель таблицы.
+    /// `PlayNow` относится к командной загрузке («Загрузить плейлист»,
+    /// ТЗ-13 б, ТЗ-48) — `start_command_load` на этом шаге не вызывается,
+    /// поэтому сюда фактически не попадём; модель обновляется тем же путём
+    /// на случай будущего шага, а запуск воспроизведения первого трека
+    /// (Open/autoplay) добавится отдельно в шаге командной загрузки.
+    /// Сообщения (повреждённый/нечитаемый `playlist.m3u`, ОВ-8/ТЗ-21) идут в
+    /// `MessageCenter` (ADR-13, §6.15, ТЗ-52).
+    fn poll_load_playlist(&mut self) {
+        let Some(report) = self.core.poll_load() else {
             return;
         };
-        let tracks = match rx.try_recv() {
-            Ok(loaded) => loaded,
-            Err(_) => {
-                self.startup_tracks_rx = Some(rx);
-                return;
+        match report.applied {
+            Some(LoadApplied::Replaced) | Some(LoadApplied::PlayNow { .. }) => {
+                self.rebuild_known_paths();
+                self.sync_playlist_to_ui();
             }
-        };
-        // Загрузка завершена — снять признак ТЗ-48, список снова доступен.
+            None => {}
+        }
+        // Загрузка завершена — снять признак ТЗ-48 и индикатор занятости,
+        // список снова доступен.
         self.gate.set_loading(None);
-        // МОСТ (§6.13, ТЗ-42, ТЗ-45): строки для модели плейлиста и
-        // восстановление видимого порядка по ключу сессии.
-        let rows: Vec<(Track, CompareKeys)> = tracks
-            .into_iter()
-            .map(|t| {
-                let keys = CompareKeys::from_track(&t);
-                (t, keys)
-            })
-            .collect();
-        let key = self.session_sort_key();
-        let visible = MusicApp::load_visible_order(&rows, key);
-        self.core.playlist_replace(rows, visible, key);
-        self.rebuild_known_paths();
-        self.sync_playlist_to_ui();
-        // Успешная загрузка стартового плейлиста — результат виден в
-        // таблице и track-count, сообщение/строка состояния не нужны
-        // (ТЗ-52, ОВ-7).
+        if let Some(ui) = self.try_ui() {
+            ui.set_busy(false);
+        }
+        if let Some(message) = report.message {
+            self.push_message(message);
+        }
+        // Успешная загрузка стартового плейлиста без сообщения — результат
+        // виден в таблице и track-count, сообщение/строка состояния не
+        // нужны (ТЗ-52, ОВ-7).
     }
 
     /// Разбирает ответы потока `apap-io` на тике: ответы сверяются с

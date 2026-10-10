@@ -58,7 +58,7 @@ steps:
     done: true
   - id: 12
     description: "src/app/mod.rs: стартовая загрузка через core.start_startup_load + опрос на тике (индикатор busy, сообщения через MessageCenter, гейт set_loading по LoadState); удалить startup_tracks_rx и drain_startup_tracks (ADR-16, ADR-23, ТЗ-47, ТЗ-21). Проверка: cargo check"
-    done: false
+    done: true
   - id: 13
     description: "src/app/mod.rs + src/app/playback_manager.rs: «Загрузить плейлист» → core.start_command_load; LoadApplied::PlayNow → stop прежнего, open первого (autoplay), пустой → стоп; убрать синхронный load_track_list из обработчика меню (ADR-16, ТЗ-13 б, ТЗ-48). Проверка: cargo check"
     done: false
@@ -71,8 +71,8 @@ steps:
   - id: 16
     description: "ЧЕКПОИНТ финальный: cargo test + cargo clippy (0 новых варнингов в файлах вайтлиста); cargo build"
     done: false
-current_step: 12
-next_action: "Шаг 12: src/app/mod.rs — стартовая загрузка через core.start_startup_load + опрос в tick (индикатор, MessageCenter, гейт по LoadState); убрать startup_tracks_rx/drain_startup_tracks"
+current_step: 13
+next_action: "Шаг 13: «Загрузить плейлист» → core.start_command_load; PlayNow → стоп старого, Open первого с autoplay, пусто → стоп (app/mod.rs + playback_manager.rs)"
 fail_counter: 0
 fail_counter_max: 3
 failed_attempts: []
