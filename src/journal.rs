@@ -27,6 +27,9 @@ pub trait Journal: Send + Sync {
 pub enum JournalRecord {
     /// Рабочий файл не прочитан.
     ReadFailed { file: WorkFile, err: ReadError },
+    /// Стартовый `playlist.m3u` не прошёл проверку ОВ-8; причина —
+    /// «строка N: …» (ADR-5, ТЗ-21, §6.12).
+    PlaylistCorrupt { reason: Box<str> },
     /// Все заметки разбора одного файла — одной записью (ТЗ-5, §6.1).
     LoadNotes { file: ConfigFile, notes: Vec<LoadNote> },
     /// Неразбираемый файл: текст ошибки разбора и итог копии `*.bad`
@@ -59,6 +62,7 @@ impl JournalRecord {
         match self {
             JournalRecord::ReadFailed { .. } => "ошибка чтения",
             JournalRecord::LoadNotes { .. } => "заметки разбора",
+            JournalRecord::PlaylistCorrupt { .. } => "повреждённый плейлист",
             JournalRecord::Unparsable { .. } => "неразбираемый файл",
             JournalRecord::WriteFailed { .. } => "ошибка записи",
             JournalRecord::TempRemoveFailed { .. } => "временный файл не удалён",
@@ -78,6 +82,9 @@ impl JournalRecord {
                 os_code_suffix(err.os_code),
                 err.path.display()
             ),
+            JournalRecord::PlaylistCorrupt { reason } => {
+                format!("{}: {reason}", WorkFile::Playlist.file_name())
+            }
             JournalRecord::LoadNotes { file, notes } => {
                 let body = notes.iter().map(load_note_text).collect::<Vec<_>>().join("; ");
                 format!("{}: {body}", file.work().file_name())
@@ -400,6 +407,15 @@ mod tests {
             "1970-01-01T00:00:00.000Z заметки разбора: state.toml: volume: недопустимое значение 200 \
              (ожидается целое 0..=100), подставлено по умолчанию; muted: нет значения, подставлено по \
              умолчанию; bogus: неизвестный ключ, исчезнет при записи"
+        );
+    }
+
+    #[test]
+    fn journal_playlist_corrupt_line_has_reason() {
+        let rec = JournalRecord::PlaylistCorrupt { reason: "строка 3: не абсолютный путь".into() };
+        assert_eq!(
+            format_line(&rec, UNIX_EPOCH),
+            "1970-01-01T00:00:00.000Z повреждённый плейлист: playlist.m3u: строка 3: не абсолютный путь"
         );
     }
 
