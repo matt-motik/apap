@@ -797,6 +797,9 @@ impl MusicApp {
             .collect();
         ui.set_mode_available(ModelRc::from(available.as_slice()));
         ui.set_mode_unavailable_reason(ModelRc::from(reasons.as_slice()));
+        // Ползунок/колесо громкости в top_panel блокируются визуально, когда
+        // активный режим фиксирует громкость (ТЗ-41, ADR-23, §6.18).
+        ui.set_volume_enabled(!self.volume_locked());
     }
 
     /// Асинхронный выбор файла/каталога, не блокирующий цикл событий
@@ -1319,9 +1322,10 @@ impl MusicApp {
                 }
                 // Строгий режим, а также Оптимальный с фиксацией громкости
                 // (`volume_lock`), не допускают программную громкость (ТЗ-41,
-                // §6.18); слайдер пока не умеет визуально блокироваться
-                // (нет свойства enabled в `top_panel.slint`), поэтому ввод
-                // просто игнорируется, без применения к движку/состоянию.
+                // §6.18); слайдер/колесо уже заблокированы визуально через
+                // `volume-enabled` в `top_panel.slint`, но ввод всё равно
+                // проверяется здесь на случай гонки между событием UI и
+                // сменой режима.
                 if a.volume_locked() {
                     return;
                 }
@@ -2483,9 +2487,11 @@ impl MusicApp {
                     // is a single step. Negative delta = louder.
                     // Bit-perfect (Direct Output): volume control is moved to
                     // the external DAC/amp — the tray wheel is silenced.
-                    if self.player.bit_perfect() || delta == 0 {
-                        // Skip volume change — either in bit-perfect mode or
-                        // host sent a neutral (zero) event.
+                    // Активный режим фиксирует громкость (ТЗ-41, ADR-23,
+                    // §6.18) — колесо трея тоже должно игнорироваться.
+                    if self.player.bit_perfect() || self.volume_locked() || delta == 0 {
+                        // Skip volume change — either in bit-perfect mode,
+                        // volume-locked mode, or host sent a neutral (zero) event.
                     } else {
                         let dir = if delta < 0 { 1.0 } else { -1.0 };
                         let v = (self.player.volume() + dir * WHEEL_VOLUME_STEP).clamp(0.0, 1.0);

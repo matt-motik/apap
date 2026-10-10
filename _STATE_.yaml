@@ -111,7 +111,7 @@ steps:
     done: true
   - id: 24
     description: "Rust: ui.set_volume_enabled(!volume_locked()) в sync_mode_to_ui/apply_mode_gain и после сохранения volume_lock (src/app/mod.rs, src/app/playback_manager.rs) (ТЗ-41, ADR-23). Проверка: cargo check"
-    done: false
+    done: true
   - id: 25
     description: "ТЗ-111: сохранённый недоступный режим — на старте без воспроизведения и без самостоятельной смены режима; уведомление «на этой платформе доступен только Совместимый режим (Shared), для воспроизведения переключите режим» с кнопкой «Переключить в Совместимый режим» (→ тот же путь, что select-mode(0)). Использовать существующий механизм уведомлений/сообщений приложения; если нужна кнопка в Slint — разбить на подшаги. Файлы: src/app/mod.rs (+ при необходимости ui). Проверка: cargo check"
     done: false
@@ -128,7 +128,7 @@ steps:
     description: "Slint: ui/mode_params.slint (новый) — компонент панели режимов: выбор редактируемого режима, строки по виду (список/переключатель/ползунок, неактивные с причиной/«задано режимом»/«пока не реализовано»); подключить во вкладку «Аудио» ui/settings.slint рядом со старым блоком (мост) с пробросом в ui/app.slint. Проверка: cargo check"
     done: false
   - id: 30
-    description: "Rust: связать панель режимов — черновик Settings.modes через apply_edit, синхронизация строк; «Сохранить» → ModeSettings::diff → SetModeSettings(Some(diff)) только при непустом diff, запись в настройки (ОВС-14, §6.18). Файлы: src/app/mode_dialog.rs, src/app/mod.rs. Проверка: cargo check; ЧЕКПОИНТ: cargo test + clippy"
+    description: "Rust: связать панель режимов — черновик Settings.modes через apply_edit, синхронизация строк; «Сохранить» → ModeSettings::diff → SetModeSettings(Some(diff)) только при непустом diff, запись в настройки, затем sync_mode_to_ui (volume_lock → volume-enabled) (ОВС-14, §6.18, ТЗ-41). Файлы: src/app/mode_dialog.rs, src/app/mod.rs. Проверка: cargo check; ЧЕКПОИНТ: cargo test + clippy"
     done: false
   - id: 31
     description: "Удалить старые Rust-обработчики аудио-диалога: on_settings_set_audio_*/set_dsd_mode/set_bit_perfect и resampler_fixed_fallback_guard с тестом (src/app/mod.rs), sync_capabilities_and_validation/sync_dsd_chain_desc/sync_audio_advanced (src/app/ui_manager.rs) (§8 С4 «удаляется»). Проверка: cargo check"
@@ -151,8 +151,8 @@ steps:
   - id: 37
     description: "Финал: cargo build/test/clippy зелёные; ROADMAP ✅; заметка плана; напомнить пользователю удалить settings.toml (ТЗ-97) и показать расхождение с 02 spec стр. 3342 (решение — за пользователем); ручные проверки (переключатель режимов, Совместимый играет, Оптимальный/Строгий через hw: на Linux). Проверка: cargo test + clippy"
     done: false
-current_step: 24
-next_action: "Шаг 24: Rust — ui.set_volume_enabled(!volume_locked()) в sync_mode_to_ui/apply_mode_gain и после сохранения volume_lock"
+current_step: 25
+next_action: "Шаг 25: ТЗ-111 — сохранённый недоступный режим: без воспроизведения, уведомление с кнопкой «Переключить в Совместимый режим»"
 fail_counter: 0
 fail_counter_max: 3
 failed_attempts: []
