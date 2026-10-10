@@ -55,8 +55,8 @@
 - [x] Шаг 13: src/engine/messages.rs + src/engine/run.rs: EngineCmd::SetModeSettings(ModeSettingsUpdate) и SetActiveMode(ModeKind) (SetLegacyAudio пока остаётся мостом); движок хранит ModeSettings + active и строит параметры пути через legacy_path; diff None → только копия; Some → по strongest (§6.18): Memory → копия; ReopenAtPosition → одно переоткрытие с позиции с сохранением playing/paused (stopped → только копия); SwitchDevice → смена устройства с позиции. Проверка: cargo check
 - [x] Шаг 14: src/engine/run.rs + src/engine/tests.rs: вынести решение применения в чистую fn mode_apply_action(diff: Option<&ModeSettingsDiff>, active, stopped) -> ModeApplyAction {Store, ReopenAtPosition, SwitchDevice} (§6.18, И-Р26) и тесты: изменение параметра активного режима → ReopenAtPosition; изменение неактивного режима → Store; device + другой параметр → SwitchDevice (поглощение); stopped → Store. Тест audio_param_change_reopens_at_position_preserving_pause (§7.2 стр. 1834) с реальным переоткрытием невозможен без фейка Player (мост С3, ТЗ-114) — переносится на этап с SignalPath (заметка плана). Проверка: cargo test engine::
 - [x] Шаг 15: src/engine/run.rs (+ src/engine/tests.rs): правило громкости — действующий gain 1.0 в Строгом и в Оптимальном с volume_lock, SetVolume там без эффекта; mute работает во всех режимах (§6.18, ОВС-18…20, ADR-23). Тест optimal_volume_lock_uses_nogain (§7.2 стр. 2916). Проверка: cargo test engine::; ЧЕКПОИНТ: cargo test + clippy
-- [>] **Шаг 16: BackendCaps { exclusive } (§2.3 стр. 920): exclusive = cfg!(target_os = "linux") (ОВС-12, ТЗ-109, ТЗ-110), BackendCaps::available(mode) = mode == Compatible || exclusive; EngineHandle::spawn -> Result<(EngineHandle, BackendCaps), EngineFault>; вызовы в src/main.rs и тестах. Файлы: src/engine/run.rs, src/main.rs. Проверка: cargo check**
-- [ ] Шаг 17: src/engine/run.rs + src/engine/tests.rs: Open в недоступном режиме → OpenFailed(ModeUnavailable) без воспроизведения (§6.18 п. 2). Тесты modes_availability_from_backend_caps, saved_unavailable_mode_no_playback (§7.2 стр. 2863–2864). Проверка: cargo test engine::
+- [x] Шаг 16: BackendCaps { exclusive } (§2.3 стр. 920): exclusive = cfg!(target_os = "linux") (ОВС-12, ТЗ-109, ТЗ-110), BackendCaps::available(mode) = mode == Compatible || exclusive; EngineHandle::spawn -> Result<(EngineHandle, BackendCaps), EngineFault>; вызовы в src/main.rs и тестах. Файлы: src/engine/run.rs, src/main.rs. Проверка: cargo check
+- [>] **Шаг 17: src/engine/run.rs + src/engine/tests.rs: Open в недоступном режиме → OpenFailed(ModeUnavailable) без воспроизведения (§6.18 п. 2). Тесты modes_availability_from_backend_caps, saved_unavailable_mode_no_playback (§7.2 стр. 2863–2864). Проверка: cargo test engine::**
 - [ ] Шаг 18: src/app/audio_facade.rs: вместо SetLegacyAudio отправлять SetModeSettings / SetActiveMode (источник — Settings.modes и PlaybackState); громкость и mute — активного режима. Проверка: cargo check
 - [ ] Шаг 19: Снять мост SetLegacyAudio: удалить вариант из src/engine/messages.rs и обработку в src/engine/run.rs; LegacyAudio остаётся внутренним типом движка. Проверка: cargo check; ЧЕКПОИНТ: cargo test + clippy
 - [ ] Шаг 20: Старт: до первого Open отправить SetModeSettings{diff: None} и SetActiveMode(сохранённый режим) (§6.27, ОВС-14). Файлы: src/app/mod.rs, src/app/audio_facade.rs. Тест startup_policy_equals_saved_policy (стр. 549). Проверка: cargo test startup_policy
@@ -77,8 +77,8 @@
 
 Легенда: [x] сделано · [>] текущий шаг · [ ] не начато
 
-- **Текущий шаг (current_step):** Шаг 16
-- **Следующий ход:** Шаг 16: новый субагент (sonnet, code-writer) — BackendCaps
+- **Текущий шаг (current_step):** Шаг 17
+- **Следующий ход:** Шаг 17: Open в недоступном режиме → OpenFailed(ModeUnavailable) + тесты
 - **Счетчик безуспешных компиляций:** 0/3
 - **Состояние:** in_progress
 

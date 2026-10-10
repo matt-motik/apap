@@ -162,7 +162,7 @@ fn ui_handlers_do_not_block_on_slow_open() {
         MemStore::new(),
     );
 
-    let handle = EngineHandle::spawn(deps).expect("spawn ok");
+    let (handle, _caps) = EngineHandle::spawn(deps).expect("spawn ok");
 
     let start = Instant::now();
     assert!(handle.send(EngineCmd::Open {
@@ -219,7 +219,7 @@ fn device_catalog_enumerated_once() {
         MemStore::new(),
     );
 
-    let handle = EngineHandle::spawn(deps).expect("spawn ok");
+    let (handle, _caps) = EngineHandle::spawn(deps).expect("spawn ok");
     assert!(handle.send(EngineCmd::SetVolume(0.4)));
     assert!(handle.send(EngineCmd::SetVolume(0.6)));
     assert!(handle.send(EngineCmd::Shutdown));
@@ -249,7 +249,7 @@ fn device_hotplug_single_enumeration() {
         MemStore::new(),
     );
 
-    let handle = EngineHandle::spawn(deps).expect("spawn ok");
+    let (handle, _caps) = EngineHandle::spawn(deps).expect("spawn ok");
 
     // Дождаться первого (стартового) перечисления, прежде чем менять список
     // и дёргать триггер: иначе возможна гонка, при которой первое
@@ -291,7 +291,7 @@ fn set_mode_settings_performs_no_io() {
         mem.clone(),
     );
 
-    let handle = EngineHandle::spawn(deps).expect("spawn ok");
+    let (handle, _caps) = EngineHandle::spawn(deps).expect("spawn ok");
     assert!(handle.send(EngineCmd::SetLegacyAudio(legacy_audio_defaults())));
     assert!(handle.send(EngineCmd::Shutdown));
     handle.join();
@@ -315,7 +315,7 @@ fn shutdown_emits_complete() {
     let sink = VecSink::new();
     let deps = fake_deps(Box::new(sink.clone()), Arc::new(StdSpawner));
 
-    let handle = EngineHandle::spawn(deps).expect("spawn ok");
+    let (handle, _caps) = EngineHandle::spawn(deps).expect("spawn ok");
     assert!(handle.send(EngineCmd::SetVolume(0.3)));
     assert!(handle.send(EngineCmd::Shutdown));
     handle.join();
@@ -327,7 +327,7 @@ fn shutdown_emits_complete() {
 
     let sink2 = VecSink::new();
     let deps2 = fake_deps(Box::new(sink2.clone()), Arc::new(StdSpawner));
-    let handle2 = EngineHandle::spawn(deps2).expect("spawn ok");
+    let (handle2, _caps2) = EngineHandle::spawn(deps2).expect("spawn ok");
     // `Drop` сам шлёт `Shutdown` и join'ится синхронно (ТЗ-45) — к моменту
     // возврата из `drop` события уже на месте.
     drop(handle2);

@@ -89,7 +89,12 @@ fn main() {
     bad_copies_via_writer(&boot, &writer, journal.as_ref());
     // Движок запускается до AppCore — `deps` строит только main (ADR-19, ADR-01, ADR-20).
     let (engine_sink, engine_events) = app::engine_sink::event_channel(app::engine_sink::slint_wake());
-    let engine = EngineHandle::spawn(EngineDeps::system(Box::new(engine_sink), paths.dir.clone(), journal.clone()));
+    // `BackendCaps` пока не передаётся дальше — проводка в фасад/UI
+    // (`Availability`, переключатель режимов) — шаги 18–20 (§2.8, ТЗ-109).
+    let (engine, _caps) = match EngineHandle::spawn(EngineDeps::system(Box::new(engine_sink), paths.dir.clone(), journal.clone())) {
+        Ok((handle, caps)) => (Ok(handle), Some(caps)),
+        Err(fault) => (Err(fault), None),
+    };
     // `AppCore` — владелец действующих настроек и состояния, писателя и
     // инжектируемых часов/ожидания (ADR-19, ADR-23, §2.12, §6.1). `MusicApp`
     // владеет этим экземпляром; старое плоское поле настроек заполняется из

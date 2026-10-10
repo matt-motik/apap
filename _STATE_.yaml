@@ -86,7 +86,7 @@ steps:
     done: true
   - id: 16
     description: "BackendCaps { exclusive } (§2.3 стр. 920): exclusive = cfg!(target_os = \"linux\") (ОВС-12, ТЗ-109, ТЗ-110), BackendCaps::available(mode) = mode == Compatible || exclusive; EngineHandle::spawn -> Result<(EngineHandle, BackendCaps), EngineFault>; вызовы в src/main.rs и тестах. Файлы: src/engine/run.rs, src/main.rs. Проверка: cargo check"
-    done: false
+    done: true
   - id: 17
     description: "src/engine/run.rs + src/engine/tests.rs: Open в недоступном режиме → OpenFailed(ModeUnavailable) без воспроизведения (§6.18 п. 2). Тесты modes_availability_from_backend_caps, saved_unavailable_mode_no_playback (§7.2 стр. 2863–2864). Проверка: cargo test engine::"
     done: false
@@ -141,8 +141,8 @@ steps:
   - id: 34
     description: "Финал: cargo build/test/clippy зелёные; ROADMAP ✅; заметка плана; напомнить пользователю удалить settings.toml (ТЗ-97) и показать расхождение с 02 spec стр. 3342 (решение — за пользователем); ручные проверки (переключатель режимов, Совместимый играет, Оптимальный/Строгий через hw: на Linux). Проверка: cargo test + clippy"
     done: false
-current_step: 16
-next_action: "Шаг 16: новый субагент (sonnet, code-writer) — BackendCaps"
+current_step: 17
+next_action: "Шаг 17: Open в недоступном режиме → OpenFailed(ModeUnavailable) + тесты"
 fail_counter: 0
 fail_counter_max: 3
 failed_attempts: []
