@@ -4,6 +4,7 @@ use serde::{Deserialize, Serialize};
 
 pub mod params;
 pub mod playback;
+pub mod playback_dto;
 
 pub use playback::ModeKind;
 
