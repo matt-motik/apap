@@ -17,11 +17,39 @@ use crate::audio::player::{Player, ReservationEvent};
 use crate::engine::deps::EngineDeps;
 use crate::engine::legacy_path::legacy_audio;
 use crate::engine::messages::{EngineCmd, EngineEvent, LegacyAudio, Notice, SkipReason, TransportState};
-use crate::settings::params::ApplyKind;
+use crate::settings::params::{ApplyKind, ModeSettingsDiff};
 use crate::settings::playback::{ModeKind, ModeSettings};
 
 /// Минимальный интервал между событиями `Position` (§6.1, И-Р13).
 const POSITION_INTERVAL: Duration = Duration::from_millis(100);
+
+/// Решение `EngineCmd::SetModeSettings` по диффу активного режима и
+/// состоянию транспорта (§6.18, И-Р26). `Store` — без переоткрытия: пустой
+/// дифф и изменения с `ApplyKind::Memory` не трогают `Player`, а на
+/// остановленном транспорте нет сессии для переоткрытия, поэтому параметры
+/// только копируются в `Player` для следующего `Open`. `ReopenAtPosition` и
+/// `SwitchDevice` — одно переоткрытие текущего трека старым путём;
+/// `SwitchDevice` поглощает остальные изменения активного режима, т.к. он
+/// сильнее по порядку `ApplyKind` (И-Р26).
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub(crate) enum ModeApplyAction {
+    Store,
+    ReopenAtPosition,
+    SwitchDevice,
+}
+
+/// Чистая часть решения `SetModeSettings` (§6.18, И-Р26), без доступа к
+/// `Player` — тестируется без реального аудио-устройства (ТЗ-114).
+/// Изменения неактивного режима (`diff.strongest(active)` не их учитывает)
+/// не дают эффекта.
+pub(crate) fn mode_apply_action(diff: Option<&ModeSettingsDiff>, active: ModeKind, stopped: bool) -> ModeApplyAction {
+    match diff.and_then(|d| d.strongest(active)) {
+        None | Some(ApplyKind::Memory) => ModeApplyAction::Store,
+        Some(ApplyKind::ReopenAtPosition) | Some(ApplyKind::SwitchDevice) if stopped => ModeApplyAction::Store,
+        Some(ApplyKind::ReopenAtPosition) => ModeApplyAction::ReopenAtPosition,
+        Some(ApplyKind::SwitchDevice) => ModeApplyAction::SwitchDevice,
+    }
+}
 
 /// Цикл обработки команд (мост С3): владеет `Player` целиком, пока
 /// `SignalPath`/`BadgeState`/`DeviceCatalog.hw` не появились (С4…С6).
@@ -261,9 +289,22 @@ impl Engine {
             EngineCmd::SetModeSettings(update) => {
                 self.mode_settings = update.settings;
                 let strongest = update.diff.as_ref().and_then(|d| d.strongest(self.active_mode));
-                match strongest {
-                    None | Some(ApplyKind::Memory) => {}
-                    Some(ApplyKind::ReopenAtPosition) | Some(ApplyKind::SwitchDevice) => {
+                match mode_apply_action(update.diff.as_ref(), self.active_mode, self.stopped) {
+                    // `Store`, вызванный остановленным транспортом при
+                    // изменении с реальным эффектом (§6.18): нет сессии для
+                    // переоткрытия — чистая запись параметров старого пути,
+                    // применится на следующем `Open` (как `apply_active_mode`
+                    // при `self.stopped` сегодня).
+                    ModeApplyAction::Store
+                        if matches!(strongest, Some(ApplyKind::ReopenAtPosition) | Some(ApplyKind::SwitchDevice)) =>
+                    {
+                        let (legacy, device) = legacy_audio(&self.mode_settings, self.active_mode);
+                        self.apply_legacy_fields(&legacy, device);
+                    }
+                    // Пустой дифф или изменение с `ApplyKind::Memory` —
+                    // настройки уже скопированы выше, больше ничего не нужно.
+                    ModeApplyAction::Store => {}
+                    ModeApplyAction::ReopenAtPosition | ModeApplyAction::SwitchDevice => {
                         self.apply_active_mode();
                     }
                 }

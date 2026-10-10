@@ -80,7 +80,7 @@ steps:
     done: true
   - id: 14
     description: "src/engine/run.rs + src/engine/tests.rs: вынести решение применения в чистую fn mode_apply_action(diff: Option<&ModeSettingsDiff>, active, stopped) -> ModeApplyAction {Store, ReopenAtPosition, SwitchDevice} (§6.18, И-Р26) и тесты: изменение параметра активного режима → ReopenAtPosition; изменение неактивного режима → Store; device + другой параметр → SwitchDevice (поглощение); stopped → Store. Тест audio_param_change_reopens_at_position_preserving_pause (§7.2 стр. 1834) с реальным переоткрытием невозможен без фейка Player (мост С3, ТЗ-114) — переносится на этап с SignalPath (заметка плана). Проверка: cargo test engine::"
-    done: false
+    done: true
   - id: 15
     description: "src/engine/run.rs (+ src/engine/tests.rs): правило громкости — действующий gain 1.0 в Строгом и в Оптимальном с volume_lock, SetVolume там без эффекта; mute работает во всех режимах (§6.18, ОВС-18…20, ADR-23). Тест optimal_volume_lock_uses_nogain (§7.2 стр. 2916). Проверка: cargo test engine::; ЧЕКПОИНТ: cargo test + clippy"
     done: false
@@ -141,8 +141,8 @@ steps:
   - id: 34
     description: "Финал: cargo build/test/clippy зелёные; ROADMAP ✅; заметка плана; напомнить пользователю удалить settings.toml (ТЗ-97) и показать расхождение с 02 spec стр. 3342 (решение — за пользователем); ручные проверки (переключатель режимов, Совместимый играет, Оптимальный/Строгий через hw: на Linux). Проверка: cargo test + clippy"
     done: false
-current_step: 14
-next_action: "Шаг 14: новый субагент (sonnet, code-writer) — src/engine/tests.rs: тесты переоткрытия по ApplyKind"
+current_step: 15
+next_action: "Шаг 15: новый субагент (sonnet, code-writer) — правило громкости в движке; ЧЕКПОИНТ"
 fail_counter: 0
 fail_counter_max: 3
 failed_attempts: []

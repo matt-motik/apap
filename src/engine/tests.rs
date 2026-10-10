@@ -20,11 +20,12 @@ use crate::audio::error::EngineFault;
 use crate::audio::format::{ChannelLayout, Codec, Container, SampleRate, SourceFormat, SourceKind};
 use crate::engine::deps::EngineDeps;
 use crate::engine::messages::{EngineCmd, EngineEvent, LegacyAudio};
-use crate::engine::run::EngineHandle;
+use crate::engine::run::{mode_apply_action, EngineHandle, ModeApplyAction};
 use crate::engine::sink::{EventSink, VecSink};
 use crate::engine::source::{FakeSource, SourceOpener};
 use crate::engine::spawner::{FailingSpawner, StdSpawner, ThreadSpawner};
 use crate::platform::fs::{FsPersistStore, MemStore};
+use crate::settings::playback::{BufferMs, ModeKind, ModeSettings, RateFallbackRule, SrcFilter};
 use crate::settings::{
     ClockFamily, DsdMode, ExclusiveMode, FallbackPolicy, FallbackRatePolicy, ResamplerAlgorithm,
     ResamplerDither, ResamplerMode,
@@ -333,4 +334,61 @@ fn shutdown_emits_complete() {
 
     let events2 = sink2.take();
     assert_eq!(events2.iter().filter(|e| matches!(e, EngineEvent::ShutdownComplete)).count(), 1);
+}
+
+/// §6.18, И-Р26: изменение параметра активного режима с `ApplyKind::ReopenAtPosition`
+/// (буфер декодирование→вывод) на играющем транспорте требует переоткрытия.
+#[test]
+fn mode_apply_action_reopen_at_position_for_active_mode_param() {
+    let base = ModeSettings::default();
+    let mut changed = base.clone();
+    changed.compatible.buffer = BufferMs::new(2_000).expect("2000 мс — допустимый буфер плеера");
+    let diff = base.diff(&changed);
+
+    assert_eq!(
+        mode_apply_action(Some(&diff), ModeKind::Compatible, false),
+        ModeApplyAction::ReopenAtPosition
+    );
+}
+
+/// §6.18, И-Р26: изменение параметра неактивного режима не даёт эффекта —
+/// `diff.strongest(active)` его не учитывает, настройки только сохраняются.
+#[test]
+fn mode_apply_action_store_for_inactive_mode_param() {
+    let base = ModeSettings::default();
+    let mut changed = base.clone();
+    changed.optimal.rate_fallback = RateFallbackRule::Nearest;
+    let diff = base.diff(&changed);
+
+    assert_eq!(mode_apply_action(Some(&diff), ModeKind::Compatible, false), ModeApplyAction::Store);
+}
+
+/// §6.18, И-Р26: `ApplyKind::SwitchDevice` сильнее `ReopenAtPosition` и
+/// поглощает остальные изменения активного режима — одно переоткрытие на
+/// новом устройстве вместо двух последовательных.
+#[test]
+fn mode_apply_action_switch_device_absorbs_other_change() {
+    let base = ModeSettings::default();
+    let mut changed = base.clone();
+    changed.optimal.device = Some(String::from("hw:CARD=X"));
+    changed.optimal.src_filter = SrcFilter::VerySlow;
+    let diff = base.diff(&changed);
+
+    assert_eq!(
+        mode_apply_action(Some(&diff), ModeKind::Optimal, false),
+        ModeApplyAction::SwitchDevice
+    );
+}
+
+/// §6.18, И-Р26: на остановленном транспорте нет сессии для переоткрытия —
+/// даже изменение класса `ReopenAtPosition`/`SwitchDevice` даёт только
+/// чистую запись параметров (`Store`), как у `apply_active_mode` сегодня.
+#[test]
+fn mode_apply_action_store_when_stopped_despite_reopen_class() {
+    let base = ModeSettings::default();
+    let mut changed = base.clone();
+    changed.compatible.buffer = BufferMs::new(2_000).expect("2000 мс — допустимый буфер плеера");
+    let diff = base.diff(&changed);
+
+    assert_eq!(mode_apply_action(Some(&diff), ModeKind::Compatible, true), ModeApplyAction::Store);
 }
