@@ -43,7 +43,7 @@ steps:
     done: true
   - id: 7
     description: "Тесты ТЗ-21/47/17 (стартовая загрузка) в src/core/testing.rs: startup_playlist_missing, startup_playlist_corrupt_quarantined, startup_playlist_quarantine_failed_is_case_3, startup_playlist_unreadable, startup_playlist_nonexistent_paths_not_corrupt, startup_load_shows_full_sorted_list, startup_load_hang_exit_keeps_playlist, unreadable_playlist_never_written (§7). Проверка: cargo test core::"
-    done: false
+    done: true
   - id: 8
     description: "Тесты ТЗ-13 б/17/48 (команда) в src/core/testing.rs: load_playlist_plays_first_by_key (эффект PlayNow первого по ключу, флаг, запись через N), load_playlist_from_pause_and_stop_starts_playback, load_playlist_unreadable_keeps_everything, load_playlist_empty_stops_and_marks_dirty, load_command_exit_writes_old_playlist_if_dirty, load_command_exit_clean_writes_nothing, load_command_timer_writes_old_playlist (§7). Проверка: cargo test core::; ЧЕКПОИНТ: cargo test + clippy"
     done: false
@@ -71,8 +71,8 @@ steps:
   - id: 16
     description: "ЧЕКПОИНТ финальный: cargo test + cargo clippy (0 новых варнингов в файлах вайтлиста); cargo build"
     done: false
-current_step: 7
-next_action: "Шаг 7: тесты стартовой загрузки (ТЗ-21/47/17) в src/core/testing.rs"
+current_step: 8
+next_action: "Шаг 8: тесты команды «Загрузить плейлист» (ТЗ-13 б/17/48) в src/core/testing.rs; ЧЕКПОИНТ"
 fail_counter: 0
 fail_counter_max: 3
 failed_attempts: []

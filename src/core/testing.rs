@@ -12,6 +12,7 @@
 //! `advance`/`settle` поверх `tick` продвигают `ManualClock` и дожидаются
 //! ответа писателя (§7.1).
 
+use super::messages::Message;
 use super::{AppCore, AppDeps, EngineSink, TickOutput};
 use crate::audio::clock::{Clock, ClockInstant};
 use crate::audio::testing::ManualClock;
@@ -25,12 +26,13 @@ use crate::persist::tracker::ReplyEffect;
 use crate::persist::writer::spawn_writer;
 use crate::persist::{self, BadCopyOutcome, ConfigFile, ConfigPaths, WorkFile};
 use crate::platform::fs::{FileReader, FileWriter, FsCall, MemStore, OpCounts, ReadErrorClass, WriteErrorClass, WriteStep};
-use crate::playlist::load::{ManualLoader, PlaylistLoader};
+use crate::playlist::load::{run_load, ManualLoader, PlaylistLoader};
+use crate::playlist::Track;
 use crate::theme::{ThemeData, ThemeEntry};
 use std::cell::{Cell, RefCell};
 use std::collections::VecDeque;
 use std::rc::Rc;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 
@@ -112,6 +114,51 @@ impl Harness {
     /// Внедрить ошибку записи копии `<file>.bad` (ТЗ-7).
     pub(crate) fn fail_write_bad_copy(&self, file: WorkFile, step: WriteStep, class: WriteErrorClass) {
         self.fs.fail_write(&self.paths.bad_copy(file), step, class, 1);
+    }
+
+    /// Положить байты `playlist.m3u` «на диск» до запуска (ТЗ-21, §6.12).
+    pub(crate) fn put_playlist(&self, bytes: &[u8]) {
+        self.fs.put(self.paths.work(WorkFile::Playlist), bytes);
+    }
+
+    /// Внедрить ошибку чтения рабочего файла `file` (ТЗ-21, ОВС-6 в).
+    pub(crate) fn fail_read_work(&self, file: WorkFile, class: ReadErrorClass) {
+        self.fs.fail_read(self.paths.work(file), class);
+    }
+
+    /// Разрешает текущее задание стартовой загрузки реальным `run_load`
+    /// (ADR-16, §6.12, ТЗ-21, ТЗ-47) поверх `MemStore` стенда — пробник
+    /// отдаёт трек с заголовком по имени файла, этого достаточно для
+    /// путей и сортировки по заголовку. `false` — задания нет (загрузка
+    /// не запущена или уже разрешена).
+    pub(crate) fn finish_startup_load(&self) -> bool {
+        let Some(job) = self.loader.jobs().into_iter().next() else { return false };
+        fn probe(path: &Path) -> Track {
+            let stem = path.file_stem().map(|s| s.to_string_lossy().into_owned()).unwrap_or_default();
+            Track { path: path.to_path_buf(), title: stem, ..Track::default() }
+        }
+        let outcome = run_load(&job, &self.fs, &probe);
+        self.loader.finish(outcome)
+    }
+
+    /// Тикает, пока `tick` не вернёт хотя бы одно сообщение (ADR-13,
+    /// §6.12): ответы карантина (`Quarantined`/`QuarantineFailed`)
+    /// перехватываются внутри `tick` до `tracker.on_reply` и не
+    /// регистрируются как «в полёте» — `settle`/`settle_ticks` их не
+    /// видят. Срок — 2 с реального времени, как у `settle`.
+    pub(crate) fn settle_messages(&self, core: &mut AppCore) -> Vec<Message> {
+        let start = Instant::now();
+        loop {
+            let out = core.tick(None);
+            if !out.messages.is_empty() {
+                return out.messages;
+            }
+            if let Some(wake) = self.fs.next_wake() {
+                self.clock.advance(wake.saturating_since(self.clock.now()));
+            }
+            assert!(start.elapsed() < Duration::from_secs(2), "settle_messages: сообщение не пришло за 2 с реального времени");
+            std::thread::sleep(Duration::from_millis(5));
+        }
     }
 
     /// Запуск (ADR-23 шаги 0–2, §8 С3): чтение + разбор, копии `*.bad` до
@@ -418,6 +465,7 @@ mod tests {
     use crate::core::exit::{ExitOutcome, ExitPhase, ExitReason, TermSignal};
     use crate::core::messages::{MessageCenter, MessageLevel};
     use crate::core::gate::{BlockReason, MainCmd, UiGate};
+    use crate::core::load::{LoadApplied, LoadState};
     use crate::journal::WriteTarget;
     use crate::platform::fs::FsOp;
     use crate::platform::lifecycle::{ExitEntry, FakeLifecycle, Lifecycle, PlatformCaps, TrayEvent};
@@ -1976,12 +2024,11 @@ mod tests {
 
     /// Ключ сортировки переживает перезапуск (ТЗ-40, ТЗ-43, §7).
     ///
-    /// ОТКЛОНЕНИЕ: стартовая загрузка в `AppCore` — С8 (02). До этого шага
-    /// `AppCore` не читает `playlist.m3u` сам при старте, поэтому тест
-    /// эмулирует загрузчика вручную: переносит ключ сортировки,
+    /// Тест проверяет только модель: эмулирует загрузчика вручную — переносит ключ сортировки,
     /// прочитанный из `state.toml` после перезапуска, напрямую в модель
     /// плейлиста и пересчитывает видимый порядок так же, как это сделал
-    /// бы загрузчик (`loader_visible_order`).
+    /// бы загрузчик (`loader_visible_order`). Путь через настоящую стартовую
+    /// загрузку (`start_startup_load`, ADR-16) — `startup_load_shows_full_sorted_list`.
     #[test]
     fn sort_key_restored_after_restart() {
         let h = Harness::new();
@@ -2023,6 +2070,247 @@ mod tests {
         };
         assert_eq!(order_after, order_before);
         assert_eq!(core2.playlist().sort_key(), Some(sort_before));
+    }
+
+    /// Случай 1 (ТЗ-21, ADR-16, §6.12): `playlist.m3u` отсутствует на
+    /// диске — стартовая загрузка отдаёт пустой плейлист без сообщения, и
+    /// запись `playlist.m3u` не происходит до первого изменения.
+    #[test]
+    fn startup_playlist_missing() {
+        let h = Harness::new();
+        h.put_settings(b"");
+        h.put_state(b"");
+        let mut core = h.boot();
+
+        core.start_startup_load();
+        assert!(h.finish_startup_load());
+        let report = core.poll_load().expect("итог стартовой загрузки получен");
+        assert!(report.applied.is_none());
+        assert!(report.message.is_none());
+        assert!(core.playlist().is_empty());
+        assert_eq!(h.writes(WorkFile::Playlist), 0);
+
+        let interval = core.settings().save_interval.duration();
+        h.advance(&mut core, interval);
+        h.settle(&mut core);
+        assert_eq!(h.writes(WorkFile::Playlist), 0);
+    }
+
+    /// Случай 2 (ТЗ-21, НФ-7, ADR-16, §6.12): `playlist.m3u` повреждён —
+    /// три варианта повреждения (невалидный UTF-8; относительный путь;
+    /// строка `;...`, которую `parse_startup` не считает комментарием, в
+    /// отличие от `#...`, см. `startup_parse_semicolon_line_is_corrupt` в
+    /// `playlist::load`) уходят в карантин через писателя: исходный файл
+    /// заменяется байт-в-байт равной копией `playlist.m3u.bad`,
+    /// `playlist.m3u` отсутствует до первой новой записи, в журнал попадает
+    /// ровно одна запись `PlaylistCorrupt`, и пользователю показывается
+    /// ровно одно предупреждение (сообщение карантина приходит позже,
+    /// ответом писателя внутри `tick`, а не синхронно из `poll_load`).
+    #[test]
+    fn startup_playlist_corrupt_quarantined() {
+        let cases: [&[u8]; 3] = [&[0xff, 0xfe, 0xfd], b"relative/path.flac\n", b";comment\n"];
+        for original in cases {
+            let h = Harness::new();
+            h.put_settings(b"");
+            h.put_state(b"");
+            h.put_playlist(original);
+            let mut core = h.boot();
+
+            core.start_startup_load();
+            assert!(h.finish_startup_load());
+            let report = core.poll_load().expect("итог стартовой загрузки получен");
+            assert!(report.applied.is_none());
+            assert!(report.message.is_none(), "сообщение карантина приходит позже, через tick");
+
+            let messages = h.settle_messages(&mut core);
+            assert_eq!(messages.len(), 1);
+            assert_eq!(messages[0].level, MessageLevel::Warning);
+
+            assert_eq!(h.disk_bytes(WorkFile::Playlist), None);
+            assert_eq!(h.bad_copy_bytes(WorkFile::Playlist).as_deref(), Some(original));
+            assert_eq!(h.writes(WorkFile::Playlist), 0);
+
+            let corrupt_records = h
+                .journal()
+                .into_iter()
+                .filter(|r| matches!(r, JournalRecord::PlaylistCorrupt { .. }))
+                .count();
+            assert_eq!(corrupt_records, 1);
+        }
+    }
+
+    /// Случай 2 (ТЗ-21, ADR-16, §6.12), ветка неудачи переноса: `playlist.m3u`
+    /// повреждён, но сам перенос в карантин не удался — `rename_replace`
+    /// проверяет внедрённую ошибку шага `Replace` ДО удаления исходного
+    /// файла (§6.6), поэтому исходный файл остаётся нетронутым; запись
+    /// `playlist.m3u` запрещается до перезапуска, и пользователю
+    /// показывается ровно одна ошибка.
+    #[test]
+    fn startup_playlist_quarantine_failed_is_case_3() {
+        let h = Harness::new();
+        h.put_settings(b"");
+        h.put_state(b"");
+        let original: &[u8] = &[0xff, 0xfe, 0xfd];
+        h.put_playlist(original);
+        h.fail_write_bad_copy(WorkFile::Playlist, WriteStep::Replace, WriteErrorClass::Io);
+        let mut core = h.boot();
+
+        core.start_startup_load();
+        assert!(h.finish_startup_load());
+        let report = core.poll_load().expect("итог стартовой загрузки получен");
+        assert!(report.applied.is_none());
+        assert!(report.message.is_none());
+
+        let messages = h.settle_messages(&mut core);
+        assert_eq!(messages.len(), 1);
+        assert_eq!(messages[0].level, MessageLevel::Error);
+
+        assert_eq!(h.disk_bytes(WorkFile::Playlist).as_deref(), Some(original));
+        assert!(core.tracker().playlist_forbidden());
+
+        let outcome = core.exit(ExitReason::WindowClose, &mut || true);
+        assert_eq!(outcome, ExitOutcome::Completed);
+        assert_eq!(h.writes(WorkFile::Playlist), 0);
+    }
+
+    /// Случай 3 (ТЗ-21, ADR-16, §6.12): `playlist.m3u` не прочитан (ошибка
+    /// чтения, не связанная с содержимым) — запись `playlist.m3u`
+    /// запрещается до перезапуска, в журнал попадает `ReadFailed`, и
+    /// пользователю сразу (синхронно, в самом отчёте `poll_load`)
+    /// показывается ровно одна ошибка; исходный файл не меняется.
+    #[test]
+    fn startup_playlist_unreadable() {
+        let h = Harness::new();
+        h.put_settings(b"");
+        h.put_state(b"");
+        let original = b"/music/a.flac\n";
+        h.put_playlist(original);
+        h.fail_read_work(WorkFile::Playlist, ReadErrorClass::Io);
+        let mut core = h.boot();
+
+        core.start_startup_load();
+        assert!(h.finish_startup_load());
+        let report = core.poll_load().expect("итог стартовой загрузки получен");
+        assert!(report.applied.is_none());
+        let message = report.message.expect("ошибка чтения приходит сразу");
+        assert_eq!(message.level, MessageLevel::Error);
+        assert!(core.tracker().playlist_forbidden());
+
+        let read_failed = h
+            .journal()
+            .into_iter()
+            .filter(|r| matches!(r, JournalRecord::ReadFailed { file: WorkFile::Playlist, .. }))
+            .count();
+        assert_eq!(read_failed, 1);
+
+        core.playlist_add(vec![track_path("/music/b.flac")]);
+        let outcome = core.exit(ExitReason::WindowClose, &mut || true);
+        assert_eq!(outcome, ExitOutcome::Completed);
+        assert_eq!(h.writes(WorkFile::Playlist), 0);
+        assert_eq!(h.disk_bytes(WorkFile::Playlist).as_deref(), Some(original.as_slice()));
+    }
+
+    /// Абсолютные пути к несуществующим на диске файлам — не повреждение
+    /// (ТЗ-21, ADR-16, §6.12): `parse_startup` не проверяет существование
+    /// файла, поэтому такие строки дают обычный случай `Loaded` со
+    /// строками плейлиста, без копии `.bad`.
+    #[test]
+    fn startup_playlist_nonexistent_paths_not_corrupt() {
+        let h = Harness::new();
+        h.put_settings(b"");
+        h.put_state(b"");
+        h.put_playlist(b"/music/missing-a.flac\n/music/missing-b.flac\n");
+        let mut core = h.boot();
+
+        core.start_startup_load();
+        assert!(h.finish_startup_load());
+        let report = core.poll_load().expect("итог стартовой загрузки получен");
+        assert_eq!(report.applied, Some(LoadApplied::Replaced));
+        assert!(report.message.is_none());
+
+        assert_eq!(core.playlist().len(), 2);
+        assert_eq!(h.bad_copy_bytes(WorkFile::Playlist), None);
+    }
+
+    /// Пока стартовая загрузка не завершилась, плейлист пуст, а состояние
+    /// загрузки — `Startup` (ТЗ-47, ADR-16, §6.12); после завершения —
+    /// полный список в порядке, заданном ключом сортировки из `state.toml`.
+    #[test]
+    fn startup_load_shows_full_sorted_list() {
+        let h = Harness::new();
+        h.put_settings(b"");
+        h.put_state(b"sort.column = \"title\"\nsort.direction = \"asc\"\n");
+        h.put_playlist(b"/music/b.flac\n/music/a.flac\n/music/c.flac\n");
+        let mut core = h.boot();
+
+        core.start_startup_load();
+        assert!(matches!(core.load_state(), LoadState::Startup { .. }));
+        assert_eq!(core.playlist().len(), 0);
+
+        assert!(h.finish_startup_load());
+        let report = core.poll_load().expect("итог стартовой загрузки получен");
+        assert_eq!(report.applied, Some(LoadApplied::Replaced));
+        assert!(core.load_state().is_idle());
+
+        let titles: Vec<String> = core
+            .playlist()
+            .visible()
+            .iter()
+            .filter_map(|&id| core.playlist().get(id))
+            .map(|t| t.title.clone())
+            .collect();
+        assert_eq!(titles, vec!["a".to_string(), "b".to_string(), "c".to_string()]);
+    }
+
+    /// Зависшая загрузка (ТЗ-17, ADR-16, §6.12): задание ушло в
+    /// `ManualLoader`, но `finish` не вызывается — выход не ждёт
+    /// загрузчик и не трогает существующий `playlist.m3u`.
+    #[test]
+    fn startup_load_hang_exit_keeps_playlist() {
+        let h = Harness::new();
+        h.put_settings(b"");
+        h.put_state(b"");
+        let original = b"/music/a.flac\n";
+        h.put_playlist(original);
+        let mut core = h.boot();
+
+        core.start_startup_load();
+        assert_eq!(h.loader.jobs().len(), 1, "задание ушло в загрузчик");
+
+        let outcome = core.exit(ExitReason::WindowClose, &mut || true);
+        assert_eq!(outcome, ExitOutcome::Completed);
+
+        assert_eq!(h.writes(WorkFile::Playlist), 0);
+        assert_eq!(h.disk_bytes(WorkFile::Playlist).as_deref(), Some(original.as_slice()));
+    }
+
+    /// Запрет записи `playlist.m3u` после ошибки чтения переживает попытки
+    /// автосохранения и выход (ТЗ-12, ТЗ-21, ADR-16, §6.12): последующее
+    /// изменение плейлиста не снимает запрет `forbid_playlist`.
+    #[test]
+    fn unreadable_playlist_never_written() {
+        let h = Harness::new();
+        h.put_settings(b"");
+        h.put_state(b"");
+        h.fail_read_work(WorkFile::Playlist, ReadErrorClass::NoAccess);
+        let mut core = h.boot();
+
+        core.start_startup_load();
+        assert!(h.finish_startup_load());
+        core.poll_load();
+        assert!(core.tracker().playlist_forbidden());
+
+        core.playlist_add(vec![track_path("/music/a.flac")]);
+        assert!(core.tracker().playlist_dirty());
+
+        let interval = core.settings().save_interval.duration();
+        h.advance(&mut core, interval);
+        h.settle(&mut core);
+        assert_eq!(h.writes(WorkFile::Playlist), 0);
+
+        let outcome = core.exit(ExitReason::WindowClose, &mut || true);
+        assert_eq!(outcome, ExitOutcome::Completed);
+        assert_eq!(h.writes(WorkFile::Playlist), 0);
     }
 
     /// Ответы `FakeIo` эхо-возвращают `gen` запроса — сопоставление
