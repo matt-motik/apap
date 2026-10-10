@@ -146,7 +146,7 @@ steps:
     done: true
   - id: 35
     description: "src/audio/output.rs: удалить validate_audio_settings, ValidationRow/Outcome при отсутствии других потребителей и их тесты (§8 С4 «удаляется»). Проверка: cargo check; ЧЕКПОИНТ: cargo test + clippy"
-    done: false
+    done: true
   - id: 36
     description: "Снять мост Settings.playback: LegacyPlayback: удалить поле, Settings.modes → Settings.playback: ModeSettings (02 spec §2.4 стр. 1072); остальные читатели — через legacy_path или PlaybackState. Файлы: src/persist/settings_file.rs и оставшиеся читатели (по cargo check). Проверка: cargo check"
     done: false
@@ -159,8 +159,8 @@ steps:
   - id: 39
     description: "Финал: cargo build/test/clippy зелёные; ROADMAP ✅; заметка плана; напомнить пользователю удалить settings.toml (ТЗ-97) и показать расхождение с 02 spec стр. 3342 (решение — за пользователем); ручные проверки (переключатель режимов, Совместимый играет, Оптимальный/Строгий через hw: на Linux). Проверка: cargo test + clippy"
     done: false
-current_step: 35
-next_action: "Шаг 35: удалить validate_audio_settings/ValidationRow/Outcome в src/audio/output.rs; ЧЕКПОИНТ"
+current_step: 36
+next_action: "Шаг 36: снять мост Settings.playback (LegacyPlayback) — сначала оценить читателей и при необходимости разбить шаг"
 fail_counter: 0
 fail_counter_max: 3
 failed_attempts: []
