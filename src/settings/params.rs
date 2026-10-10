@@ -400,3 +400,105 @@ pub fn availability(id: ParamId, mode: ModeKind) -> Availability {
     }
     Availability::Unavailable { why: "param_missing" }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::collections::HashSet;
+
+    /// Вид доступности без учёта содержимого (ключа подписи/причины) — для
+    /// сверки с матрицей §5 ТЗ по категории «Ф/Н/—/не реализовано».
+    #[derive(Clone, Copy, PartialEq, Eq, Debug)]
+    enum Kind {
+        Configurable,
+        FixedByMode,
+        Unavailable,
+        NotImplemented,
+    }
+
+    fn kind(a: &Availability) -> Kind {
+        match a {
+            Availability::Configurable => Kind::Configurable,
+            Availability::FixedByMode { .. } => Kind::FixedByMode,
+            Availability::Unavailable { .. } => Kind::Unavailable,
+            Availability::NotImplemented => Kind::NotImplemented,
+        }
+    }
+
+    /// Ожидаемый вид доступности (Совместимый, Оптимальный, Строгий) —
+    /// построено независимо по матрице §5 `docs/01_audio_modes_v1.0/02_tz.md`
+    /// (строки «Реакция на отказ захвата» и «Платформы» матрицы не являются
+    /// параметрами тракта и в `ParamId` не представлены). Принятые трактовки:
+    /// громкость в Оптимальном — «Н» (подслучай фиксации громкости учитывается
+    /// отдельно); эквалайзер — «пока не реализовано» в Совместимом/Оптимальном,
+    /// «—» в Строгом.
+    const EXPECTED: &[(ParamId, Kind, Kind, Kind)] = &[
+        (ParamId::Access, Kind::FixedByMode, Kind::FixedByMode, Kind::FixedByMode),
+        (ParamId::Device, Kind::Configurable, Kind::Configurable, Kind::Configurable),
+        (ParamId::Lock, Kind::Unavailable, Kind::Configurable, Kind::Configurable),
+        (ParamId::OutputRate, Kind::FixedByMode, Kind::FixedByMode, Kind::FixedByMode),
+        (ParamId::FixedRate, Kind::Configurable, Kind::Unavailable, Kind::Unavailable),
+        (ParamId::RateFallback, Kind::FixedByMode, Kind::Configurable, Kind::Unavailable),
+        (ParamId::Src, Kind::FixedByMode, Kind::FixedByMode, Kind::Unavailable),
+        (ParamId::SrcFilter, Kind::Configurable, Kind::Configurable, Kind::Unavailable),
+        (ParamId::SampleFormat, Kind::FixedByMode, Kind::FixedByMode, Kind::FixedByMode),
+        (ParamId::ZeroPad, Kind::Unavailable, Kind::FixedByMode, Kind::FixedByMode),
+        (ParamId::Truncation, Kind::Unavailable, Kind::FixedByMode, Kind::Unavailable),
+        (ParamId::DitherApplied, Kind::FixedByMode, Kind::FixedByMode, Kind::Unavailable),
+        (ParamId::DitherKind, Kind::Configurable, Kind::Configurable, Kind::Unavailable),
+        (ParamId::Channels, Kind::FixedByMode, Kind::FixedByMode, Kind::FixedByMode),
+        (ParamId::Downmix, Kind::FixedByMode, Kind::FixedByMode, Kind::Unavailable),
+        (ParamId::MonoToStereo, Kind::FixedByMode, Kind::FixedByMode, Kind::FixedByMode),
+        (ParamId::ChannelPad, Kind::FixedByMode, Kind::FixedByMode, Kind::FixedByMode),
+        (ParamId::FloatSource, Kind::FixedByMode, Kind::FixedByMode, Kind::Unavailable),
+        (ParamId::Volume, Kind::Configurable, Kind::Configurable, Kind::Unavailable),
+        (ParamId::Mute, Kind::Configurable, Kind::Configurable, Kind::Configurable),
+        (ParamId::VolumeLock, Kind::Unavailable, Kind::Configurable, Kind::Unavailable),
+        (ParamId::Equalizer, Kind::NotImplemented, Kind::NotImplemented, Kind::Unavailable),
+        (ParamId::DsdNative, Kind::Unavailable, Kind::NotImplemented, Kind::NotImplemented),
+        (ParamId::DsdDop, Kind::Unavailable, Kind::FixedByMode, Kind::FixedByMode),
+        (ParamId::DsdToPcm, Kind::FixedByMode, Kind::FixedByMode, Kind::Unavailable),
+        (ParamId::DsdAboveDac, Kind::Unavailable, Kind::Configurable, Kind::Unavailable),
+        (ParamId::DsdPcmParams, Kind::FixedByMode, Kind::FixedByMode, Kind::Unavailable),
+        (ParamId::DsdFilter, Kind::Configurable, Kind::Configurable, Kind::Unavailable),
+        (ParamId::DsdGainComp, Kind::Configurable, Kind::Configurable, Kind::Unavailable),
+        (ParamId::OnIncompatible, Kind::Unavailable, Kind::Unavailable, Kind::FixedByMode),
+        (ParamId::OnBadFile, Kind::FixedByMode, Kind::FixedByMode, Kind::FixedByMode),
+        (ParamId::OnDeviceLost, Kind::FixedByMode, Kind::FixedByMode, Kind::FixedByMode),
+        (ParamId::Buffer, Kind::Configurable, Kind::Configurable, Kind::Configurable),
+        (ParamId::DeviceBuffer, Kind::Unavailable, Kind::Configurable, Kind::Configurable),
+        (ParamId::RtPriority, Kind::FixedByMode, Kind::FixedByMode, Kind::FixedByMode),
+        (ParamId::Badge, Kind::FixedByMode, Kind::FixedByMode, Kind::FixedByMode),
+        (ParamId::Test, Kind::Unavailable, Kind::Configurable, Kind::Configurable),
+        (ParamId::Md5, Kind::FixedByMode, Kind::FixedByMode, Kind::FixedByMode),
+        (ParamId::UnderrunXrun, Kind::FixedByMode, Kind::FixedByMode, Kind::FixedByMode),
+    ];
+
+    #[test]
+    fn params_table_matches_matrix() {
+        assert_eq!(PARAMS.len(), 39, "PARAMS должен содержать ровно 39 параметров матрицы §5");
+        assert_eq!(EXPECTED.len(), 39, "ожидаемая таблица должна покрывать все 39 параметров");
+
+        let mut seen = HashSet::new();
+        for descriptor in PARAMS {
+            assert!(
+                seen.insert(descriptor.id),
+                "ParamId {:?} встречается в PARAMS более одного раза",
+                descriptor.id
+            );
+        }
+        assert_eq!(seen.len(), 39, "каждый ParamId должен встречаться в PARAMS ровно один раз");
+
+        for (id, exp_compat, exp_optimal, exp_strict) in EXPECTED {
+            let Some(descriptor) = PARAMS.iter().find(|d| d.id == *id) else {
+                panic!("параметр {id:?} из матрицы §5 отсутствует в PARAMS");
+            };
+            let actual_compat = kind(&(descriptor.availability)(ModeKind::Compatible));
+            let actual_optimal = kind(&(descriptor.availability)(ModeKind::Optimal));
+            let actual_strict = kind(&(descriptor.availability)(ModeKind::Strict));
+            assert_eq!(actual_compat, *exp_compat, "{id:?}: Совместимый режим");
+            assert_eq!(actual_optimal, *exp_optimal, "{id:?}: Оптимальный режим");
+            assert_eq!(actual_strict, *exp_strict, "{id:?}: Строгий режим");
+        }
+    }
+}
