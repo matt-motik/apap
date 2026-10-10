@@ -2,51 +2,10 @@
      Source of truth: _STATE_.yaml — edit that, then run:
      python tools/state_tool.py render -->
 
+# Состояние сессии
 
-# Текущая микро-сессия
-
-- **Задача из ROADMAP:** SP1.0-8.8 — С8 (02). Загрузка плейлиста, Play Now, экспорт (ТЗ-13, 17, 21, 47, 48)
-- **Вайтлист файлов в работе (Изменяемые файлы):**
-  - src/playlist/load.rs
-  - src/playlist/mod.rs
-  - src/core/load.rs
-  - src/journal.rs
-  - src/core/mod.rs
-  - src/core/testing.rs
-  - src/persist/writer.rs
-  - src/main.rs
-  - src/app/mod.rs
-  - src/app/playlist_manager.rs
-  - src/app/playback_manager.rs
-  - ROADMAP.md
-  - _STATE_.yaml
-  - _STATE_.md
-- **Критерий успеха (Definition of Done):** cargo test и cargo clippy зелёные (0 новых варнингов в файлах вайтлиста); тесты §7 для ТЗ-13/17/21/47/48 (кроме perf_load_playlist_5000 → С12 и проверки Open движка → С5) зелёные; load_track_list, drain_startup_tracks, startup_tracks_rx удалены
-
-## Итерационный трекер
-- [x] Шаг 1: src/playlist/load.rs (новый) + `pub mod load` в src/playlist/mod.rs: типы LoadGen, LoadSource, LoadJob, LoadOutcome (§2.11) и чистые разборщики parse_startup (ОВ-8: UTF-8, BOM, \r, пусто/#/абсолютный путь, иначе причина «строка N: …») и parse_command (неподдерживаемые/не абсолютные строки пропускаются, повторы отбрасываются) (ADR-5, ADR-16, §6.12, ТЗ-21, ТЗ-13 б). Тесты: load_command_skips_unsupported_lines, разбор startup (`;…`, относительный путь → corrupt; несуществующие абсолютные пути → ок). Проверка: cargo test playlist::load
-- [x] Шаг 2: src/playlist/load.rs: run_load(job, reader, probe) — чтение через FileReader (Startup: NotFound → StartupAbsent, иное → ReadFailed; Command: любая ошибка/невалидный UTF-8 → ReadFailed), теги meta::probe_file последовательно, CompareKeys, стабильная сортировка по job.sort; трейт PlaylistLoader, ThreadLoader (поток apap-playlist), ManualLoader (finish/hang) (ADR-16, §2.11, §6.12, ТЗ-47). Тесты run_load на MemStore. Проверка: cargo test playlist::load
-- [x] Шаг 3: AppDeps.loader: Box<dyn PlaylistLoader> + reader: Arc<dyn FileReader> (ADR-19, ADR-16): поле в src/core/mod.rs, ManualLoader в Harness (src/core/testing.rs), ThreadLoader в src/main.rs (3 места конструирования — одно поле, без логики). Проверка: cargo check; ЧЕКПОИНТ: cargo test + clippy
-- [x] Шаг 4: src/journal.rs: вариант JournalRecord::PlaylistCorrupt { reason: Box<str> } (§2.9, ADR-5, ТЗ-21) — kind «повреждённый плейлист», text с причиной «строка N: …»; тест текста записи. Проверка: cargo test journal
-- [x] Шаг 5: src/core/load.rs (новый, `mod load` в src/core/mod.rs): LoadState в AppCore; start_startup_load, poll_load → on_load_outcome для Startup: StartupAbsent/StartupCorrupt (journal + WriterCmd::QuarantinePlaylist)/ReadFailed (forbid_playlist + Error)/Loaded (playlist.replace, флаг не взводится); ответы Quarantined → Warning с путём, QuarantineFailed → forbid + Error; устаревшее поколение отбрасывается (ADR-5, ADR-16, §6.12, И-Т9, ТЗ-21, ТЗ-47). Проверка: cargo check
-- [x] Шаг 6: src/core/load.rs: start_command_load(path) и Command-исход: ReadFailed → Error, без изменений; Loaded → Play Now: replace + on_playlist_changed, новый проход Shuffle, эффект LoadApplied::PlayNow { first: Option<TrackId> } (stop + open первого — у MusicApp через фасад до С5; поколение Open = req_gen фасада) (ADR-16, §6.12, ТЗ-13 б, ТЗ-48). Проверка: cargo check
-- [x] Шаг 7: Тесты ТЗ-21/47/17 (стартовая загрузка) в src/core/testing.rs: startup_playlist_missing, startup_playlist_corrupt_quarantined, startup_playlist_quarantine_failed_is_case_3, startup_playlist_unreadable, startup_playlist_nonexistent_paths_not_corrupt, startup_load_shows_full_sorted_list, startup_load_hang_exit_keeps_playlist, unreadable_playlist_never_written (§7). Проверка: cargo test core::
-- [x] Шаг 8: Тесты ТЗ-13 б/17/48 (команда) в src/core/testing.rs: load_playlist_plays_first_by_key (эффект PlayNow первого по ключу, флаг, запись через N), load_playlist_from_pause_and_stop_starts_playback, load_playlist_unreadable_keeps_everything, load_playlist_empty_stops_and_marks_dirty, load_command_exit_writes_old_playlist_if_dirty, load_command_exit_clean_writes_nothing, load_command_timer_writes_old_playlist (§7). Проверка: cargo test core::; ЧЕКПОИНТ: cargo test + clippy
-- [x] Шаг 9: src/playlist/mod.rs: serialize_extm3u(tracks в видимом порядке) — #EXTM3U, #EXTINF:<сек|-1>,<«Исполнитель — Название» | одно поле | file_stem>, \n, без BOM (ADR-17, §6.18, ТЗ-13 а). Тест формата. Проверка: cargo test playlist::
-- [x] Шаг 10: src/core/load.rs: AppCore::export(path) → WriterCmd::Export { attempt } из видимого порядка; ExportFailed → Error на попытку, Exported → ничего; PersistTracker не трогается (ADR-17, §6.18, ТЗ-13 а, ТЗ-20). Проверка: cargo check
-- [x] Шаг 11: Тесты экспорта: export_writes_visible_order_with_extinf, export_error_window_per_attempt, export_success_no_window в src/core/testing.rs; export_is_atomic в src/persist/writer.rs (ТЗ-13 а, ТЗ-18, ТЗ-20, §7). Проверка: cargo test export
-- [x] Шаг 12: src/app/mod.rs: стартовая загрузка через core.start_startup_load + опрос на тике (индикатор busy, сообщения через MessageCenter, гейт set_loading по LoadState); удалить startup_tracks_rx и drain_startup_tracks (ADR-16, ADR-23, ТЗ-47, ТЗ-21). Проверка: cargo check
-- [x] Шаг 13: src/app/mod.rs + src/app/playback_manager.rs: «Загрузить плейлист» → core.start_command_load; LoadApplied::PlayNow → stop прежнего, open первого (autoplay), пустой → стоп; убрать синхронный load_track_list из обработчика меню (ADR-16, ТЗ-13 б, ТЗ-48). Проверка: cargo check
-- [x] Шаг 14: src/app/playlist_manager.rs + src/app/mod.rs: «Сохранить плейлист» → picker SavePlaylist (.m3u8) → core.export; окно Error по ExportFailed (ADR-17, ADR-10, ТЗ-13 а). Проверка: cargo check
-- [x] Шаг 15: src/playlist/mod.rs: удалить load_track_list и тест load_track_list_skips_non_audio_and_comments (заменён тестами шага 1) (§7 «переписать», §8 С8 «удаляется»). Проверка: cargo check
-- [>] **Шаг 16: ЧЕКПОИНТ финальный: cargo test + cargo clippy (0 новых варнингов в файлах вайтлиста); cargo build**
-
-Легенда: [x] сделано · [>] текущий шаг · [ ] не начато
-
-- **Текущий шаг (current_step):** Шаг 16
-- **Следующий ход:** Шаг 16: финальный ЧЕКПОИНТ — cargo test + clippy + build
-- **Счетчик безуспешных компиляций:** 0/3
-- **Состояние:** in_progress
+- **Текущая задача:** Нет (все шаги завершены)
+- **Состояние:** done
 
 ## План: Executable workflow: правила AGENTS.md → исполняемые механизмы
 _Источник: чат с пользователем (ноутбук), начат в 67686ce; перенесён в репо 2026-09-22_
@@ -55,8 +14,8 @@ _Источник: чат с пользователем (ноутбук), нач
   - Инструмент готов; ждёт прогонов пакета baseline-2026-09 на linux и windows (python tools/acceptance.py status)
 - [>] **13.** Реализация AM1.0 + SP1.0 по сквозному порядку (ROADMAP.md): docs/01_audio_modes_v1.0/ (С0…С11) и docs/02_settings_persistence_v1.0/ (С0…С12) — ТЕКУЩАЯ ОСНОВНАЯ ЗАДАЧА
   - Закрытые этапы и баги — в ROADMAP.md (✅ с хэшем); здесь только открытое.
-  - SP1.0-8.7 (С7 (02) «Выбор файлов и ввод-вывод вне UI») закрыт в 246691b; СЛЕДУЮЩИЙ: SP1.0-8.8 (С8 (02) «Загрузка плейлиста, Play Now, экспорт») — сформировать микро-шаги в _STATE_.yaml.
-  - Ручные проверки за пользователем: SP1.0-8.7 — cargo run: «Добавить файлы/папку», «Открыть плейлист» не замораживают окно, меню неактивно пока открыт диалог, диалог стартует в последнем каталоге; размеры кэшей в настройках при открытии и после очистки; выбор темы и «Сохранить» применяют тему; плеер играет в Совместимом режиме.
+  - SP1.0-8.8 (С8 (02) «Загрузка плейлиста, Play Now, экспорт») закрыт в 5b08e7b; СЛЕДУЮЩИЙ: SP1.0-8.9 (С9 (02) «Диалог настроек») — сформировать микро-шаги в _STATE_.yaml.
+  - Ручные проверки за пользователем: SP1.0-8.7 — cargo run: «Добавить файлы/папку», «Открыть плейлист» не замораживают окно, меню неактивно пока открыт диалог, диалог стартует в последнем каталоге; размеры кэшей в настройках при открытии и после очистки; выбор темы и «Сохранить» применяют тему; плеер играет в Совместимом режиме. SP1.0-8.8 — cargo run: при старте плейлист появляется после фоновой загрузки (индикатор занятости), повреждённый playlist.m3u → копия .bad + предупреждение; «Загрузить плейлист» — старый трек играет до конца загрузки, затем сразу играет первый трек нового плейлиста (из паузы/стопа тоже), пустой плейлист → стоп; «Сохранить плейлист» — диалог .m3u8, файл с #EXTM3U/#EXTINF в видимом порядке, ошибка записи → окно на каждую попытку.
   - Ручные проверки за пользователем: SP1.0-8.6 — cargo run: щелчок по заголовку Asc→Desc→без ключа (стрелка исчезает), «Сейчас играет» не сортируется; сортировка не меняет mtime playlist.m3u; ключ сортировки восстанавливается после перезапуска; Shuffle проигрывает каждый трек один раз, «Назад» идёт по истории; «Далее» без текущего — первый видимый.
   - Ручные проверки за пользователем: AM1.0-8.3 — UI не блокируется при открытии/смене трека и устройства; ошибки треков видны; Exclusive через старый cpal-путь; выход ≤ 2 с (выход подтверждён 2026-10-08).
   - На С5 (решение пользователя 2026-10-08): снять мост src/app/audio_facade.rs — вызовы в playback_manager, visualizer_manager, playlist_manager, bp_report, mod.rs → прямая работа с EngineHandle/SignalPath/BadgeState; удалить файл; снять #![allow(dead_code)] в engine_sink.rs и ui_audio_state.rs. Состояние фасада (req_gen, кэш транспорта/трека/потока, ended, очередь резервирования, volume/muted/LegacyAudio) переносить целиком, не по файлам.
