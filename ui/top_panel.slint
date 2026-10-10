@@ -134,6 +134,9 @@ export component TopPanel inherits Rectangle {
     in property <bool> shuffle: false;
     in property <bool> muted: false;
     in property <float> volume: 0.8;
+    // ТЗ-41, ADR-23, §6.18: громкость задана активным режимом (не bit-perfect) —
+    // программный слайдер блокируется, мьют остаётся доступен.
+    in property <bool> volume-enabled: true;
     // Переключатель режимов (ТЗ-18, ТЗ-109, ТЗ-110): постоянно виден в
     // главном окне. active-mode — 0 Совместимый, 1 Оптимальный, 2 Строгий.
     // mode-available/mode-unavailable-reason — по индексу режима; пустая
@@ -550,7 +553,7 @@ export component TopPanel inherits Rectangle {
                     wheel-vol := TouchArea {
                         vertical-stretch: 1;
                         width: 34px;
-                        enabled: !root.bit-perfect;
+                        enabled: !root.bit-perfect && root.volume-enabled;
                         // Wheel over the slider = one volume notch (same
                         // step as the tray); drag keeps working via the
                         // Slider's own TouchArea (scroll bubbles up here).
@@ -571,10 +574,34 @@ export component TopPanel inherits Rectangle {
                                 minimum: 0;
                                 maximum: 1;
                                 orientation: vertical;
-                                enabled: !root.bit-perfect;
+                                enabled: !root.bit-perfect && root.volume-enabled;
                                 changed(v) => { root.volume-changed(v); }
                             }
                         }
+                    }
+                }
+
+                // Громкость задана режимом (ТЗ-41, ADR-23, §6.18): слайдер не
+                // прячется через opacity, подсказка всплывает при наведении.
+                if !root.volume-enabled && wheel-vol.has-hover: Rectangle {
+                    y: -self.height - 6px;
+                    x: (parent.width - self.width) / 2;
+                    width: 170px;
+                    height: vol-hint-text.preferred-height + 10px;
+                    background: Colors.bg-elevated;
+                    border-color: Colors.border-default;
+                    border-width: 1px;
+                    border-radius: 4px;
+                    z: 10;
+
+                    vol-hint-text := Text {
+                        text: "Громкость задана режимом";
+                        color: Colors.text-secondary;
+                        font-size: 11px;
+                        wrap: word-wrap;
+                        x: 6px;
+                        y: 5px;
+                        width: parent.width - 12px;
                     }
                 }
 

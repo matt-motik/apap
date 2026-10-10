@@ -108,7 +108,7 @@ steps:
     done: true
   - id: 23
     description: "Slint: свойство volume-enabled (in bool, по умолчанию true) в TopPanel (ui/top_panel.slint) с пробросом в AppWindow (ui/app.slint); ползунок громкости неактивен при false, mute остаётся активным (ТЗ-41, ADR-23, §6.18). Проверка: cargo check"
-    done: false
+    done: true
   - id: 24
     description: "Rust: ui.set_volume_enabled(!volume_locked()) в sync_mode_to_ui/apply_mode_gain и после сохранения volume_lock (src/app/mod.rs, src/app/playback_manager.rs) (ТЗ-41, ADR-23). Проверка: cargo check"
     done: false
@@ -151,8 +151,8 @@ steps:
   - id: 37
     description: "Финал: cargo build/test/clippy зелёные; ROADMAP ✅; заметка плана; напомнить пользователю удалить settings.toml (ТЗ-97) и показать расхождение с 02 spec стр. 3342 (решение — за пользователем); ручные проверки (переключатель режимов, Совместимый играет, Оптимальный/Строгий через hw: на Linux). Проверка: cargo test + clippy"
     done: false
-current_step: 23
-next_action: "Шаг 23: Slint — свойство volume-enabled в TopPanel/AppWindow, ползунок громкости неактивен при false"
+current_step: 24
+next_action: "Шаг 24: Rust — ui.set_volume_enabled(!volume_locked()) в sync_mode_to_ui/apply_mode_gain и после сохранения volume_lock"
 fail_counter: 0
 fail_counter_max: 3
 failed_attempts: []

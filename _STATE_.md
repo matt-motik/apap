@@ -63,8 +63,8 @@
 - [x] Шаг 20: Старт: до первого Open отправить SetModeSettings{diff: None} и SetActiveMode(сохранённый режим) (§6.27, ОВС-14). Файлы: src/app/mod.rs, src/app/audio_facade.rs. Тест startup_policy_equals_saved_policy (стр. 549). Проверка: cargo test startup_policy
 - [x] Шаг 21: Slint: переключатель трёх режимов в главном окне (ui/top_panel.slint + проброс в ui/app.slint): свойства active-mode, mode-available[3] с причиной, callback select-mode(int); недоступный режим неактивен с пояснением (ТЗ-18, ТЗ-109, ТЗ-110, §8 С4). Мост: обработчик Rust — следующий шаг. Проверка: cargo check
 - [x] Шаг 22: Rust: обработчик select-mode — StateChange::ActiveMode + SetActiveMode + Open текущего трека с позиции (§6.18 «Смена режима», ТЗ-20); синхронизация active-mode/available из BackendCaps; ползунок громкости показывает громкость активного режима, неактивен в Строгом и при volume_lock. Файлы: src/app/mod.rs, src/app/playback_manager.rs. Проверка: cargo check
-- [>] **Шаг 23: Slint: свойство volume-enabled (in bool, по умолчанию true) в TopPanel (ui/top_panel.slint) с пробросом в AppWindow (ui/app.slint); ползунок громкости неактивен при false, mute остаётся активным (ТЗ-41, ADR-23, §6.18). Проверка: cargo check**
-- [ ] Шаг 24: Rust: ui.set_volume_enabled(!volume_locked()) в sync_mode_to_ui/apply_mode_gain и после сохранения volume_lock (src/app/mod.rs, src/app/playback_manager.rs) (ТЗ-41, ADR-23). Проверка: cargo check
+- [x] Шаг 23: Slint: свойство volume-enabled (in bool, по умолчанию true) в TopPanel (ui/top_panel.slint) с пробросом в AppWindow (ui/app.slint); ползунок громкости неактивен при false, mute остаётся активным (ТЗ-41, ADR-23, §6.18). Проверка: cargo check
+- [>] **Шаг 24: Rust: ui.set_volume_enabled(!volume_locked()) в sync_mode_to_ui/apply_mode_gain и после сохранения volume_lock (src/app/mod.rs, src/app/playback_manager.rs) (ТЗ-41, ADR-23). Проверка: cargo check**
 - [ ] Шаг 25: ТЗ-111: сохранённый недоступный режим — на старте без воспроизведения и без самостоятельной смены режима; уведомление «на этой платформе доступен только Совместимый режим (Shared), для воспроизведения переключите режим» с кнопкой «Переключить в Совместимый режим» (→ тот же путь, что select-mode(0)). Использовать существующий механизм уведомлений/сообщений приложения; если нужна кнопка в Slint — разбить на подшаги. Файлы: src/app/mod.rs (+ при необходимости ui). Проверка: cargo check
 - [ ] Шаг 26: src/core/testing.rs: тесты mode_settings_preserved_across_switch_and_restart (стр. 2886) и load_correction_not_written_until_save (стр. 2922). Проверка: cargo test core::; ЧЕКПОИНТ: cargo test + clippy
 - [ ] Шаг 27: src/app/mode_dialog.rs (новый, `mod mode_dialog` в src/app/mod.rs): чистый построитель строк диалога для режима из PARAMS/Availability и ModeSettings: подпись, вид (список/переключатель/ползунок), варианты с запретом и подсказкой (buffers_allowed для двух буферов, min-phase SrcFilter и «ремодуляция» как NotImplemented), FixedByMode — значение и «задано режимом», Unavailable — причина (§6.27, ТЗ-95, ТЗ-128…131, И-Т19). Тесты ≤5. Проверка: cargo test mode_dialog
@@ -81,8 +81,8 @@
 
 Легенда: [x] сделано · [>] текущий шаг · [ ] не начато
 
-- **Текущий шаг (current_step):** Шаг 23
-- **Следующий ход:** Шаг 23: Slint — свойство volume-enabled в TopPanel/AppWindow, ползунок громкости неактивен при false
+- **Текущий шаг (current_step):** Шаг 24
+- **Следующий ход:** Шаг 24: Rust — ui.set_volume_enabled(!volume_locked()) в sync_mode_to_ui/apply_mode_gain и после сохранения volume_lock
 - **Счетчик безуспешных компиляций:** 0/3
 - **Состояние:** in_progress
 

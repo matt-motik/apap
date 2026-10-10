@@ -144,6 +144,9 @@ export component AppWindow inherits Window {
     in property <bool> shuffle: false;
     in property <bool> muted: false;
     in property <float> volume: 0.8;
+    // ТЗ-41, ADR-23, §6.18: громкость задана активным режимом (не bit-perfect) —
+    // программный слайдер блокируется, мьют остаётся доступен.
+    in property <bool> volume-enabled: true;
     // Переключатель режимов (ТЗ-18, ТЗ-109, ТЗ-110): индекс активного
     // режима (0 Совместимый, 1 Оптимальный, 2 Строгий), доступность и
     // причина недоступности по индексу режима (пустая строка — доступен).
@@ -460,6 +463,7 @@ export component AppWindow inherits Window {
                 shuffle: root.shuffle;
                 muted: root.muted;
                 volume: root.volume;
+                volume-enabled: root.volume-enabled;
                 active-mode: root.active-mode;
                 mode-available: root.mode-available;
                 mode-unavailable-reason: root.mode-unavailable-reason;
