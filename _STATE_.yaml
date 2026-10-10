@@ -40,7 +40,7 @@ steps:
     done: true
   - id: 6
     description: "src/core/load.rs: start_command_load(path) и Command-исход: ReadFailed → Error, без изменений; Loaded → Play Now: replace + on_playlist_changed, новый проход Shuffle, эффект LoadApplied::PlayNow { first: Option<TrackId> } (stop + open первого — у MusicApp через фасад до С5; поколение Open = req_gen фасада) (ADR-16, §6.12, ТЗ-13 б, ТЗ-48). Проверка: cargo check"
-    done: false
+    done: true
   - id: 7
     description: "Тесты ТЗ-21/47/17 (стартовая загрузка) в src/core/testing.rs: startup_playlist_missing, startup_playlist_corrupt_quarantined, startup_playlist_quarantine_failed_is_case_3, startup_playlist_unreadable, startup_playlist_nonexistent_paths_not_corrupt, startup_load_shows_full_sorted_list, startup_load_hang_exit_keeps_playlist, unreadable_playlist_never_written (§7). Проверка: cargo test core::"
     done: false
@@ -71,8 +71,8 @@ steps:
   - id: 16
     description: "ЧЕКПОИНТ финальный: cargo test + cargo clippy (0 новых варнингов в файлах вайтлиста); cargo build"
     done: false
-current_step: 6
-next_action: "Шаг 6: src/core/load.rs — LoadState::Command, start_command_load, Play Now (LoadApplied::PlayNow)"
+current_step: 7
+next_action: "Шаг 7: тесты стартовой загрузки (ТЗ-21/47/17) в src/core/testing.rs"
 fail_counter: 0
 fail_counter_max: 3
 failed_attempts: []
