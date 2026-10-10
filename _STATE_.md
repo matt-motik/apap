@@ -56,8 +56,8 @@
 - [x] Шаг 14: src/engine/run.rs + src/engine/tests.rs: вынести решение применения в чистую fn mode_apply_action(diff: Option<&ModeSettingsDiff>, active, stopped) -> ModeApplyAction {Store, ReopenAtPosition, SwitchDevice} (§6.18, И-Р26) и тесты: изменение параметра активного режима → ReopenAtPosition; изменение неактивного режима → Store; device + другой параметр → SwitchDevice (поглощение); stopped → Store. Тест audio_param_change_reopens_at_position_preserving_pause (§7.2 стр. 1834) с реальным переоткрытием невозможен без фейка Player (мост С3, ТЗ-114) — переносится на этап с SignalPath (заметка плана). Проверка: cargo test engine::
 - [x] Шаг 15: src/engine/run.rs (+ src/engine/tests.rs): правило громкости — действующий gain 1.0 в Строгом и в Оптимальном с volume_lock, SetVolume там без эффекта; mute работает во всех режимах (§6.18, ОВС-18…20, ADR-23). Тест optimal_volume_lock_uses_nogain (§7.2 стр. 2916). Проверка: cargo test engine::; ЧЕКПОИНТ: cargo test + clippy
 - [x] Шаг 16: BackendCaps { exclusive } (§2.3 стр. 920): exclusive = cfg!(target_os = "linux") (ОВС-12, ТЗ-109, ТЗ-110), BackendCaps::available(mode) = mode == Compatible || exclusive; EngineHandle::spawn -> Result<(EngineHandle, BackendCaps), EngineFault>; вызовы в src/main.rs и тестах. Файлы: src/engine/run.rs, src/main.rs. Проверка: cargo check
-- [>] **Шаг 17: src/engine/run.rs + src/engine/tests.rs: Open в недоступном режиме → OpenFailed(ModeUnavailable) без воспроизведения (§6.18 п. 2). Тесты modes_availability_from_backend_caps, saved_unavailable_mode_no_playback (§7.2 стр. 2863–2864). Проверка: cargo test engine::**
-- [ ] Шаг 18: src/app/audio_facade.rs: вместо SetLegacyAudio отправлять SetModeSettings / SetActiveMode (источник — Settings.modes и PlaybackState); громкость и mute — активного режима. Проверка: cargo check
+- [ ] Шаг 17: src/engine/run.rs + src/engine/tests.rs: Open в недоступном режиме → OpenFailed(ModeUnavailable) без воспроизведения (§6.18 п. 2). Тесты modes_availability_from_backend_caps, saved_unavailable_mode_no_playback (§7.2 стр. 2863–2864). Проверка: cargo test engine::
+- [>] **Шаг 18: src/app/audio_facade.rs: вместо SetLegacyAudio отправлять SetModeSettings / SetActiveMode (источник — Settings.modes и PlaybackState); громкость и mute — активного режима. Проверка: cargo check**
 - [ ] Шаг 19: Снять мост SetLegacyAudio: удалить вариант из src/engine/messages.rs и обработку в src/engine/run.rs; LegacyAudio остаётся внутренним типом движка. Проверка: cargo check; ЧЕКПОИНТ: cargo test + clippy
 - [ ] Шаг 20: Старт: до первого Open отправить SetModeSettings{diff: None} и SetActiveMode(сохранённый режим) (§6.27, ОВС-14). Файлы: src/app/mod.rs, src/app/audio_facade.rs. Тест startup_policy_equals_saved_policy (стр. 549). Проверка: cargo test startup_policy
 - [ ] Шаг 21: Slint: переключатель трёх режимов в главном окне (ui/top_panel.slint + проброс в ui/app.slint): свойства active-mode, mode-available[3] с причиной, callback select-mode(int); недоступный режим неактивен с пояснением (ТЗ-18, ТЗ-109, ТЗ-110, §8 С4). Мост: обработчик Rust — следующий шаг. Проверка: cargo check
@@ -77,8 +77,8 @@
 
 Легенда: [x] сделано · [>] текущий шаг · [ ] не начато
 
-- **Текущий шаг (current_step):** Шаг 17
-- **Следующий ход:** Шаг 17: Open в недоступном режиме → OpenFailed(ModeUnavailable) + тесты
+- **Текущий шаг (current_step):** Шаг 18
+- **Следующий ход:** Шаг 18: audio_facade → SetModeSettings / SetActiveMode (шаг 17 отложен до разрешения на src/audio/error.rs)
 - **Счетчик безуспешных компиляций:** 0/3
 - **Состояние:** in_progress
 
@@ -91,6 +91,7 @@ _Источник: чат с пользователем (ноутбук), нач
   - Закрытые этапы и баги — в ROADMAP.md (✅ с хэшем); здесь только открытое.
   - SP1.0-8.8 (С8 (02) «Загрузка плейлиста, Play Now, экспорт») закрыт в 5b08e7b; В РАБОТЕ (п. 14 сквозного порядка): AM1.0-8.4 (С4 (01) «Модель режимов и настроек») — микро-шаги в _STATE_.yaml.
   - ВОПРОС ПОЛЬЗОВАТЕЛЮ (AM1.0-8.4 шаг 2): HwDeviceId (§2.3) ещё нет в коде; в OptimalOpts/StrictOpts.device временно Option<String>. Предложение: добавить newtype HwDeviceId в src/audio/backend/mod.rs (расширить вайтлист) и заменить. Умолчание BufferMs = 1500 мс (как RING_BUFFER_MS_DEFAULT; спека числа не задаёт).
+  - ВОПРОС ПОЛЬЗОВАТЕЛЮ (AM1.0-8.4 шаг 17): нужен вариант OpenError::ModeUnavailable(ModeKind) (§2.4 стр. 1075) в src/audio/error.rs, которого нет в вайтлисте. Прошу разрешить расширение вайтлиста на src/audio/error.rs. До ответа шаг 17 отложен, выполняются шаги 18+.
   - ВОПРОС ПОЛЬЗОВАТЕЛЮ (AM1.0-8.4 шаг 10): legacy_path отображает SrcFilter на старый ResamplerAlgorithm по крутизне: Steep→SincSlow(128), Slow→SincMedium(64), VerySlow→SincFast(32) — решение шага, в спеке нет; Оптимальный → ExclusiveMode::Strict (без перехода в Shared); DsdFilter/dsd_gain_comp/volume_lock/device_buffer старый путь не параметризуют.
   - AM1.0-8.4 шаг 13: SetActiveMode в движке только сохраняет параметры (release_engine + поля), переоткрытие — последующий Open от UI (§6.18 стр. 2399, ТС-9). Пробел: при возврате на SystemDefault (legacy_audio → device None) Player.preferred_device не сбрасывается — нет API в player.rs (вне вайтлиста); закрыть на С5 или расширить вайтлист.
   - AM1.0-8.4 шаг 14: тест audio_param_change_reopens_at_position_preserving_pause (§7.2 стр. 1834) не написан — Engine владеет настоящим Player (Decoder + cpal), фейка нет (ТЗ-114); проверено только решение mode_apply_action. Дописать, когда путь станет фейкуемым через EngineDeps (С5+).
