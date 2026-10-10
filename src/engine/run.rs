@@ -315,25 +315,6 @@ impl Engine {
             EngineCmd::AttachVizTap(producer) => {
                 self.player.set_viz_tap(producer);
             }
-            EngineCmd::SetLegacyAudio(audio) => {
-                // Применение старых настроек звука в памяти движка без
-                // файлового I/O (ТЗ-134, И-Р24): сеттеры `Player` только
-                // пишут поля, применяемые на следующем `open`; `bit_perfect` и
-                // `dither` при изменении переоткрывают поток с текущей позиции
-                // (I/O устройства, не настроек). Сохранение — дело UI.
-                // Заменяется `SetModeSettings`/`SetActiveMode` в С4.
-                self.player.set_exclusive_mode(audio.exclusive_mode);
-                self.player.set_fallback_policy(audio.fallback_policy);
-                self.player.set_dsd_mode(audio.dsd_mode);
-                self.player.set_resampler_mode(audio.resampler_mode);
-                self.player.set_resampler_algorithm(audio.resampler_algorithm);
-                self.player.set_fixed_rate(audio.fixed_rate);
-                self.player.set_prefer_family(audio.prefer_family);
-                self.player.set_fallback_rate(audio.fallback_rate);
-                self.player.set_ring_buffer_ms(audio.ring_buffer_ms);
-                self.player.set_bit_perfect(audio.bit_perfect);
-                self.player.set_dither(audio.dither);
-            }
             EngineCmd::SetModeSettings(update) => {
                 self.mode_settings = update.settings;
                 // Снятие/включение `volume_lock` активного режима меняет

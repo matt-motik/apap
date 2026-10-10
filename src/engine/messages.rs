@@ -19,7 +19,9 @@ use crate::settings::{
 };
 
 /// Старые параметры звука, применяемые в памяти движка без I/O (ТЗ-134, И-Р24).
-/// Мост С3: заменяется `SetModeSettings`/`SetActiveMode` в С4.
+/// Мост С3: больше не приходит командой от UI — строится внутри движка
+/// (`legacy_audio` в `legacy_path.rs`) из `ModeSettings` при `SetModeSettings`/
+/// `SetActiveMode` (ОВС-14, ОВС-17, §6.18, ADR-22).
 #[derive(Clone, PartialEq, Debug)]
 pub struct LegacyAudio {
     pub exclusive_mode: ExclusiveMode,
@@ -52,7 +54,6 @@ pub enum EngineCmd {
     SetVizTap(bool),
     /// Мост С3: передача producer'а tap в движок (сейчас `Player::set_viz_tap`).
     AttachVizTap(Option<rtrb::Producer<f32>>),
-    SetLegacyAudio(LegacyAudio),
     /// Новые настройки режима (ОВС-14, ОВС-17, §6.18, ADR-22): движок хранит
     /// копию `settings`, а по `diff.strongest(active)` переоткрывает поток на
     /// текущей позиции (`ApplyKind::ReopenAtPosition`/`SwitchDevice`) или
@@ -91,7 +92,6 @@ impl std::fmt::Debug for EngineCmd {
             EngineCmd::AttachVizTap(producer) => {
                 f.debug_tuple("AttachVizTap").field(&producer.as_ref().map(|_| "<producer>")).finish()
             }
-            EngineCmd::SetLegacyAudio(audio) => f.debug_tuple("SetLegacyAudio").field(audio).finish(),
             EngineCmd::SetModeSettings(update) => {
                 f.debug_tuple("SetModeSettings").field(update).finish()
             }

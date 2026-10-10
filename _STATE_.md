@@ -59,8 +59,8 @@
 - [x] Шаг 16: BackendCaps { exclusive } (§2.3 стр. 920): exclusive = cfg!(target_os = "linux") (ОВС-12, ТЗ-109, ТЗ-110), BackendCaps::available(mode) = mode == Compatible || exclusive; EngineHandle::spawn -> Result<(EngineHandle, BackendCaps), EngineFault>; вызовы в src/main.rs и тестах. Файлы: src/engine/run.rs, src/main.rs. Проверка: cargo check
 - [x] Шаг 17: src/engine/run.rs + src/engine/tests.rs: Open в недоступном режиме → OpenFailed(ModeUnavailable) без воспроизведения (§6.18 п. 2). Тесты modes_availability_from_backend_caps, saved_unavailable_mode_no_playback (§7.2 стр. 2863–2864). Проверка: cargo test engine::
 - [x] Шаг 18: src/app/audio_facade.rs: вместо SetLegacyAudio отправлять SetModeSettings / SetActiveMode (источник — Settings.modes и PlaybackState); громкость и mute — активного режима. Проверка: cargo check
-- [>] **Шаг 19: Снять мост SetLegacyAudio: удалить вариант из src/engine/messages.rs и обработку в src/engine/run.rs; LegacyAudio остаётся внутренним типом движка. Проверка: cargo check; ЧЕКПОИНТ: cargo test + clippy**
-- [ ] Шаг 20: Старт: до первого Open отправить SetModeSettings{diff: None} и SetActiveMode(сохранённый режим) (§6.27, ОВС-14). Файлы: src/app/mod.rs, src/app/audio_facade.rs. Тест startup_policy_equals_saved_policy (стр. 549). Проверка: cargo test startup_policy
+- [x] Шаг 19: Снять мост SetLegacyAudio: удалить вариант из src/engine/messages.rs и обработку в src/engine/run.rs; LegacyAudio остаётся внутренним типом движка. Проверка: cargo check; ЧЕКПОИНТ: cargo test + clippy
+- [>] **Шаг 20: Старт: до первого Open отправить SetModeSettings{diff: None} и SetActiveMode(сохранённый режим) (§6.27, ОВС-14). Файлы: src/app/mod.rs, src/app/audio_facade.rs. Тест startup_policy_equals_saved_policy (стр. 549). Проверка: cargo test startup_policy**
 - [ ] Шаг 21: Slint: переключатель трёх режимов в главном окне (ui/top_panel.slint + проброс в ui/app.slint): свойства active-mode, mode-available[3] с причиной, callback select-mode(int); недоступный режим неактивен с пояснением (ТЗ-18, ТЗ-109, ТЗ-110, §8 С4). Мост: обработчик Rust — следующий шаг. Проверка: cargo check
 - [ ] Шаг 22: Rust: обработчик select-mode — StateChange::ActiveMode + SetActiveMode + Open текущего трека с позиции (§6.18 «Смена режима», ТЗ-20); синхронизация active-mode/available из BackendCaps; ползунок громкости показывает громкость активного режима, неактивен в Строгом и при volume_lock. Файлы: src/app/mod.rs, src/app/playback_manager.rs. Проверка: cargo check
 - [ ] Шаг 23: src/core/testing.rs: тесты mode_settings_preserved_across_switch_and_restart (стр. 2886) и load_correction_not_written_until_save (стр. 2922). Проверка: cargo test core::; ЧЕКПОИНТ: cargo test + clippy
@@ -78,8 +78,8 @@
 
 Легенда: [x] сделано · [>] текущий шаг · [ ] не начато
 
-- **Текущий шаг (current_step):** Шаг 19
-- **Следующий ход:** Шаг 19: снять мост SetLegacyAudio (messages.rs, run.rs); ЧЕКПОИНТ
+- **Текущий шаг (current_step):** Шаг 20
+- **Следующий ход:** Шаг 20: старт — SetModeSettings{diff: None} + SetActiveMode(сохранённый) до первого Open; тест startup_policy_equals_saved_policy
 - **Счетчик безуспешных компиляций:** 0/3
 - **Состояние:** in_progress
 
@@ -95,6 +95,8 @@ _Источник: чат с пользователем (ноутбук), нач
   - ВОПРОС ПОЛЬЗОВАТЕЛЮ (AM1.0-8.4 шаг 10): legacy_path отображает SrcFilter на старый ResamplerAlgorithm по крутизне: Steep→SincSlow(128), Slow→SincMedium(64), VerySlow→SincFast(32) — решение шага, в спеке нет; Оптимальный → ExclusiveMode::Strict (без перехода в Shared); DsdFilter/dsd_gain_comp/volume_lock/device_buffer старый путь не параметризуют.
   - AM1.0-8.4 шаг 13: SetActiveMode в движке только сохраняет параметры (release_engine + поля), переоткрытие — последующий Open от UI (§6.18 стр. 2399, ТС-9). Пробел: при возврате на SystemDefault (legacy_audio → device None) Player.preferred_device не сбрасывается — нет API в player.rs (вне вайтлиста); закрыть на С5 или расширить вайтлист.
   - AM1.0-8.4 шаг 14: тест audio_param_change_reopens_at_position_preserving_pause (§7.2 стр. 1834) не написан — Engine владеет настоящим Player (Decoder + cpal), фейка нет (ТЗ-114); проверено только решение mode_apply_action. Дописать, когда путь станет фейкуемым через EngineDeps (С5+).
+  - ВОПРОС ПОЛЬЗОВАТЕЛЮ (AM1.0-8.4 шаг 17): OpenError::ModeUnavailable в classify() → ErrorClass::Internal (в спеке отдельного класса нет) → реакция StopWithError во всех режимах (стоп, без перехода к следующему треку). Подтвердить или задать класс.
+  - AM1.0-8.4 после шага 18 (временно, до шагов 20 и 21–27): старый диалог аудио-настроек меняет только локальный кэш фасада и в движок не попадает; до шага 20 движок стартует с ModeSettings::default() и Compatible. Не считать багом при ручном запуске.
   - AM1.0-8.4 шаг 7: имена ключей [playback] dither (tpdf/off), rate_fallback (same_family/nearest/no_downsample), volume_lock, fixed_rate (Гц), buffer (мс), device (строка) спекой поимённо не заданы — взяты по именам полей ModeSettings; подтвердить пользователю.
   - На С5 (решение пользователя 2026-10-08): снять мост src/app/audio_facade.rs — вызовы в playback_manager, visualizer_manager, playlist_manager, bp_report, mod.rs → прямая работа с EngineHandle/SignalPath/BadgeState; удалить файл; снять #![allow(dead_code)] в engine_sink.rs и ui_audio_state.rs. Состояние фасада (req_gen, кэш транспорта/трека/потока, ended, очередь резервирования, volume/muted/LegacyAudio) переносить целиком, не по файлам.
   - Ручные проверки за пользователем: AM1.0-8.1 — сценарии ТЗ-1/2/48/118/119/120/122 — отложено до полной реализации замка (решение пользователя 2026-10-10).

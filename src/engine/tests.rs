@@ -2,7 +2,7 @@
 //! ТЗ-134, ТЗ-45): неблокирующая отправка команд при медленном `probe`
 //! (ТЗ-103), отчёт об отказе запуска потока движка (ТЗ-88), разовое
 //! перечисление устройств при старте и по сигналу `DeviceWatcher` (ТЗ-105,
-//! ADR-16), отсутствие файлового I/O при `SetLegacyAudio` (ТЗ-134, И-Р24) и
+//! ADR-16), отсутствие файлового I/O при `SetModeSettings` (ТЗ-134, И-Р24) и
 //! ровно один `ShutdownComplete` при явном `Shutdown` и при `Drop`
 //! `EngineHandle` (ТЗ-45). Все тесты работают только через фейковые
 //! зависимости — без реального аудио-устройства (ТЗ-114).
@@ -19,17 +19,14 @@ use crate::audio::clock::MonotonicClock;
 use crate::audio::error::{EngineFault, OpenError};
 use crate::audio::format::{ChannelLayout, Codec, Container, SampleRate, SourceFormat, SourceKind};
 use crate::engine::deps::EngineDeps;
-use crate::engine::messages::{EngineCmd, EngineEvent, LegacyAudio, TransportState};
+use crate::engine::messages::{EngineCmd, EngineEvent, TransportState};
 use crate::engine::run::{effective_gain, mode_apply_action, BackendCaps, EngineHandle, ModeApplyAction};
 use crate::engine::sink::{EventSink, VecSink};
 use crate::engine::source::{FakeSource, SourceOpener};
 use crate::engine::spawner::{FailingSpawner, StdSpawner, ThreadSpawner};
 use crate::platform::fs::{FsPersistStore, MemStore};
+use crate::settings::params::ModeSettingsUpdate;
 use crate::settings::playback::{BufferMs, ModeKind, ModeSettings, RateFallbackRule, SrcFilter};
-use crate::settings::{
-    ClockFamily, DsdMode, ExclusiveMode, FallbackPolicy, FallbackRatePolicy, ResamplerAlgorithm,
-    ResamplerDither, ResamplerMode,
-};
 
 fn pcm_format() -> SourceFormat {
     SourceFormat {
@@ -39,24 +36,6 @@ fn pcm_format() -> SourceFormat {
         rate: SampleRate::new(44_100).expect("rate"),
         layout: ChannelLayout::stereo(),
         kind: SourceKind::Pcm { bits: crate::audio::format::BitDepth::new(16).expect("bits") },
-    }
-}
-
-/// Значения `LegacyAudio` по умолчанию (все поля — дефолты соответствующих
-/// enum'ов настроек), для теста отсутствия I/O при `SetLegacyAudio`.
-fn legacy_audio_defaults() -> LegacyAudio {
-    LegacyAudio {
-        exclusive_mode: ExclusiveMode::default(),
-        fallback_policy: FallbackPolicy::default(),
-        dsd_mode: DsdMode::default(),
-        resampler_mode: ResamplerMode::default(),
-        resampler_algorithm: ResamplerAlgorithm::default(),
-        fixed_rate: 48_000,
-        prefer_family: ClockFamily::default(),
-        fallback_rate: FallbackRatePolicy::default(),
-        ring_buffer_ms: 200,
-        bit_perfect: false,
-        dither: ResamplerDither::default(),
     }
 }
 
@@ -276,7 +255,8 @@ fn device_hotplug_single_enumeration() {
     assert_eq!(devices[1].shared.len(), 2);
 }
 
-/// ТЗ-134, И-Р24: `SetLegacyAudio` применяет параметры в памяти движка без
+/// ТЗ-134, И-Р24: `SetModeSettings` с `diff: None` (начальная загрузка, ещё
+/// нет потока для переоткрытия) применяет параметры в памяти движка без
 /// файлового I/O — `MemStore` не фиксирует ни одного вызова.
 #[test]
 fn set_mode_settings_performs_no_io() {
@@ -292,14 +272,17 @@ fn set_mode_settings_performs_no_io() {
     );
 
     let (handle, _caps) = EngineHandle::spawn(deps).expect("spawn ok");
-    assert!(handle.send(EngineCmd::SetLegacyAudio(legacy_audio_defaults())));
+    assert!(handle.send(EngineCmd::SetModeSettings(ModeSettingsUpdate {
+        settings: ModeSettings::default(),
+        diff: None,
+    })));
     assert!(handle.send(EngineCmd::Shutdown));
     handle.join();
 
-    assert!(mem.calls().is_empty(), "SetLegacyAudio не должен трогать файловую систему (ТЗ-134, И-Р24)");
+    assert!(mem.calls().is_empty(), "SetModeSettings не должен трогать файловую систему (ТЗ-134, И-Р24)");
 
     // `poll_session` синхронизирует `Transport`/`Position` по состоянию
-    // `Player` (§6.1 п.4-5, И-Р13) независимо от `SetLegacyAudio` — это
+    // `Player` (§6.1 п.4-5, И-Р13) независимо от `SetModeSettings` — это
     // не файловый I/O, поэтому тест проверяет только отсутствие записи на
     // диск (выше), а не точный список событий.
     let events = sink.take();
