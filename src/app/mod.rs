@@ -503,7 +503,9 @@ impl MusicApp {
             bit_perfect: pb.audio.bit_perfect,
             dither: pb.audio.resampler.dither,
         };
-        let mut player = audio_facade::AudioFacade::new(engine, legacy);
+        let modes = core.settings().modes.clone();
+        let active_mode = core.state().active_mode();
+        let mut player = audio_facade::AudioFacade::new(engine, legacy, modes, active_mode);
         // Громкость/mute/предпочитаемое устройство — не часть `LegacyAudio`
         // (это UI-состояние и выбор устройства, не DSP-политика движка),
         // поэтому применяются сеттерами фасада после конструирования.

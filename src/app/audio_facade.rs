@@ -26,6 +26,8 @@ use music_player_rs::audio::decoder::TrackInfo;
 use music_player_rs::audio::player::{ReservationEvent, StreamDesc};
 use music_player_rs::engine::messages::{EngineCmd, EngineEvent, LegacyAudio, Notice, TransportState};
 use music_player_rs::engine::run::EngineHandle;
+use music_player_rs::settings::params::ModeSettingsUpdate;
+use music_player_rs::settings::playback::{ModeKind, ModeSettings};
 use music_player_rs::settings::{
     clamp_ring_buffer_ms, ClockFamily, DsdMode, ExclusiveMode, FallbackPolicy, FallbackRatePolicy,
     ResamplerAlgorithm, ResamplerDither, ResamplerMode,
@@ -54,6 +56,13 @@ pub(crate) struct AudioFacade {
     /// (И-Р14) — геттеры фасада его не читают напрямую.
     state: UiAudioState,
     legacy: LegacyAudio,
+    /// Настройки трёх режимов — копия для расчёта `ModeSettingsDiff` между
+    /// последовательными `set_mode_settings` (ОВС-14, §6.18, ADR-22).
+    modes: ModeSettings,
+    /// Активный режим — копия для `set_active_mode` (ТЗ-20, §6.18); отправка
+    /// стартового `SetModeSettings`/`SetActiveMode` до первого `Open` —
+    /// задача вызывающей стороны (шаг 20, ОВС-14, §6.27).
+    active_mode: ModeKind,
     req_gen: u64,
     volume: f32,
     muted: bool,
@@ -74,11 +83,18 @@ pub(crate) struct AudioFacade {
 }
 
 impl AudioFacade {
-    pub(crate) fn new(engine: Option<EngineHandle>, legacy: LegacyAudio) -> Self {
+    pub(crate) fn new(
+        engine: Option<EngineHandle>,
+        legacy: LegacyAudio,
+        modes: ModeSettings,
+        active_mode: ModeKind,
+    ) -> Self {
         Self {
             engine,
             state: UiAudioState::new(),
             legacy,
+            modes,
+            active_mode,
             req_gen: 0,
             volume: 0.8,
             muted: false,
@@ -95,10 +111,6 @@ impl AudioFacade {
 
     fn send(&self, cmd: EngineCmd) -> bool {
         self.engine.as_ref().is_some_and(|engine| engine.send(cmd))
-    }
-
-    fn send_legacy(&self) {
-        self.send(EngineCmd::SetLegacyAudio(self.legacy.clone()));
     }
 
     /// Разобрать событие движка, обновить кэш фасада и вернуть то, что не
@@ -300,12 +312,16 @@ impl AudioFacade {
     }
 
     // --- Bit-perfect / dither -------------------------------------------------
+    //
+    // Сеттеры этого раздела и раздела ниже больше не шлют `SetLegacyAudio`
+    // движку (С4, §6.18, §6.27): `LegacyAudio` строится внутри движка из
+    // `ModeSettings` (`engine::legacy_path::legacy_audio`), а не из команд UI.
+    // Поле `legacy` остаётся только локальным кэшем старого диалога настроек
+    // (ТЗ-134, И-Р24) до его замены диалогом режимов (шаги 21…27) и удаления
+    // (шаги 28…32).
 
     pub(crate) fn set_bit_perfect(&mut self, enabled: bool) {
-        if self.legacy.bit_perfect != enabled {
-            self.legacy.bit_perfect = enabled;
-            self.send_legacy();
-        }
+        self.legacy.bit_perfect = enabled;
     }
 
     pub(crate) fn bit_perfect(&self) -> bool {
@@ -317,75 +333,71 @@ impl AudioFacade {
     }
 
     pub(crate) fn set_dither(&mut self, dither: ResamplerDither) {
-        if self.legacy.dither != dither {
-            self.legacy.dither = dither;
-            self.send_legacy();
-        }
+        self.legacy.dither = dither;
     }
 
     // --- Прочие легаси-настройки звука (ADR-04, ТЗ-134, И-Р24) ----------------
 
     pub(crate) fn set_resampler_mode(&mut self, mode: ResamplerMode) {
-        if self.legacy.resampler_mode != mode {
-            self.legacy.resampler_mode = mode;
-            self.send_legacy();
-        }
+        self.legacy.resampler_mode = mode;
     }
 
     pub(crate) fn set_resampler_algorithm(&mut self, algo: ResamplerAlgorithm) {
-        if self.legacy.resampler_algorithm != algo {
-            self.legacy.resampler_algorithm = algo;
-            self.send_legacy();
-        }
+        self.legacy.resampler_algorithm = algo;
     }
 
     pub(crate) fn set_fixed_rate(&mut self, rate: u32) {
-        if self.legacy.fixed_rate != rate {
-            self.legacy.fixed_rate = rate;
-            self.send_legacy();
-        }
+        self.legacy.fixed_rate = rate;
     }
 
     pub(crate) fn set_prefer_family(&mut self, family: ClockFamily) {
-        if self.legacy.prefer_family != family {
-            self.legacy.prefer_family = family;
-            self.send_legacy();
-        }
+        self.legacy.prefer_family = family;
     }
 
     pub(crate) fn set_fallback_rate(&mut self, policy: FallbackRatePolicy) {
-        if self.legacy.fallback_rate != policy {
-            self.legacy.fallback_rate = policy;
-            self.send_legacy();
-        }
+        self.legacy.fallback_rate = policy;
     }
 
     pub(crate) fn set_ring_buffer_ms(&mut self, ms: u32) {
-        let clamped = clamp_ring_buffer_ms(ms);
-        if self.legacy.ring_buffer_ms != clamped {
-            self.legacy.ring_buffer_ms = clamped;
-            self.send_legacy();
-        }
+        self.legacy.ring_buffer_ms = clamp_ring_buffer_ms(ms);
     }
 
     pub(crate) fn set_exclusive_mode(&mut self, mode: ExclusiveMode) {
-        if self.legacy.exclusive_mode != mode {
-            self.legacy.exclusive_mode = mode;
-            self.send_legacy();
-        }
+        self.legacy.exclusive_mode = mode;
     }
 
     pub(crate) fn set_fallback_policy(&mut self, policy: FallbackPolicy) {
-        if self.legacy.fallback_policy != policy {
-            self.legacy.fallback_policy = policy;
-            self.send_legacy();
-        }
+        self.legacy.fallback_policy = policy;
     }
 
     pub(crate) fn set_dsd_mode(&mut self, mode: DsdMode) {
-        if self.legacy.dsd_mode != mode {
-            self.legacy.dsd_mode = mode;
-            self.send_legacy();
+        self.legacy.dsd_mode = mode;
+    }
+
+    // --- Настройки режимов (С4) ------------------------------------------------
+
+    /// Применить новые настройки трёх режимов (ОВС-14, ОВС-17, §6.18, §6.27,
+    /// ADR-22): движок получает копию `settings` и по `diff.strongest(active)`
+    /// решает, переоткрывать поток или только обновить копию. Diff считается
+    /// от предыдущей сохранённой копии (`ModeSettings::diff`); пустое
+    /// множество изменений не отправляется (§2.2).
+    pub(crate) fn set_mode_settings(&mut self, settings: ModeSettings) {
+        if settings == self.modes {
+            return;
+        }
+        let diff = self.modes.diff(&settings);
+        self.modes = settings.clone();
+        self.send(EngineCmd::SetModeSettings(ModeSettingsUpdate { settings, diff: Some(diff) }));
+    }
+
+    /// Переключить активный режим (ТЗ-20, ОВ-10, §6.18): движок только
+    /// сохраняет параметры нового режима (шаг 13, ТС-9) — переоткрытие с его
+    /// параметрами делает последующий `Open` той же позиции (§6.18, «Смена
+    /// режима»).
+    pub(crate) fn set_active_mode(&mut self, mode: ModeKind) {
+        if mode != self.active_mode {
+            self.active_mode = mode;
+            self.send(EngineCmd::SetActiveMode(mode));
         }
     }
 
@@ -422,7 +434,7 @@ mod tests {
     }
 
     fn facade() -> AudioFacade {
-        AudioFacade::new(None, legacy_defaults())
+        AudioFacade::new(None, legacy_defaults(), ModeSettings::default(), ModeKind::default())
     }
 
     fn track_info() -> TrackInfo {
@@ -524,5 +536,33 @@ mod tests {
         f.on_event(EngineEvent::Notice(Notice::Reservation(ReservationEvent::Opened)));
         assert_eq!(f.poll_reservation(), Some(ReservationEvent::Opened));
         assert!(f.poll_reservation().is_none());
+    }
+
+    #[test]
+    fn set_mode_settings_updates_cache_and_skips_noop() {
+        let mut f = facade();
+        let initial = f.modes.clone();
+
+        // Та же конфигурация — пустой diff, кэш не трогаем (§2.2).
+        f.set_mode_settings(initial.clone());
+        assert_eq!(f.modes, initial);
+
+        let mut changed = initial;
+        changed.compatible.dsd_gain_comp = !changed.compatible.dsd_gain_comp;
+        f.set_mode_settings(changed.clone());
+        assert_eq!(f.modes, changed);
+    }
+
+    #[test]
+    fn set_active_mode_updates_cache_once() {
+        let mut f = facade();
+        assert_eq!(f.active_mode, ModeKind::default());
+
+        f.set_active_mode(ModeKind::Strict);
+        assert_eq!(f.active_mode, ModeKind::Strict);
+
+        // Повторная установка того же режима — не меняет кэш (нет эффекта).
+        f.set_active_mode(ModeKind::Strict);
+        assert_eq!(f.active_mode, ModeKind::Strict);
     }
 }
