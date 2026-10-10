@@ -44,7 +44,7 @@ steps:
     done: true
   - id: 2
     description: "src/settings/playback.rs: CompatibleOpts, OptimalOpts (volume_lock=false, dsd_gain_comp=true), StrictOpts, ModeSettings + Default (умолчания — матрица 02_tz.md §5 и §2.2), PlaybackState/ModeGain (Default: Compatible, громкости 100 %, ОВ-5, ТЗ-124), PathPolicy::active (§2.2, ОВС-15, ОВС-19, ADR-04). Тесты dsd_filter_and_comp_defaults и умолчание SrcFilter::Steep (первая часть src_filter_default_and_min_phase_not_selectable). Проверка: cargo test settings::playback"
-    done: false
+    done: true
   - id: 3
     description: "src/settings/playback.rs: buffers_allowed(BufferMs, DeviceBuffer) -> Result<(), ValueBlocker> и ValueBlocker {PlayerBufferTooSmall{need_ms}, DeviceBufferTooLarge{max_ms}} — правило BufferMs ≥ 2 × DeviceBuffer (И-Р22, ТЗ-94, ТЗ-131, §6.27). Тест device_buffer_vs_ring_constraint (§7.2, стр. 1830). Проверка: cargo test settings::playback; ЧЕКПОИНТ: cargo test + clippy"
     done: false
@@ -141,8 +141,8 @@ steps:
   - id: 34
     description: "Финал: cargo build/test/clippy зелёные; ROADMAP ✅; заметка плана; напомнить пользователю удалить settings.toml (ТЗ-97) и показать расхождение с 02 spec стр. 3342 (решение — за пользователем); ручные проверки (переключатель режимов, Совместимый играет, Оптимальный/Строгий через hw: на Linux). Проверка: cargo test + clippy"
     done: false
-current_step: 2
-next_action: "Шаг 2: новый субагент (sonnet, code-writer) — src/settings/playback.rs: CompatibleOpts/OptimalOpts/StrictOpts, ModeSettings + Default, PlaybackState/ModeGain, PathPolicy::active; тесты dsd_filter_and_comp_defaults и умолчание SrcFilter::Steep"
+current_step: 3
+next_action: "Шаг 3: новый субагент (sonnet, code-writer) — src/settings/playback.rs: buffers_allowed + ValueBlocker, тест device_buffer_vs_ring_constraint; ЧЕКПОИНТ cargo test + clippy"
 fail_counter: 0
 fail_counter_max: 3
 failed_attempts: []
@@ -166,6 +166,7 @@ plan:
       note:
         - "Закрытые этапы и баги — в ROADMAP.md (✅ с хэшем); здесь только открытое."
         - "SP1.0-8.8 (С8 (02) «Загрузка плейлиста, Play Now, экспорт») закрыт в 5b08e7b; В РАБОТЕ (п. 14 сквозного порядка): AM1.0-8.4 (С4 (01) «Модель режимов и настроек») — микро-шаги в _STATE_.yaml."
+        - "ВОПРОС ПОЛЬЗОВАТЕЛЮ (AM1.0-8.4 шаг 2): HwDeviceId (§2.3) ещё нет в коде; в OptimalOpts/StrictOpts.device временно Option<String>. Предложение: добавить newtype HwDeviceId в src/audio/backend/mod.rs (расширить вайтлист) и заменить. Умолчание BufferMs = 1500 мс (как RING_BUFFER_MS_DEFAULT; спека числа не задаёт)."
         - "На С5 (решение пользователя 2026-10-08): снять мост src/app/audio_facade.rs — вызовы в playback_manager, visualizer_manager, playlist_manager, bp_report, mod.rs → прямая работа с EngineHandle/SignalPath/BadgeState; удалить файл; снять #![allow(dead_code)] в engine_sink.rs и ui_audio_state.rs. Состояние фасада (req_gen, кэш транспорта/трека/потока, ended, очередь резервирования, volume/muted/LegacyAudio) переносить целиком, не по файлам."
         - "Ручные проверки за пользователем: AM1.0-8.1 — сценарии ТЗ-1/2/48/118/119/120/122 — отложено до полной реализации замка (решение пользователя 2026-10-10)."
         - "Отклонения старого пути до С6: повтор EBUSY на тике 100 мс; select_output_for может кратко пробовать hw: до резервирования."

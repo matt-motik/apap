@@ -41,8 +41,8 @@
 
 ## Итерационный трекер
 - [x] Шаг 1: src/settings/playback.rs (новый; `pub mod playback;` в src/settings.rs, ModeKind переезжает сюда, в settings.rs — `pub use playback::ModeKind`): перечисления ModeKind, SharedDeviceChoice (SharedDeviceId из audio::backend), RateFallbackRule, SrcFilter, DsdFilter, DeviceBuffer (ms(), period_ms() = ms/4), Dither, DsdAboveDac; newtype Volume(u8) 0..=100 и BufferMs(u16) 100..=10000 с проверяющими конструкторами (03_spec 01 §2.2 стр. 670–900; ТЗ-128…131, ОВС-6, ОВС-7, ОВС-13). Тест device_buffer_values_and_default (§7.2). Проверка: cargo test settings::playback
-- [>] **Шаг 2: src/settings/playback.rs: CompatibleOpts, OptimalOpts (volume_lock=false, dsd_gain_comp=true), StrictOpts, ModeSettings + Default (умолчания — матрица 02_tz.md §5 и §2.2), PlaybackState/ModeGain (Default: Compatible, громкости 100 %, ОВ-5, ТЗ-124), PathPolicy::active (§2.2, ОВС-15, ОВС-19, ADR-04). Тесты dsd_filter_and_comp_defaults и умолчание SrcFilter::Steep (первая часть src_filter_default_and_min_phase_not_selectable). Проверка: cargo test settings::playback**
-- [ ] Шаг 3: src/settings/playback.rs: buffers_allowed(BufferMs, DeviceBuffer) -> Result<(), ValueBlocker> и ValueBlocker {PlayerBufferTooSmall{need_ms}, DeviceBufferTooLarge{max_ms}} — правило BufferMs ≥ 2 × DeviceBuffer (И-Р22, ТЗ-94, ТЗ-131, §6.27). Тест device_buffer_vs_ring_constraint (§7.2, стр. 1830). Проверка: cargo test settings::playback; ЧЕКПОИНТ: cargo test + clippy
+- [x] Шаг 2: src/settings/playback.rs: CompatibleOpts, OptimalOpts (volume_lock=false, dsd_gain_comp=true), StrictOpts, ModeSettings + Default (умолчания — матрица 02_tz.md §5 и §2.2), PlaybackState/ModeGain (Default: Compatible, громкости 100 %, ОВ-5, ТЗ-124), PathPolicy::active (§2.2, ОВС-15, ОВС-19, ADR-04). Тесты dsd_filter_and_comp_defaults и умолчание SrcFilter::Steep (первая часть src_filter_default_and_min_phase_not_selectable). Проверка: cargo test settings::playback
+- [>] **Шаг 3: src/settings/playback.rs: buffers_allowed(BufferMs, DeviceBuffer) -> Result<(), ValueBlocker> и ValueBlocker {PlayerBufferTooSmall{need_ms}, DeviceBufferTooLarge{max_ms}} — правило BufferMs ≥ 2 × DeviceBuffer (И-Р22, ТЗ-94, ТЗ-131, §6.27). Тест device_buffer_vs_ring_constraint (§7.2, стр. 1830). Проверка: cargo test settings::playback; ЧЕКПОИНТ: cargo test + clippy**
 - [ ] Шаг 4: src/settings/params.rs (новый, `pub mod params` в src/settings.rs): ParamId (39 вариантов §2.2), Availability, FixedValue/UnavailableWhy/SettingsAnchor (в спеке не раскрыты — минимально: показываемое значение, ключ причины, вкладка+элемент), ApplyKind, ParamDescriptor, static PARAMS по матрице 02_tz.md §5 (стр. ~1202) и столбцу применения §6.18 (стр. 2383–2415), availability(id, mode) (ТЗ-95, ОВ-28, ОВС-17). Проверка: cargo check
 - [ ] Шаг 5: Тест params_table_matches_matrix (§7.2 стр. 2895) в src/settings/params.rs: эталон — матрица 02_tz.md §5, все строки × 3 режима; каждый ParamId ровно один раз в PARAMS. Проверка: cargo test settings::params
 - [ ] Шаг 6: src/settings/params.rs: ModeSettingsDiff, ModeSettingsUpdate (§2.2, ОВС-14); ModeSettings::diff(&self, new) -> ModeSettingsDiff (пары (режим, ParamId) изменённых полей); ModeSettingsDiff::strongest(active) -> ApplyKind — только параметры активного режима, SwitchDevice > ReopenAtPosition > Memory (И-Р26, §6.18). Тесты ≤4, включая every_audio_setting_changes_observable в части модели (§7.2 стр. 2896: каждое поле → свой ParamId). Проверка: cargo test settings::params; ЧЕКПОИНТ: cargo test + clippy
@@ -77,8 +77,8 @@
 
 Легенда: [x] сделано · [>] текущий шаг · [ ] не начато
 
-- **Текущий шаг (current_step):** Шаг 2
-- **Следующий ход:** Шаг 2: новый субагент (sonnet, code-writer) — src/settings/playback.rs: CompatibleOpts/OptimalOpts/StrictOpts, ModeSettings + Default, PlaybackState/ModeGain, PathPolicy::active; тесты dsd_filter_and_comp_defaults и умолчание SrcFilter::Steep
+- **Текущий шаг (current_step):** Шаг 3
+- **Следующий ход:** Шаг 3: новый субагент (sonnet, code-writer) — src/settings/playback.rs: buffers_allowed + ValueBlocker, тест device_buffer_vs_ring_constraint; ЧЕКПОИНТ cargo test + clippy
 - **Счетчик безуспешных компиляций:** 0/3
 - **Состояние:** in_progress
 
@@ -90,6 +90,7 @@ _Источник: чат с пользователем (ноутбук), нач
 - [>] **13.** Реализация AM1.0 + SP1.0 по сквозному порядку (ROADMAP.md): docs/01_audio_modes_v1.0/ (С0…С11) и docs/02_settings_persistence_v1.0/ (С0…С12) — ТЕКУЩАЯ ОСНОВНАЯ ЗАДАЧА
   - Закрытые этапы и баги — в ROADMAP.md (✅ с хэшем); здесь только открытое.
   - SP1.0-8.8 (С8 (02) «Загрузка плейлиста, Play Now, экспорт») закрыт в 5b08e7b; В РАБОТЕ (п. 14 сквозного порядка): AM1.0-8.4 (С4 (01) «Модель режимов и настроек») — микро-шаги в _STATE_.yaml.
+  - ВОПРОС ПОЛЬЗОВАТЕЛЮ (AM1.0-8.4 шаг 2): HwDeviceId (§2.3) ещё нет в коде; в OptimalOpts/StrictOpts.device временно Option<String>. Предложение: добавить newtype HwDeviceId в src/audio/backend/mod.rs (расширить вайтлист) и заменить. Умолчание BufferMs = 1500 мс (как RING_BUFFER_MS_DEFAULT; спека числа не задаёт).
   - На С5 (решение пользователя 2026-10-08): снять мост src/app/audio_facade.rs — вызовы в playback_manager, visualizer_manager, playlist_manager, bp_report, mod.rs → прямая работа с EngineHandle/SignalPath/BadgeState; удалить файл; снять #![allow(dead_code)] в engine_sink.rs и ui_audio_state.rs. Состояние фасада (req_gen, кэш транспорта/трека/потока, ended, очередь резервирования, volume/muted/LegacyAudio) переносить целиком, не по файлам.
   - Ручные проверки за пользователем: AM1.0-8.1 — сценарии ТЗ-1/2/48/118/119/120/122 — отложено до полной реализации замка (решение пользователя 2026-10-10).
   - Отклонения старого пути до С6: повтор EBUSY на тике 100 мс; select_output_for может кратко пробовать hw: до резервирования.
