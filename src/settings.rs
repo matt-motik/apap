@@ -2,6 +2,7 @@ use std::path::PathBuf;
 
 use serde::{Deserialize, Serialize};
 
+pub mod params;
 pub mod playback;
 
 pub use playback::ModeKind;

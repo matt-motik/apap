@@ -50,7 +50,7 @@ steps:
     done: true
   - id: 4
     description: "src/settings/params.rs (новый, `pub mod params` в src/settings.rs): ParamId (39 вариантов §2.2), Availability, FixedValue/UnavailableWhy/SettingsAnchor (в спеке не раскрыты — минимально: показываемое значение, ключ причины, вкладка+элемент), ApplyKind, ParamDescriptor, static PARAMS по матрице 02_tz.md §5 (стр. ~1202) и столбцу применения §6.18 (стр. 2383–2415), availability(id, mode) (ТЗ-95, ОВ-28, ОВС-17). Проверка: cargo check"
-    done: false
+    done: true
   - id: 5
     description: "Тест params_table_matches_matrix (§7.2 стр. 2895) в src/settings/params.rs: эталон — матрица 02_tz.md §5, все строки × 3 режима; каждый ParamId ровно один раз в PARAMS. Проверка: cargo test settings::params"
     done: false
@@ -141,8 +141,8 @@ steps:
   - id: 34
     description: "Финал: cargo build/test/clippy зелёные; ROADMAP ✅; заметка плана; напомнить пользователю удалить settings.toml (ТЗ-97) и показать расхождение с 02 spec стр. 3342 (решение — за пользователем); ручные проверки (переключатель режимов, Совместимый играет, Оптимальный/Строгий через hw: на Linux). Проверка: cargo test + clippy"
     done: false
-current_step: 4
-next_action: "Шаг 4: новый субагент (sonnet, code-writer) — src/settings/params.rs: ParamId, Availability, ParamDescriptor, PARAMS, availability()"
+current_step: 5
+next_action: "Шаг 5: новый субагент (sonnet, code-writer) — тест params_table_matches_matrix в src/settings/params.rs"
 fail_counter: 0
 fail_counter_max: 3
 failed_attempts: []
