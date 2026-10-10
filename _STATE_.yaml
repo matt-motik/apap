@@ -62,7 +62,7 @@ steps:
     done: true
   - id: 8
     description: "src/settings/playback_dto.rs: load_mode_settings(Option<PlaybackDto>) -> (ModeSettings, Vec<LoadNote>) пп. 1–3 §6.27 (стр. 2618–2642; LoadNote из persist::keys): None → default без заметок; schema ≠ 2 → default + одна заметка; по ключам: недопустимое → default + заметка, \"remodulate\" → ConvertToPcm + заметка, steep_short_delay/slow_short_delay → Steep + заметка, неизвестный ключ (в т.ч. active, src_quality) → игнор + заметка (ТЗ-97, ТЗ-94, ТЗ-34, ТЗ-130, ТЗ-124). Тесты missing_file_starts_compatible, legacy_settings_load_defaults_one_note, unknown_key_ignored_logged, remodulation_loads_as_convert, src_filter_default_and_min_phase_not_selectable (часть min-phase). Проверка: cargo test settings::playback_dto"
-    done: false
+    done: true
   - id: 9
     description: "src/settings/playback_dto.rs: load_mode_settings п. 4 — согласование буферов Оптимального и Строгого: buffers_allowed ошибка → device_buffer := Ms40, иначе наименьшее допустимое; заметка «буфер устройства N мс больше половины буфера плеера M мс — установлено K мс» (И-Р22, ТЗ-131). Тесты: коррекция; круговой load_mode_settings(Some(playback_dto(m))) == (m, []) для умолчаний и не-умолчаний. Проверка: cargo test settings::; ЧЕКПОИНТ: cargo test + clippy"
     done: false
@@ -141,8 +141,8 @@ steps:
   - id: 34
     description: "Финал: cargo build/test/clippy зелёные; ROADMAP ✅; заметка плана; напомнить пользователю удалить settings.toml (ТЗ-97) и показать расхождение с 02 spec стр. 3342 (решение — за пользователем); ручные проверки (переключатель режимов, Совместимый играет, Оптимальный/Строгий через hw: на Linux). Проверка: cargo test + clippy"
     done: false
-current_step: 8
-next_action: "Шаг 8: новый субагент (sonnet, code-writer) — src/settings/playback_dto.rs: load_mode_settings пп. 1–3 §6.27 + 5 тестов"
+current_step: 9
+next_action: "Шаг 9: новый субагент (sonnet, code-writer) — load_mode_settings п. 4 (согласование буферов) + круговые тесты; ЧЕКПОИНТ"
 fail_counter: 0
 fail_counter_max: 3
 failed_attempts: []

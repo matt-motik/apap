@@ -14,9 +14,13 @@ use std::collections::BTreeMap;
 
 use serde::{Deserialize, Serialize};
 
+use crate::audio::backend::SharedDeviceId;
+use crate::audio::format::SampleRate;
+use crate::persist::keys::{KeyPath, LoadNote, LoadNoteKind};
+
 use super::playback::{
-    CompatibleOpts, Dither, DsdAboveDac, DsdFilter, ModeSettings, OptimalOpts, RateFallbackRule,
-    SharedDeviceChoice, SrcFilter, StrictOpts,
+    BufferMs, CompatibleOpts, DeviceBuffer, Dither, DsdAboveDac, DsdFilter, ModeSettings,
+    OptimalOpts, RateFallbackRule, SharedDeviceChoice, SrcFilter, StrictOpts,
 };
 
 /// Раздел `[playback]` целиком (§6.27, 02 §2.4). `schema` — версия формата
@@ -226,6 +230,397 @@ pub fn playback_dto(m: &ModeSettings) -> PlaybackDto {
     }
 }
 
+/// Строковая форма -> `SrcFilter`, обратная к `src_filter_key`: перебирает те
+/// же варианты, которыми пишет писатель, так что строки не могут разойтись
+/// (§6.27). Минимально-фазовые легаси-строки (`"steep_short_delay"`,
+/// `"slow_short_delay"`) здесь не совпадают ни с одним вариантом — это
+/// недопустимое значение (ТЗ-130, И-Т19), обрабатывается как любое другое.
+fn parse_src_filter(s: &str) -> Option<SrcFilter> {
+    [SrcFilter::Steep, SrcFilter::Slow, SrcFilter::VerySlow]
+        .into_iter()
+        .find(|v| src_filter_key(*v) == s)
+}
+
+/// Числовая форма -> `DsdFilter`, обратная к `dsd_filter_khz` (§6.27).
+fn parse_dsd_filter(khz: i64) -> Option<DsdFilter> {
+    [DsdFilter::K24, DsdFilter::K30, DsdFilter::K50]
+        .into_iter()
+        .find(|v| dsd_filter_khz(*v) == khz)
+}
+
+/// Строковая форма -> `Dither`, обратная к `dither_key` (§6.27).
+fn parse_dither(s: &str) -> Option<Dither> {
+    [Dither::Tpdf, Dither::Off]
+        .into_iter()
+        .find(|v| dither_key(*v) == s)
+}
+
+/// Строковая форма -> `RateFallbackRule`, обратная к `rate_fallback_key` (§6.27).
+fn parse_rate_fallback(s: &str) -> Option<RateFallbackRule> {
+    [
+        RateFallbackRule::SameFamily,
+        RateFallbackRule::Nearest,
+        RateFallbackRule::NoDownsample,
+    ]
+    .into_iter()
+    .find(|v| rate_fallback_key(*v) == s)
+}
+
+/// Строковая форма -> `DsdAboveDac`, обратная к `dsd_above_dac_key`. Легаси-
+/// строка `"remodulate"` не совпадает с единственным вариантом — недопустимое
+/// значение, подстановка `ConvertToPcm` с заметкой (ТЗ-34, §6.27).
+fn parse_dsd_above_dac(s: &str) -> Option<DsdAboveDac> {
+    [DsdAboveDac::ConvertToPcm]
+        .into_iter()
+        .find(|v| dsd_above_dac_key(*v) == s)
+}
+
+/// Числовая форма (мс) -> `DeviceBuffer`, обратная к `device_buffer_ms_value`
+/// (§6.27).
+fn parse_device_buffer_ms(ms: i64) -> Option<DeviceBuffer> {
+    [
+        DeviceBuffer::Ms20,
+        DeviceBuffer::Ms40,
+        DeviceBuffer::Ms100,
+        DeviceBuffer::Ms200,
+        DeviceBuffer::Ms400,
+    ]
+    .into_iter()
+    .find(|v| device_buffer_ms_value(*v) == ms)
+}
+
+/// Заметка «недопустимое значение» (§6.27 п. 3, ТЗ-34, ТЗ-130).
+fn invalid_note(key: &str, found: &toml::Value, allowed: &'static str) -> LoadNote {
+    LoadNote {
+        key: KeyPath::new(key.to_owned()),
+        kind: LoadNoteKind::Invalid {
+            found: found.to_string().into(),
+            allowed,
+        },
+    }
+}
+
+/// Заметка «неизвестный ключ, игнорируется» (§6.27 п. 3, ТЗ-94).
+fn unknown_note(key: String) -> LoadNote {
+    LoadNote {
+        key: KeyPath::new(key),
+        kind: LoadNoteKind::Unknown,
+    }
+}
+
+/// Строковое перечисление: отсутствие ключа — значение по умолчанию без
+/// заметки; недопустимое значение — значение по умолчанию и заметка (§6.27 п. 3).
+fn read_str_enum<T: Copy>(
+    value: Option<&toml::Value>,
+    parse: fn(&str) -> Option<T>,
+    default: T,
+    key: &str,
+    allowed: &'static str,
+    notes: &mut Vec<LoadNote>,
+) -> T {
+    let Some(v) = value else { return default };
+    match v.as_str().and_then(parse) {
+        Some(parsed) => parsed,
+        None => {
+            notes.push(invalid_note(key, v, allowed));
+            default
+        }
+    }
+}
+
+/// Числовое перечисление, симметрично `read_str_enum` (§6.27 п. 3).
+fn read_int_enum<T: Copy>(
+    value: Option<&toml::Value>,
+    parse: fn(i64) -> Option<T>,
+    default: T,
+    key: &str,
+    allowed: &'static str,
+    notes: &mut Vec<LoadNote>,
+) -> T {
+    let Some(v) = value else { return default };
+    match v.as_integer().and_then(parse) {
+        Some(parsed) => parsed,
+        None => {
+            notes.push(invalid_note(key, v, allowed));
+            default
+        }
+    }
+}
+
+/// Булев ключ (`dsd_gain_comp`, `volume_lock`): §6.27 п. 3.
+fn read_bool(value: Option<&toml::Value>, default: bool, key: &str, notes: &mut Vec<LoadNote>) -> bool {
+    let Some(v) = value else { return default };
+    match v.as_bool() {
+        Some(b) => b,
+        None => {
+            notes.push(invalid_note(key, v, "true или false"));
+            default
+        }
+    }
+}
+
+/// Буфер декодирование→вывод: целое в допустимом диапазоне `BufferMs`
+/// (`u16::try_from` — без потери точности при приведении `i64` toml, §6.27 п. 3).
+fn read_buffer_ms(
+    value: Option<&toml::Value>,
+    default: BufferMs,
+    key: &str,
+    notes: &mut Vec<LoadNote>,
+) -> BufferMs {
+    let Some(v) = value else { return default };
+    let parsed = v
+        .as_integer()
+        .and_then(|i| u16::try_from(i).ok())
+        .and_then(BufferMs::new);
+    match parsed {
+        Some(b) => b,
+        None => {
+            notes.push(invalid_note(key, v, "целое 100..=10 000"));
+            default
+        }
+    }
+}
+
+/// Устройство Совместимого режима: строка -> `Named`, отсутствие ключа ->
+/// `SystemDefault`, недопустимое значение -> `SystemDefault` и заметка (§6.27 п. 3).
+fn read_shared_device(
+    value: Option<&toml::Value>,
+    key: &str,
+    notes: &mut Vec<LoadNote>,
+) -> SharedDeviceChoice {
+    let Some(v) = value else {
+        return SharedDeviceChoice::SystemDefault;
+    };
+    match v.as_str() {
+        Some(s) => SharedDeviceChoice::Named(SharedDeviceId::new(s)),
+        None => {
+            notes.push(invalid_note(key, v, "строка — идентификатор устройства"));
+            SharedDeviceChoice::SystemDefault
+        }
+    }
+}
+
+/// Устройство Оптимального/Строгого режима (временная `String`-замена
+/// `HwDeviceId`, см. doc-комментарий `OptimalOpts::device`; §6.27 п. 3).
+fn read_device_string(
+    value: Option<&toml::Value>,
+    key: &str,
+    notes: &mut Vec<LoadNote>,
+) -> Option<String> {
+    let v = value?;
+    match v.as_str() {
+        Some(s) => Some(s.to_owned()),
+        None => {
+            notes.push(invalid_note(key, v, "строка — идентификатор устройства"));
+            None
+        }
+    }
+}
+
+/// Принудительная частота вывода Совместимого режима (§6.27 п. 3, ОВ-4).
+fn read_fixed_rate(
+    value: Option<&toml::Value>,
+    key: &str,
+    notes: &mut Vec<LoadNote>,
+) -> Option<SampleRate> {
+    let v = value?;
+    let parsed = v
+        .as_integer()
+        .and_then(|i| u32::try_from(i).ok())
+        .and_then(SampleRate::new);
+    match parsed {
+        Some(r) => Some(r),
+        None => {
+            notes.push(invalid_note(key, v, "целое — частота в Гц"));
+            None
+        }
+    }
+}
+
+/// `[playback.compatible]` -> `CompatibleOpts` (§6.27 п. 3).
+fn parse_compatible(dto: CompatibleDto, notes: &mut Vec<LoadNote>) -> CompatibleOpts {
+    let default = CompatibleOpts::default();
+    let opts = CompatibleOpts {
+        device: read_shared_device(dto.device.as_ref(), "playback.compatible.device", notes),
+        fixed_rate: read_fixed_rate(dto.fixed_rate.as_ref(), "playback.compatible.fixed_rate", notes),
+        src_filter: read_str_enum(
+            dto.src_filter.as_ref(),
+            parse_src_filter,
+            default.src_filter,
+            "playback.compatible.src_filter",
+            "\"steep\" / \"slow\" / \"very_slow\"",
+            notes,
+        ),
+        dither: read_str_enum(
+            dto.dither.as_ref(),
+            parse_dither,
+            default.dither,
+            "playback.compatible.dither",
+            "\"tpdf\" / \"off\"",
+            notes,
+        ),
+        dsd_filter: read_int_enum(
+            dto.dsd_filter.as_ref(),
+            parse_dsd_filter,
+            default.dsd_filter,
+            "playback.compatible.dsd_filter",
+            "24, 30 или 50",
+            notes,
+        ),
+        dsd_gain_comp: read_bool(
+            dto.dsd_gain_comp.as_ref(),
+            default.dsd_gain_comp,
+            "playback.compatible.dsd_gain_comp",
+            notes,
+        ),
+        buffer: read_buffer_ms(dto.buffer.as_ref(), default.buffer, "playback.compatible.buffer", notes),
+    };
+    for key in dto.unknown.keys() {
+        notes.push(unknown_note(format!("playback.compatible.{key}")));
+    }
+    opts
+}
+
+/// `[playback.optimal]` -> `OptimalOpts` (§6.27 п. 3).
+fn parse_optimal(dto: OptimalDto, notes: &mut Vec<LoadNote>) -> OptimalOpts {
+    let default = OptimalOpts::default();
+    let opts = OptimalOpts {
+        device: read_device_string(dto.device.as_ref(), "playback.optimal.device", notes),
+        rate_fallback: read_str_enum(
+            dto.rate_fallback.as_ref(),
+            parse_rate_fallback,
+            default.rate_fallback,
+            "playback.optimal.rate_fallback",
+            "\"same_family\" / \"nearest\" / \"no_downsample\"",
+            notes,
+        ),
+        src_filter: read_str_enum(
+            dto.src_filter.as_ref(),
+            parse_src_filter,
+            default.src_filter,
+            "playback.optimal.src_filter",
+            "\"steep\" / \"slow\" / \"very_slow\"",
+            notes,
+        ),
+        dither: read_str_enum(
+            dto.dither.as_ref(),
+            parse_dither,
+            default.dither,
+            "playback.optimal.dither",
+            "\"tpdf\" / \"off\"",
+            notes,
+        ),
+        volume_lock: read_bool(
+            dto.volume_lock.as_ref(),
+            default.volume_lock,
+            "playback.optimal.volume_lock",
+            notes,
+        ),
+        dsd_above_dac: read_str_enum(
+            dto.dsd_above_dac.as_ref(),
+            parse_dsd_above_dac,
+            default.dsd_above_dac,
+            "playback.optimal.dsd_above_dac",
+            "\"convert_to_pcm\"",
+            notes,
+        ),
+        dsd_filter: read_int_enum(
+            dto.dsd_filter.as_ref(),
+            parse_dsd_filter,
+            default.dsd_filter,
+            "playback.optimal.dsd_filter",
+            "24, 30 или 50",
+            notes,
+        ),
+        dsd_gain_comp: read_bool(
+            dto.dsd_gain_comp.as_ref(),
+            default.dsd_gain_comp,
+            "playback.optimal.dsd_gain_comp",
+            notes,
+        ),
+        buffer: read_buffer_ms(dto.buffer.as_ref(), default.buffer, "playback.optimal.buffer", notes),
+        device_buffer: read_int_enum(
+            dto.device_buffer_ms.as_ref(),
+            parse_device_buffer_ms,
+            default.device_buffer,
+            "playback.optimal.device_buffer_ms",
+            "20, 40, 100, 200 или 400",
+            notes,
+        ),
+    };
+    for key in dto.unknown.keys() {
+        notes.push(unknown_note(format!("playback.optimal.{key}")));
+    }
+    opts
+}
+
+/// `[playback.strict]` -> `StrictOpts` (§6.27 п. 3; И-Т1 — только `device`,
+/// `buffer`, `device_buffer`).
+fn parse_strict(dto: StrictDto, notes: &mut Vec<LoadNote>) -> StrictOpts {
+    let default = StrictOpts::default();
+    let opts = StrictOpts {
+        device: read_device_string(dto.device.as_ref(), "playback.strict.device", notes),
+        buffer: read_buffer_ms(dto.buffer.as_ref(), default.buffer, "playback.strict.buffer", notes),
+        device_buffer: read_int_enum(
+            dto.device_buffer_ms.as_ref(),
+            parse_device_buffer_ms,
+            default.device_buffer,
+            "playback.strict.device_buffer_ms",
+            "20, 40, 100, 200 или 400",
+            notes,
+        ),
+    };
+    for key in dto.unknown.keys() {
+        notes.push(unknown_note(format!("playback.strict.{key}")));
+    }
+    opts
+}
+
+/// Загрузка `ModeSettings` из DTO (§6.27 пп. 1–3, ТЗ-97, ТЗ-94, ТЗ-34,
+/// ТЗ-130, ТЗ-124): нет файла -> `default()` без заметок; нет раздела
+/// `[playback]` или `schema ≠ 2` -> `default()` и одна заметка «аудио-
+/// настройки файла не распознаны»; иначе — известный ключ с допустимым
+/// значением идёт в поле, недопустимое значение заменяется значением по
+/// умолчанию с заметкой, неизвестный ключ игнорируется с заметкой. Согласование
+/// буферов (И-Р22, §6.27 п. 4) в этой функции не выполняется — отдельный шаг.
+pub fn load_mode_settings(dto: Option<PlaybackDto>) -> (ModeSettings, Vec<LoadNote>) {
+    let Some(dto) = dto else {
+        return (ModeSettings::default(), Vec::new());
+    };
+
+    if dto.schema != Some(2) {
+        let found = dto
+            .schema
+            .map_or_else(|| "отсутствует".to_owned(), |s| s.to_string());
+        let note = LoadNote {
+            key: KeyPath::new("playback.schema"),
+            kind: LoadNoteKind::Invalid {
+                found: found.into(),
+                allowed: "аудио-настройки файла не распознаны",
+            },
+        };
+        return (ModeSettings::default(), vec![note]);
+    }
+
+    let mut notes = Vec::new();
+    let compatible = parse_compatible(dto.compatible.unwrap_or_default(), &mut notes);
+    let optimal = parse_optimal(dto.optimal.unwrap_or_default(), &mut notes);
+    let strict = parse_strict(dto.strict.unwrap_or_default(), &mut notes);
+    for key in dto.unknown.keys() {
+        notes.push(unknown_note(format!("playback.{key}")));
+    }
+    notes.sort_by(|a, b| a.key.cmp(&b.key));
+
+    (
+        ModeSettings {
+            compatible,
+            optimal,
+            strict,
+        },
+        notes,
+    )
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -265,5 +660,95 @@ mod tests {
         let strict = dto.strict.expect("strict present");
         assert_eq!(strict.device_buffer_ms, Some(toml::Value::Integer(40)));
         assert_eq!(strict.buffer, Some(toml::Value::Integer(1500)));
+    }
+
+    /// §7.2 `missing_file_starts_compatible` (ТЗ-124): нет файла -> `default()`,
+    /// заметок нет.
+    #[test]
+    fn missing_file_starts_compatible() {
+        let (settings, notes) = load_mode_settings(None);
+        assert_eq!(settings, ModeSettings::default());
+        assert!(notes.is_empty());
+    }
+
+    /// §7.2 `legacy_settings_load_defaults_one_note` (ТЗ-97): раздел без
+    /// распознанной `schema` (старые файлы, мусор) -> `default()` и ровно одна
+    /// заметка; остальные поля DTO не разбираются.
+    #[test]
+    fn legacy_settings_load_defaults_one_note() {
+        let dto = PlaybackDto {
+            schema: None,
+            compatible: Some(CompatibleDto {
+                buffer: Some(toml::Value::Integer(999)),
+                ..Default::default()
+            }),
+            ..Default::default()
+        };
+        let (settings, notes) = load_mode_settings(Some(dto));
+        assert_eq!(settings, ModeSettings::default());
+        assert_eq!(notes.len(), 1);
+        assert_eq!(notes[0].key, KeyPath::new("playback.schema"));
+        assert!(matches!(notes[0].kind, LoadNoteKind::Invalid { .. }));
+    }
+
+    /// §7.2 `unknown_key_ignored_logged` (ТЗ-94): ключ `volume` в
+    /// `[playback.strict]` -> игнорируется, одна заметка, другие режимы без
+    /// изменений.
+    #[test]
+    fn unknown_key_ignored_logged() {
+        let mut strict_unknown = BTreeMap::new();
+        strict_unknown.insert("volume".to_owned(), toml::Value::Integer(50));
+        let dto = PlaybackDto {
+            schema: Some(2),
+            strict: Some(StrictDto {
+                unknown: strict_unknown,
+                ..Default::default()
+            }),
+            ..Default::default()
+        };
+        let (settings, notes) = load_mode_settings(Some(dto));
+        assert_eq!(settings, ModeSettings::default());
+        assert_eq!(notes.len(), 1);
+        assert_eq!(notes[0].key, KeyPath::new("playback.strict.volume"));
+        assert!(matches!(notes[0].kind, LoadNoteKind::Unknown));
+    }
+
+    /// §7.2 `remodulation_loads_as_convert` (ТЗ-34): `dsd_above_dac =
+    /// "remodulate"` -> `ConvertToPcm` и заметка.
+    #[test]
+    fn remodulation_loads_as_convert() {
+        let dto = PlaybackDto {
+            schema: Some(2),
+            optimal: Some(OptimalDto {
+                dsd_above_dac: Some(toml::Value::String("remodulate".to_owned())),
+                ..Default::default()
+            }),
+            ..Default::default()
+        };
+        let (settings, notes) = load_mode_settings(Some(dto));
+        assert_eq!(settings.optimal.dsd_above_dac, DsdAboveDac::ConvertToPcm);
+        assert_eq!(notes.len(), 1);
+        assert_eq!(notes[0].key, KeyPath::new("playback.optimal.dsd_above_dac"));
+        assert!(matches!(notes[0].kind, LoadNoteKind::Invalid { .. }));
+    }
+
+    /// §7.2 `src_filter_default_and_min_phase_not_selectable` (ТЗ-130, И-Т19;
+    /// часть про минимально-фазовые значения): `src_filter =
+    /// "slow_short_delay"` в файле -> `Steep` и заметка.
+    #[test]
+    fn src_filter_default_and_min_phase_not_selectable() {
+        let dto = PlaybackDto {
+            schema: Some(2),
+            compatible: Some(CompatibleDto {
+                src_filter: Some(toml::Value::String("slow_short_delay".to_owned())),
+                ..Default::default()
+            }),
+            ..Default::default()
+        };
+        let (settings, notes) = load_mode_settings(Some(dto));
+        assert_eq!(settings.compatible.src_filter, SrcFilter::Steep);
+        assert_eq!(notes.len(), 1);
+        assert_eq!(notes[0].key, KeyPath::new("playback.compatible.src_filter"));
+        assert!(matches!(notes[0].kind, LoadNoteKind::Invalid { .. }));
     }
 }
