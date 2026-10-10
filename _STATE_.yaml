@@ -27,6 +27,7 @@ whitelist:
   - src/app/playback_manager.rs
   - src/app/bp_report.rs
   - src/app/mode_dialog.rs
+  - src/audio/error.rs
   - src/audio/output.rs
   - src/audio/fulltrack.rs
   - src/platform/tray/mod.rs
@@ -141,8 +142,8 @@ steps:
   - id: 34
     description: "Финал: cargo build/test/clippy зелёные; ROADMAP ✅; заметка плана; напомнить пользователю удалить settings.toml (ТЗ-97) и показать расхождение с 02 spec стр. 3342 (решение — за пользователем); ручные проверки (переключатель режимов, Совместимый играет, Оптимальный/Строгий через hw: на Linux). Проверка: cargo test + clippy"
     done: false
-current_step: 18
-next_action: "Шаг 18: audio_facade → SetModeSettings / SetActiveMode (шаг 17 отложен до разрешения на src/audio/error.rs)"
+current_step: 17
+next_action: "Шаг 17: OpenError::ModeUnavailable + Open в недоступном режиме → OpenFailed(ModeUnavailable) + тесты"
 fail_counter: 0
 fail_counter_max: 3
 failed_attempts: []
@@ -167,7 +168,6 @@ plan:
         - "Закрытые этапы и баги — в ROADMAP.md (✅ с хэшем); здесь только открытое."
         - "SP1.0-8.8 (С8 (02) «Загрузка плейлиста, Play Now, экспорт») закрыт в 5b08e7b; В РАБОТЕ (п. 14 сквозного порядка): AM1.0-8.4 (С4 (01) «Модель режимов и настроек») — микро-шаги в _STATE_.yaml."
         - "ВОПРОС ПОЛЬЗОВАТЕЛЮ (AM1.0-8.4 шаг 2): HwDeviceId (§2.3) ещё нет в коде; в OptimalOpts/StrictOpts.device временно Option<String>. Предложение: добавить newtype HwDeviceId в src/audio/backend/mod.rs (расширить вайтлист) и заменить. Умолчание BufferMs = 1500 мс (как RING_BUFFER_MS_DEFAULT; спека числа не задаёт)."
-        - "ВОПРОС ПОЛЬЗОВАТЕЛЮ (AM1.0-8.4 шаг 17): нужен вариант OpenError::ModeUnavailable(ModeKind) (§2.4 стр. 1075) в src/audio/error.rs, которого нет в вайтлисте. Прошу разрешить расширение вайтлиста на src/audio/error.rs. До ответа шаг 17 отложен, выполняются шаги 18+."
         - "ВОПРОС ПОЛЬЗОВАТЕЛЮ (AM1.0-8.4 шаг 10): legacy_path отображает SrcFilter на старый ResamplerAlgorithm по крутизне: Steep→SincSlow(128), Slow→SincMedium(64), VerySlow→SincFast(32) — решение шага, в спеке нет; Оптимальный → ExclusiveMode::Strict (без перехода в Shared); DsdFilter/dsd_gain_comp/volume_lock/device_buffer старый путь не параметризуют."
         - "AM1.0-8.4 шаг 13: SetActiveMode в движке только сохраняет параметры (release_engine + поля), переоткрытие — последующий Open от UI (§6.18 стр. 2399, ТС-9). Пробел: при возврате на SystemDefault (legacy_audio → device None) Player.preferred_device не сбрасывается — нет API в player.rs (вне вайтлиста); закрыть на С5 или расширить вайтлист."
         - "AM1.0-8.4 шаг 14: тест audio_param_change_reopens_at_position_preserving_pause (§7.2 стр. 1834) не написан — Engine владеет настоящим Player (Decoder + cpal), фейка нет (ТЗ-114); проверено только решение mode_apply_action. Дописать, когда путь станет фейкуемым через EngineDeps (С5+)."
