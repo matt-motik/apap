@@ -40,8 +40,7 @@ use music_player_rs::platform::lifecycle::PlatformCaps;
 use music_player_rs::platform::notify::Notifier;
 use music_player_rs::platform::pick::{FilePicker, PickRequest, PickResult};
 use music_player_rs::playlist::{self, ScanMsg, Track};
-use music_player_rs::playlist::compare::{compare_keys, CompareKeys};
-use music_player_rs::playlist::model::SortKey;
+use music_player_rs::playlist::model::TrackId;
 use music_player_rs::settings::{
     clamp_ring_buffer_ms, ClockFamily, ColumnId, DsdMode, ExclusiveMode, FallbackPolicy,
     FallbackRatePolicy, RepeatMode, ResamplerMode,
@@ -1404,7 +1403,10 @@ impl MusicApp {
             });
         }
 
-        // 17. load-playlist
+        // 17. load-playlist (ТЗ-13 б, ТЗ-48, ADR-16, §6.12): файл читается и
+        // разбирается в фоне потоком `apap-playlist`; до окончания загрузки
+        // прежний трек продолжает играть. Итог (замена плейлиста, Play Now
+        // или ошибка чтения) разбирает `poll_load_playlist` на тике.
         {
             let app = this.clone();
             ui.on_load_playlist(move || {
@@ -1416,25 +1418,13 @@ impl MusicApp {
                     &app,
                     |start| PickRequest::OpenPlaylist { start },
                     |app, paths| {
-                        let path = &paths[0];
-                        let tracks = playlist::load_track_list(path);
+                        let path = paths[0].clone();
                         let mut a = app.borrow_mut();
-                        // МОСТ (§6.13, ТЗ-42, ТЗ-45): строки для модели плейлиста
-                        // и восстановление видимого порядка по ключу сессии.
-                        let rows: Vec<(Track, CompareKeys)> = tracks
-                            .into_iter()
-                            .map(|t| {
-                                let keys = CompareKeys::from_track(&t);
-                                (t, keys)
-                            })
-                            .collect();
-                        let key = a.session_sort_key();
-                        let visible = MusicApp::load_visible_order(&rows, key);
-                        a.core.playlist_replace(rows, visible, key);
-                        a.rebuild_known_paths();
-                        a.current = None;
-                        a.sync_playlist_to_ui();
-                        a.emit(AppEvent::QueueChanged);
+                        a.gate.set_loading(Some(LoadKind::Command));
+                        if let Some(ui) = a.try_ui() {
+                            ui.set_busy(true);
+                        }
+                        a.core.start_command_load(path);
                     },
                 );
             });
@@ -2255,26 +2245,32 @@ impl MusicApp {
 
 
     /// Разбирает итог загрузки плейлиста на каждом тике (ADR-16, ADR-23
-    /// шаг 9, §6.12, ТЗ-21, ТЗ-47): `AppCore::poll_load` сам сверяет
-    /// поколение и завершает `LoadState` -> `Idle`, вернув отчёт только для
-    /// итога ТЕКУЩЕЙ загрузки. `Replaced` (стартовая загрузка) — плейлист
-    /// уже заменён внутри `core` (`playlist_replace` вызван в
+    /// шаг 9, §6.12, ТЗ-13 б, ТЗ-21, ТЗ-47, ТЗ-48): `AppCore::poll_load` сам
+    /// сверяет поколение и завершает `LoadState` -> `Idle`, вернув отчёт
+    /// только для итога ТЕКУЩЕЙ загрузки. `Replaced` (стартовая загрузка) —
+    /// плейлист уже заменён внутри `core` (`playlist_replace` вызван в
     /// `on_load_outcome`), здесь только перестраивается модель таблицы.
-    /// `PlayNow` относится к командной загрузке («Загрузить плейлист»,
-    /// ТЗ-13 б, ТЗ-48) — `start_command_load` на этом шаге не вызывается,
-    /// поэтому сюда фактически не попадём; модель обновляется тем же путём
-    /// на случай будущего шага, а запуск воспроизведения первого трека
-    /// (Open/autoplay) добавится отдельно в шаге командной загрузки.
-    /// Сообщения (повреждённый/нечитаемый `playlist.m3u`, ОВ-8/ТЗ-21) идут в
+    /// `PlayNow` (командная загрузка, «Загрузить плейлист», ТЗ-13 б) — тем
+    /// же путём обновляется модель таблицы, а запуск воспроизведения
+    /// первого трека (или стоп при пустом плейлисте) выполняет
+    /// `apply_play_now` (`playback_manager.rs`): `core` уже заменил
+    /// плейлист и взвёл флаг «изменён», сам стоп/`Open` прежнего/нового
+    /// трека остаётся за `MusicApp`. Сообщения (повреждённый/нечитаемый
+    /// `playlist.m3u`, ошибка чтения выбранного файла) идут в
     /// `MessageCenter` (ADR-13, §6.15, ТЗ-52).
     fn poll_load_playlist(&mut self) {
         let Some(report) = self.core.poll_load() else {
             return;
         };
         match report.applied {
-            Some(LoadApplied::Replaced) | Some(LoadApplied::PlayNow { .. }) => {
+            Some(LoadApplied::Replaced) => {
                 self.rebuild_known_paths();
                 self.sync_playlist_to_ui();
+            }
+            Some(LoadApplied::PlayNow { first }) => {
+                self.rebuild_known_paths();
+                self.sync_playlist_to_ui();
+                self.apply_play_now(first);
             }
             None => {}
         }
@@ -2449,24 +2445,6 @@ impl MusicApp {
     pub(super) fn rebuild_known_paths(&mut self) {
         let p = self.core.playlist();
         self.known_paths = p.visible().iter().filter_map(|&id| p.get(id)).map(|t| t.path.clone()).collect();
-    }
-
-    /// Ключ сортировки сессии (`state.toml`) (§6.13, ТЗ-42, ТЗ-43):
-    /// используется при загрузке плейлиста, чтобы восстановить видимый
-    /// порядок по сохранённому ключу. `None` — ключа нет.
-    pub(super) fn session_sort_key(&self) -> Option<SortKey> {
-        self.core.state().sort()
-    }
-
-    /// Видимый порядок при загрузке плейлиста (§3.1, §6.13, ТЗ-42, ТЗ-45):
-    /// устойчивая сортировка исходных индексов строк по `compare_keys`; без
-    /// ключа — тождественный порядок (порядок файла).
-    pub(super) fn load_visible_order(rows: &[(Track, CompareKeys)], key: Option<SortKey>) -> Vec<u32> {
-        let mut idx: Vec<usize> = (0..rows.len()).collect();
-        if let Some(key) = key {
-            idx.sort_by(|&a, &b| compare_keys(&rows[a].1, &rows[b].1, key));
-        }
-        idx.into_iter().filter_map(|i| u32::try_from(i).ok()).collect()
     }
 
     /// Разобрать все накопленные события движка, применить принятый

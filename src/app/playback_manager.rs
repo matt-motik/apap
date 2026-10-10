@@ -467,6 +467,33 @@ impl MusicApp {
         self.play_next(-1);
     }
 
+    /// Play Now после загрузки плейлиста командой «Загрузить плейлист»
+    /// (ADR-16, §6.12, ТЗ-13 б): прежний трек останавливается и больше не
+    /// действует (отложенное открытие сбрасывается — отвечающий на него
+    /// `Opened` прежнего плейлиста будет отброшен), затем запускается
+    /// `first` — первый по ключу сортировки трек нового плейлиста, либо
+    /// shuffle-пик при включённом Shuffle (AppCore уже начал новый проход).
+    /// Пустой плейлист (`first: None`) — стоп без следующего трека (ТЗ-48).
+    pub(super) fn apply_play_now(&mut self, first: Option<TrackId>) {
+        self.player.stop();
+        self.pending_open = None;
+        self.current = None;
+        self.reset_cover();
+        let Some(id) = first else {
+            if let Some(ui) = self.try_ui() {
+                ui.set_current_row(-1);
+            }
+            self.emit(AppEvent::PlaybackStopped);
+            return;
+        };
+        if self.shuffle {
+            self.core.shuffle_started(id);
+        }
+        if let Some(index) = self.core.playlist().index_of(id) {
+            self.play_track(index);
+        }
+    }
+
     pub(super) fn set_output_device(&mut self, name: String) {
         if name.is_empty() || name == "(select device)" {
             return;

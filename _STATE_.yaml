@@ -61,7 +61,7 @@ steps:
     done: true
   - id: 13
     description: "src/app/mod.rs + src/app/playback_manager.rs: «Загрузить плейлист» → core.start_command_load; LoadApplied::PlayNow → stop прежнего, open первого (autoplay), пустой → стоп; убрать синхронный load_track_list из обработчика меню (ADR-16, ТЗ-13 б, ТЗ-48). Проверка: cargo check"
-    done: false
+    done: true
   - id: 14
     description: "src/app/playlist_manager.rs + src/app/mod.rs: «Сохранить плейлист» → picker SavePlaylist (.m3u8) → core.export; окно Error по ExportFailed (ADR-17, ADR-10, ТЗ-13 а). Проверка: cargo check"
     done: false
@@ -71,8 +71,8 @@ steps:
   - id: 16
     description: "ЧЕКПОИНТ финальный: cargo test + cargo clippy (0 новых варнингов в файлах вайтлиста); cargo build"
     done: false
-current_step: 13
-next_action: "Шаг 13: «Загрузить плейлист» → core.start_command_load; PlayNow → стоп старого, Open первого с autoplay, пусто → стоп (app/mod.rs + playback_manager.rs)"
+current_step: 14
+next_action: "Шаг 14: «Сохранить плейлист» → пикер SavePlaylist (.m3u8) → core.export (playlist_manager.rs + mod.rs)"
 fail_counter: 0
 fail_counter_max: 3
 failed_attempts: []
