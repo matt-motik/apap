@@ -2,6 +2,10 @@ use std::path::PathBuf;
 
 use serde::{Deserialize, Serialize};
 
+pub mod playback;
+
+pub use playback::ModeKind;
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
 pub enum RepeatMode {
     #[default]
@@ -315,16 +319,6 @@ pub(crate) fn default_info_labels() -> std::collections::HashMap<String, String>
     .into_iter()
     .map(|(k, v)| (k.to_string(), v.to_string()))
     .collect()
-}
-
-/// Режим вывода (ADR-04, §2.2). Мост С3: в С4 переезжает в
-/// settings/playback.rs вместе с ModeSettings.
-#[derive(Clone, Copy, PartialEq, Eq, Debug, Default)]
-pub enum ModeKind {
-    #[default]
-    Compatible,
-    Optimal,
-    Strict,
 }
 
 /// Режим вывода DSD (ТЗ 5.1 §8.2). `Pcm` — единственный реализованный;
