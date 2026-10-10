@@ -222,6 +222,32 @@ pub fn save_track_list(fs: &mut dyn FileWriter, path: &Path, tracks: &[Track]) -
     fs.write_atomic(path, &serialize_m3u(tracks))
 }
 
+/// Экспорт «Сохранить плейлист» в расширенный M3U: видимый порядок (без
+/// перестановки Shuffle, выбирает вызывающий), `#EXTINF` с длительностью в
+/// целых секундах (`-1`, если неизвестна) и подписью «Исполнитель — Название»
+/// (ADR-17, §6.18, ТЗ-13 а).
+pub fn serialize_extm3u<'a>(tracks: impl IntoIterator<Item = &'a Track>) -> Arc<[u8]> {
+    let mut out = String::from("#EXTM3U\n");
+    for t in tracks {
+        let secs = t.duration.map(|d| d.round() as i64).unwrap_or(-1);
+        let artist = t.artist.as_deref().unwrap_or("");
+        let label = match (artist.is_empty(), t.title.is_empty()) {
+            (false, false) => format!("{artist} — {}", t.title),
+            (false, true) => artist.to_string(),
+            (true, false) => t.title.clone(),
+            (true, true) => t
+                .path
+                .file_stem()
+                .map(|s| s.to_string_lossy().into_owned())
+                .unwrap_or_else(|| t.path.to_string_lossy().into_owned()),
+        };
+        out.push_str(&format!("#EXTINF:{secs},{label}\n"));
+        out.push_str(&t.path.to_string_lossy());
+        out.push('\n');
+    }
+    Arc::from(out.into_bytes())
+}
+
 /// Display text for a track cell in a given column ("", "0", "24 bit", ...).
 pub fn sort_rows_text(track: &Track, col: ColumnId) -> String {
     match col {
@@ -345,5 +371,107 @@ mod tests {
         assert_eq!(advance_index(None, 1, 5, RepeatMode::Off), Some(0));
         assert_eq!(advance_index(None, 1, 5, RepeatMode::All), Some(0));
         assert_eq!(advance_index(None, 1, 0, RepeatMode::Off), None);
+    }
+
+    /// ADR-17, §6.18, ТЗ-13 а: первая строка `#EXTM3U`, без BOM, окончания `\n`.
+    #[test]
+    fn serialize_extm3u_header_no_bom_lf_endings() {
+        let out = serialize_extm3u(&[]);
+        assert_eq!(&*out, b"#EXTM3U\n");
+        assert!(!out.starts_with(&[0xEF, 0xBB, 0xBF]));
+        assert!(!out.contains(&b'\r'));
+    }
+
+    /// ADR-17, §6.18, ТЗ-13 а: оба поля непустые → «Исполнитель — Название» (тире U+2014 с пробелами).
+    #[test]
+    fn serialize_extm3u_label_artist_and_title() {
+        let t = Track {
+            path: PathBuf::from("/music/a.flac"),
+            title: "Название".into(),
+            artist: Some("Исполнитель".into()),
+            duration: Some(125.4),
+            ..Default::default()
+        };
+        let text = String::from_utf8(serialize_extm3u(&[t]).to_vec()).expect("utf8");
+        assert_eq!(text, "#EXTM3U\n#EXTINF:125,Исполнитель — Название\n/music/a.flac\n");
+    }
+
+    /// ADR-17, §6.18, ТЗ-13 а: только одно из полей непустое → подпись — это поле.
+    #[test]
+    fn serialize_extm3u_label_single_field() {
+        let artist_only = Track {
+            path: PathBuf::from("/music/b.flac"),
+            title: String::new(),
+            artist: Some("Исполнитель".into()),
+            duration: None,
+            ..Default::default()
+        };
+        let title_only = Track {
+            path: PathBuf::from("/music/c.flac"),
+            title: "Название".into(),
+            artist: None,
+            duration: None,
+            ..Default::default()
+        };
+        let text = String::from_utf8(serialize_extm3u(&[artist_only, title_only]).to_vec()).expect("utf8");
+        assert_eq!(
+            text,
+            "#EXTM3U\n#EXTINF:-1,Исполнитель\n/music/b.flac\n#EXTINF:-1,Название\n/music/c.flac\n"
+        );
+    }
+
+    /// ADR-17, §6.18, ТЗ-13 а: оба поля пусты → подпись — имя файла без расширения.
+    #[test]
+    fn serialize_extm3u_label_falls_back_to_file_stem() {
+        let t = Track {
+            path: PathBuf::from("/music/no_tags.flac"),
+            title: String::new(),
+            artist: None,
+            duration: None,
+            ..Default::default()
+        };
+        let text = String::from_utf8(serialize_extm3u(&[t]).to_vec()).expect("utf8");
+        assert_eq!(text, "#EXTM3U\n#EXTINF:-1,no_tags\n/music/no_tags.flac\n");
+    }
+
+    /// ADR-17, §6.18, ТЗ-13 а: неизвестная длительность → `-1`; известная — округлена до целого.
+    #[test]
+    fn serialize_extm3u_unknown_duration_is_minus_one() {
+        let known = Track {
+            path: PathBuf::from("/music/d.flac"),
+            title: "T".into(),
+            duration: Some(59.6),
+            ..Default::default()
+        };
+        let unknown = Track {
+            path: PathBuf::from("/music/e.flac"),
+            title: "T".into(),
+            duration: None,
+            ..Default::default()
+        };
+        let text = String::from_utf8(serialize_extm3u(&[known, unknown]).to_vec()).expect("utf8");
+        assert!(text.contains("#EXTINF:60,T\n/music/d.flac\n"));
+        assert!(text.contains("#EXTINF:-1,T\n/music/e.flac\n"));
+    }
+
+    /// ADR-17, §6.18, ТЗ-13 а: порядок треков в выводе — порядок переданного итератора (видимый порядок caller'а).
+    #[test]
+    fn serialize_extm3u_preserves_caller_order() {
+        let tracks = [
+            Track {
+                path: PathBuf::from("/music/z.flac"),
+                title: "Z".into(),
+                ..Default::default()
+            },
+            Track {
+                path: PathBuf::from("/music/a.flac"),
+                title: "A".into(),
+                ..Default::default()
+            },
+        ];
+        let text = String::from_utf8(serialize_extm3u(&tracks).to_vec()).expect("utf8");
+        let z_pos = text.find("/music/z.flac").expect("z present");
+        let a_pos = text.find("/music/a.flac").expect("a present");
+        assert!(z_pos < a_pos);
     }
 }

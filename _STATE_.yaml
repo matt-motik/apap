@@ -49,7 +49,7 @@ steps:
     done: true
   - id: 9
     description: "src/playlist/mod.rs: serialize_extm3u(tracks в видимом порядке) — #EXTM3U, #EXTINF:<сек|-1>,<«Исполнитель — Название» | одно поле | file_stem>, \\n, без BOM (ADR-17, §6.18, ТЗ-13 а). Тест формата. Проверка: cargo test playlist::"
-    done: false
+    done: true
   - id: 10
     description: "src/core/load.rs: AppCore::export(path) → WriterCmd::Export { attempt } из видимого порядка; ExportFailed → Error на попытку, Exported → ничего; PersistTracker не трогается (ADR-17, §6.18, ТЗ-13 а, ТЗ-20). Проверка: cargo check"
     done: false
@@ -71,8 +71,8 @@ steps:
   - id: 16
     description: "ЧЕКПОИНТ финальный: cargo test + cargo clippy (0 новых варнингов в файлах вайтлиста); cargo build"
     done: false
-current_step: 9
-next_action: "Шаг 9: serialize_extm3u в src/playlist/mod.rs (ADR-17, §6.18, ТЗ-13 а) + тест формата"
+current_step: 10
+next_action: "Шаг 10: AppCore::export(path) → WriterCmd::Export; ExportFailed → Error на попытку (ADR-17, §6.18, ТЗ-13 а)"
 fail_counter: 0
 fail_counter_max: 3
 failed_attempts: []
