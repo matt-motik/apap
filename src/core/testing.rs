@@ -126,12 +126,12 @@ impl Harness {
         self.fs.fail_read(self.paths.work(file), class);
     }
 
-    /// Разрешает текущее задание стартовой загрузки реальным `run_load`
-    /// (ADR-16, §6.12, ТЗ-21, ТЗ-47) поверх `MemStore` стенда — пробник
-    /// отдаёт трек с заголовком по имени файла, этого достаточно для
-    /// путей и сортировки по заголовку. `false` — задания нет (загрузка
-    /// не запущена или уже разрешена).
-    pub(crate) fn finish_startup_load(&self) -> bool {
+    /// Разрешает текущее задание загрузки (стартовой или по команде,
+    /// ТЗ-13 б) реальным `run_load` (ADR-16, §6.12, ТЗ-21, ТЗ-47) поверх
+    /// `MemStore` стенда — пробник отдаёт трек с заголовком по имени файла,
+    /// этого достаточно для путей и сортировки по заголовку. `false` —
+    /// задания нет (загрузка не запущена или уже разрешена).
+    pub(crate) fn finish_pending_load(&self) -> bool {
         let Some(job) = self.loader.jobs().into_iter().next() else { return false };
         fn probe(path: &Path) -> Track {
             let stem = path.file_stem().map(|s| s.to_string_lossy().into_owned()).unwrap_or_default();
@@ -139,6 +139,25 @@ impl Harness {
         }
         let outcome = run_load(&job, &self.fs, &probe);
         self.loader.finish(outcome)
+    }
+
+    /// Алиас `finish_pending_load` для существующих тестов стартовой
+    /// загрузки (ADR-16, §6.12, ТЗ-21, ТЗ-47).
+    pub(crate) fn finish_startup_load(&self) -> bool {
+        self.finish_pending_load()
+    }
+
+    /// Положить байты файла, выбранного командой «Загрузить плейлист»,
+    /// «на диск» по произвольному пути (ТЗ-13 б, ADR-16, §6.12) — такой
+    /// путь лежит вне рабочих файлов сессии (`ConfigPaths`).
+    pub(crate) fn put_command_playlist(&self, path: &Path, bytes: &[u8]) {
+        self.fs.put(path, bytes);
+    }
+
+    /// Внедрить ошибку чтения произвольного пути (ТЗ-13 б, ОВС-6 в) — для
+    /// файлов команды «Загрузить плейлист», лежащих вне `ConfigPaths`.
+    pub(crate) fn fail_read_path(&self, path: &Path, class: ReadErrorClass) {
+        self.fs.fail_read(path, class);
     }
 
     /// Тикает, пока `tick` не вернёт хотя бы одно сообщение (ADR-13,
@@ -2464,5 +2483,243 @@ mod tests {
 
         assert_eq!(io.count_list_themes(), 1);
         assert!(boxed.try_recv().is_some());
+    }
+
+    /// Пути текущего видимого порядка плейлиста (помогает собрать ожидание
+    /// без допущений о внутреннем хранении, см. `sort_key_restored_after_restart`).
+    fn playlist_paths(core: &AppCore) -> Vec<PathBuf> {
+        core.playlist().visible().iter().filter_map(|&id| core.playlist().get(id)).map(|t| t.path.clone()).collect()
+    }
+
+    /// Командная загрузка заменяет плейлист и сразу играет первый трек по
+    /// ключу сортировки, взведённому в `state.toml` (ТЗ-13 б, ADR-16,
+    /// §6.12): пока загрузка не завершилась, прежний плейлист цел.
+    ///
+    /// ОТКЛОНЕНИЕ: Open/стоп движка — у MusicApp через фасад до С5; здесь
+    /// проверяется эффект LoadApplied::PlayNow.
+    #[test]
+    fn load_playlist_plays_first_by_key() {
+        let h = Harness::new();
+        h.put_settings(b"");
+        h.put_state(b"sort.column = \"title\"\nsort.direction = \"asc\"\n");
+        let command_path = PathBuf::from("/import/mix.m3u");
+        h.put_command_playlist(&command_path, b"/music/zebra.flac\n/music/apple.flac\n/music/mango.flac\n");
+        let mut core = h.boot();
+        core.playlist_add(vec![track_path("/music/x.flac")]);
+        assert_eq!(playlist_paths(&core), vec![PathBuf::from("/music/x.flac")]);
+
+        core.start_command_load(command_path.clone());
+        assert!(matches!(core.load_state(), LoadState::Command { .. }));
+        assert_eq!(playlist_paths(&core), vec![PathBuf::from("/music/x.flac")], "плейлист цел до завершения загрузки");
+
+        assert!(h.finish_pending_load());
+        let report = core.poll_load().expect("итог командной загрузки получен");
+        let first = match report.applied {
+            Some(LoadApplied::PlayNow { first }) => first,
+            other => panic!("expected PlayNow, got {other:?}"),
+        };
+        let first_id = first.expect("первый трек выбран");
+        let first_title = core.playlist().get(first_id).expect("трек найден").title.clone();
+        assert_eq!(first_title, "apple", "первый по ключу Title ↑ среди загруженных");
+
+        let paths = playlist_paths(&core);
+        assert_eq!(paths.len(), 3);
+        assert!(!paths.contains(&PathBuf::from("/music/x.flac")), "прежний трек не пережил замену");
+        assert!(core.tracker().playlist_dirty());
+
+        let interval = core.settings().save_interval.duration();
+        h.advance(&mut core, interval);
+        h.settle(&mut core);
+        assert_eq!(h.writes(WorkFile::Playlist), 1);
+        let bytes = h.disk_bytes(WorkFile::Playlist).expect("playlist записан");
+        let text = String::from_utf8_lossy(&bytes);
+        for p in ["/music/zebra.flac", "/music/apple.flac", "/music/mango.flac"] {
+            assert!(text.contains(p), "{text} должен содержать {p}");
+        }
+        assert!(!text.contains("/music/x.flac"));
+    }
+
+    /// Командная загрузка запускает воспроизведение независимо от того,
+    /// что было «до» неё — ядро не хранит паузу/стоп отдельно: при Shuffle
+    /// первый трек прохода берётся из только что загруженного плейлиста
+    /// (ТЗ-13 б, §3.4).
+    ///
+    /// ОТКЛОНЕНИЕ: Open/стоп движка — у MusicApp через фасад до С5; здесь
+    /// проверяется эффект LoadApplied::PlayNow.
+    #[test]
+    fn load_playlist_from_pause_and_stop_starts_playback() {
+        let h = Harness::new();
+        h.put_settings(b"");
+        h.put_state(b"");
+        h.put_playlist(b"/music/x.flac\n");
+        let command_path = PathBuf::from("/import/mix.m3u");
+        h.put_command_playlist(&command_path, b"/music/zebra.flac\n/music/apple.flac\n/music/mango.flac\n");
+        let mut core = h.boot();
+        core.change_state(Origin::Program, StateChange::Shuffle(true));
+
+        core.start_command_load(command_path);
+        assert!(h.finish_pending_load());
+        let report = core.poll_load().expect("итог командной загрузки получен");
+        let first = match report.applied {
+            Some(LoadApplied::PlayNow { first }) => first,
+            other => panic!("expected PlayNow, got {other:?}"),
+        };
+        let first_id = first.expect("первый трек выбран даже без состояния воспроизведения «до»");
+        let first_path = core.playlist().get(first_id).expect("трек найден").path.clone();
+        assert!(playlist_paths(&core).contains(&first_path), "первый трек — член только что загруженного плейлиста");
+    }
+
+    /// Ошибка чтения файла командной загрузки не трогает прежний плейлист
+    /// и не запрещает его запись — в отличие от стартовой загрузки,
+    /// `on_command_outcome` не вызывает `forbid_playlist` (ТЗ-13 б, §6.12).
+    #[test]
+    fn load_playlist_unreadable_keeps_everything() {
+        let h = Harness::new();
+        h.put_settings(b"");
+        h.put_state(b"");
+        let original = b"/music/x.flac\n";
+        h.put_playlist(original);
+        let command_path = PathBuf::from("/import/mix.m3u");
+        h.fail_read_path(&command_path, ReadErrorClass::NoAccess);
+        let mut core = h.boot();
+        core.start_startup_load();
+        assert!(h.finish_startup_load());
+        core.poll_load().expect("итог стартовой загрузки получен");
+
+        core.start_command_load(command_path);
+        assert!(h.finish_pending_load());
+        let report = core.poll_load().expect("итог командной загрузки получен");
+        assert!(report.applied.is_none());
+        let message = report.message.expect("ошибка чтения приходит сразу, в самом отчёте");
+        assert_eq!(message.level, MessageLevel::Error);
+
+        assert_eq!(playlist_paths(&core), vec![PathBuf::from("/music/x.flac")]);
+        assert!(!core.tracker().playlist_dirty());
+        assert!(!core.tracker().playlist_forbidden(), "командная ReadFailed не запрещает запись плейлиста");
+
+        let interval = core.settings().save_interval.duration();
+        h.advance(&mut core, interval);
+        h.settle(&mut core);
+        assert_eq!(h.writes(WorkFile::Playlist), 0);
+        assert_eq!(h.disk_bytes(WorkFile::Playlist).as_deref(), Some(original.as_slice()));
+    }
+
+    /// Пустой файл командной загрузки (нет валидных строк) заменяет
+    /// плейлист пустым и останавливает воспроизведение — `PlayNow { first:
+    /// None }` — и всё равно взводит флаг «грязного» плейлиста (ТЗ-13 б,
+    /// §6.12).
+    ///
+    /// ОТКЛОНЕНИЕ: Open/стоп движка — у MusicApp через фасад до С5; здесь
+    /// проверяется эффект LoadApplied::PlayNow.
+    #[test]
+    fn load_playlist_empty_stops_and_marks_dirty() {
+        let h = Harness::new();
+        h.put_settings(b"");
+        h.put_state(b"");
+        h.put_playlist(b"/music/x.flac\n");
+        let command_path = PathBuf::from("/import/mix.m3u");
+        h.put_command_playlist(&command_path, b"");
+        let mut core = h.boot();
+
+        core.start_command_load(command_path);
+        assert!(h.finish_pending_load());
+        let report = core.poll_load().expect("итог командной загрузки получен");
+        assert_eq!(report.applied, Some(LoadApplied::PlayNow { first: None }));
+        assert!(report.message.is_none());
+        assert!(core.playlist().is_empty());
+        assert!(core.tracker().playlist_dirty());
+
+        let interval = core.settings().save_interval.duration();
+        h.advance(&mut core, interval);
+        h.settle(&mut core);
+        assert_eq!(h.writes(WorkFile::Playlist), 1);
+        assert_eq!(h.disk_bytes(WorkFile::Playlist).as_deref(), Some(b"".as_slice()));
+    }
+
+    /// Выход во время зависшей командной загрузки с «грязным» плейлистом
+    /// (ТЗ-17, ADR-16, §6.12): задание ушло в `ManualLoader`, но `finish` не
+    /// вызывается — выход не ждёт загрузчик и пишет прежний плейлист ровно
+    /// один раз, потому что флаг был взведён до начала загрузки.
+    #[test]
+    fn load_command_exit_writes_old_playlist_if_dirty() {
+        let h = Harness::new();
+        h.put_settings(b"");
+        h.put_state(b"");
+        h.put_playlist(b"/music/x.flac\n");
+        let mut core = h.boot();
+
+        core.playlist_add(vec![track_path("/music/y.flac")]);
+        assert!(core.tracker().playlist_dirty());
+        let expected = playlist_paths(&core);
+
+        core.start_command_load(PathBuf::from("/import/mix.m3u"));
+        assert_eq!(h.loader.jobs().len(), 1, "задание ушло в загрузчик и не разрешено");
+
+        let outcome = core.exit(ExitReason::WindowClose, &mut || true);
+        assert_eq!(outcome, ExitOutcome::Completed);
+
+        assert_eq!(h.writes(WorkFile::Playlist), 1);
+        let bytes = h.disk_bytes(WorkFile::Playlist).expect("playlist записан на выходе");
+        let text = String::from_utf8_lossy(&bytes);
+        for p in &expected {
+            assert!(text.contains(p.to_str().expect("путь")), "{text} должен содержать {p:?}");
+        }
+    }
+
+    /// Выход во время зависшей командной загрузки без «грязного» плейлиста
+    /// (ТЗ-17, ТЗ-48, ADR-16, §6.12): ничего не менялось — выход не пишет
+    /// ни одного файла, независимо от висящего задания загрузки.
+    #[test]
+    fn load_command_exit_clean_writes_nothing() {
+        let h = Harness::new();
+        let settings_bytes =
+            crate::persist::settings_file::serialize_settings(&Settings::default()).expect("serialize settings");
+        let state_bytes = crate::persist::state_file::serialize_state(&SessionState::default()).expect("serialize state");
+        h.put_settings(&settings_bytes);
+        h.put_state(&state_bytes);
+        h.put_playlist(b"/music/x.flac\n");
+        let mut core = h.boot();
+        assert!(!core.tracker().playlist_dirty());
+
+        core.start_command_load(PathBuf::from("/import/mix.m3u"));
+        assert_eq!(h.loader.jobs().len(), 1, "задание ушло в загрузчик и не разрешено");
+
+        let outcome = core.exit(ExitReason::WindowClose, &mut || true);
+        assert_eq!(outcome, ExitOutcome::Completed);
+
+        assert_eq!(h.writes(WorkFile::Playlist), 0);
+        assert_eq!(h.writes(WorkFile::State), 0);
+        assert_eq!(h.disk_bytes(WorkFile::Playlist).as_deref(), Some(b"/music/x.flac\n".as_slice()));
+    }
+
+    /// Дедлайн отложенной записи истекает, пока командная загрузка всё ещё
+    /// висит в `ManualLoader` (ТЗ-17, ADR-16, §6.12): пишется прежний
+    /// плейлист, загружаемый (но не разрешённый) список в файл не попадает.
+    #[test]
+    fn load_command_timer_writes_old_playlist() {
+        let h = Harness::new();
+        h.put_settings(b"");
+        h.put_state(b"");
+        h.put_playlist(b"/music/x.flac\n");
+        let mut core = h.boot();
+
+        core.playlist_add(vec![track_path("/music/y.flac")]);
+        assert!(core.tracker().playlist_dirty());
+        let expected = playlist_paths(&core);
+
+        core.start_command_load(PathBuf::from("/import/mix.m3u"));
+        assert_eq!(h.loader.jobs().len(), 1, "задание ушло в загрузчик и не разрешено");
+
+        let interval = core.settings().save_interval.duration();
+        h.advance(&mut core, interval);
+        h.settle(&mut core);
+
+        assert_eq!(h.writes(WorkFile::Playlist), 1);
+        let bytes = h.disk_bytes(WorkFile::Playlist).expect("playlist записан по таймеру");
+        let text = String::from_utf8_lossy(&bytes);
+        for p in &expected {
+            assert!(text.contains(p.to_str().expect("путь")), "{text} должен содержать {p:?}");
+        }
+        assert!(!text.contains("import"), "загружаемый (но не разрешённый) список не попадает в запись");
     }
 }

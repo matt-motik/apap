@@ -46,7 +46,7 @@ steps:
     done: true
   - id: 8
     description: "Тесты ТЗ-13 б/17/48 (команда) в src/core/testing.rs: load_playlist_plays_first_by_key (эффект PlayNow первого по ключу, флаг, запись через N), load_playlist_from_pause_and_stop_starts_playback, load_playlist_unreadable_keeps_everything, load_playlist_empty_stops_and_marks_dirty, load_command_exit_writes_old_playlist_if_dirty, load_command_exit_clean_writes_nothing, load_command_timer_writes_old_playlist (§7). Проверка: cargo test core::; ЧЕКПОИНТ: cargo test + clippy"
-    done: false
+    done: true
   - id: 9
     description: "src/playlist/mod.rs: serialize_extm3u(tracks в видимом порядке) — #EXTM3U, #EXTINF:<сек|-1>,<«Исполнитель — Название» | одно поле | file_stem>, \\n, без BOM (ADR-17, §6.18, ТЗ-13 а). Тест формата. Проверка: cargo test playlist::"
     done: false
@@ -71,8 +71,8 @@ steps:
   - id: 16
     description: "ЧЕКПОИНТ финальный: cargo test + cargo clippy (0 новых варнингов в файлах вайтлиста); cargo build"
     done: false
-current_step: 8
-next_action: "Шаг 8: тесты команды «Загрузить плейлист» (ТЗ-13 б/17/48) в src/core/testing.rs; ЧЕКПОИНТ"
+current_step: 9
+next_action: "Шаг 9: serialize_extm3u в src/playlist/mod.rs (ADR-17, §6.18, ТЗ-13 а) + тест формата"
 fail_counter: 0
 fail_counter_max: 3
 failed_attempts: []

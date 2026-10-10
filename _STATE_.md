@@ -31,8 +31,8 @@
 - [x] Шаг 5: src/core/load.rs (новый, `mod load` в src/core/mod.rs): LoadState в AppCore; start_startup_load, poll_load → on_load_outcome для Startup: StartupAbsent/StartupCorrupt (journal + WriterCmd::QuarantinePlaylist)/ReadFailed (forbid_playlist + Error)/Loaded (playlist.replace, флаг не взводится); ответы Quarantined → Warning с путём, QuarantineFailed → forbid + Error; устаревшее поколение отбрасывается (ADR-5, ADR-16, §6.12, И-Т9, ТЗ-21, ТЗ-47). Проверка: cargo check
 - [x] Шаг 6: src/core/load.rs: start_command_load(path) и Command-исход: ReadFailed → Error, без изменений; Loaded → Play Now: replace + on_playlist_changed, новый проход Shuffle, эффект LoadApplied::PlayNow { first: Option<TrackId> } (stop + open первого — у MusicApp через фасад до С5; поколение Open = req_gen фасада) (ADR-16, §6.12, ТЗ-13 б, ТЗ-48). Проверка: cargo check
 - [x] Шаг 7: Тесты ТЗ-21/47/17 (стартовая загрузка) в src/core/testing.rs: startup_playlist_missing, startup_playlist_corrupt_quarantined, startup_playlist_quarantine_failed_is_case_3, startup_playlist_unreadable, startup_playlist_nonexistent_paths_not_corrupt, startup_load_shows_full_sorted_list, startup_load_hang_exit_keeps_playlist, unreadable_playlist_never_written (§7). Проверка: cargo test core::
-- [>] **Шаг 8: Тесты ТЗ-13 б/17/48 (команда) в src/core/testing.rs: load_playlist_plays_first_by_key (эффект PlayNow первого по ключу, флаг, запись через N), load_playlist_from_pause_and_stop_starts_playback, load_playlist_unreadable_keeps_everything, load_playlist_empty_stops_and_marks_dirty, load_command_exit_writes_old_playlist_if_dirty, load_command_exit_clean_writes_nothing, load_command_timer_writes_old_playlist (§7). Проверка: cargo test core::; ЧЕКПОИНТ: cargo test + clippy**
-- [ ] Шаг 9: src/playlist/mod.rs: serialize_extm3u(tracks в видимом порядке) — #EXTM3U, #EXTINF:<сек|-1>,<«Исполнитель — Название» | одно поле | file_stem>, \n, без BOM (ADR-17, §6.18, ТЗ-13 а). Тест формата. Проверка: cargo test playlist::
+- [x] Шаг 8: Тесты ТЗ-13 б/17/48 (команда) в src/core/testing.rs: load_playlist_plays_first_by_key (эффект PlayNow первого по ключу, флаг, запись через N), load_playlist_from_pause_and_stop_starts_playback, load_playlist_unreadable_keeps_everything, load_playlist_empty_stops_and_marks_dirty, load_command_exit_writes_old_playlist_if_dirty, load_command_exit_clean_writes_nothing, load_command_timer_writes_old_playlist (§7). Проверка: cargo test core::; ЧЕКПОИНТ: cargo test + clippy
+- [>] **Шаг 9: src/playlist/mod.rs: serialize_extm3u(tracks в видимом порядке) — #EXTM3U, #EXTINF:<сек|-1>,<«Исполнитель — Название» | одно поле | file_stem>, \n, без BOM (ADR-17, §6.18, ТЗ-13 а). Тест формата. Проверка: cargo test playlist::**
 - [ ] Шаг 10: src/core/load.rs: AppCore::export(path) → WriterCmd::Export { attempt } из видимого порядка; ExportFailed → Error на попытку, Exported → ничего; PersistTracker не трогается (ADR-17, §6.18, ТЗ-13 а, ТЗ-20). Проверка: cargo check
 - [ ] Шаг 11: Тесты экспорта: export_writes_visible_order_with_extinf, export_error_window_per_attempt, export_success_no_window в src/core/testing.rs; export_is_atomic в src/persist/writer.rs (ТЗ-13 а, ТЗ-18, ТЗ-20, §7). Проверка: cargo test export
 - [ ] Шаг 12: src/app/mod.rs: стартовая загрузка через core.start_startup_load + опрос на тике (индикатор busy, сообщения через MessageCenter, гейт set_loading по LoadState); удалить startup_tracks_rx и drain_startup_tracks (ADR-16, ADR-23, ТЗ-47, ТЗ-21). Проверка: cargo check
@@ -43,8 +43,8 @@
 
 Легенда: [x] сделано · [>] текущий шаг · [ ] не начато
 
-- **Текущий шаг (current_step):** Шаг 8
-- **Следующий ход:** Шаг 8: тесты команды «Загрузить плейлист» (ТЗ-13 б/17/48) в src/core/testing.rs; ЧЕКПОИНТ
+- **Текущий шаг (current_step):** Шаг 9
+- **Следующий ход:** Шаг 9: serialize_extm3u в src/playlist/mod.rs (ADR-17, §6.18, ТЗ-13 а) + тест формата
 - **Счетчик безуспешных компиляций:** 0/3
 - **Состояние:** in_progress
 
