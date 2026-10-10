@@ -118,11 +118,6 @@ impl MusicApp {
     /// плейлиста `AppCore` (§4.2, ТЗ-12), а не порядок сортировки на экране.
     /// Результат приходит ответом писателя в `tick` и обновляет окно ошибок
     /// записи (ТЗ-20).
-    pub(super) fn save_playlist(&mut self) {
-        let effects = self.core.retry(&[WorkFile::Playlist]);
-        self.apply_reply_effects(effects);
-    }
-
     pub(super) fn remove_track(&mut self, index: usize) {
         if index >= self.track_count() {
             return;

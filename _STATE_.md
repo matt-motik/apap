@@ -37,14 +37,14 @@
 - [x] Шаг 11: Тесты экспорта: export_writes_visible_order_with_extinf, export_error_window_per_attempt, export_success_no_window в src/core/testing.rs; export_is_atomic в src/persist/writer.rs (ТЗ-13 а, ТЗ-18, ТЗ-20, §7). Проверка: cargo test export
 - [x] Шаг 12: src/app/mod.rs: стартовая загрузка через core.start_startup_load + опрос на тике (индикатор busy, сообщения через MessageCenter, гейт set_loading по LoadState); удалить startup_tracks_rx и drain_startup_tracks (ADR-16, ADR-23, ТЗ-47, ТЗ-21). Проверка: cargo check
 - [x] Шаг 13: src/app/mod.rs + src/app/playback_manager.rs: «Загрузить плейлист» → core.start_command_load; LoadApplied::PlayNow → stop прежнего, open первого (autoplay), пустой → стоп; убрать синхронный load_track_list из обработчика меню (ADR-16, ТЗ-13 б, ТЗ-48). Проверка: cargo check
-- [>] **Шаг 14: src/app/playlist_manager.rs + src/app/mod.rs: «Сохранить плейлист» → picker SavePlaylist (.m3u8) → core.export; окно Error по ExportFailed (ADR-17, ADR-10, ТЗ-13 а). Проверка: cargo check**
-- [ ] Шаг 15: src/playlist/mod.rs: удалить load_track_list и тест load_track_list_skips_non_audio_and_comments (заменён тестами шага 1) (§7 «переписать», §8 С8 «удаляется»). Проверка: cargo check
+- [x] Шаг 14: src/app/playlist_manager.rs + src/app/mod.rs: «Сохранить плейлист» → picker SavePlaylist (.m3u8) → core.export; окно Error по ExportFailed (ADR-17, ADR-10, ТЗ-13 а). Проверка: cargo check
+- [>] **Шаг 15: src/playlist/mod.rs: удалить load_track_list и тест load_track_list_skips_non_audio_and_comments (заменён тестами шага 1) (§7 «переписать», §8 С8 «удаляется»). Проверка: cargo check**
 - [ ] Шаг 16: ЧЕКПОИНТ финальный: cargo test + cargo clippy (0 новых варнингов в файлах вайтлиста); cargo build
 
 Легенда: [x] сделано · [>] текущий шаг · [ ] не начато
 
-- **Текущий шаг (current_step):** Шаг 14
-- **Следующий ход:** Шаг 14: «Сохранить плейлист» → пикер SavePlaylist (.m3u8) → core.export (playlist_manager.rs + mod.rs)
+- **Текущий шаг (current_step):** Шаг 15
+- **Следующий ход:** Шаг 15: удалить load_track_list и тест load_track_list_skips_non_audio_and_comments из src/playlist/mod.rs
 - **Счетчик безуспешных компиляций:** 0/3
 - **Состояние:** in_progress
 

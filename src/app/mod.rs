@@ -1390,16 +1390,26 @@ impl MusicApp {
             });
         }
 
-        // 16. save-playlist
+        // 16. save-playlist (ADR-17, ADR-10, §6.18, ТЗ-13 а): диалог
+        // «Сохранить как» с расширением по умолчанию `.m3u8` (ОВ-17);
+        // выбранный путь уходит в `AppCore::export` одной попыткой —
+        // отдельно от рабочего `playlist.m3u` и без влияния на флаг
+        // «изменён». Отмена диалога — без эффекта.
         {
             let app = this.clone();
             ui.on_save_playlist(move || {
                 eprintln!("[gui] save_playlist");
-                let mut a = app.borrow_mut();
-                if !a.gate.allows(MainCmd::SavePlaylist) {
+                if !app.borrow().gate.allows(MainCmd::SavePlaylist) {
                     return;
                 }
-                a.save_playlist();
+                MusicApp::pick_async(
+                    &app,
+                    |start| PickRequest::SavePlaylist { start },
+                    |app, paths| {
+                        let path = paths[0].clone();
+                        app.borrow_mut().core.export(path);
+                    },
+                );
             });
         }
 
