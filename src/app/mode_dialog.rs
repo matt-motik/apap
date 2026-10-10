@@ -14,16 +14,17 @@
 //! `buffers_allowed` с текущим буфером плеера режима, подсказкой «увеличьте
 //! буфер плеера до {N} мс» (ТЗ-94, ТЗ-131).
 //!
-//! Модуль не трогает Slint и не делает I/O — чистая функция модели. Подключение
-//! к диалогу настроек делается в шаге 32 (AM1.0-8.4); до этого модуль не
-//! используется, поэтому `#![allow(dead_code)]`.
-#![allow(dead_code)]
+//! Построенные строки отображаются панелью настроек режима в Slint
+//! (`ui/mode_params.slint`, `ModeParamRow`): `to_param_row` переводит одну
+//! `DialogRow` в одну строку панели, подключение сделано в `mod.rs`
+//! (§6.18, §6.27, ТЗ-41, ТЗ-94, ОВС-14).
 
 use music_player_rs::settings::params::{Availability, ParamDescriptor, ParamId, PARAMS};
 use music_player_rs::settings::playback::{
     buffers_allowed, BufferMs, DeviceBuffer, Dither, DsdAboveDac, DsdFilter, ModeKind, ModeSettings,
     RateFallbackRule, SrcFilter, ValueBlocker,
 };
+use slint::{ModelRc, SharedString};
 
 /// Строка диалога настроек режима: параметр, подпись, тип виджета,
 /// активность и пояснение (§6.27, ТЗ-95).
@@ -60,6 +61,74 @@ pub(super) struct RowOption {
 /// текущим значениям `settings` (§6.27, ТЗ-95).
 pub(super) fn build_rows(mode: ModeKind, settings: &ModeSettings) -> Vec<DialogRow> {
     PARAMS.iter().map(|descriptor| build_row(descriptor, mode, settings)).collect()
+}
+
+/// Индекс параметра в таблице `PARAMS` — единственный источник соответствия
+/// `ParamId` ↔ `param: int` строки `ModeParamRow` в обе стороны (§6.18). `-1`,
+/// если параметр не найден (не должно происходить — `PARAMS` статична).
+pub(super) fn param_index(id: ParamId) -> i32 {
+    PARAMS.iter().position(|d| d.id == id).map_or(-1, |i| i as i32)
+}
+
+/// Обратное соответствие: параметр по его индексу в `PARAMS`, как его прислал
+/// обработчик колбэка панели (`param: int` из Slint, §6.18). `None` — индекс
+/// вне таблицы, колбэк его игнорирует.
+pub(super) fn param_at(index: i32) -> Option<ParamId> {
+    usize::try_from(index).ok().and_then(|i| PARAMS.get(i)).map(|d| d.id)
+}
+
+/// `DialogRow` → строка панели `ModeParamRow` в Slint (§6.18, §6.27, ТЗ-41,
+/// ТЗ-94, ТЗ-95). У недоступного пункта списка (`RowOption::enabled ==
+/// false`) подсказка дописывается в текст подписи — у `ModeParamRow.options`
+/// нет отдельного поля доступности пункта.
+pub(super) fn to_param_row(row: &DialogRow) -> super::ModeParamRow {
+    let mut checked = false;
+    let mut value = 0.0_f32;
+    let mut min = 0.0_f32;
+    let mut max = 0.0_f32;
+    let mut selected = 0_i32;
+    let mut options: Vec<SharedString> = Vec::new();
+    let kind = match &row.kind {
+        RowKind::List { options: opts, selected: sel } => {
+            selected = *sel as i32;
+            options = opts.iter().map(option_label).collect();
+            0
+        }
+        RowKind::Toggle { on } => {
+            checked = *on;
+            1
+        }
+        RowKind::Slider { value: v, min: lo, max: hi } => {
+            value = f32::from(*v);
+            min = f32::from(*lo);
+            max = f32::from(*hi);
+            2
+        }
+        RowKind::Info { .. } => 3,
+    };
+    super::ModeParamRow {
+        param: param_index(row.param),
+        label: SharedString::from(row.label),
+        kind,
+        enabled: row.enabled,
+        note: SharedString::from(row.note.as_str()),
+        options: ModelRc::from(options.as_slice()),
+        selected,
+        checked,
+        value,
+        min,
+        max,
+    }
+}
+
+/// Подпись пункта списка: у отключённого пункта подсказка дописывается в
+/// скобках (ТЗ-94, ТЗ-130, ТЗ-131).
+fn option_label(opt: &RowOption) -> SharedString {
+    if opt.enabled || opt.hint.is_empty() {
+        SharedString::from(opt.label)
+    } else {
+        SharedString::from(format!("{} ({})", opt.label, opt.hint))
+    }
 }
 
 fn build_row(descriptor: &ParamDescriptor, mode: ModeKind, settings: &ModeSettings) -> DialogRow {
@@ -576,6 +645,7 @@ fn label(id: ParamId) -> &'static str {
 #[allow(clippy::unwrap_used, clippy::expect_used)]
 mod tests {
     use super::*;
+    use slint::Model as _;
 
     #[test]
     fn fixed_by_mode_row_is_disabled_with_note() {
@@ -702,5 +772,48 @@ mod tests {
 
         assert_eq!(result, Err(EditRejected::NotEditable));
         assert_eq!(settings, before);
+    }
+
+    /// §6.18: `param_index`/`param_at` — взаимно обратное соответствие по
+    /// позиции в `PARAMS` для любого параметра.
+    #[test]
+    fn param_index_and_param_at_roundtrip() {
+        let index = param_index(ParamId::DeviceBuffer);
+        assert!(index >= 0);
+        assert_eq!(param_at(index), Some(ParamId::DeviceBuffer));
+        assert_eq!(param_at(-1), None);
+    }
+
+    /// §6.27, ТЗ-94, ТЗ-130: отключённый пункт списка несёт подсказку прямо
+    /// в подписи строки панели — у `ModeParamRow.options` нет отдельного
+    /// поля доступности пункта.
+    #[test]
+    fn to_param_row_appends_hint_to_disabled_option_label() {
+        let settings = ModeSettings::default();
+        let rows = build_rows(ModeKind::Compatible, &settings);
+        let row = rows.iter().find(|r| r.param == ParamId::SrcFilter).expect("SrcFilter row must exist");
+        let param_row = to_param_row(row);
+
+        assert_eq!(param_row.kind, 0);
+        let short_latency = param_row
+            .options
+            .iter()
+            .find(|o| o.starts_with("Крутой, короткая задержка"))
+            .expect("short-latency option must exist");
+        assert!(short_latency.contains("пока не реализовано"));
+    }
+
+    /// §6.27: `RowKind::Slider` → `kind == 2` с значением/границами, перенесёнными
+    /// без потери точности (`f32::from(u16)`, без `as`).
+    #[test]
+    fn to_param_row_maps_slider_kind_and_bounds() {
+        let settings = ModeSettings::default();
+        let rows = build_rows(ModeKind::Compatible, &settings);
+        let row = rows.iter().find(|r| r.param == ParamId::Buffer).expect("Buffer row must exist");
+        let param_row = to_param_row(row);
+
+        assert_eq!(param_row.kind, 2);
+        assert_eq!(param_row.min, 100.0);
+        assert_eq!(param_row.max, 10_000.0);
     }
 }

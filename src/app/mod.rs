@@ -108,11 +108,14 @@ impl Default for UiState {
 
 /// Черновик диалога настроек (§8.1 С3, И-Т7): настройки и правимые в
 /// диалоге поля состояния (тип визуализации, ширины колонок §2.5). Применяется
-/// целиком по «Сохранить», отбрасывается по «Отмена».
+/// целиком по «Сохранить», отбрасывается по «Отмена». `mode_edit` — какой из
+/// трёх режимов сейчас показан в панели настроек режима (§6.18, §6.27,
+/// ТЗ-41, ОВС-14); независим от активного режима воспроизведения.
 struct DialogDraft {
     settings: PersistSettings,
     viz_mode: VisualizationMode,
     column_widths: BTreeMap<ColumnId, WidthPct>,
+    mode_edit: ModeKind,
 }
 
 /// Метаданные темы, показываемые в диалоге настроек (T1.0 §8.2):
@@ -1084,7 +1087,50 @@ impl MusicApp {
             settings: self.core.settings().clone(),
             viz_mode: self.core.state().viz_mode(),
             column_widths: self.core.state().column_widths().clone(),
+            mode_edit: self.core.state().active_mode(),
         });
+    }
+
+    /// Построить строки панели настроек режима из черновика диалога и
+    /// отправить их в UI вместе с выбранным режимом (§6.18, §6.27, ТЗ-41,
+    /// ТЗ-94, ОВС-14); очищает сообщение валидации. Нет открытого диалога —
+    /// ничего не делает.
+    fn sync_mode_dialog_to_ui(&mut self) {
+        let Some(draft) = self.dialog.as_ref() else { return };
+        let edit_mode = draft.mode_edit;
+        let rows: Vec<ModeParamRow> = mode_dialog::build_rows(edit_mode, &draft.settings.modes)
+            .iter()
+            .map(mode_dialog::to_param_row)
+            .collect();
+        let Some(ui) = self.try_ui() else { return };
+        ui.set_settings_mode_edit_mode(match edit_mode {
+            ModeKind::Compatible => 0,
+            ModeKind::Optimal => 1,
+            ModeKind::Strict => 2,
+        });
+        ui.set_settings_mode_rows(ModelRc::from(rows.as_slice()));
+        ui.set_settings_mode_validation(SharedString::new());
+    }
+
+    /// Применить правку одной строки панели настроек режима к черновику
+    /// (§6.18, §6.27, ТЗ-41, ТЗ-94). `param` — индекс `ParamId` по таблице
+    /// `PARAMS` (см. `mode_dialog::param_at`); неизвестный индекс — игнор.
+    fn apply_mode_dialog_edit(&mut self, param: i32, value: mode_dialog::EditValue) {
+        let Some(id) = mode_dialog::param_at(param) else { return };
+        let Some(draft) = self.dialog.as_mut() else { return };
+        let edit_mode = draft.mode_edit;
+        match mode_dialog::apply_edit(&mut draft.settings.modes, edit_mode, id, value) {
+            Ok(()) => self.sync_mode_dialog_to_ui(),
+            Err(mode_dialog::EditRejected::BuffersNotAllowed) => {
+                self.sync_mode_dialog_to_ui();
+                if let Some(ui) = self.try_ui() {
+                    ui.set_settings_mode_validation(SharedString::from(
+                        "Недопустимая пара буферов: уменьшите буфер устройства или увеличьте буфер плеера (ТЗ-94).",
+                    ));
+                }
+            }
+            Err(_) => {}
+        }
     }
 
     fn push_bp_report_to_ui(&self, report: bp_report::BpReport) {
@@ -1489,6 +1535,7 @@ impl MusicApp {
                 a.sync_audio_advanced();
                 a.sync_dsd_chain_desc();
                 a.sync_cover_settings_to_ui();
+                a.sync_mode_dialog_to_ui();
                 // Размеры дисковых кэшей считаются один раз при открытии
                 // диалога потоком `apap-io` (ТЗ-22, ADR-20); до ответа
                 // показываем последние известные значения.
@@ -2005,7 +2052,7 @@ impl MusicApp {
                 let mut a = app.borrow_mut();
                 let Some(draft) = a.dialog.take() else { return };
                 let old = a.core.settings().clone();
-                let DialogDraft { settings: mut new, viz_mode, column_widths } = draft;
+                let DialogDraft { settings: mut new, viz_mode, column_widths, mode_edit: _ } = draft;
                 // T1.0 §6.4 (ТЗ-22, ТЗ-29, ADR-20): коммит выбранной в диалоге
                 // темы из транзитного поля (кнопка Save активна только для
                 // валидной темы, §5.3) — данные уже прочитаны потоком
@@ -2107,6 +2154,14 @@ impl MusicApp {
                         a.play_track(idx);
                     }
                 }
+                // §6.18, §6.27, ТЗ-41: настройки режимов менялись в диалоге →
+                // применить к плееру (внутри `set_mode_settings` — сравнение и
+                // расчёт diff, И-Т7) и пересчитать зависимые от режима поля UI
+                // (например, блокировку громкости `Optimal.volume_lock`).
+                if cur.modes != old.modes {
+                    a.player.set_mode_settings(cur.modes.clone());
+                    a.sync_mode_to_ui();
+                }
                 // ТЗ-22, ТЗ-29, ADR-20: без выбора темы в этой сессии диалога
                 // тема не меняется и не перечитывается — применяются только
                 // уже прочитанные `apap-io` данные выбранной темы.
@@ -2127,6 +2182,55 @@ impl MusicApp {
                 a.gate.unblock(BlockReason::Dialog);
                 a.sync_gate_ui();
                 eprintln!("[gui] settings_save: applied and closed");
+            });
+        }
+
+        // 29c. settings-mode-edit-mode-selected: смена просматриваемого
+        // режима в панели настроек режима (§6.18, §6.27, ТЗ-41).
+        {
+            let app = this.clone();
+            ui.on_settings_mode_edit_mode_selected(move |idx| {
+                let mut a = app.borrow_mut();
+                let mode = match idx {
+                    0 => ModeKind::Compatible,
+                    1 => ModeKind::Optimal,
+                    2 => ModeKind::Strict,
+                    _ => return,
+                };
+                let Some(draft) = a.dialog.as_mut() else { return };
+                draft.mode_edit = mode;
+                a.sync_mode_dialog_to_ui();
+            });
+        }
+
+        // 29d. settings-mode-row-index-changed: выбор пункта списка строки
+        // панели настроек режима (§6.18, §6.27, ТЗ-41, ТЗ-94).
+        {
+            let app = this.clone();
+            ui.on_settings_mode_row_index_changed(move |param, idx| {
+                let mut a = app.borrow_mut();
+                let Ok(index) = usize::try_from(idx) else { return };
+                a.apply_mode_dialog_edit(param, mode_dialog::EditValue::Index(index));
+            });
+        }
+
+        // 29e. settings-mode-row-toggled: переключатель строки панели
+        // настроек режима (§6.18, §6.27, ТЗ-41, ТЗ-94).
+        {
+            let app = this.clone();
+            ui.on_settings_mode_row_toggled(move |param, on| {
+                let mut a = app.borrow_mut();
+                a.apply_mode_dialog_edit(param, mode_dialog::EditValue::Toggle(on));
+            });
+        }
+
+        // 29f. settings-mode-row-slider-changed: ползунок строки панели
+        // настроек режима (§6.18, §6.27, ТЗ-41, ТЗ-94).
+        {
+            let app = this.clone();
+            ui.on_settings_mode_row_slider_changed(move |param, value| {
+                let mut a = app.borrow_mut();
+                a.apply_mode_dialog_edit(param, mode_dialog::EditValue::Slider(value.round() as u16));
             });
         }
 

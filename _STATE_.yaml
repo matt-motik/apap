@@ -137,7 +137,7 @@ steps:
     done: true
   - id: 32
     description: "Rust: связать панель режимов — черновик Settings.modes через apply_edit, синхронизация строк; «Сохранить» → ModeSettings::diff → SetModeSettings(Some(diff)) только при непустом diff, запись в настройки, затем sync_mode_to_ui (volume_lock → volume-enabled) (ОВС-14, §6.18, ТЗ-41). Маппинг DialogRow → ModeParamRow (ui/mode_params.slint): kind 0=List/1=Toggle/2=Slider/3=Info; options — [string], недоступные варианты RowOption помечать в тексте (hint); для Info в note — полный текст. Колбэки AppWindow: on_settings_mode_edit_mode_selected/row_index_changed/row_toggled/row_slider_changed; свойства set_settings_mode_edit_mode/rows/validation. Файлы: src/app/mode_dialog.rs, src/app/mod.rs. Проверка: cargo check; ЧЕКПОИНТ: cargo test + clippy"
-    done: false
+    done: true
   - id: 33
     description: "Удалить старые Rust-обработчики аудио-диалога: on_settings_set_audio_*/set_dsd_mode/set_bit_perfect и resampler_fixed_fallback_guard с тестом (src/app/mod.rs), sync_capabilities_and_validation/sync_dsd_chain_desc/sync_audio_advanced (src/app/ui_manager.rs) (§8 С4 «удаляется»). Проверка: cargo check"
     done: false
@@ -159,8 +159,8 @@ steps:
   - id: 39
     description: "Финал: cargo build/test/clippy зелёные; ROADMAP ✅; заметка плана; напомнить пользователю удалить settings.toml (ТЗ-97) и показать расхождение с 02 spec стр. 3342 (решение — за пользователем); ручные проверки (переключатель режимов, Совместимый играет, Оптимальный/Строгий через hw: на Linux). Проверка: cargo test + clippy"
     done: false
-current_step: 32
-next_action: "Шаг 32: Rust — связать панель режимов (черновик, apply_edit, Сохранить → diff → SetModeSettings), ЧЕКПОИНТ"
+current_step: 33
+next_action: "Шаг 33: удалить старые Rust-обработчики аудио-диалога (mod.rs, ui_manager.rs)"
 fail_counter: 0
 fail_counter_max: 3
 failed_attempts: []
