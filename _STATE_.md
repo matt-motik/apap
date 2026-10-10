@@ -35,6 +35,7 @@
   - ui/app.slint
   - ui/settings.slint
   - ui/mode_params.slint
+  - AGENTS.md
   - ROADMAP.md
   - _STATE_.yaml
   - _STATE_.md
