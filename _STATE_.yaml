@@ -56,7 +56,7 @@ steps:
     done: true
   - id: 6
     description: "src/settings/params.rs: ModeSettingsDiff, ModeSettingsUpdate (§2.2, ОВС-14); ModeSettings::diff(&self, new) -> ModeSettingsDiff (пары (режим, ParamId) изменённых полей); ModeSettingsDiff::strongest(active) -> ApplyKind — только параметры активного режима, SwitchDevice > ReopenAtPosition > Memory (И-Р26, §6.18). Тесты ≤4, включая every_audio_setting_changes_observable в части модели (§7.2 стр. 2896: каждое поле → свой ParamId). Проверка: cargo test settings::params; ЧЕКПОИНТ: cargo test + clippy"
-    done: false
+    done: true
   - id: 7
     description: "src/settings/playback_dto.rs (новый, `pub mod playback_dto`): PlaybackDto {schema, compatible, optimal, strict, #[serde(flatten)] unknown}, CompatibleDto/OptimalDto/StrictDto с полями Option<toml::Value> + flatten unknown (ошибка значения — заметка по ключу, 02 spec §2.3 вариант В); ключи и строковые формы: §6.27 (src_filter \"steep\"/\"slow\"/\"very_slow\", dsd_filter 24/30/50, dsd_gain_comp, device_buffer_ms 20…400) и 02 spec §2.4; playback_dto(&ModeSettings) -> PlaybackDto со schema = Some(2) (02 spec §2.6 стр. 1274). Проверка: cargo check"
     done: false
@@ -141,8 +141,8 @@ steps:
   - id: 34
     description: "Финал: cargo build/test/clippy зелёные; ROADMAP ✅; заметка плана; напомнить пользователю удалить settings.toml (ТЗ-97) и показать расхождение с 02 spec стр. 3342 (решение — за пользователем); ручные проверки (переключатель режимов, Совместимый играет, Оптимальный/Строгий через hw: на Linux). Проверка: cargo test + clippy"
     done: false
-current_step: 6
-next_action: "Шаг 6: новый субагент (sonnet, code-writer) — src/settings/params.rs: ModeSettingsDiff/Update, ModeSettings::diff, strongest; ЧЕКПОИНТ"
+current_step: 7
+next_action: "Шаг 7: новый субагент (sonnet, code-writer) — src/settings/playback_dto.rs: PlaybackDto и *Dto с Option<toml::Value> + flatten unknown, playback_dto(&ModeSettings)"
 fail_counter: 0
 fail_counter_max: 3
 failed_attempts: []

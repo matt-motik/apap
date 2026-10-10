@@ -2,7 +2,9 @@
 //! `availability` (ТЗ-95, ОВ-28, ОВС-17, §2.2).
 #![deny(clippy::unwrap_used, clippy::expect_used, clippy::unreachable)]
 
+use super::playback::{CompatibleOpts, ModeSettings, OptimalOpts, StrictOpts};
 use super::ModeKind;
+use smallvec::SmallVec;
 
 /// Идентификатор параметра тракта — строка матрицы §5 (§2.2).
 #[derive(Clone, Copy, PartialEq, Eq, Hash, Debug)]
@@ -70,8 +72,9 @@ pub enum Availability {
 }
 
 /// Способ применения изменения параметра активного режима (ОВС-17, §6.18).
-/// Изменение параметра неактивного режима — всегда только память.
-#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+/// Изменение параметра неактивного режима — всегда только память. Порядок
+/// вариантов — порядок силы эффекта (И-Р26): `Ord` даёт наибольший через `max`.
+#[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Debug)]
 pub enum ApplyKind {
     /// Параметр не влияет на открытый поток (например, «Тест», MD5, реакции).
     Memory,
@@ -401,6 +404,161 @@ pub fn availability(id: ParamId, mode: ModeKind) -> Availability {
     Availability::Unavailable { why: "param_missing" }
 }
 
+/// Способ применения параметра: поиск в `PARAMS` (ОВС-14, ОВС-17, §6.18,
+/// ADR-22). Движок выбирает действие по этой функции и по тому, активен ли
+/// режим изменённого параметра.
+pub fn apply_kind(id: ParamId) -> ApplyKind {
+    for descriptor in PARAMS {
+        if descriptor.id == id {
+            return descriptor.apply;
+        }
+    }
+    ApplyKind::Memory
+}
+
+/// Изменённые параметры одного «Сохранить» диалога (ОВС-14, §2.2). Пустое
+/// множество не отправляется.
+#[derive(Clone, PartialEq, Debug)]
+pub struct ModeSettingsDiff {
+    pub changed: SmallVec<[(ModeKind, ParamId); 8]>,
+}
+
+/// Команда применения опций режимов: новые значения и что изменилось
+/// (ОВС-14, §2.2).
+#[derive(Clone, PartialEq, Debug)]
+pub struct ModeSettingsUpdate {
+    pub settings: ModeSettings,
+    /// `None` — начальная загрузка при старте: применить всё без переоткрытия
+    /// (потока ещё нет).
+    pub diff: Option<ModeSettingsDiff>,
+}
+
+/// Поля `CompatibleOpts` → `ParamId`, без `..` — новое поле без строки здесь
+/// не компилируется (§2.2).
+fn diff_compatible(a: &CompatibleOpts, b: &CompatibleOpts, out: &mut SmallVec<[(ModeKind, ParamId); 8]>) {
+    let CompatibleOpts { device: a_device, fixed_rate: a_fixed_rate, src_filter: a_src_filter, dither: a_dither, dsd_filter: a_dsd_filter, dsd_gain_comp: a_dsd_gain_comp, buffer: a_buffer } = a;
+    let CompatibleOpts { device: b_device, fixed_rate: b_fixed_rate, src_filter: b_src_filter, dither: b_dither, dsd_filter: b_dsd_filter, dsd_gain_comp: b_dsd_gain_comp, buffer: b_buffer } = b;
+    if a_device != b_device {
+        out.push((ModeKind::Compatible, ParamId::Device));
+    }
+    if a_fixed_rate != b_fixed_rate {
+        out.push((ModeKind::Compatible, ParamId::FixedRate));
+    }
+    if a_src_filter != b_src_filter {
+        out.push((ModeKind::Compatible, ParamId::SrcFilter));
+    }
+    if a_dither != b_dither {
+        out.push((ModeKind::Compatible, ParamId::DitherKind));
+    }
+    if a_dsd_filter != b_dsd_filter {
+        out.push((ModeKind::Compatible, ParamId::DsdFilter));
+    }
+    if a_dsd_gain_comp != b_dsd_gain_comp {
+        out.push((ModeKind::Compatible, ParamId::DsdGainComp));
+    }
+    if a_buffer != b_buffer {
+        out.push((ModeKind::Compatible, ParamId::Buffer));
+    }
+}
+
+/// Поля `OptimalOpts` → `ParamId`, без `..` (§2.2).
+fn diff_optimal(a: &OptimalOpts, b: &OptimalOpts, out: &mut SmallVec<[(ModeKind, ParamId); 8]>) {
+    let OptimalOpts {
+        device: a_device,
+        rate_fallback: a_rate_fallback,
+        src_filter: a_src_filter,
+        dither: a_dither,
+        volume_lock: a_volume_lock,
+        dsd_above_dac: a_dsd_above_dac,
+        dsd_filter: a_dsd_filter,
+        dsd_gain_comp: a_dsd_gain_comp,
+        buffer: a_buffer,
+        device_buffer: a_device_buffer,
+    } = a;
+    let OptimalOpts {
+        device: b_device,
+        rate_fallback: b_rate_fallback,
+        src_filter: b_src_filter,
+        dither: b_dither,
+        volume_lock: b_volume_lock,
+        dsd_above_dac: b_dsd_above_dac,
+        dsd_filter: b_dsd_filter,
+        dsd_gain_comp: b_dsd_gain_comp,
+        buffer: b_buffer,
+        device_buffer: b_device_buffer,
+    } = b;
+    if a_device != b_device {
+        out.push((ModeKind::Optimal, ParamId::Device));
+    }
+    if a_rate_fallback != b_rate_fallback {
+        out.push((ModeKind::Optimal, ParamId::RateFallback));
+    }
+    if a_src_filter != b_src_filter {
+        out.push((ModeKind::Optimal, ParamId::SrcFilter));
+    }
+    if a_dither != b_dither {
+        out.push((ModeKind::Optimal, ParamId::DitherKind));
+    }
+    if a_volume_lock != b_volume_lock {
+        out.push((ModeKind::Optimal, ParamId::VolumeLock));
+    }
+    if a_dsd_above_dac != b_dsd_above_dac {
+        out.push((ModeKind::Optimal, ParamId::DsdAboveDac));
+    }
+    if a_dsd_filter != b_dsd_filter {
+        out.push((ModeKind::Optimal, ParamId::DsdFilter));
+    }
+    if a_dsd_gain_comp != b_dsd_gain_comp {
+        out.push((ModeKind::Optimal, ParamId::DsdGainComp));
+    }
+    if a_buffer != b_buffer {
+        out.push((ModeKind::Optimal, ParamId::Buffer));
+    }
+    if a_device_buffer != b_device_buffer {
+        out.push((ModeKind::Optimal, ParamId::DeviceBuffer));
+    }
+}
+
+/// Поля `StrictOpts` → `ParamId`, без `..` (§2.2).
+fn diff_strict(a: &StrictOpts, b: &StrictOpts, out: &mut SmallVec<[(ModeKind, ParamId); 8]>) {
+    let StrictOpts { device: a_device, buffer: a_buffer, device_buffer: a_device_buffer } = a;
+    let StrictOpts { device: b_device, buffer: b_buffer, device_buffer: b_device_buffer } = b;
+    if a_device != b_device {
+        out.push((ModeKind::Strict, ParamId::Device));
+    }
+    if a_buffer != b_buffer {
+        out.push((ModeKind::Strict, ParamId::Buffer));
+    }
+    if a_device_buffer != b_device_buffer {
+        out.push((ModeKind::Strict, ParamId::DeviceBuffer));
+    }
+}
+
+impl ModeSettings {
+    /// Разница опций трёх режимов — вход `SetModeSettings(ModeSettingsUpdate)`
+    /// по «Сохранить» диалога настроек (ОВС-14, §2.2).
+    pub fn diff(&self, new: &ModeSettings) -> ModeSettingsDiff {
+        let mut changed = SmallVec::new();
+        diff_compatible(&self.compatible, &new.compatible, &mut changed);
+        diff_optimal(&self.optimal, &new.optimal, &mut changed);
+        diff_strict(&self.strict, &new.strict, &mut changed);
+        ModeSettingsDiff { changed }
+    }
+}
+
+impl ModeSettingsDiff {
+    /// Способ применения с наибольшим эффектом среди изменений активного
+    /// режима; изменения неактивных режимов не считаются (И-Р26, §6.18):
+    /// `SwitchDevice` > `ReopenAtPosition` > `Memory`.
+    pub fn strongest(&self, active: ModeKind) -> Option<ApplyKind> {
+        self.changed
+            .iter()
+            .filter(|(mode, _)| *mode == active)
+            .map(|(_, id)| apply_kind(*id))
+            .max()
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -500,5 +658,130 @@ mod tests {
             assert_eq!(actual_optimal, *exp_optimal, "{id:?}: Оптимальный режим");
             assert_eq!(actual_strict, *exp_strict, "{id:?}: Строгий режим");
         }
+    }
+
+    /// §7.2 `every_audio_setting_changes_observable` (ТЗ-96): модельная часть —
+    /// изменение одного поля опций режима даёт в `ModeSettings::diff` ровно
+    /// один `ParamId` того же режима. `optimal.dsd_above_dac` не входит: тип
+    /// `DsdAboveDac` сейчас имеет единственный вариант (решение 6, §2.2), второе
+    /// значение для сравнения не существует.
+    #[test]
+    fn every_audio_setting_changes_observable() {
+        use crate::audio::backend::SharedDeviceId;
+        use crate::audio::format::SampleRate;
+        use crate::settings::playback::{
+            BufferMs, DeviceBuffer, Dither, DsdFilter, RateFallbackRule, SharedDeviceChoice, SrcFilter,
+        };
+
+        let base = ModeSettings::default();
+        let Some(rate) = SampleRate::new(48_000) else {
+            panic!("48000 Гц — допустимая частота");
+        };
+        let Some(buffer) = BufferMs::new(2_000) else {
+            panic!("2000 мс — допустимый буфер плеера");
+        };
+
+        let mut compatible_device = base.clone();
+        compatible_device.compatible.device = SharedDeviceChoice::Named(SharedDeviceId::new("dac"));
+        let mut compatible_fixed_rate = base.clone();
+        compatible_fixed_rate.compatible.fixed_rate = Some(rate);
+        let mut compatible_src_filter = base.clone();
+        compatible_src_filter.compatible.src_filter = SrcFilter::Slow;
+        let mut compatible_dither = base.clone();
+        compatible_dither.compatible.dither = Dither::Off;
+        let mut compatible_dsd_filter = base.clone();
+        compatible_dsd_filter.compatible.dsd_filter = DsdFilter::K50;
+        let mut compatible_dsd_gain_comp = base.clone();
+        compatible_dsd_gain_comp.compatible.dsd_gain_comp = false;
+        let mut compatible_buffer = base.clone();
+        compatible_buffer.compatible.buffer = buffer;
+
+        let mut optimal_device = base.clone();
+        optimal_device.optimal.device = Some("dac".to_string());
+        let mut optimal_rate_fallback = base.clone();
+        optimal_rate_fallback.optimal.rate_fallback = RateFallbackRule::Nearest;
+        let mut optimal_src_filter = base.clone();
+        optimal_src_filter.optimal.src_filter = SrcFilter::VerySlow;
+        let mut optimal_dither = base.clone();
+        optimal_dither.optimal.dither = Dither::Off;
+        let mut optimal_volume_lock = base.clone();
+        optimal_volume_lock.optimal.volume_lock = true;
+        let mut optimal_dsd_filter = base.clone();
+        optimal_dsd_filter.optimal.dsd_filter = DsdFilter::K24;
+        let mut optimal_dsd_gain_comp = base.clone();
+        optimal_dsd_gain_comp.optimal.dsd_gain_comp = false;
+        let mut optimal_buffer = base.clone();
+        optimal_buffer.optimal.buffer = buffer;
+        let mut optimal_device_buffer = base.clone();
+        optimal_device_buffer.optimal.device_buffer = DeviceBuffer::Ms200;
+
+        let mut strict_device = base.clone();
+        strict_device.strict.device = Some("dac".to_string());
+        let mut strict_buffer = base.clone();
+        strict_buffer.strict.buffer = buffer;
+        let mut strict_device_buffer = base.clone();
+        strict_device_buffer.strict.device_buffer = DeviceBuffer::Ms400;
+
+        let cases = [
+            (&compatible_device, ModeKind::Compatible, ParamId::Device),
+            (&compatible_fixed_rate, ModeKind::Compatible, ParamId::FixedRate),
+            (&compatible_src_filter, ModeKind::Compatible, ParamId::SrcFilter),
+            (&compatible_dither, ModeKind::Compatible, ParamId::DitherKind),
+            (&compatible_dsd_filter, ModeKind::Compatible, ParamId::DsdFilter),
+            (&compatible_dsd_gain_comp, ModeKind::Compatible, ParamId::DsdGainComp),
+            (&compatible_buffer, ModeKind::Compatible, ParamId::Buffer),
+            (&optimal_device, ModeKind::Optimal, ParamId::Device),
+            (&optimal_rate_fallback, ModeKind::Optimal, ParamId::RateFallback),
+            (&optimal_src_filter, ModeKind::Optimal, ParamId::SrcFilter),
+            (&optimal_dither, ModeKind::Optimal, ParamId::DitherKind),
+            (&optimal_volume_lock, ModeKind::Optimal, ParamId::VolumeLock),
+            (&optimal_dsd_filter, ModeKind::Optimal, ParamId::DsdFilter),
+            (&optimal_dsd_gain_comp, ModeKind::Optimal, ParamId::DsdGainComp),
+            (&optimal_buffer, ModeKind::Optimal, ParamId::Buffer),
+            (&optimal_device_buffer, ModeKind::Optimal, ParamId::DeviceBuffer),
+            (&strict_device, ModeKind::Strict, ParamId::Device),
+            (&strict_buffer, ModeKind::Strict, ParamId::Buffer),
+            (&strict_device_buffer, ModeKind::Strict, ParamId::DeviceBuffer),
+        ];
+
+        for (changed, mode, id) in cases {
+            let diff = base.diff(changed);
+            assert_eq!(diff.changed.len(), 1, "{mode:?}/{id:?}: ожидался ровно один изменённый параметр");
+            assert_eq!(diff.changed[0], (mode, id), "{mode:?}/{id:?}: неверный ParamId в diff");
+        }
+    }
+
+    /// И-Р26, §6.18: среди изменений активного режима выбирается действие с
+    /// наибольшим эффектом — `SwitchDevice` важнее `ReopenAtPosition` и `Memory`.
+    #[test]
+    fn strongest_picks_switch_device_over_others() {
+        let diff = ModeSettingsDiff {
+            changed: SmallVec::from_slice(&[
+                (ModeKind::Optimal, ParamId::SrcFilter),
+                (ModeKind::Optimal, ParamId::Device),
+                (ModeKind::Optimal, ParamId::DsdGainComp),
+            ]),
+        };
+        assert_eq!(diff.strongest(ModeKind::Optimal), Some(ApplyKind::SwitchDevice));
+    }
+
+    /// Параметр без влияния на поток (`ApplyKind::Memory`) один в наборе —
+    /// результат `Memory` (§6.18).
+    #[test]
+    fn strongest_memory_only_change() {
+        let diff = ModeSettingsDiff {
+            changed: SmallVec::from_slice(&[(ModeKind::Strict, ParamId::Access)]),
+        };
+        assert_eq!(diff.strongest(ModeKind::Strict), Some(ApplyKind::Memory));
+    }
+
+    /// И-Р26: изменения параметра неактивного режима не считаются — `None`,
+    /// переоткрытия нет.
+    #[test]
+    fn strongest_ignores_inactive_mode() {
+        let diff = ModeSettingsDiff {
+            changed: SmallVec::from_slice(&[(ModeKind::Compatible, ParamId::Device)]),
+        };
+        assert_eq!(diff.strongest(ModeKind::Optimal), None);
     }
 }
