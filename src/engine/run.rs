@@ -51,6 +51,24 @@ pub(crate) fn mode_apply_action(diff: Option<&ModeSettingsDiff>, active: ModeKin
     }
 }
 
+/// Действующая громкость по правилу источников громкости (§6.18, ОВС-18…
+/// ОВС-20, ADR-23, ТЗ-41, ТЗ-140), без доступа к `Player` — тестируется без
+/// реального аудио-устройства (ТЗ-114). Mute гасит сигнал в любом режиме
+/// (ОВС-18). Иначе в Строгом режиме и в Оптимальном с «Фиксировать громкость
+/// на 100 %» (`volume_lock`) ступени громкости нет — эффективная громкость
+/// `1.0` независимо от запрошенной (ADR-23, ТЗ-41, ТЗ-140); в Совместимом и
+/// в Оптимальном без фиксации громкость — запрошенное значение.
+pub(crate) fn effective_gain(settings: &ModeSettings, active: ModeKind, volume_gain: f32, muted: bool) -> f32 {
+    if muted {
+        return 0.0;
+    }
+    match active {
+        ModeKind::Strict => 1.0,
+        ModeKind::Optimal if settings.optimal.volume_lock => 1.0,
+        _ => volume_gain,
+    }
+}
+
 /// Цикл обработки команд (мост С3): владеет `Player` целиком, пока
 /// `SignalPath`/`BadgeState`/`DeviceCatalog.hw` не появились (С4…С6).
 struct Engine {
@@ -93,12 +111,21 @@ struct Engine {
     mode_settings: ModeSettings,
     /// Активный режим (ADR-04, §2.2); меняется только `SetActiveMode`.
     active_mode: ModeKind,
+    /// Последняя запрошенная через `SetVolume` громкость (§6.18, ОВС-20):
+    /// хранится независимо от того, применилась ли она к `Player` —
+    /// restore при снятии фиксации/смене режима в `apply_gain`.
+    last_volume: f32,
+    /// Последнее запрошенное через `SetMuted` состояние mute (ОВС-18):
+    /// mute гасит сигнал во всех режимах, `player.set_muted` вызывается
+    /// напрямую, вне правила `effective_gain`.
+    last_muted: bool,
 }
 
 impl Engine {
     fn new(deps: EngineDeps) -> Engine {
         let mut player = Player::new();
         player.set_spawner(Arc::clone(&deps.spawner));
+        let player_volume = player.volume();
         Engine {
             player,
             deps,
@@ -112,6 +139,8 @@ impl Engine {
             session_failed: false,
             mode_settings: ModeSettings::default(),
             active_mode: ModeKind::default(),
+            last_volume: player_volume,
+            last_muted: false,
         }
     }
 
@@ -231,9 +260,13 @@ impl Engine {
                 self.player.seek(secs);
             }
             EngineCmd::SetVolume(v) => {
-                self.player.set_volume(v);
+                self.last_volume = v;
+                self.apply_gain();
             }
             EngineCmd::SetMuted(m) => {
+                // Mute гасит сигнал во всех режимах (ОВС-18) напрямую через
+                // `Player`, минуя `effective_gain`/`apply_gain`.
+                self.last_muted = m;
                 self.player.set_muted(m);
             }
             EngineCmd::SetDevice { id } => {
@@ -288,6 +321,10 @@ impl Engine {
             }
             EngineCmd::SetModeSettings(update) => {
                 self.mode_settings = update.settings;
+                // Снятие/включение `volume_lock` активного режима меняет
+                // эффективную громкость без отдельного `SetVolume` (§6.18,
+                // ОВС-19).
+                self.apply_gain();
                 let strongest = update.diff.as_ref().and_then(|d| d.strongest(self.active_mode));
                 match mode_apply_action(update.diff.as_ref(), self.active_mode, self.stopped) {
                     // `Store`, вызванный остановленным транспортом при
@@ -313,6 +350,7 @@ impl Engine {
                 if mode != self.active_mode {
                     self.active_mode = mode;
                     self.store_active_mode();
+                    self.apply_gain();
                 }
             }
             EngineCmd::Shutdown => {
@@ -321,6 +359,17 @@ impl Engine {
             }
         }
         false
+    }
+
+    /// Пересчитывает и применяет громкость к `Player` по
+    /// `effective_gain(mode_settings, active_mode, last_volume, last_muted)`
+    /// (§6.18, ОВС-18…ОВС-20, ADR-23): вызывается при `SetVolume`, смене
+    /// активного режима и `SetModeSettings`, чтобы снятие фиксации громкости
+    /// или выход из Строгого режима восстанавливал сохранённое значение
+    /// `last_volume` без отдельного `SetVolume` от UI.
+    fn apply_gain(&mut self) {
+        let gain = effective_gain(&self.mode_settings, self.active_mode, self.last_volume, self.last_muted);
+        self.player.set_volume(gain);
     }
 
     /// Применяет `self.mode_settings`/`self.active_mode` к старому пути для

@@ -20,7 +20,7 @@ use crate::audio::error::EngineFault;
 use crate::audio::format::{ChannelLayout, Codec, Container, SampleRate, SourceFormat, SourceKind};
 use crate::engine::deps::EngineDeps;
 use crate::engine::messages::{EngineCmd, EngineEvent, LegacyAudio};
-use crate::engine::run::{mode_apply_action, EngineHandle, ModeApplyAction};
+use crate::engine::run::{effective_gain, mode_apply_action, EngineHandle, ModeApplyAction};
 use crate::engine::sink::{EventSink, VecSink};
 use crate::engine::source::{FakeSource, SourceOpener};
 use crate::engine::spawner::{FailingSpawner, StdSpawner, ThreadSpawner};
@@ -391,4 +391,49 @@ fn mode_apply_action_store_when_stopped_despite_reopen_class() {
     let diff = base.diff(&changed);
 
     assert_eq!(mode_apply_action(Some(&diff), ModeKind::Compatible, true), ModeApplyAction::Store);
+}
+
+/// §6.18, ОВС-19, ADR-23, ТЗ-140: «Фиксировать громкость на 100 %» в
+/// Оптимальном режиме убирает ступень громкости — `SetVolume` сохраняет
+/// запрошенное значение (см. `Engine::apply_gain`), но `effective_gain`
+/// возвращает `1.0` независимо от него. Bit-exact часть этого же теста
+/// спецификации (`PcmLocked(ExclusivePcm<NoGain>)`, И-Т21) требует реального
+/// рендер-пути и здесь не покрывается (ТЗ-114) — только правило выбора
+/// громкости.
+#[test]
+fn optimal_volume_lock_uses_nogain() {
+    let mut settings = ModeSettings::default();
+    settings.optimal.volume_lock = true;
+
+    assert_eq!(effective_gain(&settings, ModeKind::Optimal, 0.5, false), 1.0);
+}
+
+/// §6.18, ТЗ-41: в Строгом режиме громкости нет вовсе — запрошенное значение
+/// не влияет на эффективную громкость.
+#[test]
+fn strict_mode_ignores_volume() {
+    let settings = ModeSettings::default();
+
+    assert_eq!(effective_gain(&settings, ModeKind::Strict, 0.5, false), 1.0);
+}
+
+/// ОВС-18: mute гасит сигнал во всех режимах (Совместимый, Оптимальный с
+/// фиксацией, Строгий), независимо от правила громкости режима.
+#[test]
+fn mute_silences_every_mode() {
+    let mut locked = ModeSettings::default();
+    locked.optimal.volume_lock = true;
+
+    assert_eq!(effective_gain(&ModeSettings::default(), ModeKind::Compatible, 0.5, true), 0.0);
+    assert_eq!(effective_gain(&locked, ModeKind::Optimal, 0.5, true), 0.0);
+    assert_eq!(effective_gain(&ModeSettings::default(), ModeKind::Strict, 0.5, true), 0.0);
+}
+
+/// §6.18, ОВС-20: в Совместимом режиме громкость всегда проходит
+/// без изменений — там нет ни фиксации, ни запрета громкости.
+#[test]
+fn compatible_mode_passes_volume_through() {
+    let settings = ModeSettings::default();
+
+    assert_eq!(effective_gain(&settings, ModeKind::Compatible, 0.5, false), 0.5);
 }
