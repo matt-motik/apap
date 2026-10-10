@@ -125,7 +125,7 @@ steps:
     done: true
   - id: 28
     description: "src/core/testing.rs: тесты mode_settings_preserved_across_switch_and_restart (стр. 2886) и load_correction_not_written_until_save (стр. 2922). Проверка: cargo test core::; ЧЕКПОИНТ: cargo test + clippy"
-    done: false
+    done: true
   - id: 29
     description: "src/app/mode_dialog.rs (новый, `mod mode_dialog` в src/app/mod.rs): чистый построитель строк диалога для режима из PARAMS/Availability и ModeSettings: подпись, вид (список/переключатель/ползунок), варианты с запретом и подсказкой (buffers_allowed для двух буферов, min-phase SrcFilter и «ремодуляция» как NotImplemented), FixedByMode — значение и «задано режимом», Unavailable — причина (§6.27, ТЗ-95, ТЗ-128…131, И-Т19). Тесты ≤5. Проверка: cargo test mode_dialog"
     done: false
@@ -159,8 +159,8 @@ steps:
   - id: 39
     description: "Финал: cargo build/test/clippy зелёные; ROADMAP ✅; заметка плана; напомнить пользователю удалить settings.toml (ТЗ-97) и показать расхождение с 02 spec стр. 3342 (решение — за пользователем); ручные проверки (переключатель режимов, Совместимый играет, Оптимальный/Строгий через hw: на Linux). Проверка: cargo test + clippy"
     done: false
-current_step: 28
-next_action: "Шаг 28: src/core/testing.rs — тесты mode_settings_preserved_across_switch_and_restart и load_correction_not_written_until_save; ЧЕКПОИНТ"
+current_step: 29
+next_action: "Шаг 29: src/app/mode_dialog.rs (новый) — чистый построитель строк диалога режимов из PARAMS/Availability и ModeSettings"
 fail_counter: 0
 fail_counter_max: 3
 failed_attempts: []

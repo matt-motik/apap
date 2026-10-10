@@ -527,7 +527,7 @@ mod tests {
     use crate::playlist::model::SortKey;
     use crate::playlist::Track;
     use crate::audio::backend::SharedDeviceId;
-    use crate::settings::playback::{SharedDeviceChoice, SrcFilter};
+    use crate::settings::playback::{DeviceBuffer, ModeKind, SharedDeviceChoice, SrcFilter};
     use crate::settings::{ColumnId, RepeatMode, ResamplerAlgorithm};
     use std::future::Future;
     use std::pin::Pin;
@@ -2852,5 +2852,85 @@ mod tests {
             .filter(|r| matches!(r, JournalRecord::WriteFailed { target: WriteTarget::Export(p), .. } if *p == path))
             .collect();
         assert_eq!(failures.len(), 2, "два провала — две отдельные записи журнала, без дедупликации");
+    }
+
+    /// ТЗ-93, §7 `mode_settings_preserved_across_switch_and_restart`:
+    /// Оптимальный режим «Медленный»/50 %, Совместимый «Очень медленный»/
+    /// 70 % — переключение активного режима туда и обратно и перезапуск
+    /// (повторная загрузка `AppCore` из тех же файлов) сохраняют оба набора
+    /// значений: настройки фильтра в `ModeSettings` и громкость каждого
+    /// режима в `PlaybackState`.
+    #[test]
+    fn mode_settings_preserved_across_switch_and_restart() {
+        let h = Harness::new();
+        h.put_default_settings();
+        h.put_state(b"");
+        let mut core = h.boot();
+
+        let mut settings = core.settings().clone();
+        settings.modes.compatible.src_filter = SrcFilter::VerySlow;
+        settings.modes.optimal.src_filter = SrcFilter::Slow;
+        core.set_settings(settings);
+
+        core.change_state(Origin::User, StateChange::ActiveMode(ModeKind::Compatible));
+        core.change_state(Origin::User, StateChange::Volume(70));
+        core.change_state(Origin::User, StateChange::ActiveMode(ModeKind::Optimal));
+        core.change_state(Origin::User, StateChange::Volume(50));
+
+        // Переключение туда и обратно перед перезапуском не теряет ни одно значение.
+        core.change_state(Origin::User, StateChange::ActiveMode(ModeKind::Compatible));
+        assert_eq!(core.state().playback().volume, 70);
+        core.change_state(Origin::User, StateChange::ActiveMode(ModeKind::Optimal));
+        assert_eq!(core.state().playback().volume, 50);
+
+        let outcome = core.exit(ExitReason::WindowClose, &mut || true);
+        assert_eq!(outcome, ExitOutcome::Completed);
+
+        // Перезапуск: новый `AppCore` из тех же "файлов на диске".
+        let mut core2 = h.boot();
+        assert_eq!(core2.settings().modes.compatible.src_filter, SrcFilter::VerySlow);
+        assert_eq!(core2.settings().modes.optimal.src_filter, SrcFilter::Slow);
+
+        assert_eq!(core2.state().active_mode(), ModeKind::Optimal);
+        assert_eq!(core2.state().playback().volume, 50);
+        core2.change_state(Origin::User, StateChange::ActiveMode(ModeKind::Compatible));
+        assert_eq!(core2.state().playback().volume, 70);
+    }
+
+    /// ТЗ-135, §7 `load_correction_not_written_until_save`: файл с
+    /// `[playback.optimal] buffer = 500, device_buffer_ms = 400` нарушает
+    /// И-Р22 (нужно `buffer ≥ 2 × device_buffer`) — после загрузки в памяти
+    /// исправленное значение `DeviceBuffer::Ms40` и заметка `Adjusted`, но
+    /// исправление не пишется на диск само: запись происходит только по
+    /// явному «Сохранить».
+    #[test]
+    fn load_correction_not_written_until_save() {
+        let h = Harness::new();
+        h.put_settings(b"[playback]\nschema = 2\n\n[playback.optimal]\nbuffer = 500\ndevice_buffer_ms = 400\n");
+        h.put_state(b"");
+        let mut core = h.boot();
+
+        assert_eq!(core.settings().modes.optimal.device_buffer, DeviceBuffer::Ms40);
+
+        let notes = &core.startup_notes().settings;
+        let note = notes
+            .iter()
+            .find(|n| n.key == KeyPath::new("playback.optimal.device_buffer_ms"))
+            .expect("заметка о согласовании device_buffer присутствует");
+        match &note.kind {
+            LoadNoteKind::Adjusted { reason } => {
+                assert_eq!(
+                    reason.as_ref(),
+                    "буфер устройства 400 мс больше половины буфера плеера 500 мс — установлено 40 мс"
+                );
+            }
+            other => panic!("ожидалась заметка Adjusted, получено {other:?}"),
+        }
+
+        assert_eq!(h.writes(WorkFile::Settings), 0, "исправление не пишется само по себе");
+
+        core.save_settings_now(core.settings().clone());
+        h.settle(&mut core);
+        assert_eq!(h.writes(WorkFile::Settings), 1, "явное «Сохранить» пишет исправленное значение");
     }
 }
