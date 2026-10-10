@@ -160,6 +160,12 @@ impl Harness {
         self.fs.fail_read(path, class);
     }
 
+    /// Внедрить ошибку записи произвольного пути (ТЗ-20, ADR-17, §6.18) —
+    /// для файла экспорта «Сохранить плейлист», лежащего вне `ConfigPaths`.
+    pub(crate) fn fail_write_path(&self, path: &Path, step: WriteStep, class: WriteErrorClass, times: u32) {
+        self.fs.fail_write(path, step, class, times);
+    }
+
     /// Тикает, пока `tick` не вернёт хотя бы одно сообщение (ADR-13,
     /// §6.12): ответы карантина (`Quarantined`/`QuarantineFailed`)
     /// перехватываются внутри `tick` до `tracker.on_reply` и не
@@ -176,6 +182,26 @@ impl Harness {
                 self.clock.advance(wake.saturating_since(self.clock.now()));
             }
             assert!(start.elapsed() < Duration::from_secs(2), "settle_messages: сообщение не пришло за 2 с реального времени");
+            std::thread::sleep(Duration::from_millis(5));
+        }
+    }
+
+    /// Тикает, пока байты по произвольному пути `path` не появятся в
+    /// `MemStore` (ADR-17, §6.18, ТЗ-13 а): экспорт «Сохранить плейлист» не
+    /// трогает `PersistTracker`, поэтому `settle` здесь неприменим — опрашивает
+    /// хранилище напрямую, как `settle_messages` опрашивает сообщения. Срок —
+    /// 2 с реального времени, как у `settle`.
+    pub(crate) fn settle_path(&self, core: &mut AppCore, path: &Path) -> Vec<u8> {
+        let start = Instant::now();
+        loop {
+            core.tick(None);
+            if let Some(bytes) = self.fs.get(path) {
+                return bytes;
+            }
+            if let Some(wake) = self.fs.next_wake() {
+                self.clock.advance(wake.saturating_since(self.clock.now()));
+            }
+            assert!(start.elapsed() < Duration::from_secs(2), "settle_path: байты не появились за 2 с реального времени");
             std::thread::sleep(Duration::from_millis(5));
         }
     }
@@ -2002,6 +2028,15 @@ mod tests {
         (t, keys)
     }
 
+    /// Трек для теста экспорта (ADR-17, §6.18, ТЗ-13 а): путь и название —
+    /// единственные поля, которые задействуют сравнение по колонке
+    /// «Название» и подпись `#EXTINF` (`serialize_extm3u`).
+    fn track_with_title(path: &str, title: &str) -> (Track, CompareKeys) {
+        let t = Track { path: PathBuf::from(path), title: title.into(), ..Track::default() };
+        let keys = CompareKeys::from_track(&t);
+        (t, keys)
+    }
+
     /// Видимый порядок, который построил бы загрузчик (ОТКЛОНЕНИЕ §7,
     /// ТЗ-40, ТЗ-43): индексы `rows` в исходном порядке, затем стабильная
     /// сортировка по `key` — та же логика, что `Playlist::resort` (§3.2,
@@ -2721,5 +2756,89 @@ mod tests {
             assert!(text.contains(p.to_str().expect("путь")), "{text} должен содержать {p:?}");
         }
         assert!(!text.contains("import"), "загружаемый (но не разрешённый) список не попадает в запись");
+    }
+
+    /// Экспорт «Сохранить плейлист» пишет видимый порядок таблицы, а не
+    /// исходный порядок и не перестановку Shuffle (ADR-17, §6.18, ТЗ-13 а):
+    /// сортировка по «Название ↑» переставляет строки, Shuffle включён и
+    /// заведомо не совпадает с видимым порядком — экспорт игнорирует обе
+    /// перестановки навигации и берёт `Playlist::visible()`. Экспорт не
+    /// трогает `playlist.m3u` и флаг «плейлист изменён».
+    #[test]
+    fn export_writes_visible_order_with_extinf() {
+        let h = Harness::new();
+        h.put_settings(b"");
+        h.put_state(b"");
+        let mut core = h.boot();
+
+        let rows = vec![track_with_title("/music/b.flac", "Beta"), track_with_title("/music/a.flac", "Alpha")];
+        core.playlist_replace(rows, vec![0, 1], None);
+        core.playlist_header_click(ColumnId::Title); // Asc по названию: Alpha, Beta
+        core.change_state(Origin::User, StateChange::Shuffle(true));
+        let dirty_before = core.tracker().playlist_dirty();
+
+        let path = PathBuf::from("/export/out.m3u");
+        core.export(path.clone());
+        let bytes = h.settle_path(&mut core, &path);
+
+        let text = String::from_utf8(bytes).expect("utf8");
+        assert_eq!(text, "#EXTM3U\n#EXTINF:-1,Alpha\n/music/a.flac\n#EXTINF:-1,Beta\n/music/b.flac\n");
+        assert_eq!(h.writes(WorkFile::Playlist), 0);
+        assert_eq!(core.tracker().playlist_dirty(), dirty_before);
+    }
+
+    /// Успешный экспорт не показывает сообщений (ADR-17, §6.18, ТЗ-13 а,
+    /// ТЗ-52).
+    #[test]
+    fn export_success_no_window() {
+        let h = Harness::new();
+        h.put_settings(b"");
+        h.put_state(b"");
+        let mut core = h.boot();
+        core.playlist_add(vec![track_path("/music/x.flac")]);
+
+        let path = PathBuf::from("/export/out.m3u");
+        core.export(path.clone());
+        let bytes = h.settle_path(&mut core, &path);
+        assert!(!bytes.is_empty());
+
+        // Дать тику разобрать ответ `Exported`, который пришёл вместе с
+        // записанными байтами или сразу за ними, и убедиться, что он не
+        // превращается в сообщение.
+        let out = core.tick(None);
+        assert!(out.messages.is_empty());
+    }
+
+    /// Каждая неудачная попытка экспорта — отдельное окно Error без
+    /// дедупликации (ADR-17, §6.18, ТЗ-13 а, ТЗ-20): два провала подряд дают
+    /// два сообщения и две записи в журнале.
+    #[test]
+    fn export_error_window_per_attempt() {
+        let h = Harness::new();
+        h.put_settings(b"");
+        h.put_state(b"");
+        let mut core = h.boot();
+        core.playlist_add(vec![track_path("/music/x.flac")]);
+
+        let path = PathBuf::from("/export/out.m3u");
+        h.fail_write_path(&path, WriteStep::WriteData, WriteErrorClass::NoSpace, 2);
+
+        core.export(path.clone());
+        let first = h.settle_messages(&mut core);
+        assert_eq!(first.len(), 1);
+        assert_eq!(first[0].level, MessageLevel::Error);
+        assert_eq!(&*first[0].title, "Не удалось сохранить плейлист");
+
+        core.export(path.clone());
+        let second = h.settle_messages(&mut core);
+        assert_eq!(second.len(), 1);
+        assert_eq!(second[0].level, MessageLevel::Error);
+
+        let failures: Vec<_> = h
+            .journal()
+            .into_iter()
+            .filter(|r| matches!(r, JournalRecord::WriteFailed { target: WriteTarget::Export(p), .. } if *p == path))
+            .collect();
+        assert_eq!(failures.len(), 2, "два провала — две отдельные записи журнала, без дедупликации");
     }
 }

@@ -55,7 +55,7 @@ steps:
     done: true
   - id: 11
     description: "Тесты экспорта: export_writes_visible_order_with_extinf, export_error_window_per_attempt, export_success_no_window в src/core/testing.rs; export_is_atomic в src/persist/writer.rs (ТЗ-13 а, ТЗ-18, ТЗ-20, §7). Проверка: cargo test export"
-    done: false
+    done: true
   - id: 12
     description: "src/app/mod.rs: стартовая загрузка через core.start_startup_load + опрос на тике (индикатор busy, сообщения через MessageCenter, гейт set_loading по LoadState); удалить startup_tracks_rx и drain_startup_tracks (ADR-16, ADR-23, ТЗ-47, ТЗ-21). Проверка: cargo check"
     done: false
@@ -71,8 +71,8 @@ steps:
   - id: 16
     description: "ЧЕКПОИНТ финальный: cargo test + cargo clippy (0 новых варнингов в файлах вайтлиста); cargo build"
     done: false
-current_step: 11
-next_action: "Шаг 11: тесты экспорта (export_writes_visible_order_with_extinf, export_error_window_per_attempt, export_success_no_window, export_is_atomic); ЧЕКПОИНТ"
+current_step: 12
+next_action: "Шаг 12: src/app/mod.rs — стартовая загрузка через core.start_startup_load + опрос в tick (индикатор, MessageCenter, гейт по LoadState); убрать startup_tracks_rx/drain_startup_tracks"
 fail_counter: 0
 fail_counter_max: 3
 failed_attempts: []

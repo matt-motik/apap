@@ -34,8 +34,8 @@
 - [x] Шаг 8: Тесты ТЗ-13 б/17/48 (команда) в src/core/testing.rs: load_playlist_plays_first_by_key (эффект PlayNow первого по ключу, флаг, запись через N), load_playlist_from_pause_and_stop_starts_playback, load_playlist_unreadable_keeps_everything, load_playlist_empty_stops_and_marks_dirty, load_command_exit_writes_old_playlist_if_dirty, load_command_exit_clean_writes_nothing, load_command_timer_writes_old_playlist (§7). Проверка: cargo test core::; ЧЕКПОИНТ: cargo test + clippy
 - [x] Шаг 9: src/playlist/mod.rs: serialize_extm3u(tracks в видимом порядке) — #EXTM3U, #EXTINF:<сек|-1>,<«Исполнитель — Название» | одно поле | file_stem>, \n, без BOM (ADR-17, §6.18, ТЗ-13 а). Тест формата. Проверка: cargo test playlist::
 - [x] Шаг 10: src/core/load.rs: AppCore::export(path) → WriterCmd::Export { attempt } из видимого порядка; ExportFailed → Error на попытку, Exported → ничего; PersistTracker не трогается (ADR-17, §6.18, ТЗ-13 а, ТЗ-20). Проверка: cargo check
-- [>] **Шаг 11: Тесты экспорта: export_writes_visible_order_with_extinf, export_error_window_per_attempt, export_success_no_window в src/core/testing.rs; export_is_atomic в src/persist/writer.rs (ТЗ-13 а, ТЗ-18, ТЗ-20, §7). Проверка: cargo test export**
-- [ ] Шаг 12: src/app/mod.rs: стартовая загрузка через core.start_startup_load + опрос на тике (индикатор busy, сообщения через MessageCenter, гейт set_loading по LoadState); удалить startup_tracks_rx и drain_startup_tracks (ADR-16, ADR-23, ТЗ-47, ТЗ-21). Проверка: cargo check
+- [x] Шаг 11: Тесты экспорта: export_writes_visible_order_with_extinf, export_error_window_per_attempt, export_success_no_window в src/core/testing.rs; export_is_atomic в src/persist/writer.rs (ТЗ-13 а, ТЗ-18, ТЗ-20, §7). Проверка: cargo test export
+- [>] **Шаг 12: src/app/mod.rs: стартовая загрузка через core.start_startup_load + опрос на тике (индикатор busy, сообщения через MessageCenter, гейт set_loading по LoadState); удалить startup_tracks_rx и drain_startup_tracks (ADR-16, ADR-23, ТЗ-47, ТЗ-21). Проверка: cargo check**
 - [ ] Шаг 13: src/app/mod.rs + src/app/playback_manager.rs: «Загрузить плейлист» → core.start_command_load; LoadApplied::PlayNow → stop прежнего, open первого (autoplay), пустой → стоп; убрать синхронный load_track_list из обработчика меню (ADR-16, ТЗ-13 б, ТЗ-48). Проверка: cargo check
 - [ ] Шаг 14: src/app/playlist_manager.rs + src/app/mod.rs: «Сохранить плейлист» → picker SavePlaylist (.m3u8) → core.export; окно Error по ExportFailed (ADR-17, ADR-10, ТЗ-13 а). Проверка: cargo check
 - [ ] Шаг 15: src/playlist/mod.rs: удалить load_track_list и тест load_track_list_skips_non_audio_and_comments (заменён тестами шага 1) (§7 «переписать», §8 С8 «удаляется»). Проверка: cargo check
@@ -43,8 +43,8 @@
 
 Легенда: [x] сделано · [>] текущий шаг · [ ] не начато
 
-- **Текущий шаг (current_step):** Шаг 11
-- **Следующий ход:** Шаг 11: тесты экспорта (export_writes_visible_order_with_extinf, export_error_window_per_attempt, export_success_no_window, export_is_atomic); ЧЕКПОИНТ
+- **Текущий шаг (current_step):** Шаг 12
+- **Следующий ход:** Шаг 12: src/app/mod.rs — стартовая загрузка через core.start_startup_load + опрос в tick (индикатор, MessageCenter, гейт по LoadState); убрать startup_tracks_rx/drain_startup_tracks
 - **Счетчик безуспешных компиляций:** 0/3
 - **Состояние:** in_progress
 

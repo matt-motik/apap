@@ -443,4 +443,57 @@ mod tests {
 
         handle.join();
     }
+
+    /// Экспорт идёт через ту же атомарную запись, что и рабочие файлы
+    /// (ТЗ-18, ADR-17, §6.18): содержимое цели меняется только на шаге
+    /// `Replace`; сбой на любом другом шаге оставляет прежний файл
+    /// экспорта нетронутым (и без `.tmp` при обычной ошибке — крах
+    /// оставляет его, ТЗ-18), а следующая попытка через писателя проходит
+    /// как обычно.
+    #[test]
+    fn export_is_atomic() {
+        const STEPS: [WriteStep; 6] = [
+            WriteStep::CreateDir, WriteStep::OpenTemp, WriteStep::WriteData,
+            WriteStep::SyncFile, WriteStep::Replace, WriteStep::SyncDir,
+        ];
+        let p = paths();
+        let path = PathBuf::from("/export/out.m3u");
+        let tmp = crate::platform::fs::temp_path(&path);
+
+        for crash in [false, true] {
+            for step in STEPS {
+                let fs = MemStore::new();
+                fs.put(&path, b"old export\n");
+                if crash {
+                    fs.crash_write(&path, step);
+                } else {
+                    fs.fail_write(&path, step, WriteErrorClass::NoSpace, 1);
+                }
+                let handle = spawn_writer(Box::new(fs.clone()), p.clone());
+
+                handle.send(WriterCmd::Export { attempt: 1, path: path.clone(), bytes: Arc::from(&b"new export\n"[..]) });
+                match handle.replies().recv_timeout(TIMEOUT).expect("export reply") {
+                    WriterReply::ExportFailed { attempt: 1, err } => assert_eq!(err.step, step),
+                    other => panic!("unexpected: {other:?}"),
+                }
+
+                let on_disk = fs.get(&path).expect("target readable");
+                let replaced = matches!(step, WriteStep::SyncDir);
+                let expected: &[u8] = if replaced { b"new export\n" } else { b"old export\n" };
+                assert_eq!(on_disk, expected, "step {step:?} crash {crash}");
+                if !crash {
+                    assert_eq!(fs.get(&tmp), None, "tmp removed after error at {step:?}");
+                }
+
+                handle.send(WriterCmd::Export { attempt: 2, path: path.clone(), bytes: Arc::from(&b"next export\n"[..]) });
+                let reply2 = handle.replies().recv_timeout(TIMEOUT).expect("second export reply");
+                assert!(matches!(reply2, WriterReply::Exported { attempt: 2, .. }), "writer still works after {step:?} crash {crash}");
+                assert_eq!(fs.get(&path).as_deref(), Some(&b"next export\n"[..]));
+                assert_eq!(fs.get(&tmp), None);
+
+                handle.send(WriterCmd::Stop);
+                handle.join();
+            }
+        }
+    }
 }
