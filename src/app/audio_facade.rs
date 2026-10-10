@@ -59,9 +59,10 @@ pub(crate) struct AudioFacade {
     /// Настройки трёх режимов — копия для расчёта `ModeSettingsDiff` между
     /// последовательными `set_mode_settings` (ОВС-14, §6.18, ADR-22).
     modes: ModeSettings,
-    /// Активный режим — копия для `set_active_mode` (ТЗ-20, §6.18); отправка
-    /// стартового `SetModeSettings`/`SetActiveMode` до первого `Open` —
-    /// задача вызывающей стороны (шаг 20, ОВС-14, §6.27).
+    /// Активный режим — копия для `set_active_mode` (ТЗ-20, §6.18); стартовый
+    /// `SetModeSettings`/`SetActiveMode` до первого `Open` шлёт
+    /// `send_startup_policy` (шаг 20, ОВС-14, §6.27), вызывающая сторона
+    /// (`MusicApp::new`) лишь вызывает его сразу после конструирования.
     active_mode: ModeKind,
     req_gen: u64,
     volume: f32,
@@ -111,6 +112,30 @@ impl AudioFacade {
 
     fn send(&self, cmd: EngineCmd) -> bool {
         self.engine.as_ref().is_some_and(|engine| engine.send(cmd))
+    }
+
+    /// Команды, которыми при старте применяется сохранённая политика режимов
+    /// (ОВС-14, §6.27, ADR-22): `SetModeSettings` с `diff: None` — движок
+    /// просто копирует `settings` без пересчёта `ApplyKind` (потока вывода
+    /// ещё нет, переоткрывать нечего) — затем `SetActiveMode` сохранённого
+    /// активного режима. Чистая функция (без `self`) — пригодна для
+    /// проверки равенства с восстановленной после перезапуска политикой без
+    /// постройки `AudioFacade` (ТЗ-19, И-Р14).
+    fn startup_commands(modes: &ModeSettings, active: ModeKind) -> [EngineCmd; 2] {
+        [
+            EngineCmd::SetModeSettings(ModeSettingsUpdate { settings: modes.clone(), diff: None }),
+            EngineCmd::SetActiveMode(active),
+        ]
+    }
+
+    /// Отправить сохранённую политику режимов движку до первого `Open`
+    /// (шаг 20, ОВС-14, §6.27, ADR-22): вызывающая сторона (`MusicApp::new`)
+    /// вызывает этот метод сразу после конструирования фасада, раньше
+    /// любого `open`.
+    pub(crate) fn send_startup_policy(&self) {
+        for cmd in Self::startup_commands(&self.modes, self.active_mode) {
+            self.send(cmd);
+        }
     }
 
     /// Разобрать событие движка, обновить кэш фасада и вернуть то, что не
@@ -416,6 +441,9 @@ impl AudioFacade {
 mod tests {
     use super::*;
     use music_player_rs::audio::decoder::Tags;
+    use music_player_rs::persist::keys::{FileRead, Parsed};
+    use music_player_rs::persist::state_file::parse_state;
+    use music_player_rs::settings::playback_dto::{load_mode_settings, playback_dto, PlaybackDto};
 
     fn legacy_defaults() -> LegacyAudio {
         LegacyAudio {
@@ -564,5 +592,46 @@ mod tests {
         // Повторная установка того же режима — не меняет кэш (нет эффекта).
         f.set_active_mode(ModeKind::Strict);
         assert_eq!(f.active_mode, ModeKind::Strict);
+    }
+
+    /// ТЗ-19, И-Р14: после перезапуска стартовые команды (`startup_commands`),
+    /// построенные из `ModeSettings`/активного режима, прочитанных обратно из
+    /// реальных форматов персистентности (без участия движка), совпадают с
+    /// тем, что было бы отправлено из значений до перезапуска (ОВС-14,
+    /// §6.27, ADR-22).
+    #[test]
+    fn startup_policy_equals_saved_policy() {
+        let mut original = ModeSettings::default();
+        original.compatible.dsd_gain_comp = !original.compatible.dsd_gain_comp;
+        original.optimal.volume_lock = !original.optimal.volume_lock;
+
+        // Политика режимов — через тот же DTO/TOML, что и `settings.toml`.
+        let dto = playback_dto(&original);
+        let toml_text = toml::to_string(&dto).expect("сериализация PlaybackDto в toml");
+        let reloaded_dto: PlaybackDto = toml::from_str(&toml_text).expect("разбор toml в PlaybackDto");
+        let (reloaded_modes, _notes) = load_mode_settings(Some(reloaded_dto));
+        assert_eq!(reloaded_modes, original);
+
+        // Активный режим — через реальный парсер `state.toml`.
+        let state_bytes: Arc<[u8]> = Arc::from(b"playback.active = \"strict\"\n".as_slice());
+        let reloaded_active = match parse_state(FileRead::Bytes(state_bytes)) {
+            Parsed::Parsed { value, .. } => value.active_mode(),
+            _ => panic!("ожидался Parsed::Parsed"),
+        };
+        assert_eq!(reloaded_active, ModeKind::Strict);
+
+        let original_cmds = AudioFacade::startup_commands(&original, ModeKind::Strict);
+        let reloaded_cmds = AudioFacade::startup_commands(&reloaded_modes, reloaded_active);
+
+        for cmds in [&original_cmds, &reloaded_cmds] {
+            match (&cmds[0], &cmds[1]) {
+                (EngineCmd::SetModeSettings(update), EngineCmd::SetActiveMode(mode)) => {
+                    assert!(update.diff.is_none());
+                    assert_eq!(update.settings, original);
+                    assert_eq!(*mode, ModeKind::Strict);
+                }
+                other => panic!("ожидались SetModeSettings/SetActiveMode, получено: {other:?}"),
+            }
+        }
     }
 }

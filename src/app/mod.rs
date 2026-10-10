@@ -506,6 +506,10 @@ impl MusicApp {
         let modes = core.settings().modes.clone();
         let active_mode = core.state().active_mode();
         let mut player = audio_facade::AudioFacade::new(engine, legacy, modes, active_mode);
+        // Стартовая политика режимов — до первого `Open` (шаг 20, ОВС-14,
+        // §6.27, ADR-22): движок должен знать сохранённые `ModeSettings` и
+        // активный режим раньше, чем откроется первый трек плейлиста.
+        player.send_startup_policy();
         // Громкость/mute/предпочитаемое устройство — не часть `LegacyAudio`
         // (это UI-состояние и выбор устройства, не DSP-политика движка),
         // поэтому применяются сеттерами фасада после конструирования.
