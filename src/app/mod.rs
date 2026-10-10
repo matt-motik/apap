@@ -28,7 +28,7 @@ use music_player_rs::core::load::LoadApplied;
 use music_player_rs::core::AppCore;
 use music_player_rs::cover::{self, CoverDone, CoverJob};
 use music_player_rs::engine::messages::{EngineEvent, LegacyAudio, Notice, SkipReason};
-use music_player_rs::engine::run::EngineHandle;
+use music_player_rs::engine::run::{BackendCaps, EngineHandle};
 use music_player_rs::persist::settings_file::Settings as PersistSettings;
 use music_player_rs::persist::settings_file::{ColumnsConfig, ThemeName};
 use music_player_rs::persist::state_file::{
@@ -43,7 +43,7 @@ use music_player_rs::playlist::{self, ScanMsg, Track};
 use music_player_rs::playlist::model::TrackId;
 use music_player_rs::settings::{
     clamp_ring_buffer_ms, ClockFamily, ColumnId, DsdMode, ExclusiveMode, FallbackPolicy,
-    FallbackRatePolicy, RepeatMode, ResamplerMode,
+    FallbackRatePolicy, ModeKind, RepeatMode, ResamplerMode,
 };
 use music_player_rs::theme::{
     ColorsData, ThemeData, ThemeEntry, ThemeError, DEFAULT_LIGHT_TOML, parse_hex,
@@ -451,6 +451,16 @@ pub struct MusicApp {
     /// Асинхронный выбор файлов/каталогов (ADR-10, ТЗ-53): системные
     /// диалоги `rfd` в проде, `FakePicker` в тестах.
     picker: Box<dyn FilePicker>,
+    /// Платформенная доступность Оптимального/Строгого режима (ТЗ-109,
+    /// ТЗ-110, §2.8): статична на время жизни процесса, не меняется
+    /// заново запущенным движком — используется переключателем режимов в
+    /// `on_select_mode` и `sync_mode_to_ui` (§6.18).
+    backend_caps: BackendCaps,
+    /// Позиция и состояние воспроизведения, сохранённые перед переоткрытием
+    /// трека на смене активного режима (§6.18, ТЗ-20): `AudioFacade::open`
+    /// всегда открывает с нуля без автовоспроизведения, поэтому восстановить
+    /// их нужно явно после прихода `Opened` в `on_track_opened`.
+    pending_mode_reopen: Option<(f64, bool)>,
 }
 
 impl MusicApp {
@@ -460,7 +470,9 @@ impl MusicApp {
     /// (ADR-23 шаг 8). `notifier` — системные уведомления (ADR-9).
     /// `engine`/`engine_events` — поток `apap-engine` и канал его событий,
     /// запущенные в `main` до `AppCore` (ADR-01, ADR-19, ТЗ-88); движок ещё
-    /// не подключён к логике приложения на этом шаге.
+    /// не подключён к логике приложения на этом шаге. `backend_caps` —
+    /// платформенная доступность Оптимального/Строгого режима (ТЗ-109,
+    /// ТЗ-110, §2.8), известная даже если запуск движка провалился.
     /// `io` — поток `apap-io` (ADR-20, §2.12), запущенный в `main`;
     /// внедряется через параметр, а не создаётся здесь, чтобы тесты могли
     /// подставить свою реализацию `IoWorker`. `picker` — асинхронный выбор
@@ -476,6 +488,7 @@ impl MusicApp {
         tray: tray::TrayChannels,
         notifier: Box<dyn Notifier>,
         engine: Result<EngineHandle, EngineFault>,
+        backend_caps: BackendCaps,
         engine_events: EngineEventQueue,
         io: Box<dyn IoWorker>,
         picker: Box<dyn FilePicker>,
@@ -636,6 +649,8 @@ impl MusicApp {
             io_gens: IoGens::default(),
             cache_disk: CacheSizes::default(),
             picker,
+            backend_caps,
+            pending_mode_reopen: None,
         };
         // Стартовая загрузка плейлиста в фоне (ADR-16, ADR-23 шаг 9, §6.12,
         // ТЗ-21, ТЗ-47): поток `apap-playlist` через `AppCore`; `tick()`
@@ -666,6 +681,8 @@ impl MusicApp {
                 buttons: MessageButtons::Ok,
             });
         }
+        // Стартовая синхронизация переключателя режимов (§6.18, ТЗ-109, ТЗ-110).
+        app.sync_mode_to_ui();
         // Запуск ничего не пишет (ТЗ-4, §8.1 С3).
         app
     }
@@ -750,6 +767,36 @@ impl MusicApp {
         if let Some(ui) = self.try_ui() {
             ui.set_window_blocked(self.gate.window_blocked());
         }
+    }
+
+    /// Синхронизировать переключатель режимов в UI: активный режим (ADR-04)
+    /// и доступность Оптимального/Строгого по возможностям бэкенда, а не
+    /// условной компиляцией (§6.18, ТЗ-18, ТЗ-109, ТЗ-110). Вызывается при
+    /// старте и после каждой смены активного режима.
+    pub(super) fn sync_mode_to_ui(&mut self) {
+        let Some(ui) = self.try_ui() else { return };
+        let active = self.core.state().active_mode();
+        ui.set_active_mode(match active {
+            ModeKind::Compatible => 0,
+            ModeKind::Optimal => 1,
+            ModeKind::Strict => 2,
+        });
+        // Текст пояснения — дословно по ТЗ-110.
+        const UNAVAILABLE_REASON: &str = "монопольный доступ на этой платформе пока не поддерживается";
+        let modes = [ModeKind::Compatible, ModeKind::Optimal, ModeKind::Strict];
+        let available: Vec<bool> = modes.iter().map(|m| self.backend_caps.available(*m)).collect();
+        let reasons: Vec<SharedString> = modes
+            .iter()
+            .map(|m| {
+                if self.backend_caps.available(*m) {
+                    SharedString::default()
+                } else {
+                    SharedString::from(UNAVAILABLE_REASON)
+                }
+            })
+            .collect();
+        ui.set_mode_available(ModelRc::from(available.as_slice()));
+        ui.set_mode_unavailable_reason(ModelRc::from(reasons.as_slice()));
     }
 
     /// Асинхронный выбор файла/каталога, не блокирующий цикл событий
@@ -1270,6 +1317,14 @@ impl MusicApp {
                 if a.player.bit_perfect() {
                     return;
                 }
+                // Строгий режим, а также Оптимальный с фиксацией громкости
+                // (`volume_lock`), не допускают программную громкость (ТЗ-41,
+                // §6.18); слайдер пока не умеет визуально блокироваться
+                // (нет свойства enabled в `top_panel.slint`), поэтому ввод
+                // просто игнорируется, без применения к движку/состоянию.
+                if a.volume_locked() {
+                    return;
+                }
                 a.player.set_volume(volume);
                 a.core.change_state(Origin::User, StateChange::Volume(LegacyPlaybackState::pct_from_gain(volume)));
                 // Persisted at exit (save-at-exit); no per-slider-move disk I/O.
@@ -1287,6 +1342,35 @@ impl MusicApp {
                     return;
                 }
                 a.player.toggle_mute();
+            });
+        }
+
+        // 9b. select-mode: переключатель режимов в top_panel (§6.18, ТЗ-18,
+        // ТЗ-20, ТЗ-109, ТЗ-110, ADR-23).
+        {
+            let app = this.clone();
+            ui.on_select_mode(move |i| {
+                eprintln!("[gui] select_mode i={i}");
+                let mut a = app.borrow_mut();
+                let mode = match i {
+                    0 => ModeKind::Compatible,
+                    1 => ModeKind::Optimal,
+                    2 => ModeKind::Strict,
+                    _ => return,
+                };
+                if !a.backend_caps.available(mode) {
+                    return;
+                }
+                if a.core.state().active_mode() == mode {
+                    return;
+                }
+                // UI отправляет SetActiveMode, затем переоткрывает тот же
+                // трек с текущей позиции (§6.18 «Смена режима», ТЗ-20).
+                a.core.change_state(Origin::User, StateChange::ActiveMode(mode));
+                a.player.set_active_mode(mode);
+                a.reopen_current_for_mode_switch();
+                a.apply_mode_gain();
+                a.sync_mode_to_ui();
             });
         }
 

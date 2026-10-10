@@ -237,6 +237,14 @@ impl AudioFacade {
         self.transport == Some(TransportState::Playing)
     }
 
+    /// Истина, если транспорт остановлен (§6.18, ТЗ-20): отсутствие
+    /// события `Transport` (`None`, трек ещё не открывался) трактуется как
+    /// остановленное состояние — переоткрывать и восстанавливать позицию
+    /// в этом случае не нужно.
+    pub(crate) fn is_stopped(&self) -> bool {
+        matches!(self.transport, None | Some(TransportState::Stopped))
+    }
+
     pub(crate) fn has_decoder(&self) -> bool {
         self.track.is_some()
     }

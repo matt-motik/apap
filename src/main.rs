@@ -8,7 +8,7 @@ use music_player_rs::core::exit::{ChannelWaiter, ExitOutcome, ExitReason};
 use music_player_rs::core::io::{spawn_io, IoDone, IoJob, IoPaths, IoWorker};
 use music_player_rs::core::{AppCore, AppDeps, NoEngine};
 use music_player_rs::engine::deps::EngineDeps;
-use music_player_rs::engine::run::EngineHandle;
+use music_player_rs::engine::run::{BackendCaps, EngineHandle};
 use music_player_rs::journal::{FileJournal, Journal};
 use music_player_rs::persist::keys::Parsed;
 use music_player_rs::persist::writer::{spawn_writer, WriterCmd, WriterHandle, WriterReply};
@@ -89,11 +89,14 @@ fn main() {
     bad_copies_via_writer(&boot, &writer, journal.as_ref());
     // Движок запускается до AppCore — `deps` строит только main (ADR-19, ADR-01, ADR-20).
     let (engine_sink, engine_events) = app::engine_sink::event_channel(app::engine_sink::slint_wake());
-    // `BackendCaps` пока не передаётся дальше — проводка в фасад/UI
-    // (`Availability`, переключатель режимов) — шаги 18–20 (§2.8, ТЗ-109).
-    let (engine, _caps) = match EngineHandle::spawn(EngineDeps::system(Box::new(engine_sink), paths.dir.clone(), journal.clone())) {
-        Ok((handle, caps)) => (Ok(handle), Some(caps)),
-        Err(fault) => (Err(fault), None),
+    // `BackendCaps` определяет доступность Оптимального/Строгого режима в
+    // переключателе режимов (§2.8, ТЗ-109, ТЗ-110, шаг 22). Запуск движка не
+    // удался — платформенная доступность всё равно известна статически
+    // (`BackendCaps::current`), поэтому UI может показать корректные причины
+    // недоступности даже без запущенного движка.
+    let (engine, caps) = match EngineHandle::spawn(EngineDeps::system(Box::new(engine_sink), paths.dir.clone(), journal.clone())) {
+        Ok((handle, caps)) => (Ok(handle), caps),
+        Err(fault) => (Err(fault), BackendCaps::current()),
     };
     // `AppCore` — владелец действующих настроек и состояния, писателя и
     // инжектируемых часов/ожидания (ADR-19, ADR-23, §2.12, §6.1). `MusicApp`
@@ -158,6 +161,7 @@ fn main() {
         tray,
         notifier,
         engine,
+        caps,
         engine_events,
         io,
         picker,

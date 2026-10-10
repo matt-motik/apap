@@ -317,6 +317,62 @@ impl MusicApp {
         }
     }
 
+    /// Переоткрыть текущий трек на новом активном режиме, сохранив позицию и
+    /// состояние воспроизведения (§6.18 «Смена режима», ТЗ-20):
+    /// `AudioFacade::set_active_mode` сам поток не переоткрывает — открытие
+    /// текущего трека с сохранённой позиции делает вызывающий код
+    /// (`on_select_mode`). Нет загруженного трека — нечего переоткрывать.
+    pub(super) fn reopen_current_for_mode_switch(&mut self) {
+        if !self.player.has_decoder() {
+            return;
+        }
+        // Остановленный плеер не переоткрывается (§6.18): режим применится
+        // к следующему `Open`, а переоткрытие сейчас вместо «стоп» показало
+        // бы в UI «пауза» (ошибочно) вместо «стоп».
+        if self.player.is_stopped() {
+            return;
+        }
+        let Some(idx) = self.current else { return };
+        let Some(track) = self.track_at(idx) else {
+            return;
+        };
+        let path = track.path.clone();
+        let (was_playing, pos, _dur) = self.player.snapshot();
+        let prev_current = self.current;
+        match self.player.open(&path) {
+            // Открытие асинхронное: позиция/признак воспроизведения
+            // применяются в `on_track_opened` по приходу события Opened.
+            Ok(()) => {
+                self.pending_mode_reopen = Some((pos, was_playing));
+                self.pending_open = Some((idx, prev_current));
+            }
+            Err(e) => self.on_open_failed(idx, &e),
+        }
+    }
+
+    /// Истина, если программная громкость заблокирована активным режимом:
+    /// Строгий режим — всегда (ТЗ-41, §6.18), Оптимальный — если включена
+    /// фиксация громкости (`modes.optimal.volume_lock`). Используется, чтобы
+    /// игнорировать ввод слайдера, пока в Slint нет свойства его блокировки.
+    pub(super) fn volume_locked(&self) -> bool {
+        match self.core.state().active_mode() {
+            ModeKind::Strict => true,
+            ModeKind::Optimal => self.core.settings().modes.optimal.volume_lock,
+            ModeKind::Compatible => false,
+        }
+    }
+
+    /// Применить громкость/mute активного режима к плееру и UI после смены
+    /// режима (§6.18, ADR-04): после `StateChange::ActiveMode` громкость и
+    /// mute в состоянии сессии относятся уже к новому режиму
+    /// (`SessionState::playback`), их нужно явно прокинуть в движок и UI.
+    pub(super) fn apply_mode_gain(&mut self) {
+        let pb_state = self.core.state().playback();
+        self.player.set_volume(pb_state.gain());
+        self.player.set_muted(pb_state.muted);
+        self.sync_playback_state_to_ui();
+    }
+
     /// Применить результат успешного открытия трека: метаданные, текущий
     /// индекс, запуск, синхронизация UI. Вынесено для асинхронного open
     /// (ADR-01, ТЗ-103).
@@ -380,7 +436,22 @@ impl MusicApp {
         } else {
             self.playing_status().into()
         };
-        self.player.play();
+        // Переоткрытие на смене режима (§6.18, ТЗ-20) восстанавливает позицию
+        // и состояние воспроизведения; обычное открытие трека всегда
+        // запускает воспроизведение с нуля, как и раньше (ADR-01, ТЗ-103).
+        let will_play = match self.pending_mode_reopen.take() {
+            Some((pos, was_playing)) => {
+                self.player.seek(pos);
+                if was_playing {
+                    self.player.play();
+                }
+                was_playing
+            }
+            None => {
+                self.player.play();
+                true
+            }
+        };
         // Only the affected rows change: metadata of the new current
         // track and the `>` marker on the old/new current indices.
         self.refresh_playlist_rows_at(prev_current);
@@ -395,7 +466,11 @@ impl MusicApp {
             }
         }
         self.emit(AppEvent::TrackChanged(self.current));
-        self.emit(AppEvent::PlaybackStarted);
+        if will_play {
+            self.emit(AppEvent::PlaybackStarted);
+        } else {
+            self.emit(AppEvent::PlaybackPaused);
+        }
     }
 
     /// Открытие трека не удалось: остановка и окно Error (ТЗ-52, ОВ-7).
