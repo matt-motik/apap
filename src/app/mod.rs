@@ -41,19 +41,12 @@ use music_player_rs::platform::notify::Notifier;
 use music_player_rs::platform::pick::{FilePicker, PickRequest, PickResult};
 use music_player_rs::playlist::{self, ScanMsg, Track};
 use music_player_rs::playlist::model::TrackId;
-use music_player_rs::settings::{
-    clamp_ring_buffer_ms, ClockFamily, ColumnId, DsdMode, ExclusiveMode, FallbackPolicy,
-    FallbackRatePolicy, ModeKind, RepeatMode, ResamplerMode,
-};
+use music_player_rs::settings::{clamp_ring_buffer_ms, ColumnId, ModeKind, RepeatMode};
 use music_player_rs::theme::{
     ColorsData, ThemeData, ThemeEntry, ThemeError, DEFAULT_LIGHT_TOML, parse_hex,
 };
 use music_player_rs::platform::lifecycle::TrayEvent;
 use music_player_rs::platform::tray;
-
-/// Фиксированные частоты выхода для `ResamplerMode::Fixed` (ТЗ A3.0 §7.3):
-/// индекс ComboBox («Авто», «44.1k» … «192k») → Гц. «Авто» (0) → 0 = не задано.
-const FIXED_RATES: [u32; 7] = [0, 44_100, 48_000, 88_200, 96_000, 176_400, 192_000];
 
 mod audio_facade;
 pub mod bp_report;
@@ -1532,8 +1525,6 @@ impl MusicApp {
                 a.sync_settings_to_ui();
                 a.sync_viz_settings_to_ui();
                 a.sync_audio_devices();
-                a.sync_audio_advanced();
-                a.sync_dsd_chain_desc();
                 a.sync_cover_settings_to_ui();
                 a.sync_mode_dialog_to_ui();
                 // Размеры дисковых кэшей считаются один раз при открытии
@@ -1738,68 +1729,6 @@ impl MusicApp {
             });
         }
 
-        // 25b. settings-set-dsd-mode (draft-only: применяется на Save)
-        {
-            let app = this.clone();
-            ui.on_settings_set_dsd_mode(move |idx| {
-                eprintln!("[gui] settings_set_dsd_mode idx={idx}");
-                let mut a = app.borrow_mut();
-                let Some(mode) = DsdMode::from_index(idx) else {
-                    eprintln!("[gui] settings_set_dsd_mode: invalid index {idx}");
-                    return;
-                };
-                a.edit_cfg(|s| s.playback.dsd.mode = mode);
-                // Live-обновление предупреждения в диалоге: при выборе
-                // Native/DoP конфликт исчезает немедленно.
-                a.sync_dsd_settings_to_ui();
-                // Цепочка DSD (Native → DoP → PCM и т.д.) меняется вместе с
-                // режимом (ТЗ A3.0 §4.1/§8.3).
-                a.sync_dsd_chain_desc();
-            });
-        }
-
-        // 25c. settings-set-bit-perfect (draft-only: применяется на Save)
-        {
-            let app = this.clone();
-            ui.on_settings_set_bit_perfect(move |enabled| {
-                eprintln!("[gui] settings_set_bit_perfect enabled={enabled}");
-                let mut a = app.borrow_mut();
-                a.edit_cfg(|s| s.playback.audio.bit_perfect = enabled);
-                // Live-обновление предупреждения DSD в диалоге.
-                a.sync_dsd_settings_to_ui();
-            });
-        }
-
-        // 25d-25m. Audio-tab draft-only controls (ТЗ A3.0 §7.1/§7.7): колбэки
-        // пишут только в draft; реальные сеттеры Player применяются в Save.
-        // 25d. settings-set-audio-filter-hardware (ТЗ A3.0 §8.1, draft-only)
-        {
-            let app = this.clone();
-            ui.on_settings_set_audio_filter_hardware(move |enabled| {
-                app.borrow_mut().edit_cfg(|s| s.playback.audio.filter_hardware_only = enabled);
-                app.borrow_mut().apply_audio_filter();
-            });
-        }
-
-        // 25e. settings-set-audio-filter-stereo (ТЗ A3.0 §8.1, draft-only)
-        {
-            let app = this.clone();
-            ui.on_settings_set_audio_filter_stereo(move |enabled| {
-                app.borrow_mut().edit_cfg(|s| s.playback.audio.filter_stereo_only = enabled);
-                app.borrow_mut().apply_audio_filter();
-            });
-        }
-
-        // 25f. settings-set-audio-toggle-advanced — чисто верстка коллапса.
-        {
-            let app = this.clone();
-            ui.on_settings_set_audio_toggle_advanced(move |open| {
-                if let Some(ui) = app.borrow().try_ui() {
-                    ui.set_settings_audio_advanced_open(open);
-                }
-            });
-        }
-
         // 25f-b. bit-perfect badge -> report dialog
         {
             let app = this.clone();
@@ -1842,107 +1771,6 @@ impl MusicApp {
                 }
                 a.open_dialog_draft();
                 a.sync_audio_devices();
-                a.sync_audio_advanced();
-            });
-        }
-
-        // 25g. settings-set-audio-exclusive (ТЗ A3.0 §7.3, draft-only)
-        {
-            let app = this.clone();
-            ui.on_settings_set_audio_exclusive(move |i| {
-                eprintln!("[gui] settings_set_audio_exclusive idx={i}");
-                let mut a = app.borrow_mut();
-                let excl = ExclusiveMode::from_index(i).unwrap_or(ExclusiveMode::Auto);
-                a.edit_cfg(|s| s.playback.audio.exclusive = excl);
-                a.sync_capabilities_and_validation();
-            });
-        }
-
-        // 25h. settings-set-audio-fallback (ТЗ A3.0 §7.3, draft-only)
-        {
-            let app = this.clone();
-            ui.on_settings_set_audio_fallback(move |i| {
-                eprintln!("[gui] settings_set_audio_fallback idx={i}");
-                let mut a = app.borrow_mut();
-                let fb = FallbackPolicy::from_index(i).unwrap_or(FallbackPolicy::Nearest);
-                a.edit_cfg(|s| s.playback.audio.fallback = fb);
-                a.sync_capabilities_and_validation();
-            });
-        }
-
-        // 25i. settings-set-audio-resampler-mode (ТЗ A3.0 §7.3/§7.7): при
-        // выборе Fixed с активным Fallback = Fail принудительно сбрасываем
-        // fallback на Nearest — исходное сочетание невозможно
-        // (`resampler_fixed_fallback_guard`).
-        {
-            let app = this.clone();
-            ui.on_settings_set_audio_resampler_mode(move |i| {
-                eprintln!("[gui] settings_set_audio_resampler_mode idx={i}");
-                let mut a = app.borrow_mut();
-                let mode = ResamplerMode::from_index(i).unwrap_or(ResamplerMode::Auto);
-                let cur_fb = a.cfg().playback.audio.fallback;
-                let guarded = resampler_fixed_fallback_guard(mode, cur_fb);
-                let forced = guarded != cur_fb;
-                a.edit_cfg(|s| {
-                    s.playback.audio.resampler.mode = mode;
-                    if forced {
-                        s.playback.audio.fallback = guarded;
-                    }
-                });
-                if forced {
-                    // Автоматическая правка черновика настроек, видимая сразу
-                    // через sync_audio_advanced (комбобокс Fallback в диалоге)
-                    // — сообщение не требуется (ТЗ-52, ОВ-7).
-                    a.sync_audio_advanced();
-                }
-                a.sync_capabilities_and_validation();
-            });
-        }
-
-        // 25j. settings-set-audio-fixed-rate (ТЗ A3.0 §7.3, draft-only)
-        {
-            let app = this.clone();
-            ui.on_settings_set_audio_fixed_rate(move |i| {
-                eprintln!("[gui] settings_set_audio_fixed_rate idx={i}");
-                let mut a = app.borrow_mut();
-                let rate = FIXED_RATES.get(i as usize).copied().unwrap_or_default();
-                a.edit_cfg(|s| s.playback.audio.resampler.fixed_rate = rate);
-                a.sync_capabilities_and_validation();
-            });
-        }
-
-        // 25k. settings-set-audio-clock-family (ТЗ A3.0 §7.3, draft-only)
-        {
-            let app = this.clone();
-            ui.on_settings_set_audio_clock_family(move |i| {
-                eprintln!("[gui] settings_set_audio_clock_family idx={i}");
-                let mut a = app.borrow_mut();
-                let family = ClockFamily::from_index(i).unwrap_or(ClockFamily::Auto);
-                a.edit_cfg(|s| s.playback.audio.resampler.prefer_family = family);
-                a.sync_capabilities_and_validation();
-            });
-        }
-
-        // 25l. settings-set-audio-fallback-rate (ТЗ A3.0 §7.3, draft-only)
-        {
-            let app = this.clone();
-            ui.on_settings_set_audio_fallback_rate(move |i| {
-                eprintln!("[gui] settings_set_audio_fallback_rate idx={i}");
-                let mut a = app.borrow_mut();
-                let policy = FallbackRatePolicy::from_index(i).unwrap_or(FallbackRatePolicy::Nearest);
-                a.edit_cfg(|s| s.playback.audio.resampler.fallback_rate = policy);
-                a.sync_capabilities_and_validation();
-            });
-        }
-
-        // 25m. settings-set-audio-ring-buffer-ms (ТЗ A3.0 §7.3, draft-only)
-        {
-            let app = this.clone();
-            ui.on_settings_set_audio_ring_buffer_ms(move |ms| {
-                eprintln!("[gui] settings_set_audio_ring_buffer_ms ms={ms}");
-                let mut a = app.borrow_mut();
-                let ring_ms = music_player_rs::settings::clamp_ring_buffer_ms(ms.max(0) as u32);
-                a.edit_cfg(|s| s.playback.audio.ring_buffer_ms = ring_ms);
             });
         }
 
@@ -2953,19 +2781,6 @@ fn visible_col_at_index(columns: &ColumnsConfig, visible_index: i32) -> Option<C
     columns.visible_columns().get(visible_index as usize).copied()
 }
 
-/// Guard для авто-коррекции Advanced-настроек (ТЗ A3.0 §7.7): сочетание
-/// `ResamplerMode::Fixed` с `FallbackPolicy::Fail` невозможно — fixed-цепочка
-/// всегда должна иметь запасной путь. Возвращает политику fallback, которую
-/// следует применить после выбора режима: исходную во всех случаях, кроме
-/// Fixed+Fail (там — Nearest). Чистая функция, покрыта bin-тестами.
-fn resampler_fixed_fallback_guard(mode: ResamplerMode, fallback: FallbackPolicy) -> FallbackPolicy {
-    if mode == ResamplerMode::Fixed && fallback == FallbackPolicy::Fail {
-        FallbackPolicy::Nearest
-    } else {
-        fallback
-    }
-}
-
 /// Короткий русский текст причины отказа открытия трека для сообщений
 /// пользователю (ADR-14, ТЗ-86). `Capture` не описывается здесь — он не
 /// доходит до этой функции, т.к. `dispatch_applied` гасит его отдельно
@@ -3110,13 +2925,12 @@ mod tests {
 
     // ── A3.5: Audio-tab tests (ТЗ A3.0 §4.1, §7.3, §8.1) ──────────────
 
-    use crate::app::ui_manager::{audio_filter_matches, build_capabilities, find_device_index_in};
+    use crate::app::ui_manager::{audio_filter_matches, find_device_index_in};
     use cpal::{SampleFormat, SupportedBufferSize};
     use music_player_rs::audio::output::{DeviceCategory, DeviceInfo, RateRange};
 
     /// Minimal mock for [`DeviceInfo`]. Only the fields actually consumed by
-    /// `build_capabilities` and the filter projection are varied per test;
-    /// the rest get safe defaults.
+    /// the filter projection are varied per test; the rest get safe defaults.
     fn mock_device(
         id: &str,
         name: &str,
@@ -3156,109 +2970,6 @@ mod tests {
             supported_formats: dedup_fmt,
             exclusive_capable,
         }
-    }
-
-    #[test]
-    fn fixed_rates_mapping_exact() {
-        assert_eq!(
-            FIXED_RATES,
-            [0, 44_100, 48_000, 88_200, 96_000, 176_400, 192_000]
-        );
-    }
-
-    #[test]
-    fn fixed_rates_has_same_count_as_settings_combo_options() {
-        // «Авто» + 6 частот (44.1k, 48k, 88.2k, 96k, 176.4k, 192k) → 7
-        assert_eq!(FIXED_RATES.len(), 7);
-        // «Авто» (index 0) maps to 0 Hz (auto).
-        assert_eq!(FIXED_RATES[0], 0);
-        // Остальные индексы — реальные (non-zero) частоты для Fixed-режима.
-        for &hz in &FIXED_RATES[1..] {
-            assert!((44_100..=192_000).contains(&hz));
-        }
-    }
-
-    #[test]
-    fn build_capabilities_hw_stereo_marks_all_ok() {
-        let d = mock_device(
-            "hw:PCH,0",
-            "Intel HDA",
-            2,
-            DeviceCategory::Hardware,
-            vec![44100, 48000, 96000],
-            vec![SampleFormat::I32],
-            true,
-        );
-        let caps = build_capabilities(&d);
-        assert_eq!(caps.len(), 6, "rovisions must have exactly 6 rows");
-        // Row 0: Тип — hardware → ok
-        assert_eq!(caps[0].label.as_str(), "Тип устройства");
-        assert!(caps[0].ok);
-        assert_eq!(caps[0].value.as_str(), "Аппаратное (hw:*)");
-        // Row 1: Каналы — 2 → «стерео»
-        assert_eq!(caps[1].label.as_str(), "Каналы");
-        assert!(caps[1].ok);
-        assert_eq!(caps[1].value.as_str(), "2 (стерео)");
-        // Row 2: Частоты — non-empty → ok
-        assert_eq!(caps[2].label.as_str(), "Частоты");
-        assert!(caps[2].ok);
-        // Row 3: Форматы — ok
-        assert_eq!(caps[3].label.as_str(), "Форматы");
-        assert!(caps[3].ok);
-        // Row 4: Exclusive — capable
-        assert_eq!(caps[4].label.as_str(), "Exclusive");
-        assert!(caps[4].ok);
-        assert_eq!(caps[4].value.as_str(), "поддерживается");
-        // Row 5: DSD (DoP) — Intel HDA без DoP → ok=false
-        assert_eq!(caps[5].label.as_str(), "DSD (DoP)");
-        assert!(!caps[5].ok);
-        assert_eq!(caps[5].value.as_str(), "—");
-    }
-
-    #[test]
-    fn build_capabilities_dop_device_shows_container_rate() {
-        let d = mock_device(
-            "hw:DAC,0",
-            "HiFi DAC",
-            2,
-            DeviceCategory::Hardware,
-            // DoP container rates: 176400 → supported.
-            vec![44100, 48000, 176400],
-            vec![SampleFormat::I32],
-            true,
-        );
-        let caps = build_capabilities(&d);
-        let dop = caps.iter().find(|c| c.label.as_str() == "DSD (DoP)").unwrap();
-        assert!(dop.ok, "device supports 176400 → DoP must be ok");
-        assert_eq!(dop.value.as_str(), "176.4 kHz");
-    }
-
-    #[test]
-    fn build_capabilities_server_proxy_marks_not_hardware() {
-        let d = mock_device(
-            "pipewire",
-            "PipeWire (Software)",
-            99,
-            DeviceCategory::ServerProxy,
-            vec![],
-            vec![],
-            false,
-        );
-        let caps = build_capabilities(&d);
-        assert_eq!(caps[0].value.as_str(), "Программное (сервер звука)");
-        // Каналы 99 → вне известных конфигураций (2..=8, 1) — просто число
-        assert_eq!(caps[1].value.as_str(), "99");
-        // Exclusive не поддерживается
-        assert!(!caps[4].ok);
-        assert_eq!(caps[4].value.as_str(), "не поддерживается");
-    }
-
-    #[test]
-    fn build_capabilities_empty_rates_marks_freq_not_ok() {
-        let d = mock_device("dmix", "dmix", 2, DeviceCategory::Virtual, vec![], vec![], false);
-        let caps = build_capabilities(&d);
-        let freq = caps.iter().find(|c| c.label.as_str() == "Частоты").unwrap();
-        assert!(!freq.ok);
     }
 
     #[test]
@@ -3339,31 +3050,4 @@ mod tests {
         assert_eq!(find_device_index_in(&pairs, "ghost"), None);
     }
 
-    #[test]
-    fn resampler_fixed_fallback_guard() {
-        // When mode == Fixed && fallback == Fail → forced Nearest.
-        let g = |m, fb| super::resampler_fixed_fallback_guard(m, fb);
-        use music_player_rs::settings::{FallbackPolicy, ResamplerMode};
-        assert_eq!(
-            g(ResamplerMode::Fixed, FallbackPolicy::Fail),
-            FallbackPolicy::Nearest
-        );
-        // Fallback unchanged for other combinations.
-        assert_eq!(
-            g(ResamplerMode::Fixed, FallbackPolicy::Nearest),
-            FallbackPolicy::Nearest,
-        );
-        assert_eq!(
-            g(ResamplerMode::Fixed, FallbackPolicy::DeviceDefault),
-            FallbackPolicy::DeviceDefault,
-        );
-        assert_eq!(
-            g(ResamplerMode::Auto, FallbackPolicy::Fail),
-            FallbackPolicy::Fail,
-        );
-        assert_eq!(
-            g(ResamplerMode::Native, FallbackPolicy::Fail),
-            FallbackPolicy::Fail,
-        );
-    }
 }

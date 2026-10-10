@@ -75,8 +75,8 @@
 - [x] Шаг 30: src/app/mode_dialog.rs: apply_edit(&mut ModeSettings, ModeKind, ParamId, значение) — изменение черновика из строки диалога; недопустимое сочетание буферов не применяется (ТЗ-94). Тесты ≤4. Проверка: cargo test mode_dialog
 - [x] Шаг 31: Slint: ui/mode_params.slint (новый) — компонент панели режимов: выбор редактируемого режима, строки по виду (список/переключатель/ползунок, неактивные с причиной/«задано режимом»/«пока не реализовано»); подключить во вкладку «Аудио» ui/settings.slint рядом со старым блоком (мост) с пробросом в ui/app.slint. Проверка: cargo check
 - [x] Шаг 32: Rust: связать панель режимов — черновик Settings.modes через apply_edit, синхронизация строк; «Сохранить» → ModeSettings::diff → SetModeSettings(Some(diff)) только при непустом diff, запись в настройки, затем sync_mode_to_ui (volume_lock → volume-enabled) (ОВС-14, §6.18, ТЗ-41). Маппинг DialogRow → ModeParamRow (ui/mode_params.slint): kind 0=List/1=Toggle/2=Slider/3=Info; options — [string], недоступные варианты RowOption помечать в тексте (hint); для Info в note — полный текст. Колбэки AppWindow: on_settings_mode_edit_mode_selected/row_index_changed/row_toggled/row_slider_changed; свойства set_settings_mode_edit_mode/rows/validation. Файлы: src/app/mode_dialog.rs, src/app/mod.rs. Проверка: cargo check; ЧЕКПОИНТ: cargo test + clippy
-- [>] **Шаг 33: Удалить старые Rust-обработчики аудио-диалога: on_settings_set_audio_*/set_dsd_mode/set_bit_perfect и resampler_fixed_fallback_guard с тестом (src/app/mod.rs), sync_capabilities_and_validation/sync_dsd_chain_desc/sync_audio_advanced (src/app/ui_manager.rs) (§8 С4 «удаляется»). Проверка: cargo check**
-- [ ] Шаг 34: Удалить старые аудио-свойства и колбэки из ui/settings.slint и проброс из ui/app.slint (bit-perfect, dsd-mode, dsd-bp-warn, audio-validation, audio-exclusive*, audio-fallback*, audio-resampler-mode-idx, audio-fixed-rate-idx, audio-clock-family-idx, audio-ring-buffer-ms, audio-dsd-chain-desc, audio-fixed-fail-warn, set-*-соответствующие). Проверка: cargo check
+- [x] Шаг 33: Удалить старые Rust-обработчики аудио-диалога: on_settings_set_audio_*/set_dsd_mode/set_bit_perfect и resampler_fixed_fallback_guard с тестом (src/app/mod.rs), sync_capabilities_and_validation/sync_dsd_chain_desc/sync_audio_advanced (src/app/ui_manager.rs) (§8 С4 «удаляется»). Проверка: cargo check
+- [>] **Шаг 34: Удалить старые аудио-свойства и колбэки из ui/settings.slint и проброс из ui/app.slint (bit-perfect, dsd-mode, dsd-bp-warn, audio-validation, audio-exclusive*, audio-fallback*, audio-resampler-mode-idx, audio-fixed-rate-idx, audio-clock-family-idx, audio-ring-buffer-ms, audio-dsd-chain-desc, audio-fixed-fail-warn, set-*-соответствующие). Проверка: cargo check**
 - [ ] Шаг 35: src/audio/output.rs: удалить validate_audio_settings, ValidationRow/Outcome при отсутствии других потребителей и их тесты (§8 С4 «удаляется»). Проверка: cargo check; ЧЕКПОИНТ: cargo test + clippy
 - [ ] Шаг 36: Снять мост Settings.playback: LegacyPlayback: удалить поле, Settings.modes → Settings.playback: ModeSettings (02 spec §2.4 стр. 1072); остальные читатели — через legacy_path или PlaybackState. Файлы: src/persist/settings_file.rs и оставшиеся читатели (по cargo check). Проверка: cargo check
 - [ ] Шаг 37: src/settings.rs: старые перечисления (ExclusiveMode, FallbackPolicy, ResamplerMode, FallbackRatePolicy, ClockFamily, DsdMode, TargetBitDepth, TargetSampleRate, ResamplerDither::Triangular, AudioCfg.bit_perfect) перестают быть пользовательскими настройками: убрать serde и UI-индексы, удалить их toml-тесты; Triangular — удалить (§8 С4, ОВС-12). Проверка: cargo check; ЧЕКПОИНТ: cargo test + clippy
@@ -85,8 +85,8 @@
 
 Легенда: [x] сделано · [>] текущий шаг · [ ] не начато
 
-- **Текущий шаг (current_step):** Шаг 33
-- **Следующий ход:** Шаг 33: удалить старые Rust-обработчики аудио-диалога (mod.rs, ui_manager.rs)
+- **Текущий шаг (current_step):** Шаг 34
+- **Следующий ход:** Шаг 34: удалить старые аудио-свойства и колбэки из ui/settings.slint и проброс из ui/app.slint
 - **Счетчик безуспешных компиляций:** 0/3
 - **Состояние:** in_progress
 
