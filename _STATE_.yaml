@@ -47,7 +47,7 @@ steps:
     done: true
   - id: 3
     description: "src/settings/playback.rs: buffers_allowed(BufferMs, DeviceBuffer) -> Result<(), ValueBlocker> и ValueBlocker {PlayerBufferTooSmall{need_ms}, DeviceBufferTooLarge{max_ms}} — правило BufferMs ≥ 2 × DeviceBuffer (И-Р22, ТЗ-94, ТЗ-131, §6.27). Тест device_buffer_vs_ring_constraint (§7.2, стр. 1830). Проверка: cargo test settings::playback; ЧЕКПОИНТ: cargo test + clippy"
-    done: false
+    done: true
   - id: 4
     description: "src/settings/params.rs (новый, `pub mod params` в src/settings.rs): ParamId (39 вариантов §2.2), Availability, FixedValue/UnavailableWhy/SettingsAnchor (в спеке не раскрыты — минимально: показываемое значение, ключ причины, вкладка+элемент), ApplyKind, ParamDescriptor, static PARAMS по матрице 02_tz.md §5 (стр. ~1202) и столбцу применения §6.18 (стр. 2383–2415), availability(id, mode) (ТЗ-95, ОВ-28, ОВС-17). Проверка: cargo check"
     done: false
@@ -141,8 +141,8 @@ steps:
   - id: 34
     description: "Финал: cargo build/test/clippy зелёные; ROADMAP ✅; заметка плана; напомнить пользователю удалить settings.toml (ТЗ-97) и показать расхождение с 02 spec стр. 3342 (решение — за пользователем); ручные проверки (переключатель режимов, Совместимый играет, Оптимальный/Строгий через hw: на Linux). Проверка: cargo test + clippy"
     done: false
-current_step: 3
-next_action: "Шаг 3: новый субагент (sonnet, code-writer) — src/settings/playback.rs: buffers_allowed + ValueBlocker, тест device_buffer_vs_ring_constraint; ЧЕКПОИНТ cargo test + clippy"
+current_step: 4
+next_action: "Шаг 4: новый субагент (sonnet, code-writer) — src/settings/params.rs: ParamId, Availability, ParamDescriptor, PARAMS, availability()"
 fail_counter: 0
 fail_counter_max: 3
 failed_attempts: []

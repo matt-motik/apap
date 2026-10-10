@@ -136,6 +136,29 @@ impl BufferMs {
     }
 }
 
+/// Блокировка недопустимого значения буфера (ТЗ-94, ТЗ-131, И-Р22, §6.27).
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub enum ValueBlocker {
+    /// «увеличьте буфер плеера до N мс».
+    PlayerBufferTooSmall { need_ms: u16 },
+    /// «уменьшите буфер устройства до N мс».
+    DeviceBufferTooLarge { max_ms: u16 },
+}
+
+/// Проверка инварианта И-Р22: `BufferMs ≥ 2 × DeviceBuffer` — единственное правило,
+/// связывающее буфер плеера и буфер устройства Оптимального и Строгого режимов
+/// (ТЗ-94, ТЗ-131, §6.27). Диалог настроек вызывает её для каждого значения списка
+/// «Буфер устройства» и ползунка «Буфер декодирование→вывод»; `load_mode_settings`
+/// вызывает её при загрузке файла.
+pub fn buffers_allowed(buffer: BufferMs, device: DeviceBuffer) -> Result<(), ValueBlocker> {
+    let need_ms: u32 = u32::from(device.ms()) * 2;
+    if u32::from(buffer.get()) >= need_ms {
+        return Ok(());
+    }
+    let need_ms = u16::try_from(need_ms).unwrap_or(u16::MAX);
+    Err(ValueBlocker::PlayerBufferTooSmall { need_ms })
+}
+
 /// Опции всех трёх режимов. Значения неактивных режимов сохраняются (ТЗ-93,
 /// §2.2). Активный режим не хранится здесь — он снят в `PlaybackState`
 /// (ОВС-15).
@@ -332,6 +355,66 @@ mod tests {
         assert_eq!(BufferMs::new(10_000).map(BufferMs::get), Some(10_000));
         assert_eq!(BufferMs::new(99), None);
         assert_eq!(BufferMs::new(10_001), None);
+    }
+
+    /// §7.2 `device_buffer_vs_ring_constraint` (И-Р22, ТЗ-94, ТЗ-131): для каждого
+    /// `DeviceBuffer` и `BufferMs` ∈ {2·d − 1, 2·d} `buffers_allowed` отвергает
+    /// первое с `PlayerBufferTooSmall { need_ms: 2·d }` и принимает второе.
+    #[test]
+    fn device_buffer_vs_ring_constraint() {
+        let devices = [
+            DeviceBuffer::Ms20,
+            DeviceBuffer::Ms40,
+            DeviceBuffer::Ms100,
+            DeviceBuffer::Ms200,
+            DeviceBuffer::Ms400,
+        ];
+        for device in devices {
+            let need_ms = device.ms() * 2;
+            if let Some(too_small) = BufferMs::new(need_ms - 1) {
+                assert_eq!(
+                    buffers_allowed(too_small, device),
+                    Err(ValueBlocker::PlayerBufferTooSmall { need_ms })
+                );
+            }
+            if let Some(enough) = BufferMs::new(need_ms) {
+                assert_eq!(buffers_allowed(enough, device), Ok(()));
+            }
+        }
+    }
+
+    /// Граница инварианта: `Ms100` требует ровно 200 мс буфера плеера (И-Р22).
+    #[test]
+    fn buffers_allowed_ms100_boundary() {
+        let Some(boundary) = BufferMs::new(200) else {
+            panic!("200 мс в допустимом диапазоне BufferMs");
+        };
+        assert_eq!(buffers_allowed(boundary, DeviceBuffer::Ms100), Ok(()));
+
+        let Some(below) = BufferMs::new(199) else {
+            panic!("199 мс в допустимом диапазоне BufferMs");
+        };
+        assert_eq!(
+            buffers_allowed(below, DeviceBuffer::Ms100),
+            Err(ValueBlocker::PlayerBufferTooSmall { need_ms: 200 })
+        );
+    }
+
+    /// Максимум буфера устройства (`Ms400`) требует 800 мс буфера плеера (И-Р22).
+    #[test]
+    fn buffers_allowed_ms400_needs_800() {
+        let Some(enough) = BufferMs::new(800) else {
+            panic!("800 мс в допустимом диапазоне BufferMs");
+        };
+        assert_eq!(buffers_allowed(enough, DeviceBuffer::Ms400), Ok(()));
+
+        let Some(too_small) = BufferMs::new(799) else {
+            panic!("799 мс в допустимом диапазоне BufferMs");
+        };
+        assert_eq!(
+            buffers_allowed(too_small, DeviceBuffer::Ms400),
+            Err(ValueBlocker::PlayerBufferTooSmall { need_ms: 800 })
+        );
     }
 
     /// §7.2 `dsd_filter_and_comp_defaults`: по умолчанию 30 кГц и компенсация
