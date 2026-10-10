@@ -74,7 +74,7 @@ steps:
     done: true
   - id: 12
     description: "src/persist/state_file.rs: LegacyPlaybackState → PlaybackState (ключи playback.active, playback.compatible.volume/muted, playback.optimal.volume/muted, playback.strict.muted — 02 spec §2.5 стр. 1238–1243); StateChange::Volume/Muted применяются к активному режиму (Volume в Строгом — без эффекта, ТЗ-41), новый StateChange::ActiveMode(ModeKind); геттеры громкости/mute активного режима для текущих потребителей. Тесты: круговой разбор, Volume в Строгом игнорируется. Проверка: cargo test persist::state_file; ЧЕКПОИНТ: cargo test + clippy"
-    done: false
+    done: true
   - id: 13
     description: "src/engine/messages.rs + src/engine/run.rs: EngineCmd::SetModeSettings(ModeSettingsUpdate) и SetActiveMode(ModeKind) (SetLegacyAudio пока остаётся мостом); движок хранит ModeSettings + active и строит параметры пути через legacy_path; diff None → только копия; Some → по strongest (§6.18): Memory → копия; ReopenAtPosition → одно переоткрытие с позиции с сохранением playing/paused (stopped → только копия); SwitchDevice → смена устройства с позиции. Проверка: cargo check"
     done: false
@@ -141,8 +141,8 @@ steps:
   - id: 34
     description: "Финал: cargo build/test/clippy зелёные; ROADMAP ✅; заметка плана; напомнить пользователю удалить settings.toml (ТЗ-97) и показать расхождение с 02 spec стр. 3342 (решение — за пользователем); ручные проверки (переключатель режимов, Совместимый играет, Оптимальный/Строгий через hw: на Linux). Проверка: cargo test + clippy"
     done: false
-current_step: 12
-next_action: "Шаг 12: новый субагент (sonnet, code-writer) — src/persist/state_file.rs: LegacyPlaybackState → PlaybackState; ЧЕКПОИНТ"
+current_step: 13
+next_action: "Шаг 13: новый субагент (sonnet, code-writer) — engine messages/run: SetModeSettings / SetActiveMode"
 fail_counter: 0
 fail_counter_max: 3
 failed_attempts: []

@@ -2,11 +2,12 @@
 //!
 //! `SessionState` хранит состояние сессии: поля приватны, читаются через
 //! геттеры, меняются только через `apply` (`AppCore::change_state` будет
-//! вызывать его с конкретным `Origin` — С4, писатель). До С4 (01_audio_modes)
-//! `ModeKind`/`PlaybackState` нет: вместо целевого `playback.<режим>.volume` /
-//! `playback.<режим>.muted` — прежняя единая громкость/mute в
-//! `LegacyPlaybackState` (§8.1 С3: «в state.toml — прежняя одна громкость
-//! `volume` (0…100, по умолчанию 100) и `muted`»).
+//! вызывать его с конкретным `Origin` — С4, писатель). Громкость/mute
+//! хранятся как `PlaybackState` (ADR-04, ТЗ-124, ТЗ-41, ОВС-15/18) —
+//! активный режим и `ModeGain` на каждый из `Compatible`/`Optimal`, отдельный
+//! `strict_muted` для Строгого (громкости в нём нет). Потребители вне модели
+//! режимов (`playback()`) получают снимок активного режима в виде
+//! [`LegacyPlaybackState`] — он больше не хранится, а вычисляется.
 
 use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
@@ -17,6 +18,7 @@ use crate::persist::keys::{walk, FileRead, KeyPath, KeySpec, LoadNote, LoadNoteK
 use crate::persist::settings_file::ColumnsConfig;
 use crate::persist::{ReferenceText, SerializeError};
 use crate::playlist::model::{SortColumn, SortDir};
+use crate::settings::playback::{ModeGain, ModeKind, PlaybackState, Volume};
 use crate::settings::{ColumnId, RepeatMode};
 
 /// Состояние сессии (§2.5): поля приватны, снаружи — только геттеры и
@@ -27,7 +29,7 @@ use crate::settings::{ColumnId, RepeatMode};
 /// (через `window()`) они не видны и не входят в `StateChange`.
 #[derive(Clone, PartialEq, Debug)]
 pub struct SessionState {
-    playback: LegacyPlaybackState,
+    playback: PlaybackState,
     column_widths: BTreeMap<ColumnId, WidthPct>,
     sort: Option<SortKey>,
     viz_mode: VisualizationMode,
@@ -46,7 +48,7 @@ pub struct SessionState {
 impl Default for SessionState {
     fn default() -> SessionState {
         SessionState {
-            playback: LegacyPlaybackState::default(),
+            playback: PlaybackState::default(),
             column_widths: BTreeMap::new(),
             sort: None,
             viz_mode: VisualizationMode::Off,
@@ -65,8 +67,26 @@ impl Default for SessionState {
 }
 
 impl SessionState {
+    /// Снимок громкости/mute активного режима (ADR-04) для потребителей вне
+    /// модели режимов: в Строгом режиме громкости нет (ТЗ-41), поэтому
+    /// `volume` читается как 100 (полная).
     pub fn playback(&self) -> LegacyPlaybackState {
-        self.playback
+        match self.playback.active {
+            ModeKind::Compatible => LegacyPlaybackState {
+                volume: self.playback.compatible.volume.get(),
+                muted: self.playback.compatible.muted,
+            },
+            ModeKind::Optimal => LegacyPlaybackState {
+                volume: self.playback.optimal.volume.get(),
+                muted: self.playback.optimal.muted,
+            },
+            ModeKind::Strict => LegacyPlaybackState { volume: 100, muted: self.playback.strict_muted },
+        }
+    }
+
+    /// Активный режим воспроизведения (ADR-04, ТЗ-124).
+    pub fn active_mode(&self) -> ModeKind {
+        self.playback.active
     }
 
     pub fn column_widths(&self) -> &BTreeMap<ColumnId, WidthPct> {
@@ -103,8 +123,22 @@ impl SessionState {
     #[allow(dead_code)]
     pub(crate) fn apply(&mut self, ch: StateChange) {
         match ch {
-            StateChange::Volume(v) => self.playback.volume = v,
-            StateChange::Muted(m) => self.playback.muted = m,
+            // ТЗ-41: громкости в Строгом режиме нет — изменение не действует.
+            StateChange::Volume(v) => {
+                if let Some(vol) = Volume::new(v.min(100)) {
+                    match self.playback.active {
+                        ModeKind::Compatible => self.playback.compatible.volume = vol,
+                        ModeKind::Optimal => self.playback.optimal.volume = vol,
+                        ModeKind::Strict => {}
+                    }
+                }
+            }
+            StateChange::Muted(m) => match self.playback.active {
+                ModeKind::Compatible => self.playback.compatible.muted = m,
+                ModeKind::Optimal => self.playback.optimal.muted = m,
+                ModeKind::Strict => self.playback.strict_muted = m,
+            },
+            StateChange::ActiveMode(mode) => self.playback.active = mode,
             StateChange::ColumnWidths(w) => self.column_widths = w,
             StateChange::Sort(s) => self.sort = s,
             StateChange::VizMode(m) => self.viz_mode = m,
@@ -116,9 +150,10 @@ impl SessionState {
     }
 }
 
-/// Громкость/mute (§8.1 С3) до С4 (01_audio_modes): прежняя единая пара
-/// вместо целевых `playback.<режим>.volume` / `playback.<режим>.muted`.
-/// Заменяется на модель режимов, когда она появится.
+/// Снимок громкости/mute активного режима (ADR-04) для потребителей, ещё не
+/// переведённых на модель режимов (`app/mod.rs`, `bp_report.rs`,
+/// `core/testing.rs`): вычисляется из `PlaybackState` в `SessionState::playback`,
+/// больше не хранится напрямую.
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub struct LegacyPlaybackState {
     pub volume: u8,
@@ -294,13 +329,18 @@ pub enum Origin {
     Program,
 }
 
-/// Единственная форма изменения `SessionState` (И-Т7). `ActiveMode`
-/// (целевая модель режимов) опущен до С4 (01_audio_modes); `Volume`/`Muted`
-/// работают с прежней единой парой `LegacyPlaybackState` (§8.1 С3).
+/// Единственная форма изменения `SessionState` (И-Т7). `Volume`/`Muted`
+/// применяются к активному режиму (`PlaybackState::active`, ADR-04): `Volume`
+/// в Строгом режиме не действует (ТЗ-41 — громкости нет), `Muted` в Строгом
+/// режиме меняет `strict_muted`. `ActiveMode` переключает активный режим
+/// (ТЗ-124). Параметризация по конкретному режиму (целевой эскиз
+/// `Volume(ModeKind, Volume)`/`Muted(MuteTarget, bool)`, 02 §2.5) — следующий
+/// шаг; пока `Volume`/`Muted` неявно адресуют активный режим.
 #[derive(Clone, PartialEq, Debug)]
 pub enum StateChange {
     Volume(u8),
     Muted(bool),
+    ActiveMode(ModeKind),
     ColumnWidths(BTreeMap<ColumnId, WidthPct>),
     /// `None` — снять ключ сортировки (ТЗ-42).
     Sort(Option<SortKey>),
@@ -360,19 +400,78 @@ where
     }
 }
 
-/// `volume`/`muted` (§8.1 С3): прежняя единая пара вместо
-/// `playback.<режим>.volume`/`playback.<режим>.muted` (целевая модель, до
-/// С4 01_audio_modes).
-fn legacy_playback_specs() -> Vec<KeySpec<SessionState>> {
+/// 100% громкости через безопасный конструктор `ModeGain::default` (ОВ-5,
+/// ТЗ-124): `Volume` не допускает прямого `Volume(100)` снаружи своего
+/// модуля (поле приватно, И-Т15), а `Volume::new(100).unwrap()` запрещён
+/// правилами аудио-движка.
+fn full_volume() -> Volume {
+    ModeGain::default().volume
+}
+
+/// `playback.<режим>.volume` (02 §2.5, ТЗ-129): целое 0..=100. `Volume` не
+/// реализует `Deserialize` (И-Т15), поэтому разбор вручную — по образцу
+/// `column_width_specs`/`window_specs`.
+fn volume_spec(path: &'static str, get: impl Fn(&mut SessionState) -> &mut Volume + Clone + 'static) -> KeySpec<SessionState> {
+    KeySpec {
+        path: path.to_string(),
+        optional: false,
+        read: Box::new({
+            let get = get.clone();
+            move |v, t: &mut SessionState| {
+                let n = v.as_integer().ok_or("целое 0..=100")?;
+                let pct = u8::try_from(n).map_err(|_| "целое 0..=100")?;
+                let vol = Volume::new(pct).ok_or("целое 0..=100")?;
+                *get(t) = vol;
+                Ok(())
+            }
+        }),
+        default: Box::new(move |t: &mut SessionState| *get(t) = full_volume()),
+    }
+}
+
+/// `playback.*` (02 §2.5, ADR-04, ТЗ-124, ТЗ-41, ОВС-15/18): активный режим
+/// (`active`) и громкость/mute Совместимого и Оптимального (`ModeGain`),
+/// только mute у Строгого (громкости там нет). Заменяет прежнюю единую пару
+/// `volume`/`muted` (01_audio_modes, С4).
+fn playback_specs() -> Vec<KeySpec<SessionState>> {
     vec![
-        leaf_checked(
-            "volume",
-            |t: &mut SessionState| &mut t.playback.volume,
-            100,
-            "целое 0..=100",
-            |v: &u8| *v <= 100,
+        KeySpec {
+            path: "playback.active".to_string(),
+            optional: false,
+            read: Box::new(|v, t: &mut SessionState| {
+                let s = v.as_str().ok_or("\"compatible\"/\"optimal\"/\"strict\"")?;
+                t.playback.active = match s {
+                    "compatible" => ModeKind::Compatible,
+                    "optimal" => ModeKind::Optimal,
+                    "strict" => ModeKind::Strict,
+                    _ => return Err("\"compatible\"/\"optimal\"/\"strict\""),
+                };
+                Ok(())
+            }),
+            default: Box::new(|t: &mut SessionState| t.playback.active = ModeKind::Compatible),
+        },
+        volume_spec("playback.compatible.volume", |t: &mut SessionState| {
+            &mut t.playback.compatible.volume
+        }),
+        leaf(
+            "playback.compatible.muted",
+            |t: &mut SessionState| &mut t.playback.compatible.muted,
+            false,
+            "bool",
         ),
-        leaf("muted", |t: &mut SessionState| &mut t.playback.muted, false, "bool"),
+        volume_spec("playback.optimal.volume", |t: &mut SessionState| &mut t.playback.optimal.volume),
+        leaf(
+            "playback.optimal.muted",
+            |t: &mut SessionState| &mut t.playback.optimal.muted,
+            false,
+            "bool",
+        ),
+        leaf(
+            "playback.strict.muted",
+            |t: &mut SessionState| &mut t.playback.strict_muted,
+            false,
+            "bool",
+        ),
     ]
 }
 
@@ -567,7 +666,7 @@ fn last_dir_spec() -> KeySpec<SessionState> {
 /// напрямую тестом §7.2 `settings_and_state_keys_disjoint_and_cover_lists`
 /// (ТЗ-2).
 pub(crate) fn state_spec() -> Vec<KeySpec<SessionState>> {
-    let mut specs = legacy_playback_specs();
+    let mut specs = playback_specs();
     specs.extend(column_width_specs());
     specs.extend(sort_specs());
     specs.push(leaf(
@@ -676,6 +775,31 @@ pub fn parse_state(read: FileRead) -> Parsed<SessionState> {
     Parsed::Parsed { value, notes, reference: ReferenceText::of(bytes) }
 }
 
+/// DTO `playback.compatible`/`playback.optimal` для сериализации (02 §2.5,
+/// §2.6, ADR-04): громкость и mute режима вместе.
+#[derive(serde::Serialize)]
+struct ModeGainDto {
+    volume: u8,
+    muted: bool,
+}
+
+/// DTO `playback.strict` для сериализации (02 §2.5, §2.6, ТЗ-41, ОВС-18):
+/// только mute — громкости в Строгом режиме нет.
+#[derive(serde::Serialize)]
+struct StrictDto {
+    muted: bool,
+}
+
+/// DTO `playback.*` для сериализации (02 §2.5, §2.6, ADR-04): `active` —
+/// скаляр перед вложенными таблицами режимов (TOML требует такой порядок).
+#[derive(serde::Serialize)]
+struct PlaybackDto {
+    active: &'static str,
+    compatible: ModeGainDto,
+    optimal: ModeGainDto,
+    strict: StrictDto,
+}
+
 /// DTO `columns.widths.*` для сериализации (§2.5, §2.6): `widths` —
 /// `BTreeMap` (ОВ-2, ADR-2), запись только для колонок с заданной шириной.
 #[derive(serde::Serialize)]
@@ -721,17 +845,16 @@ struct WindowDto {
 /// DTO записи `state.toml` (§2.6). Порядок полей — не буквальный порядок
 /// таблицы §2.5: TOML требует все скалярные ключи до первой вложенной
 /// таблицы, иначе они достанутся последней открытой `[table]`. Поэтому
-/// сперва идут скаляры §2.5 (`volume`, `muted`, `repeat`, `shuffle`,
-/// `last_dir`) в их исходном относительном порядке, затем таблицы
-/// (`columns`, `sort`, `visualization`, `window`) — тоже в порядке §2.5.
+/// сперва идут скаляры §2.5 (`repeat`, `shuffle`, `last_dir`) в их исходном
+/// относительном порядке, затем таблицы (`playback`, `columns`, `sort`,
+/// `visualization`, `window`) — тоже в порядке §2.5.
 #[derive(serde::Serialize)]
 struct StateFile<'a> {
-    volume: u8,
-    muted: bool,
     repeat: &'static str,
     shuffle: bool,
     #[serde(skip_serializing_if = "Option::is_none")]
     last_dir: Option<&'a str>,
+    playback: PlaybackDto,
     columns: ColumnsDto,
     sort: SortDto,
     visualization: VisualizationDto,
@@ -757,8 +880,6 @@ pub fn serialize_state(s: &SessionState) -> Result<Arc<[u8]>, SerializeError> {
     };
 
     let dto = StateFile {
-        volume: s.playback.volume,
-        muted: s.playback.muted,
         repeat: match s.repeat {
             RepeatMode::Off => "off",
             RepeatMode::All => "all",
@@ -766,6 +887,22 @@ pub fn serialize_state(s: &SessionState) -> Result<Arc<[u8]>, SerializeError> {
         },
         shuffle: s.shuffle,
         last_dir: s.last_dir.as_deref().and_then(Path::to_str),
+        playback: PlaybackDto {
+            active: match s.playback.active {
+                ModeKind::Compatible => "compatible",
+                ModeKind::Optimal => "optimal",
+                ModeKind::Strict => "strict",
+            },
+            compatible: ModeGainDto {
+                volume: s.playback.compatible.volume.get(),
+                muted: s.playback.compatible.muted,
+            },
+            optimal: ModeGainDto {
+                volume: s.playback.optimal.volume.get(),
+                muted: s.playback.optimal.muted,
+            },
+            strict: StrictDto { muted: s.playback.strict_muted },
+        },
         columns: ColumnsDto { widths },
         sort: SortDto { column: sort_column, direction: sort_direction },
         visualization: VisualizationDto { mode: s.viz_mode },
@@ -865,13 +1002,31 @@ mod tests {
 
     #[test]
     fn volume_out_of_range_falls_back_to_default() {
-        let (value, notes) = parsed(bytes("volume = 150\nmuted = false\nrepeat = \"off\"\nshuffle = false\n"));
-        assert_eq!(value.playback.volume, 100);
-        let note = notes.iter().find(|n| n.key == KeyPath::new("volume")).expect("note present");
+        let (value, notes) = parsed(bytes(
+            "playback.active = \"compatible\"\nplayback.compatible.volume = 150\nplayback.compatible.muted = false\nplayback.optimal.volume = 100\nplayback.optimal.muted = false\nplayback.strict.muted = false\nrepeat = \"off\"\nshuffle = false\n",
+        ));
+        assert_eq!(value.playback().volume, 100);
+        let note = notes
+            .iter()
+            .find(|n| n.key == KeyPath::new("playback.compatible.volume"))
+            .expect("note present");
         match &note.kind {
             LoadNoteKind::Invalid { allowed, .. } => assert_eq!(*allowed, "целое 0..=100"),
             other => panic!("unexpected note kind: {other:?}"),
         }
+    }
+
+    /// Громкость вне 0..=100 в Оптимальном режиме: заметка `Invalid`, откат
+    /// на 100% (ОВ-5) — тот же путь, что и для Совместимого.
+    #[test]
+    fn volume_out_of_range_optimal_falls_back_to_default() {
+        let (value, notes) = parsed(bytes("playback.active = \"optimal\"\nplayback.optimal.volume = 255\n"));
+        assert_eq!(value.playback().volume, 100);
+        let note = notes
+            .iter()
+            .find(|n| n.key == KeyPath::new("playback.optimal.volume"))
+            .expect("note present");
+        assert!(matches!(note.kind, LoadNoteKind::Invalid { .. }));
     }
 
     #[test]
@@ -1021,6 +1176,9 @@ mod tests {
         state.apply(StateChange::Muted(true));
         assert!(state.playback().muted);
 
+        state.apply(StateChange::ActiveMode(ModeKind::Optimal));
+        assert_eq!(state.active_mode(), ModeKind::Optimal);
+
         let mut widths = BTreeMap::new();
         widths.insert(ColumnId::Title, WidthPct::new(50.0).expect("valid"));
         state.apply(StateChange::ColumnWidths(widths.clone()));
@@ -1051,6 +1209,38 @@ mod tests {
 
         state.apply(StateChange::LastDir(PathBuf::from("/music")));
         assert_eq!(state.last_dir(), Some(Path::new("/music")));
+    }
+
+    /// ТЗ-41: громкости в Строгом режиме нет — `StateChange::Volume` не
+    /// действует, когда активен Строгий режим (`Muted` — единственный рычаг).
+    #[test]
+    fn strict_mode_ignores_volume_change() {
+        let mut state = SessionState::default();
+        state.apply(StateChange::ActiveMode(ModeKind::Strict));
+        state.apply(StateChange::Volume(13));
+        assert_eq!(state.playback().volume, 100);
+
+        state.apply(StateChange::Muted(true));
+        assert!(state.playback().muted);
+    }
+
+    /// `ActiveMode` переключает режим (ТЗ-124), после чего `Volume`/`Muted`
+    /// адресуют именно его `ModeGain`, не трогая остальные режимы.
+    #[test]
+    fn active_mode_then_volume_applies_to_new_mode() {
+        let mut state = SessionState::default();
+        state.apply(StateChange::Volume(42));
+        state.apply(StateChange::ActiveMode(ModeKind::Optimal));
+        state.apply(StateChange::Volume(77));
+        state.apply(StateChange::Muted(true));
+
+        assert_eq!(state.active_mode(), ModeKind::Optimal);
+        assert_eq!(state.playback().volume, 77);
+        assert!(state.playback().muted);
+
+        state.apply(StateChange::ActiveMode(ModeKind::Compatible));
+        assert_eq!(state.playback().volume, 42);
+        assert!(!state.playback().muted);
     }
 
     #[test]
@@ -1163,12 +1353,21 @@ mod tests {
     }
 
     /// `SessionState` отличное от значений по умолчанию во всех разделах
-    /// §2.5: громкость/mute, ширины колонок, сортировка, визуализация,
+    /// §2.5: активный режим и громкость/mute Совместимого, Оптимального и
+    /// Строгого режимов (ADR-04), ширины колонок, сортировка, визуализация,
     /// повтор/перемешивание, геометрия окна, последний каталог.
     fn non_default_state() -> SessionState {
         let mut s = SessionState::default();
         s.apply(StateChange::Volume(42));
         s.apply(StateChange::Muted(true));
+        s.apply(StateChange::ActiveMode(ModeKind::Optimal));
+        s.apply(StateChange::Volume(77));
+        s.apply(StateChange::Muted(true));
+        s.apply(StateChange::ActiveMode(ModeKind::Strict));
+        s.apply(StateChange::Muted(true));
+        // Финальный активный режим — Оптимальный (не Compatible по умолчанию),
+        // чтобы round-trip проверял и сериализацию `playback.active`.
+        s.apply(StateChange::ActiveMode(ModeKind::Optimal));
 
         let mut widths = BTreeMap::new();
         widths.insert(ColumnId::Title, WidthPct::new(50.0).expect("valid"));
@@ -1226,10 +1425,14 @@ mod tests {
     /// §7.2 `settings_and_state_keys_disjoint_and_cover_lists` (ТЗ-2): тест
     /// сравнивает множества путей таблиц `KeySpec` (`settings_spec()` из
     /// `settings_file.rs` и `state_spec()` выше, обе `pub(crate)`) —
-    /// пересечение пусто, а объединение покрывает семейства ключей §2.4/§2.5
-    /// (без `[playback]`/`playback.<режим>.*` — целевая модель 01_audio_modes,
-    /// до С4 их замещают легаси `audio.*`/`dsd.*`/`audio_device` и
-    /// `volume`/`muted`).
+    /// пересечение пусто, а объединение покрывает семейства ключей §2.4/02 §2.5,
+    /// включая `playback.active`/`playback.<режим>.*` (ADR-04, С4
+    /// 01_audio_modes). `settings_spec()` не содержит `playback.*` —
+    /// `[playback]` (`ModeSettings`) разбирается отдельно через `PlaybackDto`
+    /// и извлекается из таблицы до `settings_spec`/`walk`
+    /// (`settings_file.rs::parse_settings`), поэтому пересечение путей пусто.
+    /// `audio_device`/`audio.*`/`dsd.*` в `settings_keys` больше нет — поля
+    /// `[audio]`/`[dsd]`/`audio_device` удалены (01_audio_modes, §8.1 С3).
     #[test]
     fn settings_and_state_keys_disjoint_and_cover_lists() {
         use crate::persist::settings_file::settings_spec;
@@ -1252,11 +1455,10 @@ mod tests {
             "cover_priority",
             "cover_folder_names",
             "cover_online",
-            "audio_device",
         ] {
             assert!(settings_keys.contains(key), "missing settings key {key}");
         }
-        for prefix in ["columns.", "info_labels.", "visualization.", "audio.", "dsd."] {
+        for prefix in ["columns.", "info_labels.", "visualization."] {
             assert!(settings_keys.iter().any(|k| k.starts_with(prefix)), "missing settings key family {prefix}");
         }
         for suffix in [".title", ".priority", ".min_width", ".max_width", ".max_width_percent", ".visible", ".column_type"] {
@@ -1266,10 +1468,19 @@ mod tests {
             );
         }
 
-        for key in ["volume", "muted", "repeat", "shuffle", "visualization.mode", "last_dir"] {
+        for key in [
+            "playback.active",
+            "playback.compatible.muted",
+            "playback.optimal.muted",
+            "playback.strict.muted",
+            "repeat",
+            "shuffle",
+            "visualization.mode",
+            "last_dir",
+        ] {
             assert!(state_keys.contains(key), "missing state key {key}");
         }
-        for prefix in ["columns.widths.", "sort.", "window."] {
+        for prefix in ["playback.compatible.", "playback.optimal.", "columns.widths.", "sort.", "window."] {
             assert!(state_keys.iter().any(|k| k.starts_with(prefix)), "missing state key family {prefix}");
         }
     }

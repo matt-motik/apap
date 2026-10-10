@@ -526,6 +526,8 @@ mod tests {
     use crate::playlist::compare::{compare_keys, CompareKeys};
     use crate::playlist::model::SortKey;
     use crate::playlist::Track;
+    use crate::audio::backend::SharedDeviceId;
+    use crate::settings::playback::{SharedDeviceChoice, SrcFilter};
     use crate::settings::{ColumnId, RepeatMode, ResamplerAlgorithm};
     use std::future::Future;
     use std::pin::Pin;
@@ -677,12 +679,17 @@ mod tests {
 
     /// Три заметки одного файла — одна запись `LoadNotes` (ТЗ-5, §6.1,
     /// §7.2 `parse_by_keys_three_notes`): отсутствующий обязательный ключ
-    /// (`muted`), недопустимое значение (`volume`), неизвестный ключ (`bogus`).
+    /// (`playback.compatible.muted`), недопустимое значение
+    /// (`playback.compatible.volume`), неизвестный ключ (`bogus`).
     #[test]
     fn parse_by_keys_three_notes() {
         let h = Harness::new();
         h.put_state(
-            b"volume = 200\nrepeat = \"off\"\nshuffle = false\nbogus = 1\n\n\
+            b"repeat = \"off\"\nshuffle = false\nbogus = 1\n\n\
+              [playback]\nactive = \"compatible\"\n\n\
+              [playback.compatible]\nvolume = 200\n\n\
+              [playback.optimal]\nvolume = 50\nmuted = false\n\n\
+              [playback.strict]\nmuted = false\n\n\
               [visualization]\nmode = \"off\"\n\n\
               [window]\nmaximized = false\nfullscreen = false\nunits = \"physical\"\n",
         );
@@ -893,7 +900,12 @@ mod tests {
         // писателя делает счётчик записей недетерминированным.
         for block in 0..20u32 {
             for i in 0..6u16 {
-                let volume = u8::try_from((block * 6 + u32::from(i)) % 256).expect("fits u8");
+                // `% 100 + 1` держит значение в допустимом диапазоне громкости
+                // 0..=100 (И-Т15) и меняется на каждом вызове (соседние члены
+                // последовательности никогда не совпадают), так что каждый
+                // `change_state` — настоящее изменение, взводящее дедлайн.
+                let n = block * 6 + u32::from(i);
+                let volume = u8::try_from(n % 100 + 1).expect("fits u8");
                 core.change_state(Origin::User, StateChange::Volume(volume));
                 h.advance(&mut core, Duration::from_secs(5));
             }
@@ -1184,8 +1196,8 @@ mod tests {
 
         let mut settings = core.settings().clone();
         settings.theme = ThemeName::new("dark").expect("valid theme name");
-        settings.playback.audio_device = "hw:1,0".to_string();
-        settings.playback.audio.resampler.algorithm = ResamplerAlgorithm::SincFast;
+        settings.modes.compatible.device = SharedDeviceChoice::Named(SharedDeviceId::new("hw:1,0"));
+        settings.modes.compatible.src_filter = SrcFilter::Slow;
         core.save_settings_now(settings);
         h.settle(&mut core);
 
@@ -1193,8 +1205,8 @@ mod tests {
         let bytes = h.disk_bytes(WorkFile::Settings).expect("settings written");
         let text = String::from_utf8(bytes).expect("settings.toml is valid utf-8");
         assert!(text.contains("theme = \"dark\""));
-        assert!(text.contains("audio_device = \"hw:1,0\""));
-        assert!(text.contains("[audio.resampler]\nalgorithm = \"sinc_fast\""));
+        assert!(text.contains("device = \"hw:1,0\""));
+        assert!(text.contains("src_filter = \"slow\""));
     }
 
     /// «Сохранить» без изменений относительно текущего состояния — запись
@@ -1538,7 +1550,7 @@ mod tests {
 
             core.change_state(Origin::User, StateChange::Volume(42));
             let mut settings = core.settings().clone();
-            settings.playback.audio_device = "hw:1,0".into();
+            settings.modes.compatible.device = SharedDeviceChoice::Named(SharedDeviceId::new("hw:1,0"));
             core.set_settings(settings);
 
             let outcome = core.exit(reason, &mut || true);
@@ -1591,7 +1603,7 @@ mod tests {
 
         core.change_state(Origin::User, StateChange::Volume(42));
         let mut settings = core.settings().clone();
-        settings.playback.audio_device = "hw:1,0".into();
+        settings.modes.compatible.device = SharedDeviceChoice::Named(SharedDeviceId::new("hw:1,0"));
         core.set_settings(settings);
 
         let outcome = core.exit(ExitReason::WindowClose, &mut || false);
