@@ -74,6 +74,9 @@ pub struct LoadCtl {
     sort: Option<SortKey>,
     tx: Sender<LoadOutcome>,
     rx: Receiver<LoadOutcome>,
+    /// Номер попытки экспорта (ADR-17, §6.18, ТЗ-13 а): растёт на каждый
+    /// вызов «Сохранить плейлист», независимо от прежних удач и неудач.
+    export_attempt: u64,
 }
 
 impl Default for LoadCtl {
@@ -86,7 +89,7 @@ impl LoadCtl {
     /// Канал создаётся один раз при построении `AppCore` (ADR-16).
     pub fn new() -> LoadCtl {
         let (tx, rx) = mpsc::channel();
-        LoadCtl { state: LoadState::Idle, gen: LoadGen::default(), sort: None, tx, rx }
+        LoadCtl { state: LoadState::Idle, gen: LoadGen::default(), sort: None, tx, rx, export_attempt: 0 }
     }
 }
 
@@ -227,6 +230,21 @@ impl AppCore {
             }
         }
     }
+
+    /// Экспорт «Сохранить плейлист» (ADR-17, §6.18, ТЗ-13 а, ТЗ-20): текст
+    /// строится из видимого порядка таблицы (без перестановки Shuffle) и
+    /// уходит писателю одной попыткой; `PersistTracker` и флаг «плейлист
+    /// изменён» экспорт не трогает, запись разрешена даже если запись
+    /// рабочего `playlist.m3u` под запретом (случай 3 ОВ-8 — это не он).
+    /// Без `deps` (мост) — без эффекта.
+    pub fn export(&mut self, path: PathBuf) {
+        let Some(deps) = &self.deps else { return };
+        self.load.export_attempt += 1;
+        let attempt = self.load.export_attempt;
+        let playlist = self.playlist();
+        let bytes = crate::playlist::serialize_extm3u(playlist.visible().iter().filter_map(|&id| playlist.get(id)));
+        deps.writer.send(WriterCmd::Export { attempt, path, bytes });
+    }
 }
 
 /// Случай 2 ОВ-8/ТЗ-21: повреждённый `playlist.m3u` успешно перемещён в
@@ -278,6 +296,18 @@ pub(super) fn command_unreadable_message(path: &Path, os_text: &str) -> Message 
             os_text
         )
         .into(),
+        buttons: MessageButtons::Ok,
+    }
+}
+
+/// Экспорт «Сохранить плейлист» (ADR-17, §6.18, ТЗ-13 а, ТЗ-20): ошибка
+/// записи файла экспорта — отдельное окно Error на эту попытку, без
+/// дедупликации.
+pub(super) fn export_failed_message(path: &Path, os_text: &str) -> Message {
+    Message {
+        level: MessageLevel::Error,
+        title: "Не удалось сохранить плейлист".into(),
+        body: format!("Файл {} не удалось записать ({}).", path.display(), os_text).into(),
         buttons: MessageButtons::Ok,
     }
 }

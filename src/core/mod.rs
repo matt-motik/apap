@@ -462,6 +462,20 @@ impl AppCore {
                     messages.push(load::playlist_unreadable_message(&err.path, &err.os_text));
                     true
                 }
+                // Экспорт «Сохранить плейлист» (ADR-17, §6.18, ТЗ-13 а):
+                // успех не показывает сообщений (ТЗ-52) и не идёт в
+                // `PersistTracker` — экспорт его не касается.
+                WriterReply::Exported { .. } => true,
+                // Ошибка экспорта — окно Error на эту попытку (ТЗ-13 а,
+                // ТЗ-20), без дедупликации; `PersistTracker` не трогаем.
+                WriterReply::ExportFailed { err, .. } => {
+                    deps.journal.record(JournalRecord::WriteFailed {
+                        target: WriteTarget::Export(err.path.clone()),
+                        err: err.clone(),
+                    });
+                    messages.push(load::export_failed_message(&err.path, &err.os_text));
+                    true
+                }
                 _ => false,
             };
             if handled {

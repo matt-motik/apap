@@ -52,7 +52,7 @@ steps:
     done: true
   - id: 10
     description: "src/core/load.rs: AppCore::export(path) → WriterCmd::Export { attempt } из видимого порядка; ExportFailed → Error на попытку, Exported → ничего; PersistTracker не трогается (ADR-17, §6.18, ТЗ-13 а, ТЗ-20). Проверка: cargo check"
-    done: false
+    done: true
   - id: 11
     description: "Тесты экспорта: export_writes_visible_order_with_extinf, export_error_window_per_attempt, export_success_no_window в src/core/testing.rs; export_is_atomic в src/persist/writer.rs (ТЗ-13 а, ТЗ-18, ТЗ-20, §7). Проверка: cargo test export"
     done: false
@@ -71,8 +71,8 @@ steps:
   - id: 16
     description: "ЧЕКПОИНТ финальный: cargo test + cargo clippy (0 новых варнингов в файлах вайтлиста); cargo build"
     done: false
-current_step: 10
-next_action: "Шаг 10: AppCore::export(path) → WriterCmd::Export; ExportFailed → Error на попытку (ADR-17, §6.18, ТЗ-13 а)"
+current_step: 11
+next_action: "Шаг 11: тесты экспорта (export_writes_visible_order_with_extinf, export_error_window_per_attempt, export_success_no_window, export_is_atomic); ЧЕКПОИНТ"
 fail_counter: 0
 fail_counter_max: 3
 failed_attempts: []
