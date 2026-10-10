@@ -18,6 +18,11 @@ export component MessageWindow inherits Rectangle {
     in property <string> title: "";
     in property <string> body: "";
     in property <bool> retry: false;
+    // Непустое значение (ТЗ-111, ADR-13) показывает ту же доп. кнопку, что и
+    // `retry`, но с этим текстом вместо «Повторить» (например,
+    // «Переключить в Совместимый режим»); нажатие вызывает `primary`,
+    // «OK» — `close`.
+    in property <string> primary-label: "";
 
     callback primary();
     callback close();
@@ -111,8 +116,8 @@ export component MessageWindow inherits Rectangle {
                         spacing: 8px;
                         alignment: end;
 
-                        if root.retry: Button {
-                            text: "Повторить";
+                        if root.retry || root.primary-label != "": Button {
+                            text: root.primary-label != "" ? root.primary-label : "Повторить";
                             preferred-height: 28px;
                             clicked => { root.primary(); }
                         }
@@ -121,7 +126,7 @@ export component MessageWindow inherits Rectangle {
                             text: "OK";
                             preferred-height: 28px;
                             clicked => {
-                                if (root.retry) {
+                                if (root.retry || root.primary-label != "") {
                                     root.close();
                                 } else {
                                     root.primary();

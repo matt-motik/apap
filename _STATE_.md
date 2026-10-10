@@ -68,8 +68,8 @@
 - [x] Шаг 23: Slint: свойство volume-enabled (in bool, по умолчанию true) в TopPanel (ui/top_panel.slint) с пробросом в AppWindow (ui/app.slint); ползунок громкости неактивен при false, mute остаётся активным (ТЗ-41, ADR-23, §6.18). Проверка: cargo check
 - [x] Шаг 24: Rust: ui.set_volume_enabled(!volume_locked()) в sync_mode_to_ui/apply_mode_gain и после сохранения volume_lock (src/app/mod.rs, src/app/playback_manager.rs) (ТЗ-41, ADR-23). Проверка: cargo check
 - [x] Шаг 25: src/core/messages.rs: MessageButtons::SwitchCompatibleOk и CloseEffect::SwitchToCompatible — Primary на Plain-сообщении с этим набором кнопок закрывает окно и возвращает SwitchToCompatible, Close — Closed (ТЗ-111, ADR-13, §6.15, §6.2 п. 5). Тесты ≤3. Проверка: cargo test core::messages
-- [>] **Шаг 26: Slint: подпись основной кнопки окна сообщения — in property primary-label (string) в ui/message_window.slint вместо жёсткого «Повторить»/«OK» для варианта переключения, проброс msg-primary-label из ui/app.slint (ТЗ-111, ADR-13). Проверка: cargo check**
-- [ ] Шаг 27: Rust (src/app/mod.rs): ТЗ-111 — при старте, если сохранённый режим недоступен (backend_caps), и на OpenFailed(ModeUnavailable) (стоп без пропуска треков): сообщение «на этой платформе доступен только Совместимый режим (Shared), для воспроизведения переключите режим» с кнопкой «Переключить в Совместимый режим»; CloseEffect::SwitchToCompatible → тот же путь, что select-mode(0); режим сам не меняется (§6.2 п. 5). Проверка: cargo check
+- [x] Шаг 26: Slint: подпись основной кнопки окна сообщения — in property primary-label (string) в ui/message_window.slint вместо жёсткого «Повторить»/«OK» для варианта переключения, проброс msg-primary-label из ui/app.slint (ТЗ-111, ADR-13). Проверка: cargo check
+- [>] **Шаг 27: Rust (src/app/mod.rs): ТЗ-111 — при старте, если сохранённый режим недоступен (backend_caps), и на OpenFailed(ModeUnavailable) (стоп без пропуска треков): сообщение «на этой платформе доступен только Совместимый режим (Shared), для воспроизведения переключите режим» с кнопкой «Переключить в Совместимый режим»; CloseEffect::SwitchToCompatible → тот же путь, что select-mode(0); режим сам не меняется (§6.2 п. 5). Проверка: cargo check**
 - [ ] Шаг 28: src/core/testing.rs: тесты mode_settings_preserved_across_switch_and_restart (стр. 2886) и load_correction_not_written_until_save (стр. 2922). Проверка: cargo test core::; ЧЕКПОИНТ: cargo test + clippy
 - [ ] Шаг 29: src/app/mode_dialog.rs (новый, `mod mode_dialog` в src/app/mod.rs): чистый построитель строк диалога для режима из PARAMS/Availability и ModeSettings: подпись, вид (список/переключатель/ползунок), варианты с запретом и подсказкой (buffers_allowed для двух буферов, min-phase SrcFilter и «ремодуляция» как NotImplemented), FixedByMode — значение и «задано режимом», Unavailable — причина (§6.27, ТЗ-95, ТЗ-128…131, И-Т19). Тесты ≤5. Проверка: cargo test mode_dialog
 - [ ] Шаг 30: src/app/mode_dialog.rs: apply_edit(&mut ModeSettings, ModeKind, ParamId, значение) — изменение черновика из строки диалога; недопустимое сочетание буферов не применяется (ТЗ-94). Тесты ≤4. Проверка: cargo test mode_dialog
@@ -85,8 +85,8 @@
 
 Легенда: [x] сделано · [>] текущий шаг · [ ] не начато
 
-- **Текущий шаг (current_step):** Шаг 26
-- **Следующий ход:** Шаг 26: Slint — primary-label в ui/message_window.slint, проброс msg-primary-label из ui/app.slint
+- **Текущий шаг (current_step):** Шаг 27
+- **Следующий ход:** Шаг 27: Rust (src/app/mod.rs) — уведомление ТЗ-111 на старте и при OpenFailed(ModeUnavailable), SwitchToCompatible → путь select-mode(0)
 - **Счетчик безуспешных компиляций:** 0/3
 - **Состояние:** in_progress
 

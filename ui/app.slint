@@ -231,6 +231,7 @@ export component AppWindow inherits Window {
     in property <string> msg-title: "";
     in property <string> msg-body: "";
     in property <bool> msg-retry: false;
+    in property <string> msg-primary-label: "";
     callback msg-primary();
     callback msg-close();
     in property <bool> bp-report-open: false;
@@ -868,6 +869,7 @@ export component AppWindow inherits Window {
         title: root.msg-title;
         body: root.msg-body;
         retry: root.msg-retry;
+        primary-label: root.msg-primary-label;
         primary => { root.msg-primary(); }
         close => { root.msg-close(); }
     }

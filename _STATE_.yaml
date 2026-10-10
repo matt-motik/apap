@@ -119,7 +119,7 @@ steps:
     done: true
   - id: 26
     description: "Slint: подпись основной кнопки окна сообщения — in property primary-label (string) в ui/message_window.slint вместо жёсткого «Повторить»/«OK» для варианта переключения, проброс msg-primary-label из ui/app.slint (ТЗ-111, ADR-13). Проверка: cargo check"
-    done: false
+    done: true
   - id: 27
     description: "Rust (src/app/mod.rs): ТЗ-111 — при старте, если сохранённый режим недоступен (backend_caps), и на OpenFailed(ModeUnavailable) (стоп без пропуска треков): сообщение «на этой платформе доступен только Совместимый режим (Shared), для воспроизведения переключите режим» с кнопкой «Переключить в Совместимый режим»; CloseEffect::SwitchToCompatible → тот же путь, что select-mode(0); режим сам не меняется (§6.2 п. 5). Проверка: cargo check"
     done: false
@@ -159,8 +159,8 @@ steps:
   - id: 39
     description: "Финал: cargo build/test/clippy зелёные; ROADMAP ✅; заметка плана; напомнить пользователю удалить settings.toml (ТЗ-97) и показать расхождение с 02 spec стр. 3342 (решение — за пользователем); ручные проверки (переключатель режимов, Совместимый играет, Оптимальный/Строгий через hw: на Linux). Проверка: cargo test + clippy"
     done: false
-current_step: 26
-next_action: "Шаг 26: Slint — primary-label в ui/message_window.slint, проброс msg-primary-label из ui/app.slint"
+current_step: 27
+next_action: "Шаг 27: Rust (src/app/mod.rs) — уведомление ТЗ-111 на старте и при OpenFailed(ModeUnavailable), SwitchToCompatible → путь select-mode(0)"
 fail_counter: 0
 fail_counter_max: 3
 failed_attempts: []
