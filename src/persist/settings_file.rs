@@ -11,6 +11,8 @@ use std::time::Duration;
 use crate::audio::visualizer::{defaults, OscilloscopeCfg, SpectrogramCfg, SpectrumCfg, VizSettings};
 use crate::persist::keys::{walk, FileRead, KeyPath, KeySpec, LoadNote, LoadNoteKind, Parsed};
 use crate::persist::{ReferenceText, SerializeError};
+use crate::settings::playback::ModeSettings;
+use crate::settings::playback_dto::{load_mode_settings, playback_dto, PlaybackDto};
 use crate::settings::{AudioCfg, ColumnId, CoverSource, DsdCfg, DsdMode};
 
 /// Содержимое `settings.toml` (ТЗ-2, §2.4): параметры окна настроек, меняются
@@ -26,9 +28,15 @@ pub struct Settings {
     pub covers: CoverSettings,
     pub info_labels: BTreeMap<InfoLabelKey, String>,
     pub visualization: VizSettings,
-    /// Раздел `[playback]` (§2.4): до С4 (01_audio_modes) — старые `[audio]`,
-    /// `[dsd]`, `audio_device`; далее заменяется на `ModeSettings`/`PlaybackDto`.
+    /// Временный мост до чистки С4+ (01_audio_modes, §8.1): старые `[audio]`,
+    /// `[dsd]`, `audio_device` больше не читаются и не пишутся — поле всегда
+    /// `LegacyPlayback::default()` после загрузки и не участвует в
+    /// сериализации; остаётся только потому, что его читают другие модули.
     pub playback: LegacyPlayback,
+    /// Раздел `[playback]` (02 §2.4, §6.27 (01_audio_modes), ADR-04):
+    /// настройки трёх режимов воспроизведения. Загружается через
+    /// `load_mode_settings`, сохраняется через `playback_dto` (02 §2.6).
+    pub modes: ModeSettings,
 }
 
 impl Default for Settings {
@@ -44,6 +52,7 @@ impl Default for Settings {
             info_labels: default_info_labels(),
             visualization: VizSettings::default(),
             playback: LegacyPlayback::default(),
+            modes: ModeSettings::default(),
         }
     }
 }
@@ -394,10 +403,10 @@ impl Settings {
     }
 }
 
-/// Раздел `[playback]` (§2.4) до С4 (01_audio_modes): старые `[audio]`,
-/// `[dsd]`, `audio_device` (`src/settings.rs:694-819`). Заменяется на
-/// `ModeSettings`/`PlaybackDto` (ADR-04, ТЗ-8 (01_audio_modes)), когда
-/// появится модель режимов.
+/// Старые `[audio]`, `[dsd]`, `audio_device` (`src/settings.rs:694-819`),
+/// замещённые в файле разделом `[playback]`/`ModeSettings` (ADR-04, §2.4,
+/// §6.27 (01_audio_modes)). Временный in-memory мост: не читается и не
+/// пишется в файл, остаётся только пока другие модули используют старый тип.
 #[derive(Clone, PartialEq, Debug, Default)]
 pub struct LegacyPlayback {
     pub audio: AudioCfg,
@@ -925,113 +934,6 @@ fn spectrum_specs() -> Vec<KeySpec<Settings>> {
     ]
 }
 
-/// Раздел `[playback]` до С4 (01_audio_modes, §8.1 С3): старые `[audio]`,
-/// `[dsd]`, `audio_device`, по листовым ключам `AudioCfg`/`DsdCfg`
-/// (`src/settings.rs`, §2.4).
-fn legacy_playback_specs() -> Vec<KeySpec<Settings>> {
-    let audio = AudioCfg::default();
-    let dsd = DsdCfg::default();
-    vec![
-        leaf(
-            "audio.bit_perfect",
-            |t: &mut Settings| &mut t.playback.audio.bit_perfect,
-            audio.bit_perfect,
-            "bool",
-        ),
-        leaf_checked(
-            "audio.ring_buffer_ms",
-            |t: &mut Settings| &mut t.playback.audio.ring_buffer_ms,
-            audio.ring_buffer_ms,
-            "целое 100..=10000",
-            |v: &u32| (crate::settings::RING_BUFFER_MS_MIN..=crate::settings::RING_BUFFER_MS_MAX).contains(v),
-        ),
-        leaf(
-            "audio.resampler.algorithm",
-            |t: &mut Settings| &mut t.playback.audio.resampler.algorithm,
-            audio.resampler.algorithm,
-            "linear/cubic/sinc_fast/sinc_medium/sinc_slow",
-        ),
-        leaf(
-            "audio.resampler.dither",
-            |t: &mut Settings| &mut t.playback.audio.resampler.dither,
-            audio.resampler.dither,
-            "tpdf/triangular/off",
-        ),
-        leaf(
-            "audio.resampler.mode",
-            |t: &mut Settings| &mut t.playback.audio.resampler.mode,
-            audio.resampler.mode,
-            "auto/native/fixed",
-        ),
-        leaf(
-            "audio.resampler.fixed_rate",
-            |t: &mut Settings| &mut t.playback.audio.resampler.fixed_rate,
-            audio.resampler.fixed_rate,
-            "целое ≥ 0",
-        ),
-        leaf(
-            "audio.resampler.prefer_family",
-            |t: &mut Settings| &mut t.playback.audio.resampler.prefer_family,
-            audio.resampler.prefer_family,
-            "auto/family44k/family48k",
-        ),
-        leaf(
-            "audio.resampler.fallback_rate",
-            |t: &mut Settings| &mut t.playback.audio.resampler.fallback_rate,
-            audio.resampler.fallback_rate,
-            "nearest/same_family/never_downsample",
-        ),
-        leaf(
-            "audio.exclusive",
-            |t: &mut Settings| &mut t.playback.audio.exclusive,
-            audio.exclusive,
-            "off/auto/strict",
-        ),
-        leaf(
-            "audio.fallback",
-            |t: &mut Settings| &mut t.playback.audio.fallback,
-            audio.fallback,
-            "nearest/device_default/fail",
-        ),
-        leaf(
-            "audio.filter_hardware_only",
-            |t: &mut Settings| &mut t.playback.audio.filter_hardware_only,
-            audio.filter_hardware_only,
-            "bool",
-        ),
-        leaf(
-            "audio.filter_stereo_only",
-            |t: &mut Settings| &mut t.playback.audio.filter_stereo_only,
-            audio.filter_stereo_only,
-            "bool",
-        ),
-        leaf(
-            "dsd.mode",
-            |t: &mut Settings| &mut t.playback.dsd.mode,
-            dsd.mode,
-            "pcm/native/dop",
-        ),
-        leaf(
-            "dsd.target_bit_depth",
-            |t: &mut Settings| &mut t.playback.dsd.target_bit_depth,
-            dsd.target_bit_depth,
-            "16/24/32/32float",
-        ),
-        leaf(
-            "dsd.target_sample_rate",
-            |t: &mut Settings| &mut t.playback.dsd.target_sample_rate,
-            dsd.target_sample_rate,
-            "auto/44100/48000/88200/96000/176400/192000",
-        ),
-        leaf(
-            "audio_device",
-            |t: &mut Settings| &mut t.playback.audio_device,
-            String::new(),
-            "строка",
-        ),
-    ]
-}
-
 /// `theme` — непустая строка без `/` и `\` (§2.4, `src/settings.rs:77-80`).
 fn theme_spec() -> KeySpec<Settings> {
     KeySpec {
@@ -1122,7 +1024,6 @@ pub(crate) fn settings_spec() -> Vec<KeySpec<Settings>> {
     specs.extend(column_specs());
     specs.extend(info_label_specs());
     specs.extend(visualization_specs());
-    specs.extend(legacy_playback_specs());
     specs
 }
 
@@ -1211,7 +1112,7 @@ pub fn parse_settings(read: FileRead) -> Parsed<Settings> {
         }
     };
 
-    let table: toml::Table = match text.parse() {
+    let mut table: toml::Table = match text.parse() {
         Ok(t) => t,
         Err(e) => {
             return Parsed::Unparsable {
@@ -1222,7 +1123,26 @@ pub fn parse_settings(read: FileRead) -> Parsed<Settings> {
         }
     };
 
+    // Раздел `[playback]` разбирается отдельно через `PlaybackDto` /
+    // `load_mode_settings` (01_audio_modes, §2.4, §2.6, §6.27) — его листья
+    // нельзя отдавать в общий `walk`/`settings_spec`, иначе они попадут в
+    // «неизвестные» (§6.2 `keys.rs`), поэтому раздел извлекается из таблицы
+    // до вызова `walk`.
+    let playback_raw = table.remove("playback");
+    let (modes, mut playback_notes) = match playback_raw {
+        None => load_mode_settings(None),
+        Some(v) => match de::<PlaybackDto>(&v, "таблица [playback] (01_audio_modes)") {
+            Ok(dto) => load_mode_settings(Some(dto)),
+            Err(allowed) => (
+                ModeSettings::default(),
+                vec![LoadNote { key: KeyPath::new("playback"), kind: LoadNoteKind::Invalid { found: v.to_string().into(), allowed } }],
+            ),
+        },
+    };
+
     let (mut value, mut notes) = walk(&table, &settings_spec());
+    value.modes = modes;
+    notes.append(&mut playback_notes);
     adjust_column_order(&mut value, &mut notes);
     adjust_cover_priority(&mut value, &mut notes);
     notes.sort_by(|a, b| a.key.cmp(&b.key));
@@ -1281,9 +1201,10 @@ struct VisualizationDto<'a> {
 /// таблицы §2.4: TOML требует все скалярные/массивные ключи до первой
 /// вложенной таблицы, иначе они достанутся последней открытой `[table]`.
 /// Поэтому сперва идут скаляры и массивы §2.4 в их исходном относительном
-/// порядке, затем таблицы (`columns`, `info_labels`, `visualization`,
-/// `audio`, `dsd`) — тоже в порядке §2.4. Отображения — `BTreeMap` (ОВ-2,
-/// ADR-2): одинаковые значения дают одинаковые байты в любом процессе.
+/// порядке, затем таблицы (`columns`, `info_labels`, `visualization`) — тоже
+/// в порядке §2.4, и `playback` — последней (§2.4, §2.6 (01_audio_modes)).
+/// Отображения — `BTreeMap` (ОВ-2, ADR-2): одинаковые значения дают
+/// одинаковые байты в любом процессе.
 #[derive(serde::Serialize)]
 struct SettingsFile<'a> {
     theme: &'a str,
@@ -1297,12 +1218,10 @@ struct SettingsFile<'a> {
     cover_priority: Vec<&'static str>,
     cover_folder_names: &'a [String],
     cover_online: bool,
-    audio_device: &'a str,
     columns: BTreeMap<&'static str, ColumnDefDto<'a>>,
     info_labels: BTreeMap<&'a str, &'a str>,
     visualization: VisualizationDto<'a>,
-    audio: &'a AudioCfg,
-    dsd: &'a DsdCfg,
+    playback: PlaybackDto,
 }
 
 /// Детерминированный текст файла (ОВ-2): одинаковые значения `Settings` →
@@ -1326,7 +1245,6 @@ pub fn serialize_settings(s: &Settings) -> Result<Arc<[u8]>, SerializeError> {
         cover_priority: s.covers.priority.iter().map(|src| src.key()).collect(),
         cover_folder_names: &s.covers.folder_names,
         cover_online: s.covers.online,
-        audio_device: &s.playback.audio_device,
         columns,
         info_labels,
         visualization: VisualizationDto {
@@ -1337,8 +1255,7 @@ pub fn serialize_settings(s: &Settings) -> Result<Arc<[u8]>, SerializeError> {
             spectrogram: &s.visualization.spectrogram,
             spectrum: &s.visualization.spectrum,
         },
-        audio: &s.playback.audio,
-        dsd: &s.playback.dsd,
+        playback: playback_dto(&s.modes),
     };
 
     let text = toml::to_string(&dto).map_err(|e| SerializeError(e.to_string().into()))?;
@@ -1349,6 +1266,13 @@ pub fn serialize_settings(s: &Settings) -> Result<Arc<[u8]>, SerializeError> {
 mod tests {
     use super::*;
     use std::sync::Arc;
+
+    use crate::audio::backend::SharedDeviceId;
+    use crate::audio::format::SampleRate;
+    use crate::settings::playback::{
+        BufferMs, CompatibleOpts, DeviceBuffer, Dither, DsdAboveDac, DsdFilter, OptimalOpts,
+        RateFallbackRule, SharedDeviceChoice, SrcFilter, StrictOpts,
+    };
 
     #[test]
     fn settings_default_matches_documented_defaults() {
@@ -1381,6 +1305,7 @@ mod tests {
 
         assert!(!s.playback.audio.bit_perfect);
         assert_eq!(s.playback.audio_device, "");
+        assert_eq!(s.modes, ModeSettings::default());
 
         assert!(s.visualization.skip_fulltrack_for_dsd);
     }
@@ -1574,8 +1499,11 @@ mod tests {
         assert!(matches!(note.kind, LoadNoteKind::Adjusted { .. }));
     }
 
+    /// Старые `[audio]`/`[dsd]`/`audio_device` (§8.1 С3, 01_audio_modes)
+    /// больше не читаются ни в `LegacyPlayback`, ни в `ModeSettings`: это
+    /// неизвестные ключи, а `modes` остаётся значением по умолчанию.
     #[test]
-    fn legacy_audio_keys_parse_by_keys() {
+    fn legacy_audio_keys_are_unknown_and_modes_default() {
         let text = "\
 audio.bit_perfect = true
 audio.ring_buffer_ms = 500
@@ -1595,13 +1523,29 @@ dsd.target_sample_rate = \"96000\"
 audio_device = \"hw:0,0\"
 ";
         let (value, notes) = parsed(bytes(text));
-        assert!(value.playback.audio.bit_perfect);
-        assert_eq!(value.playback.audio.ring_buffer_ms, 500);
-        assert!(value.playback.audio.filter_hardware_only);
-        assert!(value.playback.audio.filter_stereo_only);
-        assert_eq!(value.playback.audio_device, "hw:0,0");
-        assert_eq!(value.playback.dsd.mode, DsdMode::Native);
-        assert!(notes.iter().all(|n| !matches!(n.kind, LoadNoteKind::Unknown)));
+        assert_eq!(value.playback, LegacyPlayback::default());
+        assert_eq!(value.modes, ModeSettings::default());
+        for key in [
+            "audio.bit_perfect",
+            "audio.ring_buffer_ms",
+            "audio.resampler.algorithm",
+            "audio.resampler.dither",
+            "audio.resampler.mode",
+            "audio.resampler.fixed_rate",
+            "audio.resampler.prefer_family",
+            "audio.resampler.fallback_rate",
+            "audio.exclusive",
+            "audio.fallback",
+            "audio.filter_hardware_only",
+            "audio.filter_stereo_only",
+            "dsd.mode",
+            "dsd.target_bit_depth",
+            "dsd.target_sample_rate",
+            "audio_device",
+        ] {
+            let note = notes.iter().find(|n| n.key == KeyPath::new(key));
+            assert!(matches!(note.map(|n| &n.kind), Some(LoadNoteKind::Unknown)), "key {key} should be Unknown, notes: {notes:?}");
+        }
     }
 
     #[test]
@@ -1670,11 +1614,41 @@ mode = \"spectrum\"
         s.info_labels.insert(InfoLabelKey("artist"), "Performer".to_string());
         s.visualization.skip_fulltrack_for_dsd = false;
         s.visualization.oscilloscope.line_width = 2.5;
-        s.playback.audio.bit_perfect = true;
-        s.playback.audio.ring_buffer_ms = 2000;
-        s.playback.dsd.mode = DsdMode::Native;
-        s.playback.audio_device = "hw:1,0".to_string();
+        s.modes = non_default_mode_settings();
         s
+    }
+
+    /// Нестандартный `ModeSettings` без заметок при `playback_dto`/
+    /// `load_mode_settings` round-trip (И-Р22: `buffer ≥ 2 × device_buffer`).
+    fn non_default_mode_settings() -> ModeSettings {
+        ModeSettings {
+            compatible: CompatibleOpts {
+                device: SharedDeviceChoice::Named(SharedDeviceId::new("hw:CARD=X,DEV=0")),
+                fixed_rate: SampleRate::new(96_000),
+                src_filter: SrcFilter::Slow,
+                dither: Dither::Off,
+                dsd_filter: DsdFilter::K24,
+                dsd_gain_comp: false,
+                buffer: BufferMs::new(2000).expect("2000 мс в допустимом диапазоне BufferMs"),
+            },
+            optimal: OptimalOpts {
+                device: Some("optimal-dev".to_owned()),
+                rate_fallback: RateFallbackRule::Nearest,
+                src_filter: SrcFilter::VerySlow,
+                dither: Dither::Off,
+                volume_lock: true,
+                dsd_above_dac: DsdAboveDac::ConvertToPcm,
+                dsd_filter: DsdFilter::K50,
+                dsd_gain_comp: false,
+                buffer: BufferMs::new(800).expect("800 мс в допустимом диапазоне BufferMs"),
+                device_buffer: DeviceBuffer::Ms400,
+            },
+            strict: StrictOpts {
+                device: Some("strict-dev".to_owned()),
+                buffer: BufferMs::new(400).expect("400 мс в допустимом диапазоне BufferMs"),
+                device_buffer: DeviceBuffer::Ms100,
+            },
+        }
     }
 
     /// Серилизация `s` детерминирована (ОВ-2) и round-trip'ится без заметок
@@ -1705,6 +1679,19 @@ mode = \"spectrum\"
         let bytes = serialize_settings(&Settings::default()).expect("serialize ok");
         let (value, notes) = parsed(FileRead::Bytes(bytes));
         assert_eq!(value, Settings::default());
+        assert!(notes.is_empty(), "expected zero notes, got: {notes:?}");
+    }
+
+    /// Нестандартный `[playback]` (§2.4, §2.6 (01_audio_modes)) сохраняется
+    /// и читается обратно равным, без заметок по `modes`.
+    #[test]
+    fn modes_roundtrip_non_default() {
+        let m = non_default_mode_settings();
+        let s = Settings { modes: m.clone(), ..Settings::default() };
+
+        let bytes = serialize_settings(&s).expect("serialize ok");
+        let (value, notes) = parsed(FileRead::Bytes(bytes));
+        assert_eq!(value.modes, m);
         assert!(notes.is_empty(), "expected zero notes, got: {notes:?}");
     }
 }
