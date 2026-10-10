@@ -65,7 +65,7 @@ steps:
     done: true
   - id: 9
     description: "src/settings/playback_dto.rs: load_mode_settings п. 4 — согласование буферов Оптимального и Строгого: buffers_allowed ошибка → device_buffer := Ms40, иначе наименьшее допустимое; заметка «буфер устройства N мс больше половины буфера плеера M мс — установлено K мс» (И-Р22, ТЗ-131). Тесты: коррекция; круговой load_mode_settings(Some(playback_dto(m))) == (m, []) для умолчаний и не-умолчаний. Проверка: cargo test settings::; ЧЕКПОИНТ: cargo test + clippy"
-    done: false
+    done: true
   - id: 10
     description: "src/engine/legacy_path.rs (новый, `mod legacy_path` в src/engine/mod.rs): адаптер legacy_audio(&ModeSettings, ModeKind) -> (LegacyAudio, device) (ОВС-12, §8 С4): Совместимый → exclusive Off, fixed_rate → ResamplerMode::Fixed, dither, buffer → ring_buffer_ms, DSD → PCM; Оптимальный → старый exclusive-путь без перехода в Shared (отказ → ошибка, решение 4), RateFallbackRule → FallbackRatePolicy; Строгий → старый strict-путь (без SRC). Старые перечисления — только внутренние параметры пути. Тесты ≤4 (по одному на режим + Optimal без Shared-фолбэка). Проверка: cargo test engine::legacy_path"
     done: false
@@ -141,8 +141,8 @@ steps:
   - id: 34
     description: "Финал: cargo build/test/clippy зелёные; ROADMAP ✅; заметка плана; напомнить пользователю удалить settings.toml (ТЗ-97) и показать расхождение с 02 spec стр. 3342 (решение — за пользователем); ручные проверки (переключатель режимов, Совместимый играет, Оптимальный/Строгий через hw: на Linux). Проверка: cargo test + clippy"
     done: false
-current_step: 9
-next_action: "Шаг 9: новый субагент (sonnet, code-writer) — load_mode_settings п. 4 (согласование буферов) + круговые тесты; ЧЕКПОИНТ"
+current_step: 10
+next_action: "Шаг 10: новый субагент (sonnet, code-writer) — src/engine/legacy_path.rs: адаптер legacy_audio(&ModeSettings, ModeKind) + тесты ≤4"
 fail_counter: 0
 fail_counter_max: 3
 failed_attempts: []

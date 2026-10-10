@@ -19,8 +19,8 @@ use crate::audio::format::SampleRate;
 use crate::persist::keys::{KeyPath, LoadNote, LoadNoteKind};
 
 use super::playback::{
-    BufferMs, CompatibleOpts, DeviceBuffer, Dither, DsdAboveDac, DsdFilter, ModeSettings,
-    OptimalOpts, RateFallbackRule, SharedDeviceChoice, SrcFilter, StrictOpts,
+    buffers_allowed, BufferMs, CompatibleOpts, DeviceBuffer, Dither, DsdAboveDac, DsdFilter,
+    ModeSettings, OptimalOpts, RateFallbackRule, SharedDeviceChoice, SrcFilter, StrictOpts,
 };
 
 /// Раздел `[playback]` целиком (§6.27, 02 §2.4). `schema` — версия формата
@@ -287,6 +287,49 @@ fn parse_device_buffer_ms(ms: i64) -> Option<DeviceBuffer> {
     ]
     .into_iter()
     .find(|v| device_buffer_ms_value(*v) == ms)
+}
+
+/// Согласование буфера устройства с буфером плеера (И-Р22, ТЗ-131, §6.27 п. 4):
+/// если `buffers_allowed(buffer, device_buffer)` — ошибка, подстановка
+/// `Ms40`; если и `Ms40` недопустим — наименьшее допустимое значение (при
+/// `BufferMs ≥ 100` это всегда не хуже `Ms40`, ветвь оставлена ради полноты).
+/// `buffer` не меняется.
+fn reconcile_device_buffer(
+    buffer: BufferMs,
+    device_buffer: DeviceBuffer,
+    key: &str,
+    notes: &mut Vec<LoadNote>,
+) -> DeviceBuffer {
+    if buffers_allowed(buffer, device_buffer).is_ok() {
+        return device_buffer;
+    }
+    let corrected = if buffers_allowed(buffer, DeviceBuffer::Ms40).is_ok() {
+        DeviceBuffer::Ms40
+    } else {
+        [
+            DeviceBuffer::Ms20,
+            DeviceBuffer::Ms40,
+            DeviceBuffer::Ms100,
+            DeviceBuffer::Ms200,
+            DeviceBuffer::Ms400,
+        ]
+        .into_iter()
+        .find(|d| buffers_allowed(buffer, *d).is_ok())
+        .unwrap_or(DeviceBuffer::Ms20)
+    };
+    notes.push(LoadNote {
+        key: KeyPath::new(key.to_owned()),
+        kind: LoadNoteKind::Adjusted {
+            reason: format!(
+                "буфер устройства {} мс больше половины буфера плеера {} мс — установлено {} мс",
+                device_buffer.ms(),
+                buffer.get(),
+                corrected.ms()
+            )
+            .into(),
+        },
+    });
+    corrected
 }
 
 /// Заметка «недопустимое значение» (§6.27 п. 3, ТЗ-34, ТЗ-130).
@@ -576,13 +619,14 @@ fn parse_strict(dto: StrictDto, notes: &mut Vec<LoadNote>) -> StrictOpts {
     opts
 }
 
-/// Загрузка `ModeSettings` из DTO (§6.27 пп. 1–3, ТЗ-97, ТЗ-94, ТЗ-34,
-/// ТЗ-130, ТЗ-124): нет файла -> `default()` без заметок; нет раздела
+/// Загрузка `ModeSettings` из DTO (§6.27 пп. 1–4, ТЗ-97, ТЗ-94, ТЗ-34,
+/// ТЗ-130, ТЗ-131, ТЗ-124): нет файла -> `default()` без заметок; нет раздела
 /// `[playback]` или `schema ≠ 2` -> `default()` и одна заметка «аудио-
 /// настройки файла не распознаны»; иначе — известный ключ с допустимым
 /// значением идёт в поле, недопустимое значение заменяется значением по
-/// умолчанию с заметкой, неизвестный ключ игнорируется с заметкой. Согласование
-/// буферов (И-Р22, §6.27 п. 4) в этой функции не выполняется — отдельный шаг.
+/// умолчанию с заметкой, неизвестный ключ игнорируется с заметкой. После
+/// разбора Оптимального и Строгого режимов `device_buffer` согласуется с
+/// `buffer` по И-Р22 (`reconcile_device_buffer`, §6.27 п. 4).
 pub fn load_mode_settings(dto: Option<PlaybackDto>) -> (ModeSettings, Vec<LoadNote>) {
     let Some(dto) = dto else {
         return (ModeSettings::default(), Vec::new());
@@ -604,8 +648,20 @@ pub fn load_mode_settings(dto: Option<PlaybackDto>) -> (ModeSettings, Vec<LoadNo
 
     let mut notes = Vec::new();
     let compatible = parse_compatible(dto.compatible.unwrap_or_default(), &mut notes);
-    let optimal = parse_optimal(dto.optimal.unwrap_or_default(), &mut notes);
-    let strict = parse_strict(dto.strict.unwrap_or_default(), &mut notes);
+    let mut optimal = parse_optimal(dto.optimal.unwrap_or_default(), &mut notes);
+    let mut strict = parse_strict(dto.strict.unwrap_or_default(), &mut notes);
+    optimal.device_buffer = reconcile_device_buffer(
+        optimal.buffer,
+        optimal.device_buffer,
+        "playback.optimal.device_buffer_ms",
+        &mut notes,
+    );
+    strict.device_buffer = reconcile_device_buffer(
+        strict.buffer,
+        strict.device_buffer,
+        "playback.strict.device_buffer_ms",
+        &mut notes,
+    );
     for key in dto.unknown.keys() {
         notes.push(unknown_note(format!("playback.{key}")));
     }
@@ -750,5 +806,116 @@ mod tests {
         assert_eq!(notes.len(), 1);
         assert_eq!(notes[0].key, KeyPath::new("playback.compatible.src_filter"));
         assert!(matches!(notes[0].kind, LoadNoteKind::Invalid { .. }));
+    }
+
+    /// §6.27 п. 4 (И-Р22, ТЗ-131): Оптимальный режим, `buffer = 100`,
+    /// `device_buffer_ms = 400` (нужно 800 мс) -> `Ms40` (нужно 80 мс, есть) и
+    /// одна заметка `Adjusted`.
+    #[test]
+    fn optimal_device_buffer_reconciled_to_ms40() {
+        let dto = PlaybackDto {
+            schema: Some(2),
+            optimal: Some(OptimalDto {
+                buffer: Some(toml::Value::Integer(100)),
+                device_buffer_ms: Some(toml::Value::Integer(400)),
+                ..Default::default()
+            }),
+            ..Default::default()
+        };
+        let (settings, notes) = load_mode_settings(Some(dto));
+        assert_eq!(settings.optimal.device_buffer, DeviceBuffer::Ms40);
+        assert_eq!(
+            settings.optimal.buffer,
+            BufferMs::new(100).expect("100 мс в допустимом диапазоне BufferMs")
+        );
+        assert_eq!(notes.len(), 1);
+        assert_eq!(
+            notes[0].key,
+            KeyPath::new("playback.optimal.device_buffer_ms")
+        );
+        match &notes[0].kind {
+            LoadNoteKind::Adjusted { reason } => {
+                assert_eq!(
+                    reason.as_ref(),
+                    "буфер устройства 400 мс больше половины буфера плеера 100 мс — установлено 40 мс"
+                );
+            }
+            other => panic!("ожидалась заметка Adjusted, получено {other:?}"),
+        }
+    }
+
+    /// §6.27 п. 4 (И-Р22, ТЗ-131): Строгий режим, та же согласующая коррекция.
+    #[test]
+    fn strict_device_buffer_reconciled_to_ms40() {
+        let dto = PlaybackDto {
+            schema: Some(2),
+            strict: Some(StrictDto {
+                buffer: Some(toml::Value::Integer(100)),
+                device_buffer_ms: Some(toml::Value::Integer(400)),
+                ..Default::default()
+            }),
+            ..Default::default()
+        };
+        let (settings, notes) = load_mode_settings(Some(dto));
+        assert_eq!(settings.strict.device_buffer, DeviceBuffer::Ms40);
+        assert_eq!(notes.len(), 1);
+        assert_eq!(
+            notes[0].key,
+            KeyPath::new("playback.strict.device_buffer_ms")
+        );
+        match &notes[0].kind {
+            LoadNoteKind::Adjusted { reason } => {
+                assert_eq!(
+                    reason.as_ref(),
+                    "буфер устройства 400 мс больше половины буфера плеера 100 мс — установлено 40 мс"
+                );
+            }
+            other => panic!("ожидалась заметка Adjusted, получено {other:?}"),
+        }
+    }
+
+    /// Круговой проход `playback_dto` -> `load_mode_settings` для настроек по
+    /// умолчанию: без заметок, `ModeSettings` не меняется (02 §2.6).
+    #[test]
+    fn round_trip_default_mode_settings() {
+        let m = ModeSettings::default();
+        let dto = playback_dto(&m);
+        assert_eq!(load_mode_settings(Some(dto)), (m, Vec::new()));
+    }
+
+    /// Круговой проход для нетривиального `ModeSettings`: несколько полей
+    /// каждого режима изменены, буферы уже согласованы (И-Р22) -> заметок нет.
+    #[test]
+    fn round_trip_non_default_mode_settings() {
+        let m = ModeSettings {
+            compatible: CompatibleOpts {
+                device: SharedDeviceChoice::Named(SharedDeviceId::new("hw:CARD=X,DEV=0")),
+                fixed_rate: SampleRate::new(96_000),
+                src_filter: SrcFilter::Slow,
+                dither: Dither::Off,
+                dsd_filter: DsdFilter::K24,
+                dsd_gain_comp: false,
+                buffer: BufferMs::new(2000).expect("2000 мс в допустимом диапазоне BufferMs"),
+            },
+            optimal: OptimalOpts {
+                device: Some("optimal-dev".to_owned()),
+                rate_fallback: RateFallbackRule::Nearest,
+                src_filter: SrcFilter::VerySlow,
+                dither: Dither::Off,
+                volume_lock: true,
+                dsd_above_dac: DsdAboveDac::ConvertToPcm,
+                dsd_filter: DsdFilter::K50,
+                dsd_gain_comp: false,
+                buffer: BufferMs::new(800).expect("800 мс в допустимом диапазоне BufferMs"),
+                device_buffer: DeviceBuffer::Ms400,
+            },
+            strict: StrictOpts {
+                device: Some("strict-dev".to_owned()),
+                buffer: BufferMs::new(400).expect("400 мс в допустимом диапазоне BufferMs"),
+                device_buffer: DeviceBuffer::Ms100,
+            },
+        };
+        let dto = playback_dto(&m);
+        assert_eq!(load_mode_settings(Some(dto)), (m, Vec::new()));
     }
 }
