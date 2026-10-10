@@ -102,7 +102,7 @@ steps:
     done: true
   - id: 21
     description: "Slint: переключатель трёх режимов в главном окне (ui/top_panel.slint + проброс в ui/app.slint): свойства active-mode, mode-available[3] с причиной, callback select-mode(int); недоступный режим неактивен с пояснением (ТЗ-18, ТЗ-109, ТЗ-110, §8 С4). Мост: обработчик Rust — следующий шаг. Проверка: cargo check"
-    done: false
+    done: true
   - id: 22
     description: "Rust: обработчик select-mode — StateChange::ActiveMode + SetActiveMode + Open текущего трека с позиции (§6.18 «Смена режима», ТЗ-20); синхронизация active-mode/available из BackendCaps; ползунок громкости показывает громкость активного режима, неактивен в Строгом и при volume_lock. Файлы: src/app/mod.rs, src/app/playback_manager.rs. Проверка: cargo check"
     done: false
@@ -142,8 +142,8 @@ steps:
   - id: 34
     description: "Финал: cargo build/test/clippy зелёные; ROADMAP ✅; заметка плана; напомнить пользователю удалить settings.toml (ТЗ-97) и показать расхождение с 02 spec стр. 3342 (решение — за пользователем); ручные проверки (переключатель режимов, Совместимый играет, Оптимальный/Строгий через hw: на Linux). Проверка: cargo test + clippy"
     done: false
-current_step: 21
-next_action: "Шаг 21: Slint — переключатель трёх режимов в главном окне (ui/top_panel.slint + ui/app.slint): active-mode, mode-available[3] с причиной, callback select-mode(int)"
+current_step: 22
+next_action: "Шаг 22: Rust-обработчик select-mode (on_select_mode → StateChange::ActiveMode + SetActiveMode + Open с позиции); set_active_mode/set_mode_available/set_mode_unavailable_reason из BackendCaps; ползунок громкости активного режима"
 fail_counter: 0
 fail_counter_max: 3
 failed_attempts: []

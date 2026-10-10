@@ -61,8 +61,8 @@
 - [x] Шаг 18: src/app/audio_facade.rs: вместо SetLegacyAudio отправлять SetModeSettings / SetActiveMode (источник — Settings.modes и PlaybackState); громкость и mute — активного режима. Проверка: cargo check
 - [x] Шаг 19: Снять мост SetLegacyAudio: удалить вариант из src/engine/messages.rs и обработку в src/engine/run.rs; LegacyAudio остаётся внутренним типом движка. Проверка: cargo check; ЧЕКПОИНТ: cargo test + clippy
 - [x] Шаг 20: Старт: до первого Open отправить SetModeSettings{diff: None} и SetActiveMode(сохранённый режим) (§6.27, ОВС-14). Файлы: src/app/mod.rs, src/app/audio_facade.rs. Тест startup_policy_equals_saved_policy (стр. 549). Проверка: cargo test startup_policy
-- [>] **Шаг 21: Slint: переключатель трёх режимов в главном окне (ui/top_panel.slint + проброс в ui/app.slint): свойства active-mode, mode-available[3] с причиной, callback select-mode(int); недоступный режим неактивен с пояснением (ТЗ-18, ТЗ-109, ТЗ-110, §8 С4). Мост: обработчик Rust — следующий шаг. Проверка: cargo check**
-- [ ] Шаг 22: Rust: обработчик select-mode — StateChange::ActiveMode + SetActiveMode + Open текущего трека с позиции (§6.18 «Смена режима», ТЗ-20); синхронизация active-mode/available из BackendCaps; ползунок громкости показывает громкость активного режима, неактивен в Строгом и при volume_lock. Файлы: src/app/mod.rs, src/app/playback_manager.rs. Проверка: cargo check
+- [x] Шаг 21: Slint: переключатель трёх режимов в главном окне (ui/top_panel.slint + проброс в ui/app.slint): свойства active-mode, mode-available[3] с причиной, callback select-mode(int); недоступный режим неактивен с пояснением (ТЗ-18, ТЗ-109, ТЗ-110, §8 С4). Мост: обработчик Rust — следующий шаг. Проверка: cargo check
+- [>] **Шаг 22: Rust: обработчик select-mode — StateChange::ActiveMode + SetActiveMode + Open текущего трека с позиции (§6.18 «Смена режима», ТЗ-20); синхронизация active-mode/available из BackendCaps; ползунок громкости показывает громкость активного режима, неактивен в Строгом и при volume_lock. Файлы: src/app/mod.rs, src/app/playback_manager.rs. Проверка: cargo check**
 - [ ] Шаг 23: src/core/testing.rs: тесты mode_settings_preserved_across_switch_and_restart (стр. 2886) и load_correction_not_written_until_save (стр. 2922). Проверка: cargo test core::; ЧЕКПОИНТ: cargo test + clippy
 - [ ] Шаг 24: src/app/mode_dialog.rs (новый, `mod mode_dialog` в src/app/mod.rs): чистый построитель строк диалога для режима из PARAMS/Availability и ModeSettings: подпись, вид (список/переключатель/ползунок), варианты с запретом и подсказкой (buffers_allowed для двух буферов, min-phase SrcFilter и «ремодуляция» как NotImplemented), FixedByMode — значение и «задано режимом», Unavailable — причина (§6.27, ТЗ-95, ТЗ-128…131, И-Т19). Тесты ≤5. Проверка: cargo test mode_dialog
 - [ ] Шаг 25: src/app/mode_dialog.rs: apply_edit(&mut ModeSettings, ModeKind, ParamId, значение) — изменение черновика из строки диалога; недопустимое сочетание буферов не применяется (ТЗ-94). Тесты ≤4. Проверка: cargo test mode_dialog
@@ -78,8 +78,8 @@
 
 Легенда: [x] сделано · [>] текущий шаг · [ ] не начато
 
-- **Текущий шаг (current_step):** Шаг 21
-- **Следующий ход:** Шаг 21: Slint — переключатель трёх режимов в главном окне (ui/top_panel.slint + ui/app.slint): active-mode, mode-available[3] с причиной, callback select-mode(int)
+- **Текущий шаг (current_step):** Шаг 22
+- **Следующий ход:** Шаг 22: Rust-обработчик select-mode (on_select_mode → StateChange::ActiveMode + SetActiveMode + Open с позиции); set_active_mode/set_mode_available/set_mode_unavailable_reason из BackendCaps; ползунок громкости активного режима
 - **Счетчик безуспешных компиляций:** 0/3
 - **Состояние:** in_progress
 

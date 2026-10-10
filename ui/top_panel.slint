@@ -37,6 +37,63 @@ component InfoRow inherits Rectangle {
     }
 }
 
+component ModeButton inherits Rectangle {
+    in property <string> label: "";
+    in property <bool> active: false;
+    in property <bool> available: true;
+    in property <string> reason: "";
+    callback clicked;
+
+    height: 28px;
+    border-radius: 6px;
+    border-width: 1px;
+    border-color: root.active ? Colors.accent : Colors.border-default;
+    background: touch.pressed ? Colors.surface-hover : (root.active ? Colors.accent-container : Colors.bg-toolbar);
+
+    HorizontalLayout {
+        padding-left: 12px;
+        padding-right: 12px;
+        alignment: center;
+        Text {
+            text: root.label;
+            color: !root.available ? Colors.text-dim : (root.active ? Colors.accent-on : Colors.text-primary);
+            font-size: 12px;
+            vertical-alignment: center;
+        }
+    }
+
+    touch := TouchArea {
+        enabled: root.available && !root.active;
+        mouse-cursor: root.available ? MouseCursor.pointer : MouseCursor.not-allowed;
+        clicked => { root.clicked(); }
+    }
+
+    // Недоступный режим не прячется через opacity (ТЗ-109, ТЗ-110): он
+    // остаётся видимым и неактивным, причина всплывает подсказкой при
+    // наведении курсора.
+    if !root.available && touch.has-hover && root.reason != "": Rectangle {
+        y: -self.height - 6px;
+        x: (parent.width - self.width) / 2;
+        width: 220px;
+        height: hint-text.preferred-height + 12px;
+        background: Colors.bg-elevated;
+        border-color: Colors.border-default;
+        border-width: 1px;
+        border-radius: 4px;
+        z: 10;
+
+        hint-text := Text {
+            text: root.reason;
+            color: Colors.text-secondary;
+            font-size: 11px;
+            wrap: word-wrap;
+            x: 8px;
+            y: 6px;
+            width: parent.width - 16px;
+        }
+    }
+}
+
 component IconButton inherits Rectangle {
     in property <image> icon: @image-url("icons/play.svg");
     in property <bool> active: false;
@@ -77,6 +134,15 @@ export component TopPanel inherits Rectangle {
     in property <bool> shuffle: false;
     in property <bool> muted: false;
     in property <float> volume: 0.8;
+    // Переключатель режимов (ТЗ-18, ТЗ-109, ТЗ-110): постоянно виден в
+    // главном окне. active-mode — 0 Совместимый, 1 Оптимальный, 2 Строгий.
+    // mode-available/mode-unavailable-reason — по индексу режима; пустая
+    // причина означает доступный режим.
+    in property <int> active-mode: 0;
+    in property <[bool]> mode-available: [true, true, true];
+    in property <[string]> mode-unavailable-reason: ["", "", ""];
+    private property <[string]> mode-labels: ["Совместимый", "Оптимальный", "Строгий"];
+    callback select-mode(int);
     // Bit-perfect (Direct Output): программные ползунки громкости/мьюта
     // блокируются, тракт идёт в ЦАП без пересчёта сэмплов.
     in property <bool> bit-perfect: false;
@@ -144,7 +210,27 @@ export component TopPanel inherits Rectangle {
 
     background: transparent;
 
-    HorizontalLayout {
+    VerticalLayout {
+        spacing: 6px;
+
+        // ---------- Переключатель режимов (ТЗ-18) ----------
+        HorizontalLayout {
+            padding-left: 10px;
+            padding-top: 8px;
+            padding-right: 10px;
+            spacing: 8px;
+            alignment: start;
+
+            for reason[i] in root.mode-unavailable-reason: ModeButton {
+                label: root.mode-labels[i];
+                active: root.active-mode == i;
+                available: root.mode-available[i];
+                reason: reason;
+                clicked => { root.select-mode(i); }
+            }
+        }
+
+        HorizontalLayout {
         spacing: 0;
         // ---------- Col 0: cover + transport ----------
         VerticalLayout {
@@ -521,6 +607,7 @@ export component TopPanel inherits Rectangle {
 
         VerticalLayout {
             width: root.col-gap * 1px / 2 + 1px;
+        }
         }
     }
 
