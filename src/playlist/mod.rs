@@ -189,22 +189,6 @@ pub fn advance_index(
     }
 }
 
-/// Load a plain M3U playlist (one absolute path per line).
-pub fn load_track_list(path: &Path) -> Vec<Track> {
-    let Ok(text) = std::fs::read_to_string(path) else {
-        return Vec::new();
-    };
-    let mut seen = std::collections::HashSet::new();
-    text.lines()
-        .map(str::trim)
-        .filter(|l| !l.is_empty() && !l.starts_with('#') && !l.starts_with(';'))
-        .map(PathBuf::from)
-        .filter(|p| p.is_absolute() && is_supported_audio(p))
-        .filter(|p| seen.insert(p.to_path_buf()))
-        .map(|p| track_for_path(&p))
-        .collect()
-}
-
 /// Сериализует плейлист в байты plain M3U (один путь на строку) — снимок для
 /// писателя (ADR-1, §6.5).
 pub fn serialize_m3u(tracks: &[Track]) -> Arc<[u8]> {
@@ -321,7 +305,7 @@ mod tests {
     }
 
     #[test]
-    fn playlist_save_load_roundtrip() {
+    fn playlist_save_writes_plain_m3u() {
         let dir = std::env::temp_dir().join("music_player_rs_test");
         let path = dir.join("playlist.m3u");
         let tracks = vec![
@@ -331,22 +315,8 @@ mod tests {
         let journal = std::sync::Arc::new(crate::journal::VecJournal::default());
         let (_, mut fs, _) = crate::platform::fs::os_fs(journal);
         save_track_list(fs.as_mut(), &path, &tracks).expect("save");
-        let loaded = load_track_list(&path);
-        assert_eq!(loaded.len(), 2);
-        assert_eq!(loaded[0].path, PathBuf::from("/music/a.flac"));
-        assert_eq!(loaded[1].path, PathBuf::from("/music/b.wav"));
-        let _ = std::fs::remove_file(&path);
-    }
-
-    #[test]
-    fn load_track_list_skips_non_audio_and_comments() {
-        let dir = std::env::temp_dir().join("music_player_rs_test");
-        let path = dir.join("comments.m3u");
-        std::fs::create_dir_all(&dir).unwrap();
-        std::fs::write(&path, "#EXTM3U\n/unsupported.txt\n/music/c.mp3\n").unwrap();
-        let loaded = load_track_list(&path);
-        assert_eq!(loaded.len(), 1);
-        assert_eq!(loaded[0].path, PathBuf::from("/music/c.mp3"));
+        let written = std::fs::read_to_string(&path).expect("read back");
+        assert_eq!(written, "/music/a.flac\n/music/b.wav\n");
         let _ = std::fs::remove_file(&path);
     }
 

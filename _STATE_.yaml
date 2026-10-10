@@ -67,12 +67,12 @@ steps:
     done: true
   - id: 15
     description: "src/playlist/mod.rs: удалить load_track_list и тест load_track_list_skips_non_audio_and_comments (заменён тестами шага 1) (§7 «переписать», §8 С8 «удаляется»). Проверка: cargo check"
-    done: false
+    done: true
   - id: 16
     description: "ЧЕКПОИНТ финальный: cargo test + cargo clippy (0 новых варнингов в файлах вайтлиста); cargo build"
     done: false
-current_step: 15
-next_action: "Шаг 15: удалить load_track_list и тест load_track_list_skips_non_audio_and_comments из src/playlist/mod.rs"
+current_step: 16
+next_action: "Шаг 16: финальный ЧЕКПОИНТ — cargo test + clippy + build"
 fail_counter: 0
 fail_counter_max: 3
 failed_attempts: []
