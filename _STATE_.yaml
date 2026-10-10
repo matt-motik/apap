@@ -142,8 +142,8 @@ steps:
     description: "Удалить старые Rust-обработчики аудио-диалога: on_settings_set_audio_*/set_dsd_mode/set_bit_perfect и resampler_fixed_fallback_guard с тестом (src/app/mod.rs), sync_capabilities_and_validation/sync_dsd_chain_desc/sync_audio_advanced (src/app/ui_manager.rs) (§8 С4 «удаляется»). Проверка: cargo check"
     done: true
   - id: 34
-    description: "Удалить старые аудио-свойства и колбэки из ui/settings.slint и проброс из ui/app.slint (bit-perfect, dsd-mode, dsd-bp-warn, audio-validation, audio-exclusive*, audio-fallback*, audio-resampler-mode-idx, audio-fixed-rate-idx, audio-clock-family-idx, audio-ring-buffer-ms, audio-dsd-chain-desc, audio-fixed-fail-warn, set-*-соответствующие). Проверка: cargo check"
-    done: false
+    description: "Удалить старые аудио-свойства и колбэки из ui/settings.slint и проброс из ui/app.slint (bit-perfect, dsd-mode, dsd-bp-warn, audio-validation, audio-exclusive*, audio-fallback*, audio-resampler-mode-idx, audio-fixed-rate-idx, audio-clock-family-idx, audio-ring-buffer-ms, audio-dsd-chain-desc, audio-fixed-fail-warn, set-*-соответствующие); вместе с ними — оставшиеся вызовы set_settings_* этих свойств в src/app/ui_manager.rs (7 строк, следствие удаления) и ставшие мёртвыми вызовы в src/app/mod.rs (sync_dsd_settings_to_ui и т. п.; мост on_settings_save не трогать — шаг 36). Проверка: cargo check"
+    done: true
   - id: 35
     description: "src/audio/output.rs: удалить validate_audio_settings, ValidationRow/Outcome при отсутствии других потребителей и их тесты (§8 С4 «удаляется»). Проверка: cargo check; ЧЕКПОИНТ: cargo test + clippy"
     done: false
@@ -159,8 +159,8 @@ steps:
   - id: 39
     description: "Финал: cargo build/test/clippy зелёные; ROADMAP ✅; заметка плана; напомнить пользователю удалить settings.toml (ТЗ-97) и показать расхождение с 02 spec стр. 3342 (решение — за пользователем); ручные проверки (переключатель режимов, Совместимый играет, Оптимальный/Строгий через hw: на Linux). Проверка: cargo test + clippy"
     done: false
-current_step: 34
-next_action: "Шаг 34: удалить старые аудио-свойства и колбэки из ui/settings.slint и проброс из ui/app.slint"
+current_step: 35
+next_action: "Шаг 35: удалить validate_audio_settings/ValidationRow/Outcome в src/audio/output.rs; ЧЕКПОИНТ"
 fail_counter: 0
 fail_counter_max: 3
 failed_attempts: []

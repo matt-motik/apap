@@ -205,7 +205,6 @@ impl MusicApp {
             .set_viz_mode(self.cfg_viz_mode().index());
         ui
             .set_settings_cols(ModelRc::from(self.dialog_cols_model().as_slice()));
-        self.sync_dsd_settings_to_ui();
     }
 
     /// Синхронизация статистики кэша (ТЗ-22, ADR-20, §10.5): RAM
@@ -220,16 +219,6 @@ impl MusicApp {
             .set_settings_cache_viz_size(music_player_rs::audio::fulltrack::fmt_cache_bytes(disk.viz_disk).into());
         ui
             .set_settings_cache_cover_size(music_player_rs::audio::fulltrack::fmt_cache_bytes(disk.covers).into());
-    }
-
-    /// Синхронизация DSD-полей диалога настроек: текущий режим (0=PCM,
-    /// 1=Native, 2=DoP) и признак конфликта «DSD→PCM + bit-perfect» (§8.4).
-    pub(super) fn sync_dsd_settings_to_ui(&self) {
-        let s = self.cfg();
-        let Some(ui) = self.try_ui() else { return };
-        ui.set_settings_dsd_mode(s.playback.dsd.mode.index());
-        ui.set_settings_dsd_bp_warn(s.playback.dsd_pcm_breaks_bit_perfect());
-        ui.set_settings_bit_perfect(s.playback.audio.bit_perfect);
     }
 
     /// ТЗ §7.5: актуализировать индикатор статус-бара «Не bit-perfect
@@ -301,12 +290,6 @@ impl MusicApp {
             ui.set_settings_active_device(active.into());
             let err = self.audio_error.clone().unwrap_or_default();
             ui.set_settings_active_error(err.into());
-            // Отразить фильтры из текущего draft-снапшота (ТЗ A3.0 §8.1): тумблеры
-            // в диалоге — live-превью, показывают то, что применено к списку.
-            ui
-                .set_settings_audio_filter_hardware(self.cfg().playback.audio.filter_hardware_only);
-            ui
-                .set_settings_audio_filter_stereo(self.cfg().playback.audio.filter_stereo_only);
         }
 
         if self.audio_devices_rx.is_some() {
@@ -387,8 +370,6 @@ impl MusicApp {
                     ),
                 );
                 ui.set_settings_device_idx(-1);
-                ui.set_settings_audio_caps(ModelRc::from(&[][..]));
-                ui.set_settings_audio_validation(ModelRc::from(&[][..]));
             }
             return;
         }

@@ -1974,7 +1974,6 @@ impl MusicApp {
                 // момент играет DSD-трек — перезапустить его, чтобы новый
                 // конвейер (PCM/Native/DoP) применился к незакрытому потоку.
                 a.player.set_dsd_mode(cur.playback.dsd.mode);
-                a.sync_dsd_settings_to_ui();
                 a.sync_dsd_status_ui();
                 if a.current_track_is_dsd() {
                     if let Some(idx) = a.current {

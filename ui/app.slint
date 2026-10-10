@@ -9,8 +9,6 @@ import {
     Settings,
     ColumnSetting,
     CoverSetting,
-    DeviceCapability,
-    ValidationRow,
     ModeParamRow,
 } from "settings.slint";
 import { MessageWindow } from "message_window.slint";
@@ -256,27 +254,6 @@ export component AppWindow inherits Window {
     in property <string> settings-active-device: "";
     in property <string> settings-codec-info: "";
     in property <string> settings-active-error: "";
-    // ТЗ §7.5/§8.6: чекбокс bit-perfect в настройках звука.
-    in property <bool> settings-bit-perfect: false;
-    // ТЗ §8.4: режим DSD (0=PCM, 1=Native, 2=DoP) и признак конфликта с bit-perfect.
-    in property <int> settings-dsd-mode: 0;
-    in property <bool> settings-dsd-bp-warn: false;
-    // ТЗ A3.0 §7.2: capabilities/валидация, фильтры, Advanced (draft-only).
-    in property <[DeviceCapability]> settings-audio-caps: [];
-    in property <[ValidationRow]> settings-audio-validation: [];
-    in property <bool> settings-audio-filter-hardware: false;
-    in property <bool> settings-audio-filter-stereo: false;
-    in property <bool> settings-audio-advanced-open: false;
-    in property <bool> settings-audio-exclusive-warn: false;
-    in property <bool> settings-audio-fixed-fail-warn: false;
-    in property <string> settings-audio-dsd-chain-desc: "";
-    in property <int> settings-audio-exclusive-idx: 1;
-    in property <int> settings-audio-fallback-idx: 0;
-    in property <int> settings-audio-resampler-mode-idx: 0;
-    in property <int> settings-audio-fixed-rate-idx: 0;
-    in property <int> settings-audio-clock-family-idx: 0;
-    in property <int> settings-audio-fallback-rate-idx: 0;
-    in property <int> settings-audio-ring-buffer-ms: 1500;
     // §6.18, §6.27, ТЗ-41, ТЗ-94: панель построчных настроек режима.
     in property <int> settings-mode-edit-mode: 0;
     in property <[ModeParamRow]> settings-mode-rows: [];
@@ -316,19 +293,6 @@ export component AppWindow inherits Window {
     callback settings-save-interval(int);
     callback settings-device(string);
     callback settings-refresh-devices();
-    callback settings-set-dsd-mode(int);
-    callback settings-set-bit-perfect(bool);
-    // ТЗ A3.0 §7.2: draft-only контролы вкладки Audio.
-    callback settings-set-audio-filter-hardware(bool);
-    callback settings-set-audio-filter-stereo(bool);
-    callback settings-set-audio-toggle-advanced(bool);
-    callback settings-set-audio-exclusive(int);
-    callback settings-set-audio-fallback(int);
-    callback settings-set-audio-resampler-mode(int);
-    callback settings-set-audio-fixed-rate(int);
-    callback settings-set-audio-clock-family(int);
-    callback settings-set-audio-fallback-rate(int);
-    callback settings-set-audio-ring-buffer-ms(int);
     // §6.18, §6.27, ТЗ-41, ТЗ-94: панель построчных настроек режима.
     callback settings-mode-edit-mode-selected(int);
     callback settings-mode-row-index-changed(int, int);
@@ -727,24 +691,6 @@ export component AppWindow inherits Window {
         active-device: root.settings-active-device;
         codec-info: root.settings-codec-info;
         active-error: root.settings-active-error;
-        bit-perfect: root.settings-bit-perfect;
-        dsd-mode: root.settings-dsd-mode;
-        dsd-bp-warn: root.settings-dsd-bp-warn;
-        audio-caps: root.settings-audio-caps;
-        audio-validation: root.settings-audio-validation;
-        audio-filter-hardware: root.settings-audio-filter-hardware;
-        audio-filter-stereo: root.settings-audio-filter-stereo;
-        audio-advanced-open: root.settings-audio-advanced-open;
-        audio-exclusive-warn: root.settings-audio-exclusive-warn;
-        audio-fixed-fail-warn: root.settings-audio-fixed-fail-warn;
-        audio-dsd-chain-desc: root.settings-audio-dsd-chain-desc;
-        audio-exclusive-idx: root.settings-audio-exclusive-idx;
-        audio-fallback-idx: root.settings-audio-fallback-idx;
-        audio-resampler-mode-idx: root.settings-audio-resampler-mode-idx;
-        audio-fixed-rate-idx: root.settings-audio-fixed-rate-idx;
-        audio-clock-family-idx: root.settings-audio-clock-family-idx;
-        audio-fallback-rate-idx: root.settings-audio-fallback-rate-idx;
-        audio-ring-buffer-ms: root.settings-audio-ring-buffer-ms;
         mode-edit-mode: root.settings-mode-edit-mode;
         mode-rows: root.settings-mode-rows;
         mode-validation: root.settings-mode-validation;
@@ -767,18 +713,6 @@ export component AppWindow inherits Window {
         set-save-interval(i) => { root.settings-save-interval(i); }
         set-audio-device(s) => { root.settings-device(s); }
         refresh-devices => { root.settings-refresh-devices(); }
-        set-dsd-mode(i) => { root.settings-set-dsd-mode(i); }
-        set-bit-perfect(b) => { root.settings-set-bit-perfect(b); }
-        set-audio-filter-hardware(b) => { root.settings-set-audio-filter-hardware(b); }
-        set-audio-filter-stereo(b) => { root.settings-set-audio-filter-stereo(b); }
-        set-audio-toggle-advanced(b) => { root.settings-set-audio-toggle-advanced(b); }
-        set-audio-exclusive(i) => { root.settings-set-audio-exclusive(i); }
-        set-audio-fallback(i) => { root.settings-set-audio-fallback(i); }
-        set-audio-resampler-mode(i) => { root.settings-set-audio-resampler-mode(i); }
-        set-audio-fixed-rate(i) => { root.settings-set-audio-fixed-rate(i); }
-        set-audio-clock-family(i) => { root.settings-set-audio-clock-family(i); }
-        set-audio-fallback-rate(i) => { root.settings-set-audio-fallback-rate(i); }
-        set-audio-ring-buffer-ms(v) => { root.settings-set-audio-ring-buffer-ms(v); }
         mode-edit-mode-selected(i) => { root.settings-mode-edit-mode-selected(i); }
         mode-row-index-changed(param, i) => { root.settings-mode-row-index-changed(param, i); }
         mode-row-toggled(param, b) => { root.settings-mode-row-toggled(param, b); }
