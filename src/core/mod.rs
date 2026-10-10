@@ -8,6 +8,7 @@ pub mod exit;
 pub mod gate;
 pub mod geometry;
 pub mod io;
+pub mod load;
 pub mod messages;
 #[cfg(test)]
 pub(crate) mod testing;
@@ -16,6 +17,7 @@ use std::sync::Arc;
 
 use exit::{ExitCoordinator, ExitOutcome, ExitPhase, ExitReason, ExitReport, ReplyWaiter};
 use geometry::GeometryTracker;
+use load::LoadCtl;
 use messages::{Message, MessageButtons, MessageLevel};
 
 use crate::audio::clock::{Clock, ClockInstant};
@@ -152,6 +154,8 @@ pub struct AppCore {
     tracker: PersistTracker,
     exit: ExitCoordinator,
     geometry: GeometryTracker,
+    /// Загрузка плейлиста при старте (ADR-16, §6.12).
+    load: LoadCtl,
 }
 
 /// Общая часть загрузки `with_deps`: разбирает `boot` и строит
@@ -195,6 +199,7 @@ impl AppCore {
             tracker,
             exit: ExitCoordinator::new(),
             geometry: GeometryTracker::new(),
+            load: LoadCtl::new(),
         }
     }
 
@@ -432,14 +437,35 @@ impl AppCore {
     /// (мост) — пустой результат.
     pub fn tick(&mut self, geometry: Option<WindowGeometry>) -> TickOutput {
         let Some(deps) = &self.deps else {
-            return TickOutput { effects: Vec::new(), other: Vec::new() };
+            return TickOutput { effects: Vec::new(), other: Vec::new(), messages: Vec::new() };
         };
 
         let mut effects = Vec::new();
         let mut other = Vec::new();
+        let mut messages = Vec::new();
         while let Some(reply) = deps.writer.try_recv() {
-            if let WriterReply::Failed { file, err, .. } = &reply {
-                deps.journal.record(JournalRecord::WriteFailed { target: WriteTarget::Work(*file), err: err.clone() });
+            // Карантин плейлиста (ADR-16, §6.12, ТЗ-21) превращается в
+            // сообщение здесь и не попадает в `other` — дальше его не
+            // разбирают.
+            let handled = match &reply {
+                WriterReply::Failed { file, err, .. } => {
+                    deps.journal.record(JournalRecord::WriteFailed { target: WriteTarget::Work(*file), err: err.clone() });
+                    false
+                }
+                WriterReply::Quarantined { path } => {
+                    messages.push(load::quarantined_message(path));
+                    true
+                }
+                WriterReply::QuarantineFailed { err } => {
+                    self.tracker.forbid_playlist();
+                    deps.journal.record(JournalRecord::WriteFailed { target: WriteTarget::Quarantine, err: err.clone() });
+                    messages.push(load::playlist_unreadable_message(&err.path, &err.os_text));
+                    true
+                }
+                _ => false,
+            };
+            if handled {
+                continue;
             }
             match self.tracker.on_reply(&reply) {
                 ReplyEffect::None => other.push(reply),
@@ -477,7 +503,7 @@ impl AppCore {
             }
         }
 
-        TickOutput { effects, other }
+        TickOutput { effects, other, messages }
     }
 
     /// «Сохранить» в диалоге настроек (ТЗ-28, §6.4): пишет `settings.toml`
@@ -707,11 +733,13 @@ impl AppCore {
 }
 
 /// Результат одного тика (§6.4): эффекты ответов писателя, уже обработанные
-/// `PersistTracker` (`Succeeded`/`Failed`), и прочие ответы
+/// `PersistTracker` (`Succeeded`/`Failed`), прочие ответы
 /// (`Superseded`/`Exported`/`BadCopySaved`/...) — их разбирают другие
-/// менеджеры на последующих этапах.
+/// менеджеры на последующих этапах, — и сообщения, готовые к показу
+/// (карантин плейлиста, ADR-16, §6.12, ТЗ-21).
 pub struct TickOutput {
     pub effects: Vec<ReplyEffect>,
     pub other: Vec<WriterReply>,
+    pub messages: Vec<Message>,
 }
 
