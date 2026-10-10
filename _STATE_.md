@@ -72,8 +72,8 @@
 - [x] Шаг 27: Rust (src/app/mod.rs): ТЗ-111 — при старте, если сохранённый режим недоступен (backend_caps), и на OpenFailed(ModeUnavailable) (стоп без пропуска треков): сообщение «на этой платформе доступен только Совместимый режим (Shared), для воспроизведения переключите режим» с кнопкой «Переключить в Совместимый режим»; CloseEffect::SwitchToCompatible → тот же путь, что select-mode(0); режим сам не меняется (§6.2 п. 5). Проверка: cargo check
 - [x] Шаг 28: src/core/testing.rs: тесты mode_settings_preserved_across_switch_and_restart (стр. 2886) и load_correction_not_written_until_save (стр. 2922). Проверка: cargo test core::; ЧЕКПОИНТ: cargo test + clippy
 - [x] Шаг 29: src/app/mode_dialog.rs (новый, `mod mode_dialog` в src/app/mod.rs): чистый построитель строк диалога для режима из PARAMS/Availability и ModeSettings: подпись, вид (список/переключатель/ползунок), варианты с запретом и подсказкой (buffers_allowed для двух буферов, min-phase SrcFilter и «ремодуляция» как NotImplemented), FixedByMode — значение и «задано режимом», Unavailable — причина (§6.27, ТЗ-95, ТЗ-128…131, И-Т19). Тесты ≤5. Проверка: cargo test mode_dialog
-- [>] **Шаг 30: src/app/mode_dialog.rs: apply_edit(&mut ModeSettings, ModeKind, ParamId, значение) — изменение черновика из строки диалога; недопустимое сочетание буферов не применяется (ТЗ-94). Тесты ≤4. Проверка: cargo test mode_dialog**
-- [ ] Шаг 31: Slint: ui/mode_params.slint (новый) — компонент панели режимов: выбор редактируемого режима, строки по виду (список/переключатель/ползунок, неактивные с причиной/«задано режимом»/«пока не реализовано»); подключить во вкладку «Аудио» ui/settings.slint рядом со старым блоком (мост) с пробросом в ui/app.slint. Проверка: cargo check
+- [x] Шаг 30: src/app/mode_dialog.rs: apply_edit(&mut ModeSettings, ModeKind, ParamId, значение) — изменение черновика из строки диалога; недопустимое сочетание буферов не применяется (ТЗ-94). Тесты ≤4. Проверка: cargo test mode_dialog
+- [>] **Шаг 31: Slint: ui/mode_params.slint (новый) — компонент панели режимов: выбор редактируемого режима, строки по виду (список/переключатель/ползунок, неактивные с причиной/«задано режимом»/«пока не реализовано»); подключить во вкладку «Аудио» ui/settings.slint рядом со старым блоком (мост) с пробросом в ui/app.slint. Проверка: cargo check**
 - [ ] Шаг 32: Rust: связать панель режимов — черновик Settings.modes через apply_edit, синхронизация строк; «Сохранить» → ModeSettings::diff → SetModeSettings(Some(diff)) только при непустом diff, запись в настройки, затем sync_mode_to_ui (volume_lock → volume-enabled) (ОВС-14, §6.18, ТЗ-41). Файлы: src/app/mode_dialog.rs, src/app/mod.rs. Проверка: cargo check; ЧЕКПОИНТ: cargo test + clippy
 - [ ] Шаг 33: Удалить старые Rust-обработчики аудио-диалога: on_settings_set_audio_*/set_dsd_mode/set_bit_perfect и resampler_fixed_fallback_guard с тестом (src/app/mod.rs), sync_capabilities_and_validation/sync_dsd_chain_desc/sync_audio_advanced (src/app/ui_manager.rs) (§8 С4 «удаляется»). Проверка: cargo check
 - [ ] Шаг 34: Удалить старые аудио-свойства и колбэки из ui/settings.slint и проброс из ui/app.slint (bit-perfect, dsd-mode, dsd-bp-warn, audio-validation, audio-exclusive*, audio-fallback*, audio-resampler-mode-idx, audio-fixed-rate-idx, audio-clock-family-idx, audio-ring-buffer-ms, audio-dsd-chain-desc, audio-fixed-fail-warn, set-*-соответствующие). Проверка: cargo check
@@ -85,8 +85,8 @@
 
 Легенда: [x] сделано · [>] текущий шаг · [ ] не начато
 
-- **Текущий шаг (current_step):** Шаг 30
-- **Следующий ход:** Шаг 30: src/app/mode_dialog.rs — apply_edit(&mut ModeSettings, ModeKind, ParamId, значение); недопустимое сочетание буферов не применяется (ТЗ-94)
+- **Текущий шаг (current_step):** Шаг 31
+- **Следующий ход:** Шаг 31: Slint — ui/mode_params.slint (новый), панель режимов во вкладке «Аудио» ui/settings.slint, проброс в ui/app.slint
 - **Счетчик безуспешных компиляций:** 0/3
 - **Состояние:** in_progress
 

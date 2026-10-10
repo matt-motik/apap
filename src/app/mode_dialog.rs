@@ -21,8 +21,8 @@
 
 use music_player_rs::settings::params::{Availability, ParamDescriptor, ParamId, PARAMS};
 use music_player_rs::settings::playback::{
-    buffers_allowed, DeviceBuffer, Dither, DsdFilter, ModeKind, ModeSettings, RateFallbackRule,
-    SrcFilter, ValueBlocker,
+    buffers_allowed, BufferMs, DeviceBuffer, Dither, DsdAboveDac, DsdFilter, ModeKind, ModeSettings,
+    RateFallbackRule, SrcFilter, ValueBlocker,
 };
 
 /// Строка диалога настроек режима: параметр, подпись, тип виджета,
@@ -116,6 +116,18 @@ fn build_configurable_row(id: ParamId, mode: ModeKind, settings: &ModeSettings, 
     }
 }
 
+/// Пункты списка «Фильтр SRC» в порядке отображения: единственный источник
+/// соответствия индекс ↔ `SrcFilter` для `build_rows` и `apply_edit` (ТЗ-94,
+/// ТЗ-130, §6.27). `None` — синтетический `NotImplemented`-пункт минимальной
+/// фазы, непредставимый в `SrcFilter` (И-Т19).
+const SRC_FILTER_OPTIONS: &[(&str, Option<SrcFilter>)] = &[
+    ("Крутой", Some(SrcFilter::Steep)),
+    ("Медленный", Some(SrcFilter::Slow)),
+    ("Очень медленный", Some(SrcFilter::VerySlow)),
+    ("Крутой, короткая задержка", None),
+    ("Медленный, короткая задержка", None),
+];
+
 /// Список «Фильтр SRC» с двумя синтетическими `NotImplemented`-пунктами
 /// минимальной фазы, непредставимыми в `SrcFilter` (И-Т19, ТЗ-130).
 fn row_src_filter(mode: ModeKind, settings: &ModeSettings, label: &'static str) -> DialogRow {
@@ -126,26 +138,15 @@ fn row_src_filter(mode: ModeKind, settings: &ModeSettings, label: &'static str) 
         ModeKind::Optimal => settings.optimal.src_filter,
         ModeKind::Strict => SrcFilter::default(),
     };
-    let options = vec![
-        RowOption { label: "Крутой", enabled: true, hint: String::new() },
-        RowOption { label: "Медленный", enabled: true, hint: String::new() },
-        RowOption { label: "Очень медленный", enabled: true, hint: String::new() },
-        RowOption {
-            label: "Крутой, короткая задержка",
-            enabled: false,
-            hint: "пока не реализовано".to_string(),
-        },
-        RowOption {
-            label: "Медленный, короткая задержка",
-            enabled: false,
-            hint: "пока не реализовано".to_string(),
-        },
-    ];
-    let selected = match current {
-        SrcFilter::Steep => 0,
-        SrcFilter::Slow => 1,
-        SrcFilter::VerySlow => 2,
-    };
+    let options = SRC_FILTER_OPTIONS
+        .iter()
+        .map(|(opt_label, variant)| RowOption {
+            label: opt_label,
+            enabled: variant.is_some(),
+            hint: if variant.is_some() { String::new() } else { "пока не реализовано".to_string() },
+        })
+        .collect();
+    let selected = SRC_FILTER_OPTIONS.iter().position(|(_, v)| *v == Some(current)).unwrap_or(0);
     DialogRow {
         param: ParamId::SrcFilter,
         label,
@@ -154,6 +155,12 @@ fn row_src_filter(mode: ModeKind, settings: &ModeSettings, label: &'static str) 
         note: String::new(),
     }
 }
+
+/// Пункты списка «Буфер устройства» в порядке отображения: единственный
+/// источник соответствия индекс ↔ `DeviceBuffer` для `build_rows` и
+/// `apply_edit` (ТЗ-94, ТЗ-131, §6.27).
+const DEVICE_BUFFER_OPTIONS: &[DeviceBuffer] =
+    &[DeviceBuffer::Ms20, DeviceBuffer::Ms40, DeviceBuffer::Ms100, DeviceBuffer::Ms200, DeviceBuffer::Ms400];
 
 /// Список «Буфер устройства»: пункт, не проходящий `buffers_allowed` с
 /// текущим буфером плеера режима, неактивен с подсказкой (ТЗ-94, ТЗ-131).
@@ -165,16 +172,9 @@ fn row_device_buffer(mode: ModeKind, settings: &ModeSettings, label: &'static st
         ModeKind::Strict => (settings.strict.buffer, settings.strict.device_buffer),
         ModeKind::Compatible => (settings.optimal.buffer, settings.optimal.device_buffer),
     };
-    let candidates = [
-        DeviceBuffer::Ms20,
-        DeviceBuffer::Ms40,
-        DeviceBuffer::Ms100,
-        DeviceBuffer::Ms200,
-        DeviceBuffer::Ms400,
-    ];
-    let mut options = Vec::with_capacity(candidates.len());
+    let mut options = Vec::with_capacity(DEVICE_BUFFER_OPTIONS.len());
     let mut selected = 0;
-    for (i, candidate) in candidates.iter().enumerate() {
+    for (i, candidate) in DEVICE_BUFFER_OPTIONS.iter().enumerate() {
         if *candidate == device_buffer {
             selected = i;
         }
@@ -208,6 +208,12 @@ fn device_buffer_label(d: DeviceBuffer) -> &'static str {
     }
 }
 
+/// Пункты списка «Фильтр DSD → PCM» в порядке отображения: единственный
+/// источник соответствия индекс ↔ `DsdFilter` для `build_rows` и
+/// `apply_edit` (ТЗ-94, ТЗ-128, §6.27).
+const DSD_FILTER_OPTIONS: &[(&str, DsdFilter)] =
+    &[("24 кГц", DsdFilter::K24), ("30 кГц", DsdFilter::K30), ("50 кГц", DsdFilter::K50)];
+
 /// Список «Фильтр DSD → PCM» (ТЗ-128).
 fn row_dsd_filter(mode: ModeKind, settings: &ModeSettings, label: &'static str) -> DialogRow {
     let current = match mode {
@@ -215,16 +221,11 @@ fn row_dsd_filter(mode: ModeKind, settings: &ModeSettings, label: &'static str) 
         ModeKind::Optimal => settings.optimal.dsd_filter,
         ModeKind::Strict => DsdFilter::default(),
     };
-    let options = vec![
-        RowOption { label: "24 кГц", enabled: true, hint: String::new() },
-        RowOption { label: "30 кГц", enabled: true, hint: String::new() },
-        RowOption { label: "50 кГц", enabled: true, hint: String::new() },
-    ];
-    let selected = match current {
-        DsdFilter::K24 => 0,
-        DsdFilter::K30 => 1,
-        DsdFilter::K50 => 2,
-    };
+    let options = DSD_FILTER_OPTIONS
+        .iter()
+        .map(|(opt_label, _)| RowOption { label: opt_label, enabled: true, hint: String::new() })
+        .collect();
+    let selected = DSD_FILTER_OPTIONS.iter().position(|(_, v)| *v == current).unwrap_or(0);
     DialogRow {
         param: ParamId::DsdFilter,
         label,
@@ -285,22 +286,26 @@ fn row_buffer(mode: ModeKind, settings: &ModeSettings, label: &'static str) -> D
     }
 }
 
+/// Пункты списка «Политика несовпадения частоты» в порядке отображения:
+/// единственный источник соответствия индекс ↔ `RateFallbackRule` для
+/// `build_rows` и `apply_edit` (ТЗ-94, §6.27).
+const RATE_FALLBACK_OPTIONS: &[(&str, RateFallbackRule)] = &[
+    ("Та же семья частот", RateFallbackRule::SameFamily),
+    ("Ближайшая", RateFallbackRule::Nearest),
+    ("Без понижения", RateFallbackRule::NoDownsample),
+];
+
 /// Список «Политика несовпадения частоты» (только `Optimal`).
 fn row_rate_fallback(mode: ModeKind, settings: &ModeSettings, label: &'static str) -> DialogRow {
     let current = match mode {
         ModeKind::Optimal => settings.optimal.rate_fallback,
         ModeKind::Compatible | ModeKind::Strict => RateFallbackRule::default(),
     };
-    let options = vec![
-        RowOption { label: "Та же семья частот", enabled: true, hint: String::new() },
-        RowOption { label: "Ближайшая", enabled: true, hint: String::new() },
-        RowOption { label: "Без понижения", enabled: true, hint: String::new() },
-    ];
-    let selected = match current {
-        RateFallbackRule::SameFamily => 0,
-        RateFallbackRule::Nearest => 1,
-        RateFallbackRule::NoDownsample => 2,
-    };
+    let options = RATE_FALLBACK_OPTIONS
+        .iter()
+        .map(|(opt_label, _)| RowOption { label: opt_label, enabled: true, hint: String::new() })
+        .collect();
+    let selected = RATE_FALLBACK_OPTIONS.iter().position(|(_, v)| *v == current).unwrap_or(0);
     DialogRow {
         param: ParamId::RateFallback,
         label,
@@ -310,14 +315,215 @@ fn row_rate_fallback(mode: ModeKind, settings: &ModeSettings, label: &'static st
     }
 }
 
+/// Пункты списка «DSD выше возможностей ЦАП» в порядке отображения:
+/// единственный источник соответствия индекс ↔ `DsdAboveDac` для
+/// `build_rows` и `apply_edit` (ТЗ-34, ТЗ-94, §6.27). `None` — синтетический
+/// `NotImplemented`-пункт «Ремодуляция», непредставимый в `DsdAboveDac`.
+const DSD_ABOVE_DAC_OPTIONS: &[(&str, Option<DsdAboveDac>)] =
+    &[("Преобразовать в PCM", Some(DsdAboveDac::ConvertToPcm)), ("Ремодуляция", None)];
+
 /// Список «DSD выше возможностей ЦАП» с синтетическим `NotImplemented`-пунктом
 /// «Ремодуляция», непредставимым в `DsdAboveDac` (ТЗ-34).
 fn row_dsd_above_dac(id: ParamId, label: &'static str) -> DialogRow {
-    let options = vec![
-        RowOption { label: "Преобразовать в PCM", enabled: true, hint: String::new() },
-        RowOption { label: "Ремодуляция", enabled: false, hint: "пока не реализовано".to_string() },
-    ];
+    let options = DSD_ABOVE_DAC_OPTIONS
+        .iter()
+        .map(|(opt_label, variant)| RowOption {
+            label: opt_label,
+            enabled: variant.is_some(),
+            hint: if variant.is_some() { String::new() } else { "пока не реализовано".to_string() },
+        })
+        .collect();
     DialogRow { param: id, label, kind: RowKind::List { options, selected: 0 }, enabled: true, note: String::new() }
+}
+
+/// Значение, которое пользователь выставил в редактируемой строке диалога:
+/// индекс выбранного пункта `RowKind::List`, положение `RowKind::Toggle` или
+/// число `RowKind::Slider` (§6.27, ТЗ-94).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(super) enum EditValue {
+    Index(usize),
+    Toggle(bool),
+    Slider(u16),
+}
+
+/// Причина отказа применить правку строки диалога к черновику настроек
+/// режима (§6.27, ТЗ-94).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(super) enum EditRejected {
+    /// Параметр не `Availability::Configurable` в данном режиме по таблице
+    /// `PARAMS` (ТЗ-95).
+    NotEditable,
+    /// Вид `EditValue` не подходит строке, индекс вне диапазона списка или
+    /// выбранный пункт отключён (синтетический `NotImplemented`-вариант,
+    /// например минимальная фаза `SrcFilter` или «Ремодуляция»).
+    BadValue,
+    /// ТЗ-94: итоговая пара (буфер декодирование → вывод, буфер устройства)
+    /// не проходит `buffers_allowed` — недопустимое сочетание не применяется.
+    BuffersNotAllowed,
+}
+
+/// Применить правку строки диалога к черновику `settings` (§6.27, ТЗ-94).
+/// Индекс списка понимается в том же порядке, в котором пункты отдаёт
+/// `build_rows` (общие таблицы `*_OPTIONS`). При любой ошибке `settings`
+/// остаётся нетронутым — мутация происходит только на пути `Ok`.
+pub(super) fn apply_edit(
+    settings: &mut ModeSettings,
+    mode: ModeKind,
+    param: ParamId,
+    value: EditValue,
+) -> Result<(), EditRejected> {
+    let descriptor = PARAMS.iter().find(|d| d.id == param).ok_or(EditRejected::NotEditable)?;
+    if !matches!((descriptor.availability)(mode), Availability::Configurable) {
+        return Err(EditRejected::NotEditable);
+    }
+    match param {
+        ParamId::SrcFilter => apply_src_filter(settings, mode, value),
+        ParamId::DeviceBuffer => apply_device_buffer(settings, mode, value),
+        ParamId::DsdFilter => apply_dsd_filter(settings, mode, value),
+        ParamId::DsdGainComp => apply_dsd_gain_comp(settings, mode, value),
+        ParamId::DitherKind => apply_dither_kind(settings, mode, value),
+        ParamId::VolumeLock => apply_volume_lock(settings, mode, value),
+        ParamId::Buffer => apply_buffer(settings, mode, value),
+        ParamId::RateFallback => apply_rate_fallback(settings, mode, value),
+        ParamId::DsdAboveDac => apply_dsd_above_dac(settings, mode, value),
+        _ => Err(EditRejected::NotEditable),
+    }
+}
+
+/// Правка списка «Фильтр SRC» по `SRC_FILTER_OPTIONS` (ТЗ-94, ТЗ-130).
+fn apply_src_filter(settings: &mut ModeSettings, mode: ModeKind, value: EditValue) -> Result<(), EditRejected> {
+    let EditValue::Index(index) = value else { return Err(EditRejected::BadValue) };
+    let (_, variant) = SRC_FILTER_OPTIONS.get(index).ok_or(EditRejected::BadValue)?;
+    let variant = variant.ok_or(EditRejected::BadValue)?;
+    match mode {
+        ModeKind::Compatible => settings.compatible.src_filter = variant,
+        ModeKind::Optimal => settings.optimal.src_filter = variant,
+        ModeKind::Strict => return Err(EditRejected::NotEditable),
+    }
+    Ok(())
+}
+
+/// Правка списка «Буфер устройства» по `DEVICE_BUFFER_OPTIONS`: кандидат,
+/// не проходящий `buffers_allowed` с текущим буфером плеера режима,
+/// отклоняется без изменения `settings` (ТЗ-94, ТЗ-131).
+fn apply_device_buffer(settings: &mut ModeSettings, mode: ModeKind, value: EditValue) -> Result<(), EditRejected> {
+    let EditValue::Index(index) = value else { return Err(EditRejected::BadValue) };
+    let candidate = *DEVICE_BUFFER_OPTIONS.get(index).ok_or(EditRejected::BadValue)?;
+    let buffer = match mode {
+        ModeKind::Optimal => settings.optimal.buffer,
+        ModeKind::Strict => settings.strict.buffer,
+        ModeKind::Compatible => return Err(EditRejected::NotEditable),
+    };
+    buffers_allowed(buffer, candidate).map_err(|_| EditRejected::BuffersNotAllowed)?;
+    match mode {
+        ModeKind::Optimal => settings.optimal.device_buffer = candidate,
+        ModeKind::Strict => settings.strict.device_buffer = candidate,
+        ModeKind::Compatible => return Err(EditRejected::NotEditable),
+    }
+    Ok(())
+}
+
+/// Правка списка «Фильтр DSD → PCM» по `DSD_FILTER_OPTIONS` (ТЗ-94, ТЗ-128).
+fn apply_dsd_filter(settings: &mut ModeSettings, mode: ModeKind, value: EditValue) -> Result<(), EditRejected> {
+    let EditValue::Index(index) = value else { return Err(EditRejected::BadValue) };
+    let (_, variant) = DSD_FILTER_OPTIONS.get(index).ok_or(EditRejected::BadValue)?;
+    match mode {
+        ModeKind::Compatible => settings.compatible.dsd_filter = *variant,
+        ModeKind::Optimal => settings.optimal.dsd_filter = *variant,
+        ModeKind::Strict => return Err(EditRejected::NotEditable),
+    }
+    Ok(())
+}
+
+/// Правка переключателя «Компенсация уровня DSD → PCM +6 дБ» (ТЗ-94, ТЗ-129).
+fn apply_dsd_gain_comp(settings: &mut ModeSettings, mode: ModeKind, value: EditValue) -> Result<(), EditRejected> {
+    let EditValue::Toggle(on) = value else { return Err(EditRejected::BadValue) };
+    match mode {
+        ModeKind::Compatible => settings.compatible.dsd_gain_comp = on,
+        ModeKind::Optimal => settings.optimal.dsd_gain_comp = on,
+        ModeKind::Strict => return Err(EditRejected::NotEditable),
+    }
+    Ok(())
+}
+
+/// Правка переключателя «Дизеринг» — `on` ↔ `Dither::Tpdf` (ТЗ-94).
+fn apply_dither_kind(settings: &mut ModeSettings, mode: ModeKind, value: EditValue) -> Result<(), EditRejected> {
+    let EditValue::Toggle(on) = value else { return Err(EditRejected::BadValue) };
+    let dither = if on { Dither::Tpdf } else { Dither::Off };
+    match mode {
+        ModeKind::Compatible => settings.compatible.dither = dither,
+        ModeKind::Optimal => settings.optimal.dither = dither,
+        ModeKind::Strict => return Err(EditRejected::NotEditable),
+    }
+    Ok(())
+}
+
+/// Правка переключателя «Фиксировать громкость на 100 %» — только `Optimal`
+/// (ТЗ-94, ОВС-19).
+fn apply_volume_lock(settings: &mut ModeSettings, mode: ModeKind, value: EditValue) -> Result<(), EditRejected> {
+    let EditValue::Toggle(on) = value else { return Err(EditRejected::BadValue) };
+    match mode {
+        ModeKind::Optimal => {
+            settings.optimal.volume_lock = on;
+            Ok(())
+        }
+        ModeKind::Compatible | ModeKind::Strict => Err(EditRejected::NotEditable),
+    }
+}
+
+/// Правка ползунка «Буфер декодирование → вывод»: значение проверяется
+/// конструктором `BufferMs::new` (без `as`), затем — парой с буфером
+/// устройства режима через `buffers_allowed` там, где он есть (ТЗ-94,
+/// ТЗ-131).
+fn apply_buffer(settings: &mut ModeSettings, mode: ModeKind, value: EditValue) -> Result<(), EditRejected> {
+    let EditValue::Slider(ms) = value else { return Err(EditRejected::BadValue) };
+    let buffer = BufferMs::new(ms).ok_or(EditRejected::BadValue)?;
+    match mode {
+        ModeKind::Compatible => {
+            settings.compatible.buffer = buffer;
+            Ok(())
+        }
+        ModeKind::Optimal => {
+            buffers_allowed(buffer, settings.optimal.device_buffer).map_err(|_| EditRejected::BuffersNotAllowed)?;
+            settings.optimal.buffer = buffer;
+            Ok(())
+        }
+        ModeKind::Strict => {
+            buffers_allowed(buffer, settings.strict.device_buffer).map_err(|_| EditRejected::BuffersNotAllowed)?;
+            settings.strict.buffer = buffer;
+            Ok(())
+        }
+    }
+}
+
+/// Правка списка «Политика несовпадения частоты» по `RATE_FALLBACK_OPTIONS`
+/// — только `Optimal` (ТЗ-94).
+fn apply_rate_fallback(settings: &mut ModeSettings, mode: ModeKind, value: EditValue) -> Result<(), EditRejected> {
+    let EditValue::Index(index) = value else { return Err(EditRejected::BadValue) };
+    let (_, variant) = RATE_FALLBACK_OPTIONS.get(index).ok_or(EditRejected::BadValue)?;
+    match mode {
+        ModeKind::Optimal => {
+            settings.optimal.rate_fallback = *variant;
+            Ok(())
+        }
+        ModeKind::Compatible | ModeKind::Strict => Err(EditRejected::NotEditable),
+    }
+}
+
+/// Правка списка «DSD выше возможностей ЦАП» по `DSD_ABOVE_DAC_OPTIONS` —
+/// только `Optimal`; синтетический пункт «Ремодуляция» отклоняется (ТЗ-34,
+/// ТЗ-94).
+fn apply_dsd_above_dac(settings: &mut ModeSettings, mode: ModeKind, value: EditValue) -> Result<(), EditRejected> {
+    let EditValue::Index(index) = value else { return Err(EditRejected::BadValue) };
+    let (_, variant) = DSD_ABOVE_DAC_OPTIONS.get(index).ok_or(EditRejected::BadValue)?;
+    let variant = variant.ok_or(EditRejected::BadValue)?;
+    match mode {
+        ModeKind::Optimal => {
+            settings.optimal.dsd_above_dac = variant;
+            Ok(())
+        }
+        ModeKind::Compatible | ModeKind::Strict => Err(EditRejected::NotEditable),
+    }
 }
 
 /// Русская подпись параметра (ТЗ-95, §2.2). `label_key` в `PARAMS` —
@@ -440,5 +646,61 @@ mod tests {
             music_player_rs::settings::playback::BufferMs::new(100)
                 .expect("100 мс входит в допустимый диапазон BufferMs")
         }
+    }
+
+    /// §6.27, ТЗ-94: правка пункта списка меняет значение черновика, и
+    /// `build_rows` затем отражает новый выбранный пункт.
+    #[test]
+    fn valid_list_edit_changes_value_and_is_reflected_in_build_rows() {
+        let mut settings = ModeSettings::default();
+        apply_edit(&mut settings, ModeKind::Compatible, ParamId::SrcFilter, EditValue::Index(2))
+            .expect("Index(2) — пункт «Очень медленный», допустимая правка");
+        assert_eq!(settings.compatible.src_filter, SrcFilter::VerySlow);
+
+        let rows = build_rows(ModeKind::Compatible, &settings);
+        let row = rows.iter().find(|r| r.param == ParamId::SrcFilter).expect("SrcFilter row must exist");
+        let RowKind::List { selected, .. } = &row.kind else { panic!("expected List") };
+        assert_eq!(*selected, 2);
+    }
+
+    /// ТЗ-94: буфер устройства, не проходящий `buffers_allowed` с текущим
+    /// буфером плеера, отклоняется, `settings` не меняется.
+    #[test]
+    fn disallowed_device_buffer_edit_is_rejected_and_unchanged() {
+        let mut settings = ModeSettings::default();
+        settings.optimal.buffer = BufferMsForTest::ms100();
+        let before = settings.clone();
+
+        let result = apply_edit(&mut settings, ModeKind::Optimal, ParamId::DeviceBuffer, EditValue::Index(4));
+
+        assert_eq!(result, Err(EditRejected::BuffersNotAllowed));
+        assert_eq!(settings, before);
+    }
+
+    /// §6.27: синтетический `NotImplemented`-пункт («Крутой, короткая
+    /// задержка») непредставим в `SrcFilter` — правка отклоняется, `settings`
+    /// не меняется.
+    #[test]
+    fn not_implemented_option_edit_is_rejected_and_unchanged() {
+        let mut settings = ModeSettings::default();
+        let before = settings.clone();
+
+        let result = apply_edit(&mut settings, ModeKind::Compatible, ParamId::SrcFilter, EditValue::Index(3));
+
+        assert_eq!(result, Err(EditRejected::BadValue));
+        assert_eq!(settings, before);
+    }
+
+    /// ТЗ-95: «Политика несовпадения частоты» — `FixedByMode` в Совместимом
+    /// режиме, правка отклоняется как `NotEditable`.
+    #[test]
+    fn fixed_by_mode_param_edit_is_rejected_as_not_editable() {
+        let mut settings = ModeSettings::default();
+        let before = settings.clone();
+
+        let result = apply_edit(&mut settings, ModeKind::Compatible, ParamId::RateFallback, EditValue::Index(1));
+
+        assert_eq!(result, Err(EditRejected::NotEditable));
+        assert_eq!(settings, before);
     }
 }

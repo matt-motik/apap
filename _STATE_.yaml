@@ -131,7 +131,7 @@ steps:
     done: true
   - id: 30
     description: "src/app/mode_dialog.rs: apply_edit(&mut ModeSettings, ModeKind, ParamId, значение) — изменение черновика из строки диалога; недопустимое сочетание буферов не применяется (ТЗ-94). Тесты ≤4. Проверка: cargo test mode_dialog"
-    done: false
+    done: true
   - id: 31
     description: "Slint: ui/mode_params.slint (новый) — компонент панели режимов: выбор редактируемого режима, строки по виду (список/переключатель/ползунок, неактивные с причиной/«задано режимом»/«пока не реализовано»); подключить во вкладку «Аудио» ui/settings.slint рядом со старым блоком (мост) с пробросом в ui/app.slint. Проверка: cargo check"
     done: false
@@ -159,8 +159,8 @@ steps:
   - id: 39
     description: "Финал: cargo build/test/clippy зелёные; ROADMAP ✅; заметка плана; напомнить пользователю удалить settings.toml (ТЗ-97) и показать расхождение с 02 spec стр. 3342 (решение — за пользователем); ручные проверки (переключатель режимов, Совместимый играет, Оптимальный/Строгий через hw: на Linux). Проверка: cargo test + clippy"
     done: false
-current_step: 30
-next_action: "Шаг 30: src/app/mode_dialog.rs — apply_edit(&mut ModeSettings, ModeKind, ParamId, значение); недопустимое сочетание буферов не применяется (ТЗ-94)"
+current_step: 31
+next_action: "Шаг 31: Slint — ui/mode_params.slint (новый), панель режимов во вкладке «Аудио» ui/settings.slint, проброс в ui/app.slint"
 fail_counter: 0
 fail_counter_max: 3
 failed_attempts: []
