@@ -11,6 +11,8 @@ use crate::audio::backend::BackendError;
 use crate::audio::decoder::TrackInfo;
 use crate::audio::error::{FileError, OpenError, Reaction};
 use crate::audio::player::{ReservationEvent, StreamDesc};
+use crate::settings::params::ModeSettingsUpdate;
+use crate::settings::playback::ModeKind;
 use crate::settings::{
     ClockFamily, DsdMode, ExclusiveMode, FallbackPolicy, FallbackRatePolicy, ResamplerAlgorithm,
     ResamplerDither, ResamplerMode,
@@ -51,6 +53,15 @@ pub enum EngineCmd {
     /// Мост С3: передача producer'а tap в движок (сейчас `Player::set_viz_tap`).
     AttachVizTap(Option<rtrb::Producer<f32>>),
     SetLegacyAudio(LegacyAudio),
+    /// Новые настройки режима (ОВС-14, ОВС-17, §6.18, ADR-22): движок хранит
+    /// копию `settings`, а по `diff.strongest(active)` переоткрывает поток на
+    /// текущей позиции (`ApplyKind::ReopenAtPosition`/`SwitchDevice`) или
+    /// только обновляет копию (`None`/`Memory`). `diff: None` — всегда копия.
+    SetModeSettings(ModeSettingsUpdate),
+    /// Переключение активного режима (ТЗ-20, ОВ-10, §6.18): переоткрытие на
+    /// текущей позиции с параметрами нового режима (как `SwitchDevice`),
+    /// т.к. устройство/эксклюзивность/bit-perfect могут отличаться.
+    SetActiveMode(ModeKind),
     /// Мост С3: освободить монопольный узел `hw:` без перемотки (конец
     /// плейлиста, уход в трей — V5.1-B5/B6). В С6 заменяется `release`
     /// монопольного бэкенда (ТЗ-48).
@@ -81,6 +92,10 @@ impl std::fmt::Debug for EngineCmd {
                 f.debug_tuple("AttachVizTap").field(&producer.as_ref().map(|_| "<producer>")).finish()
             }
             EngineCmd::SetLegacyAudio(audio) => f.debug_tuple("SetLegacyAudio").field(audio).finish(),
+            EngineCmd::SetModeSettings(update) => {
+                f.debug_tuple("SetModeSettings").field(update).finish()
+            }
+            EngineCmd::SetActiveMode(mode) => f.debug_tuple("SetActiveMode").field(mode).finish(),
             EngineCmd::ReleaseExclusive => write!(f, "ReleaseExclusive"),
             EngineCmd::Shutdown => write!(f, "Shutdown"),
         }

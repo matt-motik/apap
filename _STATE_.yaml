@@ -77,7 +77,7 @@ steps:
     done: true
   - id: 13
     description: "src/engine/messages.rs + src/engine/run.rs: EngineCmd::SetModeSettings(ModeSettingsUpdate) и SetActiveMode(ModeKind) (SetLegacyAudio пока остаётся мостом); движок хранит ModeSettings + active и строит параметры пути через legacy_path; diff None → только копия; Some → по strongest (§6.18): Memory → копия; ReopenAtPosition → одно переоткрытие с позиции с сохранением playing/paused (stopped → только копия); SwitchDevice → смена устройства с позиции. Проверка: cargo check"
-    done: false
+    done: true
   - id: 14
     description: "src/engine/tests.rs: тесты audio_param_change_reopens_at_position_preserving_pause (§7.2 стр. 1834), изменение неактивного режима не переоткрывает, SwitchDevice поглощает прочие изменения (И-Р26). Проверка: cargo test engine::"
     done: false
@@ -141,8 +141,8 @@ steps:
   - id: 34
     description: "Финал: cargo build/test/clippy зелёные; ROADMAP ✅; заметка плана; напомнить пользователю удалить settings.toml (ТЗ-97) и показать расхождение с 02 spec стр. 3342 (решение — за пользователем); ручные проверки (переключатель режимов, Совместимый играет, Оптимальный/Строгий через hw: на Linux). Проверка: cargo test + clippy"
     done: false
-current_step: 13
-next_action: "Шаг 13: новый субагент (sonnet, code-writer) — engine messages/run: SetModeSettings / SetActiveMode"
+current_step: 14
+next_action: "Шаг 14: новый субагент (sonnet, code-writer) — src/engine/tests.rs: тесты переоткрытия по ApplyKind"
 fail_counter: 0
 fail_counter_max: 3
 failed_attempts: []
@@ -168,6 +168,7 @@ plan:
         - "SP1.0-8.8 (С8 (02) «Загрузка плейлиста, Play Now, экспорт») закрыт в 5b08e7b; В РАБОТЕ (п. 14 сквозного порядка): AM1.0-8.4 (С4 (01) «Модель режимов и настроек») — микро-шаги в _STATE_.yaml."
         - "ВОПРОС ПОЛЬЗОВАТЕЛЮ (AM1.0-8.4 шаг 2): HwDeviceId (§2.3) ещё нет в коде; в OptimalOpts/StrictOpts.device временно Option<String>. Предложение: добавить newtype HwDeviceId в src/audio/backend/mod.rs (расширить вайтлист) и заменить. Умолчание BufferMs = 1500 мс (как RING_BUFFER_MS_DEFAULT; спека числа не задаёт)."
         - "ВОПРОС ПОЛЬЗОВАТЕЛЮ (AM1.0-8.4 шаг 10): legacy_path отображает SrcFilter на старый ResamplerAlgorithm по крутизне: Steep→SincSlow(128), Slow→SincMedium(64), VerySlow→SincFast(32) — решение шага, в спеке нет; Оптимальный → ExclusiveMode::Strict (без перехода в Shared); DsdFilter/dsd_gain_comp/volume_lock/device_buffer старый путь не параметризуют."
+        - "AM1.0-8.4 шаг 13: SetActiveMode в движке только сохраняет параметры (release_engine + поля), переоткрытие — последующий Open от UI (§6.18 стр. 2399, ТС-9). Пробел: при возврате на SystemDefault (legacy_audio → device None) Player.preferred_device не сбрасывается — нет API в player.rs (вне вайтлиста); закрыть на С5 или расширить вайтлист."
         - "AM1.0-8.4 шаг 7: имена ключей [playback] dither (tpdf/off), rate_fallback (same_family/nearest/no_downsample), volume_lock, fixed_rate (Гц), buffer (мс), device (строка) спекой поимённо не заданы — взяты по именам полей ModeSettings; подтвердить пользователю."
         - "На С5 (решение пользователя 2026-10-08): снять мост src/app/audio_facade.rs — вызовы в playback_manager, visualizer_manager, playlist_manager, bp_report, mod.rs → прямая работа с EngineHandle/SignalPath/BadgeState; удалить файл; снять #![allow(dead_code)] в engine_sink.rs и ui_audio_state.rs. Состояние фасада (req_gen, кэш транспорта/трека/потока, ended, очередь резервирования, volume/muted/LegacyAudio) переносить целиком, не по файлам."
         - "Ручные проверки за пользователем: AM1.0-8.1 — сценарии ТЗ-1/2/48/118/119/120/122 — отложено до полной реализации замка (решение пользователя 2026-10-10)."

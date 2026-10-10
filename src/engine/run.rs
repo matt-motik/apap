@@ -15,7 +15,10 @@ use crate::audio::clock::ClockInstant;
 use crate::audio::error::{CaptureFailure, EngineFault, FileError, OpenError};
 use crate::audio::player::{Player, ReservationEvent};
 use crate::engine::deps::EngineDeps;
-use crate::engine::messages::{EngineCmd, EngineEvent, Notice, SkipReason, TransportState};
+use crate::engine::legacy_path::legacy_audio;
+use crate::engine::messages::{EngineCmd, EngineEvent, LegacyAudio, Notice, SkipReason, TransportState};
+use crate::settings::params::ApplyKind;
+use crate::settings::playback::{ModeKind, ModeSettings};
 
 /// Минимальный интервал между событиями `Position` (§6.1, И-Р13).
 const POSITION_INTERVAL: Duration = Duration::from_millis(100);
@@ -56,6 +59,12 @@ struct Engine {
     /// пропуск, а не штатный конец трека). Сбрасывается на следующий успешный
     /// `Open`.
     session_failed: bool,
+    /// Копия настроек всех режимов (ОВС-14, §6.18): обновляется по
+    /// `SetModeSettings` целиком, независимо от того, требует ли изменение
+    /// переоткрытия.
+    mode_settings: ModeSettings,
+    /// Активный режим (ADR-04, §2.2); меняется только `SetActiveMode`.
+    active_mode: ModeKind,
 }
 
 impl Engine {
@@ -73,6 +82,8 @@ impl Engine {
             last_pos: None,
             last_pos_at: None,
             session_failed: false,
+            mode_settings: ModeSettings::default(),
+            active_mode: ModeKind::default(),
         }
     }
 
@@ -247,12 +258,122 @@ impl Engine {
                 self.player.set_bit_perfect(audio.bit_perfect);
                 self.player.set_dither(audio.dither);
             }
+            EngineCmd::SetModeSettings(update) => {
+                self.mode_settings = update.settings;
+                let strongest = update.diff.as_ref().and_then(|d| d.strongest(self.active_mode));
+                match strongest {
+                    None | Some(ApplyKind::Memory) => {}
+                    Some(ApplyKind::ReopenAtPosition) | Some(ApplyKind::SwitchDevice) => {
+                        self.apply_active_mode();
+                    }
+                }
+            }
+            EngineCmd::SetActiveMode(mode) => {
+                if mode != self.active_mode {
+                    self.active_mode = mode;
+                    self.store_active_mode();
+                }
+            }
             EngineCmd::Shutdown => {
                 self.shutdown();
                 return true;
             }
         }
         false
+    }
+
+    /// Применяет `self.mode_settings`/`self.active_mode` к старому пути для
+    /// `EngineCmd::SetModeSettings` (ОВС-14, ОВС-17, §6.18, ADR-22): при
+    /// `Stopped` — только копия полей `Player` (нет сессии, переоткрывать
+    /// нечего — применится на следующем `Open`); иначе одно переоткрытие на
+    /// текущей позиции с сохранением играет/на паузе через
+    /// `reopen_with_legacy`. `EngineCmd::SetActiveMode` переоткрытие здесь не
+    /// запускает — см. `store_active_mode`.
+    fn apply_active_mode(&mut self) {
+        let (legacy, device) = legacy_audio(&self.mode_settings, self.active_mode);
+        if self.stopped {
+            self.apply_legacy_fields(&legacy, device);
+        } else {
+            self.reopen_with_legacy(legacy, device);
+        }
+    }
+
+    /// Смена активного режима без переоткрытия движком (ТЗ-20, ОВ-10, §6.18
+    /// строка 2399, ТС-9): по спецификации UI сама шлёт следом `Open` того
+    /// же трека с текущей позиции — переоткрытие остаётся за ней. Если
+    /// переоткрыть здесь (как `apply_active_mode`), а затем снова в
+    /// `Open` от UI, получится два переоткрытия подряд — слышимый щелчок.
+    /// Поэтому только копия полей старого пути: `release_engine` снимает
+    /// поток (если он был открыт; на уже остановленном/безпотоковом движке
+    /// не делает ничего), после чего `set_bit_perfect`/`set_dither` в
+    /// `apply_legacy_fields` — чистая запись без собственного
+    /// переоткрытия. Применится на следующем `Open`.
+    fn store_active_mode(&mut self) {
+        let (legacy, device) = legacy_audio(&self.mode_settings, self.active_mode);
+        self.player.release_engine();
+        self.apply_legacy_fields(&legacy, device);
+    }
+
+    /// Пишет поля `Player`, соответствующие старому пути (ТЗ-134, И-Р24).
+    /// Сеттеры `bit_perfect`/`dither` переоткрывают поток сами, если он
+    /// сейчас открыт (`self.player`'s `reopen_current`) — вызывающая сторона
+    /// обязана сначала `release_engine`, если нужно ровно одно переоткрытие
+    /// (см. `reopen_with_legacy`).
+    fn apply_legacy_fields(&mut self, legacy: &LegacyAudio, device: Option<String>) {
+        if let Some(name) = device {
+            self.player.set_preferred_device(name);
+        }
+        self.player.set_exclusive_mode(legacy.exclusive_mode);
+        self.player.set_fallback_policy(legacy.fallback_policy);
+        self.player.set_dsd_mode(legacy.dsd_mode);
+        self.player.set_resampler_mode(legacy.resampler_mode);
+        self.player.set_resampler_algorithm(legacy.resampler_algorithm);
+        self.player.set_fixed_rate(legacy.fixed_rate);
+        self.player.set_prefer_family(legacy.prefer_family);
+        self.player.set_fallback_rate(legacy.fallback_rate);
+        self.player.set_ring_buffer_ms(legacy.ring_buffer_ms);
+        self.player.set_bit_perfect(legacy.bit_perfect);
+        self.player.set_dither(legacy.dither);
+    }
+
+    /// Одно переоткрытие текущего трека с новыми параметрами старого пути
+    /// (`ApplyKind::ReopenAtPosition`/`SwitchDevice`, §6.18): `release_engine`
+    /// снимает поток заранее, поэтому сеттеры `bit_perfect`/`dither` в
+    /// `apply_legacy_fields` становятся чистой записью (их собственное
+    /// `reopen_current` не срабатывает при снятом потоке) — переоткрытие
+    /// ниже остаётся единственным, даже если изменились оба поля сразу
+    /// (например, при смене режима). Позиция и играет/на паузе — как в
+    /// `EngineCmd::Open`.
+    fn reopen_with_legacy(&mut self, legacy: LegacyAudio, device: Option<String>) {
+        let Some((req_gen, path)) = self.current.clone() else {
+            self.apply_legacy_fields(&legacy, device);
+            return;
+        };
+        let was_playing = self.player.is_playing();
+        let (_, pos, _) = self.player.snapshot();
+        self.player.release_engine();
+        self.apply_legacy_fields(&legacy, device);
+        match self.player.open(&path) {
+            Ok(_info) => {
+                if pos > 0.0 {
+                    self.player.seek(pos);
+                }
+                if was_playing {
+                    self.player.play();
+                }
+                self.refresh_transport();
+            }
+            Err(_msg) => {
+                // Мост С3: как `SetDevice` — текст ошибки без классификации
+                // (§6.6 — будущий шаг), ближайший по смыслу вариант — потеря
+                // устройства.
+                self.stopped = true;
+                self.deps
+                    .events
+                    .emit(EngineEvent::OpenFailed { req_gen, err: OpenError::DeviceLost });
+                self.refresh_transport();
+            }
+        }
     }
 
     /// Выход (§6.28 п. 2 в рамках моста, ТЗ-45): остановка транспорта
