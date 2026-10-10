@@ -20,6 +20,7 @@
   - src/persist/state_file.rs
   - src/core/mod.rs
   - src/core/testing.rs
+  - src/core/messages.rs
   - src/main.rs
   - src/app/audio_facade.rs
   - src/app/mod.rs
@@ -35,6 +36,7 @@
   - ui/app.slint
   - ui/settings.slint
   - ui/mode_params.slint
+  - ui/message_window.slint
   - ROADMAP.md
   - _STATE_.yaml
   - _STATE_.md
@@ -65,24 +67,26 @@
 - [x] Шаг 22: Rust: обработчик select-mode — StateChange::ActiveMode + SetActiveMode + Open текущего трека с позиции (§6.18 «Смена режима», ТЗ-20); синхронизация active-mode/available из BackendCaps; ползунок громкости показывает громкость активного режима, неактивен в Строгом и при volume_lock. Файлы: src/app/mod.rs, src/app/playback_manager.rs. Проверка: cargo check
 - [x] Шаг 23: Slint: свойство volume-enabled (in bool, по умолчанию true) в TopPanel (ui/top_panel.slint) с пробросом в AppWindow (ui/app.slint); ползунок громкости неактивен при false, mute остаётся активным (ТЗ-41, ADR-23, §6.18). Проверка: cargo check
 - [x] Шаг 24: Rust: ui.set_volume_enabled(!volume_locked()) в sync_mode_to_ui/apply_mode_gain и после сохранения volume_lock (src/app/mod.rs, src/app/playback_manager.rs) (ТЗ-41, ADR-23). Проверка: cargo check
-- [>] **Шаг 25: ТЗ-111: сохранённый недоступный режим — на старте без воспроизведения и без самостоятельной смены режима; уведомление «на этой платформе доступен только Совместимый режим (Shared), для воспроизведения переключите режим» с кнопкой «Переключить в Совместимый режим» (→ тот же путь, что select-mode(0)). Использовать существующий механизм уведомлений/сообщений приложения; если нужна кнопка в Slint — разбить на подшаги. Файлы: src/app/mod.rs (+ при необходимости ui). Проверка: cargo check**
-- [ ] Шаг 26: src/core/testing.rs: тесты mode_settings_preserved_across_switch_and_restart (стр. 2886) и load_correction_not_written_until_save (стр. 2922). Проверка: cargo test core::; ЧЕКПОИНТ: cargo test + clippy
-- [ ] Шаг 27: src/app/mode_dialog.rs (новый, `mod mode_dialog` в src/app/mod.rs): чистый построитель строк диалога для режима из PARAMS/Availability и ModeSettings: подпись, вид (список/переключатель/ползунок), варианты с запретом и подсказкой (buffers_allowed для двух буферов, min-phase SrcFilter и «ремодуляция» как NotImplemented), FixedByMode — значение и «задано режимом», Unavailable — причина (§6.27, ТЗ-95, ТЗ-128…131, И-Т19). Тесты ≤5. Проверка: cargo test mode_dialog
-- [ ] Шаг 28: src/app/mode_dialog.rs: apply_edit(&mut ModeSettings, ModeKind, ParamId, значение) — изменение черновика из строки диалога; недопустимое сочетание буферов не применяется (ТЗ-94). Тесты ≤4. Проверка: cargo test mode_dialog
-- [ ] Шаг 29: Slint: ui/mode_params.slint (новый) — компонент панели режимов: выбор редактируемого режима, строки по виду (список/переключатель/ползунок, неактивные с причиной/«задано режимом»/«пока не реализовано»); подключить во вкладку «Аудио» ui/settings.slint рядом со старым блоком (мост) с пробросом в ui/app.slint. Проверка: cargo check
-- [ ] Шаг 30: Rust: связать панель режимов — черновик Settings.modes через apply_edit, синхронизация строк; «Сохранить» → ModeSettings::diff → SetModeSettings(Some(diff)) только при непустом diff, запись в настройки, затем sync_mode_to_ui (volume_lock → volume-enabled) (ОВС-14, §6.18, ТЗ-41). Файлы: src/app/mode_dialog.rs, src/app/mod.rs. Проверка: cargo check; ЧЕКПОИНТ: cargo test + clippy
-- [ ] Шаг 31: Удалить старые Rust-обработчики аудио-диалога: on_settings_set_audio_*/set_dsd_mode/set_bit_perfect и resampler_fixed_fallback_guard с тестом (src/app/mod.rs), sync_capabilities_and_validation/sync_dsd_chain_desc/sync_audio_advanced (src/app/ui_manager.rs) (§8 С4 «удаляется»). Проверка: cargo check
-- [ ] Шаг 32: Удалить старые аудио-свойства и колбэки из ui/settings.slint и проброс из ui/app.slint (bit-perfect, dsd-mode, dsd-bp-warn, audio-validation, audio-exclusive*, audio-fallback*, audio-resampler-mode-idx, audio-fixed-rate-idx, audio-clock-family-idx, audio-ring-buffer-ms, audio-dsd-chain-desc, audio-fixed-fail-warn, set-*-соответствующие). Проверка: cargo check
-- [ ] Шаг 33: src/audio/output.rs: удалить validate_audio_settings, ValidationRow/Outcome при отсутствии других потребителей и их тесты (§8 С4 «удаляется»). Проверка: cargo check; ЧЕКПОИНТ: cargo test + clippy
-- [ ] Шаг 34: Снять мост Settings.playback: LegacyPlayback: удалить поле, Settings.modes → Settings.playback: ModeSettings (02 spec §2.4 стр. 1072); остальные читатели — через legacy_path или PlaybackState. Файлы: src/persist/settings_file.rs и оставшиеся читатели (по cargo check). Проверка: cargo check
-- [ ] Шаг 35: src/settings.rs: старые перечисления (ExclusiveMode, FallbackPolicy, ResamplerMode, FallbackRatePolicy, ClockFamily, DsdMode, TargetBitDepth, TargetSampleRate, ResamplerDither::Triangular, AudioCfg.bit_perfect) перестают быть пользовательскими настройками: убрать serde и UI-индексы, удалить их toml-тесты; Triangular — удалить (§8 С4, ОВС-12). Проверка: cargo check; ЧЕКПОИНТ: cargo test + clippy
-- [ ] Шаг 36: Бейдж: «Bit-perfect» недостижим до С6 — старый путь не читает hw_params (DriverFormat::Unreadable): src/app/bp_report.rs / src/app/playback_manager.rs никогда не показывают Bit-perfect; тест (§8 С4, ТЗ-52). Проверка: cargo test bp_report
-- [ ] Шаг 37: Финал: cargo build/test/clippy зелёные; ROADMAP ✅; заметка плана; напомнить пользователю удалить settings.toml (ТЗ-97) и показать расхождение с 02 spec стр. 3342 (решение — за пользователем); ручные проверки (переключатель режимов, Совместимый играет, Оптимальный/Строгий через hw: на Linux). Проверка: cargo test + clippy
+- [x] Шаг 25: src/core/messages.rs: MessageButtons::SwitchCompatibleOk и CloseEffect::SwitchToCompatible — Primary на Plain-сообщении с этим набором кнопок закрывает окно и возвращает SwitchToCompatible, Close — Closed (ТЗ-111, ADR-13, §6.15, §6.2 п. 5). Тесты ≤3. Проверка: cargo test core::messages
+- [>] **Шаг 26: Slint: подпись основной кнопки окна сообщения — in property primary-label (string) в ui/message_window.slint вместо жёсткого «Повторить»/«OK» для варианта переключения, проброс msg-primary-label из ui/app.slint (ТЗ-111, ADR-13). Проверка: cargo check**
+- [ ] Шаг 27: Rust (src/app/mod.rs): ТЗ-111 — при старте, если сохранённый режим недоступен (backend_caps), и на OpenFailed(ModeUnavailable) (стоп без пропуска треков): сообщение «на этой платформе доступен только Совместимый режим (Shared), для воспроизведения переключите режим» с кнопкой «Переключить в Совместимый режим»; CloseEffect::SwitchToCompatible → тот же путь, что select-mode(0); режим сам не меняется (§6.2 п. 5). Проверка: cargo check
+- [ ] Шаг 28: src/core/testing.rs: тесты mode_settings_preserved_across_switch_and_restart (стр. 2886) и load_correction_not_written_until_save (стр. 2922). Проверка: cargo test core::; ЧЕКПОИНТ: cargo test + clippy
+- [ ] Шаг 29: src/app/mode_dialog.rs (новый, `mod mode_dialog` в src/app/mod.rs): чистый построитель строк диалога для режима из PARAMS/Availability и ModeSettings: подпись, вид (список/переключатель/ползунок), варианты с запретом и подсказкой (buffers_allowed для двух буферов, min-phase SrcFilter и «ремодуляция» как NotImplemented), FixedByMode — значение и «задано режимом», Unavailable — причина (§6.27, ТЗ-95, ТЗ-128…131, И-Т19). Тесты ≤5. Проверка: cargo test mode_dialog
+- [ ] Шаг 30: src/app/mode_dialog.rs: apply_edit(&mut ModeSettings, ModeKind, ParamId, значение) — изменение черновика из строки диалога; недопустимое сочетание буферов не применяется (ТЗ-94). Тесты ≤4. Проверка: cargo test mode_dialog
+- [ ] Шаг 31: Slint: ui/mode_params.slint (новый) — компонент панели режимов: выбор редактируемого режима, строки по виду (список/переключатель/ползунок, неактивные с причиной/«задано режимом»/«пока не реализовано»); подключить во вкладку «Аудио» ui/settings.slint рядом со старым блоком (мост) с пробросом в ui/app.slint. Проверка: cargo check
+- [ ] Шаг 32: Rust: связать панель режимов — черновик Settings.modes через apply_edit, синхронизация строк; «Сохранить» → ModeSettings::diff → SetModeSettings(Some(diff)) только при непустом diff, запись в настройки, затем sync_mode_to_ui (volume_lock → volume-enabled) (ОВС-14, §6.18, ТЗ-41). Файлы: src/app/mode_dialog.rs, src/app/mod.rs. Проверка: cargo check; ЧЕКПОИНТ: cargo test + clippy
+- [ ] Шаг 33: Удалить старые Rust-обработчики аудио-диалога: on_settings_set_audio_*/set_dsd_mode/set_bit_perfect и resampler_fixed_fallback_guard с тестом (src/app/mod.rs), sync_capabilities_and_validation/sync_dsd_chain_desc/sync_audio_advanced (src/app/ui_manager.rs) (§8 С4 «удаляется»). Проверка: cargo check
+- [ ] Шаг 34: Удалить старые аудио-свойства и колбэки из ui/settings.slint и проброс из ui/app.slint (bit-perfect, dsd-mode, dsd-bp-warn, audio-validation, audio-exclusive*, audio-fallback*, audio-resampler-mode-idx, audio-fixed-rate-idx, audio-clock-family-idx, audio-ring-buffer-ms, audio-dsd-chain-desc, audio-fixed-fail-warn, set-*-соответствующие). Проверка: cargo check
+- [ ] Шаг 35: src/audio/output.rs: удалить validate_audio_settings, ValidationRow/Outcome при отсутствии других потребителей и их тесты (§8 С4 «удаляется»). Проверка: cargo check; ЧЕКПОИНТ: cargo test + clippy
+- [ ] Шаг 36: Снять мост Settings.playback: LegacyPlayback: удалить поле, Settings.modes → Settings.playback: ModeSettings (02 spec §2.4 стр. 1072); остальные читатели — через legacy_path или PlaybackState. Файлы: src/persist/settings_file.rs и оставшиеся читатели (по cargo check). Проверка: cargo check
+- [ ] Шаг 37: src/settings.rs: старые перечисления (ExclusiveMode, FallbackPolicy, ResamplerMode, FallbackRatePolicy, ClockFamily, DsdMode, TargetBitDepth, TargetSampleRate, ResamplerDither::Triangular, AudioCfg.bit_perfect) перестают быть пользовательскими настройками: убрать serde и UI-индексы, удалить их toml-тесты; Triangular — удалить (§8 С4, ОВС-12). Проверка: cargo check; ЧЕКПОИНТ: cargo test + clippy
+- [ ] Шаг 38: Бейдж: «Bit-perfect» недостижим до С6 — старый путь не читает hw_params (DriverFormat::Unreadable): src/app/bp_report.rs / src/app/playback_manager.rs никогда не показывают Bit-perfect; тест (§8 С4, ТЗ-52). Проверка: cargo test bp_report
+- [ ] Шаг 39: Финал: cargo build/test/clippy зелёные; ROADMAP ✅; заметка плана; напомнить пользователю удалить settings.toml (ТЗ-97) и показать расхождение с 02 spec стр. 3342 (решение — за пользователем); ручные проверки (переключатель режимов, Совместимый играет, Оптимальный/Строгий через hw: на Linux). Проверка: cargo test + clippy
 
 Легенда: [x] сделано · [>] текущий шаг · [ ] не начато
 
-- **Текущий шаг (current_step):** Шаг 25
-- **Следующий ход:** Шаг 25: ТЗ-111 — сохранённый недоступный режим: без воспроизведения, уведомление с кнопкой «Переключить в Совместимый режим»
+- **Текущий шаг (current_step):** Шаг 26
+- **Следующий ход:** Шаг 26: Slint — primary-label в ui/message_window.slint, проброс msg-primary-label из ui/app.slint
 - **Счетчик безуспешных компиляций:** 0/3
 - **Состояние:** in_progress
 

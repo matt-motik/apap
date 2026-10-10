@@ -25,6 +25,8 @@ pub enum MessageLevel {
 pub enum MessageButtons {
     Ok,
     RetryOk,
+    /// Основная кнопка «Переключить в Совместимый режим», закрыть — «OK» (ТЗ-111).
+    SwitchCompatibleOk,
 }
 
 /// Нажатая кнопка: `Primary` — основная (Enter), `Close` — закрыть (Esc) (§6.15).
@@ -64,6 +66,9 @@ pub enum CloseEffect {
     Closed,
     /// «Повторить»: список файлов для немедленной записи (§6.8).
     Retry(Vec<WorkFile>),
+    /// «Переключить в Совместимый режим»: вызывающий код выполняет тот же
+    /// путь, что выбор Совместимого режима в переключателе (ТЗ-111, §6.2 п. 5).
+    SwitchToCompatible,
 }
 
 /// Очередь сообщений (ADR-13). Хранит до первого показа главного окна,
@@ -166,10 +171,14 @@ impl MessageCenter {
         let mut effect = MsgEffect::default();
         match self.shown.take() {
             None => (CloseEffect::Closed, effect),
-            Some(Queued::Plain(_)) => {
+            Some(Queued::Plain(msg)) => {
                 effect.hide = true;
                 self.show_next(&mut effect);
-                (CloseEffect::Closed, effect)
+                if msg.buttons == MessageButtons::SwitchCompatibleOk && b == MessageButton::Primary {
+                    (CloseEffect::SwitchToCompatible, effect)
+                } else {
+                    (CloseEffect::Closed, effect)
+                }
             }
             Some(Queued::WriteErrors) => match b {
                 // «Повторить»: окно остаётся открытым, пока список не пуст (§6.8).
@@ -379,6 +388,55 @@ mod tests {
         let e2 = mc.write_succeeded(WorkFile::Settings);
         assert!(e2.hide);
         assert!(!mc.is_shown());
+    }
+
+    #[test]
+    fn switch_compatible_primary_returns_switch_effect() {
+        let mut mc = MessageCenter::default();
+        mc.window_shown();
+        let caps = PlatformCaps::default();
+        mc.push(
+            Message {
+                level: MessageLevel::Warning,
+                title: "Сохранённый режим недоступен".into(),
+                body: "body".into(),
+                buttons: MessageButtons::SwitchCompatibleOk,
+            },
+            caps,
+        );
+
+        let (close, effect) = mc.press(MessageButton::Primary);
+        assert_eq!(close, CloseEffect::SwitchToCompatible);
+        assert!(effect.hide);
+    }
+
+    #[test]
+    fn switch_compatible_close_returns_closed() {
+        let mut mc = MessageCenter::default();
+        mc.window_shown();
+        let caps = PlatformCaps::default();
+        mc.push(
+            Message {
+                level: MessageLevel::Warning,
+                title: "Сохранённый режим недоступен".into(),
+                body: "body".into(),
+                buttons: MessageButtons::SwitchCompatibleOk,
+            },
+            caps,
+        );
+
+        let (close, _) = mc.press(MessageButton::Close);
+        assert_eq!(close, CloseEffect::Closed);
+    }
+
+    #[test]
+    fn plain_ok_primary_still_closes() {
+        let mut mc = MessageCenter::default();
+        mc.window_shown();
+        mc.push(plain_msg("A"), PlatformCaps::default());
+
+        let (close, _) = mc.press(MessageButton::Primary);
+        assert_eq!(close, CloseEffect::Closed);
     }
 
     #[test]
