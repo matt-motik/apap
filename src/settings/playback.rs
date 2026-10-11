@@ -169,6 +169,41 @@ pub struct ModeSettings {
     pub strict: StrictOpts,
 }
 
+impl ModeSettings {
+    /// Идентификатор устройства вывода режима `mode` (ТЗ-94, §2.4); `None` —
+    /// системное по умолчанию / не выбрано.
+    pub fn device(&self, mode: ModeKind) -> Option<&str> {
+        match mode {
+            ModeKind::Compatible => match &self.compatible.device {
+                SharedDeviceChoice::SystemDefault => None,
+                SharedDeviceChoice::Named(id) => Some(id.as_str()),
+            },
+            ModeKind::Optimal => self.optimal.device.as_deref(),
+            ModeKind::Strict => self.strict.device.as_deref(),
+        }
+    }
+
+    /// Записать устройство вывода режима `mode`; пустая строка — системное по
+    /// умолчанию / не выбрано (ТЗ-94, §2.4).
+    pub fn set_device(&mut self, mode: ModeKind, id: &str) {
+        match mode {
+            ModeKind::Compatible => {
+                self.compatible.device = if id.is_empty() {
+                    SharedDeviceChoice::SystemDefault
+                } else {
+                    SharedDeviceChoice::Named(SharedDeviceId::new(id))
+                };
+            }
+            ModeKind::Optimal => {
+                self.optimal.device = if id.is_empty() { None } else { Some(id.to_string()) };
+            }
+            ModeKind::Strict => {
+                self.strict.device = if id.is_empty() { None } else { Some(id.to_string()) };
+            }
+        }
+    }
+}
+
 /// Режим 1 (Совместимый). Только параметры с «Н» в матрице §5 (ТЗ-93, §2.2).
 #[derive(Clone, PartialEq, Debug)]
 pub struct CompatibleOpts {
@@ -457,6 +492,48 @@ mod tests {
             PathPolicy::active(&settings, ModeKind::Strict),
             PathPolicy::Strict(opts) if *opts == settings.strict
         ));
+    }
+
+    /// `device`/`set_device` Совместимого режима: пустая строка — `SystemDefault`
+    /// (`None`), иначе `Named` с тем же именем (ТЗ-94, §2.4).
+    #[test]
+    fn mode_settings_device_roundtrip_compatible() {
+        let mut settings = ModeSettings::default();
+        assert_eq!(settings.device(ModeKind::Compatible), None);
+
+        settings.set_device(ModeKind::Compatible, "hw:1,0");
+        assert_eq!(settings.device(ModeKind::Compatible), Some("hw:1,0"));
+
+        settings.set_device(ModeKind::Compatible, "");
+        assert_eq!(settings.device(ModeKind::Compatible), None);
+    }
+
+    /// `device`/`set_device` Оптимального режима: пустая строка — `None`
+    /// (ТЗ-94, §2.4).
+    #[test]
+    fn mode_settings_device_roundtrip_optimal() {
+        let mut settings = ModeSettings::default();
+        assert_eq!(settings.device(ModeKind::Optimal), None);
+
+        settings.set_device(ModeKind::Optimal, "usb-dac");
+        assert_eq!(settings.device(ModeKind::Optimal), Some("usb-dac"));
+
+        settings.set_device(ModeKind::Optimal, "");
+        assert_eq!(settings.device(ModeKind::Optimal), None);
+    }
+
+    /// `device`/`set_device` Строгого режима: пустая строка — `None` (ТЗ-94,
+    /// §2.4).
+    #[test]
+    fn mode_settings_device_roundtrip_strict() {
+        let mut settings = ModeSettings::default();
+        assert_eq!(settings.device(ModeKind::Strict), None);
+
+        settings.set_device(ModeKind::Strict, "exclusive-dac");
+        assert_eq!(settings.device(ModeKind::Strict), Some("exclusive-dac"));
+
+        settings.set_device(ModeKind::Strict, "");
+        assert_eq!(settings.device(ModeKind::Strict), None);
     }
 
     /// `PlaybackState::default()` и `ModeGain::default()`: Совместимый режим,

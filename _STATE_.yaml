@@ -150,7 +150,7 @@ steps:
     done: true
   - id: 36
     description: "ModeSettings::device(&self, mode) -> Option<&str> и set_device(&mut self, mode, id: &str) в src/settings/playback.rs: Compatible — \"\" ↔ SharedDeviceChoice::SystemDefault, иначе Named(SharedDeviceId::new(id)); Optimal/Strict — Option<String>; тесты (§2.4, ТЗ-94). Проверка: cargo test settings::playback"
-    done: false
+    done: true
   - id: 37
     description: "Устройство вывода — из ModeSettings активного режима вместо settings.playback.audio_device: src/app/mod.rs (конструктор, сохранение, on_settings_save), src/app/playback_manager.rs (set_output_device), src/app/ui_manager.rs. Решение пользователя 2026-10-11: set_output_device обновляет только UI (active_device, метка, DeviceChanged, трей); движок меняет устройство через набор изменений ModeSettings, EngineCmd::SetDevice при Сохранить не шлётся (устраняет потерю устройства после перезапуска). Проверка: cargo test (общие типы)"
     done: false
@@ -184,8 +184,8 @@ steps:
   - id: 47
     description: "Финал: cargo build/test/clippy зелёные; ROADMAP ✅; заметка плана; напомнить пользователю удалить settings.toml (ТЗ-97) и показать расхождение с 02 spec стр. 3342 (решение — за пользователем); ручные проверки (переключатель режимов, Совместимый играет, Оптимальный/Строгий через hw: на Linux). Проверка: cargo test + clippy"
     done: false
-current_step: 36
-next_action: "Шаг 36: ModeSettings::device/set_device в src/settings/playback.rs + тесты"
+current_step: 37
+next_action: "Шаг 37: устройство вывода из ModeSettings активного режима (mod.rs, playback_manager.rs, ui_manager.rs); set_output_device — только UI"
 fail_counter: 0
 fail_counter_max: 3
 failed_attempts: []
