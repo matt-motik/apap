@@ -1,7 +1,9 @@
 use music_player_rs::audio::player::StreamDesc;
+use music_player_rs::engine::legacy_path::legacy_audio;
 use music_player_rs::persist::state_file::{Origin, StateChange};
 use music_player_rs::playlist::Track;
-use music_player_rs::settings::{DsdMode, ResamplerDither};
+use music_player_rs::settings::playback::Dither;
+use music_player_rs::settings::{DsdMode, ModeKind, ResamplerDither};
 
 /// Данные для отчёта bit-perfect. Отчёт строится по ним, а не по `MusicApp`,
 /// чтобы тест не создавал приложение с файлами пользователя (ТЗ-49, ТЗ-51).
@@ -18,6 +20,7 @@ pub struct BpInputs<'a> {
 
 /// Снимок данных отчёта из состояния приложения.
 pub fn bp_inputs(app: &super::MusicApp) -> BpInputs<'_> {
+    let (la, _) = legacy_audio(&app.core.settings().modes, app.core.state().active_mode());
     BpInputs {
         bit_perfect: app.player.bit_perfect(),
         stream: app.player.stream_desc(),
@@ -25,7 +28,7 @@ pub fn bp_inputs(app: &super::MusicApp) -> BpInputs<'_> {
         track_is_dsd: app.current_track_is_dsd(),
         volume: app.player.volume(),
         muted: app.player.muted(),
-        dither: app.core.settings().playback.audio.resampler.dither,
+        dither: la.dither,
     }
 }
 
@@ -244,14 +247,28 @@ pub fn apply_action(app: &mut super::MusicApp, action_id: i32) {
             app.player.set_muted(false);
             app.core.change_state(Origin::User, StateChange::Muted(false));
         }
-        3 => {
-            app.player.set_dither(ResamplerDither::Off);
-            let mut s = app.core.settings().clone();
-            s.playback.audio.resampler.dither = ResamplerDither::Off;
-            app.core.set_settings(s);
-        }
+        3 => disable_dither(app),
         _ => {}
     }
+}
+
+/// Действие отчёта №3 «Отключить дизеринг» (ТЗ-8, ТЗ-52, §6.18): пишет
+/// `Dither::Off` в параметры активного режима (Совместимый/Оптимальный —
+/// Строгий дизеринга не имеет, действие для него не-op) и применяет новые
+/// настройки тем же путём, что диалог режимов — через копию в движок
+/// (`set_mode_settings`). Настройки сохраняются на диск на следующем
+/// «Сохранить»; здесь только применяются в памяти (И-Т7, §8.1 С3).
+fn disable_dither(app: &mut super::MusicApp) {
+    let active = app.core.state().active_mode();
+    let mut s = app.core.settings().clone();
+    match active {
+        ModeKind::Compatible => s.modes.compatible.dither = Dither::Off,
+        ModeKind::Optimal => s.modes.optimal.dither = Dither::Off,
+        ModeKind::Strict => {}
+    }
+    let modes = s.modes.clone();
+    app.core.set_settings(s);
+    app.player.set_mode_settings(modes);
 }
 
 #[cfg(test)]

@@ -160,7 +160,7 @@ steps:
     done: true
   - id: 39
     description: "src/app/ui_manager.rs, src/app/bp_report.rs: dsd_pcm_breaks_bit_perfect — через legacy_audio (la.bit_perfect && la.dsd_mode == DsdMode::Pcm; решение пользователя 2026-10-11: в Строгом DSD-трек покажет «Не bit-perfect (DSD→PCM)»); audio_filter_matches(d, false, false); дизеринг в bp_report — из legacy_audio; действие «Отключить дизеринг» — рабочее (решение пользователя 2026-10-11): Dither::Off в активный режим (Совместимый/Оптимальный) → core.set_settings + player.set_mode_settings, на диск — при следующем «Сохранить» (ТЗ-8, ТЗ-52). Проверка: cargo check"
-    done: false
+    done: true
   - id: 40
     description: "src/audio/output.rs, src/audio/fulltrack.rs: удалить мёртвый OutputRequest::from_settings и импорт LegacyPlayback, поправить doc (output.rs ~590); тест fulltrack строит DsdCacheParams напрямую. Проверка: cargo check"
     done: false
@@ -185,8 +185,8 @@ steps:
   - id: 47
     description: "Финал: cargo build/test/clippy зелёные; ROADMAP ✅; заметка плана; напомнить пользователю удалить settings.toml (ТЗ-97) и показать расхождение с 02 spec стр. 3342 (решение — за пользователем); ручные проверки (переключатель режимов, Совместимый играет, Оптимальный/Строгий через hw: на Linux). Проверка: cargo test + clippy"
     done: false
-current_step: 39
-next_action: "Шаг 39: ui_manager.rs/bp_report.rs — dsd_pcm_breaks_bit_perfect и дизеринг через legacy_audio; действие «Отключить дизеринг» рабочее"
+current_step: 40
+next_action: "Шаг 40: output.rs/fulltrack.rs — удалить OutputRequest::from_settings и импорт LegacyPlayback"
 fail_counter: 0
 fail_counter_max: 3
 failed_attempts: []

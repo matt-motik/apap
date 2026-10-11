@@ -4,6 +4,7 @@
 use super::*;
 
 use music_player_rs::audio::output::DeviceCategory;
+use music_player_rs::engine::legacy_path::legacy_audio;
 use music_player_rs::persist::state_file::{
     effective_width_pct, Origin, PhysPos, PhysSize, SizeUnits, StateChange,
     WindowGeometry,
@@ -225,8 +226,8 @@ impl MusicApp {
     /// (DSD→PCM)» по текущему треку. Вызывается в `tick()`, поэтому всегда
     /// отражает последний выбранный трек и live-настройки.
     pub(super) fn sync_dsd_status_ui(&self) {
-        let warn = self.current_track_is_dsd()
-            && self.cfg().playback.dsd_pcm_breaks_bit_perfect();
+        let (la, _) = legacy_audio(&self.cfg().modes, self.core.state().active_mode());
+        let warn = self.current_track_is_dsd() && la.bit_perfect && la.dsd_mode == DsdMode::Pcm;
         if let Some(ui) = self.try_ui() {
             ui.set_status_dsd_not_bp(warn);
         }
@@ -350,13 +351,10 @@ impl MusicApp {
     /// enumeration lands and on every filter toggle, so flipping a filter never
     /// needs a backend requery.
     fn apply_audio_device_listing(&mut self) {
-        let s = self.cfg();
         let filtered: Vec<&DeviceInfo> = self
             .audio_device_infos
             .iter()
-            .filter(|d| {
-                audio_filter_matches(d, s.playback.audio.filter_hardware_only, s.playback.audio.filter_stereo_only)
-            })
+            .filter(|d| audio_filter_matches(d, false, false))
             .collect();
 
         // Пустой результат после фильтров: вместо молчаливого пустого списка
