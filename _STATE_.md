@@ -32,6 +32,7 @@
   - src/audio/error.rs
   - src/audio/output.rs
   - src/audio/fulltrack.rs
+  - src/audio/player.rs
   - src/audio/visualizer.rs
   - src/platform/tray/mod.rs
   - ui/top_panel.slint
@@ -89,14 +90,25 @@
 - [x] Шаг 42: src/audio/visualizer.rs (вайтлист расширен решением пользователя 2026-10-11): dsd_params из settings.playback → DsdCacheParams::default(). Проверка: cargo check
 - [x] Шаг 43: src/persist/settings_file.rs: удалить поле playback: LegacyPlayback, struct LegacyPlayback + impl, импорты AudioCfg/DsdCfg/DsdMode; поправить тесты и doc (§2.4). Проверка: cargo test (общие типы)
 - [x] Шаг 44: Механическое переименование Settings.modes → Settings.playback: ModeSettings (02 spec §2.4) в settings_file.rs, mod.rs, playback_manager.rs, ui_manager.rs, bp_report.rs, core/testing.rs — разовое исключение из Правила локализации по решению пользователя 2026-10-11. Заодно поправить комментарии с легаси-именами `playback.audio_device` / `playback.dsd.mode` в src/app/mod.rs. Проверка: cargo test (общие типы)
-- [>] **Шаг 45: src/settings.rs: старые перечисления (ExclusiveMode, FallbackPolicy, ResamplerMode, FallbackRatePolicy, ClockFamily, DsdMode, TargetBitDepth, TargetSampleRate, ResamplerDither::Triangular, AudioCfg.bit_perfect) перестают быть пользовательскими настройками: убрать serde и UI-индексы, удалить их toml-тесты; Triangular — удалить (§8 С4, ОВС-12). Также: AudioFacade::set_device (без вызывающих после шага 37) и прочие ставшие мёртвыми сеттеры фасада. Также: AppEvent::BitPerfectChanged (src/app/events.rs) больше не создаётся после шага 38 — удалить вариант и его ветку в mod.rs (или испускать, если шаг 46 вернёт смену bit-perfect). Проверка: cargo check; ЧЕКПОИНТ: cargo test + clippy**
-- [ ] Шаг 46: Бейдж: «Bit-perfect» недостижим до С6 — старый путь не читает hw_params (DriverFormat::Unreadable): src/app/bp_report.rs / src/app/playback_manager.rs никогда не показывают Bit-perfect; тест (§8 С4, ТЗ-52). Проверка: cargo test bp_report
-- [ ] Шаг 47: Финал: cargo build/test/clippy зелёные; ROADMAP ✅; заметка плана; напомнить пользователю удалить settings.toml (ТЗ-97) и показать расхождение с 02 spec стр. 3342 (решение — за пользователем); ручные проверки (переключатель режимов, Совместимый играет, Оптимальный/Строгий через hw: на Linux). Проверка: cargo test + clippy
+- [>] **Шаг 45: src/app/audio_facade.rs: удалить мёртвые set_device (без вызывающих после шага 37), set_bit_perfect, set_dither и строки set_bit_perfect в тесте setters_update_legacy_copy_and_getters (assert !f.bit_perfect() оставить) (§8 С4). Проверка: cargo test --bin music-player-rs audio_facade**
+- [ ] Шаг 46: src/app/audio_facade.rs: удалить мёртвые set_resampler_mode, set_resampler_algorithm, set_fixed_rate, set_prefer_family, set_fallback_rate, set_ring_buffer_ms, их тестовые строки и ставший лишним импорт clamp_ring_buffer_ms (§8 С4). Проверка: cargo test --bin music-player-rs audio_facade
+- [ ] Шаг 47: src/app/audio_facade.rs: удалить мёртвые set_exclusive_mode, set_fallback_policy, set_dsd_mode и их тестовые строки; импорты старых перечислений — в mod tests (нужны только legacy_defaults()); поправить комментарий раздела (§8 С4). Проверка: cargo test --bin music-player-rs audio_facade без warning
+- [ ] Шаг 48: src/app/audio_facade.rs (+ при необходимости src/app/mod.rs): bit_perfect()/bit_perfect_resampled() фасада — из legacy_audio(&self.modes, активный режим), а не из ни разу не обновляемого поля legacy (найдено при оценке шага: после снятия моста всегда false, в т.ч. в Строгом — трей, bp-отчёт, блокировка громкости mod.rs ~2451, DSD-предупреждение) (ADR-04, ТЗ-52, §8 С4). Проверка: cargo test (+ тест: Строгий → bit_perfect() == true)
+- [ ] Шаг 49: src/app/events.rs + src/app/mod.rs: удалить вариант AppEvent::BitPerfectChanged (не создаётся после шага 38) и его ветку в mod.rs (§8 С4). Проверка: cargo build без warning
+- [ ] Шаг 50: src/app/bp_report.rs: matches!(dither, Tpdf | Triangular) → matches!(dither, ResamplerDither::Tpdf) (подготовка к удалению Triangular, ОВС-12). Проверка: cargo test --bin music-player-rs bp_report
+- [ ] Шаг 51: src/settings.rs + src/audio/player.rs: удалить ResamplerDither::Triangular, его ветку в dither_index и DITHER_INDEX_TRIANGULAR (OFF = 2 сохранить), поправить doc (§8 С4, ОВС-12). Проверка: cargo test (общий тип)
+- [ ] Шаг 52: src/settings.rs: удалить AudioCfg (вкл. bit_perfect), DsdCfg, AudioResamplerCfg, их Default, default_ring_buffer_ms и 7 их toml-тестов; clamp_ring_buffer_ms и RING_BUFFER_MS_* оставить (§8 С4). Проверка: cargo test (формат)
+- [ ] Шаг 53: src/settings.rs: удалить index/from_index у DsdMode, ExclusiveMode, FallbackPolicy и тест dsd_mode_index_roundtrip (UI-индексы, §8 С4). Проверка: cargo test --lib settings
+- [ ] Шаг 54: src/settings.rs: удалить index/from_index у ResamplerMode, ClockFamily, FallbackRatePolicy (UI-индексы, §8 С4). Проверка: cargo test --lib settings
+- [ ] Шаг 55: src/settings.rs: снять Serialize/Deserialize и serde-атрибуты с ExclusiveMode, FallbackPolicy, ResamplerMode, ClockFamily, FallbackRatePolicy, DsdMode, ResamplerDither; doc — внутренние параметры старого пути (ОВС-12, §8 С4). Проверка: cargo test (формат)
+- [ ] Шаг 56: src/settings.rs + src/audio/visualizer.rs: снять serde с TargetBitDepth/TargetSampleRate и DsdCacheParams (§8 С4). Проверка: cargo check; ЧЕКПОИНТ: cargo test + cargo clippy --all-targets; grep Triangular|AudioCfg|DsdCfg|AudioResamplerCfg|BitPerfectChanged пуст
+- [ ] Шаг 57: Бейдж: «Bit-perfect» недостижим до С6 — старый путь не читает hw_params (DriverFormat::Unreadable): src/app/bp_report.rs / src/app/playback_manager.rs никогда не показывают Bit-perfect; тест (§8 С4, ТЗ-52). Проверка: cargo test bp_report
+- [ ] Шаг 58: Финал: cargo build/test/clippy зелёные; ROADMAP ✅; заметка плана; напомнить пользователю удалить settings.toml (ТЗ-97) и показать расхождение с 02 spec стр. 3342 (решение — за пользователем); ручные проверки (переключатель режимов, Совместимый играет, Оптимальный/Строгий через hw: на Linux). Проверка: cargo test + clippy
 
 Легенда: [x] сделано · [>] текущий шаг · [ ] не начато
 
 - **Текущий шаг (current_step):** Шаг 45
-- **Следующий ход:** Шаг 45: старые перечисления перестают быть пользовательскими настройками; мёртвые сеттеры фасада и AppEvent::BitPerfectChanged; ЧЕКПОИНТ — сначала оценить объём и при необходимости разбить
+- **Следующий ход:** Шаг 45: audio_facade.rs — удалить set_device, set_bit_perfect, set_dither
 - **Счетчик безуспешных компиляций:** 0/3
 - **Состояние:** in_progress
 
