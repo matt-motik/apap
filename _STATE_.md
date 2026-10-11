@@ -84,8 +84,8 @@
 - [x] Шаг 37: Устройство вывода — из ModeSettings активного режима вместо settings.playback.audio_device: src/app/mod.rs (конструктор, сохранение, on_settings_save), src/app/playback_manager.rs (set_output_device), src/app/ui_manager.rs. Решение пользователя 2026-10-11: set_output_device обновляет только UI (active_device, метка, DeviceChanged, трей); движок меняет устройство через набор изменений ModeSettings, EngineCmd::SetDevice при Сохранить не шлётся (устраняет потерю устройства после перезапуска). Проверка: cargo test (общие типы)
 - [x] Шаг 38: src/app/mod.rs: удалить мост в on_settings_save (bit_perfect, resample_of/сеттеры + рестарт, set_dsd_mode + рестарт DSD; sync_dsd_status_ui() оставить); LegacyAudio конструктора — из умолчаний (ring_buffer_ms RING_BUFFER_MS_DEFAULT, fixed_rate 0, bit_perfect false, дизеринг по умолчанию) (§8 С4). Проверка: cargo check
 - [x] Шаг 39: src/app/ui_manager.rs, src/app/bp_report.rs: dsd_pcm_breaks_bit_perfect — через legacy_audio (la.bit_perfect && la.dsd_mode == DsdMode::Pcm; решение пользователя 2026-10-11: в Строгом DSD-трек покажет «Не bit-perfect (DSD→PCM)»); audio_filter_matches(d, false, false); дизеринг в bp_report — из legacy_audio; действие «Отключить дизеринг» — рабочее (решение пользователя 2026-10-11): Dither::Off в активный режим (Совместимый/Оптимальный) → core.set_settings + player.set_mode_settings, на диск — при следующем «Сохранить» (ТЗ-8, ТЗ-52). Проверка: cargo check
-- [>] **Шаг 40: src/audio/output.rs, src/audio/fulltrack.rs: удалить мёртвый OutputRequest::from_settings и импорт LegacyPlayback, поправить doc (output.rs ~590); тест fulltrack строит DsdCacheParams напрямую. Проверка: cargo check**
-- [ ] Шаг 41: src/core/testing.rs: тесты, читающие settings.playback.*, → settings.modes.compatible.device = SharedDeviceChoice::Named(...) и settings.modes.compatible.src_filter = SrcFilter::VerySlow. Проверка: cargo test core::
+- [x] Шаг 40: src/audio/output.rs, src/audio/fulltrack.rs: удалить мёртвый OutputRequest::from_settings и импорт LegacyPlayback, поправить doc (output.rs ~590); тест fulltrack строит DsdCacheParams напрямую. Проверка: cargo check
+- [>] **Шаг 41: src/core/testing.rs: тесты, читающие settings.playback.*, → settings.modes.compatible.device = SharedDeviceChoice::Named(...) и settings.modes.compatible.src_filter = SrcFilter::VerySlow. Проверка: cargo test core::**
 - [ ] Шаг 42: src/audio/visualizer.rs (вайтлист расширен решением пользователя 2026-10-11): dsd_params из settings.playback → DsdCacheParams::default(). Проверка: cargo check
 - [ ] Шаг 43: src/persist/settings_file.rs: удалить поле playback: LegacyPlayback, struct LegacyPlayback + impl, импорты AudioCfg/DsdCfg/DsdMode; поправить тесты и doc (§2.4). Проверка: cargo test (общие типы)
 - [ ] Шаг 44: Механическое переименование Settings.modes → Settings.playback: ModeSettings (02 spec §2.4) в settings_file.rs, mod.rs, playback_manager.rs, ui_manager.rs, bp_report.rs, core/testing.rs — разовое исключение из Правила локализации по решению пользователя 2026-10-11. Заодно поправить комментарии с легаси-именами `playback.audio_device` / `playback.dsd.mode` в src/app/mod.rs. Проверка: cargo test (общие типы)
@@ -95,8 +95,8 @@
 
 Легенда: [x] сделано · [>] текущий шаг · [ ] не начато
 
-- **Текущий шаг (current_step):** Шаг 40
-- **Следующий ход:** Шаг 40: output.rs/fulltrack.rs — удалить OutputRequest::from_settings и импорт LegacyPlayback
+- **Текущий шаг (current_step):** Шаг 41
+- **Следующий ход:** Шаг 41: core/testing.rs — тесты с settings.playback.* → settings.modes.compatible.*
 - **Счетчик безуспешных компиляций:** 0/3
 - **Состояние:** in_progress
 

@@ -163,7 +163,7 @@ steps:
     done: true
   - id: 40
     description: "src/audio/output.rs, src/audio/fulltrack.rs: удалить мёртвый OutputRequest::from_settings и импорт LegacyPlayback, поправить doc (output.rs ~590); тест fulltrack строит DsdCacheParams напрямую. Проверка: cargo check"
-    done: false
+    done: true
   - id: 41
     description: "src/core/testing.rs: тесты, читающие settings.playback.*, → settings.modes.compatible.device = SharedDeviceChoice::Named(...) и settings.modes.compatible.src_filter = SrcFilter::VerySlow. Проверка: cargo test core::"
     done: false
@@ -185,8 +185,8 @@ steps:
   - id: 47
     description: "Финал: cargo build/test/clippy зелёные; ROADMAP ✅; заметка плана; напомнить пользователю удалить settings.toml (ТЗ-97) и показать расхождение с 02 spec стр. 3342 (решение — за пользователем); ручные проверки (переключатель режимов, Совместимый играет, Оптимальный/Строгий через hw: на Linux). Проверка: cargo test + clippy"
     done: false
-current_step: 40
-next_action: "Шаг 40: output.rs/fulltrack.rs — удалить OutputRequest::from_settings и импорт LegacyPlayback"
+current_step: 41
+next_action: "Шаг 41: core/testing.rs — тесты с settings.playback.* → settings.modes.compatible.*"
 fail_counter: 0
 fail_counter_max: 3
 failed_attempts: []

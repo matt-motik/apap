@@ -12,7 +12,6 @@ use crate::audio::render::tpdf::Tpdf;
 use crate::audio::render::RenderCore;
 use crate::audio::session::RingPayload;
 use crate::audio::reservation::gate::PcmOpenError;
-use crate::persist::settings_file::LegacyPlayback;
 use crate::settings::{
     ClockFamily, ExclusiveMode, FallbackPolicy, FallbackRatePolicy, ResamplerAlgorithm, ResamplerMode,
 };
@@ -587,7 +586,9 @@ pub enum FallbackReason {
 pub struct OutputRequest {
     pub track_rate: u32,
     pub track_channels: usize,
-    /// Желаемое устройство: пользовательское (`LegacyPlayback.audio_device`) либо None.
+    /// Желаемое устройство: `Player::preferred_device`, которое
+    /// `apply_legacy_fields` заполняет из `LegacyAudio` активного режима
+    /// (`legacy_audio()`, §8 С4) — либо `None`.
     pub preferred_device: Option<String>,
     /// Режим exclusive-доступа (ТЗ A3.0 §2.2).
     pub exclusive: ExclusiveMode,
@@ -604,25 +605,6 @@ pub struct OutputRequest {
 }
 
 impl OutputRequest {
-    /// Собрать запрос из настроек для конкретного источника (§8.1 С3).
-    pub fn from_settings(s: &LegacyPlayback, track_rate: u32, track_channels: usize) -> Self {
-        Self {
-            track_rate,
-            track_channels,
-            preferred_device: if s.audio_device.is_empty() {
-                None
-            } else {
-                Some(s.audio_device.clone())
-            },
-            exclusive: s.audio.exclusive,
-            fallback: s.audio.fallback,
-            resampler: s.audio.resampler.mode,
-            fallback_rate: s.audio.resampler.fallback_rate,
-            clock_family: s.audio.resampler.prefer_family,
-            fixed_rate: s.audio.resampler.fixed_rate,
-        }
-    }
-
     /// Клонировать запрос и сменить только параметры источника.
     pub fn with_source(&self, track_rate: u32, track_channels: usize) -> Self {
         let mut req = self.clone();
