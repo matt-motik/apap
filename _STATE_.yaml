@@ -31,6 +31,7 @@ whitelist:
   - src/audio/error.rs
   - src/audio/output.rs
   - src/audio/fulltrack.rs
+  - src/audio/visualizer.rs
   - src/platform/tray/mod.rs
   - ui/top_panel.slint
   - ui/app.slint
@@ -148,19 +149,43 @@ steps:
     description: "src/audio/output.rs: удалить validate_audio_settings, ValidationRow/Outcome при отсутствии других потребителей и их тесты (§8 С4 «удаляется»). Проверка: cargo check; ЧЕКПОИНТ: cargo test + clippy"
     done: true
   - id: 36
-    description: "Снять мост Settings.playback: LegacyPlayback: удалить поле, Settings.modes → Settings.playback: ModeSettings (02 spec §2.4 стр. 1072); остальные читатели — через legacy_path или PlaybackState. Файлы: src/persist/settings_file.rs и оставшиеся читатели (по cargo check). Проверка: cargo check"
+    description: "ModeSettings::device(&self, mode) -> Option<&str> и set_device(&mut self, mode, id: &str) в src/settings/playback.rs: Compatible — \"\" ↔ SharedDeviceChoice::SystemDefault, иначе Named(SharedDeviceId::new(id)); Optimal/Strict — Option<String>; тесты (§2.4, ТЗ-94). Проверка: cargo test settings::playback"
     done: false
   - id: 37
-    description: "src/settings.rs: старые перечисления (ExclusiveMode, FallbackPolicy, ResamplerMode, FallbackRatePolicy, ClockFamily, DsdMode, TargetBitDepth, TargetSampleRate, ResamplerDither::Triangular, AudioCfg.bit_perfect) перестают быть пользовательскими настройками: убрать serde и UI-индексы, удалить их toml-тесты; Triangular — удалить (§8 С4, ОВС-12). Проверка: cargo check; ЧЕКПОИНТ: cargo test + clippy"
+    description: "Устройство вывода — из ModeSettings активного режима вместо settings.playback.audio_device: src/app/mod.rs (конструктор, сохранение, on_settings_save), src/app/playback_manager.rs (set_output_device), src/app/ui_manager.rs. Решение пользователя 2026-10-11: set_output_device обновляет только UI (active_device, метка, DeviceChanged, трей); движок меняет устройство через набор изменений ModeSettings, EngineCmd::SetDevice при Сохранить не шлётся (устраняет потерю устройства после перезапуска). Проверка: cargo test (общие типы)"
     done: false
   - id: 38
-    description: "Бейдж: «Bit-perfect» недостижим до С6 — старый путь не читает hw_params (DriverFormat::Unreadable): src/app/bp_report.rs / src/app/playback_manager.rs никогда не показывают Bit-perfect; тест (§8 С4, ТЗ-52). Проверка: cargo test bp_report"
+    description: "src/app/mod.rs: удалить мост в on_settings_save (bit_perfect, resample_of/сеттеры + рестарт, set_dsd_mode + рестарт DSD; sync_dsd_status_ui() оставить); LegacyAudio конструктора — из умолчаний (ring_buffer_ms RING_BUFFER_MS_DEFAULT, fixed_rate 0, bit_perfect false, дизеринг по умолчанию) (§8 С4). Проверка: cargo check"
     done: false
   - id: 39
+    description: "src/app/ui_manager.rs, src/app/bp_report.rs: dsd_pcm_breaks_bit_perfect — через legacy_audio (la.bit_perfect && la.dsd_mode == DsdMode::Pcm; решение пользователя 2026-10-11: в Строгом DSD-трек покажет «Не bit-perfect (DSD→PCM)»); audio_filter_matches(d, false, false); дизеринг в bp_report — из legacy_audio; действие «Отключить дизеринг» — рабочее (решение пользователя 2026-10-11): Dither::Off в активный режим (Совместимый/Оптимальный) → core.set_settings + player.set_mode_settings, на диск — при следующем «Сохранить» (ТЗ-8, ТЗ-52). Проверка: cargo check"
+    done: false
+  - id: 40
+    description: "src/audio/output.rs, src/audio/fulltrack.rs: удалить мёртвый OutputRequest::from_settings и импорт LegacyPlayback, поправить doc (output.rs ~590); тест fulltrack строит DsdCacheParams напрямую. Проверка: cargo check"
+    done: false
+  - id: 41
+    description: "src/core/testing.rs: тесты, читающие settings.playback.*, → settings.modes.compatible.device = SharedDeviceChoice::Named(...) и settings.modes.compatible.src_filter = SrcFilter::VerySlow. Проверка: cargo test core::"
+    done: false
+  - id: 42
+    description: "src/audio/visualizer.rs (вайтлист расширен решением пользователя 2026-10-11): dsd_params из settings.playback → DsdCacheParams::default(). Проверка: cargo check"
+    done: false
+  - id: 43
+    description: "src/persist/settings_file.rs: удалить поле playback: LegacyPlayback, struct LegacyPlayback + impl, импорты AudioCfg/DsdCfg/DsdMode; поправить тесты и doc (§2.4). Проверка: cargo test (общие типы)"
+    done: false
+  - id: 44
+    description: "Механическое переименование Settings.modes → Settings.playback: ModeSettings (02 spec §2.4) в settings_file.rs, mod.rs, playback_manager.rs, ui_manager.rs, bp_report.rs, core/testing.rs — разовое исключение из Правила локализации по решению пользователя 2026-10-11. Проверка: cargo test (общие типы)"
+    done: false
+  - id: 45
+    description: "src/settings.rs: старые перечисления (ExclusiveMode, FallbackPolicy, ResamplerMode, FallbackRatePolicy, ClockFamily, DsdMode, TargetBitDepth, TargetSampleRate, ResamplerDither::Triangular, AudioCfg.bit_perfect) перестают быть пользовательскими настройками: убрать serde и UI-индексы, удалить их toml-тесты; Triangular — удалить (§8 С4, ОВС-12). Проверка: cargo check; ЧЕКПОИНТ: cargo test + clippy"
+    done: false
+  - id: 46
+    description: "Бейдж: «Bit-perfect» недостижим до С6 — старый путь не читает hw_params (DriverFormat::Unreadable): src/app/bp_report.rs / src/app/playback_manager.rs никогда не показывают Bit-perfect; тест (§8 С4, ТЗ-52). Проверка: cargo test bp_report"
+    done: false
+  - id: 47
     description: "Финал: cargo build/test/clippy зелёные; ROADMAP ✅; заметка плана; напомнить пользователю удалить settings.toml (ТЗ-97) и показать расхождение с 02 spec стр. 3342 (решение — за пользователем); ручные проверки (переключатель режимов, Совместимый играет, Оптимальный/Строгий через hw: на Linux). Проверка: cargo test + clippy"
     done: false
 current_step: 36
-next_action: "Шаг 36: снять мост Settings.playback (LegacyPlayback) — сначала оценить читателей и при необходимости разбить шаг"
+next_action: "Шаг 36: ModeSettings::device/set_device в src/settings/playback.rs + тесты"
 fail_counter: 0
 fail_counter_max: 3
 failed_attempts: []
