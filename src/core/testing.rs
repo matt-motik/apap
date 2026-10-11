@@ -528,7 +528,7 @@ mod tests {
     use crate::playlist::Track;
     use crate::audio::backend::SharedDeviceId;
     use crate::settings::playback::{DeviceBuffer, ModeKind, SharedDeviceChoice, SrcFilter};
-    use crate::settings::{ColumnId, RepeatMode, ResamplerAlgorithm};
+    use crate::settings::{ColumnId, RepeatMode};
     use std::future::Future;
     use std::pin::Pin;
     use std::rc::Rc;
@@ -1386,7 +1386,7 @@ mod tests {
 
         h.delay_write_work(WorkFile::Settings, Duration::from_secs(10));
         let mut settings = core.settings().clone();
-        settings.playback.audio_device = "hw:1,0".into();
+        settings.modes.compatible.device = SharedDeviceChoice::Named(SharedDeviceId::new("hw:1,0"));
         core.save_settings_now(settings);
 
         h.delay_write_work(WorkFile::State, Duration::from_secs(10));
@@ -1791,7 +1791,7 @@ mod tests {
 
         h.fail_write_work(WorkFile::Settings, WriteStep::WriteData, WriteErrorClass::NoSpace, 1);
         let mut settings = core.settings().clone();
-        settings.playback.audio_device = "hw:1,0".into();
+        settings.modes.compatible.device = SharedDeviceChoice::Named(SharedDeviceId::new("hw:1,0"));
         core.save_settings_now(settings);
         let effects: Vec<ReplyEffect> = h.settle_ticks(&mut core).into_iter().flatten().collect();
         apply_write_failures(effects, &mut messages, &notifier, caps);
@@ -1928,7 +1928,7 @@ mod tests {
         core.change_state(Origin::User, StateChange::Volume(42));
 
         let mut settings = core.settings().clone();
-        settings.playback.audio.resampler.algorithm = ResamplerAlgorithm::SincFast;
+        settings.modes.compatible.src_filter = SrcFilter::VerySlow;
         core.save_settings_now(settings);
         h.settle(&mut core);
         assert_eq!(h.writes(WorkFile::Settings), 1, "«Сохранить» — одна запись settings.toml");
