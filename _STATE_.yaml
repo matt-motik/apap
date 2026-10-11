@@ -172,7 +172,7 @@ steps:
     done: true
   - id: 43
     description: "src/persist/settings_file.rs: удалить поле playback: LegacyPlayback, struct LegacyPlayback + impl, импорты AudioCfg/DsdCfg/DsdMode; поправить тесты и doc (§2.4). Проверка: cargo test (общие типы)"
-    done: false
+    done: true
   - id: 44
     description: "Механическое переименование Settings.modes → Settings.playback: ModeSettings (02 spec §2.4) в settings_file.rs, mod.rs, playback_manager.rs, ui_manager.rs, bp_report.rs, core/testing.rs — разовое исключение из Правила локализации по решению пользователя 2026-10-11. Заодно поправить комментарии с легаси-именами `playback.audio_device` / `playback.dsd.mode` в src/app/mod.rs. Проверка: cargo test (общие типы)"
     done: false
@@ -185,8 +185,8 @@ steps:
   - id: 47
     description: "Финал: cargo build/test/clippy зелёные; ROADMAP ✅; заметка плана; напомнить пользователю удалить settings.toml (ТЗ-97) и показать расхождение с 02 spec стр. 3342 (решение — за пользователем); ручные проверки (переключатель режимов, Совместимый играет, Оптимальный/Строгий через hw: на Linux). Проверка: cargo test + clippy"
     done: false
-current_step: 43
-next_action: "Шаг 43: settings_file.rs — удалить поле playback: LegacyPlayback и struct LegacyPlayback; полный cargo test"
+current_step: 44
+next_action: "Шаг 44: механическое переименование Settings.modes → Settings.playback (6 файлов, исключение); полный cargo test"
 fail_counter: 0
 fail_counter_max: 3
 failed_attempts: []

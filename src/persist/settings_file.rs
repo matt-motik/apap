@@ -13,7 +13,7 @@ use crate::persist::keys::{walk, FileRead, KeyPath, KeySpec, LoadNote, LoadNoteK
 use crate::persist::{ReferenceText, SerializeError};
 use crate::settings::playback::ModeSettings;
 use crate::settings::playback_dto::{load_mode_settings, playback_dto, PlaybackDto};
-use crate::settings::{AudioCfg, ColumnId, CoverSource, DsdCfg, DsdMode};
+use crate::settings::{ColumnId, CoverSource};
 
 /// Содержимое `settings.toml` (ТЗ-2, §2.4): параметры окна настроек, меняются
 /// только действием «Сохранить» диалога (решение 1, ТЗ-10).
@@ -28,11 +28,6 @@ pub struct Settings {
     pub covers: CoverSettings,
     pub info_labels: BTreeMap<InfoLabelKey, String>,
     pub visualization: VizSettings,
-    /// Временный мост до чистки С4+ (01_audio_modes, §8.1): старые `[audio]`,
-    /// `[dsd]`, `audio_device` больше не читаются и не пишутся — поле всегда
-    /// `LegacyPlayback::default()` после загрузки и не участвует в
-    /// сериализации; остаётся только потому, что его читают другие модули.
-    pub playback: LegacyPlayback,
     /// Раздел `[playback]` (02 §2.4, §6.27 (01_audio_modes), ADR-04):
     /// настройки трёх режимов воспроизведения. Загружается через
     /// `load_mode_settings`, сохраняется через `playback_dto` (02 §2.6).
@@ -51,7 +46,6 @@ impl Default for Settings {
             covers: CoverSettings::default(),
             info_labels: default_info_labels(),
             visualization: VizSettings::default(),
-            playback: LegacyPlayback::default(),
             modes: ModeSettings::default(),
         }
     }
@@ -400,27 +394,6 @@ impl Settings {
             .iter()
             .map(|&k| self.info_label(&InfoLabelKey(k)))
             .collect()
-    }
-}
-
-/// Старые `[audio]`, `[dsd]`, `audio_device` (`src/settings.rs:694-819`),
-/// замещённые в файле разделом `[playback]`/`ModeSettings` (ADR-04, §2.4,
-/// §6.27 (01_audio_modes)). Временный in-memory мост: не читается и не
-/// пишется в файл, остаётся только пока другие модули используют старый тип.
-#[derive(Clone, PartialEq, Debug, Default)]
-pub struct LegacyPlayback {
-    pub audio: AudioCfg,
-    pub dsd: DsdCfg,
-    pub audio_device: String,
-}
-
-impl LegacyPlayback {
-    /// ТЗ §7.4/§8.4 (01_audio_modes): bit-perfect активен, а DSD выводится
-    /// конверсией в PCM (`dsd.mode = pcm`) — конфликт сценариев, bit-perfect
-    /// для DSD-потока не сохраняется (бывший
-    /// `Settings::dsd_pcm_breaks_bit_perfect`, `src/settings.rs:868`, §2.4).
-    pub fn dsd_pcm_breaks_bit_perfect(&self) -> bool {
-        self.audio.bit_perfect && self.dsd.mode == DsdMode::Pcm
     }
 }
 
@@ -1303,8 +1276,6 @@ mod tests {
         assert_eq!(s.info_labels.get(&InfoLabelKey("artist")).map(String::as_str), Some("Artist"));
         assert_eq!(s.info_labels.len(), crate::settings::INFO_LABEL_KEYS.len());
 
-        assert!(!s.playback.audio.bit_perfect);
-        assert_eq!(s.playback.audio_device, "");
         assert_eq!(s.modes, ModeSettings::default());
 
         assert!(s.visualization.skip_fulltrack_for_dsd);
@@ -1500,8 +1471,8 @@ mod tests {
     }
 
     /// Старые `[audio]`/`[dsd]`/`audio_device` (§8.1 С3, 01_audio_modes)
-    /// больше не читаются ни в `LegacyPlayback`, ни в `ModeSettings`: это
-    /// неизвестные ключи, а `modes` остаётся значением по умолчанию.
+    /// больше не читаются в `ModeSettings`: это неизвестные ключи, а `modes`
+    /// остаётся значением по умолчанию.
     #[test]
     fn legacy_audio_keys_are_unknown_and_modes_default() {
         let text = "\
@@ -1523,7 +1494,6 @@ dsd.target_sample_rate = \"96000\"
 audio_device = \"hw:0,0\"
 ";
         let (value, notes) = parsed(bytes(text));
-        assert_eq!(value.playback, LegacyPlayback::default());
         assert_eq!(value.modes, ModeSettings::default());
         for key in [
             "audio.bit_perfect",
