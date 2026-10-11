@@ -94,8 +94,8 @@
 - [x] Шаг 46: src/app/audio_facade.rs: удалить мёртвые set_resampler_mode, set_resampler_algorithm, set_fixed_rate, set_prefer_family, set_fallback_rate, set_ring_buffer_ms, их тестовые строки и ставший лишним импорт clamp_ring_buffer_ms (§8 С4). Проверка: cargo test --bin music-player-rs audio_facade
 - [x] Шаг 47: src/app/audio_facade.rs: удалить мёртвые set_exclusive_mode, set_fallback_policy, set_dsd_mode и их тестовые строки; импорты старых перечислений — в mod tests (нужны только legacy_defaults()); поправить комментарий раздела (§8 С4). Проверка: cargo test --bin music-player-rs audio_facade без warning
 - [x] Шаг 48: src/app/audio_facade.rs (+ при необходимости src/app/mod.rs): bit_perfect()/bit_perfect_resampled() фасада — из legacy_audio(&self.modes, активный режим), а не из ни разу не обновляемого поля legacy (найдено при оценке шага: после снятия моста всегда false, в т.ч. в Строгом — трей, bp-отчёт, блокировка громкости mod.rs ~2451, DSD-предупреждение) (ADR-04, ТЗ-52, §8 С4). Проверка: cargo test (+ тест: Строгий → bit_perfect() == true)
-- [>] **Шаг 49: src/app/events.rs + src/app/mod.rs: удалить вариант AppEvent::BitPerfectChanged (не создаётся после шага 38) и его ветку в mod.rs (§8 С4). Проверка: cargo build без warning**
-- [ ] Шаг 50: src/app/bp_report.rs: matches!(dither, Tpdf | Triangular) → matches!(dither, ResamplerDither::Tpdf) (подготовка к удалению Triangular, ОВС-12). Проверка: cargo test --bin music-player-rs bp_report
+- [x] Шаг 49: src/app/events.rs + src/app/mod.rs: удалить вариант AppEvent::BitPerfectChanged (не создаётся после шага 38) и его ветку в mod.rs (§8 С4). Проверка: cargo build без warning
+- [>] **Шаг 50: src/app/bp_report.rs: matches!(dither, Tpdf | Triangular) → matches!(dither, ResamplerDither::Tpdf) (подготовка к удалению Triangular, ОВС-12). Проверка: cargo test --bin music-player-rs bp_report**
 - [ ] Шаг 51: src/settings.rs + src/audio/player.rs: удалить ResamplerDither::Triangular, его ветку в dither_index и DITHER_INDEX_TRIANGULAR (OFF = 2 сохранить), поправить doc (§8 С4, ОВС-12). Проверка: cargo test (общий тип)
 - [ ] Шаг 52: src/settings.rs: удалить AudioCfg (вкл. bit_perfect), DsdCfg, AudioResamplerCfg, их Default, default_ring_buffer_ms и 7 их toml-тестов; clamp_ring_buffer_ms и RING_BUFFER_MS_* оставить (§8 С4). Проверка: cargo test (формат)
 - [ ] Шаг 53: src/settings.rs: удалить index/from_index у DsdMode, ExclusiveMode, FallbackPolicy и тест dsd_mode_index_roundtrip (UI-индексы, §8 С4). Проверка: cargo test --lib settings
@@ -107,8 +107,8 @@
 
 Легенда: [x] сделано · [>] текущий шаг · [ ] не начато
 
-- **Текущий шаг (current_step):** Шаг 49
-- **Следующий ход:** Шаг 49: удалить AppEvent::BitPerfectChanged и его ветку в mod.rs
+- **Текущий шаг (current_step):** Шаг 50
+- **Следующий ход:** Шаг 50: bp_report.rs — matches!(dither, ResamplerDither::Tpdf) (подготовка к удалению Triangular)
 - **Счетчик безуспешных компиляций:** 0/3
 - **Состояние:** in_progress
 

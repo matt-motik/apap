@@ -25,7 +25,4 @@ pub enum AppEvent {
     CoverChanged,
     /// Active output device changed.
     DeviceChanged,
-    /// Bit-perfect (Direct Output) mode toggled. Surfaces (tray tooltip, UI)
-    /// reflect the new state immediately.
-    BitPerfectChanged,
 }

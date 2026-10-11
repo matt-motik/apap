@@ -985,6 +985,9 @@ impl MusicApp {
         self.reopen_current_for_mode_switch();
         self.apply_mode_gain();
         self.sync_mode_to_ui();
+        // Признак bit-perfect выводится из активного режима (ADR-04, §6.18) —
+        // подсказка трея обновляется сразу, не дожидаясь событий транспорта.
+        self.push_tray_now();
     }
 
     /// Первый показ окна: разблокировать очередь `MessageCenter` (И-Р9,
@@ -2697,8 +2700,7 @@ impl MusicApp {
                 | AppEvent::PlaybackStarted
                 | AppEvent::PlaybackPaused
                 | AppEvent::PlaybackStopped
-                | AppEvent::DeviceChanged
-                | AppEvent::BitPerfectChanged => self.push_tray_now(),
+                | AppEvent::DeviceChanged => self.push_tray_now(),
                 AppEvent::QueueChanged
                 | AppEvent::VolumeChanged(_)
                 | AppEvent::CoverChanged => {}

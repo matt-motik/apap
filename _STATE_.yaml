@@ -191,7 +191,7 @@ steps:
     done: true
   - id: 49
     description: "src/app/events.rs + src/app/mod.rs: удалить вариант AppEvent::BitPerfectChanged (не создаётся после шага 38) и его ветку в mod.rs (§8 С4). Проверка: cargo build без warning"
-    done: false
+    done: true
   - id: 50
     description: "src/app/bp_report.rs: matches!(dither, Tpdf | Triangular) → matches!(dither, ResamplerDither::Tpdf) (подготовка к удалению Triangular, ОВС-12). Проверка: cargo test --bin music-player-rs bp_report"
     done: false
@@ -219,8 +219,8 @@ steps:
   - id: 58
     description: "Финал: cargo build/test/clippy зелёные; ROADMAP ✅; заметка плана; напомнить пользователю удалить settings.toml (ТЗ-97) и показать расхождение с 02 spec стр. 3342 (решение — за пользователем); ручные проверки (переключатель режимов, Совместимый играет, Оптимальный/Строгий через hw: на Linux). Проверка: cargo test + clippy"
     done: false
-current_step: 49
-next_action: "Шаг 49: удалить AppEvent::BitPerfectChanged и его ветку в mod.rs"
+current_step: 50
+next_action: "Шаг 50: bp_report.rs — matches!(dither, ResamplerDither::Tpdf) (подготовка к удалению Triangular)"
 fail_counter: 0
 fail_counter_max: 3
 failed_attempts: []
