@@ -30,7 +30,7 @@ use music_player_rs::settings::params::ModeSettingsUpdate;
 use music_player_rs::settings::playback::{ModeKind, ModeSettings};
 use music_player_rs::settings::{
     clamp_ring_buffer_ms, ClockFamily, DsdMode, ExclusiveMode, FallbackPolicy, FallbackRatePolicy,
-    ResamplerAlgorithm, ResamplerDither, ResamplerMode,
+    ResamplerAlgorithm, ResamplerMode,
 };
 
 use super::ui_audio_state::{Applied, UiAudioState};
@@ -291,18 +291,6 @@ impl AudioFacade {
 
     // --- Устройство вывода ---------------------------------------------------
 
-    /// Мост С3: движок сам использует текущий путь/позицию открытой сессии
-    /// (`Engine::handle`, `EngineCmd::SetDevice`) — `path`/`pos` сохранены
-    /// только для совместимости сигнатуры с `Player::set_device`; шаг 28
-    /// убирает их на вызывающей стороне.
-    pub(crate) fn set_device(&mut self, name: String, _path: Option<&Path>, _pos: f64) -> Result<(), String> {
-        if self.send(EngineCmd::SetDevice { id: name }) {
-            Ok(())
-        } else {
-            Err("движок не запущен".to_string())
-        }
-    }
-
     pub(crate) fn set_preferred_device(&mut self, name: String) {
         self.send(EngineCmd::SetDevice { id: name });
     }
@@ -353,20 +341,12 @@ impl AudioFacade {
     // (ТЗ-134, И-Р24) до его замены диалогом режимов (шаги 21…27) и удаления
     // (шаги 28…32).
 
-    pub(crate) fn set_bit_perfect(&mut self, enabled: bool) {
-        self.legacy.bit_perfect = enabled;
-    }
-
     pub(crate) fn bit_perfect(&self) -> bool {
         self.legacy.bit_perfect
     }
 
     pub(crate) fn bit_perfect_resampled(&self) -> bool {
         self.legacy.bit_perfect && self.stream_desc().is_some_and(|d| d.resampled)
-    }
-
-    pub(crate) fn set_dither(&mut self, dither: ResamplerDither) {
-        self.legacy.dither = dither;
     }
 
     // --- Прочие легаси-настройки звука (ADR-04, ТЗ-134, И-Р24) ----------------
@@ -452,6 +432,7 @@ mod tests {
     use music_player_rs::persist::keys::{FileRead, Parsed};
     use music_player_rs::persist::state_file::parse_state;
     use music_player_rs::settings::playback_dto::{load_mode_settings, playback_dto, PlaybackDto};
+    use music_player_rs::settings::ResamplerDither;
 
     fn legacy_defaults() -> LegacyAudio {
         LegacyAudio {
@@ -493,8 +474,6 @@ mod tests {
     fn setters_update_legacy_copy_and_getters() {
         let mut f = facade();
         assert!(!f.bit_perfect());
-        f.set_bit_perfect(true);
-        assert!(f.bit_perfect());
 
         f.set_dsd_mode(DsdMode::Native);
         assert_eq!(f.legacy.dsd_mode, DsdMode::Native);
