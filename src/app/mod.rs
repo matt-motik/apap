@@ -506,8 +506,8 @@ impl MusicApp {
         // через `AudioFacade::new` (ADR-01, ADR-04, ТЗ-134), а не поштучными
         // сеттерами `Player` — так конструктор фасада сразу знает полную
         // легаси-конфигурацию (`SetLegacyAudio` на старте не нужен). Значения
-        // ниже — плейсхолдер (дефолты типов, §8 С4, ADR-04): легаси-блок
-        // `Settings.playback` упразднён, а `send_startup_policy()` сразу
+        // ниже — плейсхолдер (дефолты типов, §8 С4, ADR-04): прежнее
+        // легаси-поле `LegacyPlayback` упразднено, а `send_startup_policy()` сразу
         // после конструктора шлёт `SetModeSettings`/`SetActiveMode`, из
         // которых движок пересобирает настоящий `LegacyAudio` (`legacy_audio()`
         // в `engine/legacy_path.rs`) раньше первого `Open`.
@@ -524,7 +524,7 @@ impl MusicApp {
             bit_perfect: false,
             dither: ResamplerDither::default(),
         };
-        let modes = core.settings().modes.clone();
+        let modes = core.settings().playback.clone();
         let active_mode = core.state().active_mode();
         let mut player = audio_facade::AudioFacade::new(engine, legacy, modes, active_mode);
         // Стартовая политика режимов — до первого `Open` (шаг 20, ОВС-14,
@@ -537,11 +537,11 @@ impl MusicApp {
         player.set_volume(pb_state.gain());
         player.set_muted(pb_state.muted);
         // Устройство читается из `ModeSettings` активного режима, а не из
-        // легаси-поля `playback.audio_device` (ТЗ-94, §2.4). Прямой вызов
+        // прежнего легаси-поля устройства (ТЗ-94, §2.4). Прямой вызов
         // здесь остаётся нужен: `SetActiveMode` в `send_startup_policy` не
         // применяет устройство, если активный режим движка на старте уже
         // совпадает с сохранённым (см. `Engine::store_active_mode`).
-        if let Some(device) = core.settings().modes.device(active_mode) {
+        if let Some(device) = core.settings().playback.device(active_mode) {
             player.set_preferred_device(device.to_string());
         }
 
@@ -576,7 +576,7 @@ impl MusicApp {
         // in `drain_engine_events`/`dispatch_applied` (ТЗ-104, ADR-16). The
         // window must show before that first report arrives, so the initial
         // state is "unknown", not an error.
-        let saved_device = core.settings().modes.device(active_mode).unwrap_or("").to_string();
+        let saved_device = core.settings().playback.device(active_mode).unwrap_or("").to_string();
         let audio_ready = false;
         let audio_error = None;
         let active_device = if saved_device.is_empty() {
@@ -1103,7 +1103,7 @@ impl MusicApp {
     fn sync_mode_dialog_to_ui(&mut self) {
         let Some(draft) = self.dialog.as_ref() else { return };
         let edit_mode = draft.mode_edit;
-        let rows: Vec<ModeParamRow> = mode_dialog::build_rows(edit_mode, &draft.settings.modes)
+        let rows: Vec<ModeParamRow> = mode_dialog::build_rows(edit_mode, &draft.settings.playback)
             .iter()
             .map(mode_dialog::to_param_row)
             .collect();
@@ -1124,7 +1124,7 @@ impl MusicApp {
         let Some(id) = mode_dialog::param_at(param) else { return };
         let Some(draft) = self.dialog.as_mut() else { return };
         let edit_mode = draft.mode_edit;
-        match mode_dialog::apply_edit(&mut draft.settings.modes, edit_mode, id, value) {
+        match mode_dialog::apply_edit(&mut draft.settings.playback, edit_mode, id, value) {
             Ok(()) => self.sync_mode_dialog_to_ui(),
             Err(mode_dialog::EditRejected::BuffersNotAllowed) => {
                 self.sync_mode_dialog_to_ui();
@@ -1729,12 +1729,12 @@ impl MusicApp {
                 let mut a = app.borrow_mut();
                 let raw = a.resolve_device_label(&name);
                 // Записывается в `ModeSettings` показанной в диалоге панели
-                // режима (`mode_edit`), а не в легаси-поле `playback.audio_device`
+                // режима (`mode_edit`), а не в прежнее легаси-поле устройства
                 // (ТЗ-94, §2.4) — `edit_cfg` не подходит, так как даёт доступ
                 // только к `PersistSettings` черновика, без `mode_edit`.
                 if let Some(d) = a.dialog_mut() {
                     let mode = d.mode_edit;
-                    d.settings.modes.set_device(mode, &raw);
+                    d.settings.playback.set_device(mode, &raw);
                 }
             });
         }
@@ -1910,13 +1910,13 @@ impl MusicApp {
                 }
 
                 // Устройство читается из `ModeSettings` активного режима
-                // воспроизведения (ТЗ-94, §2.4), а не из легаси-поля
-                // `playback.audio_device`: `set_output_device` обновляет
+                // воспроизведения (ТЗ-94, §2.4), а не из прежнего легаси-поля
+                // устройства: `set_output_device` обновляет
                 // только UI (движок переключает устройство ниже, через
-                // `set_mode_settings`/diff — блок `cur.modes != old.modes`).
+                // `set_mode_settings`/diff — блок `cur.playback != old.playback`).
                 let active_mode = a.core.state().active_mode();
-                if new.modes.device(active_mode) != old.modes.device(active_mode) {
-                    let device = new.modes.device(active_mode).unwrap_or("").to_string();
+                if new.playback.device(active_mode) != old.playback.device(active_mode) {
+                    let device = new.playback.device(active_mode).unwrap_or("").to_string();
                     a.set_output_device(device);
                 }
 
@@ -1947,15 +1947,15 @@ impl MusicApp {
                 }
                 // §8 С4, §6.18, ADR-04: DSD-статус бейджа синхронизируется
                 // после каждого Save — реальный DSD-режим теперь берётся из
-                // активного `ModeSettings` (блок `cur.modes != old.modes`
-                // ниже), легаси-поле `playback.dsd.mode` упразднено.
+                // активного `ModeSettings` (блок `cur.playback != old.playback`
+                // ниже), прежнее легаси-поле DSD-режима упразднено.
                 a.sync_dsd_status_ui();
                 // §6.18, §6.27, ТЗ-41: настройки режимов менялись в диалоге →
                 // применить к плееру (внутри `set_mode_settings` — сравнение и
                 // расчёт diff, И-Т7) и пересчитать зависимые от режима поля UI
                 // (например, блокировку громкости `Optimal.volume_lock`).
-                if cur.modes != old.modes {
-                    a.player.set_mode_settings(cur.modes.clone());
+                if cur.playback != old.playback {
+                    a.player.set_mode_settings(cur.playback.clone());
                     a.sync_mode_to_ui();
                 }
                 // ТЗ-22, ТЗ-29, ADR-20: без выбора темы в этой сессии диалога
@@ -2524,10 +2524,10 @@ impl MusicApp {
         // stream, before it's handed to `player.on_event` — the catalog
         // update itself reduces to a field inside `AudioFacade`/
         // `UiAudioState` and never reaches `Applied` (ТЗ-104, ADR-16).
-        // Устройство — из `ModeSettings` активного режима, не из легаси-поля
-        // `playback.audio_device` (ТЗ-94, §2.4).
+        // Устройство — из `ModeSettings` активного режима, не из прежнего
+        // легаси-поля устройства (ТЗ-94, §2.4).
         let active_mode = self.core.state().active_mode();
-        let saved_device = self.core.settings().modes.device(active_mode).unwrap_or("").to_string();
+        let saved_device = self.core.settings().playback.device(active_mode).unwrap_or("").to_string();
         let mut ready_device: Option<String> = None;
 
         let player = &mut self.player;

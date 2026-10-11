@@ -352,12 +352,13 @@ impl MusicApp {
 
     /// Истина, если программная громкость заблокирована активным режимом:
     /// Строгий режим — всегда (ТЗ-41, §6.18), Оптимальный — если включена
-    /// фиксация громкости (`modes.optimal.volume_lock`). Используется, чтобы
-    /// игнорировать ввод слайдера, пока в Slint нет свойства его блокировки.
+    /// фиксация громкости (`playback.optimal.volume_lock`). Используется,
+    /// чтобы игнорировать ввод слайдера, пока в Slint нет свойства его
+    /// блокировки.
     pub(super) fn volume_locked(&self) -> bool {
         match self.core.state().active_mode() {
             ModeKind::Strict => true,
-            ModeKind::Optimal => self.core.settings().modes.optimal.volume_lock,
+            ModeKind::Optimal => self.core.settings().playback.optimal.volume_lock,
             ModeKind::Compatible => false,
         }
     }

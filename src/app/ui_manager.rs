@@ -226,7 +226,7 @@ impl MusicApp {
     /// (DSD→PCM)» по текущему треку. Вызывается в `tick()`, поэтому всегда
     /// отражает последний выбранный трек и live-настройки.
     pub(super) fn sync_dsd_status_ui(&self) {
-        let (la, _) = legacy_audio(&self.cfg().modes, self.core.state().active_mode());
+        let (la, _) = legacy_audio(&self.cfg().playback, self.core.state().active_mode());
         let warn = self.current_track_is_dsd() && la.bit_perfect && la.dsd_mode == DsdMode::Pcm;
         if let Some(ui) = self.try_ui() {
             ui.set_status_dsd_not_bp(warn);
@@ -391,13 +391,13 @@ impl MusicApp {
 
         // Устройство читается из `ModeSettings` показанного в диалоге режима
         // (или активного режима воспроизведения, если диалог закрыт), а не из
-        // легаси-поля `playback.audio_device` (ТЗ-94, §2.4).
+        // прежнего легаси-поля устройства (ТЗ-94, §2.4).
         let mode = self
             .dialog
             .as_ref()
             .map(|d| d.mode_edit)
             .unwrap_or_else(|| self.core.state().active_mode());
-        let saved = self.cfg().modes.device(mode).unwrap_or("").to_string();
+        let saved = self.cfg().playback.device(mode).unwrap_or("").to_string();
         let active = self.active_device.clone();
         let want = if !active.is_empty() {
             Some(active)

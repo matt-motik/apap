@@ -20,7 +20,7 @@ pub struct BpInputs<'a> {
 
 /// Снимок данных отчёта из состояния приложения.
 pub fn bp_inputs(app: &super::MusicApp) -> BpInputs<'_> {
-    let (la, _) = legacy_audio(&app.core.settings().modes, app.core.state().active_mode());
+    let (la, _) = legacy_audio(&app.core.settings().playback, app.core.state().active_mode());
     BpInputs {
         bit_perfect: app.player.bit_perfect(),
         stream: app.player.stream_desc(),
@@ -262,11 +262,11 @@ fn disable_dither(app: &mut super::MusicApp) {
     let active = app.core.state().active_mode();
     let mut s = app.core.settings().clone();
     match active {
-        ModeKind::Compatible => s.modes.compatible.dither = Dither::Off,
-        ModeKind::Optimal => s.modes.optimal.dither = Dither::Off,
+        ModeKind::Compatible => s.playback.compatible.dither = Dither::Off,
+        ModeKind::Optimal => s.playback.optimal.dither = Dither::Off,
         ModeKind::Strict => {}
     }
-    let modes = s.modes.clone();
+    let modes = s.playback.clone();
     app.core.set_settings(s);
     app.player.set_mode_settings(modes);
 }

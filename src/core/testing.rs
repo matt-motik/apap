@@ -1196,8 +1196,8 @@ mod tests {
 
         let mut settings = core.settings().clone();
         settings.theme = ThemeName::new("dark").expect("valid theme name");
-        settings.modes.compatible.device = SharedDeviceChoice::Named(SharedDeviceId::new("hw:1,0"));
-        settings.modes.compatible.src_filter = SrcFilter::Slow;
+        settings.playback.compatible.device = SharedDeviceChoice::Named(SharedDeviceId::new("hw:1,0"));
+        settings.playback.compatible.src_filter = SrcFilter::Slow;
         core.save_settings_now(settings);
         h.settle(&mut core);
 
@@ -1386,7 +1386,7 @@ mod tests {
 
         h.delay_write_work(WorkFile::Settings, Duration::from_secs(10));
         let mut settings = core.settings().clone();
-        settings.modes.compatible.device = SharedDeviceChoice::Named(SharedDeviceId::new("hw:1,0"));
+        settings.playback.compatible.device = SharedDeviceChoice::Named(SharedDeviceId::new("hw:1,0"));
         core.save_settings_now(settings);
 
         h.delay_write_work(WorkFile::State, Duration::from_secs(10));
@@ -1550,7 +1550,7 @@ mod tests {
 
             core.change_state(Origin::User, StateChange::Volume(42));
             let mut settings = core.settings().clone();
-            settings.modes.compatible.device = SharedDeviceChoice::Named(SharedDeviceId::new("hw:1,0"));
+            settings.playback.compatible.device = SharedDeviceChoice::Named(SharedDeviceId::new("hw:1,0"));
             core.set_settings(settings);
 
             let outcome = core.exit(reason, &mut || true);
@@ -1603,7 +1603,7 @@ mod tests {
 
         core.change_state(Origin::User, StateChange::Volume(42));
         let mut settings = core.settings().clone();
-        settings.modes.compatible.device = SharedDeviceChoice::Named(SharedDeviceId::new("hw:1,0"));
+        settings.playback.compatible.device = SharedDeviceChoice::Named(SharedDeviceId::new("hw:1,0"));
         core.set_settings(settings);
 
         let outcome = core.exit(ExitReason::WindowClose, &mut || false);
@@ -1791,7 +1791,7 @@ mod tests {
 
         h.fail_write_work(WorkFile::Settings, WriteStep::WriteData, WriteErrorClass::NoSpace, 1);
         let mut settings = core.settings().clone();
-        settings.modes.compatible.device = SharedDeviceChoice::Named(SharedDeviceId::new("hw:1,0"));
+        settings.playback.compatible.device = SharedDeviceChoice::Named(SharedDeviceId::new("hw:1,0"));
         core.save_settings_now(settings);
         let effects: Vec<ReplyEffect> = h.settle_ticks(&mut core).into_iter().flatten().collect();
         apply_write_failures(effects, &mut messages, &notifier, caps);
@@ -1928,7 +1928,7 @@ mod tests {
         core.change_state(Origin::User, StateChange::Volume(42));
 
         let mut settings = core.settings().clone();
-        settings.modes.compatible.src_filter = SrcFilter::VerySlow;
+        settings.playback.compatible.src_filter = SrcFilter::VerySlow;
         core.save_settings_now(settings);
         h.settle(&mut core);
         assert_eq!(h.writes(WorkFile::Settings), 1, "«Сохранить» — одна запись settings.toml");
@@ -2868,8 +2868,8 @@ mod tests {
         let mut core = h.boot();
 
         let mut settings = core.settings().clone();
-        settings.modes.compatible.src_filter = SrcFilter::VerySlow;
-        settings.modes.optimal.src_filter = SrcFilter::Slow;
+        settings.playback.compatible.src_filter = SrcFilter::VerySlow;
+        settings.playback.optimal.src_filter = SrcFilter::Slow;
         core.set_settings(settings);
 
         core.change_state(Origin::User, StateChange::ActiveMode(ModeKind::Compatible));
@@ -2888,8 +2888,8 @@ mod tests {
 
         // Перезапуск: новый `AppCore` из тех же "файлов на диске".
         let mut core2 = h.boot();
-        assert_eq!(core2.settings().modes.compatible.src_filter, SrcFilter::VerySlow);
-        assert_eq!(core2.settings().modes.optimal.src_filter, SrcFilter::Slow);
+        assert_eq!(core2.settings().playback.compatible.src_filter, SrcFilter::VerySlow);
+        assert_eq!(core2.settings().playback.optimal.src_filter, SrcFilter::Slow);
 
         assert_eq!(core2.state().active_mode(), ModeKind::Optimal);
         assert_eq!(core2.state().playback().volume, 50);
@@ -2910,7 +2910,7 @@ mod tests {
         h.put_state(b"");
         let mut core = h.boot();
 
-        assert_eq!(core.settings().modes.optimal.device_buffer, DeviceBuffer::Ms40);
+        assert_eq!(core.settings().playback.optimal.device_buffer, DeviceBuffer::Ms40);
 
         let notes = &core.startup_notes().settings;
         let note = notes

@@ -31,7 +31,7 @@ pub struct Settings {
     /// Раздел `[playback]` (02 §2.4, §6.27 (01_audio_modes), ADR-04):
     /// настройки трёх режимов воспроизведения. Загружается через
     /// `load_mode_settings`, сохраняется через `playback_dto` (02 §2.6).
-    pub modes: ModeSettings,
+    pub playback: ModeSettings,
 }
 
 impl Default for Settings {
@@ -46,7 +46,7 @@ impl Default for Settings {
             covers: CoverSettings::default(),
             info_labels: default_info_labels(),
             visualization: VizSettings::default(),
-            modes: ModeSettings::default(),
+            playback: ModeSettings::default(),
         }
     }
 }
@@ -1114,7 +1114,7 @@ pub fn parse_settings(read: FileRead) -> Parsed<Settings> {
     };
 
     let (mut value, mut notes) = walk(&table, &settings_spec());
-    value.modes = modes;
+    value.playback = modes;
     notes.append(&mut playback_notes);
     adjust_column_order(&mut value, &mut notes);
     adjust_cover_priority(&mut value, &mut notes);
@@ -1228,7 +1228,7 @@ pub fn serialize_settings(s: &Settings) -> Result<Arc<[u8]>, SerializeError> {
             spectrogram: &s.visualization.spectrogram,
             spectrum: &s.visualization.spectrum,
         },
-        playback: playback_dto(&s.modes),
+        playback: playback_dto(&s.playback),
     };
 
     let text = toml::to_string(&dto).map_err(|e| SerializeError(e.to_string().into()))?;
@@ -1276,7 +1276,7 @@ mod tests {
         assert_eq!(s.info_labels.get(&InfoLabelKey("artist")).map(String::as_str), Some("Artist"));
         assert_eq!(s.info_labels.len(), crate::settings::INFO_LABEL_KEYS.len());
 
-        assert_eq!(s.modes, ModeSettings::default());
+        assert_eq!(s.playback, ModeSettings::default());
 
         assert!(s.visualization.skip_fulltrack_for_dsd);
     }
@@ -1471,8 +1471,8 @@ mod tests {
     }
 
     /// Старые `[audio]`/`[dsd]`/`audio_device` (§8.1 С3, 01_audio_modes)
-    /// больше не читаются в `ModeSettings`: это неизвестные ключи, а `modes`
-    /// остаётся значением по умолчанию.
+    /// больше не читаются в `ModeSettings`: это неизвестные ключи, а
+    /// `playback` остаётся значением по умолчанию.
     #[test]
     fn legacy_audio_keys_are_unknown_and_modes_default() {
         let text = "\
@@ -1494,7 +1494,7 @@ dsd.target_sample_rate = \"96000\"
 audio_device = \"hw:0,0\"
 ";
         let (value, notes) = parsed(bytes(text));
-        assert_eq!(value.modes, ModeSettings::default());
+        assert_eq!(value.playback, ModeSettings::default());
         for key in [
             "audio.bit_perfect",
             "audio.ring_buffer_ms",
@@ -1584,7 +1584,7 @@ mode = \"spectrum\"
         s.info_labels.insert(InfoLabelKey("artist"), "Performer".to_string());
         s.visualization.skip_fulltrack_for_dsd = false;
         s.visualization.oscilloscope.line_width = 2.5;
-        s.modes = non_default_mode_settings();
+        s.playback = non_default_mode_settings();
         s
     }
 
@@ -1653,15 +1653,15 @@ mode = \"spectrum\"
     }
 
     /// Нестандартный `[playback]` (§2.4, §2.6 (01_audio_modes)) сохраняется
-    /// и читается обратно равным, без заметок по `modes`.
+    /// и читается обратно равным, без заметок по `playback`.
     #[test]
     fn modes_roundtrip_non_default() {
         let m = non_default_mode_settings();
-        let s = Settings { modes: m.clone(), ..Settings::default() };
+        let s = Settings { playback: m.clone(), ..Settings::default() };
 
         let bytes = serialize_settings(&s).expect("serialize ok");
         let (value, notes) = parsed(FileRead::Bytes(bytes));
-        assert_eq!(value.modes, m);
+        assert_eq!(value.playback, m);
         assert!(notes.is_empty(), "expected zero notes, got: {notes:?}");
     }
 }
