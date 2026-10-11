@@ -28,7 +28,6 @@ use music_player_rs::engine::messages::{EngineCmd, EngineEvent, LegacyAudio, Not
 use music_player_rs::engine::run::EngineHandle;
 use music_player_rs::settings::params::ModeSettingsUpdate;
 use music_player_rs::settings::playback::{ModeKind, ModeSettings};
-use music_player_rs::settings::{DsdMode, ExclusiveMode, FallbackPolicy};
 
 use super::ui_audio_state::{Applied, UiAudioState};
 
@@ -346,20 +345,6 @@ impl AudioFacade {
         self.legacy.bit_perfect && self.stream_desc().is_some_and(|d| d.resampled)
     }
 
-    // --- Прочие легаси-настройки звука (ADR-04, ТЗ-134, И-Р24) ----------------
-
-    pub(crate) fn set_exclusive_mode(&mut self, mode: ExclusiveMode) {
-        self.legacy.exclusive_mode = mode;
-    }
-
-    pub(crate) fn set_fallback_policy(&mut self, policy: FallbackPolicy) {
-        self.legacy.fallback_policy = policy;
-    }
-
-    pub(crate) fn set_dsd_mode(&mut self, mode: DsdMode) {
-        self.legacy.dsd_mode = mode;
-    }
-
     // --- Настройки режимов (С4) ------------------------------------------------
 
     /// Применить новые настройки трёх режимов (ОВС-14, ОВС-17, §6.18, §6.27,
@@ -406,7 +391,8 @@ mod tests {
     use music_player_rs::persist::state_file::parse_state;
     use music_player_rs::settings::playback_dto::{load_mode_settings, playback_dto, PlaybackDto};
     use music_player_rs::settings::{
-        ClockFamily, FallbackRatePolicy, ResamplerAlgorithm, ResamplerDither, ResamplerMode,
+        ClockFamily, DsdMode, ExclusiveMode, FallbackPolicy, FallbackRatePolicy, ResamplerAlgorithm,
+        ResamplerDither, ResamplerMode,
     };
 
     fn legacy_defaults() -> LegacyAudio {
@@ -449,9 +435,6 @@ mod tests {
     fn setters_update_legacy_copy_and_getters() {
         let mut f = facade();
         assert!(!f.bit_perfect());
-
-        f.set_dsd_mode(DsdMode::Native);
-        assert_eq!(f.legacy.dsd_mode, DsdMode::Native);
 
         f.set_volume(2.0);
         assert_eq!(f.volume(), 1.0);

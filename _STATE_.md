@@ -92,8 +92,8 @@
 - [x] Шаг 44: Механическое переименование Settings.modes → Settings.playback: ModeSettings (02 spec §2.4) в settings_file.rs, mod.rs, playback_manager.rs, ui_manager.rs, bp_report.rs, core/testing.rs — разовое исключение из Правила локализации по решению пользователя 2026-10-11. Заодно поправить комментарии с легаси-именами `playback.audio_device` / `playback.dsd.mode` в src/app/mod.rs. Проверка: cargo test (общие типы)
 - [x] Шаг 45: src/app/audio_facade.rs: удалить мёртвые set_device (без вызывающих после шага 37), set_bit_perfect, set_dither и строки set_bit_perfect в тесте setters_update_legacy_copy_and_getters (assert !f.bit_perfect() оставить) (§8 С4). Проверка: cargo test --bin music-player-rs audio_facade
 - [x] Шаг 46: src/app/audio_facade.rs: удалить мёртвые set_resampler_mode, set_resampler_algorithm, set_fixed_rate, set_prefer_family, set_fallback_rate, set_ring_buffer_ms, их тестовые строки и ставший лишним импорт clamp_ring_buffer_ms (§8 С4). Проверка: cargo test --bin music-player-rs audio_facade
-- [>] **Шаг 47: src/app/audio_facade.rs: удалить мёртвые set_exclusive_mode, set_fallback_policy, set_dsd_mode и их тестовые строки; импорты старых перечислений — в mod tests (нужны только legacy_defaults()); поправить комментарий раздела (§8 С4). Проверка: cargo test --bin music-player-rs audio_facade без warning**
-- [ ] Шаг 48: src/app/audio_facade.rs (+ при необходимости src/app/mod.rs): bit_perfect()/bit_perfect_resampled() фасада — из legacy_audio(&self.modes, активный режим), а не из ни разу не обновляемого поля legacy (найдено при оценке шага: после снятия моста всегда false, в т.ч. в Строгом — трей, bp-отчёт, блокировка громкости mod.rs ~2451, DSD-предупреждение) (ADR-04, ТЗ-52, §8 С4). Проверка: cargo test (+ тест: Строгий → bit_perfect() == true)
+- [x] Шаг 47: src/app/audio_facade.rs: удалить мёртвые set_exclusive_mode, set_fallback_policy, set_dsd_mode и их тестовые строки; импорты старых перечислений — в mod tests (нужны только legacy_defaults()); поправить комментарий раздела (§8 С4). Проверка: cargo test --bin music-player-rs audio_facade без warning
+- [>] **Шаг 48: src/app/audio_facade.rs (+ при необходимости src/app/mod.rs): bit_perfect()/bit_perfect_resampled() фасада — из legacy_audio(&self.modes, активный режим), а не из ни разу не обновляемого поля legacy (найдено при оценке шага: после снятия моста всегда false, в т.ч. в Строгом — трей, bp-отчёт, блокировка громкости mod.rs ~2451, DSD-предупреждение) (ADR-04, ТЗ-52, §8 С4). Проверка: cargo test (+ тест: Строгий → bit_perfect() == true)**
 - [ ] Шаг 49: src/app/events.rs + src/app/mod.rs: удалить вариант AppEvent::BitPerfectChanged (не создаётся после шага 38) и его ветку в mod.rs (§8 С4). Проверка: cargo build без warning
 - [ ] Шаг 50: src/app/bp_report.rs: matches!(dither, Tpdf | Triangular) → matches!(dither, ResamplerDither::Tpdf) (подготовка к удалению Triangular, ОВС-12). Проверка: cargo test --bin music-player-rs bp_report
 - [ ] Шаг 51: src/settings.rs + src/audio/player.rs: удалить ResamplerDither::Triangular, его ветку в dither_index и DITHER_INDEX_TRIANGULAR (OFF = 2 сохранить), поправить doc (§8 С4, ОВС-12). Проверка: cargo test (общий тип)
@@ -107,8 +107,8 @@
 
 Легенда: [x] сделано · [>] текущий шаг · [ ] не начато
 
-- **Текущий шаг (current_step):** Шаг 47
-- **Следующий ход:** Шаг 47: audio_facade.rs — удалить set_exclusive_mode/set_fallback_policy/set_dsd_mode
+- **Текущий шаг (current_step):** Шаг 48
+- **Следующий ход:** Шаг 48: bit_perfect()/bit_perfect_resampled() фасада — из legacy_audio(&self.modes, активный режим)
 - **Счетчик безуспешных компиляций:** 0/3
 - **Состояние:** in_progress
 
