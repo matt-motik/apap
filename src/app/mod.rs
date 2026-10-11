@@ -41,7 +41,10 @@ use music_player_rs::platform::notify::Notifier;
 use music_player_rs::platform::pick::{FilePicker, PickRequest, PickResult};
 use music_player_rs::playlist::{self, ScanMsg, Track};
 use music_player_rs::playlist::model::TrackId;
-use music_player_rs::settings::{clamp_ring_buffer_ms, ColumnId, ModeKind, RepeatMode};
+use music_player_rs::settings::{
+    ClockFamily, ColumnId, DsdMode, ExclusiveMode, FallbackPolicy, FallbackRatePolicy, ModeKind,
+    RepeatMode, ResamplerAlgorithm, ResamplerDither, ResamplerMode, RING_BUFFER_MS_DEFAULT,
+};
 use music_player_rs::theme::{
     ColorsData, ThemeData, ThemeEntry, ThemeError, DEFAULT_LIGHT_TOML, parse_hex,
 };
@@ -499,23 +502,27 @@ impl MusicApp {
             Err(fault) => (None, Some(fault)),
         };
         let pb_state = core.state().playback();
-        let pb = &core.settings().playback;
         // Мост С3: стартовые звуковые настройки движка уходят в `LegacyAudio`
         // через `AudioFacade::new` (ADR-01, ADR-04, ТЗ-134), а не поштучными
         // сеттерами `Player` — так конструктор фасада сразу знает полную
-        // легаси-конфигурацию (`SetLegacyAudio` на старте не нужен).
+        // легаси-конфигурацию (`SetLegacyAudio` на старте не нужен). Значения
+        // ниже — плейсхолдер (дефолты типов, §8 С4, ADR-04): легаси-блок
+        // `Settings.playback` упразднён, а `send_startup_policy()` сразу
+        // после конструктора шлёт `SetModeSettings`/`SetActiveMode`, из
+        // которых движок пересобирает настоящий `LegacyAudio` (`legacy_audio()`
+        // в `engine/legacy_path.rs`) раньше первого `Open`.
         let legacy = LegacyAudio {
-            exclusive_mode: pb.audio.exclusive,
-            fallback_policy: pb.audio.fallback,
-            dsd_mode: pb.dsd.mode,
-            resampler_mode: pb.audio.resampler.mode,
-            resampler_algorithm: pb.audio.resampler.algorithm,
-            fixed_rate: pb.audio.resampler.fixed_rate,
-            prefer_family: pb.audio.resampler.prefer_family,
-            fallback_rate: pb.audio.resampler.fallback_rate,
-            ring_buffer_ms: clamp_ring_buffer_ms(pb.audio.ring_buffer_ms),
-            bit_perfect: pb.audio.bit_perfect,
-            dither: pb.audio.resampler.dither,
+            exclusive_mode: ExclusiveMode::default(),
+            fallback_policy: FallbackPolicy::default(),
+            dsd_mode: DsdMode::default(),
+            resampler_mode: ResamplerMode::default(),
+            resampler_algorithm: ResamplerAlgorithm::default(),
+            fixed_rate: 0,
+            prefer_family: ClockFamily::default(),
+            fallback_rate: FallbackRatePolicy::default(),
+            ring_buffer_ms: RING_BUFFER_MS_DEFAULT,
+            bit_perfect: false,
+            dither: ResamplerDither::default(),
         };
         let modes = core.settings().modes.clone();
         let active_mode = core.state().active_mode();
@@ -1938,66 +1945,11 @@ impl MusicApp {
                     a.fulltrack_cache.resize(cap);
                     eprintln!("[gui] settings_save: fulltrack cache resize -> {new_viz_ram_mb} MiB");
                 }
-                // ТЗ §7.5/§8.6: bit-perfect менялся в диалоге → применить к
-                // плееру. Включение = Direct Output (unity gain, снятие mute).
-                let bp = cur.playback.audio.bit_perfect;
-                if bp != old.playback.audio.bit_perfect {
-                    a.player.set_bit_perfect(bp);
-                    if bp {
-                        a.player.set_volume(1.0);
-                        a.player.set_muted(false);
-                        a.core.change_state(Origin::User, StateChange::Volume(100));
-                        a.core.change_state(Origin::User, StateChange::Muted(false));
-                    }
-                    a.emit(AppEvent::BitPerfectChanged);
-                    eprintln!("[gui] settings_save: bit_perfect applied -> {bp}");
-                }
-                // ТЗ A3.0 §7.7: применять политики вывода/ресемплера из диалога.
-                // Сеттеры идемпотентны; рестарт текущего трека (аналогично DSD)
-                // переоткрывает поток с новым `OutputRequest`.
-                let resample_of = |s: &PersistSettings| {
-                    let au = &s.playback.audio;
-                    (
-                        au.resampler.algorithm,
-                        au.resampler.dither,
-                        au.resampler.mode,
-                        au.resampler.fixed_rate,
-                        au.resampler.prefer_family,
-                        au.resampler.fallback_rate,
-                        au.ring_buffer_ms,
-                        au.exclusive,
-                        au.fallback,
-                    )
-                };
-                let old_resample = resample_of(&old);
-                let new_resample = resample_of(&cur);
-                let (algo, dither, mode, fixed_rate, prefer_family, fallback_rate, ring_ms, excl, fb) = new_resample;
-                a.player.set_resampler_algorithm(algo);
-                a.player.set_dither(dither);
-                a.player.set_resampler_mode(mode);
-                a.player.set_fixed_rate(fixed_rate);
-                a.player.set_prefer_family(prefer_family);
-                a.player.set_fallback_rate(fallback_rate);
-                a.player.set_ring_buffer_ms(ring_ms);
-                a.player.set_exclusive_mode(excl);
-                a.player.set_fallback_policy(fb);
-                if new_resample != old_resample {
-                    if let Some(idx) = a.current {
-                        eprintln!("[gui] settings_save: restarting current track {idx} with new audio policies");
-                        a.play_track(idx);
-                    }
-                }
-                // ТЗ §8.4: применить выбранный DSD-режим к плееру. Если в этот
-                // момент играет DSD-трек — перезапустить его, чтобы новый
-                // конвейер (PCM/Native/DoP) применился к незакрытому потоку.
-                a.player.set_dsd_mode(cur.playback.dsd.mode);
+                // §8 С4, §6.18, ADR-04: DSD-статус бейджа синхронизируется
+                // после каждого Save — реальный DSD-режим теперь берётся из
+                // активного `ModeSettings` (блок `cur.modes != old.modes`
+                // ниже), легаси-поле `playback.dsd.mode` упразднено.
                 a.sync_dsd_status_ui();
-                if a.current_track_is_dsd() {
-                    if let Some(idx) = a.current {
-                        eprintln!("[gui] settings_save: restarting current DSD track {idx} with new dsd mode");
-                        a.play_track(idx);
-                    }
-                }
                 // §6.18, §6.27, ТЗ-41: настройки режимов менялись в диалоге →
                 // применить к плееру (внутри `set_mode_settings` — сравнение и
                 // расчёт diff, И-Т7) и пересчитать зависимые от режима поля UI
