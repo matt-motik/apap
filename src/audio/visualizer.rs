@@ -498,11 +498,10 @@ impl VisualizerConfig {
             oscilloscope: v.oscilloscope.clone(),
             spectrogram: v.spectrogram.clone(),
             spectrum: v.spectrum.clone(),
-            dsd_params: DsdCacheParams {
-                target_bit_depth: s.playback.dsd.target_bit_depth,
-                target_sample_rate: s.playback.dsd.target_sample_rate,
-                resampler_algorithm: s.playback.audio.resampler.algorithm,
-            },
+            // DSD-параметры кэша полнотрековых визуализаций больше не берутся
+            // из пользовательских настроек (мост Settings.playback снят,
+            // §8 С4); используется значение по умолчанию.
+            dsd_params: DsdCacheParams::default(),
         }
     }
 }
