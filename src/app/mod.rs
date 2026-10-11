@@ -27,7 +27,7 @@ use music_player_rs::core::io::{CacheKind, CacheSizes, IoDone, IoJob, IoWorker};
 use music_player_rs::core::load::LoadApplied;
 use music_player_rs::core::AppCore;
 use music_player_rs::cover::{self, CoverDone, CoverJob};
-use music_player_rs::engine::messages::{EngineEvent, LegacyAudio, Notice, SkipReason};
+use music_player_rs::engine::messages::{EngineEvent, Notice, SkipReason};
 use music_player_rs::engine::run::{BackendCaps, EngineHandle};
 use music_player_rs::persist::settings_file::Settings as PersistSettings;
 use music_player_rs::persist::settings_file::{ColumnsConfig, ThemeName};
@@ -41,10 +41,7 @@ use music_player_rs::platform::notify::Notifier;
 use music_player_rs::platform::pick::{FilePicker, PickRequest, PickResult};
 use music_player_rs::playlist::{self, ScanMsg, Track};
 use music_player_rs::playlist::model::TrackId;
-use music_player_rs::settings::{
-    ClockFamily, ColumnId, DsdMode, ExclusiveMode, FallbackPolicy, FallbackRatePolicy, ModeKind,
-    RepeatMode, ResamplerAlgorithm, ResamplerDither, ResamplerMode, RING_BUFFER_MS_DEFAULT,
-};
+use music_player_rs::settings::{ColumnId, DsdMode, ModeKind, RepeatMode};
 use music_player_rs::theme::{
     ColorsData, ThemeData, ThemeEntry, ThemeError, DEFAULT_LIGHT_TOML, parse_hex,
 };
@@ -502,31 +499,17 @@ impl MusicApp {
             Err(fault) => (None, Some(fault)),
         };
         let pb_state = core.state().playback();
-        // Мост С3: стартовые звуковые настройки движка уходят в `LegacyAudio`
-        // через `AudioFacade::new` (ADR-01, ADR-04, ТЗ-134), а не поштучными
-        // сеттерами `Player` — так конструктор фасада сразу знает полную
-        // легаси-конфигурацию (`SetLegacyAudio` на старте не нужен). Значения
-        // ниже — плейсхолдер (дефолты типов, §8 С4, ADR-04): прежнее
-        // легаси-поле `LegacyPlayback` упразднено, а `send_startup_policy()` сразу
-        // после конструктора шлёт `SetModeSettings`/`SetActiveMode`, из
-        // которых движок пересобирает настоящий `LegacyAudio` (`legacy_audio()`
-        // в `engine/legacy_path.rs`) раньше первого `Open`.
-        let legacy = LegacyAudio {
-            exclusive_mode: ExclusiveMode::default(),
-            fallback_policy: FallbackPolicy::default(),
-            dsd_mode: DsdMode::default(),
-            resampler_mode: ResamplerMode::default(),
-            resampler_algorithm: ResamplerAlgorithm::default(),
-            fixed_rate: 0,
-            prefer_family: ClockFamily::default(),
-            fallback_rate: FallbackRatePolicy::default(),
-            ring_buffer_ms: RING_BUFFER_MS_DEFAULT,
-            bit_perfect: false,
-            dither: ResamplerDither::default(),
-        };
+        // Мост С3: стартовые звуковые настройки движка уходят через
+        // `AudioFacade::new` (ADR-01, ADR-04, ТЗ-134), а не поштучными
+        // сеттерами `Player`. `send_startup_policy()` сразу после
+        // конструктора шлёт `SetModeSettings`/`SetActiveMode`, из которых
+        // движок пересобирает `LegacyAudio` (`legacy_audio()` в
+        // `engine/legacy_path.rs`) раньше первого `Open`; фасад выводит те
+        // же флаги (`bit_perfect()`) тем же отображением, без отдельного
+        // кэша (§6.18, ADR-04, ТЗ-52).
         let modes = core.settings().playback.clone();
         let active_mode = core.state().active_mode();
-        let mut player = audio_facade::AudioFacade::new(engine, legacy, modes, active_mode);
+        let mut player = audio_facade::AudioFacade::new(engine, modes, active_mode);
         // Стартовая политика режимов — до первого `Open` (шаг 20, ОВС-14,
         // §6.27, ADR-22): движок должен знать сохранённые `ModeSettings` и
         // активный режим раньше, чем откроется первый трек плейлиста.

@@ -24,7 +24,8 @@ use std::sync::Arc;
 
 use music_player_rs::audio::decoder::TrackInfo;
 use music_player_rs::audio::player::{ReservationEvent, StreamDesc};
-use music_player_rs::engine::messages::{EngineCmd, EngineEvent, LegacyAudio, Notice, TransportState};
+use music_player_rs::engine::legacy_path::legacy_audio;
+use music_player_rs::engine::messages::{EngineCmd, EngineEvent, Notice, TransportState};
 use music_player_rs::engine::run::EngineHandle;
 use music_player_rs::settings::params::ModeSettingsUpdate;
 use music_player_rs::settings::playback::{ModeKind, ModeSettings};
@@ -51,7 +52,6 @@ pub(crate) struct AudioFacade {
     /// Только для фильтра устаревших событий по `req_gen` внутри `on_event`
     /// (И-Р14) — геттеры фасада его не читают напрямую.
     state: UiAudioState,
-    legacy: LegacyAudio,
     /// Настройки трёх режимов — копия для расчёта `ModeSettingsDiff` между
     /// последовательными `set_mode_settings` (ОВС-14, §6.18, ADR-22).
     modes: ModeSettings,
@@ -82,14 +82,12 @@ pub(crate) struct AudioFacade {
 impl AudioFacade {
     pub(crate) fn new(
         engine: Option<EngineHandle>,
-        legacy: LegacyAudio,
         modes: ModeSettings,
         active_mode: ModeKind,
     ) -> Self {
         Self {
             engine,
             state: UiAudioState::new(),
-            legacy,
             modes,
             active_mode,
             req_gen: 0,
@@ -330,19 +328,22 @@ impl AudioFacade {
 
     // --- Bit-perfect / dither -------------------------------------------------
     //
-    // Сеттеры этого раздела и раздела ниже больше не шлют `SetLegacyAudio`
-    // движку (С4, §6.18, §6.27): `LegacyAudio` строится внутри движка из
-    // `ModeSettings` (`engine::legacy_path::legacy_audio`), а не из команд UI.
-    // Поле `legacy` остаётся только локальным кэшем старого диалога настроек
-    // (ТЗ-134, И-Р24) до его замены диалогом режимов (шаги 21…27) и удаления
-    // (шаги 28…32).
+    // Флаги этого раздела не кэшируются отдельным полем: они выводятся из
+    // активного режима через `legacy_audio(&self.modes, self.active_mode)` —
+    // то же отображение `ModeSettings -> LegacyAudio`, которым пользуется сам
+    // движок (ADR-04, ТЗ-52, §6.18). `bit_perfect` истинен только для
+    // Строгого режима.
+
+    fn legacy_bit_perfect(&self) -> bool {
+        legacy_audio(&self.modes, self.active_mode).0.bit_perfect
+    }
 
     pub(crate) fn bit_perfect(&self) -> bool {
-        self.legacy.bit_perfect
+        self.legacy_bit_perfect()
     }
 
     pub(crate) fn bit_perfect_resampled(&self) -> bool {
-        self.legacy.bit_perfect && self.stream_desc().is_some_and(|d| d.resampled)
+        self.legacy_bit_perfect() && self.stream_desc().is_some_and(|d| d.resampled)
     }
 
     // --- Настройки режимов (С4) ------------------------------------------------
@@ -390,29 +391,9 @@ mod tests {
     use music_player_rs::persist::keys::{FileRead, Parsed};
     use music_player_rs::persist::state_file::parse_state;
     use music_player_rs::settings::playback_dto::{load_mode_settings, playback_dto, PlaybackDto};
-    use music_player_rs::settings::{
-        ClockFamily, DsdMode, ExclusiveMode, FallbackPolicy, FallbackRatePolicy, ResamplerAlgorithm,
-        ResamplerDither, ResamplerMode,
-    };
-
-    fn legacy_defaults() -> LegacyAudio {
-        LegacyAudio {
-            exclusive_mode: ExclusiveMode::default(),
-            fallback_policy: FallbackPolicy::default(),
-            dsd_mode: DsdMode::default(),
-            resampler_mode: ResamplerMode::default(),
-            resampler_algorithm: ResamplerAlgorithm::default(),
-            fixed_rate: 48_000,
-            prefer_family: ClockFamily::default(),
-            fallback_rate: FallbackRatePolicy::default(),
-            ring_buffer_ms: 1500,
-            bit_perfect: false,
-            dither: ResamplerDither::default(),
-        }
-    }
 
     fn facade() -> AudioFacade {
-        AudioFacade::new(None, legacy_defaults(), ModeSettings::default(), ModeKind::default())
+        AudioFacade::new(None, ModeSettings::default(), ModeKind::default())
     }
 
     fn track_info() -> TrackInfo {
@@ -432,9 +413,28 @@ mod tests {
     }
 
     #[test]
-    fn setters_update_legacy_copy_and_getters() {
+    fn bit_perfect_follows_active_mode() {
         let mut f = facade();
+        // Совместимый (дефолт) — не bit-perfect.
         assert!(!f.bit_perfect());
+
+        f.set_active_mode(ModeKind::Strict);
+        assert!(f.bit_perfect());
+
+        f.set_active_mode(ModeKind::Optimal);
+        assert!(!f.bit_perfect());
+    }
+
+    #[test]
+    fn bit_perfect_resampled_false_without_stream_desc() {
+        let f = facade();
+        assert!(f.stream_desc().is_none());
+        assert!(!f.bit_perfect_resampled());
+    }
+
+    #[test]
+    fn setters_update_getters() {
+        let mut f = facade();
 
         f.set_volume(2.0);
         assert_eq!(f.volume(), 1.0);

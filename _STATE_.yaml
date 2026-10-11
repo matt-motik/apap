@@ -188,7 +188,7 @@ steps:
     done: true
   - id: 48
     description: "src/app/audio_facade.rs (+ при необходимости src/app/mod.rs): bit_perfect()/bit_perfect_resampled() фасада — из legacy_audio(&self.modes, активный режим), а не из ни разу не обновляемого поля legacy (найдено при оценке шага: после снятия моста всегда false, в т.ч. в Строгом — трей, bp-отчёт, блокировка громкости mod.rs ~2451, DSD-предупреждение) (ADR-04, ТЗ-52, §8 С4). Проверка: cargo test (+ тест: Строгий → bit_perfect() == true)"
-    done: false
+    done: true
   - id: 49
     description: "src/app/events.rs + src/app/mod.rs: удалить вариант AppEvent::BitPerfectChanged (не создаётся после шага 38) и его ветку в mod.rs (§8 С4). Проверка: cargo build без warning"
     done: false
@@ -219,8 +219,8 @@ steps:
   - id: 58
     description: "Финал: cargo build/test/clippy зелёные; ROADMAP ✅; заметка плана; напомнить пользователю удалить settings.toml (ТЗ-97) и показать расхождение с 02 spec стр. 3342 (решение — за пользователем); ручные проверки (переключатель режимов, Совместимый играет, Оптимальный/Строгий через hw: на Linux). Проверка: cargo test + clippy"
     done: false
-current_step: 48
-next_action: "Шаг 48: bit_perfect()/bit_perfect_resampled() фасада — из legacy_audio(&self.modes, активный режим)"
+current_step: 49
+next_action: "Шаг 49: удалить AppEvent::BitPerfectChanged и его ветку в mod.rs"
 fail_counter: 0
 fail_counter_max: 3
 failed_attempts: []
