@@ -569,66 +569,22 @@ impl MusicApp {
         }
     }
 
+    /// Синхронизирует UI после смены устройства активного режима в
+    /// `ModeSettings` (ТЗ-94, §2.4). Сама смена устройства на движке идёт
+    /// через `set_mode_settings`/diff на пути «Сохранить» (И-Т7) — этот метод
+    /// не трогает движок напрямую (`EngineCmd::SetDevice` сюда не шлётся),
+    /// только обновляет `active_device`, метку в диалоге и трей. `name` — ""
+    /// означает системное устройство по умолчанию (`ModeSettings::device`).
     pub(super) fn set_output_device(&mut self, name: String) {
-        if name.is_empty() || name == "(select device)" {
-            return;
-        }
-        if name == self.core.settings().playback.audio_device {
-            return;
-        }
-        // Устройство — настройка: замена целиком через `set_settings` (И-Т7).
-        // Вызывается только из «Сохранить» диалога, который сам пишет
-        // `settings.toml` через `save_settings_now` (ТЗ-10, ТЗ-28, §8.1 С4).
-        let mut s = self.core.settings().clone();
-        s.playback.audio_device = name.clone();
-        self.core.set_settings(s);
-
-        let path = self
-            .current
-            .and_then(|i| self.track_at(i))
-            .map(|t| t.path.clone());
-        let (_playing, pos, _) = self.player.snapshot();
-        match path {
-            Some(path) => {
-                if let Err(e) = self.player.set_device(name.clone(), Some(&path), pos) {
-                    self.audio_error = Some(e.clone());
-                    if let Some(ui) = self.try_ui() {
-                        ui.set_settings_active_error(e.as_str().into());
-                    }
-                    // Явное действие (переключение устройства) не выполнено —
-                    // окно Error, не строка состояния (ТЗ-52, ОВ-7).
-                    self.push_message(Message {
-                        level: MessageLevel::Error,
-                        title: "Не удалось переключить аудиоустройство".into(),
-                        body: e.into(),
-                        buttons: MessageButtons::Ok,
-                    });
-                } else {
-                    // The configuration stores the stable device id; present it
-                    // to the user by its human-readable name of the opened node.
-                    // Успешное переключение — результат виден в диалоге
-                    // настроек (settings_active_device), сообщение не нужно
-                    // (ТЗ-52, ОВ-7).
-                    let human = self.player.device_desc.clone();
-                    self.audio_ready = true;
-                    self.audio_error = None;
-                    self.active_device = human.clone();
-                    if let Some(ui) = self.try_ui() {
-                        ui.set_settings_active_device(human.into());
-                        ui.set_settings_active_error(String::new().into());
-                    }
-                }
-            }
-            None => {
-                self.player.set_preferred_device(name.clone());
-                let human = self
-                    .device_display_name(&name)
-                    .unwrap_or_else(|| self.player.device_desc.clone());
-                self.active_device = human.clone();
-                if let Some(ui) = self.try_ui() {
-                    ui.set_settings_active_device(human.into());
-                }
-            }
+        let human = self
+            .device_display_name(&name)
+            .unwrap_or_else(|| if name.is_empty() { "default".to_string() } else { name.clone() });
+        self.audio_ready = true;
+        self.audio_error = None;
+        self.active_device = human.clone();
+        if let Some(ui) = self.try_ui() {
+            ui.set_settings_active_device(human.into());
+            ui.set_settings_active_error(String::new().into());
         }
         self.emit(AppEvent::DeviceChanged);
         self.push_tray_now();

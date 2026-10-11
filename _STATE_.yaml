@@ -153,7 +153,7 @@ steps:
     done: true
   - id: 37
     description: "Устройство вывода — из ModeSettings активного режима вместо settings.playback.audio_device: src/app/mod.rs (конструктор, сохранение, on_settings_save), src/app/playback_manager.rs (set_output_device), src/app/ui_manager.rs. Решение пользователя 2026-10-11: set_output_device обновляет только UI (active_device, метка, DeviceChanged, трей); движок меняет устройство через набор изменений ModeSettings, EngineCmd::SetDevice при Сохранить не шлётся (устраняет потерю устройства после перезапуска). Проверка: cargo test (общие типы)"
-    done: false
+    done: true
   - id: 38
     description: "src/app/mod.rs: удалить мост в on_settings_save (bit_perfect, resample_of/сеттеры + рестарт, set_dsd_mode + рестарт DSD; sync_dsd_status_ui() оставить); LegacyAudio конструктора — из умолчаний (ring_buffer_ms RING_BUFFER_MS_DEFAULT, fixed_rate 0, bit_perfect false, дизеринг по умолчанию) (§8 С4). Проверка: cargo check"
     done: false
@@ -176,7 +176,7 @@ steps:
     description: "Механическое переименование Settings.modes → Settings.playback: ModeSettings (02 spec §2.4) в settings_file.rs, mod.rs, playback_manager.rs, ui_manager.rs, bp_report.rs, core/testing.rs — разовое исключение из Правила локализации по решению пользователя 2026-10-11. Проверка: cargo test (общие типы)"
     done: false
   - id: 45
-    description: "src/settings.rs: старые перечисления (ExclusiveMode, FallbackPolicy, ResamplerMode, FallbackRatePolicy, ClockFamily, DsdMode, TargetBitDepth, TargetSampleRate, ResamplerDither::Triangular, AudioCfg.bit_perfect) перестают быть пользовательскими настройками: убрать serde и UI-индексы, удалить их toml-тесты; Triangular — удалить (§8 С4, ОВС-12). Проверка: cargo check; ЧЕКПОИНТ: cargo test + clippy"
+    description: "src/settings.rs: старые перечисления (ExclusiveMode, FallbackPolicy, ResamplerMode, FallbackRatePolicy, ClockFamily, DsdMode, TargetBitDepth, TargetSampleRate, ResamplerDither::Triangular, AudioCfg.bit_perfect) перестают быть пользовательскими настройками: убрать serde и UI-индексы, удалить их toml-тесты; Triangular — удалить (§8 С4, ОВС-12). Также: AudioFacade::set_device (без вызывающих после шага 37) и прочие ставшие мёртвыми сеттеры фасада. Проверка: cargo check; ЧЕКПОИНТ: cargo test + clippy"
     done: false
   - id: 46
     description: "Бейдж: «Bit-perfect» недостижим до С6 — старый путь не читает hw_params (DriverFormat::Unreadable): src/app/bp_report.rs / src/app/playback_manager.rs никогда не показывают Bit-perfect; тест (§8 С4, ТЗ-52). Проверка: cargo test bp_report"
@@ -184,8 +184,8 @@ steps:
   - id: 47
     description: "Финал: cargo build/test/clippy зелёные; ROADMAP ✅; заметка плана; напомнить пользователю удалить settings.toml (ТЗ-97) и показать расхождение с 02 spec стр. 3342 (решение — за пользователем); ручные проверки (переключатель режимов, Совместимый играет, Оптимальный/Строгий через hw: на Linux). Проверка: cargo test + clippy"
     done: false
-current_step: 37
-next_action: "Шаг 37: устройство вывода из ModeSettings активного режима (mod.rs, playback_manager.rs, ui_manager.rs); set_output_device — только UI"
+current_step: 38
+next_action: "Шаг 38: удалить мост в on_settings_save (src/app/mod.rs); LegacyAudio конструктора из умолчаний"
 fail_counter: 0
 fail_counter_max: 3
 failed_attempts: []

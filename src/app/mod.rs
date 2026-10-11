@@ -529,8 +529,13 @@ impl MusicApp {
         // поэтому применяются сеттерами фасада после конструирования.
         player.set_volume(pb_state.gain());
         player.set_muted(pb_state.muted);
-        if !pb.audio_device.is_empty() {
-            player.set_preferred_device(pb.audio_device.clone());
+        // Устройство читается из `ModeSettings` активного режима, а не из
+        // легаси-поля `playback.audio_device` (ТЗ-94, §2.4). Прямой вызов
+        // здесь остаётся нужен: `SetActiveMode` в `send_startup_policy` не
+        // применяет устройство, если активный режим движка на старте уже
+        // совпадает с сохранённым (см. `Engine::store_active_mode`).
+        if let Some(device) = core.settings().modes.device(active_mode) {
+            player.set_preferred_device(device.to_string());
         }
 
         let known_paths: HashSet<PathBuf> = HashSet::new();
@@ -564,7 +569,7 @@ impl MusicApp {
         // in `drain_engine_events`/`dispatch_applied` (ТЗ-104, ADR-16). The
         // window must show before that first report arrives, so the initial
         // state is "unknown", not an error.
-        let saved_device = core.settings().playback.audio_device.clone();
+        let saved_device = core.settings().modes.device(active_mode).unwrap_or("").to_string();
         let audio_ready = false;
         let audio_error = None;
         let active_device = if saved_device.is_empty() {
@@ -1716,7 +1721,14 @@ impl MusicApp {
                 // stable device id it maps to.
                 let mut a = app.borrow_mut();
                 let raw = a.resolve_device_label(&name);
-                a.edit_cfg(|s| s.playback.audio_device = raw);
+                // Записывается в `ModeSettings` показанной в диалоге панели
+                // режима (`mode_edit`), а не в легаси-поле `playback.audio_device`
+                // (ТЗ-94, §2.4) — `edit_cfg` не подходит, так как даёт доступ
+                // только к `PersistSettings` черновика, без `mode_edit`.
+                if let Some(d) = a.dialog_mut() {
+                    let mode = d.mode_edit;
+                    d.settings.modes.set_device(mode, &raw);
+                }
             });
         }
 
@@ -1890,10 +1902,15 @@ impl MusicApp {
                     new.theme = name.clone();
                 }
 
-                if new.playback.audio_device != old.playback.audio_device {
-                    // Apply the device first: its early-return guard compares
-                    // against the *live* setting, which still has the old value.
-                    a.set_output_device(new.playback.audio_device.clone());
+                // Устройство читается из `ModeSettings` активного режима
+                // воспроизведения (ТЗ-94, §2.4), а не из легаси-поля
+                // `playback.audio_device`: `set_output_device` обновляет
+                // только UI (движок переключает устройство ниже, через
+                // `set_mode_settings`/diff — блок `cur.modes != old.modes`).
+                let active_mode = a.core.state().active_mode();
+                if new.modes.device(active_mode) != old.modes.device(active_mode) {
+                    let device = new.modes.device(active_mode).unwrap_or("").to_string();
+                    a.set_output_device(device);
                 }
 
                 // «Сохранить» заменяет настройки целиком; тип визуализации и
@@ -2555,7 +2572,10 @@ impl MusicApp {
         // stream, before it's handed to `player.on_event` — the catalog
         // update itself reduces to a field inside `AudioFacade`/
         // `UiAudioState` and never reaches `Applied` (ТЗ-104, ADR-16).
-        let saved_device = self.core.settings().playback.audio_device.clone();
+        // Устройство — из `ModeSettings` активного режима, не из легаси-поля
+        // `playback.audio_device` (ТЗ-94, §2.4).
+        let active_mode = self.core.state().active_mode();
+        let saved_device = self.core.settings().modes.device(active_mode).unwrap_or("").to_string();
         let mut ready_device: Option<String> = None;
 
         let player = &mut self.player;
