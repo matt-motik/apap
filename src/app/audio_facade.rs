@@ -28,10 +28,7 @@ use music_player_rs::engine::messages::{EngineCmd, EngineEvent, LegacyAudio, Not
 use music_player_rs::engine::run::EngineHandle;
 use music_player_rs::settings::params::ModeSettingsUpdate;
 use music_player_rs::settings::playback::{ModeKind, ModeSettings};
-use music_player_rs::settings::{
-    clamp_ring_buffer_ms, ClockFamily, DsdMode, ExclusiveMode, FallbackPolicy, FallbackRatePolicy,
-    ResamplerAlgorithm, ResamplerMode,
-};
+use music_player_rs::settings::{DsdMode, ExclusiveMode, FallbackPolicy};
 
 use super::ui_audio_state::{Applied, UiAudioState};
 
@@ -351,30 +348,6 @@ impl AudioFacade {
 
     // --- Прочие легаси-настройки звука (ADR-04, ТЗ-134, И-Р24) ----------------
 
-    pub(crate) fn set_resampler_mode(&mut self, mode: ResamplerMode) {
-        self.legacy.resampler_mode = mode;
-    }
-
-    pub(crate) fn set_resampler_algorithm(&mut self, algo: ResamplerAlgorithm) {
-        self.legacy.resampler_algorithm = algo;
-    }
-
-    pub(crate) fn set_fixed_rate(&mut self, rate: u32) {
-        self.legacy.fixed_rate = rate;
-    }
-
-    pub(crate) fn set_prefer_family(&mut self, family: ClockFamily) {
-        self.legacy.prefer_family = family;
-    }
-
-    pub(crate) fn set_fallback_rate(&mut self, policy: FallbackRatePolicy) {
-        self.legacy.fallback_rate = policy;
-    }
-
-    pub(crate) fn set_ring_buffer_ms(&mut self, ms: u32) {
-        self.legacy.ring_buffer_ms = clamp_ring_buffer_ms(ms);
-    }
-
     pub(crate) fn set_exclusive_mode(&mut self, mode: ExclusiveMode) {
         self.legacy.exclusive_mode = mode;
     }
@@ -432,7 +405,9 @@ mod tests {
     use music_player_rs::persist::keys::{FileRead, Parsed};
     use music_player_rs::persist::state_file::parse_state;
     use music_player_rs::settings::playback_dto::{load_mode_settings, playback_dto, PlaybackDto};
-    use music_player_rs::settings::ResamplerDither;
+    use music_player_rs::settings::{
+        ClockFamily, FallbackRatePolicy, ResamplerAlgorithm, ResamplerDither, ResamplerMode,
+    };
 
     fn legacy_defaults() -> LegacyAudio {
         LegacyAudio {
@@ -477,9 +452,6 @@ mod tests {
 
         f.set_dsd_mode(DsdMode::Native);
         assert_eq!(f.legacy.dsd_mode, DsdMode::Native);
-
-        f.set_ring_buffer_ms(50);
-        assert_eq!(f.legacy.ring_buffer_ms, music_player_rs::settings::RING_BUFFER_MS_MIN);
 
         f.set_volume(2.0);
         assert_eq!(f.volume(), 1.0);

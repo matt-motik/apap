@@ -182,7 +182,7 @@ steps:
     done: true
   - id: 46
     description: "src/app/audio_facade.rs: удалить мёртвые set_resampler_mode, set_resampler_algorithm, set_fixed_rate, set_prefer_family, set_fallback_rate, set_ring_buffer_ms, их тестовые строки и ставший лишним импорт clamp_ring_buffer_ms (§8 С4). Проверка: cargo test --bin music-player-rs audio_facade"
-    done: false
+    done: true
   - id: 47
     description: "src/app/audio_facade.rs: удалить мёртвые set_exclusive_mode, set_fallback_policy, set_dsd_mode и их тестовые строки; импорты старых перечислений — в mod tests (нужны только legacy_defaults()); поправить комментарий раздела (§8 С4). Проверка: cargo test --bin music-player-rs audio_facade без warning"
     done: false
@@ -219,8 +219,8 @@ steps:
   - id: 58
     description: "Финал: cargo build/test/clippy зелёные; ROADMAP ✅; заметка плана; напомнить пользователю удалить settings.toml (ТЗ-97) и показать расхождение с 02 spec стр. 3342 (решение — за пользователем); ручные проверки (переключатель режимов, Совместимый играет, Оптимальный/Строгий через hw: на Linux). Проверка: cargo test + clippy"
     done: false
-current_step: 46
-next_action: "Шаг 46: audio_facade.rs — удалить set_resampler_*/set_fixed_rate/set_prefer_family/set_fallback_rate/set_ring_buffer_ms"
+current_step: 47
+next_action: "Шаг 47: audio_facade.rs — удалить set_exclusive_mode/set_fallback_policy/set_dsd_mode"
 fail_counter: 0
 fail_counter_max: 3
 failed_attempts: []
