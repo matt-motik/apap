@@ -103,13 +103,13 @@
 - [x] Шаг 54: src/settings.rs: удалить index/from_index у ResamplerMode, ClockFamily, FallbackRatePolicy (UI-индексы, §8 С4). Проверка: cargo test --lib settings
 - [x] Шаг 55: src/settings.rs: снять Serialize/Deserialize и serde-атрибуты с ExclusiveMode, FallbackPolicy, ResamplerMode, ClockFamily, FallbackRatePolicy, DsdMode, ResamplerDither; doc — внутренние параметры старого пути (ОВС-12, §8 С4). Проверка: cargo test (формат)
 - [x] Шаг 56: src/settings.rs + src/audio/visualizer.rs: снять serde с TargetBitDepth/TargetSampleRate и DsdCacheParams (§8 С4). Проверка: cargo check; ЧЕКПОИНТ: cargo test + cargo clippy --all-targets; grep Triangular|AudioCfg|DsdCfg|AudioResamplerCfg|BitPerfectChanged пуст
-- [>] **Шаг 57: Бейдж: «Bit-perfect» недостижим до С6 — старый путь не читает hw_params (DriverFormat::Unreadable): src/app/bp_report.rs / src/app/playback_manager.rs никогда не показывают Bit-perfect; тест (§8 С4, ТЗ-52). Проверка: cargo test bp_report**
-- [ ] Шаг 58: Финал: cargo build/test/clippy зелёные; ROADMAP ✅; заметка плана; напомнить пользователю удалить settings.toml (ТЗ-97) и показать расхождение с 02 spec стр. 3342 (решение — за пользователем); ручные проверки (переключатель режимов, Совместимый играет, Оптимальный/Строгий через hw: на Linux). Проверка: cargo test + clippy
+- [x] Шаг 57: Бейдж: «Bit-perfect» недостижим до С6 — старый путь не читает hw_params (DriverFormat::Unreadable): src/app/bp_report.rs / src/app/playback_manager.rs никогда не показывают Bit-perfect; тест (§8 С4, ТЗ-52). Проверка: cargo test bp_report
+- [>] **Шаг 58: Финал: cargo build/test/clippy зелёные; ROADMAP ✅; заметка плана; напомнить пользователю удалить settings.toml (ТЗ-97) и показать расхождение с 02 spec стр. 3342 (решение — за пользователем); ручные проверки (переключатель режимов, Совместимый играет, Оптимальный/Строгий через hw: на Linux). Проверка: cargo test + clippy**
 
 Легенда: [x] сделано · [>] текущий шаг · [ ] не начато
 
-- **Текущий шаг (current_step):** Шаг 57
-- **Следующий ход:** Шаг 57: бейдж — Bit-perfect недостижим до С6 (bp_report.rs / playback_manager.rs) + тест; cargo test bp_report
+- **Текущий шаг (current_step):** Шаг 58
+- **Следующий ход:** Шаг 58 (на Linux): cargo build/test/clippy — подтвердить зелёный полный прогон; ручные проверки AM1.0-8.4 (см. заметку пункта плана 13); после подтверждения — ROADMAP ✅ и закрытие этапа
 - **Счетчик безуспешных компиляций:** 0/3
 - **Состояние:** in_progress
 
@@ -121,6 +121,9 @@ _Источник: чат с пользователем (ноутбук), нач
 - [>] **13.** Реализация AM1.0 + SP1.0 по сквозному порядку (ROADMAP.md): docs/01_audio_modes_v1.0/ (С0…С11) и docs/02_settings_persistence_v1.0/ (С0…С12) — ТЕКУЩАЯ ОСНОВНАЯ ЗАДАЧА
   - Закрытые этапы и баги — в ROADMAP.md (✅ с хэшем); здесь только открытое.
   - SP1.0-8.8 (С8 (02) «Загрузка плейлиста, Play Now, экспорт») закрыт в 5b08e7b; В РАБОТЕ (п. 14 сквозного порядка): AM1.0-8.4 (С4 (01) «Модель режимов и настроек») — микро-шаги в _STATE_.yaml.
+  - AM1.0-8.4: шаги 1–57 выполнены на Windows-ноутбуке (2026-10-12); на ЧЕКПОИНТе шага 56: cargo build и cargo clippy --all-targets чистые, cargo test — только 6 известных падений SP1.0-B7. Шаг 57 кода не потребовал: бейдж пишет только status_badge (bp_active всегда false), тесты bp_report_never_active_in_old_path и bp_report_status_badge_never_green зелёные. Остался шаг 58; этап не закрыт.
+  - Ручные проверки за пользователем: AM1.0-8.4 — (Linux) полный cargo test зелёный; переключатель режимов; Совместимый играет; Оптимальный и Строгий играют через hw:; блокировка громкости в Строгом/при volume_lock; бейдж не показывает «Bit-perfect». (Windows) Совместимый играет; Оптимальный/Строгий неактивны; сообщение ТЗ-111 с кнопкой «Переключить в Совместимый режим».
+  - К шагу 58 AM1.0-8.4 (решение за пользователем): 01 ОВ-27/ТЗ-97 предписывает удалить settings.toml перед первым запуском С4; 02 spec §8.2 (стр. 3342) говорит, что после С3 (02) удаление не нужно (прежние аудио-ключи — неизвестные ключи с заметкой) и сбросило бы настройки окна.
   - ВОПРОС ПОЛЬЗОВАТЕЛЮ (AM1.0-8.4 шаг 2): HwDeviceId (§2.3) ещё нет в коде; в OptimalOpts/StrictOpts.device временно Option<String>. Предложение: добавить newtype HwDeviceId в src/audio/backend/mod.rs (расширить вайтлист) и заменить. Умолчание BufferMs = 1500 мс (как RING_BUFFER_MS_DEFAULT; спека числа не задаёт).
   - AM1.0-8.4 шаг 29: таблиц подсказок SRC_FILTER_INFO/DSD_FILTER_INFO (§6.27) в коде нет — подсказки вариантов фильтров в mode_dialog пустые; строки Device/Lock/Test и др. без каталога — RowKind::Info. Дозаполнить при подключении диалога или отдельным шагом.
   - ВОПРОС ПОЛЬЗОВАТЕЛЮ (AM1.0-8.4 шаг 10): legacy_path отображает SrcFilter на старый ResamplerAlgorithm по крутизне: Steep→SincSlow(128), Slow→SincMedium(64), VerySlow→SincFast(32) — решение шага, в спеке нет; Оптимальный → ExclusiveMode::Strict (без перехода в Shared); DsdFilter/dsd_gain_comp/volume_lock/device_buffer старый путь не параметризуют.
