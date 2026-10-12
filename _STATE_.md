@@ -102,14 +102,14 @@
 - [x] Шаг 53: src/settings.rs: удалить index/from_index у DsdMode, ExclusiveMode, FallbackPolicy и тест dsd_mode_index_roundtrip (UI-индексы, §8 С4). Проверка: cargo test --lib settings
 - [x] Шаг 54: src/settings.rs: удалить index/from_index у ResamplerMode, ClockFamily, FallbackRatePolicy (UI-индексы, §8 С4). Проверка: cargo test --lib settings
 - [x] Шаг 55: src/settings.rs: снять Serialize/Deserialize и serde-атрибуты с ExclusiveMode, FallbackPolicy, ResamplerMode, ClockFamily, FallbackRatePolicy, DsdMode, ResamplerDither; doc — внутренние параметры старого пути (ОВС-12, §8 С4). Проверка: cargo test (формат)
-- [>] **Шаг 56: src/settings.rs + src/audio/visualizer.rs: снять serde с TargetBitDepth/TargetSampleRate и DsdCacheParams (§8 С4). Проверка: cargo check; ЧЕКПОИНТ: cargo test + cargo clippy --all-targets; grep Triangular|AudioCfg|DsdCfg|AudioResamplerCfg|BitPerfectChanged пуст**
-- [ ] Шаг 57: Бейдж: «Bit-perfect» недостижим до С6 — старый путь не читает hw_params (DriverFormat::Unreadable): src/app/bp_report.rs / src/app/playback_manager.rs никогда не показывают Bit-perfect; тест (§8 С4, ТЗ-52). Проверка: cargo test bp_report
+- [x] Шаг 56: src/settings.rs + src/audio/visualizer.rs: снять serde с TargetBitDepth/TargetSampleRate и DsdCacheParams (§8 С4). Проверка: cargo check; ЧЕКПОИНТ: cargo test + cargo clippy --all-targets; grep Triangular|AudioCfg|DsdCfg|AudioResamplerCfg|BitPerfectChanged пуст
+- [>] **Шаг 57: Бейдж: «Bit-perfect» недостижим до С6 — старый путь не читает hw_params (DriverFormat::Unreadable): src/app/bp_report.rs / src/app/playback_manager.rs никогда не показывают Bit-perfect; тест (§8 С4, ТЗ-52). Проверка: cargo test bp_report**
 - [ ] Шаг 58: Финал: cargo build/test/clippy зелёные; ROADMAP ✅; заметка плана; напомнить пользователю удалить settings.toml (ТЗ-97) и показать расхождение с 02 spec стр. 3342 (решение — за пользователем); ручные проверки (переключатель режимов, Совместимый играет, Оптимальный/Строгий через hw: на Linux). Проверка: cargo test + clippy
 
 Легенда: [x] сделано · [>] текущий шаг · [ ] не начато
 
-- **Текущий шаг (current_step):** Шаг 56
-- **Следующий ход:** Шаг 56: settings.rs + audio/visualizer.rs — снять serde с TargetBitDepth/TargetSampleRate и DsdCacheParams; ЧЕКПОИНТ: cargo test + cargo clippy --all-targets + grep
+- **Текущий шаг (current_step):** Шаг 57
+- **Следующий ход:** Шаг 57: бейдж — Bit-perfect недостижим до С6 (bp_report.rs / playback_manager.rs) + тест; cargo test bp_report
 - **Счетчик безуспешных компиляций:** 0/3
 - **Состояние:** in_progress
 

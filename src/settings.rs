@@ -337,38 +337,31 @@ pub enum DsdMode {
 
 /// Битность конвертации DSD → PCM (ТЗ 5.1 §8.2). Внутри плеера PCM всегда
 /// f32; значение используется на этапе 6.6 (dither/bit-perfect) и в FullTrackWorker.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
+/// Внутренний параметр старого пути воспроизведения; в файл настроек не
+/// сохраняется (ОВС-12, §8 С4).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub enum TargetBitDepth {
-    #[serde(rename = "16")]
     Bits16,
     #[default]
-    #[serde(rename = "24")]
     Bits24,
-    #[serde(rename = "32")]
     Bits32Int,
-    #[serde(rename = "32float")]
     Bits32Float,
 }
 
 /// Целевая частота DSD → PCM (ТЗ 5.1 §8.2). `Auto` — выход CIC-децимации
 /// (44.1/48/88.2/96/176.4/192 кГц в зависимости от кратности DSD), дальше всё
 /// доводит универсальный ресемплер до частоты устройства (§8.1).
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
+/// Внутренний параметр старого пути воспроизведения; в файл настроек не
+/// сохраняется (ОВС-12, §8 С4).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub enum TargetSampleRate {
     #[default]
-    #[serde(rename = "auto")]
     Auto,
-    #[serde(rename = "44100")]
     Hz44100,
-    #[serde(rename = "48000")]
     Hz48000,
-    #[serde(rename = "88200")]
     Hz88200,
-    #[serde(rename = "96000")]
     Hz96000,
-    #[serde(rename = "176400")]
     Hz176400,
-    #[serde(rename = "192000")]
     Hz192000,
 }
 

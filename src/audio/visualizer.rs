@@ -464,7 +464,7 @@ pub struct VisualizerConfig {
 }
 
 /// Снимок DSD→PCM параметров для ключа кэша полнотрековых (§10.4 `dsd_params`).
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct DsdCacheParams {
     pub target_bit_depth: TargetBitDepth,
     pub target_sample_rate: TargetSampleRate,
