@@ -17,6 +17,7 @@ pub(crate) mod testing;
 use std::sync::Arc;
 
 use exit::{ExitCoordinator, ExitOutcome, ExitPhase, ExitReason, ExitReport, ReplyWaiter};
+use gate::UiGate;
 use geometry::GeometryTracker;
 use io::{IoDone, IoJob, IoWorker};
 use load::LoadCtl;
@@ -173,6 +174,10 @@ pub struct AppCore {
     geometry: GeometryTracker,
     /// Загрузка плейлиста при старте (ADR-16, §6.12).
     load: LoadCtl,
+    /// Шлюз главного окна — причины блокировки (диалог настроек, окно
+    /// сообщения, выбор файла) и признак загрузки плейлиста (ADR-12, §2.12,
+    /// ТЗ-23, ТЗ-48).
+    gate: UiGate,
 }
 
 /// Общая часть загрузки `with_deps`: разбирает `boot` и строит
@@ -217,6 +222,7 @@ impl AppCore {
             exit: ExitCoordinator::new(),
             geometry: GeometryTracker::new(),
             load: LoadCtl::new(),
+            gate: UiGate::default(),
         }
     }
 
@@ -245,6 +251,18 @@ impl AppCore {
 
     pub fn state(&self) -> &SessionState {
         &self.state
+    }
+
+    /// Шлюз главного окна — чтение причин блокировки и признака загрузки
+    /// плейлиста (ADR-12, §2.12, ТЗ-23, ТЗ-48).
+    pub fn gate(&self) -> &UiGate {
+        &self.gate
+    }
+
+    /// Шлюз главного окна — изменение причин блокировки и признака загрузки
+    /// плейлиста (ADR-12, §2.12, ТЗ-23, ТЗ-48).
+    pub fn gate_mut(&mut self) -> &mut UiGate {
+        &mut self.gate
     }
 
     /// Заменяет настройки целиком — действие «Сохранить» диалога настроек
