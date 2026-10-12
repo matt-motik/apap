@@ -18,7 +18,7 @@ use music_player_rs::audio::player::ReservationEvent;
 use music_player_rs::audio::visualizer::{
     FreqScale, LevelScale, VisualizationMode, VisualizerConfig,
 };
-use music_player_rs::core::dialog::{DialogDraft, ThemeLoad};
+use music_player_rs::core::dialog::{ApplyStep, DialogDraft, ThemeLoad};
 use music_player_rs::core::gate::{BlockReason, LoadKind, MainCmd};
 use music_player_rs::core::messages::{
     CloseEffect, Message, MessageButton, MessageButtons, MessageCenter, MessageLevel, MsgEffect,
@@ -106,21 +106,18 @@ impl Default for UiState {
 static EMPTY_WIDTHS: BTreeMap<ColumnId, WidthPct> = BTreeMap::new();
 
 /// Ширины колонок, уходящие в состояние сессии по «Сохранить» (Т-2, §2.5,
-/// §6.9); `None` — ширины не меняются. `reset` («Сбросить ширины») даёт
-/// пустой набор. Иначе действующие ширины `current` нормализуются для каждой
-/// колонки, чья видимость в `new` отличается от `old`: скрытая теряет
-/// сохранённую ширину, показанная получает среднюю по прежним видимым.
-/// Черновик ширин не хранит, поэтому нормализация выполняется в момент
-/// сохранения, по итоговому набору видимых колонок.
+/// §6.9); `None` — ширины не меняются. Действующие ширины `current`
+/// нормализуются для каждой колонки, чья видимость в `new` отличается от
+/// `old`: скрытая теряет сохранённую ширину, показанная получает среднюю по
+/// прежним видимым. Черновик ширин не хранит, поэтому нормализация
+/// выполняется в момент сохранения, по итоговому набору видимых колонок.
+/// «Сбросить ширины» исполняет ядро (`AppCore::dialog_save`) — при сбросе эта
+/// функция не вызывается.
 fn widths_on_save(
     old: &ColumnsConfig,
     new: &ColumnsConfig,
     current: &BTreeMap<ColumnId, WidthPct>,
-    reset: bool,
 ) -> Option<BTreeMap<ColumnId, WidthPct>> {
-    if reset {
-        return Some(BTreeMap::new());
-    }
     let mut widths: Option<BTreeMap<ColumnId, WidthPct>> = None;
     for col in ColumnId::ALL {
         let visible = new.column_visible(col);
@@ -1957,98 +1954,137 @@ impl MusicApp {
             ui.on_settings_save(move || {
                 eprintln!("[gui] settings_save (Save) draft_present={}", app.borrow().core.draft().is_some());
                 let mut a = app.borrow_mut();
-                // Мост до перехода на `core.dialog_save()`: из черновика ядра
-                // берутся копии, черновик закрывается (вместе с блокировкой
-                // `Dialog`), а сохранение и применение идут прежним кодом ниже.
-                let Some((new, viz_mode, reset_widths, theme)) = a
-                    .core
-                    .draft()
-                    .map(|d| (d.settings.clone(), d.viz_mode, d.reset_widths, d.theme.clone()))
-                else {
-                    return;
-                };
-                // T1.0 §6.4 (ТЗ-22, ТЗ-27, ТЗ-29, ADR-20): имя выбранной темы
-                // уже лежит в настройках черновика, а её данные прочитаны
-                // потоком `apap-io` и применяются ниже без повторного чтения
-                // файла. Тема, которая ещё читается, не прочиталась или не
-                // прошла проверку цветов, — недопустимое значение: сохранения
-                // нет, диалог остаётся открытым (кнопка Save неактивна, §5.3).
-                let selected_theme = match theme {
-                    ThemeLoad::Unchanged => None,
-                    ThemeLoad::Ready(data) if validate_colors(&data.colors).is_ok() => Some(data),
-                    ThemeLoad::Ready(_) | ThemeLoad::Loading { .. } | ThemeLoad::Invalid { .. } => return,
-                };
-                a.core.dialog_cancel();
+                // T1.0 §6.4 (ТЗ-22, ТЗ-27, ТЗ-29, ADR-20): тему, которая ещё
+                // читается или не прочиталась, отсекает само ядро
+                // (`dialog::validate`). Прочитанную тему ядро считает
+                // допустимой без проверки HEX-цветов, поэтому она проверяется
+                // здесь: с недопустимым цветом сохранения нет, диалог остаётся
+                // открытым (§5.3).
+                if let Some(ThemeLoad::Ready(data)) = a.core.draft().map(|d| &d.theme) {
+                    if validate_colors(&data.colors).is_err() {
+                        eprintln!("[gui] settings_save: theme colors invalid, not saved");
+                        return;
+                    }
+                }
+                // «Сбросить ширины» отменяет нормализацию ширин по видимости:
+                // в состоянии остаётся пустой набор. Признак читается до
+                // сохранения — шага `ResetWidths` в плане нет, если набор и
+                // так пуст (Т-2, §6.9).
+                let reset_widths = a.core.draft().is_some_and(|d| d.reset_widths);
+                // Прежние настройки — база сравнения для шагов отображения
+                // (видимость колонок, устройство активного режима, лимит кэша).
                 let old = a.core.settings().clone();
 
-                // Устройство читается из `ModeSettings` активного режима
-                // воспроизведения (ТЗ-94, §2.4), а не из прежнего легаси-поля
-                // устройства: `set_output_device` обновляет
-                // только UI (движок переключает устройство ниже, через
-                // `set_mode_settings`/diff — блок `cur.playback != old.playback`).
-                let active_mode = a.core.state().active_mode();
-                if new.playback.device(active_mode) != old.playback.device(active_mode) {
-                    let device = new.playback.device(active_mode).unwrap_or("").to_string();
-                    a.set_output_device(device);
-                }
-
-                // «Сохранить» заменяет настройки целиком; тип визуализации и
-                // ширины колонок — состояние сессии (§2.5, И-Т7, §8.1 С3).
-                // Живые поля состояния (громкость, повтор, окно…) диалог не
-                // трогает, поэтому они сохраняются без ручного переноса.
-                // Состояние уходит по таймеру отложенной записи, `settings.toml`
-                // — немедленно одним снимком через писатель, независимо от
-                // запрета автозаписи; смена интервала переставляет срок
-                // (ТЗ-28, §6.9).
-                a.core.change_state(Origin::User, StateChange::VizMode(viz_mode));
-                // Ширины меняются только при сбросе или смене видимости колонок
-                // (Т-2, §6.9).
-                let widths =
-                    widths_on_save(&old.columns, &new.columns, a.core.state().column_widths(), reset_widths);
-                if let Some(widths) = widths {
-                    a.core.change_state(Origin::User, StateChange::ColumnWidths(widths));
-                }
-                if let Some(effect) = a.core.save_settings_now(new) {
+                // «Сохранить» в ядре (ТЗ-28, ТЗ-29, ADR-11, §6.9): настройки
+                // становятся действующими, `settings.toml` пишется одним
+                // снимком, исполняются шаги ядра (интервал записи, тип
+                // визуализации, сброс ширин, команда движку) и снимается
+                // блокировка `Dialog`. `None` — отличий нет или значение
+                // недопустимо: диалог остаётся открытым, ничего не применяется.
+                let Some(saved) = a.core.dialog_save() else {
+                    eprintln!("[gui] settings_save: nothing to save or invalid value, dialog stays open");
+                    return;
+                };
+                if let Some(effect) = saved.write {
                     a.apply_reply_effects(vec![effect]);
                 }
-                let cur = a.core.settings().clone();
-                // ТЗ §10.4: лимит RAM-кэша визуализации менялся в диалоге →
-                // горячий `resize` существующего LRU (лишние записи вытесняются
-                // по LRU внутри `CLruCache::resize`).
-                let new_viz_ram_mb = cur.visualization.viz_max_ram_mb;
-                if new_viz_ram_mb != old.visualization.viz_max_ram_mb {
-                    let cap = music_player_rs::audio::fulltrack::fulltrack_cache_max_entries(
-                        new_viz_ram_mb,
-                    );
-                    a.fulltrack_cache.resize(cap);
-                    eprintln!("[gui] settings_save: fulltrack cache resize -> {new_viz_ram_mb} MiB");
+
+                // Шаги отображения — только для изменившегося (ТЗ-29, §5.2 ТЗ).
+                // Таблица плейлиста пересобирается один раз после плана.
+                let mut rebuild_table = false;
+                for step in saved.plan {
+                    match step {
+                        // ТЗ-22, ТЗ-29, ADR-20: применяются уже прочитанные
+                        // `apap-io` данные темы, без повторного чтения файла.
+                        ApplyStep::Theme(data) => a.apply_theme(&data),
+                        ApplyStep::Columns { visibility, order: _, defs: _ } => {
+                            // Черновик ширин не хранит: при смене видимости
+                            // действующие ширины нормализуются по итоговому
+                            // набору видимых колонок (Т-2, §2.5, §6.9, ТЗ-31).
+                            if visibility && !reset_widths {
+                                let widths = widths_on_save(
+                                    &old.columns,
+                                    &a.core.settings().columns,
+                                    a.core.state().column_widths(),
+                                );
+                                if let Some(widths) = widths {
+                                    a.core.change_state(Origin::User, StateChange::ColumnWidths(widths));
+                                }
+                            }
+                            rebuild_table = true;
+                        }
+                        ApplyStep::TopPanel => {
+                            let top = a.core.settings().top_panel.clone();
+                            if let Some(ui) = a.try_ui() {
+                                ui.set_cover_size(top.cover_size);
+                                ui.set_col_info_w(top.col_info_w);
+                                ui.set_col_gap(top.col_gap);
+                            }
+                        }
+                        // Воркер обложек получает `CoverConfig` из действующих
+                        // настроек с каждым заданием; здесь — только поля UI.
+                        ApplyStep::Covers => a.sync_cover_settings_to_ui(),
+                        ApplyStep::InfoLabels => {
+                            let labels: Vec<SharedString> = a
+                                .core
+                                .settings()
+                                .info_labels_ordered()
+                                .into_iter()
+                                .map(SharedString::from)
+                                .collect();
+                            if let Some(ui) = a.try_ui() {
+                                ui.set_info_labels(ModelRc::from(labels.as_slice()));
+                            }
+                        }
+                        // Параметры и тип визуализации читаются из действующих
+                        // настроек и состояния на каждом тике (`viz_push`,
+                        // `drain_fulltrack`): воркеры и UI обновятся сами.
+                        ApplyStep::Visualization | ApplyStep::VizMode(_) => {}
+                        // ТЗ §10.4: горячий `resize` существующего LRU (лишние
+                        // записи вытесняются внутри `CLruCache::resize`).
+                        ApplyStep::VizCacheBudget => {
+                            let new_viz_ram_mb = a.core.settings().visualization.viz_max_ram_mb;
+                            if new_viz_ram_mb != old.visualization.viz_max_ram_mb {
+                                let cap = music_player_rs::audio::fulltrack::fulltrack_cache_max_entries(
+                                    new_viz_ram_mb,
+                                );
+                                a.fulltrack_cache.resize(cap);
+                                eprintln!("[gui] settings_save: fulltrack cache resize -> {new_viz_ram_mb} MiB");
+                            }
+                        }
+                        // Сворачивание в трей и прокрутка к играющему треку
+                        // читаются из действующих настроек в момент события;
+                        // интервал записи ядро уже переставило (У-1, ТЗ-33).
+                        ApplyStep::Tray | ApplyStep::ScrollToPlaying | ApplyStep::SaveInterval(_) => {}
+                        // Пустой набор ширин ядро уже записало в состояние
+                        // (Т-2): остаётся пересчитать колонки таблицы.
+                        ApplyStep::ResetWidths => rebuild_table = true,
+                        ApplyStep::Engine(update) => {
+                            // §6.18, §6.27, ТЗ-41: команду движку ядро уже
+                            // отправило — фасад только синхронизирует копию
+                            // настроек режимов; затем пересчитываются зависимые
+                            // от режима поля UI (блокировка громкости).
+                            a.player.mode_settings_applied(update.settings);
+                            a.sync_mode_to_ui();
+                            // Устройство активного режима (ТЗ-94, §2.4):
+                            // `set_output_device` обновляет только UI и трей,
+                            // движок переключает устройство по той же команде.
+                            let active_mode = a.core.state().active_mode();
+                            let device = a.core.settings().playback.device(active_mode);
+                            if device != old.playback.device(active_mode) {
+                                let device = device.unwrap_or("").to_string();
+                                a.set_output_device(device);
+                            }
+                        }
+                    }
+                }
+                if rebuild_table {
+                    a.sync_playlist_to_ui();
                 }
                 // §8 С4, §6.18, ADR-04: DSD-статус бейджа синхронизируется
-                // после каждого Save — реальный DSD-режим теперь берётся из
-                // активного `ModeSettings` (блок `cur.playback != old.playback`
-                // ниже), прежнее легаси-поле DSD-режима упразднено.
+                // после каждого Save — DSD-режим берётся из активного
+                // `ModeSettings`.
                 a.sync_dsd_status_ui();
-                // §6.18, §6.27, ТЗ-41: настройки режимов менялись в диалоге →
-                // применить к плееру (внутри `set_mode_settings` — сравнение и
-                // расчёт diff, И-Т7) и пересчитать зависимые от режима поля UI
-                // (например, блокировку громкости `Optimal.volume_lock`).
-                if cur.playback != old.playback {
-                    a.player.set_mode_settings(cur.playback.clone());
-                    a.sync_mode_to_ui();
-                }
-                // ТЗ-22, ТЗ-29, ADR-20: без выбора темы в этой сессии диалога
-                // тема не меняется и не перечитывается — применяются только
-                // уже прочитанные `apap-io` данные выбранной темы.
-                if let Some(data) = &selected_theme {
-                    a.apply_theme(data);
-                }
-                if let Some(ui) = a.try_ui() {
-                    ui.set_cover_size(cur.top_panel.cover_size);
-                    ui.set_col_info_w(cur.top_panel.col_info_w);
-                    ui.set_col_gap(cur.top_panel.col_gap);
-                }
-                a.sync_cover_settings_to_ui();
-                a.sync_playlist_to_ui();
                 a.sync_audio_devices();
                 if let Some(ui) = a.try_ui() {
                     ui.set_settings_open(false);

@@ -362,6 +362,15 @@ impl AudioFacade {
         self.send(EngineCmd::SetModeSettings(ModeSettingsUpdate { settings, diff: Some(diff) }));
     }
 
+    /// Настройки режимов уже применены «Сохранить» диалога (§6.9, ADR-11,
+    /// ТЗ-28, ТЗ-29): команду `EngineCmd::SetModeSettings` движку отправило
+    /// ядро в `AppCore::dialog_save`, повторно она не шлётся. Фасад только
+    /// синхронизирует свою копию — от неё считается следующий diff
+    /// `set_mode_settings` и от неё зависят геттеры (`bit_perfect` и пр.).
+    pub(crate) fn mode_settings_applied(&mut self, settings: ModeSettings) {
+        self.modes = settings;
+    }
+
     /// Переключить активный режим (ТЗ-20, ОВ-10, §6.18): движок только
     /// сохраняет параметры нового режима (шаг 13, ТС-9) — переоткрытие с его
     /// параметрами делает последующий `Open` той же позиции (§6.18, «Смена
@@ -519,6 +528,25 @@ mod tests {
 
         let mut changed = initial;
         changed.compatible.dsd_gain_comp = !changed.compatible.dsd_gain_comp;
+        f.set_mode_settings(changed.clone());
+        assert_eq!(f.modes, changed);
+    }
+
+    /// §6.9, ADR-11: после `mode_settings_applied` копия фасада равна
+    /// применённым настройкам, поэтому следующий diff считается от них:
+    /// повторный `set_mode_settings` с тем же значением — пустой diff.
+    #[test]
+    fn mode_settings_applied_updates_cache_only() {
+        let mut f = facade();
+        let initial = f.modes.clone();
+
+        let mut changed = initial.clone();
+        changed.optimal.volume_lock = !changed.optimal.volume_lock;
+        f.mode_settings_applied(changed.clone());
+        assert_eq!(f.modes, changed);
+        assert!(f.modes.diff(&changed).changed.is_empty());
+        assert!(!f.modes.diff(&initial).changed.is_empty());
+
         f.set_mode_settings(changed.clone());
         assert_eq!(f.modes, changed);
     }

@@ -77,7 +77,7 @@ steps:
     done: true
   - id: 18
     description: "src/app/mod.rs, src/app/audio_facade.rs: on_settings_save → core.dialog_save() и исполнение шагов ApplyStep (тема без чтения файла, колонки без смены ключа/порядка, обложки, визуализация, бюджет кэша, трей; Engine(u) — фасад только принимает новые ModeSettings в кэш, команда уже отправлена ядром); on_settings_close/Esc → core.dialog_cancel(); прежняя замена настроек целиком удаляется (§6.9, §5.2 ТЗ, ТЗ-26, 28, 29, 31). Проверка: cargo test --no-fail-fast (нет новых падений)"
-    done: false
+    done: true
   - id: 19
     description: "ui/settings.slint, ui/app.slint: свойства save-enabled и save-tooltip у кнопки «Сохранить» (неактивна без отличий и при недопустимом значении; подсказка с именем параметра) — рядом с действующим theme-save-enabled (ТЗ-27). Проверка: cargo check"
     done: false
@@ -96,8 +96,8 @@ steps:
   - id: 24
     description: "ЧЕКПОИНТ: cargo build; cargo test --no-fail-fast (только 6 падений SP1.0-B7); cargo clippy --all-targets — 0 новых предупреждений в файлах вайтлиста; каждый обработчик команды главного окна спрашивает шлюз (сверка с перечнем MainCmd); ручные проверки ТЗ-23/27/34 — пользователю. Проверка: всё перечисленное зелёное"
     done: false
-current_step: 18
-next_action: "Шаг 18: app/mod.rs, audio_facade.rs — on_settings_save через core.dialog_save() + исполнение ApplyStep; cargo test --no-fail-fast"
+current_step: 19
+next_action: "Шаг 19: ui/settings.slint, ui/app.slint — свойства save-enabled и save-tooltip кнопки «Сохранить»; cargo check --all-targets"
 fail_counter: 0
 fail_counter_max: 3
 failed_attempts: []
