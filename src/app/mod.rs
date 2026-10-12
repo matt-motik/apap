@@ -23,7 +23,7 @@ use music_player_rs::core::messages::{
     CloseEffect, Message, MessageButton, MessageButtons, MessageCenter, MessageLevel, MsgEffect,
 };
 use music_player_rs::core::exit::{ExitOutcome, ExitReason};
-use music_player_rs::core::io::{CacheKind, CacheSizes, IoDone, IoJob, IoWorker};
+use music_player_rs::core::io::{CacheKind, CacheSizes, IoDone, IoJob};
 use music_player_rs::core::load::LoadApplied;
 use music_player_rs::core::AppCore;
 use music_player_rs::cover::{self, CoverDone, CoverJob};
@@ -433,13 +433,9 @@ pub struct MusicApp {
     /// SkipSeries С8 (ТЗ-85, ТЗ-86) — защита от бесконечного пропуска, если
     /// повреждена вся библиотека при Repeat All.
     skip_streak: usize,
-    /// Поток `apap-io` (ADR-20, §2.12): чтение тем, размеры и очистка
-    /// дисковых кэшей вне UI-потока. Спецификация помещает `io` в `AppDeps`
-    /// `AppCore` (§2.12); ОТКЛОНЕНИЕ: до этапа С9 диалог настроек и шлюз UI
-    /// остаются в `MusicApp`, поэтому воркер временно хранится здесь же
-    /// (переезд в `AppCore` — на С9).
-    io: Box<dyn IoWorker>,
     /// Текущее поколение задания на каждый вид ответа `apap-io` (ADR-20, §4).
+    /// Сам поток принадлежит `AppCore` (`AppDeps.io`, §2.12): задания и
+    /// ответы идут через `self.core.io()`.
     io_gens: IoGens,
     /// Последние дисковые размеры кэшей, полученные от `apap-io`; показаны
     /// сразу при открытии диалога, пока свежий подсчёт не пришёл (ТЗ-22,
@@ -474,13 +470,13 @@ impl MusicApp {
     /// не подключён к логике приложения на этом шаге. `backend_caps` —
     /// платформенная доступность Оптимального/Строгого режима (ТЗ-109,
     /// ТЗ-110, §2.8), известная даже если запуск движка провалился.
-    /// `io` — поток `apap-io` (ADR-20, §2.12), запущенный в `main`;
+    /// Поток `apap-io` (ADR-20, §2.12) отдельным параметром не передаётся:
+    /// им владеет `core` (`AppDeps.io`), доступ — через `AppCore::io()`.
+    /// `picker` — асинхронный выбор файлов/каталогов (ADR-10, ТЗ-53);
     /// внедряется через параметр, а не создаётся здесь, чтобы тесты могли
-    /// подставить свою реализацию `IoWorker`. `picker` — асинхронный выбор
-    /// файлов/каталогов (ADR-10, ТЗ-53), по той же причине внедряется, а не
-    /// создаётся здесь.
+    /// подставить свою реализацию.
     // Конструктор собирает инжектируемые зависимости (ADR-19, ADR-20) —
-    // девятый параметр (`picker`) не повод вводить промежуточную структуру.
+    // восьмой параметр (`picker`) не повод вводить промежуточную структуру.
     #[allow(clippy::too_many_arguments)]
     pub fn new(
         window: &AppWindow,
@@ -491,7 +487,6 @@ impl MusicApp {
         engine: Result<EngineHandle, EngineFault>,
         backend_caps: BackendCaps,
         engine_events: EngineEventQueue,
-        io: Box<dyn IoWorker>,
         picker: Box<dyn FilePicker>,
     ) -> Self {
         let (engine, engine_fault) = match engine {
@@ -641,7 +636,6 @@ impl MusicApp {
             engine_events,
             engine_applied: Vec::new(),
             skip_streak: 0,
-            io,
             io_gens: IoGens::default(),
             cache_disk: CacheSizes::default(),
             picker,
@@ -1182,7 +1176,7 @@ impl MusicApp {
     /// приходит.
     fn populate_theme_ui(&mut self) {
         self.io_gens.themes = self.io_gens.themes.wrapping_add(1);
-        self.io.submit(IoJob::ListThemes { gen: self.io_gens.themes });
+        self.core.io().submit(IoJob::ListThemes { gen: self.io_gens.themes });
         if let Some(ui) = self.try_ui() {
             ui.set_theme_save_enabled(false);
         }
@@ -1203,7 +1197,7 @@ impl MusicApp {
         match found.then(|| ThemeName::new(current.clone())).flatten() {
             Some(name) => {
                 self.io_gens.theme = self.io_gens.theme.wrapping_add(1);
-                self.io.submit(IoJob::ReadTheme { gen: self.io_gens.theme, name });
+                self.core.io().submit(IoJob::ReadTheme { gen: self.io_gens.theme, name });
             }
             None => self.set_theme_meta(None),
         }
@@ -1255,7 +1249,7 @@ impl MusicApp {
         };
         self.io_gens.theme = self.io_gens.theme.wrapping_add(1);
         self.theme_reading = Some(theme_name.clone());
-        self.io.submit(IoJob::ReadTheme { gen: self.io_gens.theme, name: theme_name });
+        self.core.io().submit(IoJob::ReadTheme { gen: self.io_gens.theme, name: theme_name });
         if let Some(ui) = self.try_ui() {
             ui.set_theme_save_enabled(false);
         }
@@ -1529,7 +1523,7 @@ impl MusicApp {
                 // диалога потоком `apap-io` (ТЗ-22, ADR-20); до ответа
                 // показываем последние известные значения.
                 a.io_gens.sizes = a.io_gens.sizes.wrapping_add(1);
-                a.io.submit(IoJob::CacheSizes { gen: a.io_gens.sizes });
+                a.core.io().submit(IoJob::CacheSizes { gen: a.io_gens.sizes });
                 let cache_disk = a.cache_disk;
                 a.apply_cache_sizes(&cache_disk);
                 if let Some(ui) = a.try_ui() {
@@ -2110,7 +2104,7 @@ impl MusicApp {
                 let mut a = app.borrow_mut();
                 a.fulltrack_cache.clear();
                 a.io_gens.clear = a.io_gens.clear.wrapping_add(1);
-                a.io.submit(IoJob::ClearCache { gen: a.io_gens.clear, which: CacheKind::Visualization });
+                a.core.io().submit(IoJob::ClearCache { gen: a.io_gens.clear, which: CacheKind::Visualization });
                 let disk = a.cache_disk;
                 a.apply_cache_sizes(&disk);
             });
@@ -2124,7 +2118,7 @@ impl MusicApp {
                 eprintln!("[gui] settings_clear_cover_cache");
                 let mut a = app.borrow_mut();
                 a.io_gens.clear = a.io_gens.clear.wrapping_add(1);
-                a.io.submit(IoJob::ClearCache { gen: a.io_gens.clear, which: CacheKind::Covers });
+                a.core.io().submit(IoJob::ClearCache { gen: a.io_gens.clear, which: CacheKind::Covers });
             });
         }
 
@@ -2137,7 +2131,7 @@ impl MusicApp {
                 let mut a = app.borrow_mut();
                 a.fulltrack_cache.clear();
                 a.io_gens.clear = a.io_gens.clear.wrapping_add(1);
-                a.io.submit(IoJob::ClearCache { gen: a.io_gens.clear, which: CacheKind::All });
+                a.core.io().submit(IoJob::ClearCache { gen: a.io_gens.clear, which: CacheKind::All });
                 let disk = a.cache_disk;
                 a.apply_cache_sizes(&disk);
             });
@@ -2342,7 +2336,7 @@ impl MusicApp {
     /// `CacheSizes`/`Cleared` применяется в UI (ТЗ-22, ТЗ-34); `Themes`/`Theme`
     /// — список тем и метаданные текущей при открытии диалога (ТЗ-22, §6.2).
     fn drain_io(&mut self) {
-        while let Some(done) = self.io.try_recv() {
+        while let Some(done) = self.core.io().try_recv() {
             let stale = match &done {
                 IoDone::Theme { gen, .. } => *gen != self.io_gens.theme,
                 IoDone::Themes { gen, .. } => *gen != self.io_gens.themes,

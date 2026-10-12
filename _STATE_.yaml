@@ -41,7 +41,7 @@ steps:
     done: true
   - id: 6
     description: "src/app/mod.rs: MusicApp работает с apap-io через core.io() (submit/try_recv), собственное поле io и его создание удаляются — мост шага 5 снят (ADR-20, §2.12). Проверка: cargo check; grep spawn_io — одно создание"
-    done: false
+    done: true
   - id: 7
     description: "src/core/mod.rs: поле gate: UiGate в AppCore + gate()/gate_mut() (§2.12, ADR-12, ТЗ-23). Проверка: cargo check"
     done: false
@@ -96,8 +96,8 @@ steps:
   - id: 24
     description: "ЧЕКПОИНТ: cargo build; cargo test --no-fail-fast (только 6 падений SP1.0-B7); cargo clippy --all-targets — 0 новых предупреждений в файлах вайтлиста; каждый обработчик команды главного окна спрашивает шлюз (сверка с перечнем MainCmd); ручные проверки ТЗ-23/27/34 — пользователю. Проверка: всё перечисленное зелёное"
     done: false
-current_step: 6
-next_action: "Шаг 6: MusicApp переходит на core.io(), своё поле io и второй экземпляр apap-io удаляются (app/mod.rs, main.rs); grep spawn_io — одно создание"
+current_step: 7
+next_action: "Шаг 7: gate: UiGate в AppCore + gate()/gate_mut() (core/mod.rs); cargo check"
 fail_counter: 0
 fail_counter_max: 3
 failed_attempts: []
