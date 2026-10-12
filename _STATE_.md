@@ -28,8 +28,8 @@
 - [x] Шаг 1: src/core/dialog.rs (новый; `pub mod dialog;` в src/core/mod.rs): типы DialogDraft {settings, viz_mode, reset_widths, shown_mode, theme}, ThemeLoad, SettingsField, SettingsDiff (+ is_empty), Invalid — строго по §2.10 (ADR-11, ТЗ-25…29). Без функций. Проверка: cargo check
 - [x] Шаг 2: src/core/dialog.rs: diff(cur, state, draft) -> SettingsDiff (§2.10, §6.9, ТЗ-27, ТЗ-29, ТЗ-30): поля SettingsField сравнением с действующими; modes — через ModeSettings::diff (None при равенстве); viz_mode; reset_widths — отличие только если нажата и в состоянии есть заданные ширины; shown_mode не сравнивается; тема — ThemeLoad, отличный от Unchanged. Тесты (≤5): пустой diff нетронутого черновика, только тема, reset_widths без ширин в состоянии, shown_mode не даёт отличия, параметр режима. Проверка: cargo test core::dialog
 - [x] Шаг 3: src/core/dialog.rs: validate(draft) -> Vec<Invalid> (§2.10, ТЗ-27): ThemeLoad::Loading и ThemeLoad::Invalid — недопустимы; сочетание буферов режима — через settings::playback::buffers_allowed (param — имя параметра). Тесты (≤4): корректный черновик пуст, Loading, Invalid, недопустимые буферы содержат имя параметра. Проверка: cargo test core::dialog
-- [>] **Шаг 4: src/core/dialog.rs: ApplyStep и apply_plan(diff, draft) -> Vec<ApplyStep> (§2.10, §6.9, ТЗ-29, §5.2 ТЗ): шаг только для отличающегося; Theme(Arc<ThemeData>) из ThemeLoad::Ready; Columns{visibility, order, defs}; Engine(ModeSettingsUpdate) только при diff.modes = Some. Тесты (≤5): пустой diff → пустой план, только тема, только колонки, только размер обложки (TopPanel, без Engine), параметр режима → один Engine. Проверка: cargo test core::dialog**
-- [ ] Шаг 5: AppDeps.io: Box<dyn IoWorker> + AppCore::io() (§2.12, ADR-20) — src/core/mod.rs; Harness передаёт FakeIo (src/core/testing.rs); src/main.rs — одна строка создания (временный мост: второй экземпляр apap-io до шага 6). ОБЩИЙ ТИП — Проверка: cargo test --no-fail-fast (нет новых падений сверх 6 SP1.0-B7)
+- [x] Шаг 4: src/core/dialog.rs: ApplyStep и apply_plan(diff, draft) -> Vec<ApplyStep> (§2.10, §6.9, ТЗ-29, §5.2 ТЗ): шаг только для отличающегося; Theme(Arc<ThemeData>) из ThemeLoad::Ready; Columns{visibility, order, defs}; Engine(ModeSettingsUpdate) только при diff.modes = Some. Тесты (≤5): пустой diff → пустой план, только тема, только колонки, только размер обложки (TopPanel, без Engine), параметр режима → один Engine. Проверка: cargo test core::dialog
+- [>] **Шаг 5: AppDeps.io: Box<dyn IoWorker> + AppCore::io() (§2.12, ADR-20) — src/core/mod.rs; Harness передаёт FakeIo (src/core/testing.rs); src/main.rs — одна строка создания (временный мост: второй экземпляр apap-io до шага 6). ОБЩИЙ ТИП — Проверка: cargo test --no-fail-fast (нет новых падений сверх 6 SP1.0-B7)**
 - [ ] Шаг 6: src/app/mod.rs: MusicApp работает с apap-io через core.io() (submit/try_recv), собственное поле io и его создание удаляются — мост шага 5 снят (ADR-20, §2.12). Проверка: cargo check; grep spawn_io — одно создание
 - [ ] Шаг 7: src/core/mod.rs: поле gate: UiGate в AppCore + gate()/gate_mut() (§2.12, ADR-12, ТЗ-23). Проверка: cargo check
 - [ ] Шаг 8: src/app/mod.rs, src/app/playlist_manager.rs: шлюз MusicApp → core.gate()/gate_mut(), поле MusicApp.gate удаляется (ADR-12, И-Р8). Проверка: cargo check; grep `gate: UiGate` только в src/core
@@ -52,8 +52,8 @@
 
 Легенда: [x] сделано · [>] текущий шаг · [ ] не начато
 
-- **Текущий шаг (current_step):** Шаг 4
-- **Следующий ход:** Шаг 4: ApplyStep и apply_plan() в src/core/dialog.rs + тесты; cargo test core::dialog
+- **Текущий шаг (current_step):** Шаг 5
+- **Следующий ход:** Шаг 5: AppDeps.io + AppCore::io() (core/mod.rs, testing.rs, main.rs); cargo test --no-fail-fast
 - **Счетчик безуспешных компиляций:** 0/3
 - **Состояние:** in_progress
 

@@ -6,10 +6,10 @@ use std::collections::{BTreeMap, BTreeSet};
 use std::sync::Arc;
 
 use crate::audio::visualizer::{VisualizationMode, VizSettings};
-use crate::persist::settings_file::{ColumnDef, Settings};
+use crate::persist::settings_file::{ColumnDef, SaveInterval, Settings};
 use crate::persist::state_file::SessionState;
 use crate::settings::ColumnId;
-use crate::settings::params::ModeSettingsDiff;
+use crate::settings::params::{ModeSettingsDiff, ModeSettingsUpdate};
 use crate::settings::playback::{buffers_allowed, ModeKind, ModeSettings, ValueBlocker};
 use crate::theme::ThemeData;
 
@@ -211,6 +211,100 @@ fn blocker_reason(blocker: ValueBlocker) -> Box<str> {
     .into_boxed_str()
 }
 
+/// Шаг применения по строкам §5.2 ТЗ (§2.10, §6.9, ТЗ-29): одно действие
+/// «Сохранить» над одной группой параметров. Шаги строит [`apply_plan`] только
+/// для отличий; порядок вариантов — порядок шагов в плане.
+#[derive(Clone, PartialEq, Debug)]
+pub enum ApplyStep {
+    /// Цветовая тема — сразу в UI, данными, прочитанными при выборе в диалоге;
+    /// повторного чтения файла нет (ADR-11, ADR-20, ТЗ-29).
+    Theme(Arc<ThemeData>),
+    /// Набор (видимость), порядок и описания колонок — сразу в UI;
+    /// пересобирается только затронутое, скрытие отсортированной колонки не
+    /// меняет ключ и видимый порядок (ТЗ-31).
+    Columns { visibility: bool, order: bool, defs: bool },
+    /// Размеры верхней панели, включая размер обложки, — сразу в UI.
+    TopPanel,
+    /// Приоритет источников, имена файлов, обложки из интернета — сразу в UI
+    /// и воркере обложек (новый `CoverConfig`).
+    Covers,
+    /// Подписи информации о треке (прочие не-звуковые параметры) — сразу в UI.
+    InfoLabels,
+    /// Цвета и параметры визуализации, её включение/выключение — сразу в UI.
+    Visualization,
+    /// Параметры кэша визуализации (в памяти, на диске) — сразу.
+    VizCacheBudget,
+    /// Сворачивание в трей — сразу (только Linux, В-1).
+    Tray,
+    /// Прокрутка к играющему треку (прочие не-звуковые параметры) — сразу.
+    ScrollToPlaying,
+    /// Интервал N — сразу: `tracker.set_interval(n, now)` (У-1, ТЗ-33).
+    SaveInterval(SaveInterval),
+    /// Тип визуализации — сразу в UI; действующее состояние с `Origin::User`
+    /// → `state.toml` (Т-1).
+    VizMode(VisualizationMode),
+    /// «Сбросить ширины» — сразу в UI; пустой набор ширин в действующее
+    /// состояние с `Origin::User` → `state.toml` (Т-2).
+    ResetWidths,
+    /// Опции режимов — `EngineCmd::SetModeSettings`; способ применения в
+    /// тракте выбирает движок по `ApplyKind` (ТЗ-137 (01_audio_modes)).
+    Engine(ModeSettingsUpdate),
+}
+
+/// План применения отличий (§2.10, §6.9, ТЗ-29, §5.2 ТЗ): шаг строится только
+/// для того, что есть в `diff`; пустые отличия дают пустой план. Чистая
+/// функция. Порядок шагов — порядок объявления вариантов [`ApplyStep`], он же
+/// порядок §6.9: UI, затем состояние сессии, последним — движок.
+///
+/// Шаг темы строится по `diff.fields`, а не по `draft.theme`: тема, выбранная
+/// и возвращённая к прежней, не применяется. Если тема в отличиях, а её данных
+/// нет (`validate` такой черновик отсекает), шаг темы пропускается.
+pub fn apply_plan(diff: &SettingsDiff, draft: &DialogDraft) -> Vec<ApplyStep> {
+    let has = |field: SettingsField| diff.fields.contains(&field);
+    let mut plan = Vec::new();
+
+    if has(SettingsField::Theme) {
+        if let ThemeLoad::Ready(data) = &draft.theme {
+            plan.push(ApplyStep::Theme(Arc::clone(data)));
+        }
+    }
+
+    let visibility = has(SettingsField::ColumnVisibility);
+    let order = has(SettingsField::ColumnOrder);
+    let defs = has(SettingsField::ColumnDefs);
+    if visibility || order || defs {
+        plan.push(ApplyStep::Columns { visibility, order, defs });
+    }
+
+    let simple = [
+        (SettingsField::TopPanel, ApplyStep::TopPanel),
+        (SettingsField::Covers, ApplyStep::Covers),
+        (SettingsField::InfoLabels, ApplyStep::InfoLabels),
+        (SettingsField::Visualization, ApplyStep::Visualization),
+        (SettingsField::VizCacheBudget, ApplyStep::VizCacheBudget),
+        (SettingsField::MinimizeToTray, ApplyStep::Tray),
+        (SettingsField::ScrollToPlaying, ApplyStep::ScrollToPlaying),
+        (SettingsField::SaveInterval, ApplyStep::SaveInterval(draft.settings.save_interval)),
+    ];
+    plan.extend(simple.into_iter().filter(|(field, _)| has(*field)).map(|(_, step)| step));
+
+    if let Some(mode) = diff.viz_mode {
+        plan.push(ApplyStep::VizMode(mode));
+    }
+    if diff.reset_widths {
+        plan.push(ApplyStep::ResetWidths);
+    }
+    // Команда движку — только если изменился параметр режима (ТЗ-29).
+    if let Some(modes) = &diff.modes {
+        plan.push(ApplyStep::Engine(ModeSettingsUpdate {
+            settings: draft.settings.playback.clone(),
+            diff: Some(modes.clone()),
+        }));
+    }
+
+    plan
+}
+
 /// Отличия описаний колонок (§2.10, ТЗ-29, ТЗ-31): `(видимость, прочее)`.
 /// Видимость — отдельная группа: скрытие колонки пересобирает только модель
 /// колонок. Несовпадение набора идентификаторов относится к описаниям.
@@ -406,5 +500,70 @@ mod tests {
         let params: Vec<&str> = found.iter().map(|i| i.param).collect();
         assert_eq!(params, ["Тема", "Буфер устройства (Оптимальный режим)", "Буфер устройства (Строгий режим)"]);
         assert_eq!(found.last(), Some(&expected));
+    }
+
+    #[test]
+    fn apply_plan_empty_diff_is_empty() {
+        let (cur, state) = (Settings::default(), SessionState::default());
+        let draft = draft_of(&cur, &state);
+        let d = diff(&cur, &state, &draft);
+        assert!(apply_plan(&d, &draft).is_empty());
+    }
+
+    #[test]
+    fn apply_plan_theme_only_uses_read_data() {
+        let (cur, state) = (Settings::default(), SessionState::default());
+        let mut draft = draft_of(&cur, &state);
+        draft.settings.theme = ThemeName::new("dark").expect("valid theme name");
+        let theme: ThemeData = toml::from_str(crate::theme::DEFAULT_DARK_TOML).expect("built-in theme parses");
+        let data = Arc::new(theme);
+        draft.theme = ThemeLoad::Ready(Arc::clone(&data));
+        let d = diff(&cur, &state, &draft);
+        assert_eq!(d.fields, BTreeSet::from([SettingsField::Theme]));
+        let plan = apply_plan(&d, &draft);
+        assert_eq!(plan, vec![ApplyStep::Theme(Arc::clone(&data))]);
+        // Те же данные, что прочитаны при выборе: повторного чтения нет (ТЗ-29).
+        assert!(matches!(&plan[..], [ApplyStep::Theme(applied)] if Arc::ptr_eq(applied, &data)));
+
+        // Данных темы нет — шага темы нет, паники нет.
+        draft.theme = ThemeLoad::Unchanged;
+        assert!(apply_plan(&d, &draft).is_empty());
+    }
+
+    #[test]
+    fn apply_plan_column_visibility_only() {
+        let (cur, state) = (Settings::default(), SessionState::default());
+        let mut draft = draft_of(&cur, &state);
+        let def = draft.settings.columns.defs.values_mut().next().expect("default settings define columns");
+        def.visible = !def.visible;
+        let d = diff(&cur, &state, &draft);
+        let expected = ApplyStep::Columns { visibility: true, order: false, defs: false };
+        assert_eq!(apply_plan(&d, &draft), vec![expected]);
+    }
+
+    #[test]
+    fn apply_plan_cover_size_only_is_top_panel() {
+        let (cur, state) = (Settings::default(), SessionState::default());
+        let mut draft = draft_of(&cur, &state);
+        draft.settings.top_panel.cover_size = cur.top_panel.cover_size + 1.0;
+        let d = diff(&cur, &state, &draft);
+        let plan = apply_plan(&d, &draft);
+        assert_eq!(plan, vec![ApplyStep::TopPanel]);
+        assert!(!plan.iter().any(|step| matches!(step, ApplyStep::Engine(_))));
+    }
+
+    #[test]
+    fn apply_plan_mode_param_sends_one_engine_step() {
+        let (cur, state) = (Settings::default(), SessionState::default());
+        let mut draft = draft_of(&cur, &state);
+        draft.settings.playback.compatible.dither = Dither::Off;
+        let d = diff(&cur, &state, &draft);
+        let plan = apply_plan(&d, &draft);
+        let [ApplyStep::Engine(update)] = &plan[..] else {
+            panic!("expected exactly one Engine step, got {plan:?}");
+        };
+        assert!(update.diff.is_some());
+        assert_eq!(update.diff, d.modes);
+        assert_eq!(update.settings, draft.settings.playback);
     }
 }
