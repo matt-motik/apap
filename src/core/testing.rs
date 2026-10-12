@@ -513,7 +513,9 @@ impl IoWorker for FakeIo {
 mod tests {
     use super::*;
     use crate::audio::visualizer::VisualizationMode;
+    use crate::core::dialog::{ApplyStep, ThemeLoad};
     use crate::core::exit::{ExitOutcome, ExitPhase, ExitReason, TermSignal};
+    use crate::core::SaveButton;
     use crate::core::messages::{MessageCenter, MessageLevel};
     use crate::core::gate::{BlockReason, MainCmd, UiGate};
     use crate::core::load::{LoadApplied, LoadState};
@@ -3251,5 +3253,286 @@ mod tests {
         assert!(core.draft().is_none(), "очистка диалог не открывает");
         assert_eq!(h.io.count_clear(), 2);
         assert_eq!(h.io.jobs().last(), Some(&IoJob::ClearCache { gen: again, which: CacheKind::All }));
+    }
+
+    /// Выбирает в черновике другую тему и доводит её чтение до `Ready`
+    /// (§6.9, ADR-20, ТЗ-22, ТЗ-29): поколение ответа берётся из
+    /// `ThemeLoad::Loading` черновика. Возвращает имя темы и её данные.
+    fn pick_other_theme(core: &mut AppCore) -> (ThemeName, Arc<ThemeData>) {
+        let name = other_theme(core);
+        let picked = name.clone();
+        core.dialog_edit(|d| d.settings.theme = picked);
+        let gen = match core.draft().map(|d| &d.theme) {
+            Some(ThemeLoad::Loading { gen }) => *gen,
+            other => panic!("ожидалось чтение темы (Loading), получено {other:?}"),
+        };
+        let parsed: ThemeData = toml::from_str(crate::theme::DEFAULT_DARK_TOML).expect("built-in theme parses");
+        let data = Arc::new(parsed);
+        assert!(core.dialog_theme_loaded(gen, Ok(Arc::clone(&data))), "ответ ожидаемого поколения принят");
+        (name, data)
+    }
+
+    /// Ненулевой набор ширин колонок для состояния сессии (Т-2, §2.6).
+    fn some_widths() -> std::collections::BTreeMap<ColumnId, crate::persist::state_file::WidthPct> {
+        use crate::persist::state_file::WidthPct;
+        std::collections::BTreeMap::from([
+            (ColumnId::Title, WidthPct::new(40.0).expect("valid width")),
+            (ColumnId::Artist, WidthPct::new(25.0).expect("valid width")),
+        ])
+    }
+
+    /// Число команд движку с данным именем варианта `EngineCmd` (§2.12):
+    /// журнал стенда хранит текст `Debug`, имя варианта — его начало.
+    fn engine_cmd_count(h: &Harness, variant: &str) -> usize {
+        h.engine_cmds().iter().filter(|c| c.starts_with(variant)).count()
+    }
+
+    /// Кнопка «Сохранить» активна только при отличиях (ТЗ-27, §6.9, §7.2):
+    /// без диалога и сразу после открытия — неактивна; выбрана другая тема —
+    /// пока она читается (`Loading`), кнопка неактивна с подсказкой о теме;
+    /// тема прочитана — активна; возврат прежней темы — снова неактивна, без
+    /// подсказки («изменить и вернуть» отличия не даёт).
+    #[test]
+    fn save_button_disabled_without_changes() {
+        let h = Harness::new();
+        h.put_settings(b"");
+        h.put_state(b"");
+        let mut core = h.boot();
+        let original = core.settings().theme.clone();
+
+        assert_eq!(core.save_button(), SaveButton { enabled: false, tooltip: None }, "без диалога");
+
+        core.dialog_open().expect("диалог открыт");
+        assert_eq!(core.save_button(), SaveButton { enabled: false, tooltip: None }, "отличий нет");
+
+        // Тема выбрана, но ещё читается: применять нечего (ТЗ-29).
+        let name = other_theme(&core);
+        core.dialog_edit(|d| d.settings.theme = name);
+        let gen = match core.draft().map(|d| &d.theme) {
+            Some(ThemeLoad::Loading { gen }) => *gen,
+            other => panic!("ожидалось чтение темы (Loading), получено {other:?}"),
+        };
+        let loading = core.save_button();
+        assert!(!loading.enabled, "пока тема читается, кнопка неактивна");
+        assert!(loading.tooltip.is_some_and(|t| t.contains("Тема")), "подсказка называет параметр");
+
+        let parsed: ThemeData = toml::from_str(crate::theme::DEFAULT_DARK_TOML).expect("built-in theme parses");
+        assert!(core.dialog_theme_loaded(gen, Ok(Arc::new(parsed))));
+        assert_eq!(core.save_button(), SaveButton { enabled: true, tooltip: None }, "тема изменена");
+
+        core.dialog_edit(|d| d.settings.theme = original);
+        assert_eq!(core.draft().map(|d| &d.theme), Some(&ThemeLoad::Unchanged));
+        assert_eq!(core.save_button(), SaveButton { enabled: false, tooltip: None }, "тема возвращена");
+        assert!(core.dialog_save().is_none(), "неактивная кнопка ничего не сохраняет");
+        assert!(core.draft().is_some());
+    }
+
+    /// Недопустимое сочетание буферов (ТЗ-27, И-Р22, §6.9, §7.2): буфер плеера
+    /// 100 мс меньше двух буферов устройства 400 мс в Строгом режиме — кнопка
+    /// неактивна, подсказка «<param>: <reason>» содержит имя параметра из
+    /// `validate`; `dialog_save` возвращает `None`: черновик цел, диалог
+    /// открыт, 0 записей, 0 команд движку, действующие настройки прежние.
+    #[test]
+    fn save_button_invalid_value_tooltip() {
+        use crate::settings::playback::BufferMs;
+
+        let h = Harness::new();
+        h.put_settings(b"");
+        h.put_state(b"");
+        let mut core = h.boot();
+        let settings = core.settings().clone();
+        let state = core.state().clone();
+        let engine = h.engine_cmds();
+
+        core.dialog_open().expect("диалог открыт");
+        core.dialog_edit(|d| {
+            d.settings.playback.strict.buffer = BufferMs::new(100).expect("valid buffer");
+            d.settings.playback.strict.device_buffer = DeviceBuffer::Ms400;
+        });
+
+        let draft = core.draft().cloned().expect("черновик на месте");
+        let invalid = crate::core::dialog::validate(&draft);
+        let first = invalid.first().expect("сочетание буферов недопустимо");
+        assert_eq!(first.param, "Буфер устройства (Строгий режим)");
+
+        let button = core.save_button();
+        assert!(!button.enabled, "при недопустимом значении кнопка неактивна");
+        let tooltip = button.tooltip.expect("подсказка есть");
+        assert!(tooltip.contains(first.param), "подсказка содержит имя параметра: {tooltip}");
+        assert_eq!(tooltip, format!("{}: {}", first.param, first.reason));
+
+        assert!(core.dialog_save().is_none(), "недопустимое значение не сохраняется");
+        assert_eq!(core.draft(), Some(&draft), "черновик цел");
+        assert!(core.gate().window_blocked(), "диалог открыт");
+        assert_eq!(core.settings(), &settings);
+        assert_eq!(core.state(), &state);
+
+        h.advance(&mut core, Duration::from_secs(600));
+        h.settle(&mut core);
+        assert_eq!(h.writes(WorkFile::Settings), 0);
+        assert_eq!(h.writes(WorkFile::State), 0);
+        assert_eq!(h.engine_cmds(), engine, "0 команд движку");
+    }
+
+    /// Выбор режима в диалоге не переключает активный режим (ТЗ-30, §6.9,
+    /// §7.2): при активном Совместимом показан Строгий — отличий нет, кнопка
+    /// неактивна, `dialog_save` возвращает `None`; после «Отмены» и нового
+    /// открытия Строгий показан вместе с правкой его параметра — «Сохранить»
+    /// пишет настройки один раз и шлёт ровно один `SetModeSettings`, 0
+    /// `SetActiveMode`; активный режим остаётся Совместимым.
+    #[test]
+    fn dialog_mode_selector_does_not_switch_mode() {
+        let h = Harness::new();
+        h.put_settings(b"");
+        h.put_state(b"");
+        let mut core = h.boot();
+        assert_eq!(core.state().active_mode(), ModeKind::Compatible);
+        let settings = core.settings().clone();
+        let state = core.state().clone();
+
+        core.dialog_open().expect("диалог открыт");
+        assert_eq!(core.draft().map(|d| d.shown_mode), Some(ModeKind::Compatible));
+        core.dialog_edit(|d| d.shown_mode = ModeKind::Strict);
+        assert_eq!(
+            core.save_button(),
+            SaveButton { enabled: false, tooltip: None },
+            "выбор режима без других изменений — не отличие"
+        );
+        assert!(core.dialog_save().is_none());
+        assert!(core.draft().is_some(), "диалог остался открыт");
+        core.dialog_cancel();
+        assert_eq!(core.settings(), &settings);
+        assert_eq!(core.state(), &state);
+        assert!(h.engine_cmds().is_empty(), "0 команд движку после «Отмены»");
+
+        core.dialog_open().expect("диалог открыт снова");
+        assert_eq!(core.draft().map(|d| d.shown_mode), Some(ModeKind::Compatible), "выбор режима не запомнен");
+        core.dialog_edit(|d| {
+            d.shown_mode = ModeKind::Strict;
+            d.settings.playback.strict.device_buffer = DeviceBuffer::Ms100;
+        });
+        assert_eq!(core.save_button(), SaveButton { enabled: true, tooltip: None });
+
+        let saved = core.dialog_save().expect("отличие есть — сохранено");
+        assert!(matches!(&saved.plan[..], [ApplyStep::Engine(_)]), "план: {:?}", saved.plan);
+        assert!(saved.write.is_none());
+        assert!(core.draft().is_none());
+        assert!(!core.gate().window_blocked());
+
+        assert_eq!(core.state().active_mode(), ModeKind::Compatible, "активный режим не переключён");
+        assert_eq!(core.state(), &state, "состояние сессии не тронуто");
+        assert_eq!(core.settings().playback.strict.device_buffer, DeviceBuffer::Ms100);
+        assert_eq!(engine_cmd_count(&h, "SetActiveMode"), 0);
+        assert_eq!(engine_cmd_count(&h, "SetModeSettings"), 1);
+        assert_eq!(h.engine_cmds().len(), 1, "других команд движку нет");
+
+        h.settle(&mut core);
+        h.advance(&mut core, Duration::from_secs(600));
+        h.settle(&mut core);
+        assert_eq!(h.writes(WorkFile::Settings), 1);
+        assert_eq!(h.writes(WorkFile::State), 0, "состояние сессии не менялось");
+    }
+
+    /// «Сохранить» не откатывает состояние сессии к моменту открытия диалога
+    /// (ТЗ-25, ADR-11, §6.9, §7.2): пока диалог открыт, изменены размер окна
+    /// и развёрнутость, ширины колонок и Repeat; в диалоге выбрана другая
+    /// тема. После «Сохранить» состояние — изменённое во время диалога, тема
+    /// новая, в плане шаг `Theme` с теми же данными, что прочитаны при выборе.
+    #[test]
+    fn save_keeps_state_changed_during_dialog() {
+        let h = Harness::new();
+        h.put_settings(b"");
+        h.put_state(b"");
+        let mut core = h.boot();
+        let opened_state = core.state().clone();
+
+        core.dialog_open().expect("диалог открыт");
+
+        let geometry = WindowGeometry {
+            position: Some(PhysPos { x: 30, y: 40 }),
+            size: Some(PhysSize { width: 1024, height: 700 }),
+            size_units: SizeUnits::Physical,
+            maximized: true,
+            fullscreen: false,
+        };
+        core.change_state(Origin::User, StateChange::Window(geometry));
+        core.change_state(Origin::User, StateChange::ColumnWidths(some_widths()));
+        core.change_state(Origin::User, StateChange::Repeat(RepeatMode::All));
+        let changed_state = core.state().clone();
+        assert_ne!(changed_state, opened_state);
+
+        let (theme, data) = pick_other_theme(&mut core);
+        assert!(core.save_button().enabled);
+
+        let saved = core.dialog_save().expect("тема изменена — сохранено");
+
+        assert_eq!(core.state(), &changed_state, "состояние не откатилось к снимку на момент открытия");
+        assert_eq!(core.state().window(), geometry);
+        assert_eq!(core.state().column_widths(), &some_widths());
+        assert_eq!(core.state().repeat(), RepeatMode::All);
+        assert_eq!(core.settings().theme, theme, "тема новая");
+        assert!(
+            saved.plan.iter().any(|s| matches!(s, ApplyStep::Theme(applied) if Arc::ptr_eq(applied, &data))),
+            "план: {:?}",
+            saved.plan
+        );
+        assert!(!saved.plan.iter().any(|s| matches!(s, ApplyStep::ResetWidths | ApplyStep::VizMode(_))));
+        assert!(core.draft().is_none());
+
+        h.settle(&mut core);
+        assert_eq!(h.writes(WorkFile::Settings), 1);
+        let interval = core.settings().save_interval.duration();
+        h.advance(&mut core, interval);
+        h.settle(&mut core);
+        assert_eq!(h.writes(WorkFile::State), 1);
+        let expected = crate::persist::state_file::serialize_state(&changed_state).expect("serialize state");
+        assert_eq!(h.disk_bytes(WorkFile::State), Some(expected.to_vec()), "на диск ушло изменённое состояние");
+    }
+
+    /// «Сбросить ширины» уходит в состояние сессии (ТЗ-25, Т-2, §6.9, §7.2):
+    /// при заданных ширинах «Сохранить» с одним лишь сбросом даёт план из
+    /// `ResetWidths`, ширины в состоянии пусты; `settings.toml` этим
+    /// сохранением не пишется и остаётся прежним, а `state.toml` пишется по
+    /// отсчёту — уже без ширин.
+    #[test]
+    fn reset_widths_goes_to_state() {
+        let h = Harness::new();
+        h.put_default_settings();
+        h.put_state(b"");
+        let mut core = h.boot();
+        let settings = core.settings().clone();
+        let settings_bytes = h.disk_bytes(WorkFile::Settings);
+        let interval = settings.save_interval.duration();
+
+        core.change_state(Origin::User, StateChange::ColumnWidths(some_widths()));
+        h.advance(&mut core, interval);
+        h.settle(&mut core);
+        assert_eq!(h.writes(WorkFile::State), 1);
+        let with_widths = h.disk_bytes(WorkFile::State).expect("state written");
+
+        core.dialog_open().expect("диалог открыт");
+        assert!(!core.save_button().enabled);
+        core.dialog_edit(|d| d.reset_widths = true);
+        assert_eq!(core.save_button(), SaveButton { enabled: true, tooltip: None });
+
+        let saved = core.dialog_save().expect("сброс заданных ширин — отличие");
+        assert_eq!(saved.plan, vec![ApplyStep::ResetWidths]);
+        assert!(saved.write.is_none());
+        assert!(core.state().column_widths().is_empty(), "ширины по умолчанию");
+        assert_eq!(core.settings(), &settings, "настройки не менялись");
+
+        // Запись состояния — не сразу, а по отсчёту (Т-2).
+        h.settle(&mut core);
+        assert_eq!(h.writes(WorkFile::State), 1, "до срока state.toml не пишется");
+        h.advance(&mut core, interval);
+        h.settle(&mut core);
+        assert_eq!(h.writes(WorkFile::State), 2);
+        let without_widths = h.disk_bytes(WorkFile::State).expect("state written");
+        assert_ne!(without_widths, with_widths);
+        let expected = crate::persist::state_file::serialize_state(core.state()).expect("serialize state");
+        assert_eq!(without_widths, expected.to_vec(), "в записанном состоянии ширин нет");
+
+        assert_eq!(h.writes(WorkFile::Settings), 0, "settings.toml этим сохранением не пишется");
+        assert_eq!(h.disk_bytes(WorkFile::Settings), settings_bytes, "settings.toml прежний, без ширин");
     }
 }

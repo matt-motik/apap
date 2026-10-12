@@ -59,7 +59,7 @@ steps:
     done: true
   - id: 12
     description: "Тесты диалога, ч. 2 (src/core/testing.rs, §7.2): save_button_disabled_without_changes, save_button_invalid_value_tooltip, dialog_mode_selector_does_not_switch_mode, save_keeps_state_changed_during_dialog, reset_widths_goes_to_state (ТЗ-25, 27, 30). Проверка: cargo test core::testing"
-    done: false
+    done: true
   - id: 13
     description: "Тесты диалога, ч. 3 (src/core/testing.rs, §7.2): dialog_save_applies_only_edited_fields, save_write_error_closes_dialog_and_applies, exit_with_open_dialog_discards_draft (на каждую причину выхода); существующие dialog_save_single_write_all_fields и dialog_save_without_changes_does_not_write переводятся на dialog_open/dialog_edit/dialog_save (ТЗ-20, 28, 29, 32). Проверка: cargo test core::testing"
     done: false
@@ -96,8 +96,8 @@ steps:
   - id: 24
     description: "ЧЕКПОИНТ: cargo build; cargo test --no-fail-fast (только 6 падений SP1.0-B7); cargo clippy --all-targets — 0 новых предупреждений в файлах вайтлиста; каждый обработчик команды главного окна спрашивает шлюз (сверка с перечнем MainCmd); ручные проверки ТЗ-23/27/34 — пользователю. Проверка: всё перечисленное зелёное"
     done: false
-current_step: 12
-next_action: "Шаг 12: тесты диалога ч.2 (src/core/testing.rs, §7.2) — save_button_disabled_without_changes, save_button_invalid_value_tooltip, dialog_mode_selector_does_not_switch_mode, save_keeps_state_changed_during_dialog, reset_widths_goes_to_state; cargo test core::testing"
+current_step: 13
+next_action: "Шаг 13: тесты диалога ч.3 (src/core/testing.rs, §7.2) — dialog_save_applies_only_edited_fields, save_write_error_closes_dialog_and_applies, exit_with_open_dialog_discards_draft + перевод dialog_save_single_write_all_fields / dialog_save_without_changes_does_not_write на dialog_open/edit/save; cargo test core::testing"
 fail_counter: 0
 fail_counter_max: 3
 failed_attempts: []
