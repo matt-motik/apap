@@ -98,8 +98,8 @@
 - [x] Шаг 49: src/app/events.rs + src/app/mod.rs: удалить вариант AppEvent::BitPerfectChanged (не создаётся после шага 38) и его ветку в mod.rs (§8 С4). Проверка: cargo build без warning
 - [x] Шаг 50: src/app/bp_report.rs: matches!(dither, Tpdf | Triangular) → matches!(dither, ResamplerDither::Tpdf) (подготовка к удалению Triangular, ОВС-12). Проверка: cargo test --bin music-player-rs bp_report
 - [x] Шаг 51: src/settings.rs + src/audio/player.rs: удалить ResamplerDither::Triangular, его ветку в dither_index и DITHER_INDEX_TRIANGULAR (OFF = 2 сохранить), поправить doc (§8 С4, ОВС-12). Проверка: cargo test (общий тип)
-- [>] **Шаг 52: src/settings.rs: удалить AudioCfg (вкл. bit_perfect), DsdCfg, AudioResamplerCfg, их Default, default_ring_buffer_ms и 7 их toml-тестов; clamp_ring_buffer_ms и RING_BUFFER_MS_* оставить (§8 С4). Проверка: cargo test (формат)**
-- [ ] Шаг 53: src/settings.rs: удалить index/from_index у DsdMode, ExclusiveMode, FallbackPolicy и тест dsd_mode_index_roundtrip (UI-индексы, §8 С4). Проверка: cargo test --lib settings
+- [x] Шаг 52: src/settings.rs: удалить AudioCfg (вкл. bit_perfect), DsdCfg, AudioResamplerCfg, их Default, default_ring_buffer_ms и 7 их toml-тестов; clamp_ring_buffer_ms и RING_BUFFER_MS_* оставить (§8 С4). Проверка: cargo test (формат)
+- [>] **Шаг 53: src/settings.rs: удалить index/from_index у DsdMode, ExclusiveMode, FallbackPolicy и тест dsd_mode_index_roundtrip (UI-индексы, §8 С4). Проверка: cargo test --lib settings**
 - [ ] Шаг 54: src/settings.rs: удалить index/from_index у ResamplerMode, ClockFamily, FallbackRatePolicy (UI-индексы, §8 С4). Проверка: cargo test --lib settings
 - [ ] Шаг 55: src/settings.rs: снять Serialize/Deserialize и serde-атрибуты с ExclusiveMode, FallbackPolicy, ResamplerMode, ClockFamily, FallbackRatePolicy, DsdMode, ResamplerDither; doc — внутренние параметры старого пути (ОВС-12, §8 С4). Проверка: cargo test (формат)
 - [ ] Шаг 56: src/settings.rs + src/audio/visualizer.rs: снять serde с TargetBitDepth/TargetSampleRate и DsdCacheParams (§8 С4). Проверка: cargo check; ЧЕКПОИНТ: cargo test + cargo clippy --all-targets; grep Triangular|AudioCfg|DsdCfg|AudioResamplerCfg|BitPerfectChanged пуст
@@ -108,8 +108,8 @@
 
 Легенда: [x] сделано · [>] текущий шаг · [ ] не начато
 
-- **Текущий шаг (current_step):** Шаг 52
-- **Следующий ход:** Шаг 52: settings.rs — удалить AudioCfg, DsdCfg, AudioResamplerCfg, их Default, default_ring_buffer_ms и 7 toml-тестов; полный cargo test (на Windows — сверять с 6 известными падениями SP1.0-B7)
+- **Текущий шаг (current_step):** Шаг 53
+- **Следующий ход:** Шаг 53: settings.rs — удалить index/from_index у DsdMode, ExclusiveMode, FallbackPolicy и тест dsd_mode_index_roundtrip; cargo test --lib settings
 - **Счетчик безуспешных компиляций:** 0/3
 - **Состояние:** in_progress
 

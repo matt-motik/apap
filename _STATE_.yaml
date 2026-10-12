@@ -201,7 +201,7 @@ steps:
     done: true
   - id: 52
     description: "src/settings.rs: удалить AudioCfg (вкл. bit_perfect), DsdCfg, AudioResamplerCfg, их Default, default_ring_buffer_ms и 7 их toml-тестов; clamp_ring_buffer_ms и RING_BUFFER_MS_* оставить (§8 С4). Проверка: cargo test (формат)"
-    done: false
+    done: true
   - id: 53
     description: "src/settings.rs: удалить index/from_index у DsdMode, ExclusiveMode, FallbackPolicy и тест dsd_mode_index_roundtrip (UI-индексы, §8 С4). Проверка: cargo test --lib settings"
     done: false
@@ -220,8 +220,8 @@ steps:
   - id: 58
     description: "Финал: cargo build/test/clippy зелёные; ROADMAP ✅; заметка плана; напомнить пользователю удалить settings.toml (ТЗ-97) и показать расхождение с 02 spec стр. 3342 (решение — за пользователем); ручные проверки (переключатель режимов, Совместимый играет, Оптимальный/Строгий через hw: на Linux). Проверка: cargo test + clippy"
     done: false
-current_step: 52
-next_action: "Шаг 52: settings.rs — удалить AudioCfg, DsdCfg, AudioResamplerCfg, их Default, default_ring_buffer_ms и 7 toml-тестов; полный cargo test (на Windows — сверять с 6 известными падениями SP1.0-B7)"
+current_step: 53
+next_action: "Шаг 53: settings.rs — удалить index/from_index у DsdMode, ExclusiveMode, FallbackPolicy и тест dsd_mode_index_roundtrip; cargo test --lib settings"
 fail_counter: 0
 fail_counter_max: 3
 failed_attempts: []

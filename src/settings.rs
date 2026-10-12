@@ -605,61 +605,6 @@ impl FallbackRatePolicy {
     }
 }
 
-/// Настройки `[dsd]` (ТЗ 5.1 §8.2).
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
-pub struct DsdCfg {
-    #[serde(default)]
-    pub mode: DsdMode,
-    #[serde(default)]
-    pub target_bit_depth: TargetBitDepth,
-    #[serde(default)]
-    pub target_sample_rate: TargetSampleRate,
-}
-
-impl Default for DsdCfg {
-    fn default() -> Self {
-        Self {
-            mode: DsdMode::Pcm,
-            target_bit_depth: TargetBitDepth::Bits24,
-            target_sample_rate: TargetSampleRate::Auto,
-        }
-    }
-}
-
-/// Настройки `[audio.resampler]` (ТЗ 5.1 §8.2, A3.0 §2.2).
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
-pub struct AudioResamplerCfg {
-    #[serde(default)]
-    pub algorithm: ResamplerAlgorithm,
-    #[serde(default)]
-    pub dither: ResamplerDither,
-    /// Политика ресемплинга (ТЗ A3.0 §2.2).
-    #[serde(default)]
-    pub mode: ResamplerMode,
-    /// 0 = auto по семейству (используется только при `mode = Fixed`).
-    #[serde(default)]
-    pub fixed_rate: u32,
-    /// Предпочитаемое частотное семейство (ТЗ A3.0 §2.2).
-    #[serde(default)]
-    pub prefer_family: ClockFamily,
-    /// Политика fallback-рейта при недоступности native (ТЗ A3.0 §2.2).
-    #[serde(default)]
-    pub fallback_rate: FallbackRatePolicy,
-}
-
-impl Default for AudioResamplerCfg {
-    fn default() -> Self {
-        Self {
-            algorithm: ResamplerAlgorithm::SincMedium,
-            dither: ResamplerDither::Tpdf,
-            mode: ResamplerMode::Auto,
-            fixed_rate: 0,
-            prefer_family: ClockFamily::Auto,
-            fallback_rate: FallbackRatePolicy::Nearest,
-        }
-    }
-}
-
 /// Default depth of the producer/consumer ring in milliseconds (ТЗ A2.0 §5.2).
 pub const RING_BUFFER_MS_DEFAULT: u32 = 1500;
 /// Lower bound of the configurable ring depth (ТЗ A2.0 §5.2).
@@ -667,52 +612,9 @@ pub const RING_BUFFER_MS_MIN: u32 = 100;
 /// Upper bound of the configurable ring depth (ТЗ A2.0 §5.2).
 pub const RING_BUFFER_MS_MAX: u32 = 10000;
 
-fn default_ring_buffer_ms() -> u32 {
-    RING_BUFFER_MS_DEFAULT
-}
-
 /// Clamp a ring depth into the supported `[MIN..MAX]` range (ТЗ A2.0 §5.2).
 pub fn clamp_ring_buffer_ms(ms: u32) -> u32 {
     ms.clamp(RING_BUFFER_MS_MIN, RING_BUFFER_MS_MAX)
-}
-
-/// Настройки `[audio]` (ТЗ 5.1 §8.2, A3.0 §2.2): bit-perfect, ресемплер,
-/// exclusive/fallback и фильтры списка устройств.
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
-pub struct AudioCfg {
-    #[serde(default)]
-    pub bit_perfect: bool,
-    /// Глубина ring-буфера «задержка vs устойчивость», мс (ТЗ A2.0 §5.2).
-    #[serde(default = "default_ring_buffer_ms")]
-    pub ring_buffer_ms: u32,
-    #[serde(default)]
-    pub resampler: AudioResamplerCfg,
-    /// Режим exclusive-доступа (ТЗ A3.0 §2.2).
-    #[serde(default)]
-    pub exclusive: ExclusiveMode,
-    /// Политика фолбека при несовпадении параметров (ТЗ A3.0 §2.2).
-    #[serde(default)]
-    pub fallback: FallbackPolicy,
-    /// Показывать в списке только аппаратные устройства (ТЗ A3.0 §2.2).
-    #[serde(default)]
-    pub filter_hardware_only: bool,
-    /// Показывать в списке только стерео-устройства (ТЗ A3.0 §2.2).
-    #[serde(default)]
-    pub filter_stereo_only: bool,
-}
-
-impl Default for AudioCfg {
-    fn default() -> Self {
-        Self {
-            bit_perfect: false,
-            ring_buffer_ms: RING_BUFFER_MS_DEFAULT,
-            resampler: AudioResamplerCfg::default(),
-            exclusive: ExclusiveMode::Auto,
-            fallback: FallbackPolicy::Nearest,
-            filter_hardware_only: false,
-            filter_stereo_only: false,
-        }
-    }
 }
 
 /// Resolve (and cache) the per-user config directory: `$XDG_CONFIG_HOME/
@@ -734,34 +636,6 @@ mod tests {
     use super::*;
 
     #[test]
-    fn audio_and_dsd_defaults() {
-        let a = AudioCfg::default();
-        // ТЗ §8.3: дефолт ресемплера — sinc_medium.
-        assert_eq!(a.resampler.algorithm, ResamplerAlgorithm::SincMedium);
-        assert_eq!(a.resampler.dither, ResamplerDither::Tpdf);
-        assert!(!a.bit_perfect);
-        // ТЗ A2.0 §5.2: дефолтная глубина ring-буфера — 1500 мс.
-        assert_eq!(a.ring_buffer_ms, RING_BUFFER_MS_DEFAULT);
-        // ТЗ §8.2: DSD по умолчанию «DSD → PCM», 24 бит, auto частота.
-        let d = DsdCfg::default();
-        assert_eq!(d.mode, DsdMode::Pcm);
-        assert_eq!(d.target_bit_depth, TargetBitDepth::Bits24);
-        assert_eq!(d.target_sample_rate, TargetSampleRate::Auto);
-    }
-
-    #[test]
-    fn ring_buffer_ms_roundtrips_and_overrides() {
-        let a = AudioCfg::default();
-        let toml = toml::to_string(&a).unwrap();
-        assert!(toml.contains("ring_buffer_ms"), "missing ring_buffer_ms:\n{toml}");
-        let parsed: AudioCfg = toml::from_str(&toml).unwrap();
-        assert_eq!(parsed.ring_buffer_ms, RING_BUFFER_MS_DEFAULT);
-
-        let parsed: AudioCfg = toml::from_str("ring_buffer_ms = 250\n").unwrap();
-        assert_eq!(parsed.ring_buffer_ms, 250);
-    }
-
-    #[test]
     fn clamp_ring_buffer_ms_applies_bounds() {
         assert_eq!(clamp_ring_buffer_ms(0), RING_BUFFER_MS_MIN);
         assert_eq!(clamp_ring_buffer_ms(50), RING_BUFFER_MS_MIN);
@@ -779,74 +653,6 @@ mod tests {
         assert_eq!(DsdMode::from_index(2), Some(DsdMode::DoP));
         assert_eq!(DsdMode::from_index(3), None);
         assert_eq!(DsdMode::from_index(i32::MAX), None);
-    }
-
-    #[test]
-    fn audio_resampler_defaults() {
-        let a = AudioCfg::default();
-        assert_eq!(a.resampler.mode, ResamplerMode::Auto, "A3.0 §11.1");
-        assert_eq!(a.resampler.fixed_rate, 0, "A3.0 §11.1");
-        assert_eq!(a.resampler.prefer_family, ClockFamily::Auto, "A3.0 §11.1");
-        assert_eq!(a.resampler.fallback_rate, FallbackRatePolicy::Nearest, "A3.0 §11.1");
-    }
-
-    #[test]
-    fn audio_defaults_new_fields() {
-        let a = AudioCfg::default();
-        assert_eq!(a.exclusive, ExclusiveMode::Auto, "A3.0 §11.1");
-        assert_eq!(a.fallback, FallbackPolicy::Nearest, "A3.0 §11.1");
-        assert!(!a.filter_hardware_only, "A3.0 §11.1");
-        assert!(!a.filter_stereo_only, "A3.0 §11.1");
-    }
-
-    #[test]
-    fn audio_toml_roundtrip_with_new_fields() {
-        let toml = "bit_perfect = true\nexclusive = \"strict\"\nfallback = \"fail\"\nfilter_hardware_only = true\nfilter_stereo_only = true\n\n[resampler]\nmode = \"fixed\"\nfixed_rate = 48000\nprefer_family = \"family48k\"\nfallback_rate = \"never_downsample\"\n";
-        let a: AudioCfg = toml::from_str(toml).unwrap();
-        assert!(a.bit_perfect);
-        assert_eq!(a.exclusive, ExclusiveMode::Strict);
-        assert_eq!(a.fallback, FallbackPolicy::Fail);
-        assert!(a.filter_hardware_only);
-        assert!(a.filter_stereo_only);
-        assert_eq!(a.resampler.mode, ResamplerMode::Fixed);
-        assert_eq!(a.resampler.fixed_rate, 48000);
-        assert_eq!(a.resampler.prefer_family, ClockFamily::Family48k);
-        assert_eq!(a.resampler.fallback_rate, FallbackRatePolicy::NeverDownsample);
-
-        let re = toml::to_string(&a).unwrap();
-        let parsed: AudioCfg = toml::from_str(&re).unwrap();
-        assert_eq!(parsed, a);
-    }
-
-    #[test]
-    fn audio_partial_config_preserves_existing() {
-        let toml = "bit_perfect = false\n";
-        let a: AudioCfg = toml::from_str(toml).unwrap();
-        assert!(!a.bit_perfect);
-        assert_eq!(a.resampler.algorithm, ResamplerAlgorithm::SincMedium);
-        assert_eq!(a.resampler.dither, ResamplerDither::Tpdf);
-        assert_eq!(a.resampler.mode, ResamplerMode::Auto);
-        assert_eq!(a.resampler.fixed_rate, 0);
-        assert_eq!(a.resampler.prefer_family, ClockFamily::Auto);
-        assert_eq!(a.resampler.fallback_rate, FallbackRatePolicy::Nearest);
-        assert_eq!(a.exclusive, ExclusiveMode::Auto);
-        assert_eq!(a.fallback, FallbackPolicy::Nearest);
-        assert!(!a.filter_hardware_only);
-        assert!(!a.filter_stereo_only);
-    }
-
-    #[test]
-    fn audio_resampler_algorithm_overrides_default() {
-        let toml = "algorithm = \"cubic\"\n";
-        let r: AudioResamplerCfg = match toml::from_str(toml) {
-            Ok(r) => r,
-            Err(e) => {
-                panic!("parse failed: {e}");
-            }
-        };
-        assert_eq!(r.algorithm, ResamplerAlgorithm::Cubic);
-        // Остальные поля — дефолты.
-        assert_eq!(r.dither, ResamplerDither::Tpdf);
     }
 
     #[test]
