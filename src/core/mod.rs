@@ -17,9 +17,10 @@ pub(crate) mod testing;
 use std::sync::Arc;
 
 use exit::{ExitCoordinator, ExitOutcome, ExitPhase, ExitReason, ExitReport, ReplyWaiter};
-use gate::UiGate;
+use dialog::{DialogDraft, ThemeLoad};
+use gate::{BlockReason, MainCmd, UiGate};
 use geometry::GeometryTracker;
-use io::{IoDone, IoJob, IoWorker};
+use io::{CacheKind, IoDone, IoJob, IoWorker};
 use load::LoadCtl;
 use messages::{Message, MessageButtons, MessageLevel};
 
@@ -42,6 +43,7 @@ use crate::playlist::model::{Playlist, PlaylistEffect, SortKey, TrackId};
 use crate::playlist::shuffle::ShuffleState;
 use crate::playlist::Track;
 use crate::settings::ColumnId;
+use crate::theme::ThemeData;
 use rand::rngs::StdRng;
 use rand::SeedableRng;
 
@@ -178,6 +180,12 @@ pub struct AppCore {
     /// сообщения, выбор файла) и признак загрузки плейлиста (ADR-12, §2.12,
     /// ТЗ-23, ТЗ-48).
     gate: UiGate,
+    /// Черновик диалога настроек; `None` — диалог закрыт (ADR-11, §2.10,
+    /// §6.9, ТЗ-25).
+    draft: Option<DialogDraft>,
+    /// Поколение последнего задания `apap-io`, выданное ядром (ADR-20):
+    /// единый счётчик для заданий ядра и слоя UI.
+    io_gen: u64,
 }
 
 /// Общая часть загрузки `with_deps`: разбирает `boot` и строит
@@ -223,6 +231,8 @@ impl AppCore {
             geometry: GeometryTracker::new(),
             load: LoadCtl::new(),
             gate: UiGate::default(),
+            draft: None,
+            io_gen: 0,
         }
     }
 
@@ -263,6 +273,104 @@ impl AppCore {
     /// плейлиста (ADR-12, §2.12, ТЗ-23, ТЗ-48).
     pub fn gate_mut(&mut self) -> &mut UiGate {
         &mut self.gate
+    }
+
+    /// Следующее поколение задания `apap-io` (ADR-20, §2.12): единый источник
+    /// поколений, чтобы задания ядра и слоя UI не совпадали по `gen` и
+    /// устаревший ответ отбрасывался сравнением с ожидаемым поколением.
+    pub fn next_io_gen(&mut self) -> u64 {
+        self.io_gen = self.io_gen.wrapping_add(1);
+        self.io_gen
+    }
+
+    /// Открытие диалога настроек — `MainCmd::OpenSettings` (§6.9, ADR-11,
+    /// ADR-12, ТЗ-22, ТЗ-23, ТЗ-25). Если шлюз команду не пропускает или
+    /// черновик уже есть — ничего не делает и возвращает `None`. Иначе создаёт
+    /// черновик из действующих значений, взводит причину блокировки
+    /// `BlockReason::Dialog` и ставит ровно один подсчёт размера дисковых
+    /// кэшей за открытие; возвращает поколение этого задания — по нему слой
+    /// UI сверяет ответ `IoDone::CacheSizes`.
+    pub fn dialog_open(&mut self) -> Option<u64> {
+        if self.draft.is_some() || !self.gate.allows(MainCmd::OpenSettings) {
+            return None;
+        }
+        self.draft = Some(DialogDraft {
+            settings: self.settings.clone(),
+            viz_mode: self.state.viz_mode(),
+            reset_widths: false,
+            shown_mode: self.state.active_mode(),
+            theme: ThemeLoad::Unchanged,
+        });
+        self.gate.block(BlockReason::Dialog);
+        let gen = self.next_io_gen();
+        self.io().submit(IoJob::CacheSizes { gen });
+        Some(gen)
+    }
+
+    /// Черновик диалога настроек; `None` — диалог закрыт (§2.10, ADR-11).
+    pub fn draft(&self) -> Option<&DialogDraft> {
+        self.draft.as_ref()
+    }
+
+    /// Правка черновика (§6.9, ADR-11, ADR-20, ТЗ-25): меняет только черновик —
+    /// ничего не пишет на диск, действующие настройки, состояние сессии и
+    /// движок не трогает. Если правка сменила имя темы: возврат к теме
+    /// действующих настроек даёт `ThemeLoad::Unchanged` (читать нечего), иначе
+    /// черновик переходит в `ThemeLoad::Loading` с новым поколением и тема
+    /// читается потоком `apap-io` (ТЗ-22). Без черновика — без эффекта.
+    pub fn dialog_edit(&mut self, f: impl FnOnce(&mut DialogDraft)) {
+        let Some(draft) = self.draft.as_mut() else { return };
+        let before = draft.settings.theme.clone();
+        f(draft);
+        if draft.settings.theme == before {
+            return;
+        }
+        if draft.settings.theme == self.settings.theme {
+            draft.theme = ThemeLoad::Unchanged;
+            return;
+        }
+        let name = draft.settings.theme.clone();
+        let gen = self.next_io_gen();
+        if let Some(draft) = self.draft.as_mut() {
+            draft.theme = ThemeLoad::Loading { gen };
+        }
+        self.io().submit(IoJob::ReadTheme { gen, name });
+    }
+
+    /// Ответ `IoDone::Theme` для черновика (§2.10, ADR-20, ТЗ-22, ТЗ-27,
+    /// ТЗ-29): если черновик ждёт тему именно этого поколения
+    /// (`ThemeLoad::Loading { gen }`), переводит его в `Ready` или `Invalid`
+    /// и возвращает `true`. Иначе — черновика нет, поколение другое или тема
+    /// уже не читается — ответ устарел: ничего не меняется, `false`.
+    pub fn dialog_theme_loaded(&mut self, gen: u64, result: Result<Arc<ThemeData>, Box<str>>) -> bool {
+        let Some(draft) = self.draft.as_mut() else { return false };
+        if draft.theme != (ThemeLoad::Loading { gen }) {
+            return false;
+        }
+        draft.theme = match result {
+            Ok(data) => ThemeLoad::Ready(data),
+            Err(reason) => ThemeLoad::Invalid { reason },
+        };
+        true
+    }
+
+    /// «Отмена» / Esc в диалоге настроек (§6.9, ADR-11, ADR-12, ТЗ-26):
+    /// уничтожает черновик и снимает причину блокировки
+    /// `BlockReason::Dialog` — 0 применений, 0 записей. Без черновика —
+    /// безопасно (идемпотентно).
+    pub fn dialog_cancel(&mut self) {
+        self.draft = None;
+        self.gate.unblock(BlockReason::Dialog);
+    }
+
+    /// Очистка дисковых кэшей вне UI-потока (§6.9, §2.13, ADR-20, ТЗ-34):
+    /// действует сразу, черновик не читает и не меняет — «Отмена» очистку не
+    /// отменяет. Возвращает поколение задания, по которому слой UI сверяет
+    /// ответ `IoDone::Cleared` с новым размером.
+    pub fn clear_cache(&mut self, which: CacheKind) -> u64 {
+        let gen = self.next_io_gen();
+        self.io().submit(IoJob::ClearCache { gen, which });
+        gen
     }
 
     /// Заменяет настройки целиком — действие «Сохранить» диалога настроек

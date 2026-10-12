@@ -50,7 +50,7 @@ steps:
     done: true
   - id: 9
     description: "src/core/mod.rs: draft: Option<DialogDraft>; dialog_open (черновик из settings/state, gate.block(Dialog), io.submit(CacheSizes); при блокировке — без действий), dialog_edit(f), draft(), dialog_cancel (draft = None, unblock), clear_cache(which) → io.submit(ClearCache) вне черновика (§6.9, ТЗ-23, ТЗ-26, ТЗ-34, ADR-11). Проверка: cargo check"
-    done: false
+    done: true
   - id: 10
     description: "Тесты диалога, ч. 1 (src/core/testing.rs, §7.2): menu_inactive_while_dialog_open (каждая MainCmd + повторное открытие — 0 изменений), event_dialog_edit_writes_nothing, cache_size_counted_once_per_dialog, dialog_cancel_leaves_settings_and_file_unchanged, cache_clear_survives_cancel (ТЗ-22, 23, 26, 34). Проверка: cargo test core::testing"
     done: false
@@ -96,8 +96,8 @@ steps:
   - id: 24
     description: "ЧЕКПОИНТ: cargo build; cargo test --no-fail-fast (только 6 падений SP1.0-B7); cargo clippy --all-targets — 0 новых предупреждений в файлах вайтлиста; каждый обработчик команды главного окна спрашивает шлюз (сверка с перечнем MainCmd); ручные проверки ТЗ-23/27/34 — пользователю. Проверка: всё перечисленное зелёное"
     done: false
-current_step: 9
-next_action: "Шаг 9: черновик диалога в AppCore — draft, dialog_open/dialog_edit/draft()/dialog_cancel/clear_cache (core/mod.rs); cargo check"
+current_step: 10
+next_action: "Шаг 10: тесты диалога ч.1 (src/core/testing.rs, §7.2) — menu_inactive_while_dialog_open, event_dialog_edit_writes_nothing, cache_size_counted_once_per_dialog, dialog_cancel_leaves_settings_and_file_unchanged, cache_clear_survives_cancel; cargo test core::testing"
 fail_counter: 0
 fail_counter_max: 3
 failed_attempts: []
