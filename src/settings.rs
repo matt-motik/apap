@@ -452,27 +452,6 @@ pub enum ResamplerMode {
     Fixed,
 }
 
-impl ResamplerMode {
-    /// Порядковый индекс для ComboBox-модели `.slint` (0=Auto, 1=Native, 2=Fixed).
-    pub const fn index(self) -> i32 {
-        match self {
-            ResamplerMode::Auto => 0,
-            ResamplerMode::Native => 1,
-            ResamplerMode::Fixed => 2,
-        }
-    }
-
-    /// Обратное отображение из индекса UI (валидные значения 0..=2).
-    pub fn from_index(i: i32) -> Option<Self> {
-        match i {
-            0 => Some(ResamplerMode::Auto),
-            1 => Some(ResamplerMode::Native),
-            2 => Some(ResamplerMode::Fixed),
-            _ => None,
-        }
-    }
-}
-
 /// Частотное семейство для выбора fallback-рейта (ТЗ A3.0 §2.1).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
 #[serde(rename_all = "snake_case")]
@@ -483,27 +462,6 @@ pub enum ClockFamily {
     Family44k,
     /// 48 / 96 / 192 / 384
     Family48k,
-}
-
-impl ClockFamily {
-    /// Порядковый индекс для ComboBox-модели `.slint` (0=Auto, 1=44k, 2=48k).
-    pub const fn index(self) -> i32 {
-        match self {
-            ClockFamily::Auto => 0,
-            ClockFamily::Family44k => 1,
-            ClockFamily::Family48k => 2,
-        }
-    }
-
-    /// Обратное отображение из индекса UI (валидные значения 0..=2).
-    pub fn from_index(i: i32) -> Option<Self> {
-        match i {
-            0 => Some(ClockFamily::Auto),
-            1 => Some(ClockFamily::Family44k),
-            2 => Some(ClockFamily::Family48k),
-            _ => None,
-        }
-    }
 }
 
 /// Политика выбора fallback-рейта при недоступности native (ТЗ A3.0 §2.1).
@@ -519,27 +477,6 @@ pub enum FallbackRatePolicy {
     /// Никогда не downsampl'ить: ближайшая поддерживаемая ≥ источника,
     /// иначе Err.
     NeverDownsample,
-}
-
-impl FallbackRatePolicy {
-    /// Порядковый индекс для ComboBox-модели `.slint` (0=Nearest, 1=SameFamily, 2=NeverDownsample).
-    pub const fn index(self) -> i32 {
-        match self {
-            FallbackRatePolicy::Nearest => 0,
-            FallbackRatePolicy::SameFamily => 1,
-            FallbackRatePolicy::NeverDownsample => 2,
-        }
-    }
-
-    /// Обратное отображение из индекса UI (валидные значения 0..=2).
-    pub fn from_index(i: i32) -> Option<Self> {
-        match i {
-            0 => Some(FallbackRatePolicy::Nearest),
-            1 => Some(FallbackRatePolicy::SameFamily),
-            2 => Some(FallbackRatePolicy::NeverDownsample),
-            _ => None,
-        }
-    }
 }
 
 /// Default depth of the producer/consumer ring in milliseconds (ТЗ A2.0 §5.2).

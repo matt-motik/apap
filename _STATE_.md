@@ -100,16 +100,16 @@
 - [x] Шаг 51: src/settings.rs + src/audio/player.rs: удалить ResamplerDither::Triangular, его ветку в dither_index и DITHER_INDEX_TRIANGULAR (OFF = 2 сохранить), поправить doc (§8 С4, ОВС-12). Проверка: cargo test (общий тип)
 - [x] Шаг 52: src/settings.rs: удалить AudioCfg (вкл. bit_perfect), DsdCfg, AudioResamplerCfg, их Default, default_ring_buffer_ms и 7 их toml-тестов; clamp_ring_buffer_ms и RING_BUFFER_MS_* оставить (§8 С4). Проверка: cargo test (формат)
 - [x] Шаг 53: src/settings.rs: удалить index/from_index у DsdMode, ExclusiveMode, FallbackPolicy и тест dsd_mode_index_roundtrip (UI-индексы, §8 С4). Проверка: cargo test --lib settings
-- [>] **Шаг 54: src/settings.rs: удалить index/from_index у ResamplerMode, ClockFamily, FallbackRatePolicy (UI-индексы, §8 С4). Проверка: cargo test --lib settings**
-- [ ] Шаг 55: src/settings.rs: снять Serialize/Deserialize и serde-атрибуты с ExclusiveMode, FallbackPolicy, ResamplerMode, ClockFamily, FallbackRatePolicy, DsdMode, ResamplerDither; doc — внутренние параметры старого пути (ОВС-12, §8 С4). Проверка: cargo test (формат)
+- [x] Шаг 54: src/settings.rs: удалить index/from_index у ResamplerMode, ClockFamily, FallbackRatePolicy (UI-индексы, §8 С4). Проверка: cargo test --lib settings
+- [>] **Шаг 55: src/settings.rs: снять Serialize/Deserialize и serde-атрибуты с ExclusiveMode, FallbackPolicy, ResamplerMode, ClockFamily, FallbackRatePolicy, DsdMode, ResamplerDither; doc — внутренние параметры старого пути (ОВС-12, §8 С4). Проверка: cargo test (формат)**
 - [ ] Шаг 56: src/settings.rs + src/audio/visualizer.rs: снять serde с TargetBitDepth/TargetSampleRate и DsdCacheParams (§8 С4). Проверка: cargo check; ЧЕКПОИНТ: cargo test + cargo clippy --all-targets; grep Triangular|AudioCfg|DsdCfg|AudioResamplerCfg|BitPerfectChanged пуст
 - [ ] Шаг 57: Бейдж: «Bit-perfect» недостижим до С6 — старый путь не читает hw_params (DriverFormat::Unreadable): src/app/bp_report.rs / src/app/playback_manager.rs никогда не показывают Bit-perfect; тест (§8 С4, ТЗ-52). Проверка: cargo test bp_report
 - [ ] Шаг 58: Финал: cargo build/test/clippy зелёные; ROADMAP ✅; заметка плана; напомнить пользователю удалить settings.toml (ТЗ-97) и показать расхождение с 02 spec стр. 3342 (решение — за пользователем); ручные проверки (переключатель режимов, Совместимый играет, Оптимальный/Строгий через hw: на Linux). Проверка: cargo test + clippy
 
 Легенда: [x] сделано · [>] текущий шаг · [ ] не начато
 
-- **Текущий шаг (current_step):** Шаг 54
-- **Следующий ход:** Шаг 54: settings.rs — удалить index/from_index у ResamplerMode, ClockFamily, FallbackRatePolicy; cargo test --lib settings
+- **Текущий шаг (current_step):** Шаг 55
+- **Следующий ход:** Шаг 55: settings.rs — снять serde с ExclusiveMode, FallbackPolicy, ResamplerMode, ClockFamily, FallbackRatePolicy, DsdMode, ResamplerDither; полный cargo test
 - **Счетчик безуспешных компиляций:** 0/3
 - **Состояние:** in_progress
 
