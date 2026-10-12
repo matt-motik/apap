@@ -325,8 +325,9 @@ pub(crate) fn default_info_labels() -> std::collections::HashMap<String, String>
 
 /// Режим вывода DSD (ТЗ 5.1 §8.2). `Pcm` — единственный реализованный;
 /// `Native`/`DoP` зарезервированы под этап 6.6 (bit-perfect / native / DoP).
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
-#[serde(rename_all = "snake_case")]
+/// Внутренний параметр старого пути воспроизведения; в файл настроек не
+/// сохраняется (ОВС-12, §8 С4).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub enum DsdMode {
     #[default]
     Pcm,
@@ -391,8 +392,9 @@ pub enum ResamplerAlgorithm {
 
 /// Дизеринг при ресемплинге (ТЗ 5.1 §8.2). Пока не применяется в горячем
 /// пути — зарезервирован под этап 6.6 (bit-perfect/dither).
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
-#[serde(rename_all = "snake_case")]
+/// Внутренний параметр старого пути воспроизведения; в файл настроек не
+/// сохраняется (ОВС-12, §8 С4).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub enum ResamplerDither {
     #[default]
     Tpdf,
@@ -414,8 +416,9 @@ impl ResamplerAlgorithm {
 /// Режим exclusive-доступа к устройству (ТЗ A3.0 §2.1). На ALSA/cpal
 /// «exclusive» означает предпочтение raw-ноды `hw:*`; отдельного флага
 /// exclusive-access у cpal нет, режим задаётся на этапе выбора устройства.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
-#[serde(rename_all = "snake_case")]
+/// Внутренний параметр старого пути воспроизведения; в файл настроек не
+/// сохраняется (ОВС-12, §8 С4).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub enum ExclusiveMode {
     /// Всегда shared (не пытаться вешать raw-ноду как exclusive).
     Off,
@@ -427,8 +430,9 @@ pub enum ExclusiveMode {
 }
 
 /// Политика фолбека при несовпадении параметров потока (ТЗ A3.0 §2.1).
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
-#[serde(rename_all = "snake_case")]
+/// Внутренний параметр старого пути воспроизведения; в файл настроек не
+/// сохраняется (ОВС-12, §8 С4).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub enum FallbackPolicy {
     /// Ближайший поддерживаемый rate / clamp channels.
     #[default]
@@ -440,8 +444,9 @@ pub enum FallbackPolicy {
 }
 
 /// Политика ресемплинга (ТЗ A3.0 §2.1).
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
-#[serde(rename_all = "snake_case")]
+/// Внутренний параметр старого пути воспроизведения; в файл настроек не
+/// сохраняется (ОВС-12, §8 С4).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub enum ResamplerMode {
     /// Ресемплить, только если native rate недоступен.
     #[default]
@@ -453,8 +458,9 @@ pub enum ResamplerMode {
 }
 
 /// Частотное семейство для выбора fallback-рейта (ТЗ A3.0 §2.1).
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
-#[serde(rename_all = "snake_case")]
+/// Внутренний параметр старого пути воспроизведения; в файл настроек не
+/// сохраняется (ОВС-12, §8 С4).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub enum ClockFamily {
     #[default]
     Auto,
@@ -465,8 +471,9 @@ pub enum ClockFamily {
 }
 
 /// Политика выбора fallback-рейта при недоступности native (ТЗ A3.0 §2.1).
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
-#[serde(rename_all = "snake_case")]
+/// Внутренний параметр старого пути воспроизведения; в файл настроек не
+/// сохраняется (ОВС-12, §8 С4).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub enum FallbackRatePolicy {
     /// Ближайшая поддерживаемая (текущее поведение `nearest_rate`).
     #[default]

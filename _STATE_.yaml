@@ -210,7 +210,7 @@ steps:
     done: true
   - id: 55
     description: "src/settings.rs: снять Serialize/Deserialize и serde-атрибуты с ExclusiveMode, FallbackPolicy, ResamplerMode, ClockFamily, FallbackRatePolicy, DsdMode, ResamplerDither; doc — внутренние параметры старого пути (ОВС-12, §8 С4). Проверка: cargo test (формат)"
-    done: false
+    done: true
   - id: 56
     description: "src/settings.rs + src/audio/visualizer.rs: снять serde с TargetBitDepth/TargetSampleRate и DsdCacheParams (§8 С4). Проверка: cargo check; ЧЕКПОИНТ: cargo test + cargo clippy --all-targets; grep Triangular|AudioCfg|DsdCfg|AudioResamplerCfg|BitPerfectChanged пуст"
     done: false
@@ -220,8 +220,8 @@ steps:
   - id: 58
     description: "Финал: cargo build/test/clippy зелёные; ROADMAP ✅; заметка плана; напомнить пользователю удалить settings.toml (ТЗ-97) и показать расхождение с 02 spec стр. 3342 (решение — за пользователем); ручные проверки (переключатель режимов, Совместимый играет, Оптимальный/Строгий через hw: на Linux). Проверка: cargo test + clippy"
     done: false
-current_step: 55
-next_action: "Шаг 55: settings.rs — снять serde с ExclusiveMode, FallbackPolicy, ResamplerMode, ClockFamily, FallbackRatePolicy, DsdMode, ResamplerDither; полный cargo test"
+current_step: 56
+next_action: "Шаг 56: settings.rs + audio/visualizer.rs — снять serde с TargetBitDepth/TargetSampleRate и DsdCacheParams; ЧЕКПОИНТ: cargo test + cargo clippy --all-targets + grep"
 fail_counter: 0
 fail_counter_max: 3
 failed_attempts: []
