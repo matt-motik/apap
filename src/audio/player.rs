@@ -36,14 +36,12 @@ use crate::settings::{
 /// Индекс режима дизеринга из [`ResamplerDither`]; фиксируется при сборке
 /// рендера (seed TPDF, ТЗ-8).
 const DITHER_INDEX_TPDF: u8 = 0;
-const DITHER_INDEX_TRIANGULAR: u8 = 1;
 const DITHER_INDEX_OFF: u8 = 2;
 
 /// Map a config [`ResamplerDither`] to the atomically-stored index.
 fn dither_index(d: ResamplerDither) -> u8 {
     match d {
         ResamplerDither::Tpdf => DITHER_INDEX_TPDF,
-        ResamplerDither::Triangular => DITHER_INDEX_TRIANGULAR,
         ResamplerDither::Off => DITHER_INDEX_OFF,
     }
 }

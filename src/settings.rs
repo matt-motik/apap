@@ -417,7 +417,6 @@ pub enum ResamplerAlgorithm {
 pub enum ResamplerDither {
     #[default]
     Tpdf,
-    Triangular,
     Off,
 }
 
