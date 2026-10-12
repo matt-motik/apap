@@ -56,7 +56,7 @@ steps:
     done: true
   - id: 11
     description: "src/core/mod.rs: dialog_save (§6.9, ТЗ-25, 28, 29, 30, 32): diff/validate → пусто или недопустимо — без действий; итоговые настройки одной записью (save_settings_now); tracker.set_interval; change_state(User, VizMode); change_state(User, ColumnWidths(∅)) при reset_widths; engine.send(SetModeSettings(u)) только при modes = Some; draft = None, unblock; возврат — план ApplyStep + эффект записи. save_button() -> {enabled, tooltip} (ТЗ-27). exit() сбрасывает черновик (ТЗ-32, §6.10). Проверка: cargo check"
-    done: false
+    done: true
   - id: 12
     description: "Тесты диалога, ч. 2 (src/core/testing.rs, §7.2): save_button_disabled_without_changes, save_button_invalid_value_tooltip, dialog_mode_selector_does_not_switch_mode, save_keeps_state_changed_during_dialog, reset_widths_goes_to_state (ТЗ-25, 27, 30). Проверка: cargo test core::testing"
     done: false
@@ -96,8 +96,8 @@ steps:
   - id: 24
     description: "ЧЕКПОИНТ: cargo build; cargo test --no-fail-fast (только 6 падений SP1.0-B7); cargo clippy --all-targets — 0 новых предупреждений в файлах вайтлиста; каждый обработчик команды главного окна спрашивает шлюз (сверка с перечнем MainCmd); ручные проверки ТЗ-23/27/34 — пользователю. Проверка: всё перечисленное зелёное"
     done: false
-current_step: 11
-next_action: "Шаг 11: dialog_save, save_button, сброс черновика в exit() (src/core/mod.rs, §6.9, §6.10); cargo check"
+current_step: 12
+next_action: "Шаг 12: тесты диалога ч.2 (src/core/testing.rs, §7.2) — save_button_disabled_without_changes, save_button_invalid_value_tooltip, dialog_mode_selector_does_not_switch_mode, save_keeps_state_changed_during_dialog, reset_widths_goes_to_state; cargo test core::testing"
 fail_counter: 0
 fail_counter_max: 3
 failed_attempts: []

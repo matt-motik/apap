@@ -14,10 +14,11 @@ pub mod messages;
 #[cfg(test)]
 pub(crate) mod testing;
 
+use std::collections::BTreeMap;
 use std::sync::Arc;
 
 use exit::{ExitCoordinator, ExitOutcome, ExitPhase, ExitReason, ExitReport, ReplyWaiter};
-use dialog::{DialogDraft, ThemeLoad};
+use dialog::{ApplyStep, DialogDraft, ThemeLoad};
 use gate::{BlockReason, MainCmd, UiGate};
 use geometry::GeometryTracker;
 use io::{CacheKind, IoDone, IoJob, IoWorker};
@@ -361,6 +362,86 @@ impl AppCore {
     pub fn dialog_cancel(&mut self) {
         self.draft = None;
         self.gate.unblock(BlockReason::Dialog);
+    }
+
+    /// «Сохранить» в диалоге настроек (§6.9, ADR-11, ADR-12, ТЗ-25, ТЗ-28,
+    /// ТЗ-29, ТЗ-30). Без черновика, без отличий или при недопустимом значении
+    /// (кнопка неактивна, ТЗ-27) — `None` и никаких действий: черновик цел,
+    /// диалог открыт, 0 записей. Иначе, по порядку:
+    ///
+    /// 1. строится план применения только по отличиям (ТЗ-29);
+    /// 2. черновик забирается; если изменились настройки (`fields` или
+    ///    `modes`), они становятся действующими и `settings.toml` пишется
+    ///    ровно один раз — `save_settings_now` (ТЗ-28). Если изменилось только
+    ///    состояние сессии (тип визуализации, «Сбросить ширины»), файл
+    ///    настроек не пишется: эти значения идут в `state.toml` (Т-1, Т-2,
+    ///    ТЗ-30);
+    /// 3. исполняются шаги плана, относящиеся к ядру: интервал N, тип
+    ///    визуализации и сброс ширин с `Origin::User`, команда движку — только
+    ///    если изменился параметр режима;
+    /// 4. причина блокировки `BlockReason::Dialog` снимается.
+    ///
+    /// Ошибка записи закрытию диалога и применению не мешает (ТЗ-28):
+    /// настройки уже действуют, ошибка писателя придёт позже ответом в
+    /// `tick`, ошибка сериализации — сразу в `DialogSaved::write`.
+    pub fn dialog_save(&mut self) -> Option<DialogSaved> {
+        let draft = self.draft.as_ref()?;
+        let d = dialog::diff(&self.settings, &self.state, draft);
+        if d.is_empty() || !dialog::validate(draft).is_empty() {
+            return None;
+        }
+        let plan = dialog::apply_plan(&d, draft);
+        let settings_changed = !d.fields.is_empty() || d.modes.is_some();
+
+        let draft = self.draft.take()?;
+        let write = if settings_changed { self.save_settings_now(draft.settings) } else { None };
+
+        let now = self.now();
+        for step in &plan {
+            match step {
+                // Повтор после `save_settings_now` безвреден: срок — минимум
+                // из прежнего и `now + N` (У-1); без `deps` это единственная
+                // установка интервала.
+                ApplyStep::SaveInterval(n) => self.tracker.set_interval(*n, now),
+                ApplyStep::VizMode(m) => self.change_state(Origin::User, StateChange::VizMode(*m)),
+                ApplyStep::ResetWidths => {
+                    self.change_state(Origin::User, StateChange::ColumnWidths(BTreeMap::new()));
+                }
+                ApplyStep::Engine(u) => {
+                    if let Some(deps) = &self.deps {
+                        deps.engine.send(EngineCmd::SetModeSettings(u.clone()));
+                    }
+                }
+                // Шаги отображения исполняет слой UI по возвращённому плану.
+                ApplyStep::Theme(_)
+                | ApplyStep::Columns { .. }
+                | ApplyStep::TopPanel
+                | ApplyStep::Covers
+                | ApplyStep::InfoLabels
+                | ApplyStep::Visualization
+                | ApplyStep::VizCacheBudget
+                | ApplyStep::Tray
+                | ApplyStep::ScrollToPlaying => {}
+            }
+        }
+
+        self.gate.unblock(BlockReason::Dialog);
+        Some(DialogSaved { plan, write })
+    }
+
+    /// Состояние кнопки «Сохранить» (§6.9, ADR-11, ТЗ-27): активна тогда и
+    /// только тогда, когда отличия есть, а недопустимых значений нет.
+    /// Подсказка — первое недопустимое значение в виде «<param>: <reason>»;
+    /// при допустимом черновике подсказки нет. Без черновика — кнопка
+    /// неактивна, подсказки нет.
+    pub fn save_button(&self) -> SaveButton {
+        let Some(draft) = &self.draft else {
+            return SaveButton::default();
+        };
+        let invalid = dialog::validate(draft);
+        let tooltip = invalid.first().map(|i| format!("{}: {}", i.param, i.reason));
+        let enabled = invalid.is_empty() && !dialog::diff(&self.settings, &self.state, draft).is_empty();
+        SaveButton { enabled, tooltip }
     }
 
     /// Очистка дисковых кэшей вне UI-потока (§6.9, §2.13, ADR-20, ТЗ-34):
@@ -770,8 +851,9 @@ impl AppCore {
     /// принимается не в ожидании писателя, а замыканием `await_engine`
     /// (вызывается один раз, после отправки снимков — писатель уже пишет;
     /// своё ожидание до 2 с от запроса, §6.28 п. 3; итог — `engine_ack`):
-    /// события движка читает `MusicApp`; черновик диалога и сообщения
-    /// закрывает `MusicApp` до вызова. Байты плейлиста — `playlist_m3u`
+    /// события движка читает `MusicApp`; сообщения закрывает `MusicApp` до
+    /// вызова. Черновик диалога сбрасывается здесь, в начале выхода — как
+    /// «Отмена» без вопроса (ТЗ-32). Байты плейлиста — `playlist_m3u`
     /// (§4.2, ТЗ-12).
     pub fn exit(
         &mut self,
@@ -782,6 +864,10 @@ impl AppCore {
         let Some(until) = self.exit.begin(reason, now) else {
             return ExitOutcome::Ignored;
         };
+        // Выход при открытом диалоге — «Отмена» без вопроса (ТЗ-32, §6.10):
+        // отличия черновика не применяются и в `settings.toml` не попадают.
+        self.draft = None;
+        self.gate.unblock(BlockReason::Dialog);
         if self.deps.is_none() {
             self.exit.finish();
             return ExitOutcome::Completed;
@@ -897,6 +983,36 @@ impl AppCore {
     pub fn exit_phase(&self) -> ExitPhase {
         self.exit.phase()
     }
+}
+
+/// Итог «Сохранить» диалога настроек (§6.9, ADR-11, ТЗ-28, ТЗ-29) —
+/// возвращается `AppCore::dialog_save`.
+///
+/// ОТКЛОНЕНИЕ от §2.12: там возвращаемое значение названо `UiChanges`; такого
+/// типа в коде нет — слою UI отдаётся сам план применения.
+#[derive(Debug)]
+pub struct DialogSaved {
+    /// Полный план применения по отличиям (§2.10, ТЗ-29). Шаги ядра
+    /// (`SaveInterval`, `VizMode`, `ResetWidths`, `Engine`) уже исполнены
+    /// `dialog_save`; слой UI исполняет только шаги отображения и повторно
+    /// шаги ядра не выполняет.
+    pub plan: Vec<ApplyStep>,
+    /// Эффект записи `settings.toml` от `save_settings_now` (ТЗ-28): `Some` —
+    /// запись не отправлена из-за ошибки сериализации; `None` — снимок ушёл
+    /// писателю (его ошибка придёт ответом в `tick`), запись не требовалась
+    /// или изменилось только состояние сессии.
+    pub write: Option<ReplyEffect>,
+}
+
+/// Состояние кнопки «Сохранить» диалога настроек (§6.9, ТЗ-27) —
+/// возвращается `AppCore::save_button`.
+#[derive(Clone, PartialEq, Eq, Debug, Default)]
+pub struct SaveButton {
+    /// Отличия есть, недопустимых значений нет.
+    pub enabled: bool,
+    /// «<param>: <reason>» первого недопустимого значения; `None` — черновик
+    /// допустим или диалог закрыт.
+    pub tooltip: Option<String>,
 }
 
 /// Результат одного тика (§6.4): эффекты ответов писателя, уже обработанные
