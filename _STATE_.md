@@ -25,8 +25,8 @@
 - **Критерий успеха (Definition of Done):** cargo build/test/clippy зелёные (на Windows — нет новых падений сверх 6 SP1.0-B7; 0 новых варнингов в файлах вайтлиста); тесты §7.2 этапа С9 зелёные; «Сохранить» — одна запись settings.toml и применение только отличающегося; «Отмена» ничего не меняет; все команды главного окна и V идут через шлюз; settings_draft/белого списка полей нет
 
 ## Итерационный трекер
-- [>] **Шаг 1: src/core/dialog.rs (новый; `pub mod dialog;` в src/core/mod.rs): типы DialogDraft {settings, viz_mode, reset_widths, shown_mode, theme}, ThemeLoad, SettingsField, SettingsDiff (+ is_empty), Invalid — строго по §2.10 (ADR-11, ТЗ-25…29). Без функций. Проверка: cargo check**
-- [ ] Шаг 2: src/core/dialog.rs: diff(cur, state, draft) -> SettingsDiff (§2.10, §6.9, ТЗ-27, ТЗ-29, ТЗ-30): поля SettingsField сравнением с действующими; modes — через ModeSettings::diff (None при равенстве); viz_mode; reset_widths — отличие только если нажата и в состоянии есть заданные ширины; shown_mode не сравнивается; тема — ThemeLoad, отличный от Unchanged. Тесты (≤5): пустой diff нетронутого черновика, только тема, reset_widths без ширин в состоянии, shown_mode не даёт отличия, параметр режима. Проверка: cargo test core::dialog
+- [x] Шаг 1: src/core/dialog.rs (новый; `pub mod dialog;` в src/core/mod.rs): типы DialogDraft {settings, viz_mode, reset_widths, shown_mode, theme}, ThemeLoad, SettingsField, SettingsDiff (+ is_empty), Invalid — строго по §2.10 (ADR-11, ТЗ-25…29). Без функций. Проверка: cargo check
+- [>] **Шаг 2: src/core/dialog.rs: diff(cur, state, draft) -> SettingsDiff (§2.10, §6.9, ТЗ-27, ТЗ-29, ТЗ-30): поля SettingsField сравнением с действующими; modes — через ModeSettings::diff (None при равенстве); viz_mode; reset_widths — отличие только если нажата и в состоянии есть заданные ширины; shown_mode не сравнивается; тема — ThemeLoad, отличный от Unchanged. Тесты (≤5): пустой diff нетронутого черновика, только тема, reset_widths без ширин в состоянии, shown_mode не даёт отличия, параметр режима. Проверка: cargo test core::dialog**
 - [ ] Шаг 3: src/core/dialog.rs: validate(draft) -> Vec<Invalid> (§2.10, ТЗ-27): ThemeLoad::Loading и ThemeLoad::Invalid — недопустимы; сочетание буферов режима — через settings::playback::buffers_allowed (param — имя параметра). Тесты (≤4): корректный черновик пуст, Loading, Invalid, недопустимые буферы содержат имя параметра. Проверка: cargo test core::dialog
 - [ ] Шаг 4: src/core/dialog.rs: ApplyStep и apply_plan(diff, draft) -> Vec<ApplyStep> (§2.10, §6.9, ТЗ-29, §5.2 ТЗ): шаг только для отличающегося; Theme(Arc<ThemeData>) из ThemeLoad::Ready; Columns{visibility, order, defs}; Engine(ModeSettingsUpdate) только при diff.modes = Some. Тесты (≤5): пустой diff → пустой план, только тема, только колонки, только размер обложки (TopPanel, без Engine), параметр режима → один Engine. Проверка: cargo test core::dialog
 - [ ] Шаг 5: AppDeps.io: Box<dyn IoWorker> + AppCore::io() (§2.12, ADR-20) — src/core/mod.rs; Harness передаёт FakeIo (src/core/testing.rs); src/main.rs — одна строка создания (временный мост: второй экземпляр apap-io до шага 6). ОБЩИЙ ТИП — Проверка: cargo test --no-fail-fast (нет новых падений сверх 6 SP1.0-B7)
@@ -52,8 +52,8 @@
 
 Легенда: [x] сделано · [>] текущий шаг · [ ] не начато
 
-- **Текущий шаг (current_step):** Шаг 1
-- **Следующий ход:** Шаг 1: типы модели диалога в src/core/dialog.rs (§2.10); cargo check
+- **Текущий шаг (current_step):** Шаг 2
+- **Следующий ход:** Шаг 2: diff() в src/core/dialog.rs + тесты; cargo test core::dialog
 - **Счетчик безуспешных компиляций:** 0/3
 - **Состояние:** in_progress
 
