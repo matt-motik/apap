@@ -1194,7 +1194,8 @@ mod tests {
 
     /// «Сохранить» в диалоге настроек с изменением темы, устройства вывода
     /// и алгоритма ресемплинга (SRC-фильтра) — один немедленный `flush` с
-    /// байтами, содержащими все три новых значения (ТЗ-28, §6.9).
+    /// байтами, содержащими все три новых значения (ТЗ-28, §6.9). Путь —
+    /// через диалог: `dialog_open` → `dialog_edit` → `dialog_save`.
     #[test]
     fn dialog_save_single_write_all_fields() {
         let h = Harness::new();
@@ -1202,23 +1203,27 @@ mod tests {
         h.put_state(b"");
         let mut core = h.boot();
 
-        let mut settings = core.settings().clone();
-        settings.theme = ThemeName::new("dark").expect("valid theme name");
-        settings.playback.compatible.device = SharedDeviceChoice::Named(SharedDeviceId::new("hw:1,0"));
-        settings.playback.compatible.src_filter = SrcFilter::Slow;
-        core.save_settings_now(settings);
+        core.dialog_open().expect("диалог открыт");
+        let (theme, _) = pick_other_theme(&mut core);
+        core.dialog_edit(|d| {
+            d.settings.playback.compatible.device = SharedDeviceChoice::Named(SharedDeviceId::new("hw:1,0"));
+            d.settings.playback.compatible.src_filter = SrcFilter::Slow;
+        });
+        let saved = core.dialog_save().expect("отличия есть — сохранено");
+        assert!(saved.write.is_none(), "снимок ушёл писателю без ошибки сериализации");
         h.settle(&mut core);
 
         assert_eq!(h.writes(WorkFile::Settings), 1);
         let bytes = h.disk_bytes(WorkFile::Settings).expect("settings written");
         let text = String::from_utf8(bytes).expect("settings.toml is valid utf-8");
-        assert!(text.contains("theme = \"dark\""));
+        assert!(text.contains(&format!("theme = \"{}\"", theme.as_str())), "тема в файле: {text}");
         assert!(text.contains("device = \"hw:1,0\""));
         assert!(text.contains("src_filter = \"slow\""));
     }
 
-    /// «Сохранить» без изменений относительно текущего состояния — запись
-    /// не отправляется, даже когда дедлайн затем срабатывает (ТЗ-28, §6.9).
+    /// «Сохранить» без изменений относительно текущего состояния недоступно:
+    /// `dialog_save` возвращает `None`, запись не отправляется, даже когда
+    /// дедлайн затем срабатывает (ТЗ-27, ТЗ-28, §6.9).
     #[test]
     fn dialog_save_without_changes_does_not_write() {
         let h = Harness::new();
@@ -1228,7 +1233,10 @@ mod tests {
         h.put_state(b"");
         let mut core = h.boot();
 
-        let result = core.save_settings_now(core.settings().clone());
+        core.dialog_open().expect("диалог открыт");
+        core.dialog_edit(|_| {});
+        assert!(!core.save_button().enabled, "без отличий «Сохранить» недоступно");
+        let result = core.dialog_save();
         assert!(result.is_none());
         h.settle(&mut core);
         assert_eq!(h.writes(WorkFile::Settings), 0);
@@ -3534,5 +3542,235 @@ mod tests {
 
         assert_eq!(h.writes(WorkFile::Settings), 0, "settings.toml этим сохранением не пишется");
         assert_eq!(h.disk_bytes(WorkFile::Settings), settings_bytes, "settings.toml прежний, без ширин");
+    }
+
+    /// Стенд с настройками по умолчанию на диске и открытым диалогом — для
+    /// сценариев «открыть → одна правка → Сохранить» (§6.9, ТЗ-29).
+    fn boot_with_dialog() -> (Harness, AppCore) {
+        let h = Harness::new();
+        h.put_default_settings();
+        h.put_state(b"");
+        let mut core = h.boot();
+        core.dialog_open().expect("диалог открыт");
+        (h, core)
+    }
+
+    /// «Сохранить» применяет только изменённое (ТЗ-29, §6.9, §7.2). Каждый
+    /// сценарий — свой стенд: открыть → одна правка → сохранить.
+    ///
+    /// «Перестроение модели плейлиста» и «перечисление устройств» — действия
+    /// слоя UI, ядро их не выполняет; в ядре их отсутствие выражено
+    /// отсутствием соответствующих шагов в плане применения
+    /// (`ApplyStep::Columns`, `ApplyStep::Engine`) — это и проверяется.
+    /// «0 переоткрытий» устройства — 0 команд движку.
+    #[test]
+    fn dialog_save_applies_only_edited_fields() {
+        // Только тема: одно чтение темы, в плане один шаг `Theme`.
+        {
+            let (h, mut core) = boot_with_dialog();
+            let (theme, data) = pick_other_theme(&mut core);
+            let saved = core.dialog_save().expect("тема изменена — сохранено");
+            assert!(
+                matches!(&saved.plan[..], [ApplyStep::Theme(applied)] if Arc::ptr_eq(applied, &data)),
+                "план: {:?}",
+                saved.plan
+            );
+            assert_eq!(core.settings().theme, theme);
+            assert_eq!(h.io.count_read_theme(), 1, "ровно одно чтение темы");
+            assert_eq!(engine_cmd_count(&h, "SetModeSettings"), 0);
+            assert!(h.engine_cmds().is_empty(), "команд движку нет: {:?}", h.engine_cmds());
+        }
+
+        // Только видимость колонки: тема не читается, в плане один шаг `Columns`.
+        {
+            let (h, mut core) = boot_with_dialog();
+            core.dialog_edit(|d| {
+                let col = d.settings.columns.defs.values_mut().next().expect("есть хотя бы одна колонка");
+                col.visible = !col.visible;
+            });
+            let saved = core.dialog_save().expect("видимость колонки изменена — сохранено");
+            assert!(
+                matches!(&saved.plan[..], [ApplyStep::Columns { visibility: true, order: false, defs: false }]),
+                "план: {:?}",
+                saved.plan
+            );
+            assert_eq!(h.io.count_read_theme(), 0, "тема не читается");
+            assert_eq!(engine_cmd_count(&h, "SetModeSettings"), 0);
+            assert!(h.engine_cmds().is_empty(), "команд движку нет: {:?}", h.engine_cmds());
+        }
+
+        // Только размер обложки: один шаг `TopPanel`, движок не тронут
+        // (0 переоткрытий устройства), тема не читается.
+        {
+            let (h, mut core) = boot_with_dialog();
+            core.dialog_edit(|d| d.settings.top_panel.cover_size += 1.0);
+            let saved = core.dialog_save().expect("размер обложки изменён — сохранено");
+            assert_eq!(saved.plan, vec![ApplyStep::TopPanel]);
+            assert_eq!(h.io.count_read_theme(), 0, "тема не читается");
+            assert!(h.engine_cmds().is_empty(), "команд движку нет: {:?}", h.engine_cmds());
+        }
+
+        // Параметр неактивного режима: один `SetModeSettings` с одним
+        // изменённым параметром, активный режим прежний.
+        {
+            let (h, mut core) = boot_with_dialog();
+            assert_eq!(core.state().active_mode(), ModeKind::Compatible);
+            assert_ne!(core.settings().playback.strict.device_buffer, DeviceBuffer::Ms100);
+            core.dialog_edit(|d| d.settings.playback.strict.device_buffer = DeviceBuffer::Ms100);
+            let saved = core.dialog_save().expect("параметр режима изменён — сохранено");
+            match &saved.plan[..] {
+                [ApplyStep::Engine(update)] => {
+                    let changed = update.diff.as_ref().map(|m| m.changed.len());
+                    assert_eq!(changed, Some(1), "ровно один изменённый параметр: {update:?}");
+                }
+                other => panic!("ожидался один шаг Engine, план: {other:?}"),
+            }
+            assert_eq!(engine_cmd_count(&h, "SetModeSettings"), 1);
+            assert_eq!(h.engine_cmds().len(), 1, "других команд движку нет: {:?}", h.engine_cmds());
+            assert_eq!(core.state().active_mode(), ModeKind::Compatible, "активный режим не переключён");
+            assert_eq!(h.io.count_read_theme(), 0, "тема не читается");
+        }
+    }
+
+    /// Ошибка записи `settings.toml` при «Сохранить» не мешает закрытию
+    /// диалога и применению (ТЗ-20, ТЗ-28, §6.9, §7.2): диалог закрыт, тема
+    /// действует и стоит в плане; ответ писателя даёт одно окно Error,
+    /// называющее `settings.toml`; путь выхода делает ровно одну новую
+    /// попытку записи настроек.
+    #[test]
+    fn save_write_error_closes_dialog_and_applies() {
+        let h = Harness::new();
+        h.put_default_settings();
+        h.put_state(b"");
+        let mut core = h.boot();
+        let disk_before = h.disk_bytes(WorkFile::Settings);
+
+        let caps = PlatformCaps::default();
+        let mut messages = MessageCenter::default();
+        let notifier = FakeNotifier::new();
+        messages.window_shown();
+
+        h.fail_write_work(WorkFile::Settings, WriteStep::WriteData, WriteErrorClass::NoSpace, 1);
+        core.dialog_open().expect("диалог открыт");
+        let (theme, data) = pick_other_theme(&mut core);
+
+        let saved = core.dialog_save().expect("ошибка записи сохранению не мешает");
+        assert!(saved.write.is_none(), "ошибка писателя приходит позже, ответом в tick");
+        assert!(core.draft().is_none(), "диалог закрыт");
+        assert!(!core.gate().window_blocked(), "окно разблокировано");
+        assert_eq!(core.settings().theme, theme, "тема действует");
+        assert!(
+            saved.plan.iter().any(|s| matches!(s, ApplyStep::Theme(applied) if Arc::ptr_eq(applied, &data))),
+            "план: {:?}",
+            saved.plan
+        );
+
+        let effects: Vec<ReplyEffect> = h.settle_ticks(&mut core).into_iter().flatten().collect();
+        assert_eq!(effects, vec![ReplyEffect::Failed(WorkFile::Settings, WriteErrorClass::NoSpace)]);
+        apply_write_failures(effects, &mut messages, &notifier, caps);
+        let shown = messages.shown().expect("окно ошибки записи показано");
+        assert_eq!(shown.level, MessageLevel::Error);
+        assert!(shown.body.contains("settings.toml"), "текст окна: {}", shown.body);
+        assert_eq!(notifier.count(), 0, "без трея уведомлений нет");
+        assert_eq!(h.disk_bytes(WorkFile::Settings), disk_before, "файл на диске прежний");
+        assert_eq!(core.settings().theme, theme, "тема осталась применённой после ошибки");
+
+        let before = h.settings_counts();
+        assert_eq!(before.writes, 0);
+        assert_eq!(before.failures, 1, "одна неудачная попытка при «Сохранить»");
+
+        messages.dismiss_for_exit();
+        let outcome = core.exit(ExitReason::WindowClose, &mut || true);
+        assert_eq!(outcome, ExitOutcome::Completed);
+
+        let after = h.settings_counts();
+        assert_eq!(
+            (after.writes + after.failures) - (before.writes + before.failures),
+            1,
+            "путь выхода делает ровно одну попытку записи настроек"
+        );
+        assert_eq!(after.writes, 1, "попытка при выходе успешна");
+        let text = String::from_utf8(h.disk_bytes(WorkFile::Settings).expect("settings written"))
+            .expect("settings.toml is valid utf-8");
+        assert!(text.contains(&format!("theme = \"{}\"", theme.as_str())), "тема в файле: {text}");
+    }
+
+    /// Все причины выхода (ТЗ-14). `match` без ветки `_`: новый вариант
+    /// `ExitReason`/`TermSignal` ломает сборку, пока не добавлен в список.
+    fn all_exit_reasons() -> Vec<ExitReason> {
+        let all = vec![
+            ExitReason::WindowClose,
+            ExitReason::TrayQuit,
+            ExitReason::Signal(TermSignal::Term),
+            ExitReason::Signal(TermSignal::Int),
+            ExitReason::Signal(TermSignal::Hup),
+            ExitReason::WindowsSessionEnd,
+            ExitReason::MacosTerminate,
+        ];
+        for reason in &all {
+            match reason {
+                ExitReason::WindowClose
+                | ExitReason::TrayQuit
+                | ExitReason::Signal(TermSignal::Term | TermSignal::Int | TermSignal::Hup)
+                | ExitReason::WindowsSessionEnd
+                | ExitReason::MacosTerminate => {}
+            }
+        }
+        all
+    }
+
+    /// Выход при открытом диалоге отбрасывает черновик (ТЗ-32, §6.10, §7.2) —
+    /// по каждой причине выхода: тема, выбранная в черновике, не попадает ни
+    /// в действующие настройки, ни в `settings.toml`; `state.toml` записан с
+    /// громкостью, изменённой до открытия диалога.
+    #[test]
+    fn exit_with_open_dialog_discards_draft() {
+        for reason in all_exit_reasons() {
+            let h = Harness::new();
+            h.put_default_settings();
+            h.put_state(b"");
+            let mut core = h.boot();
+            let settings = core.settings().clone();
+            let settings_bytes = h.disk_bytes(WorkFile::Settings).expect("settings.toml на диске");
+            let old_state = core.state().clone();
+
+            core.change_state(Origin::User, StateChange::Volume(42));
+            assert_ne!(core.state(), &old_state, "{reason:?}: громкость изменена");
+            let new_state = core.state().clone();
+
+            core.dialog_open().expect("диалог открыт");
+            let (draft_theme, _) = pick_other_theme(&mut core);
+            assert_ne!(draft_theme, settings.theme);
+            assert!(core.save_button().enabled, "{reason:?}: в черновике есть отличие");
+
+            let outcome = core.exit(reason, &mut || true);
+            assert_eq!(outcome, ExitOutcome::Completed, "{reason:?}");
+
+            assert!(core.draft().is_none(), "{reason:?}: черновик отброшен");
+            assert_eq!(core.settings(), &settings, "{reason:?}: настройки прежние");
+            assert_eq!(core.state(), &new_state, "{reason:?}: состояние сессии не откатилось");
+
+            let on_disk = h.disk_bytes(WorkFile::Settings).expect("settings.toml на диске");
+            assert_eq!(on_disk, settings_bytes, "{reason:?}: settings.toml прежний");
+            let text = String::from_utf8(on_disk).expect("settings.toml is valid utf-8");
+            assert!(
+                text.contains(&format!("theme = \"{}\"", settings.theme.as_str())),
+                "{reason:?}: в settings.toml прежняя тема: {text}"
+            );
+            assert!(
+                !text.contains(&format!("theme = \"{}\"", draft_theme.as_str())),
+                "{reason:?}: темы черновика в settings.toml нет"
+            );
+
+            assert_eq!(h.writes(WorkFile::State), 1, "{reason:?}: state.toml записан");
+            let expected = crate::persist::state_file::serialize_state(&new_state).expect("serialize state");
+            assert_eq!(
+                h.disk_bytes(WorkFile::State),
+                Some(expected.to_vec()),
+                "{reason:?}: в state.toml новая громкость"
+            );
+            let stale = crate::persist::state_file::serialize_state(&old_state).expect("serialize state");
+            assert_ne!(expected.to_vec(), stale.to_vec(), "{reason:?}: записанное отличается от исходного");
+        }
     }
 }
