@@ -18,6 +18,7 @@ use music_player_rs::audio::player::ReservationEvent;
 use music_player_rs::audio::visualizer::{
     FreqScale, LevelScale, VisualizationMode, VisualizerConfig,
 };
+use music_player_rs::core::dialog::DialogDraft;
 use music_player_rs::core::gate::{BlockReason, LoadKind, MainCmd};
 use music_player_rs::core::messages::{
     CloseEffect, Message, MessageButton, MessageButtons, MessageCenter, MessageLevel, MsgEffect,
@@ -32,7 +33,7 @@ use music_player_rs::engine::run::{BackendCaps, EngineHandle};
 use music_player_rs::persist::settings_file::Settings as PersistSettings;
 use music_player_rs::persist::settings_file::{ColumnsConfig, ThemeName};
 use music_player_rs::persist::state_file::{
-    effective_width_pct, LegacyPlaybackState, normalize_visible, widths_on_disable, widths_on_enable, Origin, StateChange, WidthPct,
+    LegacyPlaybackState, widths_on_disable, widths_on_enable, Origin, StateChange, WidthPct,
 };
 use music_player_rs::persist::tracker::ReplyEffect;
 use music_player_rs::persist::{ConfigPaths, WorkFile};
@@ -99,16 +100,41 @@ impl Default for UiState {
     }
 }
 
-/// Черновик диалога настроек (§8.1 С3, И-Т7): настройки и правимые в
-/// диалоге поля состояния (тип визуализации, ширины колонок §2.5). Применяется
-/// целиком по «Сохранить», отбрасывается по «Отмена». `mode_edit` — какой из
-/// трёх режимов сейчас показан в панели настроек режима (§6.18, §6.27,
-/// ТЗ-41, ОВС-14); независим от активного режима воспроизведения.
-struct DialogDraft {
-    settings: PersistSettings,
-    viz_mode: VisualizationMode,
-    column_widths: BTreeMap<ColumnId, WidthPct>,
-    mode_edit: ModeKind,
+/// Пустой набор ширин колонок: его показывает список колонок диалога после
+/// «Сбросить ширины» — до «Сохранить» действующие ширины не меняются
+/// (Т-2, §6.9).
+static EMPTY_WIDTHS: BTreeMap<ColumnId, WidthPct> = BTreeMap::new();
+
+/// Ширины колонок, уходящие в состояние сессии по «Сохранить» (Т-2, §2.5,
+/// §6.9); `None` — ширины не меняются. `reset` («Сбросить ширины») даёт
+/// пустой набор. Иначе действующие ширины `current` нормализуются для каждой
+/// колонки, чья видимость в `new` отличается от `old`: скрытая теряет
+/// сохранённую ширину, показанная получает среднюю по прежним видимым.
+/// Черновик ширин не хранит, поэтому нормализация выполняется в момент
+/// сохранения, по итоговому набору видимых колонок.
+fn widths_on_save(
+    old: &ColumnsConfig,
+    new: &ColumnsConfig,
+    current: &BTreeMap<ColumnId, WidthPct>,
+    reset: bool,
+) -> Option<BTreeMap<ColumnId, WidthPct>> {
+    if reset {
+        return Some(BTreeMap::new());
+    }
+    let mut widths: Option<BTreeMap<ColumnId, WidthPct>> = None;
+    for col in ColumnId::ALL {
+        let visible = new.column_visible(col);
+        if visible == old.column_visible(col) {
+            continue;
+        }
+        let w = widths.get_or_insert_with(|| current.clone());
+        if visible {
+            widths_on_enable(new, w, col);
+        } else {
+            widths_on_disable(new, w, col);
+        }
+    }
+    widths
 }
 
 /// Метаданные темы, показываемые в диалоге настроек (T1.0 §8.2):
@@ -339,9 +365,6 @@ pub struct MusicApp {
     view_w_stable_ticks: u32,
     col_model_sig: u64,
     col_sig_stable_ticks: u32,
-    /// Черновик диалога настроек (§8.1 С3, И-Т7): настройки меняются только
-    /// через него и применяются на «Сохранить».
-    dialog: Option<DialogDraft>,
     /// Транзитное состояние выбора темы в диалоге (T1.0 §5.4/§8.2, ТЗ-22,
     /// ТЗ-29, ADR-20): имя и уже прочитанные потоком `apap-io` данные темы,
     /// не пишется в draft/settings до «Сохранить» — «Сохранить» применяет
@@ -597,7 +620,6 @@ impl MusicApp {
             view_w_stable_ticks: 0,
             col_model_sig: 0,
             col_sig_stable_ticks: 0,
-            dialog: None,
             theme_selection: None,
             theme_reading: None,
             theme_meta: None,
@@ -874,7 +896,7 @@ impl MusicApp {
     }
 
     /// Путь выхода (ТЗ-14, ТЗ-32, ADR-7, §6.10): черновик диалога
-    /// отбрасывается, окно сообщений и очередь закрываются без вопроса,
+    /// отбрасывается ядром (`dialog_cancel`), окно сообщений и очередь закрываются без вопроса,
     /// геометрия окна фиксируется в состоянии; `AppCore::exit` освобождает
     /// движок, отправляет итоговые снимки писателю и ждёт ответов не дольше
     /// бюджета выхода. Повторный запрос во время/после выхода игнорируется
@@ -882,11 +904,13 @@ impl MusicApp {
     /// цикл событий Slint не останавливается — процесс завершит ОС (ADR-7,
     /// ТЗ-15, §6.10).
     pub(super) fn exit(&mut self, reason: ExitReason) -> ExitOutcome {
-        self.dialog = None;
+        // Черновик и причина блокировки `Dialog` снимаются до `sync_gate_ui`
+        // и независимо от исхода `AppCore::exit` (при повторном запросе ядро
+        // возвращает `Ignored`, не доходя до своего сброса черновика, ТЗ-32).
+        self.core.dialog_cancel();
         if let Some(ui) = self.try_ui() {
             ui.set_settings_open(false);
         }
-        self.core.gate_mut().unblock(BlockReason::Dialog);
         self.messages.dismiss_for_exit();
         if let Some(ui) = self.try_ui() {
             ui.set_msg_shown(false);
@@ -1033,56 +1057,59 @@ impl MusicApp {
         Self::bind_callbacks(this);
     }
 
-    /// Действующие настройки для чтения: черновик диалога, если он открыт,
-    /// иначе применённые настройки ядра (§8.1 С3, И-Т7).
+    /// Действующие настройки для чтения: черновик диалога в ядре, если он
+    /// открыт, иначе применённые настройки ядра (§6.9, ADR-11).
     fn cfg(&self) -> &PersistSettings {
-        self.dialog.as_ref().map_or(self.core.settings(), |d| &d.settings)
+        self.core.draft().map_or(self.core.settings(), |d| &d.settings)
     }
 
-    /// Тип визуализации с учётом черновика диалога (§2.5, §8.1 С3).
+    /// Тип визуализации с учётом черновика диалога (Т-1, §6.9).
     fn cfg_viz_mode(&self) -> VisualizationMode {
-        self.dialog.as_ref().map_or(self.core.state().viz_mode(), |d| d.viz_mode)
+        self.core.draft().map_or(self.core.state().viz_mode(), |d| d.viz_mode)
     }
 
-    /// Ширины колонок с учётом черновика диалога (§2.5, §8.1 С3).
+    /// Ширины колонок для списка колонок диалога (Т-2, §6.9): черновик ширин
+    /// не хранит, только признак `reset_widths`. Пока он взведён — пустой
+    /// набор (ширины по приоритетам из описаний колонок), иначе действующие
+    /// ширины состояния сессии.
     fn cfg_column_widths(&self) -> &BTreeMap<ColumnId, WidthPct> {
-        self.dialog.as_ref().map_or(self.core.state().column_widths(), |d| &d.column_widths)
-    }
-
-    /// Черновик диалога для правки; `None` — диалог закрыт: настройки
-    /// меняются только через «Сохранить» (§8.1 С3, И-Т7).
-    fn dialog_mut(&mut self) -> Option<&mut DialogDraft> {
-        self.dialog.as_mut()
-    }
-
-    /// Правка настроек черновика; при закрытом диалоге — ничего (§8.1 С3, И-Т7).
-    fn edit_cfg(&mut self, f: impl FnOnce(&mut PersistSettings)) {
-        if let Some(d) = self.dialog_mut() {
-            f(&mut d.settings);
+        match self.core.draft() {
+            Some(d) if d.reset_widths => &EMPTY_WIDTHS,
+            _ => self.core.state().column_widths(),
         }
+    }
+
+    /// Правка черновика диалога в ядре; при закрытом диалоге — ничего:
+    /// настройки меняются только через «Сохранить» (§6.9, ADR-11, ТЗ-25).
+    fn edit_draft(&mut self, f: impl FnOnce(&mut DialogDraft)) {
+        self.core.dialog_edit(f);
+    }
+
+    /// Правка настроек черновика; при закрытом диалоге — ничего (§6.9, ADR-11).
+    fn edit_cfg(&mut self, f: impl FnOnce(&mut PersistSettings)) {
+        self.edit_draft(|d| f(&mut d.settings));
     }
 
     /// Открыт ли диалог настроек, то есть существует ли черновик (§6.9, ADR-11).
     fn dialog_is_open(&self) -> bool {
-        self.dialog.is_some()
+        self.core.draft().is_some()
     }
 
     /// Правка типа визуализации в черновике; при закрытом диалоге — ничего
     /// (§6.9, ADR-11).
     fn edit_cfg_viz_mode(&mut self, mode: VisualizationMode) {
-        if let Some(d) = self.dialog_mut() {
-            d.viz_mode = mode;
-        }
+        self.edit_draft(|d| d.viz_mode = mode);
     }
 
-    /// Открыть черновик диалога из текущего состояния ядра (§8.1 С3).
-    fn open_dialog_draft(&mut self) {
-        self.dialog = Some(DialogDraft {
-            settings: self.core.settings().clone(),
-            viz_mode: self.core.state().viz_mode(),
-            column_widths: self.core.state().column_widths().clone(),
-            mode_edit: self.core.state().active_mode(),
-        });
+    /// Открыть диалог настроек в ядре (§6.9, ADR-11, ADR-12, ТЗ-22, ТЗ-23):
+    /// ядро проверяет шлюз, создаёт черновик, взводит блокировку `Dialog` и
+    /// ставит один подсчёт размера кэшей; его поколение запоминается для
+    /// сверки ответа `IoDone::CacheSizes`. `false` — диалог не открыт
+    /// (шлюз не пропустил команду или черновик уже есть).
+    fn open_dialog_draft(&mut self) -> bool {
+        let Some(gen) = self.core.dialog_open() else { return false };
+        self.io_gens.sizes = gen;
+        true
     }
 
     /// Построить строки панели настроек режима из черновика диалога и
@@ -1090,8 +1117,8 @@ impl MusicApp {
     /// ТЗ-94, ОВС-14); очищает сообщение валидации. Нет открытого диалога —
     /// ничего не делает.
     fn sync_mode_dialog_to_ui(&mut self) {
-        let Some(draft) = self.dialog.as_ref() else { return };
-        let edit_mode = draft.mode_edit;
+        let Some(draft) = self.core.draft() else { return };
+        let edit_mode = draft.shown_mode;
         let rows: Vec<ModeParamRow> = mode_dialog::build_rows(edit_mode, &draft.settings.playback)
             .iter()
             .map(mode_dialog::to_param_row)
@@ -1111,9 +1138,15 @@ impl MusicApp {
     /// `PARAMS` (см. `mode_dialog::param_at`); неизвестный индекс — игнор.
     fn apply_mode_dialog_edit(&mut self, param: i32, value: mode_dialog::EditValue) {
         let Some(id) = mode_dialog::param_at(param) else { return };
-        let Some(draft) = self.dialog.as_mut() else { return };
-        let edit_mode = draft.mode_edit;
-        match mode_dialog::apply_edit(&mut draft.settings.playback, edit_mode, id, value) {
+        // Результат правки выносится из замыкания `dialog_edit`; `None` —
+        // черновика нет, диалог закрыт.
+        let mut result = None;
+        self.edit_draft(|d| {
+            let shown_mode = d.shown_mode;
+            result = Some(mode_dialog::apply_edit(&mut d.settings.playback, shown_mode, id, value));
+        });
+        let Some(result) = result else { return };
+        match result {
             Ok(()) => self.sync_mode_dialog_to_ui(),
             Err(mode_dialog::EditRejected::BuffersNotAllowed) => {
                 self.sync_mode_dialog_to_ui();
@@ -1512,10 +1545,12 @@ impl MusicApp {
             ui.on_open_settings(move || {
                 eprintln!("[gui] open_settings");
                 let mut a = app.borrow_mut();
-                if !a.core.gate().allows(MainCmd::OpenSettings) {
+                // Проверка шлюза, черновик, блокировка `Dialog` и один подсчёт
+                // размера дисковых кэшей потоком `apap-io` — в ядре
+                // (ТЗ-22, ТЗ-23, ADR-11, ADR-20).
+                if !a.open_dialog_draft() {
                     return;
                 }
-                a.open_dialog_draft();
                 // T1.0 §6.2: свежий диалог → сброс транзитного выбора темы и
                 // пересборка списка/метаданных из themes/*.toml.
                 a.theme_selection = None;
@@ -1528,17 +1563,13 @@ impl MusicApp {
                 a.sync_audio_devices();
                 a.sync_cover_settings_to_ui();
                 a.sync_mode_dialog_to_ui();
-                // Размеры дисковых кэшей считаются один раз при открытии
-                // диалога потоком `apap-io` (ТЗ-22, ADR-20); до ответа
-                // показываем последние известные значения.
-                a.io_gens.sizes = a.io_gens.sizes.wrapping_add(1);
-                a.core.io().submit(IoJob::CacheSizes { gen: a.io_gens.sizes });
+                // До ответа на подсчёт размеров кэшей показываем последние
+                // известные значения (ТЗ-22, ADR-20).
                 let cache_disk = a.cache_disk;
                 a.apply_cache_sizes(&cache_disk);
                 if let Some(ui) = a.try_ui() {
                     ui.set_settings_open(true);
                 }
-                a.core.gate_mut().block(BlockReason::Dialog);
                 a.sync_gate_ui();
             });
         }
@@ -1633,11 +1664,11 @@ impl MusicApp {
                 let mut a = app.borrow_mut();
                 // Discard the draft; the dialog itself is recreated from the
                 // real settings on the next open, so no field resync is needed.
-                a.dialog = None;
+                // The core drops it and lifts the `Dialog` block (ТЗ-26).
+                a.core.dialog_cancel();
                 if let Some(ui) = a.try_ui() {
                     ui.set_settings_open(false);
                 }
-                a.core.gate_mut().unblock(BlockReason::Dialog);
                 a.sync_gate_ui();
             });
         }
@@ -1718,13 +1749,13 @@ impl MusicApp {
                 let mut a = app.borrow_mut();
                 let raw = a.resolve_device_label(&name);
                 // Записывается в `ModeSettings` показанной в диалоге панели
-                // режима (`mode_edit`), а не в прежнее легаси-поле устройства
+                // режима (`shown_mode`), а не в прежнее легаси-поле устройства
                 // (ТЗ-94, §2.4) — `edit_cfg` не подходит, так как даёт доступ
-                // только к `PersistSettings` черновика, без `mode_edit`.
-                if let Some(d) = a.dialog_mut() {
-                    let mode = d.mode_edit;
+                // только к `PersistSettings` черновика, без `shown_mode`.
+                a.edit_draft(|d| {
+                    let mode = d.shown_mode;
                     d.settings.playback.set_device(mode, &raw);
-                }
+                });
             });
         }
 
@@ -1773,12 +1804,17 @@ impl MusicApp {
             let app = this.clone();
             ui.on_bp_report_open_settings(move || {
                 let mut a = app.borrow_mut();
+                // Как `open_settings`: шлюз, черновик, блокировка `Dialog` и
+                // подсчёт размера кэшей — в ядре (ТЗ-22, ТЗ-23, ADR-11).
+                if !a.open_dialog_draft() {
+                    return;
+                }
                 if let Some(ui) = a.try_ui() {
                     ui.set_bp_report_open(false);
                     ui.set_settings_open(true);
                 }
-                a.open_dialog_draft();
                 a.sync_audio_devices();
+                a.sync_gate_ui();
             });
         }
 
@@ -1796,17 +1832,16 @@ impl MusicApp {
                     (col, visible)
                 };
                 let mut a = app.borrow_mut();
-                // Видимость — настройка, ширина — состояние сессии; обе
-                // правятся в черновике (§2.5, §8.1 С3).
-                if let Some(d) = a.dialog_mut() {
+                // В черновике меняется только видимость (настройка); ширины —
+                // состояние сессии — пересчитываются по «Сохранить»
+                // (`widths_on_save`, §2.5, §6.9).
+                a.edit_draft(|d| {
                     if visible {
                         d.settings.columns.disable_column(col);
-                        widths_on_disable(&d.settings.columns, &mut d.column_widths, col);
                     } else {
                         d.settings.columns.enable_column(col);
-                        widths_on_enable(&d.settings.columns, &mut d.column_widths, col);
                     }
-                }
+                });
                 // Draft-only: refresh just the dialog list; live columns change
                 // only when the draft is applied on Save.
                 a.sync_dialog_cols();
@@ -1819,19 +1854,11 @@ impl MusicApp {
             ui.on_settings_reset_cols(move || {
                 eprintln!("[gui] settings_reset_cols");
                 let mut a = app.borrow_mut();
-                // Reset only the width proportions to their config priorities;
-                // the current visibility and column order are kept (§2.5, §8.1 С3).
-                if let Some(d) = a.dialog_mut() {
-                    let none = BTreeMap::new();
-                    let mut widths = BTreeMap::new();
-                    for c in d.settings.columns.visible_columns() {
-                        if let Some(w) = WidthPct::new(effective_width_pct(&d.settings.columns, &none, c)) {
-                            widths.insert(c, w);
-                        }
-                    }
-                    normalize_visible(&d.settings.columns, &mut widths);
-                    d.column_widths = widths;
-                }
+                // «Сбросить ширины» (Т-2, §6.9): черновик запоминает только
+                // признак; по «Сохранить» в состояние уходит пустой набор
+                // ширин — колонки получают ширины по приоритетам. Видимость и
+                // порядок колонок не меняются.
+                a.edit_draft(|d| d.reset_widths = true);
                 a.sync_dialog_cols();
             });
         }
@@ -1884,11 +1911,18 @@ impl MusicApp {
         {
             let app = this.clone();
             ui.on_settings_save(move || {
-                eprintln!("[gui] settings_save (Save) draft_present={}", app.borrow().dialog.is_some());
+                eprintln!("[gui] settings_save (Save) draft_present={}", app.borrow().core.draft().is_some());
                 let mut a = app.borrow_mut();
-                let Some(draft) = a.dialog.take() else { return };
+                // Мост до перехода на `core.dialog_save()`: из черновика ядра
+                // берутся копии, черновик закрывается (вместе с блокировкой
+                // `Dialog`), а сохранение и применение идут прежним кодом ниже.
+                let Some((mut new, viz_mode, reset_widths)) =
+                    a.core.draft().map(|d| (d.settings.clone(), d.viz_mode, d.reset_widths))
+                else {
+                    return;
+                };
+                a.core.dialog_cancel();
                 let old = a.core.settings().clone();
-                let DialogDraft { settings: mut new, viz_mode, column_widths, mode_edit: _ } = draft;
                 // T1.0 §6.4 (ТЗ-22, ТЗ-29, ADR-20): коммит выбранной в диалоге
                 // темы из транзитного поля (кнопка Save активна только для
                 // валидной темы, §5.3) — данные уже прочитаны потоком
@@ -1918,7 +1952,13 @@ impl MusicApp {
                 // запрета автозаписи; смена интервала переставляет срок
                 // (ТЗ-28, §6.9).
                 a.core.change_state(Origin::User, StateChange::VizMode(viz_mode));
-                a.core.change_state(Origin::User, StateChange::ColumnWidths(column_widths));
+                // Ширины меняются только при сбросе или смене видимости колонок
+                // (Т-2, §6.9).
+                let widths =
+                    widths_on_save(&old.columns, &new.columns, a.core.state().column_widths(), reset_widths);
+                if let Some(widths) = widths {
+                    a.core.change_state(Origin::User, StateChange::ColumnWidths(widths));
+                }
                 if let Some(effect) = a.core.save_settings_now(new) {
                     a.apply_reply_effects(vec![effect]);
                 }
@@ -1964,7 +2004,6 @@ impl MusicApp {
                 if let Some(ui) = a.try_ui() {
                     ui.set_settings_open(false);
                 }
-                a.core.gate_mut().unblock(BlockReason::Dialog);
                 a.sync_gate_ui();
                 eprintln!("[gui] settings_save: applied and closed");
             });
@@ -1982,8 +2021,7 @@ impl MusicApp {
                     2 => ModeKind::Strict,
                     _ => return,
                 };
-                let Some(draft) = a.dialog.as_mut() else { return };
-                draft.mode_edit = mode;
+                a.edit_draft(|d| d.shown_mode = mode);
                 a.sync_mode_dialog_to_ui();
             });
         }

@@ -393,9 +393,9 @@ impl MusicApp {
         // (или активного режима воспроизведения, если диалог закрыт), а не из
         // прежнего легаси-поля устройства (ТЗ-94, §2.4).
         let mode = self
-            .dialog
-            .as_ref()
-            .map(|d| d.mode_edit)
+            .core
+            .draft()
+            .map(|d| d.shown_mode)
             .unwrap_or_else(|| self.core.state().active_mode());
         let saved = self.cfg().playback.device(mode).unwrap_or("").to_string();
         let active = self.active_device.clone();
