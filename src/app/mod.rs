@@ -18,7 +18,7 @@ use music_player_rs::audio::player::ReservationEvent;
 use music_player_rs::audio::visualizer::{
     FreqScale, LevelScale, VisualizationMode, VisualizerConfig,
 };
-use music_player_rs::core::dialog::DialogDraft;
+use music_player_rs::core::dialog::{DialogDraft, ThemeLoad};
 use music_player_rs::core::gate::{BlockReason, LoadKind, MainCmd};
 use music_player_rs::core::messages::{
     CloseEffect, Message, MessageButton, MessageButtons, MessageCenter, MessageLevel, MsgEffect,
@@ -365,16 +365,6 @@ pub struct MusicApp {
     view_w_stable_ticks: u32,
     col_model_sig: u64,
     col_sig_stable_ticks: u32,
-    /// Транзитное состояние выбора темы в диалоге (T1.0 §5.4/§8.2, ТЗ-22,
-    /// ТЗ-29, ADR-20): имя и уже прочитанные потоком `apap-io` данные темы,
-    /// не пишется в draft/settings до «Сохранить» — «Сохранить» применяет
-    /// сохранённый `Arc<ThemeData>` без повторного чтения файла.
-    theme_selection: Option<(ThemeName, Arc<ThemeData>)>,
-    /// Имя темы, на которое отправлен `IoJob::ReadTheme` по выбору
-    /// пользователя в ComboBox (ТЗ-22, ADR-20); `None` — нет
-    /// пользовательского чтения в полёте (в т.ч. во время чтения текущей
-    /// темы при открытии диалога, которое не является выбором).
-    theme_reading: Option<ThemeName>,
     /// Метаданные темы, показанные под ComboBox (name/description/valid).
     theme_meta: Option<ThemeMeta>,
     cover_tx: Option<std::sync::mpsc::Sender<CoverJob>>,
@@ -620,8 +610,6 @@ impl MusicApp {
             view_w_stable_ticks: 0,
             col_model_sig: 0,
             col_sig_stable_ticks: 0,
-            theme_selection: None,
-            theme_reading: None,
             theme_meta: None,
             cover_tx: Some(cover_tx),
             cover_rx: Some(cover_done_rx),
@@ -1237,63 +1225,120 @@ impl MusicApp {
         }
         let found = entries.iter().any(|e| e.file_stem == current);
         match found.then(|| ThemeName::new(current.clone())).flatten() {
-            Some(name) => {
-                self.io_gens.theme = self.io_gens.theme.wrapping_add(1);
-                self.core.io().submit(IoJob::ReadTheme { gen: self.io_gens.theme, name });
-            }
+            Some(name) => self.request_current_theme_meta(name),
             None => self.set_theme_meta(None),
         }
     }
 
-    /// Применяет ответ `IoJob::ReadTheme` (ТЗ-22, ТЗ-29, ADR-20, §5.2/§6.2):
-    /// `Ok` — метаданные с полной валидацией (структура + HEX); `Err` — файл
-    /// есть, но не читается/невалиден (Save заблокирован, как при сломанном
-    /// файле до переноса в `apap-io`). Если это ответ на пользовательский
-    /// выбор в ComboBox (`theme_reading`, не чтение текущей темы при
-    /// открытии диалога) и тема валидна — прочитанные данные запоминаются в
-    /// `theme_selection`, чтобы «Сохранить» применила их без повторного
-    /// чтения файла.
-    fn apply_theme_read(&mut self, result: Result<Arc<ThemeData>, Box<str>>) {
-        let reading = self.theme_reading.take();
-        let meta = match &result {
-            Ok(data) => Some(ThemeMeta {
-                name: data.name.clone(),
-                description: data.description.clone(),
-                valid: validate_colors(&data.colors).is_ok(),
-            }),
-            Err(_) => Some(ThemeMeta {
-                name: String::new(),
-                description: None,
-                valid: false,
-            }),
-        };
-        if let (Some(name), Ok(data)) = (reading, result) {
-            if meta.as_ref().is_some_and(|m| m.valid) {
-                self.theme_selection = Some((name, data));
-            }
-        }
-        self.set_theme_meta(meta);
-    }
-
-    /// Обработчик выбора темы в ComboBox (§5.4/§6.3, ТЗ-22, ADR-20): без
-    /// доступа к диску — отправляет `IoJob::ReadTheme` потоку `apap-io` и
-    /// блокирует «Сохранить» до ответа (`apply_theme_read` заполнит
-    /// `theme_selection` при валидной теме).
-    fn on_settings_theme_selected(&mut self, name: &str) {
-        self.theme_selection = None;
-        let Some(theme_name) = ThemeName::new(name) else {
-            self.set_theme_meta(Some(ThemeMeta {
-                name: String::new(),
-                description: None,
-                valid: false,
-            }));
-            return;
-        };
-        self.io_gens.theme = self.io_gens.theme.wrapping_add(1);
-        self.theme_reading = Some(theme_name.clone());
-        self.core.io().submit(IoJob::ReadTheme { gen: self.io_gens.theme, name: theme_name });
+    /// Запрашивает у потока `apap-io` файл действующей темы только ради
+    /// показа её метаданных под ComboBox (ТЗ-22, ADR-20, §6.2): поколение
+    /// берётся из общего счётчика ядра и запоминается в `io_gens.theme`,
+    /// черновик не меняется. «Сохранить» блокируется до ответа.
+    fn request_current_theme_meta(&mut self, name: ThemeName) {
+        let gen = self.core.next_io_gen();
+        self.io_gens.theme = gen;
+        self.core.io().submit(IoJob::ReadTheme { gen, name });
         if let Some(ui) = self.try_ui() {
             ui.set_theme_save_enabled(false);
+        }
+    }
+
+    /// Метаданные прочитанной темы (§5.2/§5.3, ТЗ-27): `valid` — полная
+    /// проверка HEX-цветов; поток `apap-io` и ядро проверяют только
+    /// структуру файла.
+    fn theme_meta_read(data: &ThemeData) -> ThemeMeta {
+        ThemeMeta {
+            name: data.name.clone(),
+            description: data.description.clone(),
+            valid: validate_colors(&data.colors).is_ok(),
+        }
+    }
+
+    /// Метаданные темы, файл которой есть, но не читается/невалиден (§5.2,
+    /// ТЗ-27): пустое имя, «Сохранить» заблокирована.
+    fn theme_meta_broken() -> ThemeMeta {
+        ThemeMeta {
+            name: String::new(),
+            description: None,
+            valid: false,
+        }
+    }
+
+    /// Показывает под ComboBox метаданные темы, выбранной в черновике
+    /// (§2.10, §5.2, ТЗ-22, ТЗ-27): `ThemeLoad::Ready` — метаданные
+    /// прочитанной темы, `ThemeLoad::Invalid` — «не удалось загрузить».
+    /// В остальных состояниях черновика (и без него) ничего не меняет.
+    fn show_draft_theme_meta(&mut self) {
+        let meta = match self.core.draft().map(|d| &d.theme) {
+            Some(ThemeLoad::Ready(data)) => Self::theme_meta_read(data),
+            Some(ThemeLoad::Invalid { .. }) => Self::theme_meta_broken(),
+            _ => return,
+        };
+        self.set_theme_meta(Some(meta));
+    }
+
+    /// Применяет ответ `IoJob::ReadTheme` (ТЗ-22, ТЗ-27, ТЗ-29, ADR-20,
+    /// §5.2/§6.2). Если черновик ждёт тему именно этого поколения
+    /// (`ThemeLoad::Loading { gen }`) — это ответ на выбор в ComboBox: данные
+    /// уходят в черновик ядра (`dialog_theme_loaded`), и «Сохранить» применит
+    /// их без повторного чтения файла; под ComboBox показываются метаданные
+    /// по состоянию черновика. Иначе, если поколение совпадает с
+    /// `io_gens.theme`, — это чтение действующей темы для показа: `Ok` —
+    /// метаданные с полной валидацией (структура + HEX), `Err` — файл есть,
+    /// но не читается/невалиден (Save заблокирован); черновик не меняется.
+    /// Любой другой ответ устарел и отбрасывается.
+    fn apply_theme_read(&mut self, gen: u64, result: Result<Arc<ThemeData>, Box<str>>) {
+        let awaited = self.core.draft().is_some_and(|d| d.theme == ThemeLoad::Loading { gen });
+        if awaited {
+            if self.core.dialog_theme_loaded(gen, result) {
+                self.show_draft_theme_meta();
+            }
+            return;
+        }
+        if gen != self.io_gens.theme {
+            return;
+        }
+        let meta = match &result {
+            Ok(data) => Self::theme_meta_read(data),
+            Err(_) => Self::theme_meta_broken(),
+        };
+        self.set_theme_meta(Some(meta));
+    }
+
+    /// Обработчик выбора темы в ComboBox (§5.4/§6.3, ТЗ-22, ADR-11, ADR-20):
+    /// без доступа к диску — имя темы пишется в черновик ядра, которое само
+    /// переводит его в `ThemeLoad::Loading` и отправляет `IoJob::ReadTheme`
+    /// потоку `apap-io`; «Сохранить» блокируется до ответа, а прежнее чтение
+    /// метаданных действующей темы объявляется устаревшим. Возврат к
+    /// действующей теме (`ThemeLoad::Unchanged`) ядро не читает — её
+    /// метаданные запрашиваются для показа. Невалидное имя черновик не
+    /// трогает.
+    fn on_settings_theme_selected(&mut self, name: &str) {
+        let Some(theme_name) = ThemeName::new(name) else {
+            self.set_theme_meta(Some(Self::theme_meta_broken()));
+            return;
+        };
+        self.edit_cfg(|s| s.theme = theme_name.clone());
+        let (loading, unchanged) = match self.core.draft().map(|d| &d.theme) {
+            Some(theme) => (
+                matches!(theme, ThemeLoad::Loading { .. }),
+                matches!(theme, ThemeLoad::Unchanged),
+            ),
+            None => return,
+        };
+        if loading {
+            // Запоздавший ответ на чтение метаданных действующей темы не
+            // должен перезаписать UI выбранной темы (ADR-20).
+            self.io_gens.theme = self.core.next_io_gen();
+            if let Some(ui) = self.try_ui() {
+                ui.set_theme_save_enabled(false);
+            }
+        } else if unchanged {
+            self.request_current_theme_meta(theme_name);
+        } else {
+            // Повторный выбор уже прочитанной темы: ядро ничего не читает,
+            // метаданные берутся из черновика.
+            self.show_draft_theme_meta();
         }
     }
 
@@ -1551,10 +1596,9 @@ impl MusicApp {
                 if !a.open_dialog_draft() {
                     return;
                 }
-                // T1.0 §6.2: свежий диалог → сброс транзитного выбора темы и
-                // пересборка списка/метаданных из themes/*.toml.
-                a.theme_selection = None;
-                a.theme_reading = None;
+                // T1.0 §6.2: свежий диалог (черновик стартует с
+                // `ThemeLoad::Unchanged`) → пересборка списка/метаданных из
+                // themes/*.toml.
                 a.populate_theme_ui();
                 // Re-push every dialog field from the real settings: a reopened
                 // dialog must show current values, never a stale un-applied draft.
@@ -1916,21 +1960,26 @@ impl MusicApp {
                 // Мост до перехода на `core.dialog_save()`: из черновика ядра
                 // берутся копии, черновик закрывается (вместе с блокировкой
                 // `Dialog`), а сохранение и применение идут прежним кодом ниже.
-                let Some((mut new, viz_mode, reset_widths)) =
-                    a.core.draft().map(|d| (d.settings.clone(), d.viz_mode, d.reset_widths))
+                let Some((new, viz_mode, reset_widths, theme)) = a
+                    .core
+                    .draft()
+                    .map(|d| (d.settings.clone(), d.viz_mode, d.reset_widths, d.theme.clone()))
                 else {
                     return;
                 };
+                // T1.0 §6.4 (ТЗ-22, ТЗ-27, ТЗ-29, ADR-20): имя выбранной темы
+                // уже лежит в настройках черновика, а её данные прочитаны
+                // потоком `apap-io` и применяются ниже без повторного чтения
+                // файла. Тема, которая ещё читается, не прочиталась или не
+                // прошла проверку цветов, — недопустимое значение: сохранения
+                // нет, диалог остаётся открытым (кнопка Save неактивна, §5.3).
+                let selected_theme = match theme {
+                    ThemeLoad::Unchanged => None,
+                    ThemeLoad::Ready(data) if validate_colors(&data.colors).is_ok() => Some(data),
+                    ThemeLoad::Ready(_) | ThemeLoad::Loading { .. } | ThemeLoad::Invalid { .. } => return,
+                };
                 a.core.dialog_cancel();
                 let old = a.core.settings().clone();
-                // T1.0 §6.4 (ТЗ-22, ТЗ-29, ADR-20): коммит выбранной в диалоге
-                // темы из транзитного поля (кнопка Save активна только для
-                // валидной темы, §5.3) — данные уже прочитаны потоком
-                // `apap-io`, применяются ниже без повторного чтения файла.
-                let selected_theme = a.theme_selection.take();
-                if let Some((name, _)) = &selected_theme {
-                    new.theme = name.clone();
-                }
 
                 // Устройство читается из `ModeSettings` активного режима
                 // воспроизведения (ТЗ-94, §2.4), а не из прежнего легаси-поля
@@ -1990,7 +2039,7 @@ impl MusicApp {
                 // ТЗ-22, ТЗ-29, ADR-20: без выбора темы в этой сессии диалога
                 // тема не меняется и не перечитывается — применяются только
                 // уже прочитанные `apap-io` данные выбранной темы.
-                if let Some((_, data)) = &selected_theme {
+                if let Some(data) = &selected_theme {
                     a.apply_theme(data);
                 }
                 if let Some(ui) = a.try_ui() {
@@ -2381,11 +2430,13 @@ impl MusicApp {
     /// Разбирает ответы потока `apap-io` на тике: ответы сверяются с
     /// поколением своего вида; устаревшие отбрасываются (ADR-20). Свежий
     /// `CacheSizes`/`Cleared` применяется в UI (ТЗ-22, ТЗ-34); `Themes`/`Theme`
-    /// — список тем и метаданные текущей при открытии диалога (ТЗ-22, §6.2).
+    /// — список тем и метаданные темы в диалоге (ТЗ-22, §6.2). Ответ `Theme`
+    /// сверяет сам `apply_theme_read`: его может ждать черновик ядра
+    /// (`ThemeLoad::Loading`) либо показ метаданных действующей темы.
     fn drain_io(&mut self) {
         while let Some(done) = self.core.io().try_recv() {
             let stale = match &done {
-                IoDone::Theme { gen, .. } => *gen != self.io_gens.theme,
+                IoDone::Theme { .. } => false,
                 IoDone::Themes { gen, .. } => *gen != self.io_gens.themes,
                 IoDone::CacheSizes { gen, .. } => *gen != self.io_gens.sizes,
                 IoDone::Cleared { gen, .. } => *gen != self.io_gens.clear,
@@ -2395,7 +2446,7 @@ impl MusicApp {
             }
             match done {
                 IoDone::Themes { entries, .. } => self.apply_theme_list(entries),
-                IoDone::Theme { result, .. } => self.apply_theme_read(result),
+                IoDone::Theme { gen, result } => self.apply_theme_read(gen, result),
                 IoDone::CacheSizes { sizes, .. } | IoDone::Cleared { sizes, .. } => {
                     self.cache_disk = sizes;
                     self.apply_cache_sizes(&sizes);

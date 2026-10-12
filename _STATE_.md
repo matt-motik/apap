@@ -41,8 +41,8 @@
 - [x] Шаг 14: Тесты шлюза, ч. 4 (src/core/testing.rs, §7.2): menu_inactive_while_message_open и menu_inactive_while_picker_open на шлюзе AppCore, picker_does_not_block_loop, clear_playlist_menu_marks_dirty (ТЗ-23, 34, 52, 53). Проверка: cargo test core::testing
 - [x] Шаг 15: src/app/viz_settings_manager.rs, src/app/fulltrack_manager.rs: прямые обращения к полю MusicApp.dialog → через хелперы cfg()/edit_cfg()/dialog_mut() (подготовка к снятию локального черновика; ADR-11). Проверка: cargo check; grep обращений к полю dialog в этих файлах пуст
 - [x] Шаг 16: src/app/mod.rs, src/app/ui_manager.rs: локальный struct DialogDraft и поле dialog удаляются; хелперы cfg()/cfg_viz_mode()/dialog_mut()/edit_cfg()/open_dialog_draft() — поверх core.draft()/dialog_edit()/dialog_open(); column_widths → reset_widths, mode_edit → shown_mode (§2.10, §8.1 С9 «удаляется settings_draft»). Сохранение пока прежним кодом (мост до шага 18). Проверка: cargo check
-- [>] **Шаг 17: src/app/mod.rs: выбор темы в диалоге — DialogDraft.theme: ThemeLoad (Loading{gen} при отправке ReadTheme, Ready/Invalid по ответу apap-io с тем же gen); поля theme_selection и theme_reading удаляются (§2.10, §6.9, ТЗ-27, ТЗ-29). Проверка: cargo check; grep theme_selection и theme_reading пуст**
-- [ ] Шаг 18: src/app/mod.rs, src/app/audio_facade.rs: on_settings_save → core.dialog_save() и исполнение шагов ApplyStep (тема без чтения файла, колонки без смены ключа/порядка, обложки, визуализация, бюджет кэша, трей; Engine(u) — фасад только принимает новые ModeSettings в кэш, команда уже отправлена ядром); on_settings_close/Esc → core.dialog_cancel(); прежняя замена настроек целиком удаляется (§6.9, §5.2 ТЗ, ТЗ-26, 28, 29, 31). Проверка: cargo test --no-fail-fast (нет новых падений)
+- [x] Шаг 17: src/app/mod.rs: выбор темы в диалоге — DialogDraft.theme: ThemeLoad (Loading{gen} при отправке ReadTheme, Ready/Invalid по ответу apap-io с тем же gen); поля theme_selection и theme_reading удаляются (§2.10, §6.9, ТЗ-27, ТЗ-29). Проверка: cargo check; grep theme_selection и theme_reading пуст
+- [>] **Шаг 18: src/app/mod.rs, src/app/audio_facade.rs: on_settings_save → core.dialog_save() и исполнение шагов ApplyStep (тема без чтения файла, колонки без смены ключа/порядка, обложки, визуализация, бюджет кэша, трей; Engine(u) — фасад только принимает новые ModeSettings в кэш, команда уже отправлена ядром); on_settings_close/Esc → core.dialog_cancel(); прежняя замена настроек целиком удаляется (§6.9, §5.2 ТЗ, ТЗ-26, 28, 29, 31). Проверка: cargo test --no-fail-fast (нет новых падений)**
 - [ ] Шаг 19: ui/settings.slint, ui/app.slint: свойства save-enabled и save-tooltip у кнопки «Сохранить» (неактивна без отличий и при недопустимом значении; подсказка с именем параметра) — рядом с действующим theme-save-enabled (ТЗ-27). Проверка: cargo check
 - [ ] Шаг 20: src/app/mod.rs: синхронизация save-enabled/save-tooltip из core.save_button() после открытия диалога, каждой правки черновика и ответа apap-io по теме; set_theme_save_enabled больше не вызывается (ТЗ-27, §6.9). Проверка: cargo check
 - [ ] Шаг 21: ui/settings.slint, ui/app.slint: удалить свойство theme-save-enabled (заменено save-enabled; ТЗ-27). Проверка: cargo check; grep theme-save-enabled и theme_save_enabled пуст
@@ -52,8 +52,8 @@
 
 Легенда: [x] сделано · [>] текущий шаг · [ ] не начато
 
-- **Текущий шаг (current_step):** Шаг 17
-- **Следующий ход:** Шаг 17: app/mod.rs — тема через DialogDraft.theme (ThemeLoad), удалить theme_selection/theme_reading; cargo check --all-targets
+- **Текущий шаг (current_step):** Шаг 18
+- **Следующий ход:** Шаг 18: app/mod.rs, audio_facade.rs — on_settings_save через core.dialog_save() + исполнение ApplyStep; cargo test --no-fail-fast
 - **Счетчик безуспешных компиляций:** 0/3
 - **Состояние:** in_progress
 
