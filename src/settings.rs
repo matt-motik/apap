@@ -334,27 +334,6 @@ pub enum DsdMode {
     DoP,
 }
 
-impl DsdMode {
-    /// Порядковый индекс для ComboBox-модели `.slint` (0=Pcm, 1=Native, 2=DoP).
-    pub const fn index(self) -> i32 {
-        match self {
-            DsdMode::Pcm => 0,
-            DsdMode::Native => 1,
-            DsdMode::DoP => 2,
-        }
-    }
-
-    /// Обратное отображение из индекса UI (валидные значения 0..=2).
-    pub fn from_index(i: i32) -> Option<Self> {
-        match i {
-            0 => Some(DsdMode::Pcm),
-            1 => Some(DsdMode::Native),
-            2 => Some(DsdMode::DoP),
-            _ => None,
-        }
-    }
-}
-
 /// Битность конвертации DSD → PCM (ТЗ 5.1 §8.2). Внутри плеера PCM всегда
 /// f32; значение используется на этапе 6.6 (dither/bit-perfect) и в FullTrackWorker.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
@@ -447,27 +426,6 @@ pub enum ExclusiveMode {
     Strict,
 }
 
-impl ExclusiveMode {
-    /// Порядковый индекс для ComboBox-модели `.slint` (0=Off, 1=Auto, 2=Strict).
-    pub const fn index(self) -> i32 {
-        match self {
-            ExclusiveMode::Off => 0,
-            ExclusiveMode::Auto => 1,
-            ExclusiveMode::Strict => 2,
-        }
-    }
-
-    /// Обратное отображение из индекса UI (валидные значения 0..=2).
-    pub fn from_index(i: i32) -> Option<Self> {
-        match i {
-            0 => Some(ExclusiveMode::Off),
-            1 => Some(ExclusiveMode::Auto),
-            2 => Some(ExclusiveMode::Strict),
-            _ => None,
-        }
-    }
-}
-
 /// Политика фолбека при несовпадении параметров потока (ТЗ A3.0 §2.1).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
 #[serde(rename_all = "snake_case")]
@@ -479,27 +437,6 @@ pub enum FallbackPolicy {
     DeviceDefault,
     /// Отказ при несовпадении — трек не откроется.
     Fail,
-}
-
-impl FallbackPolicy {
-    /// Порядковый индекс для ComboBox-модели `.slint` (0=Nearest, 1=DeviceDefault, 2=Fail).
-    pub const fn index(self) -> i32 {
-        match self {
-            FallbackPolicy::Nearest => 0,
-            FallbackPolicy::DeviceDefault => 1,
-            FallbackPolicy::Fail => 2,
-        }
-    }
-
-    /// Обратное отображение из индекса UI (валидные значения 0..=2).
-    pub fn from_index(i: i32) -> Option<Self> {
-        match i {
-            0 => Some(FallbackPolicy::Nearest),
-            1 => Some(FallbackPolicy::DeviceDefault),
-            2 => Some(FallbackPolicy::Fail),
-            _ => None,
-        }
-    }
 }
 
 /// Политика ресемплинга (ТЗ A3.0 §2.1).
@@ -641,18 +578,6 @@ mod tests {
         assert_eq!(clamp_ring_buffer_ms(50), RING_BUFFER_MS_MIN);
         assert_eq!(clamp_ring_buffer_ms(1500), 1500);
         assert_eq!(clamp_ring_buffer_ms(20_000), RING_BUFFER_MS_MAX);
-    }
-
-    #[test]
-    fn dsd_mode_index_roundtrip() {
-        assert_eq!(DsdMode::Pcm.index(), 0);
-        assert_eq!(DsdMode::Native.index(), 1);
-        assert_eq!(DsdMode::DoP.index(), 2);
-        assert_eq!(DsdMode::from_index(0), Some(DsdMode::Pcm));
-        assert_eq!(DsdMode::from_index(1), Some(DsdMode::Native));
-        assert_eq!(DsdMode::from_index(2), Some(DsdMode::DoP));
-        assert_eq!(DsdMode::from_index(3), None);
-        assert_eq!(DsdMode::from_index(i32::MAX), None);
     }
 
     #[test]
