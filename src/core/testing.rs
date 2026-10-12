@@ -64,6 +64,10 @@ pub(crate) struct Harness {
     /// Загрузчик плейлиста стенда (ADR-16, §6.12): задания копятся здесь,
     /// тесты разрешают их вызовом `loader.finish(...)`.
     pub(crate) loader: ManualLoader,
+    /// Фиктивный поток `apap-io` стенда (§7.1, ADR-20, §2.12): клон уходит
+    /// в `AppDeps.io` при каждом `boot`, состояние общее — тесты опрашивают
+    /// журнал заданий и задают ответы через это поле.
+    pub(crate) io: FakeIo,
 }
 
 impl Harness {
@@ -76,6 +80,7 @@ impl Harness {
             clock: ManualClock::new(),
             engine_log: Rc::new(RefCell::new(Vec::new())),
             loader: ManualLoader::default(),
+            io: FakeIo::new(),
         }
     }
 
@@ -232,7 +237,8 @@ impl Harness {
         let engine: Box<dyn EngineSink> = Box::new(RecordingEngine { log: Rc::clone(&self.engine_log) });
         let loader: Box<dyn PlaylistLoader> = Box::new(self.loader.clone());
         let reader: Arc<dyn FileReader> = Arc::new(self.fs.clone());
-        let deps = AppDeps { writer, paths: self.paths.clone(), clock, waiter, journal, engine, loader, reader };
+        let io: Box<dyn IoWorker> = Box::new(self.io.clone());
+        let deps = AppDeps { writer, paths: self.paths.clone(), clock, waiter, journal, engine, loader, reader, io };
         AppCore::with_deps(deps, boot)
     }
 

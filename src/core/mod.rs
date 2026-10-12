@@ -18,6 +18,7 @@ use std::sync::Arc;
 
 use exit::{ExitCoordinator, ExitOutcome, ExitPhase, ExitReason, ExitReport, ReplyWaiter};
 use geometry::GeometryTracker;
+use io::{IoDone, IoJob, IoWorker};
 use load::LoadCtl;
 use messages::{Message, MessageButtons, MessageLevel};
 
@@ -125,6 +126,21 @@ pub struct AppDeps {
     pub loader: Box<dyn PlaylistLoader>,
     /// Чтение файлов для загрузчика плейлиста (ADR-16, ADR-5).
     pub reader: Arc<dyn FileReader>,
+    /// Поток `apap-io`: чтение тем, размер и очистка дисковых кэшей вне
+    /// UI-потока (ADR-20, §2.12, ТЗ-22, ТЗ-34).
+    pub io: Box<dyn IoWorker>,
+}
+
+/// Пустая реализация `IoWorker` (ADR-20, §2.12): задания уходят в никуда,
+/// ответов не бывает. Её отдаёт `AppCore::io()`, когда зависимостей нет.
+pub struct NoIo;
+
+impl IoWorker for NoIo {
+    fn submit(&self, _job: IoJob) {}
+
+    fn try_recv(&self) -> Option<IoDone> {
+        None
+    }
 }
 
 /// Ядро приложения без Slint (ADR-19, §2.12): владеет настройками и
@@ -210,6 +226,16 @@ impl AppCore {
         match &self.deps {
             Some(deps) => deps.clock.now(),
             None => ClockInstant::START,
+        }
+    }
+
+    /// Канал заданий/ответов потока `apap-io` (ADR-20, §2.12, ТЗ-22, ТЗ-34).
+    /// Оба метода `IoWorker` принимают `&self`, поэтому изменяемый доступ
+    /// не нужен; без `deps` — пустая реализация `NoIo`.
+    pub fn io(&self) -> &dyn IoWorker {
+        match &self.deps {
+            Some(deps) => deps.io.as_ref(),
+            None => &NoIo,
         }
     }
 

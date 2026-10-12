@@ -98,6 +98,23 @@ fn main() {
         Ok((handle, caps)) => (Ok(handle), caps),
         Err(fault) => (Err(fault), BackendCaps::current()),
     };
+    // Поток `apap-io` (ADR-20, §2.12, §4): чтение тем, размеры и очистка
+    // дисковых кэшей вне UI-потока. Не запустился — получатель получает
+    // пустую реализацию `IoWorker`, остальной путь запуска не прерывается.
+    let io_paths = IoPaths {
+        themes: paths.dir.join("themes"),
+        covers: music_player_rs::cover::covers_cache_dir(),
+        viz: music_player_rs::audio::fulltrack::viz_cache_dir(),
+    };
+    let make_io = || -> Box<dyn IoWorker> {
+        match spawn_io(io_paths.clone()) {
+            Ok(thread) => Box::new(thread),
+            Err(e) => {
+                eprintln!("[io] поток apap-io не запущен: {e}");
+                Box::new(NoIo)
+            }
+        }
+    };
     // `AppCore` — владелец действующих настроек и состояния, писателя и
     // инжектируемых часов/ожидания (ADR-19, ADR-23, §2.12, §6.1). `MusicApp`
     // владеет этим экземпляром; старое плоское поле настроек заполняется из
@@ -115,6 +132,9 @@ fn main() {
             },
             loader: Box::new(ThreadLoader),
             reader,
+            // Временный второй экземпляр до переноса MusicApp на core.io()
+            // (SP1.0-8.9 шаг 6).
+            io: make_io(),
         },
         boot,
     );
@@ -136,21 +156,8 @@ fn main() {
     let tray_port = TrayPort { updates: tray_updates_rx, ready: tray_ready_tx, rt: notify_rt.clone() };
     let notifier = platform_notifier(notify_rt, journal.clone());
     let tray = TrayChannels { events: tray_events, updates: tray_updates, ready: tray_ready };
-    // Поток `apap-io` (ADR-20, §2.12, §4): чтение тем, размеры и очистка
-    // дисковых кэшей вне UI-потока. Не запустился — `MusicApp` получает
-    // пустую реализацию `IoWorker`, остальной путь запуска не прерывается.
-    let io_paths = IoPaths {
-        themes: paths.dir.join("themes"),
-        covers: music_player_rs::cover::covers_cache_dir(),
-        viz: music_player_rs::audio::fulltrack::viz_cache_dir(),
-    };
-    let io: Box<dyn IoWorker> = match spawn_io(io_paths) {
-        Ok(thread) => Box::new(thread),
-        Err(e) => {
-            eprintln!("[io] поток apap-io не запущен: {e}");
-            Box::new(NoIo)
-        }
-    };
+    // Экземпляр `apap-io` самого `MusicApp` (ADR-20, §2.12).
+    let io = make_io();
     // Выбор файлов (ADR-10, ТЗ-53): системные диалоги `rfd` за трейтом
     // `FilePicker`, чтобы тесты могли подставить `FakePicker`.
     let picker: Box<dyn FilePicker> = Box::new(RfdPicker);
