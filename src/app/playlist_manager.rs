@@ -23,7 +23,7 @@ impl MusicApp {
             ui.set_busy(true);
         }
         // Список недоступен для ТЗ-48 команд до конца фонового сканирования.
-        self.gate.set_loading(Some(LoadKind::Command));
+        self.core.gate_mut().set_loading(Some(LoadKind::Command));
         thread::spawn(move || {
             playlist::probe_paths(paths, tx);
         });
@@ -88,7 +88,7 @@ impl MusicApp {
             if let Some(ui) = self.try_ui() {
                 ui.set_busy(false);
             }
-            self.gate.set_loading(None);
+            self.core.gate_mut().set_loading(None);
             // Flush leftovers if the stream ended without a final Done message.
             if !self.scan_pending.is_empty() {
                 let added: Vec<Track> = std::mem::take(&mut self.scan_pending);

@@ -18,7 +18,7 @@ use music_player_rs::audio::player::ReservationEvent;
 use music_player_rs::audio::visualizer::{
     FreqScale, LevelScale, VisualizationMode, VisualizerConfig,
 };
-use music_player_rs::core::gate::{BlockReason, LoadKind, MainCmd, UiGate};
+use music_player_rs::core::gate::{BlockReason, LoadKind, MainCmd};
 use music_player_rs::core::messages::{
     CloseEffect, Message, MessageButton, MessageButtons, MessageCenter, MessageLevel, MsgEffect,
 };
@@ -406,9 +406,6 @@ pub struct MusicApp {
     /// Debounce перестроения полнотрековых при изменении параметров из диалога
     /// (ТЗ §9.2: 500 мс): (момент последнего изменения, целевой (path, key)).
     viz_debounce: Option<(Instant, Option<(PathBuf, String)>)>,
-    /// Шлюз главного окна: причины блокировки (диалог/сообщение/выбор файла)
-    /// и вид идущей загрузки плейлиста (ADR-12, ТЗ-23, ТЗ-48, §2.11).
-    gate: UiGate,
     /// Центр сообщений: очередь до первого показа, по одному, сводное окно
     /// ошибок записи с «Повторить»/«OK» (ADR-13, §6.15, §6.8, ТЗ-52, ТЗ-20).
     messages: MessageCenter,
@@ -627,7 +624,6 @@ impl MusicApp {
             fulltrack_cache: clru::CLruCache::new(cache_max_entries),
             fulltrack_mode: None,
             viz_debounce: None,
-            gate: UiGate::default(),
             messages: MessageCenter::default(),
             // Трей и уведомления — после регистрации значка (poll_tray, ADR-6).
             caps: PlatformCaps::default(),
@@ -648,7 +644,7 @@ impl MusicApp {
         // (`poll_load_playlist`) разбирает итог. Список недоступен до её
         // окончания (ТЗ-48, §2.11).
         app.core.start_startup_load();
-        app.gate.set_loading(Some(LoadKind::Startup));
+        app.core.gate_mut().set_loading(Some(LoadKind::Startup));
         if let Some(ui) = app.try_ui() {
             ui.set_busy(true);
         }
@@ -737,7 +733,7 @@ impl MusicApp {
             if let Some(ui) = &ui {
                 ui.set_msg_shown(false);
             }
-            self.gate.unblock(BlockReason::Message);
+            self.core.gate_mut().unblock(BlockReason::Message);
         }
         if let Some(message) = show {
             let level = match message.level {
@@ -762,7 +758,7 @@ impl MusicApp {
                 ui.set_msg_primary_label(primary_label);
                 ui.set_msg_shown(true);
             }
-            self.gate.block(BlockReason::Message);
+            self.core.gate_mut().block(BlockReason::Message);
         }
         self.sync_gate_ui();
     }
@@ -771,7 +767,7 @@ impl MusicApp {
     /// (ADR-12, ТЗ-23).
     pub(super) fn sync_gate_ui(&mut self) {
         if let Some(ui) = self.try_ui() {
-            ui.set_window_blocked(self.gate.window_blocked());
+            ui.set_window_blocked(self.core.gate().window_blocked());
         }
     }
 
@@ -826,7 +822,7 @@ impl MusicApp {
             let mut a = app.borrow_mut();
             let start = a.core.state().last_dir().map(|p| p.to_path_buf());
             let req = make_req(start);
-            a.gate.block(BlockReason::FilePicker);
+            a.core.gate_mut().block(BlockReason::FilePicker);
             a.sync_gate_ui();
             let parent = a.try_ui();
             a.picker.pick(req, parent.as_ref().map(|ui| ui.window()))
@@ -837,7 +833,7 @@ impl MusicApp {
             let result = fut.await;
             {
                 let mut a = app.borrow_mut();
-                a.gate.unblock(BlockReason::FilePicker);
+                a.core.gate_mut().unblock(BlockReason::FilePicker);
                 a.sync_gate_ui();
             }
             let PickResult::Paths(paths) = result else {
@@ -858,7 +854,7 @@ impl MusicApp {
             on_paths(&app, paths);
         }) {
             let mut a = app_for_err.borrow_mut();
-            a.gate.unblock(BlockReason::FilePicker);
+            a.core.gate_mut().unblock(BlockReason::FilePicker);
             a.sync_gate_ui();
             eprintln!("[picker] spawn_local не запустился: {e}");
         }
@@ -890,12 +886,12 @@ impl MusicApp {
         if let Some(ui) = self.try_ui() {
             ui.set_settings_open(false);
         }
-        self.gate.unblock(BlockReason::Dialog);
+        self.core.gate_mut().unblock(BlockReason::Dialog);
         self.messages.dismiss_for_exit();
         if let Some(ui) = self.try_ui() {
             ui.set_msg_shown(false);
         }
-        self.gate.unblock(BlockReason::Message);
+        self.core.gate_mut().unblock(BlockReason::Message);
         self.sync_gate_ui();
         // Последнее показание геометрии — в состояние до итоговых снимков.
         if let Some(g) = self.window_geometry() {
@@ -1268,7 +1264,7 @@ impl MusicApp {
         };
         if let Some(col) = col {
             let mut a = app.borrow_mut();
-            if !a.gate.allows(MainCmd::SortBy(col)) {
+            if !a.core.gate().allows(MainCmd::SortBy(col)) {
                 return;
             }
             a.sort_tracks(col);
@@ -1284,7 +1280,7 @@ impl MusicApp {
             ui.on_play_pause(move || {
                 eprintln!("[gui] play_pause");
                 let mut a = app.borrow_mut();
-                if !a.gate.allows(MainCmd::PlayPause) {
+                if !a.core.gate().allows(MainCmd::PlayPause) {
                     return;
                 }
                 if !a.player.has_decoder() {
@@ -1309,7 +1305,7 @@ impl MusicApp {
             ui.on_stop(move || {
                 eprintln!("[gui] stop");
                 let mut a = app.borrow_mut();
-                if !a.gate.allows(MainCmd::Stop) {
+                if !a.core.gate().allows(MainCmd::Stop) {
                     return;
                 }
                 a.player.stop();
@@ -1323,7 +1319,7 @@ impl MusicApp {
             ui.on_prev_track(move || {
                 eprintln!("[gui] prev_track");
                 let mut a = app.borrow_mut();
-                if !a.gate.allows(MainCmd::Prev) {
+                if !a.core.gate().allows(MainCmd::Prev) {
                     return;
                 }
                 a.play_prev();
@@ -1336,7 +1332,7 @@ impl MusicApp {
             ui.on_next_track(move || {
                 eprintln!("[gui] next_track");
                 let mut a = app.borrow_mut();
-                if !a.gate.allows(MainCmd::Next) {
+                if !a.core.gate().allows(MainCmd::Next) {
                     return;
                 }
                 a.play_next(1);
@@ -1349,7 +1345,7 @@ impl MusicApp {
             ui.on_toggle_repeat(move || {
                 eprintln!("[gui] toggle_repeat");
                 let mut a = app.borrow_mut();
-                if !a.gate.allows(MainCmd::Repeat) {
+                if !a.core.gate().allows(MainCmd::Repeat) {
                     return;
                 }
                 a.cycle_repeat();
@@ -1362,7 +1358,7 @@ impl MusicApp {
             ui.on_toggle_shuffle(move || {
                 eprintln!("[gui] toggle_shuffle");
                 let mut a = app.borrow_mut();
-                if !a.gate.allows(MainCmd::Shuffle) {
+                if !a.core.gate().allows(MainCmd::Shuffle) {
                     return;
                 }
                 a.shuffle = !a.shuffle;
@@ -1379,7 +1375,7 @@ impl MusicApp {
             let app = this.clone();
             ui.on_seek(move |fraction| {
                 eprintln!("[gui] seek fraction={fraction:.3}");
-                if !app.borrow().gate.allows(MainCmd::Seek) {
+                if !app.borrow().core.gate().allows(MainCmd::Seek) {
                     return;
                 }
                 let duration = app.borrow().player.snapshot().2.unwrap_or(0.0);
@@ -1392,7 +1388,7 @@ impl MusicApp {
             let app = this.clone();
             ui.on_seek_commit(move |fraction| {
                 eprintln!("[gui] seek_commit fraction={fraction:.3}");
-                if !app.borrow().gate.allows(MainCmd::Seek) {
+                if !app.borrow().core.gate().allows(MainCmd::Seek) {
                     return;
                 }
                 let duration = app.borrow().player.snapshot().2.unwrap_or(0.0);
@@ -1406,7 +1402,7 @@ impl MusicApp {
             ui.on_volume_changed(move |volume| {
                 eprintln!("[gui] volume_changed volume={volume:.3}");
                 let mut a = app.borrow_mut();
-                if !a.gate.allows(MainCmd::Volume) {
+                if !a.core.gate().allows(MainCmd::Volume) {
                     return;
                 }
                 // Bit-perfect (Direct Output) moves the volume stage to the
@@ -1437,7 +1433,7 @@ impl MusicApp {
             ui.on_toggle_mute(move || {
                 eprintln!("[gui] toggle_mute");
                 let mut a = app.borrow_mut();
-                if !a.gate.allows(MainCmd::ToggleMute) {
+                if !a.core.gate().allows(MainCmd::ToggleMute) {
                     return;
                 }
                 a.player.toggle_mute();
@@ -1467,7 +1463,7 @@ impl MusicApp {
             ui.on_play_track(move |index| {
                 eprintln!("[gui] play_track index={index}");
                 let mut a = app.borrow_mut();
-                if !a.gate.allows(MainCmd::PlayRow) {
+                if !a.core.gate().allows(MainCmd::PlayRow) {
                     return;
                 }
                 let now = Instant::now();
@@ -1503,7 +1499,7 @@ impl MusicApp {
             ui.on_open_settings(move || {
                 eprintln!("[gui] open_settings");
                 let mut a = app.borrow_mut();
-                if !a.gate.allows(MainCmd::OpenSettings) {
+                if !a.core.gate().allows(MainCmd::OpenSettings) {
                     return;
                 }
                 a.open_dialog_draft();
@@ -1529,7 +1525,7 @@ impl MusicApp {
                 if let Some(ui) = a.try_ui() {
                     ui.set_settings_open(true);
                 }
-                a.gate.block(BlockReason::Dialog);
+                a.core.gate_mut().block(BlockReason::Dialog);
                 a.sync_gate_ui();
             });
         }
@@ -1539,7 +1535,7 @@ impl MusicApp {
             let app = this.clone();
             ui.on_add_files(move || {
                 eprintln!("[gui] add_files");
-                if !app.borrow().gate.allows(MainCmd::AddFiles) {
+                if !app.borrow().core.gate().allows(MainCmd::AddFiles) {
                     return;
                 }
                 MusicApp::pick_async(
@@ -1555,7 +1551,7 @@ impl MusicApp {
             let app = this.clone();
             ui.on_add_folder(move || {
                 eprintln!("[gui] add_folder");
-                if !app.borrow().gate.allows(MainCmd::AddFolder) {
+                if !app.borrow().core.gate().allows(MainCmd::AddFolder) {
                     return;
                 }
                 MusicApp::pick_async(
@@ -1575,7 +1571,7 @@ impl MusicApp {
             let app = this.clone();
             ui.on_save_playlist(move || {
                 eprintln!("[gui] save_playlist");
-                if !app.borrow().gate.allows(MainCmd::SavePlaylist) {
+                if !app.borrow().core.gate().allows(MainCmd::SavePlaylist) {
                     return;
                 }
                 MusicApp::pick_async(
@@ -1597,7 +1593,7 @@ impl MusicApp {
             let app = this.clone();
             ui.on_load_playlist(move || {
                 eprintln!("[gui] load_playlist");
-                if !app.borrow().gate.allows(MainCmd::LoadPlaylist) {
+                if !app.borrow().core.gate().allows(MainCmd::LoadPlaylist) {
                     return;
                 }
                 MusicApp::pick_async(
@@ -1606,7 +1602,7 @@ impl MusicApp {
                     |app, paths| {
                         let path = paths[0].clone();
                         let mut a = app.borrow_mut();
-                        a.gate.set_loading(Some(LoadKind::Command));
+                        a.core.gate_mut().set_loading(Some(LoadKind::Command));
                         if let Some(ui) = a.try_ui() {
                             ui.set_busy(true);
                         }
@@ -1628,7 +1624,7 @@ impl MusicApp {
                 if let Some(ui) = a.try_ui() {
                     ui.set_settings_open(false);
                 }
-                a.gate.unblock(BlockReason::Dialog);
+                a.core.gate_mut().unblock(BlockReason::Dialog);
                 a.sync_gate_ui();
             });
         }
@@ -1955,7 +1951,7 @@ impl MusicApp {
                 if let Some(ui) = a.try_ui() {
                     ui.set_settings_open(false);
                 }
-                a.gate.unblock(BlockReason::Dialog);
+                a.core.gate_mut().unblock(BlockReason::Dialog);
                 a.sync_gate_ui();
                 eprintln!("[gui] settings_save: applied and closed");
             });
@@ -2017,7 +2013,7 @@ impl MusicApp {
             ui.on_menu_clear_playlist(move || {
                 eprintln!("[gui] menu_clear_playlist");
                 let mut a = app.borrow_mut();
-                if !a.gate.allows(MainCmd::ClearPlaylist) {
+                if !a.core.gate().allows(MainCmd::ClearPlaylist) {
                     return;
                 }
                 a.clear_playlist();
@@ -2031,7 +2027,7 @@ impl MusicApp {
             ui.on_menu_remove_selected(move |row| {
                 eprintln!("[gui] menu_remove_selected row={row}");
                 let mut a = app.borrow_mut();
-                if !a.gate.allows(MainCmd::RemoveCurrent) {
+                if !a.core.gate().allows(MainCmd::RemoveCurrent) {
                     return;
                 }
                 if let Ok(idx) = usize::try_from(row) {
@@ -2319,7 +2315,7 @@ impl MusicApp {
         }
         // Загрузка завершена — снять признак ТЗ-48 и индикатор занятости,
         // список снова доступен.
-        self.gate.set_loading(None);
+        self.core.gate_mut().set_loading(None);
         if let Some(ui) = self.try_ui() {
             ui.set_busy(false);
         }
