@@ -201,7 +201,7 @@ pub fn build_bp_report(inp: &BpInputs<'_>) -> BpReport {
             });
         }
     }
-    if matches!(dither, ResamplerDither::Tpdf | ResamplerDither::Triangular) {
+    if matches!(dither, ResamplerDither::Tpdf) {
         report.reasons.push(BpReason {
             severity: Severity::Warning,
             title: "Дизеринг активен".into(),
