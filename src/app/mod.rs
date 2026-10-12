@@ -1062,6 +1062,19 @@ impl MusicApp {
         }
     }
 
+    /// Открыт ли диалог настроек, то есть существует ли черновик (§6.9, ADR-11).
+    fn dialog_is_open(&self) -> bool {
+        self.dialog.is_some()
+    }
+
+    /// Правка типа визуализации в черновике; при закрытом диалоге — ничего
+    /// (§6.9, ADR-11).
+    fn edit_cfg_viz_mode(&mut self, mode: VisualizationMode) {
+        if let Some(d) = self.dialog_mut() {
+            d.viz_mode = mode;
+        }
+    }
+
     /// Открыть черновик диалога из текущего состояния ядра (§8.1 С3).
     fn open_dialog_draft(&mut self) {
         self.dialog = Some(DialogDraft {

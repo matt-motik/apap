@@ -455,7 +455,7 @@ impl MusicApp {
         // Debounce (§9.2): правки параметров из диалога (draft) перезапускают
         // полнотрековый билд только после 500 мс стабильности; смена режима
         // применяется сразу (V / комбобокс типа).
-        let in_dialog = self.dialog.is_some();
+        let in_dialog = self.dialog_is_open();
         let mode_changed = self.fulltrack_mode != Some(mode);
         if !in_dialog {
             self.viz_debounce = None;

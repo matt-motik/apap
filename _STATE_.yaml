@@ -68,7 +68,7 @@ steps:
     done: true
   - id: 15
     description: "src/app/viz_settings_manager.rs, src/app/fulltrack_manager.rs: прямые обращения к полю MusicApp.dialog → через хелперы cfg()/edit_cfg()/dialog_mut() (подготовка к снятию локального черновика; ADR-11). Проверка: cargo check; grep обращений к полю dialog в этих файлах пуст"
-    done: false
+    done: true
   - id: 16
     description: "src/app/mod.rs, src/app/ui_manager.rs: локальный struct DialogDraft и поле dialog удаляются; хелперы cfg()/cfg_viz_mode()/dialog_mut()/edit_cfg()/open_dialog_draft() — поверх core.draft()/dialog_edit()/dialog_open(); column_widths → reset_widths, mode_edit → shown_mode (§2.10, §8.1 С9 «удаляется settings_draft»). Сохранение пока прежним кодом (мост до шага 18). Проверка: cargo check"
     done: false
@@ -96,8 +96,8 @@ steps:
   - id: 24
     description: "ЧЕКПОИНТ: cargo build; cargo test --no-fail-fast (только 6 падений SP1.0-B7); cargo clippy --all-targets — 0 новых предупреждений в файлах вайтлиста; каждый обработчик команды главного окна спрашивает шлюз (сверка с перечнем MainCmd); ручные проверки ТЗ-23/27/34 — пользователю. Проверка: всё перечисленное зелёное"
     done: false
-current_step: 15
-next_action: "Шаг 15: viz_settings_manager.rs, fulltrack_manager.rs — обращения к .dialog через хелперы; cargo check --all-targets"
+current_step: 16
+next_action: "Шаг 16: app/mod.rs, ui_manager.rs — локальный DialogDraft и поле dialog удаляются, хелперы поверх core (column_widths -> reset_widths, mode_edit -> shown_mode; сохранение прежним кодом — мост до шага 18); cargo check --all-targets"
 fail_counter: 0
 fail_counter_max: 3
 failed_attempts: []

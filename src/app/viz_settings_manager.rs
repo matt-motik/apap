@@ -132,16 +132,14 @@ impl MusicApp {
     /// диалог закрыт — настройки меняются только через «Сохранить»
     /// (§8.1 С3, И-Т7).
     fn edit_viz(&mut self, f: impl FnOnce(&mut VizSettings)) {
-        if let Some(d) = self.dialog_mut() {
-            f(&mut d.settings.visualization);
-        }
+        self.edit_cfg(|s| f(&mut s.visualization));
     }
 
     /// Цикл по всем типам (Off→Osc→Spectrogram→Spectrum→Off), ТЗ §3.2.
     /// Режим — состояние сессии: пишется по сроку отложенной записи (ТЗ-10,
     /// §8.1 С4); сразу применяется к UI/воркерам.
     pub(super) fn cycle_viz_mode(&mut self) {
-        if self.dialog.is_some() {
+        if self.dialog_is_open() {
             return;
         }
         let current = self.core.state().viz_mode();
@@ -156,7 +154,7 @@ impl MusicApp {
     /// пишется по сроку отложенной записи (ТЗ-10, §8.1 С4); UI (галочки
     /// меню) синхронизируется сразу.
     pub(super) fn menu_select_viz_mode(&mut self, i: i32) {
-        if self.dialog.is_some() {
+        if self.dialog_is_open() {
             return;
         }
         let picked = VisualizationMode::from_index(i);
@@ -170,7 +168,7 @@ impl MusicApp {
     /// Сброс настроек текущего типа к дефолтам (кнопка в диалоге, §9.2,
     /// §8.1 С3).
     pub(super) fn reset_viz_type(&mut self) {
-        if self.dialog.is_none() {
+        if !self.dialog_is_open() {
             return;
         }
         let mode = self.cfg_viz_mode();
@@ -302,9 +300,7 @@ impl MusicApp {
 /// Привязка всех колбэков вкладки «Visualization» и горячей клавиши V.
 pub fn bind_viz_settings_callbacks(this: &Rc<RefCell<MusicApp>>) {
     bind_int(this, "viz-mode", |a, i| {
-        if let Some(d) = a.dialog_mut() {
-            d.viz_mode = VisualizationMode::from_index(i);
-        }
+        a.edit_cfg_viz_mode(VisualizationMode::from_index(i));
         // Пересинхронизируем диалог, чтобы переключились блоки полей (§3.2/§9).
         a.sync_viz_settings_to_ui();
         a.viz_apply_validated_texts();
