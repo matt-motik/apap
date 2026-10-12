@@ -10,7 +10,7 @@ use crate::persist::settings_file::{ColumnDef, Settings};
 use crate::persist::state_file::SessionState;
 use crate::settings::ColumnId;
 use crate::settings::params::ModeSettingsDiff;
-use crate::settings::playback::ModeKind;
+use crate::settings::playback::{buffers_allowed, ModeKind, ModeSettings, ValueBlocker};
 use crate::theme::ThemeData;
 
 /// Черновик диалога (§2.10, ADR-11, ТЗ-25): только параметры диалога.
@@ -159,6 +159,58 @@ pub fn diff(cur: &Settings, state: &SessionState, draft: &DialogDraft) -> Settin
     SettingsDiff { fields, modes, viz_mode, reset_widths }
 }
 
+/// Подпись темы в подсказке «Сохранить» (§6.9, ТЗ-27).
+const PARAM_THEME: &str = "Тема";
+/// Подписи буфера устройства по режимам: подпись параметра из диалога режима
+/// и режим, в котором сочетание недопустимо (§6.9, ТЗ-27, ТЗ-131).
+const PARAM_DEVICE_BUFFER_OPTIMAL: &str = "Буфер устройства (Оптимальный режим)";
+const PARAM_DEVICE_BUFFER_STRICT: &str = "Буфер устройства (Строгий режим)";
+
+/// Недопустимые значения черновика (§2.10, §6.9, ТЗ-27): пока список не пуст,
+/// «Сохранить» неактивна, а подсказка — первый элемент в виде
+/// «<param>: <reason>». Порядок: тема, затем режимы в порядке объявления.
+/// Допустимые множества §2.4 обеспечены типами `Settings`; проверяются
+/// состояние чтения темы (ТЗ-29) и И-Р22 `buffers_allowed` для пар «буфер
+/// плеера / буфер устройства» Оптимального и Строгого режимов.
+pub fn validate(draft: &DialogDraft) -> Vec<Invalid> {
+    let mut invalid = Vec::new();
+
+    match &draft.theme {
+        ThemeLoad::Unchanged | ThemeLoad::Ready(_) => {}
+        ThemeLoad::Loading { .. } => {
+            invalid.push(Invalid { param: PARAM_THEME, reason: "тема загружается".into() });
+        }
+        ThemeLoad::Invalid { reason } => {
+            invalid.push(Invalid { param: PARAM_THEME, reason: reason.clone() });
+        }
+    }
+
+    // Без `..` — новый режим в `ModeSettings` без строки здесь не компилируется.
+    // У Совместимого режима буфера устройства нет (ТЗ-131).
+    let ModeSettings { compatible: _, optimal, strict } = &draft.settings.playback;
+    let pairs = [
+        (PARAM_DEVICE_BUFFER_OPTIMAL, optimal.buffer, optimal.device_buffer),
+        (PARAM_DEVICE_BUFFER_STRICT, strict.buffer, strict.device_buffer),
+    ];
+    for (param, buffer, device_buffer) in pairs {
+        if let Err(blocker) = buffers_allowed(buffer, device_buffer) {
+            invalid.push(Invalid { param, reason: blocker_reason(blocker) });
+        }
+    }
+
+    invalid
+}
+
+/// Причина недопустимого сочетания буферов (И-Р22, ТЗ-27, ТЗ-131):
+/// формулировки вариантов `ValueBlocker`, те же, что в диалоге режима.
+fn blocker_reason(blocker: ValueBlocker) -> Box<str> {
+    match blocker {
+        ValueBlocker::PlayerBufferTooSmall { need_ms } => format!("увеличьте буфер плеера до {need_ms} мс"),
+        ValueBlocker::DeviceBufferTooLarge { max_ms } => format!("уменьшите буфер устройства до {max_ms} мс"),
+    }
+    .into_boxed_str()
+}
+
 /// Отличия описаний колонок (§2.10, ТЗ-29, ТЗ-31): `(видимость, прочее)`.
 /// Видимость — отдельная группа: скрытие колонки пересобирает только модель
 /// колонок. Несовпадение набора идентификаторов относится к описаниям.
@@ -233,7 +285,7 @@ mod tests {
     use super::*;
     use crate::persist::settings_file::ThemeName;
     use crate::persist::state_file::{StateChange, WidthPct};
-    use crate::settings::playback::Dither;
+    use crate::settings::playback::{BufferMs, DeviceBuffer, Dither};
 
     /// Черновик, каким его создаёт открытие диалога (§6.9 `dialog_open`).
     fn draft_of(cur: &Settings, state: &SessionState) -> DialogDraft {
@@ -303,5 +355,56 @@ mod tests {
         assert_eq!(d.modes, Some(cur.playback.diff(&draft.settings.playback)));
         assert!(d.modes.is_some_and(|m| m.changed.len() == 1));
         assert!(d.fields.is_empty() && d.viz_mode.is_none() && !d.reset_widths);
+    }
+
+    #[test]
+    fn validate_valid_draft_is_empty() {
+        let (cur, state) = (Settings::default(), SessionState::default());
+        let mut draft = draft_of(&cur, &state);
+        assert!(validate(&draft).is_empty());
+
+        // Прочитанная тема допустима (ТЗ-29).
+        let theme: ThemeData = toml::from_str(crate::theme::DEFAULT_DARK_TOML).expect("built-in theme parses");
+        draft.theme = ThemeLoad::Ready(Arc::new(theme));
+        assert!(validate(&draft).is_empty());
+    }
+
+    #[test]
+    fn validate_loading_theme_is_invalid() {
+        let (cur, state) = (Settings::default(), SessionState::default());
+        let mut draft = draft_of(&cur, &state);
+        draft.theme = ThemeLoad::Loading { gen: 7 };
+        assert_eq!(validate(&draft), vec![Invalid { param: "Тема", reason: "тема загружается".into() }]);
+    }
+
+    #[test]
+    fn validate_broken_theme_reports_its_reason() {
+        let (cur, state) = (Settings::default(), SessionState::default());
+        let mut draft = draft_of(&cur, &state);
+        draft.theme = ThemeLoad::Invalid { reason: "строка 3: нет цвета accent".into() };
+        assert_eq!(validate(&draft), vec![Invalid { param: "Тема", reason: "строка 3: нет цвета accent".into() }]);
+    }
+
+    #[test]
+    fn validate_buffers_name_param_and_mode() {
+        let (cur, state) = (Settings::default(), SessionState::default());
+        let mut draft = draft_of(&cur, &state);
+        // И-Р22: 100 мс < 2 × 400 мс — только в Строгом режиме.
+        draft.settings.playback.strict.buffer = BufferMs::new(100).expect("valid buffer");
+        draft.settings.playback.strict.device_buffer = DeviceBuffer::Ms400;
+        let expected = Invalid {
+            param: "Буфер устройства (Строгий режим)",
+            reason: "увеличьте буфер плеера до 800 мс".into(),
+        };
+        assert_eq!(validate(&draft), vec![expected.clone()]);
+
+        // Порядок: тема, Оптимальный, Строгий (§6.9: подсказка — первый).
+        draft.theme = ThemeLoad::Loading { gen: 1 };
+        draft.settings.playback.optimal.buffer = BufferMs::new(100).expect("valid buffer");
+        draft.settings.playback.optimal.device_buffer = DeviceBuffer::Ms100;
+        let found = validate(&draft);
+        let params: Vec<&str> = found.iter().map(|i| i.param).collect();
+        assert_eq!(params, ["Тема", "Буфер устройства (Оптимальный режим)", "Буфер устройства (Строгий режим)"]);
+        assert_eq!(found.last(), Some(&expected));
     }
 }
