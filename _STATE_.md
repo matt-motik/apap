@@ -34,8 +34,8 @@
 - [x] Шаг 7: src/core/mod.rs: поле gate: UiGate в AppCore + gate()/gate_mut() (§2.12, ADR-12, ТЗ-23). Проверка: cargo check
 - [x] Шаг 8: src/app/mod.rs, src/app/playlist_manager.rs: шлюз MusicApp → core.gate()/gate_mut(), поле MusicApp.gate удаляется (ADR-12, И-Р8). Проверка: cargo check; grep `gate: UiGate` только в src/core
 - [x] Шаг 9: src/core/mod.rs: draft: Option<DialogDraft>; dialog_open (черновик из settings/state, gate.block(Dialog), io.submit(CacheSizes); при блокировке — без действий), dialog_edit(f), draft(), dialog_cancel (draft = None, unblock), clear_cache(which) → io.submit(ClearCache) вне черновика (§6.9, ТЗ-23, ТЗ-26, ТЗ-34, ADR-11). Проверка: cargo check
-- [>] **Шаг 10: Тесты диалога, ч. 1 (src/core/testing.rs, §7.2): menu_inactive_while_dialog_open (каждая MainCmd + повторное открытие — 0 изменений), event_dialog_edit_writes_nothing, cache_size_counted_once_per_dialog, dialog_cancel_leaves_settings_and_file_unchanged, cache_clear_survives_cancel (ТЗ-22, 23, 26, 34). Проверка: cargo test core::testing**
-- [ ] Шаг 11: src/core/mod.rs: dialog_save (§6.9, ТЗ-25, 28, 29, 30, 32): diff/validate → пусто или недопустимо — без действий; итоговые настройки одной записью (save_settings_now); tracker.set_interval; change_state(User, VizMode); change_state(User, ColumnWidths(∅)) при reset_widths; engine.send(SetModeSettings(u)) только при modes = Some; draft = None, unblock; возврат — план ApplyStep + эффект записи. save_button() -> {enabled, tooltip} (ТЗ-27). exit() сбрасывает черновик (ТЗ-32, §6.10). Проверка: cargo check
+- [x] Шаг 10: Тесты диалога, ч. 1 (src/core/testing.rs, §7.2): menu_inactive_while_dialog_open (каждая MainCmd + повторное открытие — 0 изменений), event_dialog_edit_writes_nothing, cache_size_counted_once_per_dialog, dialog_cancel_leaves_settings_and_file_unchanged, cache_clear_survives_cancel (ТЗ-22, 23, 26, 34). Проверка: cargo test core::testing
+- [>] **Шаг 11: src/core/mod.rs: dialog_save (§6.9, ТЗ-25, 28, 29, 30, 32): diff/validate → пусто или недопустимо — без действий; итоговые настройки одной записью (save_settings_now); tracker.set_interval; change_state(User, VizMode); change_state(User, ColumnWidths(∅)) при reset_widths; engine.send(SetModeSettings(u)) только при modes = Some; draft = None, unblock; возврат — план ApplyStep + эффект записи. save_button() -> {enabled, tooltip} (ТЗ-27). exit() сбрасывает черновик (ТЗ-32, §6.10). Проверка: cargo check**
 - [ ] Шаг 12: Тесты диалога, ч. 2 (src/core/testing.rs, §7.2): save_button_disabled_without_changes, save_button_invalid_value_tooltip, dialog_mode_selector_does_not_switch_mode, save_keeps_state_changed_during_dialog, reset_widths_goes_to_state (ТЗ-25, 27, 30). Проверка: cargo test core::testing
 - [ ] Шаг 13: Тесты диалога, ч. 3 (src/core/testing.rs, §7.2): dialog_save_applies_only_edited_fields, save_write_error_closes_dialog_and_applies, exit_with_open_dialog_discards_draft (на каждую причину выхода); существующие dialog_save_single_write_all_fields и dialog_save_without_changes_does_not_write переводятся на dialog_open/dialog_edit/dialog_save (ТЗ-20, 28, 29, 32). Проверка: cargo test core::testing
 - [ ] Шаг 14: Тесты шлюза, ч. 4 (src/core/testing.rs, §7.2): menu_inactive_while_message_open и menu_inactive_while_picker_open на шлюзе AppCore, picker_does_not_block_loop, clear_playlist_menu_marks_dirty (ТЗ-23, 34, 52, 53). Проверка: cargo test core::testing
@@ -52,8 +52,8 @@
 
 Легенда: [x] сделано · [>] текущий шаг · [ ] не начато
 
-- **Текущий шаг (current_step):** Шаг 10
-- **Следующий ход:** Шаг 10: тесты диалога ч.1 (src/core/testing.rs, §7.2) — menu_inactive_while_dialog_open, event_dialog_edit_writes_nothing, cache_size_counted_once_per_dialog, dialog_cancel_leaves_settings_and_file_unchanged, cache_clear_survives_cancel; cargo test core::testing
+- **Текущий шаг (current_step):** Шаг 11
+- **Следующий ход:** Шаг 11: dialog_save, save_button, сброс черновика в exit() (src/core/mod.rs, §6.9, §6.10); cargo check
 - **Счетчик безуспешных компиляций:** 0/3
 - **Состояние:** in_progress
 

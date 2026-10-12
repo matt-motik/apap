@@ -2939,4 +2939,317 @@ mod tests {
         h.settle(&mut core);
         assert_eq!(h.writes(WorkFile::Settings), 1, "явное «Сохранить» пишет исправленное значение");
     }
+
+    /// Исчерпывающий перечень `MainCmd` (§2.11, ADR-12) с одним вариантом
+    /// `SortBy`. `match` без `_`-ветки: новый вариант `MainCmd` ломает
+    /// компиляцию и напоминает дополнить список.
+    fn all_main_cmds() -> Vec<MainCmd> {
+        let all = vec![
+            MainCmd::AddFiles,
+            MainCmd::AddFolder,
+            MainCmd::LoadPlaylist,
+            MainCmd::SavePlaylist,
+            MainCmd::RemoveCurrent,
+            MainCmd::ClearPlaylist,
+            MainCmd::SortBy(ColumnId::Title),
+            MainCmd::DropFiles,
+            MainCmd::Next,
+            MainCmd::Prev,
+            MainCmd::PlayPause,
+            MainCmd::Stop,
+            MainCmd::Seek,
+            MainCmd::PlayRow,
+            MainCmd::Volume,
+            MainCmd::ToggleMute,
+            MainCmd::SwitchMode,
+            MainCmd::Repeat,
+            MainCmd::Shuffle,
+            MainCmd::VizCycle,
+            MainCmd::ColumnResize,
+            MainCmd::OpenSettings,
+        ];
+        for cmd in &all {
+            match cmd {
+                MainCmd::AddFiles
+                | MainCmd::AddFolder
+                | MainCmd::LoadPlaylist
+                | MainCmd::SavePlaylist
+                | MainCmd::RemoveCurrent
+                | MainCmd::ClearPlaylist
+                | MainCmd::SortBy(_)
+                | MainCmd::DropFiles
+                | MainCmd::Next
+                | MainCmd::Prev
+                | MainCmd::PlayPause
+                | MainCmd::Stop
+                | MainCmd::Seek
+                | MainCmd::PlayRow
+                | MainCmd::Volume
+                | MainCmd::ToggleMute
+                | MainCmd::SwitchMode
+                | MainCmd::Repeat
+                | MainCmd::Shuffle
+                | MainCmd::VizCycle
+                | MainCmd::ColumnResize
+                | MainCmd::OpenSettings => {}
+            }
+        }
+        all
+    }
+
+    /// Имя темы, заведомо отличное от темы действующих настроек — для правки
+    /// темы в черновике (§6.9, ТЗ-25).
+    fn other_theme(core: &AppCore) -> ThemeName {
+        let light = ThemeName::new("light").expect("valid theme name");
+        if core.settings().theme == light {
+            ThemeName::new("dark").expect("valid theme name")
+        } else {
+            light
+        }
+    }
+
+    /// Набор правок черновика для тестов диалога (§6.9, ТЗ-25): тема, два
+    /// флага настроек, тип визуализации и «Сбросить ширины».
+    fn edit_draft(core: &mut AppCore) {
+        let theme = other_theme(core);
+        core.dialog_edit(|d| d.settings.theme = theme);
+        core.dialog_edit(|d| {
+            d.settings.minimize_to_tray = !d.settings.minimize_to_tray;
+            d.settings.scroll_to_playing = !d.settings.scroll_to_playing;
+        });
+        core.dialog_edit(|d| {
+            d.viz_mode = if d.viz_mode == VisualizationMode::Spectrum {
+                VisualizationMode::Oscilloscope
+            } else {
+                VisualizationMode::Spectrum
+            };
+        });
+        core.dialog_edit(|d| d.reset_widths = true);
+    }
+
+    /// Меню неактивно, пока открыт диалог настроек (ТЗ-23, ADR-12, И-Р8,
+    /// §6.9, §7.2): после `dialog_open` шлюз отклоняет каждую `MainCmd`,
+    /// включая «Удалить текущий трек», «Очистить плейлист», V и повторное
+    /// открытие диалога. Повторный `dialog_open` возвращает `None` — 0
+    /// изменений настроек, состояния, черновика, заданий `apap-io`, записей
+    /// и команд движку. «Отмена» возвращает меню в прежнее состояние.
+    #[test]
+    fn menu_inactive_while_dialog_open() {
+        let h = Harness::new();
+        h.put_settings(b"");
+        h.put_state(b"");
+        let mut core = h.boot();
+
+        for cmd in all_main_cmds() {
+            assert!(core.gate().allows(cmd), "{cmd:?} разрешена до открытия диалога");
+        }
+
+        assert!(core.dialog_open().is_some(), "первое открытие создаёт черновик");
+        for cmd in all_main_cmds() {
+            assert!(!core.gate().allows(cmd), "{cmd:?} must be denied while dialog is open");
+        }
+        assert!(core.gate().window_blocked());
+
+        // Черновик с правкой: повторное открытие не должно заменить его свежим.
+        core.dialog_edit(|d| d.settings.minimize_to_tray = !d.settings.minimize_to_tray);
+
+        let settings = core.settings().clone();
+        let state = core.state().clone();
+        let draft = core.draft().cloned();
+        let jobs = h.io.jobs();
+        let engine = h.engine_cmds();
+        let playlist_len = core.playlist().len();
+
+        assert_eq!(core.dialog_open(), None, "повторное открытие отклонено шлюзом");
+
+        assert_eq!(core.settings(), &settings);
+        assert_eq!(core.state(), &state);
+        assert_eq!(core.draft().cloned(), draft, "черновик прежний, второй не создан");
+        assert_eq!(h.io.jobs(), jobs, "второе задание apap-io не отправлено");
+        assert_eq!(h.io.count_cache_sizes(), 1);
+        assert_eq!(h.engine_cmds(), engine);
+        assert_eq!(core.playlist().len(), playlist_len);
+        h.settle(&mut core);
+        assert_eq!(h.writes(WorkFile::Settings), 0);
+        assert_eq!(h.writes(WorkFile::State), 0);
+        assert_eq!(h.writes(WorkFile::Playlist), 0);
+
+        core.dialog_cancel();
+        assert!(!core.gate().window_blocked());
+        for cmd in all_main_cmds() {
+            assert!(core.gate().allows(cmd), "{cmd:?} снова разрешена после «Отмены»");
+        }
+    }
+
+    /// Правка черновика диалога ничего не пишет (ТЗ-25, §6.9, §7.3 строка
+    /// «Открыть диалог; изменить в копии»): после нескольких `dialog_edit`
+    /// (тема, флаги настроек, тип визуализации, «Сбросить ширины») и 10 мин
+    /// простоя — 0 записей `settings.toml` и `state.toml`, действующие
+    /// настройки и состояние прежние, 0 команд движку; изменился только
+    /// черновик.
+    #[test]
+    fn event_dialog_edit_writes_nothing() {
+        let h = Harness::new();
+        h.put_settings(b"");
+        h.put_state(b"");
+        let mut core = h.boot();
+
+        let settings = core.settings().clone();
+        let state = core.state().clone();
+        let engine = h.engine_cmds();
+
+        core.dialog_open().expect("диалог открыт");
+        let fresh = core.draft().cloned().expect("черновик создан");
+        assert_eq!(fresh.settings, settings, "черновик — копия действующих настроек");
+        assert_eq!(fresh.viz_mode, state.viz_mode());
+
+        edit_draft(&mut core);
+
+        let draft = core.draft().expect("черновик на месте");
+        assert_ne!(draft, &fresh, "черновик изменился");
+        assert_ne!(draft.settings.theme, settings.theme);
+        assert_ne!(draft.settings.minimize_to_tray, settings.minimize_to_tray);
+        assert_ne!(draft.settings.scroll_to_playing, settings.scroll_to_playing);
+        assert_ne!(draft.viz_mode, state.viz_mode());
+        assert!(draft.reset_widths);
+
+        h.advance(&mut core, Duration::from_secs(600));
+        h.settle(&mut core);
+
+        assert_eq!(h.writes(WorkFile::Settings), 0);
+        assert_eq!(h.writes(WorkFile::State), 0);
+        assert_eq!(core.settings(), &settings, "действующие настройки не тронуты");
+        assert_eq!(core.state(), &state, "состояние сессии не тронуто");
+        assert_eq!(h.engine_cmds(), engine, "0 команд движку");
+    }
+
+    /// Размер дисковых кэшей считается один раз за открытие диалога (ТЗ-22,
+    /// §6.9, ADR-20): `dialog_open` отправляет ровно одно задание
+    /// `CacheSizes` и возвращает его поколение; правки черновика, тики и
+    /// повторные `dialog_open` новых не добавляют. Новое открытие после
+    /// «Отмены» — второе задание с другим поколением.
+    #[test]
+    fn cache_size_counted_once_per_dialog() {
+        let h = Harness::new();
+        h.put_settings(b"");
+        h.put_state(b"");
+        let mut core = h.boot();
+        assert_eq!(h.io.count_cache_sizes(), 0, "до открытия диалога подсчёта нет");
+
+        let first = core.dialog_open().expect("диалог открыт");
+        assert_eq!(h.io.jobs(), vec![IoJob::CacheSizes { gen: first }]);
+
+        edit_draft(&mut core);
+        assert_eq!(core.dialog_open(), None);
+        assert_eq!(core.dialog_open(), None);
+        // Диалог открыт 10 с (§7.2): тики подсчёт не повторяют.
+        for _ in 0..100 {
+            h.advance(&mut core, Duration::from_millis(100));
+        }
+        assert_eq!(h.io.count_cache_sizes(), 1, "один подсчёт за открытие");
+
+        core.dialog_cancel();
+        assert_eq!(h.io.count_cache_sizes(), 1, "«Отмена» подсчёт не запускает");
+
+        let second = core.dialog_open().expect("диалог открыт снова");
+        assert_ne!(second, first, "у нового задания другое поколение");
+        let sizes: Vec<IoJob> =
+            h.io.jobs().into_iter().filter(|j| matches!(j, IoJob::CacheSizes { .. })).collect();
+        assert_eq!(sizes, vec![IoJob::CacheSizes { gen: first }, IoJob::CacheSizes { gen: second }]);
+    }
+
+    /// «Отмена» диалога настроек (ТЗ-26, §6.9, ADR-11): тема, флаги и тип
+    /// визуализации изменены в черновике, затем `dialog_cancel` — черновик
+    /// уничтожен, действующие настройки и состояние прежние, 0 записей
+    /// `settings.toml` (и `state.toml`), 0 команд движку, шлюз разблокирован.
+    #[test]
+    fn dialog_cancel_leaves_settings_and_file_unchanged() {
+        let h = Harness::new();
+        h.put_settings(b"");
+        h.put_state(b"");
+        let mut core = h.boot();
+
+        let settings = core.settings().clone();
+        let state = core.state().clone();
+        let engine = h.engine_cmds();
+
+        core.dialog_open().expect("диалог открыт");
+        edit_draft(&mut core);
+        assert_ne!(core.draft().expect("черновик на месте").settings, settings);
+
+        core.dialog_cancel();
+
+        assert!(core.draft().is_none(), "черновик уничтожен");
+        assert!(!core.gate().window_blocked());
+        assert!(core.gate().allows(MainCmd::OpenSettings), "шлюз разблокирован");
+        assert_eq!(core.settings(), &settings);
+        assert_eq!(core.state(), &state);
+
+        h.advance(&mut core, Duration::from_secs(600));
+        h.settle(&mut core);
+        assert_eq!(h.writes(WorkFile::Settings), 0);
+        assert_eq!(h.writes(WorkFile::State), 0);
+        assert_eq!(h.disk_bytes(WorkFile::Settings), Some(Vec::new()), "файл настроек на диске прежний");
+        assert_eq!(h.engine_cmds(), engine, "0 команд движку");
+
+        // Повторная «Отмена» без черновика безопасна.
+        core.dialog_cancel();
+        assert!(core.draft().is_none());
+        assert!(core.gate().allows(MainCmd::OpenSettings));
+    }
+
+    /// Очистка кэша переживает «Отмену» (ТЗ-26, ТЗ-34, §6.9): `clear_cache`
+    /// отправляет ровно одно задание `ClearCache` с возвращённым поколением
+    /// и не трогает черновик; `dialog_cancel` задание не отзывает, настройки
+    /// прежние, 0 записей. Очистка работает и без открытого диалога.
+    #[test]
+    fn cache_clear_survives_cancel() {
+        let h = Harness::new();
+        h.put_settings(b"");
+        h.put_state(b"");
+        h.io.set_sizes(CacheSizes { viz_disk: 100, covers: 200 });
+        let mut core = h.boot();
+        let settings = core.settings().clone();
+        let state = core.state().clone();
+
+        let opened = core.dialog_open().expect("диалог открыт");
+        edit_draft(&mut core);
+        let draft = core.draft().cloned();
+
+        let gen = core.clear_cache(CacheKind::Covers);
+
+        assert_ne!(gen, opened, "у очистки своё поколение");
+        assert_eq!(core.draft().cloned(), draft, "очистка — вне черновика");
+        let job = IoJob::ClearCache { gen, which: CacheKind::Covers };
+        assert_eq!(h.io.count_clear(), 1);
+        assert!(h.io.jobs().contains(&job));
+
+        core.dialog_cancel();
+
+        assert!(core.draft().is_none());
+        assert_eq!(h.io.count_clear(), 1, "«Отмена» очистку не повторяет");
+        assert!(h.io.jobs().contains(&job), "«Отмена» задание не отзывает");
+        // Очистка действительно выполнена: следующий подсчёт видит пустой кэш.
+        h.io.submit(IoJob::CacheSizes { gen: u64::MAX });
+        let mut last = None;
+        while let Some(done) = h.io.try_recv() {
+            last = Some(done);
+        }
+        assert_eq!(
+            last,
+            Some(IoDone::CacheSizes { gen: u64::MAX, sizes: CacheSizes { viz_disk: 100, covers: 0 } })
+        );
+        assert_eq!(core.settings(), &settings);
+        assert_eq!(core.state(), &state);
+        h.settle(&mut core);
+        assert_eq!(h.writes(WorkFile::Settings), 0);
+        assert_eq!(h.writes(WorkFile::State), 0);
+
+        // Без открытого диалога очистка тоже уходит в `apap-io`.
+        let again = core.clear_cache(CacheKind::All);
+        assert_ne!(again, gen);
+        assert!(core.draft().is_none(), "очистка диалог не открывает");
+        assert_eq!(h.io.count_clear(), 2);
+        assert_eq!(h.io.jobs().last(), Some(&IoJob::ClearCache { gen: again, which: CacheKind::All }));
+    }
 }
