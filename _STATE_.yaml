@@ -29,7 +29,7 @@ steps:
     done: true
   - id: 2
     description: "src/core/dialog.rs: diff(cur, state, draft) -> SettingsDiff (§2.10, §6.9, ТЗ-27, ТЗ-29, ТЗ-30): поля SettingsField сравнением с действующими; modes — через ModeSettings::diff (None при равенстве); viz_mode; reset_widths — отличие только если нажата и в состоянии есть заданные ширины; shown_mode не сравнивается; тема — ThemeLoad, отличный от Unchanged. Тесты (≤5): пустой diff нетронутого черновика, только тема, reset_widths без ширин в состоянии, shown_mode не даёт отличия, параметр режима. Проверка: cargo test core::dialog"
-    done: false
+    done: true
   - id: 3
     description: "src/core/dialog.rs: validate(draft) -> Vec<Invalid> (§2.10, ТЗ-27): ThemeLoad::Loading и ThemeLoad::Invalid — недопустимы; сочетание буферов режима — через settings::playback::buffers_allowed (param — имя параметра). Тесты (≤4): корректный черновик пуст, Loading, Invalid, недопустимые буферы содержат имя параметра. Проверка: cargo test core::dialog"
     done: false
@@ -96,8 +96,8 @@ steps:
   - id: 24
     description: "ЧЕКПОИНТ: cargo build; cargo test --no-fail-fast (только 6 падений SP1.0-B7); cargo clippy --all-targets — 0 новых предупреждений в файлах вайтлиста; каждый обработчик команды главного окна спрашивает шлюз (сверка с перечнем MainCmd); ручные проверки ТЗ-23/27/34 — пользователю. Проверка: всё перечисленное зелёное"
     done: false
-current_step: 2
-next_action: "Шаг 2: diff() в src/core/dialog.rs + тесты; cargo test core::dialog"
+current_step: 3
+next_action: "Шаг 3: validate() в src/core/dialog.rs + тесты; cargo test core::dialog"
 fail_counter: 0
 fail_counter_max: 3
 failed_attempts: []
