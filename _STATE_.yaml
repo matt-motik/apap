@@ -65,7 +65,7 @@ steps:
     done: true
   - id: 14
     description: "Тесты шлюза, ч. 4 (src/core/testing.rs, §7.2): menu_inactive_while_message_open и menu_inactive_while_picker_open на шлюзе AppCore, picker_does_not_block_loop, clear_playlist_menu_marks_dirty (ТЗ-23, 34, 52, 53). Проверка: cargo test core::testing"
-    done: false
+    done: true
   - id: 15
     description: "src/app/viz_settings_manager.rs, src/app/fulltrack_manager.rs: прямые обращения к полю MusicApp.dialog → через хелперы cfg()/edit_cfg()/dialog_mut() (подготовка к снятию локального черновика; ADR-11). Проверка: cargo check; grep обращений к полю dialog в этих файлах пуст"
     done: false
@@ -96,8 +96,8 @@ steps:
   - id: 24
     description: "ЧЕКПОИНТ: cargo build; cargo test --no-fail-fast (только 6 падений SP1.0-B7); cargo clippy --all-targets — 0 новых предупреждений в файлах вайтлиста; каждый обработчик команды главного окна спрашивает шлюз (сверка с перечнем MainCmd); ручные проверки ТЗ-23/27/34 — пользователю. Проверка: всё перечисленное зелёное"
     done: false
-current_step: 14
-next_action: "Шаг 14: тесты шлюза ч.4 (src/core/testing.rs, §7.2) — menu_inactive_while_message_open и menu_inactive_while_picker_open на шлюзе AppCore, picker_does_not_block_loop, clear_playlist_menu_marks_dirty; cargo test core::testing"
+current_step: 15
+next_action: "Шаг 15: viz_settings_manager.rs, fulltrack_manager.rs — обращения к .dialog через хелперы; cargo check --all-targets"
 fail_counter: 0
 fail_counter_max: 3
 failed_attempts: []

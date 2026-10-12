@@ -1993,50 +1993,210 @@ mod tests {
         fut.as_mut().poll(&mut cx)
     }
 
+    /// Меню неактивно, пока открыто окно сообщения (ТЗ-23, ТЗ-52 п. 1,
+    /// ADR-12, И-Р8, §7.2): слой UI взводит причину `BlockReason::Message` на
+    /// шлюзе ядра (`show_message` в `app/mod.rs`), и шлюз `AppCore` отклоняет
+    /// каждую `MainCmd`. Открытие диалога настроек — тоже команда главного
+    /// окна: `dialog_open` возвращает `None` — черновик не создан, заданий
+    /// `apap-io` нет, настройки, состояние, плейлист и команды движку
+    /// прежние, записей нет. Закрытие окна сообщения (`unblock`) возвращает
+    /// меню в прежнее состояние.
+    #[test]
+    fn menu_inactive_while_message_open() {
+        let h = Harness::new();
+        h.put_settings(b"");
+        h.put_state(b"");
+        let mut core = h.boot();
+
+        for cmd in all_main_cmds() {
+            assert!(core.gate().allows(cmd), "{cmd:?} разрешена до открытия окна сообщения");
+        }
+
+        core.gate_mut().block(BlockReason::Message);
+        for cmd in all_main_cmds() {
+            assert!(!core.gate().allows(cmd), "{cmd:?} must be denied while message window is open");
+        }
+        assert!(core.gate().window_blocked());
+
+        let settings = core.settings().clone();
+        let state = core.state().clone();
+        let engine = h.engine_cmds();
+        let playlist_len = core.playlist().len();
+
+        assert_eq!(core.dialog_open(), None, "открытие диалога отклонено шлюзом");
+
+        assert!(core.draft().is_none(), "черновик не создан");
+        assert!(h.io.jobs().is_empty(), "задания apap-io не отправлены");
+        assert_eq!(h.io.count_cache_sizes(), 0);
+        assert_eq!(core.settings(), &settings);
+        assert_eq!(core.state(), &state);
+        assert_eq!(h.engine_cmds(), engine);
+        assert_eq!(core.playlist().len(), playlist_len);
+        h.settle(&mut core);
+        assert_eq!(h.writes(WorkFile::Settings), 0);
+        assert_eq!(h.writes(WorkFile::State), 0);
+        assert_eq!(h.writes(WorkFile::Playlist), 0);
+
+        core.gate_mut().unblock(BlockReason::Message);
+        assert!(!core.gate().window_blocked());
+        for cmd in all_main_cmds() {
+            assert!(core.gate().allows(cmd), "{cmd:?} снова разрешена после закрытия окна сообщения");
+        }
+    }
+
     /// Меню неактивно, пока открыт выбор файла (§4.4 ТЗ, §7.2, ТЗ-23,
-    /// ТЗ-53, ADR-10, ADR-12): модель потока `pick_async` из `app/mod.rs` —
-    /// разрешённая команда блокирует `UiGate` причиной `FilePicker` и
-    /// запускает `FakePicker::never()` (future никогда не завершается,
-    /// диалог «висит открытым»). Пока он не отвечен, остальные команды
-    /// меню отклонены шлюзом, а повторная попытка выбора, как и в
+    /// ТЗ-53, ADR-10, ADR-12): модель потока `pick_async` из `app/mod.rs` на
+    /// шлюзе ядра — разрешённая команда взводит на шлюзе `AppCore` причину
+    /// `FilePicker` и запускает `FakePicker::never()` (future никогда не
+    /// завершается, диалог «висит открытым»). Пока он не отвечен, каждая
+    /// `MainCmd` отклонена шлюзом, включая «Добавить файлы / папку»,
+    /// «Загрузить / Сохранить плейлист»; повторная попытка выбора, как и в
     /// обработчике `app/mod.rs`, сначала проверяет `gate.allows` и до
     /// `picker.pick` не доходит — `FakePicker::calls()` остаётся равным 1.
-    /// Снятие блокировки возвращает меню в прежнее состояние.
+    /// `dialog_open` возвращает `None`: черновик не создан, заданий `apap-io`
+    /// нет. Снятие блокировки возвращает меню в прежнее состояние.
     #[test]
     fn menu_inactive_while_picker_open() {
+        let h = Harness::new();
+        h.put_settings(b"");
+        h.put_state(b"");
+        let mut core = h.boot();
         let picker = FakePicker::never();
-        let mut gate = UiGate::default();
 
-        assert!(gate.allows(MainCmd::AddFiles), "выбор файла разрешён до открытия диалога");
-        gate.block(BlockReason::FilePicker);
+        assert!(core.gate().allows(MainCmd::AddFiles), "выбор файла разрешён до открытия диалога");
+        core.gate_mut().block(BlockReason::FilePicker);
         let mut fut = picker.pick(PickRequest::AddFiles { start: None }, None);
         assert!(matches!(poll_once(&mut fut), Poll::Pending), "диалог «висит открытым»");
         assert_eq!(picker.calls(), 1);
 
-        for cmd in [
-            MainCmd::AddFiles,
-            MainCmd::AddFolder,
-            MainCmd::LoadPlaylist,
-            MainCmd::SavePlaylist,
-            MainCmd::RemoveCurrent,
-            MainCmd::ClearPlaylist,
-            MainCmd::OpenSettings,
-        ] {
-            assert!(!gate.allows(cmd), "{cmd:?} must be denied while file picker is open");
+        for cmd in all_main_cmds() {
+            assert!(!core.gate().allows(cmd), "{cmd:?} must be denied while file picker is open");
         }
-        assert!(gate.window_blocked());
+        assert!(core.gate().window_blocked());
 
         // Второй выбор, как в обработчике `app/mod.rs`: сначала проверяется
         // `gate.allows`, и только при `true` вызывается `picker.pick`.
-        if gate.allows(MainCmd::AddFiles) {
-            drop(picker.pick(PickRequest::AddFiles { start: None }, None));
+        for cmd in [MainCmd::AddFiles, MainCmd::AddFolder, MainCmd::LoadPlaylist, MainCmd::SavePlaylist] {
+            if core.gate().allows(cmd) {
+                drop(picker.pick(PickRequest::AddFiles { start: None }, None));
+            }
         }
         assert_eq!(picker.calls(), 1, "второй выбор не открыт — picker.pick не вызван");
 
+        let settings = core.settings().clone();
+        let state = core.state().clone();
+        assert_eq!(core.dialog_open(), None, "открытие диалога отклонено шлюзом");
+        assert!(core.draft().is_none(), "черновик не создан");
+        assert!(h.io.jobs().is_empty(), "задания apap-io не отправлены");
+        assert_eq!(core.settings(), &settings);
+        assert_eq!(core.state(), &state);
+        assert_eq!(core.playlist().len(), 0);
+
         drop(fut);
-        gate.unblock(BlockReason::FilePicker);
-        assert!(!gate.window_blocked());
-        assert!(gate.allows(MainCmd::AddFiles), "выбор файла снова разрешён после закрытия диалога");
+        core.gate_mut().unblock(BlockReason::FilePicker);
+        assert!(!core.gate().window_blocked());
+        for cmd in all_main_cmds() {
+            assert!(core.gate().allows(cmd), "{cmd:?} снова разрешена после закрытия диалога выбора");
+        }
+    }
+
+    /// Открытый выбор файла не останавливает цикл событий (ТЗ-53, ADR-10,
+    /// ADR-12, §6.4, §7.2): `FakePicker::never()` «никогда не отвечает»,
+    /// причина `FilePicker` взведена на шлюзе ядра и не снимается. За 30 с
+    /// посекундных тиков ядро не блокируется, и срок N, взведённый изменением
+    /// громкости до открытия выбора, срабатывает — `state.toml` записан
+    /// ровно один раз. Колёсико трея при открытом выборе меняет громкость:
+    /// команды трея идут мимо шлюза главного окна (ADR-12, ТЗ-24) — тот же
+    /// путь, что `TrayEvent::Scroll` в `poll_tray`: `change_state` с
+    /// `Origin::User` меняет действующее состояние, хотя `MainCmd::Volume`
+    /// главного окна шлюзом отклонена; новое значение доходит до
+    /// `state.toml` следующим сроком N.
+    #[test]
+    fn picker_does_not_block_loop() {
+        let h = Harness::new();
+        h.put_settings(b"");
+        h.put_state(b"");
+        let mut core = h.boot();
+        let picker = FakePicker::never();
+
+        // Изменение состояния до открытия выбора взводит срок N (ТЗ-11).
+        core.change_state(Origin::User, StateChange::Volume(40));
+        let interval = core.settings().save_interval.duration();
+        assert_eq!(interval, Duration::from_secs(30), "N по умолчанию — 30 с");
+
+        core.gate_mut().block(BlockReason::FilePicker);
+        let mut fut = picker.pick(PickRequest::AddFiles { start: None }, None);
+        assert!(matches!(poll_once(&mut fut), Poll::Pending), "выбор файла «висит открытым»");
+
+        // 29 тиков по 1 с: цикл идёт, срок N ещё не наступил.
+        for _ in 0..29 {
+            h.advance(&mut core, Duration::from_secs(1));
+            assert!(matches!(poll_once(&mut fut), Poll::Pending));
+        }
+        assert_eq!(h.writes(WorkFile::State), 0, "до срока N записи нет");
+
+        // 30-й тик: срок N срабатывает при открытом выборе файла.
+        h.advance(&mut core, Duration::from_secs(1));
+        h.settle(&mut core);
+        assert_eq!(h.writes(WorkFile::State), 1, "срок N сработал при открытом выборе файла");
+        assert!(core.gate().window_blocked(), "выбор файла всё ещё открыт");
+        assert!(matches!(poll_once(&mut fut), Poll::Pending));
+
+        // Колёсико трея: мимо шлюза главного окна (ADR-12, ТЗ-24).
+        assert!(!core.gate().allows(MainCmd::Volume), "громкость из главного окна шлюзом отклонена");
+        let after = core.state().playback().volume + 2;
+        core.change_state(Origin::User, StateChange::Volume(after));
+        assert_eq!(core.state().playback().volume, after, "колёсико трея меняет громкость");
+
+        h.advance(&mut core, interval);
+        h.settle(&mut core);
+        assert_eq!(h.writes(WorkFile::State), 2, "громкость из трея записана следующим сроком N");
+        assert_eq!(picker.calls(), 1);
+        assert!(core.gate().window_blocked());
+    }
+
+    /// «Очистить плейлист» из меню взводит флаг изменений плейлиста (ТЗ-34,
+    /// ТЗ-12, §6.9, §6.13, §6.4, §7.2): очистка плейлиста — команда главного
+    /// окна, а не действие диалога настроек; шлюз её пропускает
+    /// (`MainCmd::ClearPlaylist`), `playlist_clear` опустошает плейлист и
+    /// взводит флаг; через N с — ровно одна запись `playlist.m3u` (пустого),
+    /// флаг снят, дальнейших записей нет.
+    #[test]
+    fn clear_playlist_menu_marks_dirty() {
+        let h = Harness::new();
+        h.put_settings(b"");
+        h.put_state(b"");
+        let mut core = h.boot();
+        let interval = core.settings().save_interval.duration();
+
+        // Непустой плейлист, уже записанный на диск: флаг снят.
+        core.playlist_add(vec![track_path("track1.flac"), track_path("track2.flac")]);
+        h.advance(&mut core, interval);
+        h.settle(&mut core);
+        assert_eq!(core.playlist().len(), 2);
+        assert_eq!(h.writes(WorkFile::Playlist), 1);
+        assert!(!core.tracker().playlist_dirty());
+        let filled = h.disk_bytes(WorkFile::Playlist).expect("playlist.m3u на диске");
+
+        assert!(core.gate().allows(MainCmd::ClearPlaylist), "«Очистить плейлист» разрешена шлюзом");
+        core.playlist_clear();
+        assert_eq!(core.playlist().len(), 0, "плейлист пуст");
+        assert!(core.tracker().playlist_dirty(), "флаг изменений плейлиста взведён");
+        assert_eq!(h.writes(WorkFile::Playlist), 1, "до срока N записи нет");
+
+        h.advance(&mut core, interval);
+        h.settle(&mut core);
+        assert_eq!(h.writes(WorkFile::Playlist), 2, "через N с — ровно одна запись плейлиста");
+        assert!(!core.tracker().playlist_dirty());
+        let empty = h.disk_bytes(WorkFile::Playlist).expect("playlist.m3u на диске");
+        assert_eq!(empty, core.playlist_m3u().to_vec(), "записан пустой плейлист");
+        assert_ne!(empty, filled);
+        let text = String::from_utf8(empty).expect("playlist.m3u is valid utf-8");
+        assert!(!text.contains("track1.flac") && !text.contains("track2.flac"), "путей треков нет: {text}");
+
+        h.advance(&mut core, interval);
+        h.settle(&mut core);
+        assert_eq!(h.writes(WorkFile::Playlist), 2, "повторной записи нет");
     }
 
     /// Трек с единственным заданным полем — путём (§4.2, ТЗ-12): тестам

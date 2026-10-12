@@ -38,8 +38,8 @@
 - [x] Шаг 11: src/core/mod.rs: dialog_save (§6.9, ТЗ-25, 28, 29, 30, 32): diff/validate → пусто или недопустимо — без действий; итоговые настройки одной записью (save_settings_now); tracker.set_interval; change_state(User, VizMode); change_state(User, ColumnWidths(∅)) при reset_widths; engine.send(SetModeSettings(u)) только при modes = Some; draft = None, unblock; возврат — план ApplyStep + эффект записи. save_button() -> {enabled, tooltip} (ТЗ-27). exit() сбрасывает черновик (ТЗ-32, §6.10). Проверка: cargo check
 - [x] Шаг 12: Тесты диалога, ч. 2 (src/core/testing.rs, §7.2): save_button_disabled_without_changes, save_button_invalid_value_tooltip, dialog_mode_selector_does_not_switch_mode, save_keeps_state_changed_during_dialog, reset_widths_goes_to_state (ТЗ-25, 27, 30). Проверка: cargo test core::testing
 - [x] Шаг 13: Тесты диалога, ч. 3 (src/core/testing.rs, §7.2): dialog_save_applies_only_edited_fields, save_write_error_closes_dialog_and_applies, exit_with_open_dialog_discards_draft (на каждую причину выхода); существующие dialog_save_single_write_all_fields и dialog_save_without_changes_does_not_write переводятся на dialog_open/dialog_edit/dialog_save (ТЗ-20, 28, 29, 32). Проверка: cargo test core::testing
-- [>] **Шаг 14: Тесты шлюза, ч. 4 (src/core/testing.rs, §7.2): menu_inactive_while_message_open и menu_inactive_while_picker_open на шлюзе AppCore, picker_does_not_block_loop, clear_playlist_menu_marks_dirty (ТЗ-23, 34, 52, 53). Проверка: cargo test core::testing**
-- [ ] Шаг 15: src/app/viz_settings_manager.rs, src/app/fulltrack_manager.rs: прямые обращения к полю MusicApp.dialog → через хелперы cfg()/edit_cfg()/dialog_mut() (подготовка к снятию локального черновика; ADR-11). Проверка: cargo check; grep обращений к полю dialog в этих файлах пуст
+- [x] Шаг 14: Тесты шлюза, ч. 4 (src/core/testing.rs, §7.2): menu_inactive_while_message_open и menu_inactive_while_picker_open на шлюзе AppCore, picker_does_not_block_loop, clear_playlist_menu_marks_dirty (ТЗ-23, 34, 52, 53). Проверка: cargo test core::testing
+- [>] **Шаг 15: src/app/viz_settings_manager.rs, src/app/fulltrack_manager.rs: прямые обращения к полю MusicApp.dialog → через хелперы cfg()/edit_cfg()/dialog_mut() (подготовка к снятию локального черновика; ADR-11). Проверка: cargo check; grep обращений к полю dialog в этих файлах пуст**
 - [ ] Шаг 16: src/app/mod.rs, src/app/ui_manager.rs: локальный struct DialogDraft и поле dialog удаляются; хелперы cfg()/cfg_viz_mode()/dialog_mut()/edit_cfg()/open_dialog_draft() — поверх core.draft()/dialog_edit()/dialog_open(); column_widths → reset_widths, mode_edit → shown_mode (§2.10, §8.1 С9 «удаляется settings_draft»). Сохранение пока прежним кодом (мост до шага 18). Проверка: cargo check
 - [ ] Шаг 17: src/app/mod.rs: выбор темы в диалоге — DialogDraft.theme: ThemeLoad (Loading{gen} при отправке ReadTheme, Ready/Invalid по ответу apap-io с тем же gen); поля theme_selection и theme_reading удаляются (§2.10, §6.9, ТЗ-27, ТЗ-29). Проверка: cargo check; grep theme_selection и theme_reading пуст
 - [ ] Шаг 18: src/app/mod.rs, src/app/audio_facade.rs: on_settings_save → core.dialog_save() и исполнение шагов ApplyStep (тема без чтения файла, колонки без смены ключа/порядка, обложки, визуализация, бюджет кэша, трей; Engine(u) — фасад только принимает новые ModeSettings в кэш, команда уже отправлена ядром); on_settings_close/Esc → core.dialog_cancel(); прежняя замена настроек целиком удаляется (§6.9, §5.2 ТЗ, ТЗ-26, 28, 29, 31). Проверка: cargo test --no-fail-fast (нет новых падений)
@@ -52,8 +52,8 @@
 
 Легенда: [x] сделано · [>] текущий шаг · [ ] не начато
 
-- **Текущий шаг (current_step):** Шаг 14
-- **Следующий ход:** Шаг 14: тесты шлюза ч.4 (src/core/testing.rs, §7.2) — menu_inactive_while_message_open и menu_inactive_while_picker_open на шлюзе AppCore, picker_does_not_block_loop, clear_playlist_menu_marks_dirty; cargo test core::testing
+- **Текущий шаг (current_step):** Шаг 15
+- **Следующий ход:** Шаг 15: viz_settings_manager.rs, fulltrack_manager.rs — обращения к .dialog через хелперы; cargo check --all-targets
 - **Счетчик безуспешных компиляций:** 0/3
 - **Состояние:** in_progress
 
