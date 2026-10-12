@@ -41,6 +41,7 @@
   - ui/mode_params.slint
   - ui/message_window.slint
   - ROADMAP.md
+  - .gitignore
   - _STATE_.yaml
   - _STATE_.md
 - **Критерий успеха (Definition of Done):** cargo build/test/clippy зелёные (0 новых варнингов в файлах вайтлиста); тесты §7.2 этапа С4 зелёные; три режима с новыми настройками (Совместимый — все ОС, Оптимальный/Строгий — Linux через старый exclusive-путь с резервированием); удалены ExclusiveMode/FallbackPolicy/ResamplerMode/FallbackRatePolicy/ClockFamily/bit_perfect/DsdMode/TargetBitDepth/TargetSampleRate/Triangular как пользовательские настройки, resampler_fixed_fallback_guard, validate_audio_settings; пользователю напомнено удалить settings.toml (ТЗ-97)
