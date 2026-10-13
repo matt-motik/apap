@@ -226,15 +226,15 @@ steps:
   done: true
 - id: 30
   description: 'Определение хоста трея (ADR-8, §6.11): src/platform/tray/mod.rs (Linux) — GetNameOwner(org.kde.StatusNotifierWatcher) → GetConnectionUnixProcessID → /proc/<pid>/comm → XDG_CURRENT_DESKTOP → Unknown; одно событие TrayEvent::Host при запуске трея. На Windows не компилируется — проверка ревью, сборка — за пользователем на Linux; cargo check зелёный'
-  done: false
+  done: true
 - id: 31
   description: 'Тесты ТЗ-24 с колёсиком трея (§7.2): src/core/testing.rs — tray_works_during_dialog и tray_works_during_message идут через FakeWheelInput::tray_scroll → AppCore::volume(TrayWheel, Step). Проверка: cargo test tray_works_during'
   done: false
 - id: 32
   description: 'ЧЕКПОИНТ и закрытие: полный cargo test, cargo clippy --all-targets, cargo build; grep — winit_030 и cfg(target_os) модуля ввода только в src/platform/input/** (ТЗ-54 п. 3); условия §8 всех этапов; обновить заметки плана (отклонения SP1.0-8.10 по Clicks и знаку трея сняты, ручные проверки С11)'
   done: false
-current_step: 30
-next_action: "Шаг 30: субагент пишет определение хоста трея в src/platform/tray/mod.rs (Linux, только ревью на Windows)"
+current_step: 31
+next_action: "Шаг 31: субагент пишет тесты ТЗ-24 tray_works_during_dialog / tray_works_during_message в src/core/testing.rs"
 fail_counter: 0
 fail_counter_max: 3
 failed_attempts: []
