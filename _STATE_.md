@@ -25,8 +25,8 @@
 - [x] Шаг 5: Тесты ядра в src/core/testing.rs, ч. 2: mute_per_mode_survives_restart; mute_starts_timer дополнить путём через AppCore::toggle_mute (§7.2, ТЗ-38). Проверка: cargo test mute_ зелёный
 - [x] Шаг 6: Ползунок → VolumeCmd::Set: MusicApp::apply_volume_cmd(src, cmd) в src/app/playback_manager.rs (core.volume → при Changed player.set_volume + AppEvent::VolumeChanged; свойство ползунка выставляется безусловно после каждой команды), on_volume_changed в src/app/mod.rs вызывает его (ADR-14, ТЗ-35). Проверка: cargo check без ошибок
 - [x] Шаг 7: Slint: объявить и пробросить callback volume-step(int) в ui/top_panel.slint и ui/app.slint; привязка ползунка value <=> volume (значение приходит только из Rust, ТЗ-35, ADR-14). Проверка: cargo check без ошибок
-- [>] **Шаг 8: Колёсико над ползунком → VolumeCmd::Step(SliderWheel): on_volume_step в src/app/mod.rs; в ui/top_panel.slint колёсико вызывает volume-step(±1), расчёт ±0,04 удалён (НФ-2, ADR-14, §8.1 «удаляется»). Проверка: cargo check без ошибок**
-- [ ] Шаг 9: Трей → VolumeCmd::Step(TrayWheel) в src/app/mod.rs: TrayEvent::Scroll идёт через apply_volume_cmd, WHEEL_VOLUME_STEP и собственные проверки блокировки удалены; знак щелчка сырой дельты сохраняется до нормализации С11 (ADR-14, ТЗ-24, НФ-2). Проверка: cargo check без ошибок
+- [x] Шаг 8: Колёсико над ползунком → VolumeCmd::Step(SliderWheel): on_volume_step в src/app/mod.rs; в ui/top_panel.slint колёсико вызывает volume-step(±1), расчёт ±0,04 удалён (НФ-2, ADR-14, §8.1 «удаляется»). Проверка: cargo check без ошибок
+- [>] **Шаг 9: Трей → VolumeCmd::Step(TrayWheel) в src/app/mod.rs: TrayEvent::Scroll идёт через apply_volume_cmd, WHEEL_VOLUME_STEP и собственные проверки блокировки удалены; знак щелчка сырой дельты сохраняется до нормализации С11 (ADR-14, ТЗ-24, НФ-2). Проверка: cargo check без ошибок**
 - [ ] Шаг 10: Mute в состояние сессии: on_toggle_mute в src/app/mod.rs → core.toggle_mute() + player.set_muted; кнопка mute в ui/top_panel.slint доступна в Строгом режиме и при фиксации (ТЗ-37, ТЗ-38, ADR-14). Проверка: cargo check без ошибок
 - [ ] Шаг 11: Slint: свойство volume-block-text (string) в ui/top_panel.slint и ui/app.slint; Tooltip с этим текстом на неотключаемой обёртке ползунка (ТЗ-39, ADR-14, §2.13). Проверка: cargo check без ошибок
 - [ ] Шаг 12: Текст подсказки из ядра: src/app/mod.rs выставляет volume-block-text из volume_block(...).tooltip() вместе с volume-enabled; самодельная подсказка «Громкость задана режимом» в ui/top_panel.slint удалена (ТЗ-39, §2.13). Проверка: cargo check без ошибок
@@ -34,8 +34,8 @@
 
 Легенда: [x] сделано · [>] текущий шаг · [ ] не начато
 
-- **Текущий шаг (current_step):** Шаг 8
-- **Следующий ход:** Шаг 8: субагент добавляет on_volume_step в src/app/mod.rs и переводит колёсико ползунка на volume-step в top_panel.slint
+- **Текущий шаг (current_step):** Шаг 9
+- **Следующий ход:** Шаг 9: субагент переводит колёсико трея на apply_volume_cmd(TrayWheel, Step) и удаляет WHEEL_VOLUME_STEP
 - **Счетчик безуспешных компиляций:** 0/3
 - **Состояние:** in_progress
 

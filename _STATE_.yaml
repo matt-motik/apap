@@ -40,7 +40,7 @@ steps:
     done: true
   - id: 8
     description: "Колёсико над ползунком → VolumeCmd::Step(SliderWheel): on_volume_step в src/app/mod.rs; в ui/top_panel.slint колёсико вызывает volume-step(±1), расчёт ±0,04 удалён (НФ-2, ADR-14, §8.1 «удаляется»). Проверка: cargo check без ошибок"
-    done: false
+    done: true
   - id: 9
     description: "Трей → VolumeCmd::Step(TrayWheel) в src/app/mod.rs: TrayEvent::Scroll идёт через apply_volume_cmd, WHEEL_VOLUME_STEP и собственные проверки блокировки удалены; знак щелчка сырой дельты сохраняется до нормализации С11 (ADR-14, ТЗ-24, НФ-2). Проверка: cargo check без ошибок"
     done: false
@@ -56,8 +56,8 @@ steps:
   - id: 13
     description: "ЧЕКПОИНТ: cargo build, cargo clippy --all-targets (0 новых предупреждений в файлах вайтлиста), полный cargo test (без новых падений сверх 6 тестов SP1.0-B7); grep: нет WHEEL_VOLUME_STEP и 0.04 в путях громкости. Проверка: все три команды с ожидаемым итогом"
     done: false
-current_step: 8
-next_action: "Шаг 8: субагент добавляет on_volume_step в src/app/mod.rs и переводит колёсико ползунка на volume-step в top_panel.slint"
+current_step: 9
+next_action: "Шаг 9: субагент переводит колёсико трея на apply_volume_cmd(TrayWheel, Step) и удаляет WHEEL_VOLUME_STEP"
 fail_counter: 0
 fail_counter_max: 3
 failed_attempts: []

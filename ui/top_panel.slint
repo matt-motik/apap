@@ -559,12 +559,14 @@ export component TopPanel inherits Rectangle {
                         vertical-stretch: 1;
                         width: 34px;
                         enabled: !root.bit-perfect && root.volume-enabled;
-                        // Wheel over the slider = one volume notch (same
-                        // step as the tray); drag keeps working via the
-                        // Slider's own TouchArea (scroll bubbles up here).
+                        // Wheel over the slider = one click of the unified
+                        // volume command per event (up = louder). The step
+                        // size is set by the core: 2 % per click (ADR-14,
+                        // НФ-2). Drag keeps working via the Slider's own
+                        // TouchArea (scroll bubbles up here).
                         scroll-event(event) => {
                             if (event.delta-y != 0) {
-                                root.volume-changed(Math.clamp(root.volume + (event.delta-y > 0 ? 0.04 : -0.04), 0, 1));
+                                root.volume-step(event.delta-y > 0 ? 1 : -1);
                                 return accept;
                             }
                             reject

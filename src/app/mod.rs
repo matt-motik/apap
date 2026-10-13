@@ -27,7 +27,7 @@ use music_player_rs::core::messages::{
 use music_player_rs::core::exit::{ExitOutcome, ExitReason};
 use music_player_rs::core::io::{CacheKind, CacheSizes, IoDone, IoJob};
 use music_player_rs::core::load::LoadApplied;
-use music_player_rs::core::volume::{VolumeCmd, VolumeSource};
+use music_player_rs::core::volume::{Clicks, VolumeCmd, VolumeSource};
 use music_player_rs::core::AppCore;
 use music_player_rs::cover::{self, CoverDone, CoverJob};
 use music_player_rs::engine::messages::{EngineEvent, Notice, SkipReason};
@@ -1540,6 +1540,22 @@ impl MusicApp {
                     return;
                 };
                 a.apply_volume_cmd(VolumeSource::Slider, VolumeCmd::Set(v));
+            });
+        }
+
+        // 8a. volume-step
+        {
+            let app = this.clone();
+            ui.on_volume_step(move |clicks| {
+                eprintln!("[gui] volume_step clicks={clicks}");
+                let mut a = app.borrow_mut();
+                if !a.core.gate().allows(MainCmd::Volume) {
+                    return;
+                }
+                // Колёсико над ползунком — источник единой команды громкости
+                // (ADR-14, ТЗ-37): UI передаёт только число щелчков, шаг
+                // 2 % за щелчок считает ядро (НФ-2).
+                a.apply_volume_cmd(VolumeSource::SliderWheel, VolumeCmd::Step(Clicks(clicks)));
             });
         }
 
