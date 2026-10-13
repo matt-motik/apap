@@ -8,7 +8,10 @@ use std::time::Duration;
 use crate::audio::clock::ClockInstant;
 
 use super::table::{SliderRule, TouchpadParams, WheelTable};
-use super::{Clicks, Desktop, DeviceClass, Session, WheelDelta, WheelEvent};
+use super::{Clicks, Desktop, DeviceClass, Session, SlintScroll, WheelDelta, WheelEvent};
+
+/// Один щелчок колеса в `scroll-event` Slint: 60 логических px (§6.11, В-2).
+const SLINT_WHEEL_CLICK_PX: f64 = 60.0;
 
 /// Состояние накопителя тачпада (В-4, §6.11).
 #[derive(Clone, Copy, PartialEq, Debug)]
@@ -82,6 +85,26 @@ impl WheelNormalizer {
                 self.touch_step(p, ev.t, y, threshold)
             }
         }
+    }
+
+    /// Событие `scroll-event` ползунка Slint без парного события winit →
+    /// щелчки: правило по умолчанию без пары (§6.11, В-2, ОВС-2 а, ADR-8).
+    /// `dy`, кратное 60 логическим px Slint, — колесо: `dy / 60` щелчков,
+    /// накопитель тачпада сбрасывается. Иначе — тачпад: накопитель с
+    /// параметрами `default_touchpad` и порогом `threshold_px`. Положительное
+    /// `dy` — громче; `dx` игнорируется. `dy == 0` или не конечное `dy` —
+    /// 0 щелчков, состояние не меняется.
+    pub fn slider_unpaired(&mut self, ev: SlintScroll) -> Clicks {
+        if !ev.dy.is_finite() || ev.dy == 0.0 {
+            return Clicks(0);
+        }
+        let dy = f64::from(ev.dy);
+        if dy % SLINT_WHEEL_CLICK_PX == 0.0 {
+            self.reset_touch();
+            return Clicks(clicks_from_f64(dy / SLINT_WHEEL_CLICK_PX));
+        }
+        let p = self.table.default_touchpad;
+        self.touch_step(p, ev.t, dy, p.threshold_px)
     }
 
     /// Класс устройства по виду события (§6.11, ОВС-1 а): `Px` и дробные
@@ -248,5 +271,45 @@ mod tests {
         assert_eq!(with, without);
         assert_eq!(with.slider(lines(100, 0.3)), Clicks(1));
         assert_eq!(without.slider(lines(100, 0.3)), Clicks(1));
+    }
+
+    fn slint(ms: u64, dy: f32) -> SlintScroll {
+        SlintScroll { t: ClockInstant::from_start(Duration::from_millis(ms)), dx: 0.0, dy }
+    }
+
+    /// В-2, ОВС-2 а: без пары 60 px Slint — один щелчок колеса.
+    #[test]
+    fn unpaired_wheel_60px_is_one_click() {
+        let mut n = windows();
+        assert_eq!(n.slider_unpaired(slint(0, 60.0)), Clicks(1));
+        assert_eq!(n.slider_unpaired(slint(10, -120.0)), Clicks(-2));
+    }
+
+    /// В-2, ОВС-2 а: без пары тачпад — порог 30 px, остаток переносится,
+    /// не больше 5 шагов на свайп.
+    #[test]
+    fn unpaired_touchpad_30px_is_one_step() {
+        let mut n = windows();
+        assert_eq!(n.slider_unpaired(slint(0, 30.0)), Clicks(1));
+        assert_eq!(n.slider_unpaired(slint(10, 15.0)), Clicks(0));
+        assert_eq!(n.slider_unpaired(slint(20, 15.0)), Clicks(1));
+
+        let mut swipe = windows();
+        // 170 px = 5,67 шага: лимит свайпа — 5.
+        assert_eq!(swipe.slider_unpaired(slint(0, 170.0)), Clicks(5));
+        assert_eq!(swipe.slider_unpaired(slint(10, 45.0)), Clicks(0));
+    }
+
+    /// §6.11: `dy == 0` — 0 щелчков, накопитель и состояние не тронуты.
+    #[test]
+    fn unpaired_zero_dy_keeps_state() {
+        let mut with = windows();
+        let mut without = windows();
+        assert_eq!(with.slider_unpaired(slint(0, 15.0)), Clicks(0));
+        assert_eq!(without.slider_unpaired(slint(0, 15.0)), Clicks(0));
+        assert_eq!(with.slider_unpaired(slint(50, 0.0)), Clicks(0));
+        assert_eq!(with, without);
+        assert_eq!(with.slider_unpaired(slint(100, 15.0)), Clicks(1));
+        assert_eq!(without.slider_unpaired(slint(100, 15.0)), Clicks(1));
     }
 }

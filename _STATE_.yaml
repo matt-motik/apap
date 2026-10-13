@@ -147,7 +147,7 @@ steps:
   done: true
 - id: 4
   description: 'WheelNormalizer::slider_unpaired (§6.11, В-2, ОВС-2 а): src/platform/input/normalizer.rs — dy кратно 60 → Clicks(dy/60), иначе touch_step с threshold_px; тесты. Проверка: cargo test platform::input::normalizer'
-  done: false
+  done: true
 - id: 5
   description: 'WheelNormalizer::tray (§6.11, В-5): src/platform/input/normalizer.rs — горизонталь → 0, знак и деление по строке хоста, division = 0 → |первое событие|, накопитель с делением к нулю; тесты. Проверка: cargo test platform::input::normalizer'
   done: false
@@ -229,8 +229,8 @@ steps:
 - id: 31
   description: 'ЧЕКПОИНТ и закрытие: полный cargo test, cargo clippy --all-targets, cargo build; grep — winit_030 и cfg(target_os) модуля ввода только в src/platform/input/** (ТЗ-54 п. 3); условия §8 всех этапов; обновить заметки плана (отклонения SP1.0-8.10 по Clicks и знаку трея сняты, ручные проверки С11)'
   done: false
-current_step: 4
-next_action: "Шаг 4: субагент добавляет WheelNormalizer::slider_unpaired"
+current_step: 5
+next_action: "Шаг 5: субагент добавляет WheelNormalizer::tray"
 fail_counter: 0
 fail_counter_max: 3
 failed_attempts: []
