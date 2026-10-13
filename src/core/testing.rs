@@ -535,7 +535,8 @@ mod tests {
     use crate::playlist::model::SortKey;
     use crate::playlist::Track;
     use crate::audio::backend::SharedDeviceId;
-    use crate::settings::playback::{DeviceBuffer, ModeKind, SharedDeviceChoice, SrcFilter};
+    use crate::core::volume::{Clicks, VolumeBlock, VolumeCmd, VolumeOutcome, VolumeSource};
+    use crate::settings::playback::{DeviceBuffer, ModeKind, PlaybackState, SharedDeviceChoice, SrcFilter, Volume};
     use crate::settings::{ColumnId, RepeatMode};
     use std::future::Future;
     use std::pin::Pin;
@@ -1113,6 +1114,144 @@ mod tests {
 
         assert_eq!(h.writes(WorkFile::State), 1);
         assert!(core.state().playback().muted);
+    }
+
+    /// Все источники единой команды громкости (ADR-14, ТЗ-37, §2.11).
+    const ALL_VOLUME_SOURCES: [VolumeSource; 4] = [
+        VolumeSource::Slider,
+        VolumeSource::SliderWheel,
+        VolumeSource::TrayWheel,
+        VolumeSource::Hotkey,
+    ];
+
+    /// Громкость из процентов; значение теста обязано лежать в 0..=100.
+    fn vol(pct: u8) -> Volume {
+        Volume::new(pct).expect("громкость теста в диапазоне 0..=100")
+    }
+
+    /// Общий сценарий недоступной громкости (ТЗ-37, ADR-14, И-Р13, §7.2):
+    /// в режиме `mode` с фиксацией `lock` каждая команда каждого источника
+    /// отклоняется с причиной `expected`, не меняет состояние и не взводит
+    /// срок N; mute при этом переключается и срок N запускает (ТЗ-38).
+    /// Возвращает стенд и ядро для дополнительных проверок теста.
+    fn assert_volume_blocked(mode: ModeKind, lock: bool, expected: VolumeBlock) -> (Harness, AppCore) {
+        let h = Harness::new();
+        h.put_settings(b"");
+        h.put_state(b"");
+        let mut core = h.boot();
+        let interval = core.settings().save_interval.duration();
+
+        let mut s = core.settings().clone();
+        s.playback.optimal.volume_lock = lock;
+        core.set_settings(s);
+
+        // Смена режима сама взводит срок N — дожидаемся его записи, чтобы
+        // он не мешал проверке заблокированных команд.
+        core.change_state(Origin::User, StateChange::ActiveMode(mode));
+        h.advance(&mut core, interval);
+        h.settle(&mut core);
+        assert_eq!(core.volume_block(), Some(expected));
+        assert!(core.tracker().deadline().is_none(), "срок N от смены режима уже истёк");
+        let writes_before = h.writes(WorkFile::State);
+        let snapshot = core.state().clone();
+
+        let cmds = [
+            VolumeCmd::Set(vol(40)),
+            VolumeCmd::Step(Clicks(3)),
+            VolumeCmd::Step(Clicks(-3)),
+        ];
+        for src in ALL_VOLUME_SOURCES {
+            for cmd in cmds {
+                assert_eq!(
+                    core.volume(src, cmd),
+                    VolumeOutcome::Blocked(expected),
+                    "источник {src:?}, команда {cmd:?}"
+                );
+                assert!(
+                    core.tracker().deadline().is_none(),
+                    "срок N взведён заблокированной командой: {src:?}, {cmd:?}"
+                );
+            }
+        }
+        assert_eq!(core.state(), &snapshot, "заблокированные команды изменили состояние");
+
+        h.advance(&mut core, Duration::from_secs(600));
+        h.settle(&mut core);
+        assert_eq!(h.writes(WorkFile::State), writes_before, "срок N не должен был запускаться");
+
+        // Mute доступен и при недоступной громкости; он взводит срок N.
+        assert!(core.toggle_mute());
+        assert!(core.state().playback().muted);
+        assert!(core.tracker().deadline().is_some(), "mute взводит срок N");
+        h.advance(&mut core, interval);
+        h.settle(&mut core);
+        assert_eq!(h.writes(WorkFile::State), writes_before + 1);
+
+        (h, core)
+    }
+
+    /// Ползунок показывает громкость активного режима: команды любого
+    /// источника меняют её, смена режима подставляет громкость нового режима,
+    /// а громкость прежнего сохраняется (ТЗ-35, ADR-14, §7.2
+    /// `slider_shows_active_mode_volume`).
+    #[test]
+    fn slider_shows_active_mode_volume() {
+        let h = Harness::new();
+        h.put_settings(b"");
+        h.put_state(b"");
+        let mut core = h.boot();
+        assert_eq!(core.state().active_mode(), ModeKind::Compatible);
+
+        assert_eq!(
+            core.volume(VolumeSource::Slider, VolumeCmd::Set(vol(40))),
+            VolumeOutcome::Changed(vol(40))
+        );
+        assert_eq!(core.state().playback().volume, 40);
+        assert!((core.state().playback().gain() - 0.40).abs() < 1e-6);
+
+        assert_eq!(
+            core.volume(VolumeSource::TrayWheel, VolumeCmd::Step(Clicks(3))),
+            VolumeOutcome::Changed(vol(46))
+        );
+        assert_eq!(core.state().playback().volume, 46);
+
+        let optimal_default = PlaybackState::default().optimal.volume.get();
+        core.change_state(Origin::User, StateChange::ActiveMode(ModeKind::Optimal));
+        assert_eq!(core.state().playback().volume, optimal_default);
+        assert_eq!(core.state().playback_state().compatible.volume.get(), 46);
+
+        core.change_state(Origin::User, StateChange::ActiveMode(ModeKind::Compatible));
+        assert_eq!(core.state().playback().volume, 46);
+    }
+
+    /// В Строгом режиме ползунок, колёсико над ним, колёсико трея и горячие
+    /// клавиши не меняют громкость, значение ползунка и не запускают срок N;
+    /// mute переключается (ТЗ-37, ТЗ-38, ADR-14, И-Р13, §7.2
+    /// `strict_mode_wheel_and_hotkeys_do_not_change_volume`).
+    #[test]
+    fn strict_mode_wheel_and_hotkeys_do_not_change_volume() {
+        let (_h, core) = assert_volume_blocked(ModeKind::Strict, false, VolumeBlock::StrictMode);
+        assert!(core.state().playback_state().strict_muted);
+    }
+
+    /// В Оптимальном режиме с «Фиксировать громкость на 100 %» команды всех
+    /// источников отклоняются без изменения состояния и срока N; mute
+    /// переключается; после снятия фиксации громкость снова меняется (ТЗ-37,
+    /// ТЗ-38, ADR-14, И-Р13, §7.2 `optimal_volume_lock_ignores_all_sources`).
+    #[test]
+    fn optimal_volume_lock_ignores_all_sources() {
+        let (_h, mut core) = assert_volume_blocked(ModeKind::Optimal, true, VolumeBlock::Locked);
+        assert!(core.state().playback_state().optimal.muted);
+
+        let mut s = core.settings().clone();
+        s.playback.optimal.volume_lock = false;
+        core.set_settings(s);
+        assert_eq!(core.volume_block(), None);
+        assert_eq!(
+            core.volume(VolumeSource::Slider, VolumeCmd::Set(vol(40))),
+            VolumeOutcome::Changed(vol(40))
+        );
+        assert_eq!(core.state().playback().volume, 40);
     }
 
     /// Общий шаг «событие → `advance(10 мин)` → 0 записей `settings.toml`»

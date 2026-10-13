@@ -28,7 +28,7 @@ steps:
     done: true
   - id: 4
     description: "Тесты ядра в src/core/testing.rs, ч. 1: slider_shows_active_mode_volume, strict_mode_wheel_and_hotkeys_do_not_change_volume, optimal_volume_lock_ignores_all_sources (§7.2, ТЗ-35, ТЗ-37). Проверка: cargo test по этим трём именам зелёный"
-    done: false
+    done: true
   - id: 5
     description: "Тесты ядра в src/core/testing.rs, ч. 2: mute_per_mode_survives_restart; mute_starts_timer дополнить путём через AppCore::toggle_mute (§7.2, ТЗ-38). Проверка: cargo test mute_ зелёный"
     done: false
@@ -56,8 +56,8 @@ steps:
   - id: 13
     description: "ЧЕКПОИНТ: cargo build, cargo clippy --all-targets (0 новых предупреждений в файлах вайтлиста), полный cargo test (без новых падений сверх 6 тестов SP1.0-B7); grep: нет WHEEL_VOLUME_STEP и 0.04 в путях громкости. Проверка: все три команды с ожидаемым итогом"
     done: false
-current_step: 4
-next_action: "Шаг 4: субагент пишет три теста ядра громкости в src/core/testing.rs"
+current_step: 5
+next_action: "Шаг 5: субагент пишет mute_per_mode_survives_restart и дополняет mute_starts_timer путём через AppCore::toggle_mute"
 fail_counter: 0
 fail_counter_max: 3
 failed_attempts: []
