@@ -21,7 +21,7 @@ steps:
     done: true
   - id: 2
     description: "Юнит-тесты чистых функций в src/core/volume.rs: volume_block_tooltips, Set/Step с clamp 0…100, блокировка в Строгом, блокировка при volume_lock, Unchanged при том же значении (§7.2, И-Р13). Проверка: cargo test core::volume зелёный"
-    done: false
+    done: true
   - id: 3
     description: "src/core/mod.rs: AppCore::volume(src, cmd) -> VolumeOutcome (volume_block до любого изменения, И-Р13; Changed → change_state(User, Volume)) и AppCore::toggle_mute() -> bool (change_state(User, Muted), работает при блокировке) (§2.12, ADR-14, ТЗ-37, ТЗ-38). Проверка: cargo check без ошибок"
     done: false
@@ -55,8 +55,8 @@ steps:
   - id: 13
     description: "ЧЕКПОИНТ: cargo build, cargo clippy --all-targets (0 новых предупреждений в файлах вайтлиста), полный cargo test (без новых падений сверх 6 тестов SP1.0-B7); grep: нет WHEEL_VOLUME_STEP и 0.04 в путях громкости. Проверка: все три команды с ожидаемым итогом"
     done: false
-current_step: 2
-next_action: "Шаг 2: субагент пишет юнит-тесты чистых функций в src/core/volume.rs"
+current_step: 3
+next_action: "Шаг 3: субагент добавляет AppCore::volume и AppCore::toggle_mute в src/core/mod.rs"
 fail_counter: 0
 fail_counter_max: 3
 failed_attempts: []
