@@ -6,6 +6,7 @@ use crate::core::exit::{ExitReason, ExitReport, TermSignal};
 use crate::persist::keys::{LoadNote, LoadNoteKind};
 use crate::persist::{ConfigFile, WorkFile};
 use crate::platform::fs::{ReadError, WriteError};
+use crate::platform::input::TrayHost;
 use std::fs::{self, File, OpenOptions};
 use std::io::{self, Write};
 use std::path::{Path, PathBuf};
@@ -42,6 +43,14 @@ pub enum JournalRecord {
     TempRemoveFailed { err: WriteError },
     /// ТЗ-14: итог пути выхода.
     ExitSummary(ExitReport),
+    /// Бэкенд winit не выбран, работа продолжается на бэкенде по умолчанию
+    /// (§2.9, §6.11, ADR-8).
+    BackendFallback { error: Box<str> },
+    /// Ошибка таблицы данных модуля ввода `wheel_table.toml`; действует
+    /// встроенное правило по умолчанию (§2.9, §6.11, ADR-8).
+    WheelTable { error: Box<str> },
+    /// Хост значка трея и способ, которым он определён (§2.9, §6.11, ADR-8).
+    TrayHost { host: TrayHost, via: HostSource },
     /// Системное уведомление не доставлено (ошибка D-Bus); окно сообщения
     /// покажется при открытии плеера (ADR-9, ADR-13).
     Notify { error: Box<str> },
@@ -56,6 +65,17 @@ pub enum WriteTarget {
     Export(PathBuf),
 }
 
+/// Способ определения хоста трея (§2.9, §6.11, ADR-8).
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub enum HostSource {
+    /// По владельцу имени `org.kde.StatusNotifierWatcher` на D-Bus.
+    DbusOwner,
+    /// По переменной окружения `XDG_CURRENT_DESKTOP`.
+    XdgCurrentDesktop,
+    /// Хост не определён ни одним способом.
+    None,
+}
+
 impl JournalRecord {
     /// Вид записи — второе поле строки журнала (ADR-21).
     pub fn kind(&self) -> &'static str {
@@ -67,6 +87,9 @@ impl JournalRecord {
             JournalRecord::WriteFailed { .. } => "ошибка записи",
             JournalRecord::TempRemoveFailed { .. } => "временный файл не удалён",
             JournalRecord::ExitSummary(_) => "итог выхода",
+            JournalRecord::BackendFallback { .. } => "бэкенд по умолчанию",
+            JournalRecord::WheelTable { .. } => "таблица колёсика",
+            JournalRecord::TrayHost { .. } => "хост трея",
             JournalRecord::Notify { .. } => "уведомление не доставлено",
         }
     }
@@ -118,8 +141,33 @@ impl JournalRecord {
                     if report.engine_ack { "да" } else { "нет" }
                 )
             }
+            JournalRecord::BackendFallback { error } => format!("winit не выбран: {error}"),
+            JournalRecord::WheelTable { error } => {
+                format!("wheel_table.toml: {error}; действует встроенное правило по умолчанию")
+            }
+            JournalRecord::TrayHost { host, via } => {
+                format!("{}; способ определения: {}", tray_host_text(*host), host_source_text(*via))
+            }
             JournalRecord::Notify { error } => format!("D-Bus: {error}"),
         }
+    }
+}
+
+/// Название хоста трея для строки журнала (§2.9, ADR-8).
+fn tray_host_text(host: TrayHost) -> &'static str {
+    match host {
+        TrayHost::KdePlasma => "KDE Plasma",
+        TrayHost::GnomeAppIndicator => "GNOME AppIndicator",
+        TrayHost::Unknown => "неизвестен",
+    }
+}
+
+/// Способ определения хоста трея для строки журнала (§2.9, §6.11, ADR-8).
+fn host_source_text(via: HostSource) -> &'static str {
+    match via {
+        HostSource::DbusOwner => "владелец org.kde.StatusNotifierWatcher (D-Bus)",
+        HostSource::XdgCurrentDesktop => "XDG_CURRENT_DESKTOP",
+        HostSource::None => "не определён",
     }
 }
 
@@ -478,6 +526,39 @@ mod tests {
         assert!(text.contains("ошибки: settings.toml (нет места на диске"));
         assert!(text.contains("не успели: —"));
         assert!(text.contains("движок остановлен: да"));
+    }
+
+    #[test]
+    fn journal_backend_fallback_line_has_error() {
+        let rec = JournalRecord::BackendFallback { error: "backend not available".into() };
+        assert_eq!(
+            format_line(&rec, UNIX_EPOCH),
+            "1970-01-01T00:00:00.000Z бэкенд по умолчанию: winit не выбран: backend not available"
+        );
+    }
+
+    #[test]
+    fn journal_wheel_table_line_has_error() {
+        let rec = JournalRecord::WheelTable { error: "строка 4: нет ключа division".into() };
+        assert_eq!(
+            format_line(&rec, UNIX_EPOCH),
+            "1970-01-01T00:00:00.000Z таблица колёсика: wheel_table.toml: строка 4: нет ключа division; \
+             действует встроенное правило по умолчанию"
+        );
+    }
+
+    #[test]
+    fn journal_tray_host_line_has_host_and_source() {
+        let cases = [
+            (TrayHost::KdePlasma, HostSource::DbusOwner, "KDE Plasma; способ определения: владелец org.kde.StatusNotifierWatcher (D-Bus)"),
+            (TrayHost::GnomeAppIndicator, HostSource::XdgCurrentDesktop, "GNOME AppIndicator; способ определения: XDG_CURRENT_DESKTOP"),
+            (TrayHost::Unknown, HostSource::None, "неизвестен; способ определения: не определён"),
+        ];
+        for (host, via, text) in cases {
+            let rec = JournalRecord::TrayHost { host, via };
+            assert_eq!(rec.kind(), "хост трея");
+            assert_eq!(format_line(&rec, UNIX_EPOCH), format!("1970-01-01T00:00:00.000Z хост трея: {text}"));
+        }
     }
 
     /// Временный каталог теста (не каталог пользователя, ТЗ-49).
