@@ -32,8 +32,8 @@ export component AppWindow inherits Window {
     in property <length> initial-width: 0px;
     preferred-width: initial-width;
 
-    // Нативное меню (MenuBar) — первое меню в окне. Содержит: Файл (add),
-    // Визуализация (checkable, §3.2), Настройки/О программе.
+    // Нативное меню (MenuBar) — первое меню в окне. Содержит: Файл (add,
+    // плейлист, выход), Визуализация (checkable, §3.2), Настройки/О программе.
     // checked: `root.settings-viz-mode == N` (synced via settings-viz-mode).
     // enabled: !root.window-blocked на каждом пункте — главное окно недоступно,
     // пока взведена причина блокировки UiGate (ADR-12, ТЗ-23): диалог настроек,
@@ -80,6 +80,16 @@ export component AppWindow inherits Window {
                 title: "Загрузить плейлист";
                 enabled: !root.window-blocked;
                 activated => { root.load-playlist(); }
+            }
+
+            MenuSeparator { }
+
+            // Выход из программы (§6.10, ТЗ-14): путь выхода напрямую, без
+            // сворачивания в трей по настройке закрытия окна (SP1.0-B17).
+            MenuItem {
+                title: "Выход";
+                enabled: !root.window-blocked;
+                activated => { root.menu-quit(); }
             }
         }
 
@@ -318,6 +328,8 @@ export component AppWindow inherits Window {
     callback settings-move-col-down(int);
     callback menu-clear-playlist();
     callback menu-remove-selected(int);
+    // Пункт «Выход» меню «Файл» (§6.10, ТЗ-14, SP1.0-B17).
+    callback menu-quit();
     callback settings-save();
     // §10.5: кнопки очистки кэша
     callback settings-clear-viz-cache();

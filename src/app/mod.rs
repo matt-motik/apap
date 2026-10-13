@@ -2415,6 +2415,17 @@ impl MusicApp {
             });
         }
 
+        // 33а. menu-quit: пункт «Выход» меню «Файл» — путь выхода (ТЗ-14,
+        // §6.10) независимо от настройки сворачивания в трей (SP1.0-B17);
+        // повтор во время выхода игнорируется (`ExitOutcome::Ignored`).
+        {
+            let app = this.clone();
+            ui.on_menu_quit(move || {
+                eprintln!("[gui] menu_quit");
+                app.borrow_mut().exit(ExitReason::WindowClose);
+            });
+        }
+
         // 34. Вкладка «Visualization» и горячая клавиша V (ТЗ §9 / §3.2).
         viz_settings_manager::bind_viz_settings_callbacks(this);
     }

@@ -14,12 +14,12 @@ dod: 'Пункт «Выход» в конце меню «Файл» запуск
 steps:
 - id: 1
   description: 'Пункт меню «Выход» (§6.10, ТЗ-14): в ui/app.slint — callback menu-quit() и MenuItem «Выход» после разделителя в конце меню «Файл» (enabled: !root.window-blocked, как остальные пункты, ТЗ-23); в src/app/mod.rs (bind_callbacks) — on_menu_quit вызывает exit(ExitReason::WindowClose) напрямую, без ветки сворачивания в трей. Проверка: cargo check'
-  done: false
+  done: true
 - id: 2
   description: 'ЧЕКПОИНТ: полный cargo test, cargo clippy --all-targets, cargo build; закрытие SP1.0-B17 (Шаг 5), ручная проверка — в заметку плана. Проверка: нет новых падений сверх шести SP1.0-B7, нет новых предупреждений'
   done: false
-current_step: 1
-next_action: "Шаг 1: пункт меню «Выход» (ui/app.slint, src/app/mod.rs)"
+current_step: 2
+next_action: "Шаг 2: ЧЕКПОИНТ — полный test, clippy --all-targets, build; закрытие"
 fail_counter: 0
 fail_counter_max: 3
 failed_attempts: []
