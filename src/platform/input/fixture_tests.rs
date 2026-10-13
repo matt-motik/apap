@@ -49,21 +49,18 @@ struct FixtureFile {
 }
 
 /// Шапка фикстуры (§7.4). `device`, `natural_scroll`, `direction`, `action`
-/// и `origin` на прогон не влияют: класс устройства определяет нормализатор.
+/// и `origin` на прогон не влияют: класс устройства определяет нормализатор;
+/// по ним тесты В-3…В-5 отбирают фикстуры.
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
 struct Header {
     platform: String,
     session: String,
-    #[serde(rename = "device")]
-    _device: String,
+    device: String,
     source: String,
-    #[serde(rename = "natural_scroll")]
-    _natural_scroll: String,
-    #[serde(rename = "direction")]
-    _direction: String,
-    #[serde(rename = "action")]
-    _action: String,
+    natural_scroll: String,
+    direction: String,
+    action: String,
     expected_steps: Vec<i32>,
     #[serde(rename = "origin")]
     _origin: String,
@@ -293,8 +290,24 @@ fn replay_row(
     }
 }
 
-/// Прогон одной фикстуры (§7.2 `wheel_fixtures_<замер>_<шаг>`, ТЗ-36).
-fn run_fixture(dir: &str, file: &str) {
+/// Значимое событие прогона: исходная величина (деления колеса, строки
+/// тачпада или `delta` трея) и щелчки, которые оно дало.
+struct Event {
+    units: f64,
+    clicks: i32,
+}
+
+/// Итог воспроизведения фикстуры: значимые события и щелчки по свайпам.
+struct Replay {
+    path: String,
+    header: Header,
+    source: Source,
+    events: Vec<Event>,
+    swipes: Vec<i32>,
+}
+
+/// Воспроизводит фикстуру через `FakeWheelInput` (§6.11, §7.4).
+fn replay_fixture(dir: &str, file: &str) -> Replay {
     let path = format!("{FIXTURE_ROOT}/{dir}/{file}");
     let text = match std::fs::read_to_string(&path) {
         Ok(text) => text,
@@ -320,13 +333,20 @@ fn run_fixture(dir: &str, file: &str) {
     // Щелчки по свайпам: пауза строго больше 300 мс между значимыми событиями.
     let mut swipes: Vec<i32> = Vec::new();
     let mut last_t: Option<f64> = None;
-    let mut significant = 0usize;
+    let mut events: Vec<Event> = Vec::new();
     for (line_no, line) in &rows {
         let row = parse_row(line, *line_no, &path);
         let Some(clicks) = replay_row(&mut input, &row, source, &path) else {
             continue;
         };
-        significant += 1;
+        // Значимая строка `slint` несёт величину в `slint_dy`, прочие — в `delta_y`.
+        let raw = if row.delta_y.is_empty() {
+            row.slint_dy
+        } else {
+            row.delta_y
+        };
+        let units = parse_f64(raw, "величина события", &path, *line_no);
+        events.push(Event { units, clicks });
         let new_swipe = match last_t {
             Some(prev) => row.t_ms - prev > SWIPE_GAP_MS,
             None => true,
@@ -338,10 +358,52 @@ fn run_fixture(dir: &str, file: &str) {
         }
     }
     assert!(
-        significant > 0,
+        !events.is_empty(),
         "{path}: нет значимых событий для source = {source:?}"
     );
+    Replay {
+        path,
+        header,
+        source,
+        events,
+        swipes,
+    }
+}
 
+/// Все фикстуры каталога замера из списка `FIXTURES`, воспроизведённые.
+fn replay_dir(dir: &str) -> Vec<Replay> {
+    let replays: Vec<Replay> = FIXTURES
+        .iter()
+        .filter(|(name, _)| *name == dir)
+        .flat_map(|(_, files)| files.iter().map(|file| replay_fixture(dir, file)))
+        .collect();
+    assert!(!replays.is_empty(), "{dir}: в списке FIXTURES нет фикстур");
+    replays
+}
+
+/// Щелчки на событие, одинаковые у всех значимых событий фикстуры.
+fn uniform_clicks(replay: &Replay) -> i32 {
+    let Some(first) = replay.events.first() else {
+        panic!("{}: нет значимых событий", replay.path);
+    };
+    for ev in &replay.events {
+        assert_eq!(
+            ev.clicks, first.clicks,
+            "{}: щелчки на событие различаются",
+            replay.path
+        );
+    }
+    first.clicks
+}
+
+/// Прогон одной фикстуры (§7.2 `wheel_fixtures_<замер>_<шаг>`, ТЗ-36).
+fn run_fixture(dir: &str, file: &str) {
+    let Replay {
+        path,
+        header,
+        swipes,
+        ..
+    } = replay_fixture(dir, file);
     let total: i32 = swipes.iter().sum();
     if let [expected] = header.expected_steps.as_slice() {
         assert_eq!(
@@ -551,4 +613,234 @@ fn wheel_fixtures_list_matches_files() {
         on_disk, listed,
         "список тестов не совпадает с файлами {FIXTURE_ROOT}"
     );
+}
+
+/// Замеры Linux с фикстурами мыши 01–08 (§7.4).
+const LINUX_DIRS: [&str; 5] = ["kde-1", "kde-2", "kde-3", "gnome-1", "gnome-2"];
+
+/// Лимит шагов на свайп класса «тачпад» (В-4): K = 5.
+const MAX_SWIPE_STEPS: u32 = 5;
+
+/// §7.2, В-3, ТЗ-36: «тачпад» KDE-3 и GNOME-2 над ползунком ОС отдаёт как
+/// колесо — каждое событие даёт столько щелчков, сколько в нём делений, лимит
+/// K на свайп не действует; быстрые 10–12 щелчков мыши дают 10–12 шагов.
+#[test]
+fn linux_emulated_touchpad_is_wheel() {
+    for dir in ["kde-3", "gnome-2"] {
+        let (mut checked, mut longest) = (0usize, 0u32);
+        for r in replay_dir(dir) {
+            if r.header.device != "touchpad" || r.source != Source::Slider {
+                continue;
+            }
+            for ev in &r.events {
+                assert!(
+                    ev.units.fract() == 0.0 && f64::from(ev.clicks) == ev.units,
+                    "{}: событие в {} делений дало {} щелчков",
+                    r.path,
+                    ev.units,
+                    ev.clicks
+                );
+            }
+            checked += 1;
+            longest = r
+                .swipes
+                .iter()
+                .fold(longest, |m, s| m.max(s.unsigned_abs()));
+        }
+        assert!(checked > 0, "{dir}: нет фикстур «тачпада» над ползунком");
+        assert!(
+            longest > MAX_SWIPE_STEPS,
+            "{dir}: самый длинный свайп {longest} щелчков — лимит тачпада не должен действовать"
+        );
+    }
+    for dir in LINUX_DIRS {
+        let r = replay_fixture(dir, "03_mouse_slider_fast_up.fixture");
+        let total: i32 = r.swipes.iter().sum();
+        assert_eq!(
+            uniform_clicks(&r),
+            1,
+            "{}: щелчок мыши — не один шаг",
+            r.path
+        );
+        assert_eq!(
+            usize::try_from(total).ok(),
+            Some(r.events.len()),
+            "{}",
+            r.path
+        );
+        assert!(
+            (10..=12).contains(&total),
+            "{}: {total} шагов, ожидалось 10–12",
+            r.path
+        );
+    }
+}
+
+/// §7.2, В-4, ТЗ-36: тачпад Windows (фикстуры 05–16) — короткий свайп даёт
+/// 1…4 шага, длинный и быстрый — ровно K = 5; выбросы ≈ 67 строк не дают
+/// больше 5 шагов на свайп.
+#[test]
+fn windows_touchpad_swipes_capped() {
+    let (mut checked, mut outliers) = (0usize, 0usize);
+    for r in replay_dir("windows") {
+        if r.header.device != "touchpad" {
+            continue;
+        }
+        assert_eq!(r.source, Source::Slider, "{}", r.path);
+        for steps in r.swipes.iter().map(|s| s.unsigned_abs()) {
+            let ok = match r.header.action.as_str() {
+                "short" => (1..MAX_SWIPE_STEPS).contains(&steps),
+                "long_slow" | "fast" => steps == MAX_SWIPE_STEPS,
+                other => panic!("{}: неизвестное action = \"{other}\"", r.path),
+            };
+            assert!(
+                ok,
+                "{}: свайп «{}» дал {steps} шагов; по свайпам: {:?}",
+                r.path, r.header.action, r.swipes
+            );
+        }
+        checked += 1;
+        outliers += r.events.iter().filter(|ev| ev.units.abs() >= 60.0).count();
+    }
+    assert_eq!(checked, 12, "фикстур тачпада Windows (05–16)");
+    assert!(outliers > 0, "в фикстурах Windows нет выбросов ≈ 67 строк");
+}
+
+/// §7.2, В-5, ТЗ-36: трей KDE-1…3 и GNOME-1, 2 даёт то же число шагов и то же
+/// направление, что ползунок того же замера; вверх в трее KDE — громче. Число
+/// событий в парных шагах может различаться, поэтому сравниваются щелчки на
+/// событие, а сумма — при равном числе событий. Жесты «тачпада» у ползунка и
+/// трея разные: для них сравнивается направление.
+#[test]
+fn tray_matches_slider() {
+    const PAIRS: [(&str, &str); 4] = [
+        (
+            "01_mouse_slider_single_up.fixture",
+            "05_mouse_tray_single_up.fixture",
+        ),
+        (
+            "02_mouse_slider_single_down.fixture",
+            "06_mouse_tray_single_down.fixture",
+        ),
+        (
+            "03_mouse_slider_fast_up.fixture",
+            "07_mouse_tray_fast_up.fixture",
+        ),
+        (
+            "04_mouse_slider_shift_single_up.fixture",
+            "08_mouse_tray_shift_single_up.fixture",
+        ),
+    ];
+    for dir in LINUX_DIRS {
+        for (slider_file, tray_file) in PAIRS {
+            let slider = replay_fixture(dir, slider_file);
+            let tray = replay_fixture(dir, tray_file);
+            assert_eq!(slider.source, Source::Slider, "{}", slider.path);
+            assert_eq!(tray.source, Source::Tray, "{}", tray.path);
+            let per_event = uniform_clicks(&tray);
+            assert_eq!(
+                per_event,
+                uniform_clicks(&slider),
+                "{}: не как у ползунка",
+                tray.path
+            );
+            let louder = if tray.header.direction == "up" { 1 } else { -1 };
+            assert_eq!(per_event, louder, "{}: направление", tray.path);
+            if slider.events.len() == tray.events.len() {
+                assert_eq!(
+                    tray.swipes.iter().sum::<i32>(),
+                    slider.swipes.iter().sum::<i32>()
+                );
+            }
+        }
+    }
+    for dir in ["kde-3", "gnome-2"] {
+        let touch: Vec<Replay> = replay_dir(dir)
+            .into_iter()
+            .filter(|r| r.header.device == "touchpad")
+            .collect();
+        let mut compared = 0usize;
+        for tray in touch.iter().filter(|r| r.source == Source::Tray) {
+            for slider in touch.iter().filter(|r| r.source == Source::Slider) {
+                let (t, s) = (&tray.header, &slider.header);
+                if t.direction != s.direction || t.natural_scroll != s.natural_scroll {
+                    continue;
+                }
+                let signs = [tray, slider].map(|r| r.swipes.iter().sum::<i32>().signum());
+                assert_eq!(signs[0], signs[1], "{} и {}: знак", tray.path, slider.path);
+                compared += 1;
+            }
+        }
+        assert!(compared > 0, "{dir}: нет пар «тачпад» трей ↔ ползунок");
+    }
+}
+
+/// §7.2, ТЗ-36, В-5: одна и та же последовательность делений, поданная как
+/// события ползунка (winit `Lines` и парный `scroll-event`, 60 px на деление)
+/// и как события трея хоста, даёт одинаковый результат. `delta` трея на одно
+/// деление «вверх» — из `wheel_table.toml`, сверено с записью трея замера.
+#[test]
+fn same_sequence_slider_and_tray_same_result() {
+    const SEQ: [i16; 10] = [1, 1, -1, 2, -3, 1, 5, -2, 12, -4];
+    let hosts = [
+        ("kde-1", Desktop::Kde, TrayHost::KdePlasma),
+        ("gnome-1", Desktop::Gnome, TrayHost::GnomeAppIndicator),
+    ];
+    for (dir, desktop, host) in hosts {
+        let row = shipped_table().tray_row(host);
+        let Ok(division) = i32::try_from(row.division) else {
+            panic!("{host:?}: деление {} вне i32", row.division);
+        };
+        let up = i32::from(row.sign) * division;
+        let recorded = replay_fixture(dir, "05_mouse_tray_single_up.fixture");
+        for ev in &recorded.events {
+            assert_eq!(
+                ev.units,
+                f64::from(up),
+                "{}: delta деления «вверх»",
+                recorded.path
+            );
+        }
+
+        let mut slider = FakeWheelInput::new(shipped_table(), desktop, Some(Session::Wayland));
+        let mut tray = slider.clone();
+        tray.set_tray_host(host);
+        let (mut slider_sum, mut tray_sum, mut t_ms) = (0i32, 0i32, 0.0f64);
+        for n in SEQ {
+            let t = instant(t_ms, "SEQ", 0);
+            t_ms += 1000.0;
+            let y = f32::from(n);
+            slider.push_winit(WheelEvent {
+                t,
+                delta: WheelDelta::Lines { x: 0.0, y },
+                phase: WheelPhase::Moved,
+                momentum: None,
+            });
+            let s = slider
+                .slider_scroll(SlintScroll {
+                    t,
+                    dx: 0.0,
+                    dy: y * 60.0,
+                })
+                .0;
+            slider.end_tick();
+            let delta = up * i32::from(n);
+            let k = tray
+                .tray_scroll(TrayScroll {
+                    t,
+                    delta,
+                    vertical: true,
+                })
+                .0;
+            assert_eq!(s, k, "{host:?}: {n} делений — ползунок {s}, трей {k}");
+            slider_sum += s;
+            tray_sum += k;
+        }
+        assert_eq!(slider_sum, tray_sum, "{host:?}: суммы щелчков");
+        assert_eq!(
+            slider_sum,
+            SEQ.iter().map(|n| i32::from(*n)).sum::<i32>(),
+            "{host:?}"
+        );
+    }
 }

@@ -150,8 +150,8 @@
 - [x] Шаг 10: Фикстуры (§7.4): прогнать to_fixture.py по шести замерам (KDE-1 815d874, KDE-2 028f9f5, KDE-3 64edab4, GNOME-1 d7014de, GNOME-2 d15caeb, Windows eb6fb72) → 104 файла tests/data/wheel/{kde-1,kde-2,kde-3,gnome-1,gnome-2,windows}/. Проверка: 104 файла; число строк данных ползунка = числу событий winit исходного CSV, трея — числу событий tray
 - [x] Шаг 11: expected_steps фикстур (§7.4, wheel_test.md §5.2): мышь — число событий со знаком направления (10, кроме GNOME-1/01 — 11, GNOME-2/04 — 12, Windows/03 — 12, Windows/04 — 11, KDE-3/07 — 8, GNOME-2/07 — 7); тачпад Windows 05–16 — столбец «T=0,5, K=5»; «тачпад» KDE-3 и GNOME-2 — число делений. Проверка: ни одной фикстуры с пустым expected_steps, кроме шагов без событий; сверка с §5.2
 - [x] Шаг 12: Тесты по фикстурам (§7.2, ТЗ-36): src/platform/input/fixture_tests.rs (cfg(test)) — разбор фикстуры, прогон через FakeWheelInput, макрос, порождающий wheel_fixtures_<замер>_<шаг> по списку шагов; расхождение с expected_steps не подгоняется, а докладывается. Проверка: cargo test wheel_fixtures
-- [>] **Шаг 13: Именованные тесты по фикстурам (§7.2, В-3, В-4, В-5): src/platform/input/fixture_tests.rs — linux_emulated_touchpad_is_wheel, windows_touchpad_swipes_capped, tray_matches_slider, same_sequence_slider_and_tray_same_result. Проверка: cargo test platform::input**
-- [ ] Шаг 14: Записи журнала (§2.9, ADR-8): src/journal.rs — JournalRecord::WheelTable { error }, TrayHost { host, via }, BackendFallback { error }, enum HostSource; kind() и текст строки. Общий тип — проверка: полный cargo test
+- [x] Шаг 13: Именованные тесты по фикстурам (§7.2, В-3, В-4, В-5): src/platform/input/fixture_tests.rs — linux_emulated_touchpad_is_wheel, windows_touchpad_swipes_capped, tray_matches_slider, same_sequence_slider_and_tray_same_result. Проверка: cargo test platform::input
+- [>] **Шаг 14: Записи журнала (§2.9, ADR-8): src/journal.rs — JournalRecord::WheelTable { error }, TrayHost { host, via }, BackendFallback { error }, enum HostSource; kind() и текст строки. Общий тип — проверка: полный cargo test**
 - [ ] Шаг 15: Зависимости (§8.1 С11): Cargo.toml — feature slint `unstable-winit-030`; для macOS block2 0.5.1 и objc2-app-kit 0.2.2 (features NSEvent, block2); Cargo.lock. Проверка: cargo check
 - [ ] Шаг 16: Выбор бэкенда winit (§8.1 С11, ADR-8): src/main.rs — BackendSelector::new().backend_name("winit").select() до создания окна; при ошибке — бэкенд по умолчанию и запись журнала BackendFallback. Проверка: cargo check
 - [ ] Шаг 17: Реальный модуль ввода (ADR-8, §6.11, ТЗ-54 п. 3): src/platform/input/winit.rs — WinitWheelInput: attach через on_winit_window_event (WindowEvent::MouseWheel → WheelEvent в логических единицах, EventResult::Propagate), сеанс по raw-window-handle, рабочий стол по cfg и XDG_CURRENT_DESKTOP, таблица из include_str! с откатом на встроенное правило и записью WheelTable; фабрика platform_wheel_input в src/platform/input/mod.rs. Проверка: cargo check
@@ -172,8 +172,8 @@
 
 Легенда: [x] сделано · [>] текущий шаг · [ ] не начато
 
-- **Текущий шаг (current_step):** Шаг 13
-- **Следующий ход:** Шаг 13: субагент добавляет именованные тесты по фикстурам в fixture_tests.rs
+- **Текущий шаг (current_step):** Шаг 14
+- **Следующий ход:** Шаг 14: субагент добавляет записи журнала WheelTable, TrayHost, BackendFallback и HostSource в src/journal.rs
 - **Счетчик безуспешных компиляций:** 0/3
 - **Состояние:** in_progress
 

@@ -175,7 +175,7 @@ steps:
   done: true
 - id: 13
   description: 'Именованные тесты по фикстурам (§7.2, В-3, В-4, В-5): src/platform/input/fixture_tests.rs — linux_emulated_touchpad_is_wheel, windows_touchpad_swipes_capped, tray_matches_slider, same_sequence_slider_and_tray_same_result. Проверка: cargo test platform::input'
-  done: false
+  done: true
 - id: 14
   description: 'Записи журнала (§2.9, ADR-8): src/journal.rs — JournalRecord::WheelTable { error }, TrayHost { host, via }, BackendFallback { error }, enum HostSource; kind() и текст строки. Общий тип — проверка: полный cargo test'
   done: false
@@ -230,8 +230,8 @@ steps:
 - id: 31
   description: 'ЧЕКПОИНТ и закрытие: полный cargo test, cargo clippy --all-targets, cargo build; grep — winit_030 и cfg(target_os) модуля ввода только в src/platform/input/** (ТЗ-54 п. 3); условия §8 всех этапов; обновить заметки плана (отклонения SP1.0-8.10 по Clicks и знаку трея сняты, ручные проверки С11)'
   done: false
-current_step: 13
-next_action: "Шаг 13: субагент добавляет именованные тесты по фикстурам в fixture_tests.rs"
+current_step: 14
+next_action: "Шаг 14: субагент добавляет записи журнала WheelTable, TrayHost, BackendFallback и HostSource в src/journal.rs"
 fail_counter: 0
 fail_counter_max: 3
 failed_attempts: []
