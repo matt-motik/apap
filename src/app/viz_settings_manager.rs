@@ -20,6 +20,7 @@ use music_player_rs::audio::visualizer::{
     ChannelMode, FreqScale, LevelScale, OscilloscopeCfg, Palette, SpectrogramCfg, SpectrumCfg,
     VisualizationMode, VizSettings, WindowType,
 };
+use music_player_rs::core::gate::MainCmd;
 use music_player_rs::persist::state_file::{Origin, StateChange};
 
 /// Индекс канала в комбобоксе: 0 mono, 1 stereo.
@@ -137,9 +138,10 @@ impl MusicApp {
 
     /// Цикл по всем типам (Off→Osc→Spectrogram→Spectrum→Off), ТЗ §3.2.
     /// Режим — состояние сессии: пишется по сроку отложенной записи (ТЗ-10,
-    /// §8.1 С4); сразу применяется к UI/воркерам.
+    /// §8.1 С4); сразу применяется к UI/воркерам. Команда главного окна:
+    /// выполняется только с разрешения шлюза ядра (ТЗ-23, ADR-12, И-Р8).
     pub(super) fn cycle_viz_mode(&mut self) {
-        if self.dialog_is_open() {
+        if !self.core.gate().allows(MainCmd::VizCycle) {
             return;
         }
         let current = self.core.state().viz_mode();
@@ -152,9 +154,10 @@ impl MusicApp {
     /// Выбор пункта меню «Визуализация» (ТЗ §3.2): клик по отмеченному режиму
     /// выключает визуализацию (Off), иначе — включает выбранный. Режим
     /// пишется по сроку отложенной записи (ТЗ-10, §8.1 С4); UI (галочки
-    /// меню) синхронизируется сразу.
+    /// меню) синхронизируется сразу. Команда главного окна: выполняется
+    /// только с разрешения шлюза ядра (ТЗ-23, ADR-12, И-Р8).
     pub(super) fn menu_select_viz_mode(&mut self, i: i32) {
-        if self.dialog_is_open() {
+        if !self.core.gate().allows(MainCmd::VizCycle) {
             return;
         }
         let picked = VisualizationMode::from_index(i);

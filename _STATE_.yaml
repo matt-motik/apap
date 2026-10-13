@@ -92,12 +92,12 @@ steps:
     done: true
   - id: 23
     description: "src/app/viz_settings_manager.rs: клавиша V (cycle_viz) и пункты меню «Визуализация» (menu_select_viz) — через core.gate().allows(MainCmd::VizCycle) (ТЗ-23, ADR-12, И-Р8). Проверка: cargo check"
-    done: false
+    done: true
   - id: 24
     description: "ЧЕКПОИНТ: cargo build; cargo test --no-fail-fast (только 6 падений SP1.0-B7); cargo clippy --all-targets — 0 новых предупреждений в файлах вайтлиста; каждый обработчик команды главного окна спрашивает шлюз (сверка с перечнем MainCmd); ручные проверки ТЗ-23/27/34 — пользователю. Проверка: всё перечисленное зелёное"
     done: false
-current_step: 23
-next_action: "Шаг 23: src/app/viz_settings_manager.rs — V (cycle_viz) и меню «Визуализация» (menu_select_viz) через core.gate().allows(MainCmd::VizCycle); cargo check --all-targets"
+current_step: 24
+next_action: "Шаг 24: ЧЕКПОИНТ — cargo build; cargo test --no-fail-fast (только 6 падений SP1.0-B7); cargo clippy --all-targets; сверка обработчиков главного окна с перечнем MainCmd; ручные проверки ТЗ-23/27/34 — пользователю"
 fail_counter: 0
 fail_counter_max: 3
 failed_attempts: []
