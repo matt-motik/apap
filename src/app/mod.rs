@@ -1572,6 +1572,10 @@ impl MusicApp {
             ui.on_select_mode(move |i| {
                 eprintln!("[gui] select_mode i={i}");
                 let mut a = app.borrow_mut();
+                // Команда главного окна — с разрешения шлюза (ТЗ-23, ADR-12, И-Р8).
+                if !a.core.gate().allows(MainCmd::SwitchMode) {
+                    return;
+                }
                 let mode = match i {
                     0 => ModeKind::Compatible,
                     1 => ModeKind::Optimal,
@@ -2051,7 +2055,7 @@ impl MusicApp {
                             rebuild_table = true;
                         }
                         ApplyStep::TopPanel => {
-                            let top = a.core.settings().top_panel.clone();
+                            let top = a.core.settings().top_panel;
                             if let Some(ui) = a.try_ui() {
                                 ui.set_cover_size(top.cover_size);
                                 ui.set_col_info_w(top.col_info_w);
