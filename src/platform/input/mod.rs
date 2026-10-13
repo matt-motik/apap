@@ -27,9 +27,14 @@ pub use table::{
     WheelTable,
 };
 
-// Временный мост этапа С11: определения переносятся сюда отдельными шагами.
-pub use crate::core::volume::Clicks;
+// Временный мост этапа С11: определение `TrayScroll` переносится сюда
+// отдельным шагом.
 pub use crate::platform::lifecycle::TrayScroll;
+
+/// Нормализованные щелчки колёсика: положительные — громче (НФ-2, §2.8,
+/// ADR-8).
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub struct Clicks(pub i32);
 
 /// Событие колёсика winit в логических единицах, без пересчёта (§2.8, ADR-8).
 /// `momentum`: `None` — платформа не сообщает инерцию; `Some(true)` —
@@ -131,9 +136,11 @@ pub enum AttachOutcome {
 }
 
 /// Модуль ввода текущей платформы (ADR-8, §6.11, ТЗ-54 п. 3). `journal` —
-/// для записи `WheelTable` при ошибке таблицы; `clock` — метки событий winit,
-/// те же часы, что у `SlintScroll::t`; `backend_error` — ошибка выбора
-/// бэкенда winit: с ней `attach` вернёт `DefaultRuleOnly`.
+/// для записи `WheelTable` при ошибке таблицы; `clock` — монотонные часы для
+/// меток событий winit; `SlintScroll::t` ставит вызывающий по часам ядра,
+/// расхождение эпох — миллисекунды запуска, несущественно против окон §6.11;
+/// `backend_error` — ошибка выбора бэкенда winit: с ней `attach` вернёт
+/// `DefaultRuleOnly`.
 pub fn platform_wheel_input(
     journal: &dyn Journal,
     clock: Box<dyn Clock>,
