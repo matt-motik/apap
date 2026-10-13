@@ -2,10 +2,41 @@
      Source of truth: _STATE_.yaml — edit that, then run:
      python tools/state_tool.py render -->
 
-# Состояние сессии
 
-- **Текущая задача:** Нет (все шаги завершены)
-- **Состояние:** done
+# Текущая микро-сессия
+
+- **Задача из ROADMAP:** SP1.0-8.10 — С10 (02). Громкость и mute в UI (ТЗ-35, 37, 38, 39; НФ-2, НФ-3)
+- **Вайтлист файлов в работе (Изменяемые файлы):**
+  - src/core/volume.rs
+  - src/core/mod.rs
+  - src/core/testing.rs
+  - src/app/mod.rs
+  - src/app/playback_manager.rs
+  - ui/top_panel.slint
+  - ui/app.slint
+- **Критерий успеха (Definition of Done):** Все источники громкости идут через VolumeCmd и одну функцию применения (ADR-14); блокировка в Строгом и при volume_lock не меняет громкость/состояние/срок N; mute пишется в PlaybackState по режимам; подсказки §2.13 через Tooltip; тесты §7.2 этапа зелёные; cargo build/clippy --all-targets чистые; cargo test — без новых падений сверх 6 тестов SP1.0-B7 (Windows).
+
+## Итерационный трекер
+- [>] **Шаг 1: src/core/volume.rs (новый) + pub mod в src/core/mod.rs: VolumeCmd, VolumeSource, VolumeBlock, VolumeOutcome, Clicks (временно здесь до platform/input, С11), VOLUME_STEP_PCT, volume_block, apply_volume, VolumeBlock::tooltip (§2.11, §2.13, ADR-14, НФ-2, ТЗ-37, ТЗ-39). Проверка: cargo check без ошибок**
+- [ ] Шаг 2: Юнит-тесты чистых функций в src/core/volume.rs: volume_block_tooltips, Set/Step с clamp 0…100, блокировка в Строгом, блокировка при volume_lock, Unchanged при том же значении (§7.2, И-Р13). Проверка: cargo test core::volume зелёный
+- [ ] Шаг 3: src/core/mod.rs: AppCore::volume(src, cmd) -> VolumeOutcome (volume_block до любого изменения, И-Р13; Changed → change_state(User, Volume)) и AppCore::toggle_mute() -> bool (change_state(User, Muted), работает при блокировке) (§2.12, ADR-14, ТЗ-37, ТЗ-38). Проверка: cargo check без ошибок
+- [ ] Шаг 4: Тесты ядра в src/core/testing.rs, ч. 1: slider_shows_active_mode_volume, strict_mode_wheel_and_hotkeys_do_not_change_volume, optimal_volume_lock_ignores_all_sources (§7.2, ТЗ-35, ТЗ-37). Проверка: cargo test по этим трём именам зелёный
+- [ ] Шаг 5: Тесты ядра в src/core/testing.rs, ч. 2: mute_per_mode_survives_restart; mute_starts_timer дополнить путём через AppCore::toggle_mute (§7.2, ТЗ-38). Проверка: cargo test mute_ зелёный
+- [ ] Шаг 6: Ползунок → VolumeCmd::Set: MusicApp::apply_volume_cmd(src, cmd) в src/app/playback_manager.rs (core.volume → при Changed player.set_volume + AppEvent::VolumeChanged; свойство ползунка выставляется безусловно после каждой команды), on_volume_changed в src/app/mod.rs вызывает его (ADR-14, ТЗ-35). Проверка: cargo check без ошибок
+- [ ] Шаг 7: Slint: объявить и пробросить callback volume-step(int) в ui/top_panel.slint и ui/app.slint; привязка ползунка value <=> volume (значение приходит только из Rust, ТЗ-35, ADR-14). Проверка: cargo check без ошибок
+- [ ] Шаг 8: Колёсико над ползунком → VolumeCmd::Step(SliderWheel): on_volume_step в src/app/mod.rs; в ui/top_panel.slint колёсико вызывает volume-step(±1), расчёт ±0,04 удалён (НФ-2, ADR-14, §8.1 «удаляется»). Проверка: cargo check без ошибок
+- [ ] Шаг 9: Трей → VolumeCmd::Step(TrayWheel) в src/app/mod.rs: TrayEvent::Scroll идёт через apply_volume_cmd, WHEEL_VOLUME_STEP и собственные проверки блокировки удалены; знак щелчка сырой дельты сохраняется до нормализации С11 (ADR-14, ТЗ-24, НФ-2). Проверка: cargo check без ошибок
+- [ ] Шаг 10: Mute в состояние сессии: on_toggle_mute в src/app/mod.rs → core.toggle_mute() + player.set_muted; кнопка mute в ui/top_panel.slint доступна в Строгом режиме и при фиксации (ТЗ-37, ТЗ-38, ADR-14). Проверка: cargo check без ошибок
+- [ ] Шаг 11: Slint: свойство volume-block-text (string) в ui/top_panel.slint и ui/app.slint; Tooltip с этим текстом на неотключаемой обёртке ползунка (ТЗ-39, ADR-14, §2.13). Проверка: cargo check без ошибок
+- [ ] Шаг 12: Текст подсказки из ядра: src/app/mod.rs выставляет volume-block-text из volume_block(...).tooltip() вместе с volume-enabled; самодельная подсказка «Громкость задана режимом» в ui/top_panel.slint удалена (ТЗ-39, §2.13). Проверка: cargo check без ошибок
+- [ ] Шаг 13: ЧЕКПОИНТ: cargo build, cargo clippy --all-targets (0 новых предупреждений в файлах вайтлиста), полный cargo test (без новых падений сверх 6 тестов SP1.0-B7); grep: нет WHEEL_VOLUME_STEP и 0.04 в путях громкости. Проверка: все три команды с ожидаемым итогом
+
+Легенда: [x] сделано · [>] текущий шаг · [ ] не начато
+
+- **Текущий шаг (current_step):** Шаг 1
+- **Следующий ход:** Шаг 1: субагент создаёт src/core/volume.rs по §2.11 и регистрирует модуль в src/core/mod.rs
+- **Счетчик безуспешных компиляций:** 0/3
+- **Состояние:** in_progress
 
 ## План: Executable workflow: правила AGENTS.md → исполняемые механизмы
 _Источник: чат с пользователем (ноутбук), начат в 67686ce; перенесён в репо 2026-09-22_
