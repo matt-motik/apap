@@ -1,9 +1,12 @@
 //! Модуль ввода колёсика (ADR-8, ТЗ-36, НФ-8, §2.8, §6.11): сырые события
 //! winit, Slint и ksni → нормализованные щелчки `Clicks`. `cfg(target_os)` и
 //! `winit_030` для этой задачи встречаются только внутри
-//! `src/platform/input/` (ТЗ-54 п. 3).
+//! `src/platform/input/` (ТЗ-54 п. 3). Реальная реализация —
+//! `WinitWheelInput` (`winit.rs`), её создаёт `platform_wheel_input`; подмена
+//! для автотестов — `FakeWheelInput`.
 
-use crate::audio::clock::ClockInstant;
+use crate::audio::clock::{Clock, ClockInstant};
+use crate::journal::Journal;
 
 pub mod fake;
 #[cfg(test)]
@@ -11,7 +14,9 @@ mod fixture_tests;
 pub mod matcher;
 pub mod normalizer;
 pub mod table;
+pub mod winit;
 
+pub use self::winit::WinitWheelInput;
 pub use fake::FakeWheelInput;
 pub use matcher::{MomentumMark, WheelMatcher};
 pub use normalizer::WheelNormalizer;
@@ -121,4 +126,16 @@ pub trait WheelInput {
 pub enum AttachOutcome {
     Winit,
     DefaultRuleOnly { reason: Box<str> },
+}
+
+/// Модуль ввода текущей платформы (ADR-8, §6.11, ТЗ-54 п. 3). `journal` —
+/// для записи `WheelTable` при ошибке таблицы; `clock` — метки событий winit,
+/// те же часы, что у `SlintScroll::t`; `backend_error` — ошибка выбора
+/// бэкенда winit: с ней `attach` вернёт `DefaultRuleOnly`.
+pub fn platform_wheel_input(
+    journal: &dyn Journal,
+    clock: Box<dyn Clock>,
+    backend_error: Option<Box<str>>,
+) -> Box<dyn WheelInput> {
+    Box::new(WinitWheelInput::new(journal, clock, backend_error))
 }

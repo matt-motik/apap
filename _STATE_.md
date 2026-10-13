@@ -154,8 +154,8 @@
 - [x] Шаг 14: Записи журнала (§2.9, ADR-8): src/journal.rs — JournalRecord::WheelTable { error }, TrayHost { host, via }, BackendFallback { error }, enum HostSource; kind() и текст строки. Общий тип — проверка: полный cargo test
 - [x] Шаг 15: Зависимости (§8.1 С11): Cargo.toml — feature slint `unstable-winit-030`; для macOS block2 0.5.1 и objc2-app-kit 0.2.2 (features NSEvent, block2); Cargo.lock. Проверка: cargo check
 - [x] Шаг 16: Выбор бэкенда winit (§8.1 С11, ADR-8): src/main.rs — BackendSelector::new().backend_name("winit").select() до создания окна; при ошибке — бэкенд по умолчанию и запись журнала BackendFallback. Проверка: cargo check
-- [>] **Шаг 17: Реальный модуль ввода (ADR-8, §6.11, ТЗ-54 п. 3): src/platform/input/winit.rs — WinitWheelInput: attach через on_winit_window_event (WindowEvent::MouseWheel → WheelEvent в логических единицах, EventResult::Propagate), сеанс по raw-window-handle, рабочий стол по cfg и XDG_CURRENT_DESKTOP, таблица из include_str! с откатом на встроенное правило и записью WheelTable; фабрика platform_wheel_input в src/platform/input/mod.rs. Проверка: cargo check**
-- [ ] Шаг 18: Монитор AppKit (ADR-8, ОВС-1 а): src/platform/input/macos.rs (cfg target_os = "macos") — локальный монитор NSEvent прокрутки → MomentumMark в очередь WheelMatcher; подключение в attach. На Windows не компилируется — проверка ревью; cargo check зелёный
+- [x] Шаг 17: Реальный модуль ввода (ADR-8, §6.11, ТЗ-54 п. 3): src/platform/input/winit.rs — WinitWheelInput: attach через on_winit_window_event (WindowEvent::MouseWheel → WheelEvent в логических единицах, EventResult::Propagate), сеанс по raw-window-handle, рабочий стол по cfg и XDG_CURRENT_DESKTOP, таблица из include_str! с откатом на встроенное правило и записью WheelTable; фабрика platform_wheel_input в src/platform/input/mod.rs. Проверка: cargo check
+- [>] **Шаг 18: Монитор AppKit (ADR-8, ОВС-1 а): src/platform/input/macos.rs (cfg target_os = "macos") — локальный монитор NSEvent прокрутки → MomentumMark в очередь WheelMatcher; подключение в attach. На Windows не компилируется — проверка ревью; cargo check зелёный**
 - [ ] Шаг 19: Поле ввода ядра (§2.12): src/core/mod.rs — AppCore.input: Box<dyn WheelInput> (по умолчанию — правило по умолчанию без winit), input_mut(), set_input(). Проверка: полный cargo test
 - [ ] Шаг 20: ЧЕКПОИНТ: полный cargo test (нет новых падений сверх шести SP1.0-B7) и cargo clippy --all-targets без новых предупреждений в файлах вайтлиста
 - [ ] Шаг 21: Slint: сырой scroll-event (§8.1 С11 «удаляется обработчик колёсика ползунка в Slint»): ui/top_panel.slint и ui/app.slint — колбэк volume-scroll(dx, dy) с сырыми delta-x/delta-y в логических px вместо вычисления щелчков в scroll-event. Проверка: cargo check
@@ -172,8 +172,8 @@
 
 Легенда: [x] сделано · [>] текущий шаг · [ ] не начато
 
-- **Текущий шаг (current_step):** Шаг 17
-- **Следующий ход:** Шаг 17: субагент пишет WinitWheelInput в src/platform/input/winit.rs и фабрику platform_wheel_input
+- **Текущий шаг (current_step):** Шаг 18
+- **Следующий ход:** Шаг 18: субагент пишет монитор AppKit в src/platform/input/macos.rs и подключает его в attach
 - **Счетчик безуспешных компиляций:** 0/3
 - **Состояние:** in_progress
 
