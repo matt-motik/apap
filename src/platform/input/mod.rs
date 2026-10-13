@@ -6,6 +6,8 @@
 use crate::audio::clock::ClockInstant;
 
 pub mod fake;
+#[cfg(test)]
+mod fixture_tests;
 pub mod matcher;
 pub mod normalizer;
 pub mod table;
