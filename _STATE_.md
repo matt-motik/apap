@@ -17,8 +17,8 @@
 - **Критерий успеха (Definition of Done):** Все источники громкости идут через VolumeCmd и одну функцию применения (ADR-14); блокировка в Строгом и при volume_lock не меняет громкость/состояние/срок N; mute пишется в PlaybackState по режимам; подсказки §2.13 через Tooltip; тесты §7.2 этапа зелёные; cargo build/clippy --all-targets чистые; cargo test — без новых падений сверх 6 тестов SP1.0-B7 (Windows).
 
 ## Итерационный трекер
-- [>] **Шаг 1: src/core/volume.rs (новый) + pub mod в src/core/mod.rs: VolumeCmd, VolumeSource, VolumeBlock, VolumeOutcome, Clicks (временно здесь до platform/input, С11), VOLUME_STEP_PCT, volume_block, apply_volume, VolumeBlock::tooltip (§2.11, §2.13, ADR-14, НФ-2, ТЗ-37, ТЗ-39). Проверка: cargo check без ошибок**
-- [ ] Шаг 2: Юнит-тесты чистых функций в src/core/volume.rs: volume_block_tooltips, Set/Step с clamp 0…100, блокировка в Строгом, блокировка при volume_lock, Unchanged при том же значении (§7.2, И-Р13). Проверка: cargo test core::volume зелёный
+- [x] Шаг 1: src/core/volume.rs (новый) + pub mod в src/core/mod.rs: VolumeCmd, VolumeSource, VolumeBlock, VolumeOutcome, Clicks (временно здесь до platform/input, С11), VOLUME_STEP_PCT, volume_block, apply_volume, VolumeBlock::tooltip (§2.11, §2.13, ADR-14, НФ-2, ТЗ-37, ТЗ-39). Проверка: cargo check без ошибок
+- [>] **Шаг 2: Юнит-тесты чистых функций в src/core/volume.rs: volume_block_tooltips, Set/Step с clamp 0…100, блокировка в Строгом, блокировка при volume_lock, Unchanged при том же значении (§7.2, И-Р13). Проверка: cargo test core::volume зелёный**
 - [ ] Шаг 3: src/core/mod.rs: AppCore::volume(src, cmd) -> VolumeOutcome (volume_block до любого изменения, И-Р13; Changed → change_state(User, Volume)) и AppCore::toggle_mute() -> bool (change_state(User, Muted), работает при блокировке) (§2.12, ADR-14, ТЗ-37, ТЗ-38). Проверка: cargo check без ошибок
 - [ ] Шаг 4: Тесты ядра в src/core/testing.rs, ч. 1: slider_shows_active_mode_volume, strict_mode_wheel_and_hotkeys_do_not_change_volume, optimal_volume_lock_ignores_all_sources (§7.2, ТЗ-35, ТЗ-37). Проверка: cargo test по этим трём именам зелёный
 - [ ] Шаг 5: Тесты ядра в src/core/testing.rs, ч. 2: mute_per_mode_survives_restart; mute_starts_timer дополнить путём через AppCore::toggle_mute (§7.2, ТЗ-38). Проверка: cargo test mute_ зелёный
@@ -33,8 +33,8 @@
 
 Легенда: [x] сделано · [>] текущий шаг · [ ] не начато
 
-- **Текущий шаг (current_step):** Шаг 1
-- **Следующий ход:** Шаг 1: субагент создаёт src/core/volume.rs по §2.11 и регистрирует модуль в src/core/mod.rs
+- **Текущий шаг (current_step):** Шаг 2
+- **Следующий ход:** Шаг 2: субагент пишет юнит-тесты чистых функций в src/core/volume.rs
 - **Счетчик безуспешных компиляций:** 0/3
 - **Состояние:** in_progress
 

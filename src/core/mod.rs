@@ -13,6 +13,7 @@ pub mod load;
 pub mod messages;
 #[cfg(test)]
 pub(crate) mod testing;
+pub mod volume;
 
 use std::collections::BTreeMap;
 use std::sync::Arc;

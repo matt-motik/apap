@@ -18,7 +18,7 @@ dod: "Все источники громкости идут через VolumeCmd
 steps:
   - id: 1
     description: "src/core/volume.rs (новый) + pub mod в src/core/mod.rs: VolumeCmd, VolumeSource, VolumeBlock, VolumeOutcome, Clicks (временно здесь до platform/input, С11), VOLUME_STEP_PCT, volume_block, apply_volume, VolumeBlock::tooltip (§2.11, §2.13, ADR-14, НФ-2, ТЗ-37, ТЗ-39). Проверка: cargo check без ошибок"
-    done: false
+    done: true
   - id: 2
     description: "Юнит-тесты чистых функций в src/core/volume.rs: volume_block_tooltips, Set/Step с clamp 0…100, блокировка в Строгом, блокировка при volume_lock, Unchanged при том же значении (§7.2, И-Р13). Проверка: cargo test core::volume зелёный"
     done: false
@@ -55,8 +55,8 @@ steps:
   - id: 13
     description: "ЧЕКПОИНТ: cargo build, cargo clippy --all-targets (0 новых предупреждений в файлах вайтлиста), полный cargo test (без новых падений сверх 6 тестов SP1.0-B7); grep: нет WHEEL_VOLUME_STEP и 0.04 в путях громкости. Проверка: все три команды с ожидаемым итогом"
     done: false
-current_step: 1
-next_action: "Шаг 1: субагент создаёт src/core/volume.rs по §2.11 и регистрирует модуль в src/core/mod.rs"
+current_step: 2
+next_action: "Шаг 2: субагент пишет юнит-тесты чистых функций в src/core/volume.rs"
 fail_counter: 0
 fail_counter_max: 3
 failed_attempts: []
