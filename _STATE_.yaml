@@ -24,7 +24,7 @@ steps:
   done: true
 - id: 2
   description: 'Поправка направления в нормализаторе (§6.11 «Направление тачпада», ТЗ-36): тип TouchpadDirection { UpPositive, UpNegative } в src/platform/input/mod.rs; в normalizer.rs — поле, set_touchpad_direction(Option<TouchpadDirection>), touch_idle(t), умножение смещения на dir в touch_step (путь slider/Touchpad и slider_unpaired); Division и tray без изменений; ≤5 тестов. Проверка: cargo test platform::input (включая wheel_fixtures_*)'
-  done: false
+  done: true
 - id: 3
   description: 'Чтение настройки Windows (§6.11 «Направление тачпада», ТЗ-54 п. 3): feature Win32_System_Registry в Cargo.toml; новый src/platform/input/windows.rs — touchpad_direction() -> Result<TouchpadDirection, Box<str>> через RegGetValueW и чистая direction_from_value(u32) с тестом; объявление модуля под cfg(windows) в mod.rs. Проверка: cargo check; cargo test platform::input::windows'
   done: false
@@ -37,8 +37,8 @@ steps:
 - id: 6
   description: 'ЧЕКПОИНТ: полный cargo test, cargo clippy --all-targets, cargo build; закрытие SP1.0-B16 (Шаг 5), ручная проверка Windows — в заметку плана. Проверка: нет новых падений сверх шести SP1.0-B7, нет новых предупреждений'
   done: false
-current_step: 2
-next_action: "Шаг 2: TouchpadDirection и поправка dir в WheelNormalizer"
+current_step: 3
+next_action: "Шаг 3: чтение ScrollDirection из реестра Windows (windows.rs)"
 fail_counter: 0
 fail_counter_max: 3
 failed_attempts: []

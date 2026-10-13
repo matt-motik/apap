@@ -83,6 +83,16 @@ pub enum DeviceClass {
     Touchpad,
 }
 
+/// Направление событий тачпада по системной настройке прокрутки (§6.11
+/// «Направление тачпада», ТЗ-36): с каким знаком приходит движение пальцев вверх.
+#[derive(Clone, Copy, PartialEq, Eq, Hash, Debug)]
+pub enum TouchpadDirection {
+    /// Пальцы вверх — положительное смещение: знак как пришёл.
+    UpPositive,
+    /// Пальцы вверх — отрицательное смещение: знак меняется на обратный.
+    UpNegative,
+}
+
 /// Рабочий стол — ключ строки таблицы модуля ввода (§2.8, ADR-8).
 #[derive(Clone, Copy, PartialEq, Eq, Hash, Debug)]
 pub enum Desktop {

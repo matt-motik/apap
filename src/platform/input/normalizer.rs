@@ -9,8 +9,8 @@ use crate::audio::clock::ClockInstant;
 
 use super::table::{SliderRule, TouchpadParams, WheelTable};
 use super::{
-    Clicks, Desktop, DeviceClass, Session, SlintScroll, TrayHost, TrayScroll, WheelDelta,
-    WheelEvent,
+    Clicks, Desktop, DeviceClass, Session, SlintScroll, TouchpadDirection, TrayHost, TrayScroll,
+    WheelDelta, WheelEvent,
 };
 
 /// Один щелчок колеса в `scroll-event` Slint: 60 логических px (§6.11, В-2).
@@ -19,7 +19,8 @@ const SLINT_WHEEL_CLICK_PX: f64 = 60.0;
 /// Состояние накопителя тачпада (В-4, §6.11).
 #[derive(Clone, Copy, PartialEq, Debug)]
 struct TouchState {
-    /// Остаток в долях шага, знак как пришёл; после шага — |acc| < 1.
+    /// Остаток в долях шага, знак — после поправки направления тачпада; после
+    /// шага — |acc| < 1.
     acc: f64,
     /// Шагов выдано за текущий свайп (со знаком).
     steps: i32,
@@ -55,6 +56,9 @@ pub struct WheelNormalizer {
     /// Время последнего дробного `Lines` (ОВС-1 а): на Windows целое событие
     /// вскоре после дробного — тоже тачпад.
     last_fraction: Option<ClockInstant>,
+    /// Поправка направления тачпада (§6.11 «Направление тачпада», ТЗ-36):
+    /// `None` — системная настройка не прочитана, знак как пришёл.
+    touch_direction: Option<TouchpadDirection>,
     touch: TouchState,
     tray: TrayState,
 }
@@ -68,6 +72,7 @@ impl WheelNormalizer {
             desktop,
             session,
             last_fraction: None,
+            touch_direction: None,
             touch: TouchState::EMPTY,
             tray: TrayState::EMPTY,
         }
@@ -79,8 +84,28 @@ impl WheelNormalizer {
         self.session = session;
     }
 
+    /// Поправка направления тачпада по системной настройке прокрутки (§6.11
+    /// «Направление тачпада», ТЗ-36); `None` — настройка не прочитана, знак
+    /// как пришёл. Состояние накопителя не меняется: вызывающий задаёт
+    /// поправку только когда свайп не идёт (`touch_idle`).
+    pub fn set_touchpad_direction(&mut self, direction: Option<TouchpadDirection>) {
+        self.touch_direction = direction;
+    }
+
+    /// Свайп тачпада не идёт (§6.11 «Направление тачпада», ТЗ-36): событий
+    /// тачпада ещё не было или пауза с последнего больше `swipe_gap_ms`
+    /// параметров `default_touchpad`.
+    pub fn touch_idle(&self, t: ClockInstant) -> bool {
+        let gap = Duration::from_millis(u64::from(self.table.default_touchpad.swipe_gap_ms));
+        match self.touch.last_t {
+            Some(last) => t.saturating_since(last) > gap,
+            None => true,
+        }
+    }
+
     /// Событие колёсика над ползунком → щелчки (§6.11, В-3, В-4, ОВС-1 а).
-    /// Положительное `y` — громче; `x` игнорируется. Инерционное событие
+    /// Положительное `y` — громче; у тачпада знак — после поправки направления
+    /// (ТЗ-36), у колеса — как пришёл; `x` игнорируется. Инерционное событие
     /// macOS даёт 0 и не меняет ни накопитель, ни состояние (И-Р19). Не
     /// конечное `y` — 0 щелчков, состояние не меняется.
     pub fn slider(&mut self, ev: WheelEvent) -> Clicks {
@@ -117,7 +142,8 @@ impl WheelNormalizer {
     /// `dy`, кратное 60 логическим px Slint, — колесо: `dy / 60` щелчков,
     /// накопитель тачпада сбрасывается. Иначе — тачпад: накопитель с
     /// параметрами `default_touchpad` и порогом `threshold_px`. Положительное
-    /// `dy` — громче; `dx` игнорируется. `dy == 0` или не конечное `dy` —
+    /// `dy` — громче; у тачпада знак — после поправки направления (ТЗ-36);
+    /// `dx` игнорируется. `dy == 0` или не конечное `dy` —
     /// 0 щелчков, состояние не меняется.
     pub fn slider_unpaired(&mut self, ev: SlintScroll) -> Clicks {
         if !ev.dy.is_finite() || ev.dy == 0.0 {
@@ -195,7 +221,9 @@ impl WheelNormalizer {
 
     /// Шаг накопителя тачпада (В-4, §6.11): `value` — смещение в единицах
     /// события, `threshold` — уже выбранный порог шага в тех же единицах.
-    /// Пауза больше `swipe_gap_ms` — граница свайпа: остаток и счётчик шагов
+    /// Смещение умножается на поправку направления тачпада (§6.11
+    /// «Направление тачпада», ТЗ-36): `UpNegative` меняет знак, `UpPositive`
+    /// и `None` оставляют как пришёл. Пауза больше `swipe_gap_ms` — граница свайпа: остаток и счётчик шагов
     /// сбрасываются. Остаток переносится; за свайп — не больше `max_steps`
     /// шагов. Не конечное значение или порог ≤ 0 — 0 щелчков, состояние не
     /// меняется.
@@ -215,6 +243,10 @@ impl WheelNormalizer {
             None => false,
         };
         let (acc, steps) = if new_swipe { (0.0, 0) } else { (self.touch.acc, self.touch.steps) };
+        let value = match self.touch_direction {
+            Some(TouchpadDirection::UpNegative) => -value,
+            Some(TouchpadDirection::UpPositive) | None => value,
+        };
         let sum = acc + value / threshold;
         if !sum.is_finite() {
             return Clicks(0);
@@ -417,5 +449,69 @@ mod tests {
         assert_eq!(with.tray(tray_ev(120, false), TrayHost::KdePlasma), Clicks(0));
         assert_eq!(with, without);
         assert_eq!(with.tray(tray_ev(60, true), TrayHost::KdePlasma), Clicks(1));
+    }
+
+    /// Свайп тачпада Windows из дробных `Lines` → щелчки по событиям.
+    fn touch_swipe(direction: Option<TouchpadDirection>) -> Vec<i32> {
+        let mut n = windows();
+        n.set_touchpad_direction(direction);
+        [(0, -0.3), (10, -0.3), (20, -1.1)].iter().map(|&(ms, y)| n.slider(lines(ms, y)).0).collect()
+    }
+
+    /// ТЗ-36, §6.11 «Направление тачпада»: `UpNegative` меняет знак смещения
+    /// тачпада, `UpPositive` и `None` — знак как пришёл.
+    #[test]
+    fn touchpad_direction_up_negative_inverts_sign() {
+        let inverted = touch_swipe(Some(TouchpadDirection::UpNegative));
+        let direct = touch_swipe(Some(TouchpadDirection::UpPositive));
+        assert_eq!(inverted, vec![0, 1, 2]);
+        assert_eq!(direct, vec![0, -1, -2]);
+        assert_eq!(touch_swipe(None), direct);
+        assert_eq!(inverted.iter().sum::<i32>(), -direct.iter().sum::<i32>());
+    }
+
+    /// ТЗ-36, §6.11: поправка направления не касается колеса (правило `Division`).
+    #[test]
+    fn touchpad_direction_does_not_affect_wheel() {
+        let mut n = windows();
+        n.set_touchpad_direction(Some(TouchpadDirection::UpNegative));
+        assert_eq!(n.slider(lines(0, 1.0)), Clicks(1));
+        assert_eq!(n.slider(lines(10, -2.0)), Clicks(-2));
+    }
+
+    /// ТЗ-36, §6.11: поправка направления не касается трея.
+    #[test]
+    fn touchpad_direction_does_not_affect_tray() {
+        let mut n = tray_normalizer();
+        n.set_touchpad_direction(Some(TouchpadDirection::UpNegative));
+        assert_eq!(n.tray(tray_ev(120, true), TrayHost::KdePlasma), Clicks(1));
+        assert_eq!(n.tray(tray_ev(-240, true), TrayHost::KdePlasma), Clicks(-2));
+        assert_eq!(n.tray(tray_ev(-1, true), TrayHost::GnomeAppIndicator), Clicks(1));
+    }
+
+    /// ТЗ-36, §6.11: без пары поправка действует на тачпад (`dy` не кратно
+    /// 60 px) и не действует на колесо (`dy` кратно 60 px).
+    #[test]
+    fn touchpad_direction_applies_to_unpaired() {
+        let mut n = windows();
+        n.set_touchpad_direction(Some(TouchpadDirection::UpNegative));
+        assert_eq!(n.slider_unpaired(slint(0, 30.0)), Clicks(-1));
+        assert_eq!(n.slider_unpaired(slint(10, -45.0)), Clicks(1));
+        assert_eq!(n.slider_unpaired(slint(20, 60.0)), Clicks(1));
+        assert_eq!(n.slider_unpaired(slint(30, -120.0)), Clicks(-2));
+    }
+
+    /// ТЗ-36, §6.11: свайп не идёт до первого события тачпада и после паузы
+    /// больше `swipe_gap_ms` (300 мс).
+    #[test]
+    fn touch_idle_tracks_swipe_gap() {
+        let at = |ms| ClockInstant::from_start(Duration::from_millis(ms));
+        let mut n = windows();
+        assert!(n.touch_idle(at(0)));
+        assert_eq!(n.slider(lines(100, 0.3)), Clicks(0));
+        assert!(!n.touch_idle(at(100)));
+        // Ровно 300 мс — ещё тот же свайп.
+        assert!(!n.touch_idle(at(400)));
+        assert!(n.touch_idle(at(401)));
     }
 }
