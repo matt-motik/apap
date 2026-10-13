@@ -3,6 +3,7 @@
 
 use super::*;
 use music_player_rs::audio::decoder::TrackInfo;
+use music_player_rs::core::volume::VolumeOutcome;
 use music_player_rs::persist::state_file::{Origin, StateChange};
 use music_player_rs::playlist::compare::CompareKeys;
 
@@ -361,6 +362,41 @@ impl MusicApp {
             ModeKind::Optimal => self.core.settings().playback.optimal.volume_lock,
             ModeKind::Compatible => false,
         }
+    }
+
+    /// Единая точка входа команды громкости для всех источников слоя `app`
+    /// (ADR-14, ТЗ-35, ТЗ-37, §2.12). Доступность громкости в активном режиме
+    /// и запись состояния сессии решает ядро (`AppCore::volume`); здесь —
+    /// только команда движку (до этапа С3 её шлёт слой `app`) и возврат
+    /// ползунка к громкости активного режима.
+    ///
+    /// Значение ползунка приходит только из Rust (ТЗ-35): свойство `volume`
+    /// выставляется из состояния ядра при любом исходе, в том числе
+    /// `Blocked` и `Unchanged`, чтобы ползунок не расходился с громкостью
+    /// активного режима.
+    pub(super) fn apply_volume_cmd(&mut self, src: VolumeSource, cmd: VolumeCmd) -> VolumeOutcome {
+        // Мост до перевода движка (С3/С5): bit-perfect поток нельзя трогать
+        // программной громкостью. Признак берётся у фасада движка, а не у
+        // ядра, поэтому команда в ядро не передаётся; исхода «отклонено
+        // движком» в `VolumeOutcome` нет — возвращается `Unchanged`.
+        let outcome = if self.player.bit_perfect() {
+            VolumeOutcome::Unchanged
+        } else {
+            self.core.volume(src, cmd)
+        };
+        let gain = self.core.state().playback().gain();
+        if let VolumeOutcome::Changed(_) = outcome {
+            self.player.set_volume(gain);
+            self.emit(AppEvent::VolumeChanged(gain));
+        }
+        if let Some(ui) = self.try_ui() {
+            ui.set_volume(gain);
+            // Дельта-кэш `sync_playback_state_to_ui` хранит последнее
+            // записанное в свойство значение: без обновления следующий тик
+            // сравнивал бы громкость плеера с устаревшим значением.
+            self.last_ui.volume = gain;
+        }
+        outcome
     }
 
     /// Применить громкость/mute активного режима к плееру и UI после смены

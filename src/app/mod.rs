@@ -27,6 +27,7 @@ use music_player_rs::core::messages::{
 use music_player_rs::core::exit::{ExitOutcome, ExitReason};
 use music_player_rs::core::io::{CacheKind, CacheSizes, IoDone, IoJob};
 use music_player_rs::core::load::LoadApplied;
+use music_player_rs::core::volume::{VolumeCmd, VolumeSource};
 use music_player_rs::core::AppCore;
 use music_player_rs::cover::{self, CoverDone, CoverJob};
 use music_player_rs::engine::messages::{EngineEvent, Notice, SkipReason};
@@ -43,6 +44,7 @@ use music_player_rs::platform::notify::Notifier;
 use music_player_rs::platform::pick::{FilePicker, PickRequest, PickResult};
 use music_player_rs::playlist::{self, ScanMsg, Track};
 use music_player_rs::playlist::model::TrackId;
+use music_player_rs::settings::playback::Volume;
 use music_player_rs::settings::{ColumnId, DsdMode, ModeKind, RepeatMode};
 use music_player_rs::theme::{
     ColorsData, ThemeData, ThemeEntry, ThemeError, DEFAULT_LIGHT_TOML, parse_hex,
@@ -1530,25 +1532,14 @@ impl MusicApp {
                 if !a.core.gate().allows(MainCmd::Volume) {
                     return;
                 }
-                // Bit-perfect (Direct Output) moves the volume stage to the
-                // external DAC/amp: a stray slider/wheel event must never
-                // insert a software gain into the untouched stream.
-                if a.player.bit_perfect() {
+                // Ползунок — один из источников единой команды громкости
+                // (ADR-14, ТЗ-37): доступность, запись состояния и команду
+                // движку выполняет `apply_volume_cmd`.
+                let pct = LegacyPlaybackState::pct_from_gain(volume);
+                let Some(v) = Volume::new(pct) else {
                     return;
-                }
-                // Строгий режим, а также Оптимальный с фиксацией громкости
-                // (`volume_lock`), не допускают программную громкость (ТЗ-41,
-                // §6.18); слайдер/колесо уже заблокированы визуально через
-                // `volume-enabled` в `top_panel.slint`, но ввод всё равно
-                // проверяется здесь на случай гонки между событием UI и
-                // сменой режима.
-                if a.volume_locked() {
-                    return;
-                }
-                a.player.set_volume(volume);
-                a.core.change_state(Origin::User, StateChange::Volume(LegacyPlaybackState::pct_from_gain(volume)));
-                // Persisted at exit (save-at-exit); no per-slider-move disk I/O.
-                a.emit(AppEvent::VolumeChanged(volume));
+                };
+                a.apply_volume_cmd(VolumeSource::Slider, VolumeCmd::Set(v));
             });
         }
 
