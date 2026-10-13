@@ -5,9 +5,11 @@
 
 use crate::audio::clock::ClockInstant;
 
+pub mod matcher;
 pub mod normalizer;
 pub mod table;
 
+pub use matcher::{MomentumMark, WheelMatcher};
 pub use normalizer::WheelNormalizer;
 pub use table::{
     parse_wheel_table, Outcome, SliderRow, SliderRule, TableError, TouchpadParams, TrayRow,
