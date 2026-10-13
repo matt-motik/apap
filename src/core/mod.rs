@@ -40,6 +40,7 @@ use crate::persist::tracker::{PersistTracker, ReplyEffect};
 use crate::persist::writer::{WriterCmd, WriterHandle, WriterReply};
 use crate::persist::{Boot, ConfigFile, ConfigPaths, ReferenceText, SerializeError, Snapshot, SnapshotId, WorkFile};
 use crate::platform::fs::{FileReader, ReadError, WriteError};
+use crate::platform::input::{AttachOutcome, Desktop, FakeWheelInput, WheelInput};
 use crate::playlist::compare::CompareKeys;
 use crate::playlist::load::PlaylistLoader;
 use crate::playlist::model::{Playlist, PlaylistEffect, SortKey, TrackId};
@@ -189,6 +190,30 @@ pub struct AppCore {
     /// Поколение последнего задания `apap-io`, выданное ядром (ADR-20):
     /// единый счётчик для заданий ядра и слоя UI.
     io_gen: u64,
+    /// Модуль ввода колёсика (ADR-8, §2.8, §2.12, §6.11, ТЗ-36): сырые
+    /// события ползунка и трея → щелчки `Clicks`. До `set_input` — модуль
+    /// «только правило по умолчанию» (`default_input`).
+    ///
+    /// ОТКЛОНЕНИЕ от §2.12: там `input` — поле `AppDeps`
+    /// (`pub input: Box<dyn WheelInput>`); здесь оно в `AppCore` с
+    /// подстановкой через `set_input`, потому что `AppCore` может существовать
+    /// без зависимостей (`deps: Option<AppDeps>`), а модуль ввода нужен всегда.
+    input: Box<dyn WheelInput>,
+}
+
+/// Модуль ввода до подстановки реального (ADR-8, §2.8, §6.11, ТЗ-36): только
+/// правило по умолчанию, без фильтра winit — `attach` возвращает
+/// `AttachOutcome::DefaultRuleOnly`. Встроенная таблица `WheelTable::builtin`
+/// не содержит строк ползунка и держит одну строку трея (неизвестный хост),
+/// поэтому рабочий стол на результат не влияет. Реальный модуль
+/// (`platform_wheel_input`) подставляет `AppCore::set_input` при сборке
+/// приложения.
+fn default_input() -> Box<dyn WheelInput> {
+    Box::new(
+        FakeWheelInput::builtin(Desktop::OtherLinux, None).with_attach_outcome(
+            AttachOutcome::DefaultRuleOnly { reason: "модуль ввода не подключён".into() },
+        ),
+    )
 }
 
 /// Общая часть загрузки `with_deps`: разбирает `boot` и строит
@@ -236,6 +261,7 @@ impl AppCore {
             gate: UiGate::default(),
             draft: None,
             io_gen: 0,
+            input: default_input(),
         }
     }
 
@@ -276,6 +302,21 @@ impl AppCore {
     /// плейлиста (ADR-12, §2.12, ТЗ-23, ТЗ-48).
     pub fn gate_mut(&mut self) -> &mut UiGate {
         &mut self.gate
+    }
+
+    /// Модуль ввода колёсика для слоя UI (ADR-8, §2.8, §2.12, §6.11, ТЗ-36):
+    /// `attach` к окну, `scroll-event` ползунка, прокрутка над значком трея,
+    /// хост трея и конец тика.
+    pub fn input_mut(&mut self) -> &mut dyn WheelInput {
+        self.input.as_mut()
+    }
+
+    /// Подставляет модуль ввода колёсика (ADR-8, §2.12, §6.11, ТЗ-36):
+    /// реальный `platform_wheel_input` при сборке приложения или подмену в
+    /// тестах. Прежний модуль отбрасывается вместе со своим состоянием
+    /// (накопители, события без пары).
+    pub fn set_input(&mut self, input: Box<dyn WheelInput>) {
+        self.input = input;
     }
 
     /// Следующее поколение задания `apap-io` (ADR-20, §2.12): единый источник

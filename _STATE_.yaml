@@ -193,10 +193,10 @@ steps:
   done: true
 - id: 19
   description: 'Поле ввода ядра (§2.12): src/core/mod.rs — AppCore.input: Box<dyn WheelInput> (по умолчанию — правило по умолчанию без winit), input_mut(), set_input(). Проверка: полный cargo test'
-  done: false
+  done: true
 - id: 20
   description: 'ЧЕКПОИНТ: полный cargo test (нет новых падений сверх шести SP1.0-B7) и cargo clippy --all-targets без новых предупреждений в файлах вайтлиста'
-  done: false
+  done: true
 - id: 21
   description: 'Slint: сырой scroll-event (§8.1 С11 «удаляется обработчик колёсика ползунка в Slint»): ui/top_panel.slint и ui/app.slint — колбэк volume-scroll(dx, dy) с сырыми delta-x/delta-y в логических px вместо вычисления щелчков в scroll-event. Проверка: cargo check'
   done: false
@@ -230,8 +230,8 @@ steps:
 - id: 31
   description: 'ЧЕКПОИНТ и закрытие: полный cargo test, cargo clippy --all-targets, cargo build; grep — winit_030 и cfg(target_os) модуля ввода только в src/platform/input/** (ТЗ-54 п. 3); условия §8 всех этапов; обновить заметки плана (отклонения SP1.0-8.10 по Clicks и знаку трея сняты, ручные проверки С11)'
   done: false
-current_step: 19
-next_action: "Шаг 19: субагент добавляет поле AppCore.input, input_mut() и set_input() в src/core/mod.rs"
+current_step: 21
+next_action: "Шаг 21: субагент добавляет колбэк volume-scroll(dx, dy) в ui/top_panel.slint и ui/app.slint"
 fail_counter: 0
 fail_counter_max: 3
 failed_attempts: []

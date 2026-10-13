@@ -156,9 +156,9 @@
 - [x] Шаг 16: Выбор бэкенда winit (§8.1 С11, ADR-8): src/main.rs — BackendSelector::new().backend_name("winit").select() до создания окна; при ошибке — бэкенд по умолчанию и запись журнала BackendFallback. Проверка: cargo check
 - [x] Шаг 17: Реальный модуль ввода (ADR-8, §6.11, ТЗ-54 п. 3): src/platform/input/winit.rs — WinitWheelInput: attach через on_winit_window_event (WindowEvent::MouseWheel → WheelEvent в логических единицах, EventResult::Propagate), сеанс по raw-window-handle, рабочий стол по cfg и XDG_CURRENT_DESKTOP, таблица из include_str! с откатом на встроенное правило и записью WheelTable; фабрика platform_wheel_input в src/platform/input/mod.rs. Проверка: cargo check
 - [x] Шаг 18: Монитор AppKit (ADR-8, ОВС-1 а): src/platform/input/macos.rs (cfg target_os = "macos") — локальный монитор NSEvent прокрутки → MomentumMark в очередь WheelMatcher; подключение в attach. На Windows не компилируется — проверка ревью; cargo check зелёный
-- [>] **Шаг 19: Поле ввода ядра (§2.12): src/core/mod.rs — AppCore.input: Box<dyn WheelInput> (по умолчанию — правило по умолчанию без winit), input_mut(), set_input(). Проверка: полный cargo test**
-- [ ] Шаг 20: ЧЕКПОИНТ: полный cargo test (нет новых падений сверх шести SP1.0-B7) и cargo clippy --all-targets без новых предупреждений в файлах вайтлиста
-- [ ] Шаг 21: Slint: сырой scroll-event (§8.1 С11 «удаляется обработчик колёсика ползунка в Slint»): ui/top_panel.slint и ui/app.slint — колбэк volume-scroll(dx, dy) с сырыми delta-x/delta-y в логических px вместо вычисления щелчков в scroll-event. Проверка: cargo check
+- [x] Шаг 19: Поле ввода ядра (§2.12): src/core/mod.rs — AppCore.input: Box<dyn WheelInput> (по умолчанию — правило по умолчанию без winit), input_mut(), set_input(). Проверка: полный cargo test
+- [x] Шаг 20: ЧЕКПОИНТ: полный cargo test (нет новых падений сверх шести SP1.0-B7) и cargo clippy --all-targets без новых предупреждений в файлах вайтлиста
+- [>] **Шаг 21: Slint: сырой scroll-event (§8.1 С11 «удаляется обработчик колёсика ползунка в Slint»): ui/top_panel.slint и ui/app.slint — колбэк volume-scroll(dx, dy) с сырыми delta-x/delta-y в логических px вместо вычисления щелчков в scroll-event. Проверка: cargo check**
 - [ ] Шаг 22: Ползунок через модуль ввода (§6.11, НФ-2): src/app/mod.rs — on_volume_scroll → input.slider_scroll(SlintScroll) → при ненулевом Clicks AppCore::volume(SliderWheel, Step); on_volume_step удалён. Проверка: cargo check
 - [ ] Шаг 23: Slint: удалить колбэк volume-step из ui/top_panel.slint и ui/app.slint. Проверка: cargo check
 - [ ] Шаг 24: Трей через модуль ввода (§6.11, §8.1 С11 «удаляется инверсия трея в poll_tray»): src/app/mod.rs — TrayEvent::Scroll → input.tray_scroll(ev) → Step; end_tick на тике. Проверка: cargo check
@@ -172,8 +172,8 @@
 
 Легенда: [x] сделано · [>] текущий шаг · [ ] не начато
 
-- **Текущий шаг (current_step):** Шаг 19
-- **Следующий ход:** Шаг 19: субагент добавляет поле AppCore.input, input_mut() и set_input() в src/core/mod.rs
+- **Текущий шаг (current_step):** Шаг 21
+- **Следующий ход:** Шаг 21: субагент добавляет колбэк volume-scroll(dx, dy) в ui/top_panel.slint и ui/app.slint
 - **Счетчик безуспешных компиляций:** 0/3
 - **Состояние:** in_progress
 
