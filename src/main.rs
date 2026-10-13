@@ -14,6 +14,7 @@ use music_player_rs::persist::keys::Parsed;
 use music_player_rs::persist::writer::{spawn_writer, WriterCmd, WriterHandle, WriterReply};
 use music_player_rs::persist::{self, BadCopyOutcome, Boot, ConfigFile, ConfigPaths};
 use music_player_rs::platform::fs::os_fs;
+use music_player_rs::platform::input::{platform_wheel_input, AttachOutcome};
 use music_player_rs::playlist::load::ThreadLoader;
 use music_player_rs::platform::pick::{FilePicker, RfdPicker};
 use music_player_rs::platform::lifecycle::{platform_lifecycle, ExitEntry};
@@ -115,7 +116,7 @@ fn main() {
     // инжектируемых часов/ожидания (ADR-19, ADR-23, §2.12, §6.1). `MusicApp`
     // владеет этим экземпляром; старое плоское поле настроек заполняется из
     // него через мост до шага очистки (§8.1 С3).
-    let core = AppCore::with_deps(
+    let mut core = AppCore::with_deps(
         AppDeps {
             writer,
             paths: paths.clone(),
@@ -132,6 +133,16 @@ fn main() {
         },
         boot,
     );
+    // Реальный модуль ввода колёсика текущей платформы вместо подмены ядра
+    // (ADR-8, §6.11, ТЗ-36, ТЗ-54 п. 3). У модуля свои монотонные часы для
+    // меток событий winit: их эпоха отличается от часов ядра на время запуска
+    // (миллисекунды) — несущественно против окон сопоставления §6.11. Ошибка
+    // выбора бэкенда передаётся копией: `backend` ещё нужен после показа окна.
+    core.set_input(platform_wheel_input(
+        journal.as_ref(),
+        Box::new(MonotonicClock::new()),
+        backend.as_ref().err().cloned(),
+    ));
     let ui = match app::create_ui() {
         Ok(ui) => ui,
         Err(e) => {
@@ -232,6 +243,21 @@ fn main() {
     // схлопнуться до минимального размера контента. Повторно применяем
     // сохранённую геометрию (V5.1-B7) из видимого состояния.
     app.borrow().apply_window_geometry();
+    // Модуль ввода подключается к показанному окну — единственный фильтр
+    // событий окна (ADR-8, §6.11, ТЗ-36). `DefaultRuleOnly` — парных событий
+    // winit нет, ползунок работает по правилу по умолчанию (§6.11, В-2).
+    // Выбор бэкенда winit удался, а окно оказалось не winit — причина идёт в
+    // журнал здесь; выбор не удался — запись `BackendFallback` уже сделана
+    // выше, вторая не пишется.
+    let attached = app.borrow_mut().attach_wheel_input(ui.window());
+    match attached {
+        AttachOutcome::Winit => {}
+        AttachOutcome::DefaultRuleOnly { reason } => {
+            if backend.is_ok() {
+                journal.record(JournalRecord::BackendFallback { error: reason });
+            }
+        }
+    }
     // Шаг 8 порядка запуска (ADR-23): перехваты ОС ставятся после показа
     // окна, все пути выхода сходятся в одну точку `exit` (ADR-7, ТЗ-14).
     let mut lifecycle =

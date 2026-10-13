@@ -39,7 +39,7 @@ use music_player_rs::persist::state_file::{
 };
 use music_player_rs::persist::tracker::ReplyEffect;
 use music_player_rs::persist::{ConfigPaths, WorkFile};
-use music_player_rs::platform::input::SlintScroll;
+use music_player_rs::platform::input::{AttachOutcome, SlintScroll};
 use music_player_rs::platform::lifecycle::PlatformCaps;
 use music_player_rs::platform::notify::Notifier;
 use music_player_rs::platform::pick::{FilePicker, PickRequest, PickResult};
@@ -1037,6 +1037,14 @@ impl MusicApp {
         self.core.window_shown();
         let effect = self.messages.window_shown();
         self.apply_msg_effect(effect);
+    }
+
+    /// Подключает модуль ввода колёсика к показанному окну — единственный
+    /// фильтр событий окна (ADR-8, §6.11, ТЗ-36). Вызывается из `main` один
+    /// раз после `ui.show()`. Исход `DefaultRuleOnly` в журнал записывает
+    /// вызывающий код.
+    pub fn attach_wheel_input(&mut self, window: &slint::Window) -> AttachOutcome {
+        self.core.input_mut().attach(window)
     }
 
     pub fn init(this: &Rc<RefCell<Self>>) {

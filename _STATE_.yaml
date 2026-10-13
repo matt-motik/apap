@@ -211,7 +211,7 @@ steps:
   done: true
 - id: 25
   description: 'Подключение к окну (ADR-8): src/main.rs и src/app/mod.rs — set_input(platform_wheel_input(..)) при сборке ядра, attach(window) после показа окна; DefaultRuleOnly → запись журнала. Проверка: cargo check'
-  done: false
+  done: true
 - id: 26
   description: 'Перенос Clicks (§2.8; снять отклонение SP1.0-8.10): определение — в src/platform/input/mod.rs, в src/core/volume.rs — импорт и реэкспорт, комментарий об отклонении удалён. Проверка: полный cargo test'
   done: false
@@ -230,8 +230,8 @@ steps:
 - id: 31
   description: 'ЧЕКПОИНТ и закрытие: полный cargo test, cargo clippy --all-targets, cargo build; grep — winit_030 и cfg(target_os) модуля ввода только в src/platform/input/** (ТЗ-54 п. 3); условия §8 всех этапов; обновить заметки плана (отклонения SP1.0-8.10 по Clicks и знаку трея сняты, ручные проверки С11)'
   done: false
-current_step: 25
-next_action: "Шаг 25: субагент подключает platform_wheel_input в src/main.rs и attach(window) после показа окна, DefaultRuleOnly — в журнал"
+current_step: 26
+next_action: "Шаг 26: субагент переносит определение Clicks в src/platform/input/mod.rs, в core/volume.rs — реэкспорт; полный cargo test"
 fail_counter: 0
 fail_counter_max: 3
 failed_attempts: []
