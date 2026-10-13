@@ -218,6 +218,9 @@ export component TopPanel inherits Rectangle {
     callback volume-changed(float);
     // щелчки колёсика над ползунком: положительные — громче (ADR-14, ТЗ-37, НФ-2)
     callback volume-step(int);
+    // сырой scroll-event над ползунком: (dx, dy) в логических пикселях; щелчки
+    // считает модуль ввода, положительное dy — громче (ADR-8, §6.11, ТЗ-36)
+    callback volume-scroll(float, float);
     callback toggle-mute();
 
     background: transparent;
@@ -563,14 +566,15 @@ export component TopPanel inherits Rectangle {
                         vertical-stretch: 1;
                         width: 34px;
                         enabled: !root.bit-perfect && root.volume-enabled;
-                        // Wheel over the slider = one click of the unified
-                        // volume command per event (up = louder). The step
-                        // size is set by the core: 2 % per click (ADR-14,
-                        // НФ-2). Drag keeps working via the Slider's own
-                        // TouchArea (scroll bubbles up here).
+                        // Wheel over the slider = raw scroll offsets (dx, dy)
+                        // in logical pixels, positive dy = louder. Clicks
+                        // are counted by the input module, not here (ADR-8,
+                        // §6.11, ТЗ-36); the step size is set by the core
+                        // (ADR-14, НФ-2). Drag keeps working via the
+                        // Slider's own TouchArea (scroll bubbles up here).
                         scroll-event(event) => {
                             if (event.delta-y != 0) {
-                                root.volume-step(event.delta-y > 0 ? 1 : -1);
+                                root.volume-scroll(event.delta-x / 1px, event.delta-y / 1px);
                                 return accept;
                             }
                             reject

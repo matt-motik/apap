@@ -199,7 +199,7 @@ steps:
   done: true
 - id: 21
   description: 'Slint: сырой scroll-event (§8.1 С11 «удаляется обработчик колёсика ползунка в Slint»): ui/top_panel.slint и ui/app.slint — колбэк volume-scroll(dx, dy) с сырыми delta-x/delta-y в логических px вместо вычисления щелчков в scroll-event. Проверка: cargo check'
-  done: false
+  done: true
 - id: 22
   description: 'Ползунок через модуль ввода (§6.11, НФ-2): src/app/mod.rs — on_volume_scroll → input.slider_scroll(SlintScroll) → при ненулевом Clicks AppCore::volume(SliderWheel, Step); on_volume_step удалён. Проверка: cargo check'
   done: false
@@ -230,8 +230,8 @@ steps:
 - id: 31
   description: 'ЧЕКПОИНТ и закрытие: полный cargo test, cargo clippy --all-targets, cargo build; grep — winit_030 и cfg(target_os) модуля ввода только в src/platform/input/** (ТЗ-54 п. 3); условия §8 всех этапов; обновить заметки плана (отклонения SP1.0-8.10 по Clicks и знаку трея сняты, ручные проверки С11)'
   done: false
-current_step: 21
-next_action: "Шаг 21: субагент добавляет колбэк volume-scroll(dx, dy) в ui/top_panel.slint и ui/app.slint"
+current_step: 22
+next_action: "Шаг 22: субагент подключает on_volume_scroll к input.slider_scroll в src/app/mod.rs и удаляет on_volume_step"
 fail_counter: 0
 fail_counter_max: 3
 failed_attempts: []
