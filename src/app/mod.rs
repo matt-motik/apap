@@ -27,7 +27,7 @@ use music_player_rs::core::messages::{
 use music_player_rs::core::exit::{ExitOutcome, ExitReason};
 use music_player_rs::core::io::{CacheKind, CacheSizes, IoDone, IoJob};
 use music_player_rs::core::load::LoadApplied;
-use music_player_rs::core::volume::{Clicks, VolumeCmd, VolumeSource};
+use music_player_rs::core::volume::{VolumeCmd, VolumeSource};
 use music_player_rs::core::AppCore;
 use music_player_rs::cover::{self, CoverDone, CoverJob};
 use music_player_rs::engine::messages::{EngineEvent, Notice, SkipReason};
@@ -2460,6 +2460,10 @@ impl MusicApp {
                 self.update_column_widths();
             }
         }
+        // Конец тика UI: событие winit без парного `scroll-event` ползунка
+        // отбрасывается — указатель был вне ползунка (§6.11 «Сопоставление»,
+        // В-2).
+        self.core.input_mut().end_tick();
     }
 
     /// High-frequency column reflow, driven by its own fast timer (see
@@ -2622,19 +2626,13 @@ impl MusicApp {
                     self.exit(ExitReason::TrayQuit);
                 }
                 TrayEvent::Scroll(ev) => {
-                    let delta = ev.delta;
-                    // Хосты различаются величиной события (Ubuntu: ±1,
-                    // KDE/4k: ±120) — учитывается только знак, одно событие =
-                    // один щелчок. Отрицательная `delta` — громче: знак
-                    // сохраняется до нормализации ввода на этапе С11
-                    // (`platform/input`). Трей — источник единой команды
-                    // громкости (ADR-14, ТЗ-37, НФ-2).
-                    if delta != 0 {
-                        let clicks = if delta < 0 { 1 } else { -1 };
-                        self.apply_volume_cmd(
-                            VolumeSource::TrayWheel,
-                            VolumeCmd::Step(Clicks(clicks)),
-                        );
+                    // Знак и величину события по хосту трея нормализует модуль
+                    // ввода (ADR-8, §6.11 «Трей», В-5, ТЗ-36). Трей — источник
+                    // единой команды громкости (ADR-14, ТЗ-37, НФ-2); работает
+                    // и при открытом диалоге (ТЗ-24).
+                    let clicks = self.core.input_mut().tray_scroll(ev);
+                    if clicks.0 != 0 {
+                        self.apply_volume_cmd(VolumeSource::TrayWheel, VolumeCmd::Step(clicks));
                     }
                 }
             }

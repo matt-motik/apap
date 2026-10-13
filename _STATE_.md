@@ -161,8 +161,8 @@
 - [x] Шаг 21: Slint: сырой scroll-event (§8.1 С11 «удаляется обработчик колёсика ползунка в Slint»): ui/top_panel.slint и ui/app.slint — колбэк volume-scroll(dx, dy) с сырыми delta-x/delta-y в логических px вместо вычисления щелчков в scroll-event. Проверка: cargo check
 - [x] Шаг 22: Ползунок через модуль ввода (§6.11, НФ-2): src/app/mod.rs — on_volume_scroll → input.slider_scroll(SlintScroll) → при ненулевом Clicks AppCore::volume(SliderWheel, Step); on_volume_step удалён. Проверка: cargo check
 - [x] Шаг 23: Slint: удалить колбэк volume-step из ui/top_panel.slint и ui/app.slint. Проверка: cargo check
-- [>] **Шаг 24: Трей через модуль ввода (§6.11, §8.1 С11 «удаляется инверсия трея в poll_tray»): src/app/mod.rs — TrayEvent::Scroll → input.tray_scroll(ev) → Step; end_tick на тике. Проверка: cargo check**
-- [ ] Шаг 25: Подключение к окну (ADR-8): src/main.rs и src/app/mod.rs — set_input(platform_wheel_input(..)) при сборке ядра, attach(window) после показа окна; DefaultRuleOnly → запись журнала. Проверка: cargo check
+- [x] Шаг 24: Трей через модуль ввода (§6.11, §8.1 С11 «удаляется инверсия трея в poll_tray»): src/app/mod.rs — TrayEvent::Scroll → input.tray_scroll(ev) → Step; end_tick на тике. Проверка: cargo check
+- [>] **Шаг 25: Подключение к окну (ADR-8): src/main.rs и src/app/mod.rs — set_input(platform_wheel_input(..)) при сборке ядра, attach(window) после показа окна; DefaultRuleOnly → запись журнала. Проверка: cargo check**
 - [ ] Шаг 26: Перенос Clicks (§2.8; снять отклонение SP1.0-8.10): определение — в src/platform/input/mod.rs, в src/core/volume.rs — импорт и реэкспорт, комментарий об отклонении удалён. Проверка: полный cargo test
 - [ ] Шаг 27: Перенос TrayScroll (§2.8): определение — в src/platform/input/mod.rs, в src/platform/lifecycle/mod.rs — реэкспорт. Проверка: полный cargo test
 - [ ] Шаг 28: Хост трея в канале событий (§6.11, §3 «Хост трея»): src/platform/lifecycle/mod.rs — TrayEvent::Host { host, via }; src/app/mod.rs — в poll_tray set_tray_host и запись журнала TrayHost. Проверка: cargo check
@@ -172,8 +172,8 @@
 
 Легенда: [x] сделано · [>] текущий шаг · [ ] не начато
 
-- **Текущий шаг (current_step):** Шаг 24
-- **Следующий ход:** Шаг 24: субагент переводит TrayEvent::Scroll на input.tray_scroll и добавляет end_tick на тике в src/app/mod.rs
+- **Текущий шаг (current_step):** Шаг 25
+- **Следующий ход:** Шаг 25: субагент подключает platform_wheel_input в src/main.rs и attach(window) после показа окна, DefaultRuleOnly — в журнал
 - **Счетчик безуспешных компиляций:** 0/3
 - **Состояние:** in_progress
 
