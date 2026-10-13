@@ -16,6 +16,8 @@ mod macos;
 pub mod matcher;
 pub mod normalizer;
 pub mod table;
+#[cfg(windows)]
+mod windows;
 pub mod winit;
 
 pub use self::winit::WinitWheelInput;

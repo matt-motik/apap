@@ -57,10 +57,12 @@ objc2-app-kit = { version = "0.2.2", features = ["NSEvent", "block2"] }
 
 # `MoveFileExW` с `MOVEFILE_WRITE_THROUGH` (ADR-4); `SetWindowSubclass` для
 # завершения сеанса (ADR-7 п. 4).
+# `RegGetValueW` — направление прокрутки тачпада (§6.11, ТЗ-36).
 [target.'cfg(windows)'.dependencies]
 windows-sys = { version = "0.61", features = [
     "Win32_Foundation",
     "Win32_Storage_FileSystem",
+    "Win32_System_Registry",
     "Win32_UI_Shell",
     "Win32_UI_WindowsAndMessaging",
 ] }
