@@ -519,8 +519,11 @@ mod tests {
     use crate::core::messages::{MessageCenter, MessageLevel};
     use crate::core::gate::{BlockReason, MainCmd, UiGate};
     use crate::core::load::{LoadApplied, LoadState};
-    use crate::journal::WriteTarget;
+    use crate::journal::{HostSource, WriteTarget};
     use crate::platform::fs::FsOp;
+    use crate::platform::input::{
+        Desktop, FakeWheelInput, Outcome, Session, TrayHost, TrayRow, TrayScroll, WheelTable,
+    };
     use crate::platform::lifecycle::{ExitEntry, FakeLifecycle, Lifecycle, PlatformCaps, TrayEvent};
     use crate::platform::notify::{FakeNotifier, Notification, Notifier};
     use crate::persist::keys::{KeyPath, LoadNoteKind};
@@ -2106,14 +2109,32 @@ mod tests {
         assert_eq!(&*notifier.calls()[0].body, "body");
     }
 
-    /// Трей работает во время диалога настроек, без колёсика (ТЗ-24, §5.1:
-    /// строка «с треем; диалог»; колёсико — отдельный этап С11): `UiGate`
-    /// блокирует команды главного окна, но трей не ходит через `UiGate`
-    /// (`poll_tray` в `app/mod.rs` вызывает `core.change_state` напрямую) —
-    /// изменение громкости тем же путём и «Сохранить» с одним изменённым
-    /// параметром (SRC-фильтр ресемплера) проходят несмотря на блокировку:
-    /// одна запись `settings.toml`, затем одна запись `state.toml` по
-    /// отсчёту с новой громкостью.
+    /// Деление колёсика над значком трея в тестах: неизвестный хост
+    /// встроенной таблицы берёт единицей модуль первого события (§6.11
+    /// «Трей», В-5), поэтому `+TRAY_NOTCH` — один щелчок «громче».
+    const TRAY_NOTCH: i32 = 120;
+
+    /// Прокрутка над значком трея тем же путём, что `TrayEvent::Scroll` в
+    /// `poll_tray` (`app/mod.rs`; ADR-8, §6.11 «Трей», В-5, ТЗ-24, ТЗ-36):
+    /// событие нормализует модуль ввода ядра (`input_mut().tray_scroll`),
+    /// ненулевые щелчки уходят в единую команду громкости `AppCore::volume`
+    /// с источником `TrayWheel` — её же вызывает `apply_volume_cmd`. Шлюз
+    /// главного окна на этом пути не спрашивается. `None` — щелчков нет,
+    /// команда не подана.
+    fn tray_wheel(h: &Harness, core: &mut AppCore, delta: i32) -> Option<VolumeOutcome> {
+        let ev = TrayScroll { t: h.clock.now(), delta, vertical: true };
+        let clicks = core.input_mut().tray_scroll(ev);
+        (clicks.0 != 0).then(|| core.volume(VolumeSource::TrayWheel, VolumeCmd::Step(clicks)))
+    }
+
+    /// Трей работает во время диалога настроек (ТЗ-24, §5.1: строка «с
+    /// треем; диалог»; ADR-8, §6.11 «Трей», В-5): `UiGate` блокирует команды
+    /// главного окна, но трей не ходит через `UiGate` (`poll_tray` в
+    /// `app/mod.rs` подаёт `TrayScroll` в модуль ввода ядра и щелчки — в
+    /// команду громкости) — пять щелчков колёсика над значком (+10 %) и
+    /// «Сохранить» с одним изменённым параметром (SRC-фильтр ресемплера)
+    /// проходят несмотря на блокировку: одна запись `settings.toml`, затем
+    /// одна запись `state.toml` по отсчёту с новой громкостью.
     #[test]
     fn tray_works_during_dialog() {
         let h = Harness::new();
@@ -2125,8 +2146,19 @@ mod tests {
         gate.block(BlockReason::Dialog);
         assert!(!gate.allows(MainCmd::PlayPause), "главное окно блокировано диалогом настроек");
 
-        // Тот же путь, что `TrayEvent::Scroll` в `poll_tray`: минует `UiGate`.
-        core.change_state(Origin::User, StateChange::Volume(42));
+        // Исходный уровень ниже максимума, чтобы +10 % были видны.
+        core.change_state(Origin::User, StateChange::Volume(32));
+
+        // Пять событий по одному делению: `TrayEvent::Scroll` → модуль ввода
+        // → `VolumeCmd::Step`, мимо `UiGate`. Каждый щелчок — +2 %.
+        for step in 1..=5u8 {
+            assert_eq!(
+                tray_wheel(&h, &mut core, TRAY_NOTCH),
+                Some(VolumeOutcome::Changed(vol(32 + 2 * step))),
+                "щелчок {step}"
+            );
+        }
+        assert_eq!(core.state().playback().volume, 42, "колёсико трея: +5 щелчков = +10 %");
 
         let mut settings = core.settings().clone();
         settings.playback.compatible.src_filter = SrcFilter::VerySlow;
@@ -2144,8 +2176,10 @@ mod tests {
     /// Трей работает во время открытого окна сообщения (ТЗ-24, ТЗ-52):
     /// `UiGate` блокирован причиной `Message` (как при открытом окне
     /// ошибки записи), но трей шлёт изменение громкости тем же путём, что
-    /// и `TrayEvent::Scroll` (шаг колёсика 0.02 = 2%, до модуля ввода С11);
-    /// изменение доходит до `state.toml` по отсчёту, несмотря на блокировку.
+    /// и `TrayEvent::Scroll` в `poll_tray`: событие — в модуль ввода ядра,
+    /// щелчки — в команду громкости (ADR-8, §6.11 «Трей», В-5; один щелчок
+    /// = 2 %); изменение доходит до `state.toml` по отсчёту, несмотря на
+    /// блокировку.
     #[test]
     fn tray_works_during_message() {
         let h = Harness::new();
@@ -2158,16 +2192,115 @@ mod tests {
         assert!(!gate.allows(MainCmd::Volume), "главное окно блокировано сообщением");
 
         // Исходный уровень ниже максимума, чтобы щелчок колёсика вверх
-        // (+2 %, шаг 0.02 до С11) был виден.
+        // (+2 %) был виден.
         core.change_state(Origin::User, StateChange::Volume(50));
         let after = core.state().playback().volume + 2;
-        core.change_state(Origin::User, StateChange::Volume(after));
+        // Одно деление над значком трея: модуль ввода → `VolumeCmd::Step`.
+        assert_eq!(tray_wheel(&h, &mut core, TRAY_NOTCH), Some(VolumeOutcome::Changed(vol(52))));
+        assert_eq!(after, 52);
+        // Событие без щелчков (`delta == 0`) команду громкости не подаёт —
+        // как в `poll_tray`.
+        assert_eq!(tray_wheel(&h, &mut core, 0), None);
 
         let interval = core.settings().save_interval.duration();
         h.advance(&mut core, interval);
         h.settle(&mut core);
         assert_eq!(h.writes(WorkFile::State), 1);
         assert_eq!(core.state().playback().volume, after);
+    }
+
+    /// Таблица модуля ввода с двумя строками трея (§2.8, §6.11 «Трей», В-5):
+    /// неизвестный хост — «вверх = громче», деление `TRAY_NOTCH`; GNOME
+    /// AppIndicator — обратный знак, то же деление. Строк ползунка нет.
+    fn tray_table() -> WheelTable {
+        let row = |host, sign| TrayRow { host, sign, division: TRAY_NOTCH.unsigned_abs(), outcome: Outcome::Experiment };
+        WheelTable {
+            tray: vec![row(TrayHost::Unknown, 1), row(TrayHost::GnomeAppIndicator, -1)],
+            ..WheelTable::builtin()
+        }
+    }
+
+    /// `AppCore::set_tray_host` фиксирует хост трея и способ его определения
+    /// в журнале (ADR-8, §2.9, §6.11 «Хост трея», ТЗ-36): одна запись
+    /// `JournalRecord::TrayHost` на вызов, с переданными значениями и в
+    /// порядке вызовов.
+    #[test]
+    fn set_tray_host_journals_host_and_source() {
+        let h = Harness::new();
+        h.put_settings(b"");
+        h.put_state(b"");
+        let mut core = h.boot();
+        let tray_hosts = |h: &Harness| -> Vec<(TrayHost, HostSource)> {
+            h.journal()
+                .into_iter()
+                .filter_map(|r| match r {
+                    JournalRecord::TrayHost { host, via } => Some((host, via)),
+                    _ => None,
+                })
+                .collect()
+        };
+        assert!(tray_hosts(&h).is_empty(), "до события `TrayEvent::Host` записи нет");
+
+        core.set_tray_host(TrayHost::KdePlasma, HostSource::DbusOwner);
+        assert_eq!(tray_hosts(&h), [(TrayHost::KdePlasma, HostSource::DbusOwner)]);
+
+        core.set_tray_host(TrayHost::Unknown, HostSource::None);
+        assert_eq!(
+            tray_hosts(&h),
+            [(TrayHost::KdePlasma, HostSource::DbusOwner), (TrayHost::Unknown, HostSource::None)]
+        );
+    }
+
+    /// `AppCore::set_input` заменяет модуль ввода (ADR-8, §2.12, §6.11,
+    /// ТЗ-36): прежний отбрасывается вместе с состоянием, `input_mut` отдаёт
+    /// результат новой подмены. Модуль по умолчанию (неизвестный хост,
+    /// единица — модуль первого события) после события в 40 считает 20
+    /// половиной щелчка; свежая подмена с той же таблицей берёт 20 новой
+    /// единицей, а подмена с таблицей `tray_table` делит на `TRAY_NOTCH`.
+    #[test]
+    fn set_input_replaces_wheel_input() {
+        let h = Harness::new();
+        h.put_settings(b"");
+        h.put_state(b"");
+        let mut core = h.boot();
+        let scroll = |core: &mut AppCore, delta| {
+            core.input_mut().tray_scroll(TrayScroll { t: h.clock.now(), delta, vertical: true })
+        };
+
+        assert_eq!(scroll(&mut core, 40), Clicks(1), "единица модуля по умолчанию — 40");
+        assert_eq!(scroll(&mut core, 20), Clicks(0), "20 — половина единицы прежнего модуля");
+
+        // Та же встроенная таблица, новое состояние: накопитель и единица
+        // прежнего модуля отброшены.
+        core.set_input(Box::new(FakeWheelInput::builtin(Desktop::OtherLinux, None)));
+        assert_eq!(scroll(&mut core, 20), Clicks(1), "единица новой подмены — 20");
+
+        // Другая таблица: деление `TRAY_NOTCH`, а не модуль первого события.
+        core.set_input(Box::new(FakeWheelInput::new(tray_table(), Desktop::Gnome, Some(Session::Wayland))));
+        assert_eq!(scroll(&mut core, 20), Clicks(0));
+        assert_eq!(scroll(&mut core, 2 * TRAY_NOTCH), Clicks(2));
+    }
+
+    /// `AppCore::set_tray_host` доходит до модуля ввода (ADR-8, §6.11 «Хост
+    /// трея», В-5, ТЗ-36): хост выбирает строку таблицы для `tray_scroll`.
+    /// До вызова действует строка неизвестного хоста («вверх = громче»),
+    /// после `GnomeAppIndicator` — строка с обратным знаком, и та же
+    /// прокрутка убавляет громкость командой `TrayWheel`.
+    #[test]
+    fn set_tray_host_selects_tray_row() {
+        let h = Harness::new();
+        h.put_settings(b"");
+        h.put_state(b"");
+        let mut core = h.boot();
+        core.set_input(Box::new(FakeWheelInput::new(tray_table(), Desktop::Gnome, Some(Session::Wayland))));
+        core.change_state(Origin::User, StateChange::Volume(50));
+
+        assert_eq!(tray_wheel(&h, &mut core, TRAY_NOTCH), Some(VolumeOutcome::Changed(vol(52))));
+
+        core.set_tray_host(TrayHost::GnomeAppIndicator, HostSource::XdgCurrentDesktop);
+        assert_eq!(tray_wheel(&h, &mut core, TRAY_NOTCH), Some(VolumeOutcome::Changed(vol(50))));
+        assert_eq!(tray_wheel(&h, &mut core, -2 * TRAY_NOTCH), Some(VolumeOutcome::Changed(vol(54))));
+        assert_eq!(core.state().playback().volume, 54);
     }
 
     /// Опрашивает future один раз без реального исполнителя — как
@@ -2292,10 +2425,11 @@ mod tests {
     /// громкости до открытия выбора, срабатывает — `state.toml` записан
     /// ровно один раз. Колёсико трея при открытом выборе меняет громкость:
     /// команды трея идут мимо шлюза главного окна (ADR-12, ТЗ-24) — тот же
-    /// путь, что `TrayEvent::Scroll` в `poll_tray`: `change_state` с
-    /// `Origin::User` меняет действующее состояние, хотя `MainCmd::Volume`
-    /// главного окна шлюзом отклонена; новое значение доходит до
-    /// `state.toml` следующим сроком N.
+    /// путь, что `TrayEvent::Scroll` в `poll_tray`: событие нормализует
+    /// модуль ввода ядра, щелчки идут в команду громкости с источником
+    /// `TrayWheel` (ADR-8, §6.11 «Трей», В-5) и меняют действующее состояние,
+    /// хотя `MainCmd::Volume` главного окна шлюзом отклонена; новое значение
+    /// доходит до `state.toml` следующим сроком N.
     #[test]
     fn picker_does_not_block_loop() {
         let h = Harness::new();
@@ -2330,7 +2464,7 @@ mod tests {
         // Колёсико трея: мимо шлюза главного окна (ADR-12, ТЗ-24).
         assert!(!core.gate().allows(MainCmd::Volume), "громкость из главного окна шлюзом отклонена");
         let after = core.state().playback().volume + 2;
-        core.change_state(Origin::User, StateChange::Volume(after));
+        assert_eq!(tray_wheel(&h, &mut core, TRAY_NOTCH), Some(VolumeOutcome::Changed(vol(after))));
         assert_eq!(core.state().playback().volume, after, "колёсико трея меняет громкость");
 
         h.advance(&mut core, interval);

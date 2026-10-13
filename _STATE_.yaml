@@ -229,12 +229,12 @@ steps:
   done: true
 - id: 31
   description: 'Тесты ТЗ-24 с колёсиком трея (§7.2): src/core/testing.rs — tray_works_during_dialog и tray_works_during_message идут через FakeWheelInput::tray_scroll → AppCore::volume(TrayWheel, Step). Проверка: cargo test tray_works_during'
-  done: false
+  done: true
 - id: 32
   description: 'ЧЕКПОИНТ и закрытие: полный cargo test, cargo clippy --all-targets, cargo build; grep — winit_030 и cfg(target_os) модуля ввода только в src/platform/input/** (ТЗ-54 п. 3); условия §8 всех этапов; обновить заметки плана (отклонения SP1.0-8.10 по Clicks и знаку трея сняты, ручные проверки С11)'
   done: false
-current_step: 31
-next_action: "Шаг 31: субагент пишет тесты ТЗ-24 tray_works_during_dialog / tray_works_during_message в src/core/testing.rs"
+current_step: 32
+next_action: "Шаг 32: ЧЕКПОИНТ — полный test, clippy --all-targets, build, grep изоляции, закрытие этапа (Шаг 5)"
 fail_counter: 0
 fail_counter_max: 3
 failed_attempts: []
