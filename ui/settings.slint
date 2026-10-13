@@ -41,6 +41,10 @@ export component Settings inherits Rectangle {
     in property <string> theme-name: "";
     in property <string> theme-description: "";
     in property <bool> theme-save-enabled: false;
+    // Доступность «Сохранить»: в копии есть отличия и нет недопустимых значений (ТЗ-27, §6.9).
+    in property <bool> save-enabled: true;
+    // Подсказка при наведении на «Сохранить»: параметр и причина; пусто — не показывается (ТЗ-27, §6.9).
+    in property <string> save-tooltip: "";
     in property <float> cover-size: 200;
     in property <float> col-info-w: 240;
     in property <float> col-gap: 12;
@@ -1588,11 +1592,44 @@ export component Settings inherits Rectangle {
                             clicked => { debug("settings: Cancel button clicked"); root.close(); }
                         }
 
-                        Button {
-                            text: "Save";
-                            preferred-height: 28px;
-                            enabled: root.theme-save-enabled;
-                            clicked => { debug("settings: Save button clicked"); root.save-settings(); }
+                        // Наведение ловит внешняя TouchArea: неактивная кнопка сама
+                        // его не сообщает, а клик по активной кнопке получает
+                        // вложенный Button (ТЗ-27, §6.9).
+                        save-hover := TouchArea {
+                            horizontal-stretch: 0;
+
+                            HorizontalLayout {
+                                Button {
+                                    text: "Save";
+                                    preferred-height: 28px;
+                                    enabled: root.theme-save-enabled && root.save-enabled;
+                                    clicked => { debug("settings: Save button clicked"); root.save-settings(); }
+                                }
+                            }
+
+                            // Подсказка с параметром и причиной (ТЗ-27): вне раскладки,
+                            // над кнопкой, правым краем по кнопке — остаётся в пределах диалога.
+                            if save-hover.has-hover && root.save-tooltip != "": Rectangle {
+                                y: -self.height - 6px;
+                                x: parent.width - self.width;
+                                width: 260px;
+                                height: save-hint-text.preferred-height + 12px;
+                                background: Colors.bg-elevated;
+                                border-color: Colors.border-default;
+                                border-width: 1px;
+                                border-radius: 4px;
+                                z: 10;
+
+                                save-hint-text := Text {
+                                    text: root.save-tooltip;
+                                    color: Colors.text-secondary;
+                                    font-size: 11px;
+                                    wrap: word-wrap;
+                                    x: 8px;
+                                    y: 6px;
+                                    width: parent.width - 16px;
+                                }
+                            }
                         }
                     }
                 }

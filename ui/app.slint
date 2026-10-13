@@ -246,6 +246,9 @@ export component AppWindow inherits Window {
     in property <string> theme-name: "";
     in property <string> theme-description: "";
     in property <bool> theme-save-enabled: false;
+    // Доступность «Сохранить» и подсказка с причиной недоступности (ТЗ-27, §6.9).
+    in property <bool> settings-save-enabled: true;
+    in property <string> settings-save-tooltip: "";
     in property <bool> settings-minimize: false;
     in property <int> settings-save-interval-idx: 1;
     in property <string> settings-save-notice: "";
@@ -686,6 +689,8 @@ export component AppWindow inherits Window {
         minimize-to-tray: root.settings-minimize;
         save-interval-idx: root.settings-save-interval-idx;
         save-notice: root.settings-save-notice;
+        save-enabled: root.settings-save-enabled;
+        save-tooltip: root.settings-save-tooltip;
         audio-devices: root.settings-devices;
         audio-device-idx: root.settings-device-idx;
         active-device: root.settings-active-device;
