@@ -27,10 +27,6 @@ pub use table::{
     WheelTable,
 };
 
-// Временный мост этапа С11: определение `TrayScroll` переносится сюда
-// отдельным шагом.
-pub use crate::platform::lifecycle::TrayScroll;
-
 /// Нормализованные щелчки колёсика: положительные — громче (НФ-2, §2.8,
 /// ADR-8).
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
@@ -70,6 +66,14 @@ pub struct SlintScroll {
     pub t: ClockInstant,
     pub dx: f32,
     pub dy: f32,
+}
+
+/// Прокрутка над значком трея ksni (Linux, §2.8, ADR-8).
+#[derive(Clone, Copy, PartialEq, Debug)]
+pub struct TrayScroll {
+    pub t: ClockInstant,
+    pub delta: i32,
+    pub vertical: bool,
 }
 
 /// Класс устройства прокрутки (§2.8, ADR-8).

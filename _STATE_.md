@@ -164,16 +164,16 @@
 - [x] Шаг 24: Трей через модуль ввода (§6.11, §8.1 С11 «удаляется инверсия трея в poll_tray»): src/app/mod.rs — TrayEvent::Scroll → input.tray_scroll(ev) → Step; end_tick на тике. Проверка: cargo check
 - [x] Шаг 25: Подключение к окну (ADR-8): src/main.rs и src/app/mod.rs — set_input(platform_wheel_input(..)) при сборке ядра, attach(window) после показа окна; DefaultRuleOnly → запись журнала. Проверка: cargo check
 - [x] Шаг 26: Перенос Clicks (§2.8; снять отклонение SP1.0-8.10): определение — в src/platform/input/mod.rs, в src/core/volume.rs — импорт и реэкспорт, комментарий об отклонении удалён. Проверка: полный cargo test
-- [>] **Шаг 27: Перенос TrayScroll (§2.8): определение — в src/platform/input/mod.rs, в src/platform/lifecycle/mod.rs — реэкспорт. Проверка: полный cargo test**
-- [ ] Шаг 28: Хост трея в канале событий (§6.11, §3 «Хост трея»): src/platform/lifecycle/mod.rs — TrayEvent::Host { host, via }; src/app/mod.rs — в poll_tray set_tray_host и запись журнала TrayHost. Проверка: cargo check
+- [x] Шаг 27: Перенос TrayScroll (§2.8): определение — в src/platform/input/mod.rs, в src/platform/lifecycle/mod.rs — реэкспорт. Проверка: полный cargo test
+- [>] **Шаг 28: Хост трея в канале событий (§6.11, §3 «Хост трея»): src/platform/lifecycle/mod.rs — TrayEvent::Host { host, via }; src/app/mod.rs — в poll_tray set_tray_host и запись журнала TrayHost. Проверка: cargo check**
 - [ ] Шаг 29: Определение хоста трея (ADR-8, §6.11): src/platform/tray/mod.rs (Linux) — GetNameOwner(org.kde.StatusNotifierWatcher) → GetConnectionUnixProcessID → /proc/<pid>/comm → XDG_CURRENT_DESKTOP → Unknown; одно событие TrayEvent::Host при запуске трея. На Windows не компилируется — проверка ревью, сборка — за пользователем на Linux; cargo check зелёный
 - [ ] Шаг 30: Тесты ТЗ-24 с колёсиком трея (§7.2): src/core/testing.rs — tray_works_during_dialog и tray_works_during_message идут через FakeWheelInput::tray_scroll → AppCore::volume(TrayWheel, Step). Проверка: cargo test tray_works_during
 - [ ] Шаг 31: ЧЕКПОИНТ и закрытие: полный cargo test, cargo clippy --all-targets, cargo build; grep — winit_030 и cfg(target_os) модуля ввода только в src/platform/input/** (ТЗ-54 п. 3); условия §8 всех этапов; обновить заметки плана (отклонения SP1.0-8.10 по Clicks и знаку трея сняты, ручные проверки С11)
 
 Легенда: [x] сделано · [>] текущий шаг · [ ] не начато
 
-- **Текущий шаг (current_step):** Шаг 27
-- **Следующий ход:** Шаг 27: субагент переносит определение TrayScroll в src/platform/input/mod.rs, в lifecycle/mod.rs — реэкспорт; полный cargo test
+- **Текущий шаг (current_step):** Шаг 28
+- **Следующий ход:** Шаг 28: субагент добавляет TrayEvent::Host { host, via } в lifecycle/mod.rs и ветку в poll_tray (set_tray_host + журнал TrayHost)
 - **Счетчик безуспешных компиляций:** 0/3
 - **Состояние:** in_progress
 

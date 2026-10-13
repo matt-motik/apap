@@ -217,7 +217,7 @@ steps:
   done: true
 - id: 27
   description: 'Перенос TrayScroll (§2.8): определение — в src/platform/input/mod.rs, в src/platform/lifecycle/mod.rs — реэкспорт. Проверка: полный cargo test'
-  done: false
+  done: true
 - id: 28
   description: 'Хост трея в канале событий (§6.11, §3 «Хост трея»): src/platform/lifecycle/mod.rs — TrayEvent::Host { host, via }; src/app/mod.rs — в poll_tray set_tray_host и запись журнала TrayHost. Проверка: cargo check'
   done: false
@@ -230,8 +230,8 @@ steps:
 - id: 31
   description: 'ЧЕКПОИНТ и закрытие: полный cargo test, cargo clippy --all-targets, cargo build; grep — winit_030 и cfg(target_os) модуля ввода только в src/platform/input/** (ТЗ-54 п. 3); условия §8 всех этапов; обновить заметки плана (отклонения SP1.0-8.10 по Clicks и знаку трея сняты, ручные проверки С11)'
   done: false
-current_step: 27
-next_action: "Шаг 27: субагент переносит определение TrayScroll в src/platform/input/mod.rs, в lifecycle/mod.rs — реэкспорт; полный cargo test"
+current_step: 28
+next_action: "Шаг 28: субагент добавляет TrayEvent::Host { host, via } в lifecycle/mod.rs и ветку в poll_tray (set_tray_host + журнал TrayHost)"
 fail_counter: 0
 fail_counter_max: 3
 failed_attempts: []

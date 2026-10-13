@@ -2,7 +2,7 @@
 //! трей (ADR-6, ADR-7, §2.8). Трейт `Lifecycle` ставит обработчики ОС на
 //! шаге 8 порядка запуска (ADR-23); путь выхода входит через `ExitEntry`.
 
-use crate::audio::clock::{Clock, ClockInstant};
+use crate::audio::clock::Clock;
 use crate::core::exit::{ExitOutcome, ExitReason};
 use crate::platform::tray::TrayPort;
 use std::rc::Rc;
@@ -46,13 +46,9 @@ pub enum TrayEvent {
     Scroll(TrayScroll),
 }
 
-/// Прокрутка над значком трея ksni (Linux, ADR-8).
-#[derive(Clone, Copy, PartialEq, Debug)]
-pub struct TrayScroll {
-    pub t: ClockInstant,
-    pub delta: i32,
-    pub vertical: bool,
-}
+// `TrayScroll` определён в модуле ввода (§2.8, ADR-8); реэкспорт — для
+// `TrayEvent::Scroll` и прежних путей `platform::lifecycle::TrayScroll`.
+pub use crate::platform::input::TrayScroll;
 
 /// Завершение процесса при втором сигнале; подменяется в тестах
 /// `apap-signals` (ADR-7 п. 3, ТЗ-14).
