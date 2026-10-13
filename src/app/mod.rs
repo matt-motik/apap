@@ -2643,6 +2643,12 @@ impl MusicApp {
                         self.apply_volume_cmd(VolumeSource::TrayWheel, VolumeCmd::Step(clicks));
                     }
                 }
+                TrayEvent::Host { host, via } => {
+                    // Хост трея выбирает строку таблицы модуля ввода для
+                    // прокрутки над значком (знак и деление, В-5) и фиксируется
+                    // в журнале (ADR-8, §6.11 «Хост трея», §2.9).
+                    self.core.set_tray_host(host, via);
+                }
             }
         }
         self.tray_rx = Some(rx);

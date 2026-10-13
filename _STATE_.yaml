@@ -223,7 +223,7 @@ steps:
   done: true
 - id: 29
   description: 'Хост трея в канале событий (§6.11, §3 «Хост трея»): src/platform/lifecycle/mod.rs — TrayEvent::Host { host, via }; src/app/mod.rs — в poll_tray вызов AppCore::set_tray_host. Проверка: cargo check'
-  done: false
+  done: true
 - id: 30
   description: 'Определение хоста трея (ADR-8, §6.11): src/platform/tray/mod.rs (Linux) — GetNameOwner(org.kde.StatusNotifierWatcher) → GetConnectionUnixProcessID → /proc/<pid>/comm → XDG_CURRENT_DESKTOP → Unknown; одно событие TrayEvent::Host при запуске трея. На Windows не компилируется — проверка ревью, сборка — за пользователем на Linux; cargo check зелёный'
   done: false
@@ -233,8 +233,8 @@ steps:
 - id: 32
   description: 'ЧЕКПОИНТ и закрытие: полный cargo test, cargo clippy --all-targets, cargo build; grep — winit_030 и cfg(target_os) модуля ввода только в src/platform/input/** (ТЗ-54 п. 3); условия §8 всех этапов; обновить заметки плана (отклонения SP1.0-8.10 по Clicks и знаку трея сняты, ручные проверки С11)'
   done: false
-current_step: 29
-next_action: "Шаг 29: субагент добавляет TrayEvent::Host { host, via } в lifecycle/mod.rs и ветку в poll_tray с AppCore::set_tray_host"
+current_step: 30
+next_action: "Шаг 30: субагент пишет определение хоста трея в src/platform/tray/mod.rs (Linux, только ревью на Windows)"
 fail_counter: 0
 fail_counter_max: 3
 failed_attempts: []

@@ -33,8 +33,8 @@ pub trait Lifecycle {
     ) -> Result<(), PlatformError>;
 }
 
-/// Событие трея (Linux, §2.8). `Quit` → путь выхода; `Scroll` → модуль ввода;
-/// остальное — команды плеера.
+/// Событие трея (Linux, §2.8). `Quit` → путь выхода; `Scroll` и `Host` →
+/// модуль ввода; остальное — команды плеера.
 #[derive(Clone, Copy, PartialEq, Debug)]
 pub enum TrayEvent {
     TogglePlay,
@@ -44,6 +44,12 @@ pub enum TrayEvent {
     ShowHide,
     Quit,
     Scroll(TrayScroll),
+    /// Хост значка трея, определённый потоком трея при запуске, и способ
+    /// определения; отправляется один раз (ADR-8, §6.11 «Хост трея», §2.9).
+    Host {
+        host: crate::platform::input::TrayHost,
+        via: crate::journal::HostSource,
+    },
 }
 
 // `TrayScroll` определён в модуле ввода (§2.8, ADR-8); реэкспорт — для
