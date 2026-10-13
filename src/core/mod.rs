@@ -30,7 +30,7 @@ use volume::{apply_volume, VolumeBlock, VolumeCmd, VolumeOutcome, VolumeSource};
 use crate::audio::clock::{Clock, ClockInstant};
 use crate::engine::messages::EngineCmd;
 use crate::engine::run::EngineSender;
-use crate::journal::{Journal, JournalRecord, WriteTarget};
+use crate::journal::{HostSource, Journal, JournalRecord, WriteTarget};
 use crate::persist::keys::{LoadNote, Parsed};
 use crate::persist::settings_file::{serialize_settings, Settings};
 use crate::persist::state_file::{
@@ -40,7 +40,7 @@ use crate::persist::tracker::{PersistTracker, ReplyEffect};
 use crate::persist::writer::{WriterCmd, WriterHandle, WriterReply};
 use crate::persist::{Boot, ConfigFile, ConfigPaths, ReferenceText, SerializeError, Snapshot, SnapshotId, WorkFile};
 use crate::platform::fs::{FileReader, ReadError, WriteError};
-use crate::platform::input::{AttachOutcome, Desktop, FakeWheelInput, WheelInput};
+use crate::platform::input::{AttachOutcome, Desktop, FakeWheelInput, TrayHost, WheelInput};
 use crate::playlist::compare::CompareKeys;
 use crate::playlist::load::PlaylistLoader;
 use crate::playlist::model::{Playlist, PlaylistEffect, SortKey, TrackId};
@@ -318,6 +318,18 @@ impl AppCore {
     /// (накопители, события без пары).
     pub fn set_input(&mut self, input: Box<dyn WheelInput>) {
         self.input = input;
+    }
+
+    /// Хост значка трея, определённый потоком трея при запуске (ADR-8, §6.11
+    /// «Хост трея», ТЗ-36): выбирает строку таблицы для `tray_scroll` (знак и
+    /// деление, В-5) и фиксируется в журнале вместе со способом определения
+    /// (§2.9). Вызывается слоем UI на событие `TrayEvent::Host`. Без `deps`
+    /// запись в журнал не делается, хост модулю ввода передаётся всегда.
+    pub fn set_tray_host(&mut self, host: TrayHost, via: HostSource) {
+        self.input.set_tray_host(host);
+        if let Some(deps) = &self.deps {
+            deps.journal.record(JournalRecord::TrayHost { host, via });
+        }
     }
 
     /// Следующее поколение задания `apap-io` (ADR-20, §2.12): единый источник
