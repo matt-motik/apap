@@ -156,7 +156,7 @@ steps:
   done: true
 - id: 7
   description: 'Трейт WheelInput, AttachOutcome (§2.8) в src/platform/input/mod.rs и FakeWheelInput (§7.1) в src/platform/input/fake.rs; тесты unpaired_slint_scroll_uses_default_rule, unpaired_winit_event_ignored, macos_momentum_ignored, macos_mark_mismatch_treated_as_gesture (§7.2). Проверка: cargo test platform::input'
-  done: false
+  done: true
 - id: 8
   description: 'ЧЕКПОИНТ: полный cargo test (нет новых падений сверх шести SP1.0-B7) и cargo clippy --all-targets без новых предупреждений в файлах вайтлиста'
   done: false
@@ -229,8 +229,8 @@ steps:
 - id: 31
   description: 'ЧЕКПОИНТ и закрытие: полный cargo test, cargo clippy --all-targets, cargo build; grep — winit_030 и cfg(target_os) модуля ввода только в src/platform/input/** (ТЗ-54 п. 3); условия §8 всех этапов; обновить заметки плана (отклонения SP1.0-8.10 по Clicks и знаку трея сняты, ручные проверки С11)'
   done: false
-current_step: 7
-next_action: "Шаг 7: субагент добавляет трейт WheelInput/AttachOutcome в mod.rs и FakeWheelInput в fake.rs"
+current_step: 8
+next_action: "Шаг 8: ЧЕКПОИНТ — полный cargo test и cargo clippy --all-targets"
 fail_counter: 0
 fail_counter_max: 3
 failed_attempts: []

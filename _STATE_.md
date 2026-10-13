@@ -143,8 +143,8 @@
 - [x] Шаг 4: WheelNormalizer::slider_unpaired (§6.11, В-2, ОВС-2 а): src/platform/input/normalizer.rs — dy кратно 60 → Clicks(dy/60), иначе touch_step с threshold_px; тесты. Проверка: cargo test platform::input::normalizer
 - [x] Шаг 5: WheelNormalizer::tray (§6.11, В-5): src/platform/input/normalizer.rs — горизонталь → 0, знак и деление по строке хоста, division = 0 → |первое событие|, накопитель с делением к нулю; тесты. Проверка: cargo test platform::input::normalizer
 - [x] Шаг 6: WheelMatcher и MomentumMark (§2.8, §6.11, В-2, ОВС-1 а): src/platform/input/matcher.rs — слот pending (новое событие вытесняет прежнее), сопоставление со SlintScroll (Lines: y·60 == dy; Px: y == dy), end_tick, FIFO меток инерции с проверкой согласия; тесты. Проверка: cargo test platform::input::matcher
-- [>] **Шаг 7: Трейт WheelInput, AttachOutcome (§2.8) в src/platform/input/mod.rs и FakeWheelInput (§7.1) в src/platform/input/fake.rs; тесты unpaired_slint_scroll_uses_default_rule, unpaired_winit_event_ignored, macos_momentum_ignored, macos_mark_mismatch_treated_as_gesture (§7.2). Проверка: cargo test platform::input**
-- [ ] Шаг 8: ЧЕКПОИНТ: полный cargo test (нет новых падений сверх шести SP1.0-B7) и cargo clippy --all-targets без новых предупреждений в файлах вайтлиста
+- [x] Шаг 7: Трейт WheelInput, AttachOutcome (§2.8) в src/platform/input/mod.rs и FakeWheelInput (§7.1) в src/platform/input/fake.rs; тесты unpaired_slint_scroll_uses_default_rule, unpaired_winit_event_ignored, macos_momentum_ignored, macos_mark_mismatch_treated_as_gesture (§7.2). Проверка: cargo test platform::input
+- [>] **Шаг 8: ЧЕКПОИНТ: полный cargo test (нет новых падений сверх шести SP1.0-B7) и cargo clippy --all-targets без новых предупреждений в файлах вайтлиста**
 - [ ] Шаг 9: Скрипт перевода замеров (§7.4): tools/wheel_probe/to_fixture.py — читает CSV, env.txt, summary.txt через `git show <коммит>:<путь>`, пишет tests/data/wheel/<замер>/<NN>_<шаг>.fixture (шапка [fixture], CSV t_ms,kind,phase,delta_x,delta_y,modifiers,slint_dy; source — фактический по событиям; expected_steps пусто); каталог results/ не меняется. Проверка: python tools/wheel_probe/to_fixture.py --help и пробный перевод одного шага во временный каталог
 - [ ] Шаг 10: Фикстуры (§7.4): прогнать to_fixture.py по шести замерам (KDE-1 815d874, KDE-2 028f9f5, KDE-3 64edab4, GNOME-1 d7014de, GNOME-2 d15caeb, Windows eb6fb72) → 104 файла tests/data/wheel/{kde-1,kde-2,kde-3,gnome-1,gnome-2,windows}/. Проверка: 104 файла; число строк данных ползунка = числу событий winit исходного CSV, трея — числу событий tray
 - [ ] Шаг 11: expected_steps фикстур (§7.4, wheel_test.md §5.2): мышь — число событий со знаком направления (10, кроме GNOME-1/01 — 11, GNOME-2/04 — 12, Windows/03 — 12, Windows/04 — 11, KDE-3/07 — 8, GNOME-2/07 — 7); тачпад Windows 05–16 — столбец «T=0,5, K=5»; «тачпад» KDE-3 и GNOME-2 — число делений. Проверка: ни одной фикстуры с пустым expected_steps, кроме шагов без событий; сверка с §5.2
@@ -171,8 +171,8 @@
 
 Легенда: [x] сделано · [>] текущий шаг · [ ] не начато
 
-- **Текущий шаг (current_step):** Шаг 7
-- **Следующий ход:** Шаг 7: субагент добавляет трейт WheelInput/AttachOutcome в mod.rs и FakeWheelInput в fake.rs
+- **Текущий шаг (current_step):** Шаг 8
+- **Следующий ход:** Шаг 8: ЧЕКПОИНТ — полный cargo test и cargo clippy --all-targets
 - **Счетчик безуспешных компиляций:** 0/3
 - **Состояние:** in_progress
 
