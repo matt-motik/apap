@@ -1568,7 +1568,13 @@ impl MusicApp {
                 if !a.core.gate().allows(MainCmd::ToggleMute) {
                     return;
                 }
-                a.player.toggle_mute();
+                // Mute активного режима меняет ядро с `Origin::User` (ADR-14,
+                // ТЗ-38): значение пишется в состояние сессии и взводит срок
+                // сохранения. Команду движку до этапа С3 шлёт слой app.
+                // Работает и при недоступной громкости (Строгий режим;
+                // Оптимальный с фиксацией).
+                let muted = a.core.toggle_mute();
+                a.player.set_muted(muted);
             });
         }
 

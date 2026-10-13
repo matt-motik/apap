@@ -625,12 +625,13 @@ export component TopPanel inherits Rectangle {
                     alignment: center;
                     spacing: 6px;
 
+                    // Mute доступен во всех режимах, в том числе при
+                    // недоступной громкости (ТЗ-38, ADR-14).
                     IconButton {
                         icon: root.theme-palette == 0
                             ? (root.muted ? @image-url("icons/dark/muted.svg") : @image-url("icons/dark/volume.svg"))
                             : (root.muted ? @image-url("icons/light/muted.svg") : @image-url("icons/light/volume.svg"));
                         active: root.muted;
-                        enabled: !root.bit-perfect;
                         width: (root.cover-size * 1px - 10px) / 6;
                         height: 24px;
                         clicked => { root.toggle-mute(); }

@@ -46,7 +46,7 @@ steps:
     done: true
   - id: 10
     description: "Mute в состояние сессии: on_toggle_mute в src/app/mod.rs → core.toggle_mute() + player.set_muted; кнопка mute в ui/top_panel.slint доступна в Строгом режиме и при фиксации (ТЗ-37, ТЗ-38, ADR-14). Проверка: cargo check без ошибок"
-    done: false
+    done: true
   - id: 11
     description: "Slint: свойство volume-block-text (string) в ui/top_panel.slint и ui/app.slint; Tooltip с этим текстом на неотключаемой обёртке ползунка (ТЗ-39, ADR-14, §2.13). Проверка: cargo check без ошибок"
     done: false
@@ -56,8 +56,8 @@ steps:
   - id: 13
     description: "ЧЕКПОИНТ: cargo build, cargo clippy --all-targets (0 новых предупреждений в файлах вайтлиста), полный cargo test (без новых падений сверх 6 тестов SP1.0-B7); grep: нет WHEEL_VOLUME_STEP и 0.04 в путях громкости. Проверка: все три команды с ожидаемым итогом"
     done: false
-current_step: 10
-next_action: "Шаг 10: субагент переводит on_toggle_mute на core.toggle_mute + player.set_muted и делает кнопку mute доступной в Строгом режиме"
+current_step: 11
+next_action: "Шаг 11: свойство volume-block-text в top_panel.slint/app.slint и Tooltip на неотключаемой обёртке ползунка"
 fail_counter: 0
 fail_counter_max: 3
 failed_attempts: []
