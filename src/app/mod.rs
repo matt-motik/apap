@@ -2601,25 +2601,18 @@ impl MusicApp {
                 }
                 TrayEvent::Scroll(ev) => {
                     let delta = ev.delta;
-                    // До С11 (модуль ввода) — прежний шаг громкости (ТЗ-24).
-                    const WHEEL_VOLUME_STEP: f32 = 0.02;
-                    // Hosts differ in the raw magnitude per event (Ubuntu: ±1,
-                    // KDE/4k: ±120); only the sign matters — each scroll notch
-                    // is a single step. Negative delta = louder.
-                    // Bit-perfect (Direct Output): volume control is moved to
-                    // the external DAC/amp — the tray wheel is silenced.
-                    // Активный режим фиксирует громкость (ТЗ-41, ADR-23,
-                    // §6.18) — колесо трея тоже должно игнорироваться.
-                    if self.player.bit_perfect() || self.volume_locked() || delta == 0 {
-                        // Skip volume change — either in bit-perfect mode,
-                        // volume-locked mode, or host sent a neutral (zero) event.
-                    } else {
-                        let dir = if delta < 0 { 1.0 } else { -1.0 };
-                        let v = (self.player.volume() + dir * WHEEL_VOLUME_STEP).clamp(0.0, 1.0);
-                        self.player.set_volume(v);
-                        self.core.change_state(Origin::User, StateChange::Volume(LegacyPlaybackState::pct_from_gain(v)));
-                        // Persisted at exit (save-at-exit).
-                        self.emit(AppEvent::VolumeChanged(v));
+                    // Хосты различаются величиной события (Ubuntu: ±1,
+                    // KDE/4k: ±120) — учитывается только знак, одно событие =
+                    // один щелчок. Отрицательная `delta` — громче: знак
+                    // сохраняется до нормализации ввода на этапе С11
+                    // (`platform/input`). Трей — источник единой команды
+                    // громкости (ADR-14, ТЗ-37, НФ-2).
+                    if delta != 0 {
+                        let clicks = if delta < 0 { 1 } else { -1 };
+                        self.apply_volume_cmd(
+                            VolumeSource::TrayWheel,
+                            VolumeCmd::Step(Clicks(clicks)),
+                        );
                     }
                 }
             }
