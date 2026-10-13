@@ -216,8 +216,6 @@ export component TopPanel inherits Rectangle {
     callback seek(float);
     callback seek-commit(float);
     callback volume-changed(float);
-    // щелчки колёсика над ползунком: положительные — громче (ADR-14, ТЗ-37, НФ-2)
-    callback volume-step(int);
     // сырой scroll-event над ползунком: (dx, dy) в логических пикселях; щелчки
     // считает модуль ввода, положительное dy — громче (ADR-8, §6.11, ТЗ-36)
     callback volume-scroll(float, float);

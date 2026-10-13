@@ -205,7 +205,7 @@ steps:
   done: true
 - id: 23
   description: 'Slint: удалить колбэк volume-step из ui/top_panel.slint и ui/app.slint. Проверка: cargo check'
-  done: false
+  done: true
 - id: 24
   description: 'Трей через модуль ввода (§6.11, §8.1 С11 «удаляется инверсия трея в poll_tray»): src/app/mod.rs — TrayEvent::Scroll → input.tray_scroll(ev) → Step; end_tick на тике. Проверка: cargo check'
   done: false
@@ -230,8 +230,8 @@ steps:
 - id: 31
   description: 'ЧЕКПОИНТ и закрытие: полный cargo test, cargo clippy --all-targets, cargo build; grep — winit_030 и cfg(target_os) модуля ввода только в src/platform/input/** (ТЗ-54 п. 3); условия §8 всех этапов; обновить заметки плана (отклонения SP1.0-8.10 по Clicks и знаку трея сняты, ручные проверки С11)'
   done: false
-current_step: 23
-next_action: "Шаг 23: субагент удаляет колбэк volume-step из ui/top_panel.slint и ui/app.slint"
+current_step: 24
+next_action: "Шаг 24: субагент переводит TrayEvent::Scroll на input.tray_scroll и добавляет end_tick на тике в src/app/mod.rs"
 fail_counter: 0
 fail_counter_max: 3
 failed_attempts: []

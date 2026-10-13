@@ -280,8 +280,6 @@ export component AppWindow inherits Window {
     callback seek(float);
     callback seek-commit(float);
     callback volume-changed(float);
-    // щелчки колёсика над ползунком: положительные — громче (ADR-14, ТЗ-37, НФ-2)
-    callback volume-step(int);
     // сырой scroll-event над ползунком: (dx, dy) в логических пикселях; щелчки
     // считает модуль ввода, положительное dy — громче (ADR-8, §6.11, ТЗ-36)
     callback volume-scroll(float, float);
@@ -493,7 +491,6 @@ export component AppWindow inherits Window {
                 seek(v) => { root.seek(v); }
                 seek-commit(v) => { root.seek-commit(v); }
                 volume-changed(v) => { root.volume-changed(v); }
-                volume-step(n) => { root.volume-step(n); }
                 volume-scroll(dx, dy) => { root.volume-scroll(dx, dy); }
                 toggle-mute => { root.toggle-mute(); }
                 select-mode(i) => { root.select-mode(i); }
