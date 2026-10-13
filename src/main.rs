@@ -9,7 +9,7 @@ use music_player_rs::core::io::{spawn_io, IoPaths, IoWorker};
 use music_player_rs::core::{AppCore, AppDeps, NoEngine, NoIo};
 use music_player_rs::engine::deps::EngineDeps;
 use music_player_rs::engine::run::{BackendCaps, EngineHandle};
-use music_player_rs::journal::{FileJournal, Journal};
+use music_player_rs::journal::{FileJournal, Journal, JournalRecord};
 use music_player_rs::persist::keys::Parsed;
 use music_player_rs::persist::writer::{spawn_writer, WriterCmd, WriterHandle, WriterReply};
 use music_player_rs::persist::{self, BadCopyOutcome, Boot, ConfigFile, ConfigPaths};
@@ -59,6 +59,15 @@ fn main() {
     }
     // Журнал и модуль ФС собираются только здесь (ADR-19, ADR-21).
     let journal: Arc<dyn Journal> = Arc::new(FileJournal::start(paths.journal.clone()));
+    // Бэкенд winit выбирается явно до создания окна (ADR-8, §6.11, §8.1 С11):
+    // фильтр событий окна модуля ввода существует только на нём. Выбор не
+    // удался — запуск не прерывается: ничего не выбрано, Slint возьмёт бэкенд
+    // по умолчанию при создании окна, а модуль ввода работает только по
+    // правилу по умолчанию. Текст ошибки остаётся в `backend` для модуля ввода.
+    let backend = select_winit_backend();
+    if let Err(error) = &backend {
+        journal.record(JournalRecord::BackendFallback { error: error.clone() });
+    }
     let (reader, writer_fs, _engine_fs) = os_fs(journal.clone());
     // Чтение и разбор обоих файлов до создания окна, по одному разу каждый
     // (ADR-23 шаг 2, §6.1, ТЗ-1, ТЗ-4). Запись не производится здесь.
@@ -238,6 +247,19 @@ fn main() {
     drop(timer);
     // Дописать строки журнала до выхода процесса (ADR-21).
     journal.flush(JOURNAL_FLUSH_BUDGET);
+}
+
+/// Явный выбор бэкенда winit до создания окна (ADR-8, §6.11, §8.1 С11).
+///
+/// `Ok` — бэкенд winit установлен как платформа Slint. `Err` — текст ошибки
+/// Slint: платформа не установлена, окно будет создано на бэкенде по
+/// умолчанию. Функция сама в журнал не пишет — запись `BackendFallback`
+/// делает вызывающий код.
+fn select_winit_backend() -> Result<(), Box<str>> {
+    slint::BackendSelector::new()
+        .backend_name("winit".into())
+        .select()
+        .map_err(|e| e.to_string().into_boxed_str())
 }
 
 /// Единая точка выхода для обработчиков ОС (ADR-7, ТЗ-14). Слабая ссылка —

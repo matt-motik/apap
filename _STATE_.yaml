@@ -184,7 +184,7 @@ steps:
   done: true
 - id: 16
   description: 'Выбор бэкенда winit (§8.1 С11, ADR-8): src/main.rs — BackendSelector::new().backend_name("winit").select() до создания окна; при ошибке — бэкенд по умолчанию и запись журнала BackendFallback. Проверка: cargo check'
-  done: false
+  done: true
 - id: 17
   description: 'Реальный модуль ввода (ADR-8, §6.11, ТЗ-54 п. 3): src/platform/input/winit.rs — WinitWheelInput: attach через on_winit_window_event (WindowEvent::MouseWheel → WheelEvent в логических единицах, EventResult::Propagate), сеанс по raw-window-handle, рабочий стол по cfg и XDG_CURRENT_DESKTOP, таблица из include_str! с откатом на встроенное правило и записью WheelTable; фабрика platform_wheel_input в src/platform/input/mod.rs. Проверка: cargo check'
   done: false
@@ -230,8 +230,8 @@ steps:
 - id: 31
   description: 'ЧЕКПОИНТ и закрытие: полный cargo test, cargo clippy --all-targets, cargo build; grep — winit_030 и cfg(target_os) модуля ввода только в src/platform/input/** (ТЗ-54 п. 3); условия §8 всех этапов; обновить заметки плана (отклонения SP1.0-8.10 по Clicks и знаку трея сняты, ручные проверки С11)'
   done: false
-current_step: 16
-next_action: "Шаг 16: субагент добавляет выбор бэкенда winit с откатом и журналом в src/main.rs"
+current_step: 17
+next_action: "Шаг 17: субагент пишет WinitWheelInput в src/platform/input/winit.rs и фабрику platform_wheel_input"
 fail_counter: 0
 fail_counter_max: 3
 failed_attempts: []
