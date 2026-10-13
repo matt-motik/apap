@@ -1,0 +1,22 @@
+[fixture]
+platform = "kde"
+session = "wayland"
+device = "mouse"
+source = "slider"
+natural_scroll = "unknown"
+direction = "up"
+action = "fast"
+expected_steps = []
+origin = "028f9f5:tools/wheel_probe/results/linux_wayland_kde-2/03_mouse_slider_fast_up.csv"
+---
+t_ms,kind,phase,delta_x,delta_y,modifiers,slint_dy
+1740.1647200000002,line,moved,0,1,,60
+1776.0792620000002,line,moved,0,1,,60
+1780.06047,line,moved,0,1,,60
+1792.047625,line,moved,0,1,,60
+1800.0476170000002,line,moved,0,1,,60
+1808.0506710000002,line,moved,0,1,,60
+1824.06834,line,moved,0,1,,60
+1848.1113329999998,line,moved,0,1,,60
+1984.077144,line,moved,0,1,,60
+2264.1902539999996,line,moved,0,1,,60

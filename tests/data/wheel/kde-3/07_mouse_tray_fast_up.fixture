@@ -1,0 +1,20 @@
+[fixture]
+platform = "kde"
+session = "wayland"
+device = "mouse"
+source = "tray"
+natural_scroll = "off"
+direction = "up"
+action = "fast"
+expected_steps = []
+origin = "64edab4:tools/wheel_probe/results/linux_wayland_kde-3/07_mouse_tray_fast_up.csv"
+---
+t_ms,kind,phase,delta_x,delta_y,modifiers,slint_dy
+10896.174567999999,tray,,,120,,
+10907.998431,tray,,,120,,
+10915.988642,tray,,,120,,
+10923.954707,tray,,,120,,
+10940.079349,tray,,,120,,
+10955.994627,tray,,,120,,
+10992.138526,tray,,,120,,
+11124.125715,tray,,,120,,

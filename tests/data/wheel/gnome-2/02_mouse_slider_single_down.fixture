@@ -1,0 +1,22 @@
+[fixture]
+platform = "gnome"
+session = "wayland"
+device = "mouse"
+source = "slider"
+natural_scroll = "off"
+direction = "down"
+action = "single"
+expected_steps = []
+origin = "d15caeb:tools/wheel_probe/results/linux_not-winit_ubuntu/02_mouse_slider_single_down.csv"
+---
+t_ms,kind,phase,delta_x,delta_y,modifiers,slint_dy
+5256.217218,line,moved,0,-1,,-60
+6520.160151,line,moved,0,-1,,-60
+8288.369666999999,line,moved,0,-1,,-60
+9712.498342,line,moved,0,-1,,-60
+11320.453422,line,moved,0,-1,,-60
+12920.693549,line,moved,0,-1,,-60
+14688.737450999999,line,moved,0,-1,,-60
+16112.807317,line,moved,0,-1,,-60
+17240.994115999998,line,moved,0,-1,,-60
+18913.080697,line,moved,0,-1,,-60

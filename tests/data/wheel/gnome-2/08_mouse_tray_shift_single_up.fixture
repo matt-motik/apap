@@ -1,0 +1,22 @@
+[fixture]
+platform = "gnome"
+session = "wayland"
+device = "mouse"
+source = "tray"
+natural_scroll = "off"
+direction = "up"
+action = "shift"
+expected_steps = []
+origin = "d15caeb:tools/wheel_probe/results/linux_not-winit_ubuntu/08_mouse_tray_shift_single_up.csv"
+---
+t_ms,kind,phase,delta_x,delta_y,modifiers,slint_dy
+6584.757726999999,tray,,,-1,,
+7912.948029,tray,,,-1,,
+9625.010366999999,tray,,,-1,,
+11145.062770999999,tray,,,-1,,
+12393.160558,tray,,,-1,,
+13561.245931,tray,,,-1,,
+15129.316755,tray,,,-1,,
+16857.559649,tray,,,-1,,
+18393.551796,tray,,,-1,,
+19729.669889,tray,,,-1,,

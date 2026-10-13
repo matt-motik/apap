@@ -1,0 +1,65 @@
+[fixture]
+platform = "kde"
+session = "wayland"
+device = "touchpad"
+source = "slider"
+natural_scroll = "off"
+direction = "down"
+action = "long_slow"
+expected_steps = []
+origin = "64edab4:tools/wheel_probe/results/linux_wayland_kde-3/25_touchpad_slider_long_slow_down-natural_off.csv"
+---
+t_ms,kind,phase,delta_x,delta_y,modifiers,slint_dy
+4367.916172,line,moved,0,-3,,-180
+4399.882301,line,moved,0,-1,,-60
+4443.946833,line,moved,0,-1,,-60
+4491.956881,line,moved,0,-1,,-60
+4523.941111,line,moved,0,-1,,-60
+4557.883984,line,moved,0,-1,,-60
+4605.94365,line,moved,0,-1,,-60
+4697.894136000001,line,moved,0,-1,,-60
+4803.943126,line,moved,0,-1,,-60
+4851.88038,line,moved,0,-1,,-60
+4891.873779,line,moved,0,-1,,-60
+4965.902169,line,moved,0,-1,,-60
+5025.968649,line,moved,0,-1,,-60
+5093.893632,line,moved,0,-1,,-60
+5137.891592,line,moved,0,-1,,-60
+5181.893546,line,moved,0,-1,,-60
+5239.968592,line,moved,0,-1,,-60
+5295.910188,line,moved,0,-1,,-60
+5351.9354650000005,line,moved,0,-1,,-60
+5409.916942,line,moved,0,-1,,-60
+5569.934538,line,moved,0,-1,,-60
+7640.049091,line,moved,0,-3,,-180
+7744.078452,line,moved,0,-1,,-60
+7858.009903,line,moved,0,-1,,-60
+7956.0162869999995,line,moved,0,-1,,-60
+8044.082605,line,moved,0,-1,,-60
+8270.084117999999,line,moved,0,-1,,-60
+8392.030706,line,moved,0,-1,,-60
+8436.060085,line,moved,0,-1,,-60
+8508.03548,line,moved,0,-1,,-60
+8590.017189999999,line,moved,0,-1,,-60
+8658.064682999999,line,moved,0,-1,,-60
+8708.102712,line,moved,0,-1,,-60
+8784.096571,line,moved,0,-1,,-60
+8856.055406,line,moved,0,-1,,-60
+8960.124909,line,moved,0,-1,,-60
+9074.047358,line,moved,0,-1,,-60
+11096.200136,line,moved,0,-3,,-180
+11192.127598000001,line,moved,0,-1,,-60
+11456.134678,line,moved,0,-1,,-60
+11682.140302,line,moved,0,-1,,-60
+11794.149405,line,moved,0,-1,,-60
+11916.147705,line,moved,0,-1,,-60
+12020.144913,line,moved,0,-1,,-60
+12118.181125,line,moved,0,-1,,-60
+12178.247011,line,moved,0,-1,,-60
+12210.14338,line,moved,0,-1,,-60
+12250.160331,line,moved,0,-1,,-60
+12316.16614,line,moved,0,-1,,-60
+12346.238899,line,moved,0,-1,,-60
+12388.218085,line,moved,0,-1,,-60
+12500.177655,line,moved,0,-1,,-60
+12764.186908,line,moved,0,-1,,-60

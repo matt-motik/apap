@@ -1,0 +1,32 @@
+[fixture]
+platform = "kde"
+session = "wayland"
+device = "touchpad"
+source = "slider"
+natural_scroll = "on"
+direction = "down"
+action = "short"
+expected_steps = []
+origin = "64edab4:tools/wheel_probe/results/linux_wayland_kde-3/12_touchpad_slider_short_down-natural_on.csv"
+---
+t_ms,kind,phase,delta_x,delta_y,modifiers,slint_dy
+10038.144542,line,moved,0,-3,,-180
+10053.98272,line,moved,0,-1,,-60
+10661.987259,line,moved,0,-1,,-60
+12266.049410000001,line,moved,0,-3,,-180
+12559.960733,line,moved,0,-1,,-60
+14308.000444,line,moved,0,-3,,-180
+14419.985798999998,line,moved,0,-1,,-60
+14478.053342000001,line,moved,0,-1,,-60
+14525.984575,line,moved,0,-1,,-60
+14598.01169,line,moved,0,-1,,-60
+26068.325782,line,moved,0,-3,,
+26100.24961,line,moved,0,-1,,
+26126.244813999998,line,moved,0,-1,,
+26222.265158,line,moved,0,-1,,
+31032.505741,line,moved,0,-3,,-180
+31104.419539,line,moved,0,-1,,-60
+31290.3963,line,moved,0,-1,,-60
+33418.492734,line,moved,0,-3,,-180
+33478.590626,line,moved,0,-1,,-60
+33528.599794999995,line,moved,0,-1,,-60

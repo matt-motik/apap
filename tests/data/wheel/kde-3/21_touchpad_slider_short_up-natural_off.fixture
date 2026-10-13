@@ -1,0 +1,65 @@
+[fixture]
+platform = "kde"
+session = "wayland"
+device = "touchpad"
+source = "slider"
+natural_scroll = "off"
+direction = "up"
+action = "short"
+expected_steps = []
+origin = "64edab4:tools/wheel_probe/results/linux_wayland_kde-3/21_touchpad_slider_short_up-natural_off.csv"
+---
+t_ms,kind,phase,delta_x,delta_y,modifiers,slint_dy
+31558.626899,line,moved,0,3,,180
+31572.668163,line,moved,0,1,,60
+31590.653949,line,moved,0,1,,60
+31622.583294999997,line,moved,0,1,,60
+31638.57266,line,moved,0,1,,60
+31654.582069,line,moved,0,1,,60
+31668.59627,line,moved,0,1,,60
+31686.580612,line,moved,0,1,,60
+31710.577987,line,moved,0,1,,60
+31726.666257,line,moved,0,1,,60
+31750.584276,line,moved,0,1,,60
+31782.631299999997,line,moved,0,1,,60
+31806.581408,line,moved,0,1,,60
+31838.625449,line,moved,0,1,,60
+31864.665378,line,moved,0,1,,60
+31908.604671999998,line,moved,0,1,,60
+31948.636677,line,moved,0,1,,60
+34780.673065,line,moved,0,4,,
+38254.966566999996,line,moved,0,3,,180
+38296.86519,line,moved,0,1,,60
+38436.821351,line,moved,0,1,,60
+41795.02354,line,moved,0,3,,180
+41826.922895,line,moved,0,1,,60
+41850.944464,line,moved,0,1,,60
+41882.997247,line,moved,0,1,,60
+41898.963078,line,moved,0,1,,60
+41935.002886,line,moved,0,1,,60
+45269.076106,line,moved,0,3,,180
+45301.0478,line,moved,0,1,,60
+45325.021194,line,moved,0,1,,60
+45357.066611999995,line,moved,0,1,,60
+45397.079069,line,moved,0,1,,60
+45429.036067,line,moved,0,1,,60
+45455.384224,line,moved,0,1,,60
+47509.121985,line,moved,0,1,,60
+47587.136807999996,line,moved,0,3,,180
+47603.289056,line,moved,0,1,,60
+47617.095357,line,moved,0,1,,60
+47635.094983999996,line,moved,0,1,,60
+47659.102339,line,moved,0,1,,60
+47675.088852,line,moved,0,1,,60
+47691.092436,line,moved,0,1,,60
+47699.173887,line,moved,0,1,,60
+47715.102578,line,moved,0,1,,60
+47747.138118999996,line,moved,0,1,,60
+47755.530472,line,moved,0,1,,60
+47787.121536,line,moved,0,1,,60
+47813.124742,line,moved,0,1,,60
+47845.115435,line,moved,0,1,,60
+47869.108181,line,moved,0,1,,60
+47901.124134,line,moved,0,1,,60
+47941.123596,line,moved,0,1,,60
+47987.130274,line,moved,0,1,,60

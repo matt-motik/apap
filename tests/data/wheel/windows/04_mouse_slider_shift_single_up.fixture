@@ -1,0 +1,23 @@
+[fixture]
+platform = "windows"
+session = "win32"
+device = "mouse"
+source = "slider"
+natural_scroll = "unknown"
+direction = "up"
+action = "shift"
+expected_steps = []
+origin = "eb6fb72:tools/wheel_probe/results/windows_win32_windows/04_mouse_slider_shift_single_up.csv"
+---
+t_ms,kind,phase,delta_x,delta_y,modifiers,slint_dy
+32950.4839,line,moved,0,1,shift,60
+33054.1826,line,moved,0,1,shift,60
+34456.4394,line,moved,0,1,shift,60
+35802.4217,line,moved,0,1,shift,60
+37288.3919,line,moved,0,1,shift,60
+38576.3908,line,moved,0,1,shift,60
+39922.276600000005,line,moved,0,1,shift,60
+41396.4038,line,moved,0,1,shift,60
+42802.4245,line,moved,0,1,shift,60
+44085.0625,line,moved,0,1,shift,60
+45686.3435,line,moved,0,1,shift,60

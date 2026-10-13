@@ -146,8 +146,8 @@
 - [x] Шаг 7: Трейт WheelInput, AttachOutcome (§2.8) в src/platform/input/mod.rs и FakeWheelInput (§7.1) в src/platform/input/fake.rs; тесты unpaired_slint_scroll_uses_default_rule, unpaired_winit_event_ignored, macos_momentum_ignored, macos_mark_mismatch_treated_as_gesture (§7.2). Проверка: cargo test platform::input
 - [x] Шаг 8: ЧЕКПОИНТ: полный cargo test (нет новых падений сверх шести SP1.0-B7) и cargo clippy --all-targets без новых предупреждений в файлах вайтлиста
 - [x] Шаг 9: Скрипт перевода замеров (§7.4): tools/wheel_probe/to_fixture.py — читает CSV, env.txt, summary.txt через `git show <коммит>:<путь>`, пишет tests/data/wheel/<замер>/<NN>_<шаг>.fixture (шапка [fixture], CSV t_ms,kind,phase,delta_x,delta_y,modifiers,slint_dy; source — фактический по событиям; expected_steps пусто); каталог results/ не меняется. Проверка: python tools/wheel_probe/to_fixture.py --help и пробный перевод одного шага во временный каталог
-- [>] **Шаг 10: Фикстуры (§7.4): прогнать to_fixture.py по шести замерам (KDE-1 815d874, KDE-2 028f9f5, KDE-3 64edab4, GNOME-1 d7014de, GNOME-2 d15caeb, Windows eb6fb72) → 104 файла tests/data/wheel/{kde-1,kde-2,kde-3,gnome-1,gnome-2,windows}/. Проверка: 104 файла; число строк данных ползунка = числу событий winit исходного CSV, трея — числу событий tray**
-- [ ] Шаг 11: expected_steps фикстур (§7.4, wheel_test.md §5.2): мышь — число событий со знаком направления (10, кроме GNOME-1/01 — 11, GNOME-2/04 — 12, Windows/03 — 12, Windows/04 — 11, KDE-3/07 — 8, GNOME-2/07 — 7); тачпад Windows 05–16 — столбец «T=0,5, K=5»; «тачпад» KDE-3 и GNOME-2 — число делений. Проверка: ни одной фикстуры с пустым expected_steps, кроме шагов без событий; сверка с §5.2
+- [x] Шаг 10: Фикстуры (§7.4): прогнать to_fixture.py по шести замерам (KDE-1 815d874, KDE-2 028f9f5, KDE-3 64edab4, GNOME-1 d7014de, GNOME-2 d15caeb, Windows eb6fb72) → 104 файла tests/data/wheel/{kde-1,kde-2,kde-3,gnome-1,gnome-2,windows}/. Проверка: 104 файла; число строк данных ползунка = числу событий winit исходного CSV, трея — числу событий tray
+- [>] **Шаг 11: expected_steps фикстур (§7.4, wheel_test.md §5.2): мышь — число событий со знаком направления (10, кроме GNOME-1/01 — 11, GNOME-2/04 — 12, Windows/03 — 12, Windows/04 — 11, KDE-3/07 — 8, GNOME-2/07 — 7); тачпад Windows 05–16 — столбец «T=0,5, K=5»; «тачпад» KDE-3 и GNOME-2 — число делений. Проверка: ни одной фикстуры с пустым expected_steps, кроме шагов без событий; сверка с §5.2**
 - [ ] Шаг 12: Тесты по фикстурам (§7.2, ТЗ-36): src/platform/input/fixture_tests.rs (cfg(test)) — разбор фикстуры, прогон через FakeWheelInput, макрос, порождающий wheel_fixtures_<замер>_<шаг> по списку шагов; расхождение с expected_steps не подгоняется, а докладывается. Проверка: cargo test wheel_fixtures
 - [ ] Шаг 13: Именованные тесты по фикстурам (§7.2, В-3, В-4, В-5): src/platform/input/fixture_tests.rs — linux_emulated_touchpad_is_wheel, windows_touchpad_swipes_capped, tray_matches_slider, same_sequence_slider_and_tray_same_result. Проверка: cargo test platform::input
 - [ ] Шаг 14: Записи журнала (§2.9, ADR-8): src/journal.rs — JournalRecord::WheelTable { error }, TrayHost { host, via }, BackendFallback { error }, enum HostSource; kind() и текст строки. Общий тип — проверка: полный cargo test
@@ -171,8 +171,8 @@
 
 Легенда: [x] сделано · [>] текущий шаг · [ ] не начато
 
-- **Текущий шаг (current_step):** Шаг 10
-- **Следующий ход:** Шаг 10: прогнать to_fixture.py по шести замерам → 104 фикстуры
+- **Текущий шаг (current_step):** Шаг 11
+- **Следующий ход:** Шаг 11: субагент заполняет expected_steps фикстур по wheel_test.md §5.2
 - **Счетчик безуспешных компиляций:** 0/3
 - **Состояние:** in_progress
 

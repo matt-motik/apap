@@ -1,0 +1,24 @@
+[fixture]
+platform = "windows"
+session = "win32"
+device = "mouse"
+source = "slider"
+natural_scroll = "unknown"
+direction = "up"
+action = "fast"
+expected_steps = []
+origin = "eb6fb72:tools/wheel_probe/results/windows_win32_windows/03_mouse_slider_fast_up.csv"
+---
+t_ms,kind,phase,delta_x,delta_y,modifiers,slint_dy
+43797.2642,line,moved,0,1,,60
+43825.2333,line,moved,0,1,,60
+43848.998799999994,line,moved,0,1,,60
+43865.1993,line,moved,0,1,,60
+43881.270899999996,line,moved,0,1,,60
+43897.060000000005,line,moved,0,1,,60
+43921.0821,line,moved,0,1,,60
+43953.2551,line,moved,0,1,,60
+44029.5888,line,moved,0,1,,60
+44077.2177,line,moved,0,1,,60
+44123.3374,line,moved,0,1,,60
+44171.2203,line,moved,0,1,,60

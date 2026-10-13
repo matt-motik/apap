@@ -1,0 +1,22 @@
+[fixture]
+platform = "kde"
+session = "wayland"
+device = "mouse"
+source = "tray"
+natural_scroll = "unknown"
+direction = "up"
+action = "shift"
+expected_steps = []
+origin = "028f9f5:tools/wheel_probe/results/linux_wayland_kde-2/08_mouse_tray_shift_single_up.csv"
+---
+t_ms,kind,phase,delta_x,delta_y,modifiers,slint_dy
+6096.596143,tray,,,120,,
+7248.723859,tray,,,120,,
+8580.388519,tray,,,120,,
+9312.738001,tray,,,120,,
+10656.591353,tray,,,120,,
+11856.757932,tray,,,120,,
+13184.59191,tray,,,120,,
+14452.746906,tray,,,120,,
+15764.864002999999,tray,,,120,,
+16704.974433,tray,,,120,,

@@ -1,0 +1,22 @@
+[fixture]
+platform = "windows"
+session = "win32"
+device = "mouse"
+source = "slider"
+natural_scroll = "unknown"
+direction = "down"
+action = "single"
+expected_steps = []
+origin = "eb6fb72:tools/wheel_probe/results/windows_win32_windows/02_mouse_slider_single_down.csv"
+---
+t_ms,kind,phase,delta_x,delta_y,modifiers,slint_dy
+18904.324200000003,line,moved,0,-1,,-60
+20252.158000000003,line,moved,0,-1,,-60
+21332.159399999997,line,moved,0,-1,,-60
+22400.2384,line,moved,0,-1,,-60
+23596.219699999998,line,moved,0,-1,,-60
+24840.1082,line,moved,0,-1,,-60
+26110.027899999997,line,moved,0,-1,,-60
+27238.122900000002,line,moved,0,-1,,-60
+28564.1344,line,moved,0,-1,,-60
+29956.1153,line,moved,0,-1,,-60

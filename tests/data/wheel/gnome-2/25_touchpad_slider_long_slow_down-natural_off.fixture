@@ -1,0 +1,103 @@
+[fixture]
+platform = "gnome"
+session = "wayland"
+device = "touchpad"
+source = "slider"
+natural_scroll = "off"
+direction = "down"
+action = "long_slow"
+expected_steps = []
+origin = "d15caeb:tools/wheel_probe/results/linux_not-winit_ubuntu/25_touchpad_slider_long_slow_down-natural_off.csv"
+---
+t_ms,kind,phase,delta_x,delta_y,modifiers,slint_dy
+4416.476280000001,line,moved,0,-1,,-60
+4448.271668,line,moved,0,-1,,-60
+4462.192989,line,moved,0,-1,,-60
+4496.3425099999995,line,moved,0,-1,,-60
+4522.344531,line,moved,0,-1,,-60
+4554.367257,line,moved,0,-1,,-60
+4568.320085,line,moved,0,-1,,-60
+4602.22551,line,moved,0,-1,,-60
+4614.353343999999,line,moved,0,-1,,-60
+4630.345476,line,moved,0,-1,,-60
+4656.3430180000005,line,moved,0,-1,,-60
+4672.3161470000005,line,moved,0,-1,,-60
+4688.306797,line,moved,0,-1,,-60
+4704.358429,line,moved,0,-1,,-60
+4712.353866,line,moved,0,-1,,-60
+4728.245115,line,moved,0,-1,,-60
+4744.318553,line,moved,0,-1,,-60
+4760.522294,line,moved,0,-1,,-60
+4776.343383,line,moved,0,-1,,-60
+4792.422468,line,moved,0,-1,,-60
+4800.402268,line,moved,0,-1,,-60
+4816.338081999999,line,moved,0,-1,,-60
+4850.373581999999,line,moved,0,-1,,-60
+4858.367966000001,line,moved,0,-1,,-60
+6368.448411,line,moved,0,-1,,-60
+6400.374121999999,line,moved,0,-1,,-60
+6414.366925,line,moved,0,-1,,-60
+6430.332431,line,moved,0,-1,,-60
+6444.4253610000005,line,moved,0,-1,,-60
+6460.775694,line,moved,0,-1,,-60
+6476.363743,line,moved,0,-1,,-60
+6492.473157,line,moved,0,-1,,-60
+6502.388302,line,moved,0,-1,,-60
+6518.297782999999,line,moved,0,-1,,-60
+6534.458175,line,moved,0,-1,,-60
+6550.452807,line,moved,0,-1,,-60
+6566.480454,line,moved,0,-1,,-60
+6582.3075260000005,line,moved,0,-1,,-60
+6590.3760489999995,line,moved,0,-1,,-60
+6606.470865,line,moved,0,-1,,-60
+6622.3742999999995,line,moved,0,-1,,-60
+6638.37078,line,moved,0,-1,,-60
+6654.327023999999,line,moved,0,-1,,-60
+6662.4879630000005,line,moved,0,-1,,-60
+6680.484363,line,moved,0,-1,,-60
+6712.340661,line,moved,0,-1,,-60
+6720.308379,line,moved,0,-1,,-60
+6762.41086,line,moved,0,-1,,-60
+6776.4804429999995,line,moved,0,-1,,-60
+6800.454334,line,moved,0,-1,,-60
+6816.4498140000005,line,moved,0,-1,,-60
+6824.538828,line,moved,0,-1,,-60
+6840.424209,line,moved,0,-1,,-60
+6848.549576,line,moved,0,-1,,-60
+6888.472772,line,moved,0,-1,,-60
+6900.447381,line,moved,0,-1,,-60
+6936.470045,line,moved,0,-1,,-60
+6968.439569,line,moved,0,-1,,-60
+7000.414408000001,line,moved,0,-1,,-60
+7032.485927,line,moved,0,-1,,-60
+7064.574622,line,moved,0,-1,,-60
+7112.631094,line,moved,0,-1,,-60
+7162.581167,line,moved,0,-1,,-60
+7222.587225,line,moved,0,-1,,-60
+7298.459863,line,moved,0,-1,,-60
+7420.5212249999995,line,moved,0,-1,,-60
+8858.705773,line,moved,0,-1,,-60
+8872.608269,line,moved,0,-1,,-60
+8888.579523,line,moved,0,-1,,-60
+8904.642001999999,line,moved,0,-1,,-60
+8920.644608,line,moved,0,-1,,-60
+8936.587566,line,moved,0,-1,,-60
+8952.581555,line,moved,0,-1,,-60
+8968.555502,line,moved,0,-1,,-60
+8984.596422999999,line,moved,0,-1,,-60
+9000.542562999999,line,moved,0,-1,,-60
+9016.647615,line,moved,0,-1,,-60
+9032.610295,line,moved,0,-1,,-60
+9048.649204,line,moved,0,-1,,-60
+9056.678574,line,moved,0,-1,,-60
+9072.667522,line,moved,0,-1,,-60
+9088.66031,line,moved,0,-1,,-60
+9104.647219,line,moved,0,-1,,-60
+9112.630041999999,line,moved,0,-1,,-60
+9128.567895,line,moved,0,-1,,-60
+9146.582328999999,line,moved,0,-1,,-60
+9180.572691,line,moved,0,-1,,-60
+9192.647756999999,line,moved,0,-1,,-60
+9202.574862000001,line,moved,0,-1,,-60
+9236.545775999999,line,moved,0,-1,,-60
+9284.697027,line,moved,0,-1,,-60

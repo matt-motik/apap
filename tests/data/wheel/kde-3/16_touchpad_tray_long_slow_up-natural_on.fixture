@@ -1,0 +1,86 @@
+[fixture]
+platform = "kde"
+session = "wayland"
+device = "touchpad"
+source = "slider"
+natural_scroll = "on"
+direction = "up"
+action = "long_slow"
+expected_steps = []
+origin = "64edab4:tools/wheel_probe/results/linux_wayland_kde-3/16_touchpad_tray_long_slow_up-natural_on.csv"
+---
+t_ms,kind,phase,delta_x,delta_y,modifiers,slint_dy
+6655.928087,line,moved,0,3,,180
+6669.897303,line,moved,0,1,,60
+6685.905141,line,moved,0,1,,60
+6701.972033999999,line,moved,0,1,,60
+6717.888751,line,moved,0,1,,60
+6733.887661,line,moved,0,1,,60
+6749.884329,line,moved,0,1,,60
+6767.8949920000005,line,moved,0,1,,60
+6781.967904,line,moved,0,1,,60
+6797.973306,line,moved,0,1,,60
+6815.974109,line,moved,0,1,,60
+6831.978751000001,line,moved,0,1,,60
+6847.898435,line,moved,0,2,,120
+6863.918481,line,moved,0,1,,60
+6879.917078,line,moved,0,1,,60
+6895.967168,line,moved,0,1,,60
+6911.940332,line,moved,0,2,,120
+6927.951016999999,line,moved,0,1,,60
+6943.997332,line,moved,0,1,,60
+6959.901978999999,line,moved,0,1,,60
+6967.911599,line,moved,0,1,,60
+6983.891879,line,moved,0,2,,120
+7015.980992000001,line,moved,0,1,,60
+7041.954105000001,line,moved,0,1,,60
+9368.009663,line,moved,0,3,,180
+9383.967792,line,moved,0,1,,60
+9400.023059000001,line,moved,0,1,,60
+9416.031864,line,moved,0,1,,60
+9431.975746999999,line,moved,0,1,,60
+9448.03806,line,moved,0,1,,60
+9463.962153,line,moved,0,1,,60
+9479.963021,line,moved,0,1,,60
+9495.966485,line,moved,0,1,,60
+9512.037171,line,moved,0,1,,60
+9528.048728,line,moved,0,1,,60
+9543.989009,line,moved,0,2,,120
+9560.00775,line,moved,0,1,,60
+9575.97952,line,moved,0,1,,60
+9591.977293,line,moved,0,1,,60
+9608.05603,line,moved,0,1,,60
+9624.005078,line,moved,0,1,,60
+9641.976772,line,moved,0,1,,60
+9656.052037,line,moved,0,1,,60
+9671.970207999999,line,moved,0,1,,60
+9688.130706,line,moved,0,1,,60
+9704.23658,line,moved,0,1,,60
+9713.968703999999,line,moved,0,1,,60
+9729.968995,line,moved,0,1,,60
+9762.127991,line,moved,0,1,,60
+9786.075421,line,moved,0,1,,60
+11730.158233,line,moved,0,3,,180
+11746.076338,line,moved,0,1,,60
+11762.261190000001,line,moved,0,1,,60
+11778.015692,line,moved,0,1,,60
+11794.026197000001,line,moved,0,1,,60
+11810.078345000002,line,moved,0,1,,60
+11826.025321,line,moved,0,1,,60
+11842.088986,line,moved,0,2,,120
+11858.052805,line,moved,0,1,,60
+11874.07251,line,moved,0,1,,60
+11890.039804,line,moved,0,1,,60
+11906.028226,line,moved,0,1,,60
+11922.3959,line,moved,0,2,,120
+11938.123675,line,moved,0,1,,60
+11954.034649000001,line,moved,0,1,,60
+11972.353941,line,moved,0,1,,60
+11988.117052,line,moved,0,1,,60
+12002.082013000001,line,moved,0,1,,60
+12018.027948,line,moved,0,1,,60
+12034.037271000001,line,moved,0,1,,60
+12044.025662999999,line,moved,0,2,,120
+12076.118342000002,line,moved,0,1,,60
+12092.126749000001,line,moved,0,1,,60
+12128.054577,line,moved,0,1,,60

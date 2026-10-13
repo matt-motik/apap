@@ -1,0 +1,22 @@
+[fixture]
+platform = "kde"
+session = "wayland"
+device = "mouse"
+source = "tray"
+natural_scroll = "off"
+direction = "down"
+action = "single"
+expected_steps = []
+origin = "64edab4:tools/wheel_probe/results/linux_wayland_kde-3/06_mouse_tray_single_down.csv"
+---
+t_ms,kind,phase,delta_x,delta_y,modifiers,slint_dy
+4984.141414,tray,,,-120,,
+6500.2020600000005,tray,,,-120,,
+8024.1658640000005,tray,,,-120,,
+9432.137381,tray,,,-120,,
+10932.201161,tray,,,-120,,
+12472.32046,tray,,,-120,,
+14184.262846,tray,,,-120,,
+15796.228043,tray,,,-120,,
+17220.301204,tray,,,-120,,
+18792.227381,tray,,,-120,,

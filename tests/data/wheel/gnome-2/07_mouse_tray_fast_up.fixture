@@ -1,0 +1,19 @@
+[fixture]
+platform = "gnome"
+session = "wayland"
+device = "mouse"
+source = "tray"
+natural_scroll = "off"
+direction = "up"
+action = "fast"
+expected_steps = []
+origin = "d15caeb:tools/wheel_probe/results/linux_not-winit_ubuntu/07_mouse_tray_fast_up.csv"
+---
+t_ms,kind,phase,delta_x,delta_y,modifiers,slint_dy
+3312.7072329999996,tray,,,-1,,
+3328.3174089999998,tray,,,-1,,
+3344.414117,tray,,,-1,,
+3360.988456,tray,,,-1,,
+3392.4428940000003,tray,,,-1,,
+3432.448957,tray,,,-1,,
+3560.563075,tray,,,-1,,

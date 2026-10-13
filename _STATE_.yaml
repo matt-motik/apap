@@ -165,7 +165,7 @@ steps:
   done: true
 - id: 10
   description: 'Фикстуры (§7.4): прогнать to_fixture.py по шести замерам (KDE-1 815d874, KDE-2 028f9f5, KDE-3 64edab4, GNOME-1 d7014de, GNOME-2 d15caeb, Windows eb6fb72) → 104 файла tests/data/wheel/{kde-1,kde-2,kde-3,gnome-1,gnome-2,windows}/. Проверка: 104 файла; число строк данных ползунка = числу событий winit исходного CSV, трея — числу событий tray'
-  done: false
+  done: true
 - id: 11
   description: 'expected_steps фикстур (§7.4, wheel_test.md §5.2): мышь — число событий со знаком направления (10, кроме GNOME-1/01 — 11, GNOME-2/04 — 12, Windows/03 — 12, Windows/04 — 11, KDE-3/07 — 8, GNOME-2/07 — 7); тачпад Windows 05–16 — столбец «T=0,5, K=5»; «тачпад» KDE-3 и GNOME-2 — число делений. Проверка: ни одной фикстуры с пустым expected_steps, кроме шагов без событий; сверка с §5.2'
   done: false
@@ -229,8 +229,8 @@ steps:
 - id: 31
   description: 'ЧЕКПОИНТ и закрытие: полный cargo test, cargo clippy --all-targets, cargo build; grep — winit_030 и cfg(target_os) модуля ввода только в src/platform/input/** (ТЗ-54 п. 3); условия §8 всех этапов; обновить заметки плана (отклонения SP1.0-8.10 по Clicks и знаку трея сняты, ручные проверки С11)'
   done: false
-current_step: 10
-next_action: "Шаг 10: прогнать to_fixture.py по шести замерам → 104 фикстуры"
+current_step: 11
+next_action: "Шаг 11: субагент заполняет expected_steps фикстур по wheel_test.md §5.2"
 fail_counter: 0
 fail_counter_max: 3
 failed_attempts: []

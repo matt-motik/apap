@@ -1,0 +1,80 @@
+[fixture]
+platform = "kde"
+session = "wayland"
+device = "touchpad"
+source = "slider"
+natural_scroll = "on"
+direction = "up"
+action = "long_slow"
+expected_steps = []
+origin = "64edab4:tools/wheel_probe/results/linux_wayland_kde-3/10_touchpad_slider_long_slow_up-natural_on.csv"
+---
+t_ms,kind,phase,delta_x,delta_y,modifiers,slint_dy
+12544.099274,line,moved,0,3,,180
+12560.131272999999,line,moved,0,1,,60
+12576.016048,line,moved,0,2,,120
+12592.097385000001,line,moved,0,1,,60
+12608.086052,line,moved,0,1,,60
+12624.090924,line,moved,0,1,,60
+12640.004571000001,line,moved,0,1,,60
+12672.107568,line,moved,0,1,,60
+12688.092356000001,line,moved,0,1,,60
+12720.029765,line,moved,0,1,,60
+12736.015089,line,moved,0,1,,60
+12762.099404,line,moved,0,1,,60
+12778.009300000002,line,moved,0,1,,60
+12809.996336999999,line,moved,0,1,,60
+12842.104679,line,moved,0,1,,60
+12858.007803999999,line,moved,0,1,,60
+12882.072871,line,moved,0,1,,60
+12916.052511,line,moved,0,1,,60
+12930.037064,line,moved,0,1,,60
+12962.069792999999,line,moved,0,1,,60
+12996.088439,line,moved,0,1,,60
+13028.08246,line,moved,0,1,,60
+13052.146961,line,moved,0,1,,60
+13084.114405999999,line,moved,0,1,,60
+13120.166971,line,moved,0,1,,60
+13258.011439,line,moved,0,1,,60
+16942.201685,line,moved,0,3,,180
+17062.090234,line,moved,0,1,,60
+17124.149745,line,moved,0,1,,60
+17188.083172,line,moved,0,1,,60
+17248.072936,line,moved,0,1,,60
+17378.125323,line,moved,0,1,,60
+17506.138371999998,line,moved,0,1,,60
+17584.132009,line,moved,0,1,,60
+17628.142859,line,moved,0,1,,60
+17660.167389000002,line,moved,0,1,,60
+17726.167150999998,line,moved,0,1,,60
+17756.074493,line,moved,0,1,,60
+17788.081993,line,moved,0,1,,60
+17822.145434,line,moved,0,1,,60
+17854.139898,line,moved,0,1,,60
+17870.05868,line,moved,0,1,,60
+17902.062522,line,moved,0,1,,60
+17934.125432999997,line,moved,0,1,,60
+17942.045302,line,moved,0,1,,60
+17992.164408,line,moved,0,1,,60
+18036.158987,line,moved,0,1,,60
+21510.17702,line,moved,0,3,,180
+21600.16833,line,moved,0,1,,60
+21664.159286000002,line,moved,0,1,,60
+21712.167569,line,moved,0,1,,60
+21744.169669000003,line,moved,0,1,,60
+21794.163278,line,moved,0,1,,60
+21874.172411,line,moved,0,1,,60
+21972.186847,line,moved,0,1,,60
+22004.186154,line,moved,0,1,,60
+22052.17306,line,moved,0,1,,60
+22100.171994,line,moved,0,1,,60
+22148.168341,line,moved,0,1,,60
+22198.174591,line,moved,0,1,,60
+22230.23723,line,moved,0,1,,60
+22278.176586,line,moved,0,1,,60
+22326.192436,line,moved,0,1,,60
+22374.186597,line,moved,0,1,,60
+22424.186279,line,moved,0,1,,60
+22468.170018999997,line,moved,0,1,,60
+22540.263192000002,line,moved,0,1,,60
+22690.209138,line,moved,0,1,,60

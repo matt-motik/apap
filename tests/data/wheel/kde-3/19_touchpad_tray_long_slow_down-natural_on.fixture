@@ -1,0 +1,84 @@
+[fixture]
+platform = "kde"
+session = "wayland"
+device = "touchpad"
+source = "slider"
+natural_scroll = "on"
+direction = "down"
+action = "long_slow"
+expected_steps = []
+origin = "64edab4:tools/wheel_probe/results/linux_wayland_kde-3/19_touchpad_tray_long_slow_down-natural_on.csv"
+---
+t_ms,kind,phase,delta_x,delta_y,modifiers,slint_dy
+9528.084676,line,moved,0,-3,,-180
+9552.111528,line,moved,0,-1,,-60
+9598.074929999999,line,moved,0,-1,,-60
+9629.975105,line,moved,0,-1,,-60
+9673.982611,line,moved,0,-1,,-60
+9722.010967999999,line,moved,0,-1,,-60
+9738.054823,line,moved,0,-1,,-60
+9769.977762,line,moved,0,-1,,-60
+9786.022249,line,moved,0,-1,,-60
+9817.96693,line,moved,0,-1,,-60
+9826.013849,line,moved,0,-1,,-60
+9888.000643,line,moved,0,-1,,-60
+9920.025674,line,moved,0,-1,,-60
+9943.980440000001,line,moved,0,-1,,-60
+9988.069274000001,line,moved,0,-1,,-60
+10019.990177,line,moved,0,-1,,-60
+10046.006293999999,line,moved,0,-1,,-60
+10075.982523,line,moved,0,-1,,-60
+10102.002656999999,line,moved,0,-1,,-60
+10134.01858,line,moved,0,-1,,-60
+10158.00721,line,moved,0,-1,,-60
+10181.997937,line,moved,0,-1,,-60
+10222.015873,line,moved,0,-1,,-60
+10262.004219,line,moved,0,-1,,-60
+10293.996109,line,moved,0,-1,,-60
+10332.011875999999,line,moved,0,-1,,-60
+12852.115306,line,moved,0,-3,,-180
+12892.075816,line,moved,0,-1,,-60
+12924.10828,line,moved,0,-1,,-60
+12948.094228,line,moved,0,-1,,-60
+12980.076804999999,line,moved,0,-1,,-60
+13004.115238,line,moved,0,-1,,-60
+13020.055214,line,moved,0,-1,,-60
+13036.124914,line,moved,0,-1,,-60
+13060.068438,line,moved,0,-1,,-60
+13076.064456,line,moved,0,-1,,-60
+13092.140876,line,moved,0,-1,,-60
+13108.081350999999,line,moved,0,-1,,-60
+13118.127795999999,line,moved,0,-1,,-60
+13150.146613,line,moved,0,-1,,-60
+13164.146041,line,moved,0,-1,,-60
+13198.087645,line,moved,0,-1,,-60
+13222.159165000001,line,moved,0,-1,,-60
+13254.096524999999,line,moved,0,-1,,-60
+13296.079912,line,moved,0,-1,,-60
+13328.112751,line,moved,0,-1,,-60
+13388.154503,line,moved,0,-1,,-60
+13482.140264,line,moved,0,-1,,-60
+13530.110453000001,line,moved,0,-1,,-60
+13562.174178,line,moved,0,-1,,-60
+13598.165483,line,moved,0,-1,,-60
+16262.203712000002,line,moved,0,-3,,-180
+16318.192994,line,moved,0,-1,,-60
+16430.200419999997,line,moved,0,-1,,-60
+16596.208247,line,moved,0,-1,,-60
+16652.285312,line,moved,0,-1,,-60
+16684.202791,line,moved,0,-1,,-60
+16710.201307,line,moved,0,-1,,-60
+16742.211016999998,line,moved,0,-1,,-60
+16750.252360000002,line,moved,0,-1,,-60
+16782.201652,line,moved,0,-1,,-60
+16798.262047,line,moved,0,-1,,-60
+16822.183204,line,moved,0,-1,,-60
+16862.203232,line,moved,0,-1,,-60
+17094.226878,line,moved,0,-1,,-60
+17150.292684,line,moved,0,-1,,-60
+17182.222173,line,moved,0,-1,,-60
+17206.257405,line,moved,0,-1,,-60
+17246.309061,line,moved,0,-1,,-60
+17278.316334,line,moved,0,-1,,-60
+17316.261725,line,moved,0,-1,,-60
+17372.386252999997,line,moved,0,-1,,-60

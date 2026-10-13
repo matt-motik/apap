@@ -1,0 +1,28 @@
+[fixture]
+platform = "gnome"
+session = "wayland"
+device = "touchpad"
+source = "slider"
+natural_scroll = "on"
+direction = "down"
+action = "short"
+expected_steps = []
+origin = "d15caeb:tools/wheel_probe/results/linux_not-winit_ubuntu/12_touchpad_slider_short_down-natural_on.csv"
+---
+t_ms,kind,phase,delta_x,delta_y,modifiers,slint_dy
+5600.078694999999,line,moved,0,1,,60
+5618.0589469999995,line,moved,0,1,,60
+5634.042670000001,line,moved,0,1,,60
+5668.042426999999,line,moved,0,1,,60
+6982.256431,line,moved,0,1,,60
+7014.0862720000005,line,moved,0,1,,60
+8824.321373,line,moved,0,1,,60
+8856.157949,line,moved,0,1,,60
+8916.247583,line,moved,0,1,,60
+10864.45845,line,moved,0,1,,60
+10878.339725,line,moved,0,1,,60
+10912.382694,line,moved,0,1,,60
+11024.431584,line,moved,0,1,,60
+12330.548043,line,moved,0,1,,60
+12371.38138,line,moved,0,1,,60
+12414.518614,line,moved,0,1,,60

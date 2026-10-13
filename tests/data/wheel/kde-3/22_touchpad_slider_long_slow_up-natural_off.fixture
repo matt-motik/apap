@@ -1,0 +1,86 @@
+[fixture]
+platform = "kde"
+session = "wayland"
+device = "touchpad"
+source = "slider"
+natural_scroll = "off"
+direction = "up"
+action = "long_slow"
+expected_steps = []
+origin = "64edab4:tools/wheel_probe/results/linux_wayland_kde-3/22_touchpad_slider_long_slow_up-natural_off.csv"
+---
+t_ms,kind,phase,delta_x,delta_y,modifiers,slint_dy
+5375.887398,line,moved,0,3,,180
+5419.83189,line,moved,0,1,,60
+5475.897438999999,line,moved,0,1,,60
+5507.826985000001,line,moved,0,1,,60
+5545.81013,line,moved,0,1,,60
+5601.856237,line,moved,0,1,,60
+5649.856752,line,moved,0,1,,60
+5711.917109,line,moved,0,1,,60
+5771.8420129999995,line,moved,0,1,,60
+5835.839438,line,moved,0,1,,60
+5867.858858,line,moved,0,1,,60
+5891.89768,line,moved,0,1,,60
+5941.838417,line,moved,0,1,,60
+5973.8769600000005,line,moved,0,1,,60
+6003.846184999999,line,moved,0,1,,60
+6029.8091190000005,line,moved,0,1,,60
+6061.834569000001,line,moved,0,1,,60
+6093.832584000001,line,moved,0,1,,60
+6117.896399,line,moved,0,1,,60
+6161.864764999999,line,moved,0,1,,60
+6219.85102,line,moved,0,1,,60
+6271.905385,line,moved,0,1,,60
+8574.005212,line,moved,0,3,,180
+8605.944598,line,moved,0,1,,60
+8647.946937,line,moved,0,1,,60
+8677.997076,line,moved,0,1,,60
+8685.893827,line,moved,0,1,,60
+8719.917438999999,line,moved,0,1,,60
+8743.938406,line,moved,0,1,,60
+8759.983434,line,moved,0,1,,60
+8791.900225,line,moved,0,1,,60
+8827.954324,line,moved,0,1,,60
+8859.97958,line,moved,0,1,,60
+8883.998634,line,moved,0,1,,60
+8916.019195,line,moved,0,1,,60
+8941.979951000001,line,moved,0,1,,60
+8973.993802,line,moved,0,1,,60
+8997.940480000001,line,moved,0,1,,60
+9029.936366,line,moved,0,1,,60
+9062.018915999999,line,moved,0,1,,60
+9085.935323,line,moved,0,1,,60
+9119.947465,line,moved,0,1,,60
+9149.941652000001,line,moved,0,1,,60
+9184.105148,line,moved,0,1,,60
+9216.079676,line,moved,0,1,,60
+9239.974569999998,line,moved,0,1,,60
+9284.063837,line,moved,0,1,,60
+9398.062190999999,line,moved,0,1,,60
+11192.088248999999,line,moved,0,3,,180
+11224.092661,line,moved,0,1,,60
+11247.99186,line,moved,0,1,,60
+11264.260581,line,moved,0,1,,60
+11296.102501,line,moved,0,1,,60
+11328.064719,line,moved,0,1,,60
+11344.11828,line,moved,0,1,,60
+11378.046131,line,moved,0,1,,60
+11402.077279000001,line,moved,0,1,,60
+11418.036276,line,moved,0,1,,60
+11450.038125000001,line,moved,0,1,,60
+11466.11768,line,moved,0,1,,60
+11498.017468,line,moved,0,1,,60
+11514.104608,line,moved,0,1,,60
+11546.036071,line,moved,0,1,,60
+11562.093821999999,line,moved,0,1,,60
+11586.019186,line,moved,0,1,,60
+11620.011805,line,moved,0,1,,60
+11652.066143999999,line,moved,0,1,,60
+11684.061786,line,moved,0,1,,60
+11716.066035000002,line,moved,0,1,,60
+11760.064502000001,line,moved,0,1,,60
+11794.080557000001,line,moved,0,1,,60
+11826.103796,line,moved,0,1,,60
+11866.068629000001,line,moved,0,1,,60
+11962.057084,line,moved,0,1,,60

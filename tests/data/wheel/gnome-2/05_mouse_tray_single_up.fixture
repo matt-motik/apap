@@ -1,0 +1,22 @@
+[fixture]
+platform = "gnome"
+session = "wayland"
+device = "mouse"
+source = "tray"
+natural_scroll = "off"
+direction = "up"
+action = "single"
+expected_steps = []
+origin = "d15caeb:tools/wheel_probe/results/linux_not-winit_ubuntu/05_mouse_tray_single_up.csv"
+---
+t_ms,kind,phase,delta_x,delta_y,modifiers,slint_dy
+16090.071715,tray,,,-1,,
+17225.460542,tray,,,-1,,
+18481.524241,tray,,,-1,,
+20057.694347999997,tray,,,-1,,
+21417.681962,tray,,,-1,,
+22929.783177,tray,,,-1,,
+24577.814495,tray,,,-1,,
+25937.844852000002,tray,,,-1,,
+27865.944046,tray,,,-1,,
+29298.099937,tray,,,-1,,

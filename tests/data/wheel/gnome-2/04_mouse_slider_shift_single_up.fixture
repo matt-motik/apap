@@ -1,0 +1,24 @@
+[fixture]
+platform = "gnome"
+session = "wayland"
+device = "mouse"
+source = "slider"
+natural_scroll = "off"
+direction = "up"
+action = "shift"
+expected_steps = []
+origin = "d15caeb:tools/wheel_probe/results/linux_not-winit_ubuntu/04_mouse_slider_shift_single_up.csv"
+---
+t_ms,kind,phase,delta_x,delta_y,modifiers,slint_dy
+4840.213847,line,moved,0,1,shift,60
+6400.344935,line,moved,0,1,shift,60
+7832.35554,line,moved,0,1,shift,60
+9184.521908,line,moved,0,1,shift,60
+10944.630627,line,moved,0,1,shift,60
+12112.75546,line,moved,0,1,shift,60
+14752.749829999999,line,moved,0,1,shift,60
+15792.978093,line,moved,0,1,shift,60
+17417.048832,line,moved,0,1,shift,60
+19009.038865000002,line,moved,0,1,shift,60
+20649.225366,line,moved,0,1,shift,60
+22217.35722,line,moved,0,1,shift,60

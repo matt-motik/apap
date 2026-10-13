@@ -1,0 +1,43 @@
+[fixture]
+platform = "gnome"
+session = "wayland"
+device = "touchpad"
+source = "tray"
+natural_scroll = "off"
+direction = "down"
+action = "short"
+expected_steps = []
+origin = "d15caeb:tools/wheel_probe/results/linux_not-winit_ubuntu/30_touchpad_tray_short_down-natural_off.csv"
+---
+t_ms,kind,phase,delta_x,delta_y,modifiers,slint_dy
+9058.789491000001,tray,,,4,,
+9072.78533,tray,,,1,,
+9088.817121,tray,,,1,,
+9096.498238,tray,,,1,,
+9112.708419,tray,,,1,,
+9128.768468,tray,,,1,,
+10370.753256,tray,,,3,,
+10384.801539,tray,,,1,,
+10398.792577,tray,,,1,,
+10414.918126,tray,,,1,,
+10442.794931,tray,,,1,,
+11831.091886999999,tray,,,4,,
+11842.836976999999,tray,,,1,,
+11858.813335,tray,,,1,,
+11874.838086,tray,,,2,,
+11884.869521,tray,,,1,,
+11918.861232,tray,,,1,,
+11932.858466999998,tray,,,1,,
+13319.058566000002,tray,,,5,,
+13328.922011999999,tray,,,1,,
+13344.817346,tray,,,1,,
+13360.891988000001,tray,,,1,,
+13384.927887,tray,,,1,,
+13400.999318,tray,,,1,,
+13417.026137,tray,,,1,,
+14919.179848,tray,,,3,,
+14932.904563,tray,,,2,,
+14948.994204,tray,,,1,,
+14957.975363,tray,,,1,,
+14991.035225,tray,,,1,,
+15012.988918,tray,,,1,,

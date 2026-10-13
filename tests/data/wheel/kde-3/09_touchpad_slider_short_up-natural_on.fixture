@@ -1,0 +1,37 @@
+[fixture]
+platform = "kde"
+session = "wayland"
+device = "touchpad"
+source = "slider"
+natural_scroll = "on"
+direction = "up"
+action = "short"
+expected_steps = []
+origin = "64edab4:tools/wheel_probe/results/linux_wayland_kde-3/09_touchpad_slider_short_up-natural_on.csv"
+---
+t_ms,kind,phase,delta_x,delta_y,modifiers,slint_dy
+68740.65978100001,line,moved,0,3,,
+71234.69494,line,moved,0,3,,
+71446.73610200001,line,moved,0,1,,
+71558.698635,line,moved,0,1,,
+73036.727122,line,moved,0,3,,
+73060.693455,line,moved,0,1,,
+73092.718203,line,moved,0,1,,
+73142.703189,line,moved,0,1,,
+73206.72752500001,line,moved,0,1,,
+73480.73925500001,line,moved,0,1,,
+80744.895895,line,moved,0,3,,180
+80836.93999700001,line,moved,0,1,,60
+80852.88399300001,line,moved,0,1,,60
+80884.872892,line,moved,0,1,,60
+80930.852658,line,moved,0,1,,60
+80978.92483,line,moved,0,1,,60
+83060.977132,line,moved,0,3,,180
+83260.925031,line,moved,0,1,,60
+83496.90853100001,line,moved,0,1,,60
+86005.04306899999,line,moved,0,3,,180
+86223.03115699999,line,moved,0,1,,60
+89207.04671,line,moved,0,3,,180
+89361.021586,line,moved,0,1,,60
+91799.176703,line,moved,0,3,,180
+92087.169765,line,moved,0,1,,60
