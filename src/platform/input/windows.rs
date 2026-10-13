@@ -35,8 +35,6 @@ const DWORD_SIZE: u32 = u32::BITS / 8;
 /// Системное направление прокрутки тачпада (§6.11 «Направление тачпада»,
 /// ТЗ-36, ТЗ-54 п. 3). Ошибка — значение не прочитано или не распознано:
 /// текст идёт в журнал, знак событий тачпада тогда не исправляется.
-// Подключается в WinitWheelInput (SP1.0-B16, шаг 5).
-#[allow(dead_code)]
 pub(super) fn touchpad_direction() -> Result<TouchpadDirection, Box<str>> {
     let mut data: u32 = 0;
     let mut size: u32 = DWORD_SIZE;

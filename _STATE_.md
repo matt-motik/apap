@@ -24,13 +24,13 @@
 - [x] Шаг 2: Поправка направления в нормализаторе (§6.11 «Направление тачпада», ТЗ-36): тип TouchpadDirection { UpPositive, UpNegative } в src/platform/input/mod.rs; в normalizer.rs — поле, set_touchpad_direction(Option<TouchpadDirection>), touch_idle(t), умножение смещения на dir в touch_step (путь slider/Touchpad и slider_unpaired); Division и tray без изменений; ≤5 тестов. Проверка: cargo test platform::input (включая wheel_fixtures_*)
 - [x] Шаг 3: Чтение настройки Windows (§6.11 «Направление тачпада», ТЗ-54 п. 3): feature Win32_System_Registry в Cargo.toml; новый src/platform/input/windows.rs — touchpad_direction() -> Result<TouchpadDirection, Box<str>> через RegGetValueW и чистая direction_from_value(u32) с тестом; объявление модуля под cfg(windows) в mod.rs. Проверка: cargo check; cargo test platform::input::windows
 - [x] Шаг 4: Запись журнала TouchpadDirection { error } (§6.11, ТЗ-36): вариант JournalRecord, заголовок и текст в src/journal.rs, тест текста. Проверка: полный cargo test --lib без новых падений (общий тип)
-- [>] **Шаг 5: Подключение в WinitWheelInput (§6.11 «Направление тачпада»): src/platform/input/winit.rs — в new чтение настройки и запись журнала при неудаче, в slider_scroll перечитывание при touch_idle перед нормализацией; на не-Windows источник отсутствует (None). Проверка: cargo check**
-- [ ] Шаг 6: ЧЕКПОИНТ: полный cargo test, cargo clippy --all-targets, cargo build; закрытие SP1.0-B16 (Шаг 5), ручная проверка Windows — в заметку плана. Проверка: нет новых падений сверх шести SP1.0-B7, нет новых предупреждений
+- [x] Шаг 5: Подключение в WinitWheelInput (§6.11 «Направление тачпада»): src/platform/input/winit.rs — в new чтение настройки и запись журнала при неудаче, в slider_scroll перечитывание при touch_idle перед нормализацией; на не-Windows источник отсутствует (None). Проверка: cargo check
+- [>] **Шаг 6: ЧЕКПОИНТ: полный cargo test, cargo clippy --all-targets, cargo build; закрытие SP1.0-B16 (Шаг 5), ручная проверка Windows — в заметку плана. Проверка: нет новых падений сверх шести SP1.0-B7, нет новых предупреждений**
 
 Легенда: [x] сделано · [>] текущий шаг · [ ] не начато
 
-- **Текущий шаг (current_step):** Шаг 5
-- **Следующий ход:** Шаг 5: подключение чтения направления тачпада в WinitWheelInput (winit.rs)
+- **Текущий шаг (current_step):** Шаг 6
+- **Следующий ход:** Шаг 6: ЧЕКПОИНТ — полный test, clippy --all-targets, build; закрытие
 - **Счетчик безуспешных компиляций:** 0/3
 - **Состояние:** in_progress
 

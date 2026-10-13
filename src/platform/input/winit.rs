@@ -16,8 +16,9 @@ use slint::winit_030::winit::window::Window as WinitWindow;
 use slint::winit_030::{EventResult, WinitWindowAccessor};
 
 use super::{
-    parse_wheel_table, AttachOutcome, Clicks, Desktop, Session, SlintScroll, TrayHost, TrayScroll,
-    WheelDelta, WheelEvent, WheelInput, WheelMatcher, WheelNormalizer, WheelPhase, WheelTable,
+    parse_wheel_table, AttachOutcome, Clicks, Desktop, Session, SlintScroll, TouchpadDirection,
+    TrayHost, TrayScroll, WheelDelta, WheelEvent, WheelInput, WheelMatcher, WheelNormalizer,
+    WheelPhase, WheelTable,
 };
 use crate::audio::clock::Clock;
 use crate::journal::{Journal, JournalRecord};
@@ -51,7 +52,10 @@ impl WinitWheelInput {
     /// Модуль ввода для текущей платформы (ADR-8, §6.11). Таблица —
     /// `wheel_table.toml`; при ошибке разбора действует `WheelTable::builtin`
     /// с записью журнала `WheelTable`. `backend_error` — ошибка выбора бэкенда
-    /// winit: с ней `attach` фильтр не регистрирует.
+    /// winit: с ней `attach` фильтр не регистрирует. Системное направление
+    /// прокрутки тачпада (ТЗ-36, §6.11 «Направление тачпада») читается здесь
+    /// же: при ошибке — одна запись журнала `TouchpadDirection`, знак событий
+    /// тачпада не исправляется.
     pub fn new(
         journal: &dyn Journal,
         clock: Box<dyn Clock>,
@@ -61,8 +65,13 @@ impl WinitWheelInput {
             journal.record(JournalRecord::WheelTable { error: error.0 });
             WheelTable::builtin()
         });
+        let mut normalizer = WheelNormalizer::new(table, current_desktop(), initial_session());
+        match system_touchpad_direction() {
+            Ok(direction) => normalizer.set_touchpad_direction(direction),
+            Err(error) => journal.record(JournalRecord::TouchpadDirection { error }),
+        }
         WinitWheelInput {
-            normalizer: WheelNormalizer::new(table, current_desktop(), initial_session()),
+            normalizer,
             matcher: Rc::new(RefCell::new(WheelMatcher::new())),
             detected: Rc::new(Cell::new(None)),
             clock: Rc::from(clock),
@@ -131,10 +140,16 @@ impl WheelInput for WinitWheelInput {
     }
 
     /// `scroll-event` ползунка (§6.11 «Сопоставление», В-2): пара с событием
-    /// winit → `slider`, иначе правило по умолчанию без пары.
+    /// winit → `slider`, иначе правило по умолчанию без пары. В начале нового
+    /// свайпа (`touch_idle`) системное направление тачпада перечитывается
+    /// (ТЗ-36, §6.11 «Направление тачпада»): смена настройки действует без
+    /// перезапуска; при ошибке чтения знак не исправляется, журнал не пишется.
     fn slider_scroll(&mut self, ev: SlintScroll) -> Clicks {
         if let Some(session) = self.detected.take() {
             self.normalizer.set_session(Some(session));
+        }
+        if self.normalizer.touch_idle(ev.t) {
+            self.normalizer.set_touchpad_direction(system_touchpad_direction().unwrap_or(None));
         }
         let paired = self.matcher.try_borrow_mut().ok().and_then(|mut m| m.take_matching(ev));
         match paired {
@@ -215,6 +230,21 @@ fn initial_session() -> Option<Session> {
             &std::env::var("XDG_SESSION_TYPE").unwrap_or_default(),
             &std::env::var("WAYLAND_DISPLAY").unwrap_or_default(),
         )
+    }
+}
+
+/// Системное направление прокрутки тачпада (ТЗ-36, ТЗ-54 п. 3, §6.11
+/// «Направление тачпада»). Windows — настройка из реестра (`windows.rs`);
+/// ошибка — значение не прочитано или не распознано. На прочих системах
+/// настройка не читается: `None` — знак как пришёл, без записи журнала.
+fn system_touchpad_direction() -> Result<Option<TouchpadDirection>, Box<str>> {
+    #[cfg(windows)]
+    {
+        super::windows::touchpad_direction().map(Some)
+    }
+    #[cfg(not(windows))]
+    {
+        Ok(None)
     }
 }
 
