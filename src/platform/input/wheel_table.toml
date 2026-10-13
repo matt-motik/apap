@@ -1,0 +1,139 @@
+# Таблица данных модуля ввода колёсика (ADR-8, ТЗ-36, НФ-8, §2.8, §6.11).
+# Источник значений — замеры wheel_test.md (В-3, В-4, В-5) и решение ОВС-2 а.
+# Новые замеры меняют строки этого файла, код модуля не меняется (НФ-8).
+#
+# [[slider]]: desktop = kde | gnome | other_linux | windows | macos
+#             session = wayland | x11 | win32 | appkit (нет ключа — любой сеанс)
+#             class   = wheel | touchpad
+#             rule    = division | touchpad | default
+#                       division — k делений = k щелчков (В-3);
+#                       touchpad — накопитель, параметры threshold_lines,
+#                                  threshold_px, max_steps, swipe_gap_ms
+#                                  (недостающие — из [default_touchpad]);
+#                       default  — правило по умолчанию для класса.
+#             outcome = experiment | platform_docs | default_rule | no_source
+# [[tray]]:   host = kde_plasma | gnome_appindicator | unknown
+#             sign = 1 | -1 (знак «вверх = громче»)
+#             division — единица деления; 0 — модуль первого события.
+
+# Окно «целое после дробного = тачпад» на Windows, мс (wheel_test.md §5.1, правило 1).
+integer_after_fraction_ms = 200
+
+# Правило по умолчанию для тачпада (ОВС-2 а = В-4).
+[default_touchpad]
+threshold_lines = 0.5
+threshold_px = 30.0
+max_steps = 5
+swipe_gap_ms = 300
+
+# --- Ползунок: колесо, подтверждено экспериментом (В-3) ---
+
+[[slider]]
+desktop = "kde"
+session = "wayland"
+class = "wheel"
+rule = "division"
+outcome = "experiment"
+
+[[slider]]
+desktop = "gnome"
+session = "wayland"
+class = "wheel"
+rule = "division"
+outcome = "experiment"
+
+[[slider]]
+desktop = "windows"
+session = "win32"
+class = "wheel"
+rule = "division"
+outcome = "experiment"
+
+# --- Ползунок: тачпад Windows, параметры В-4 (T = 0,5 строки, K = 5, пауза 300 мс) ---
+
+[[slider]]
+desktop = "windows"
+session = "win32"
+class = "touchpad"
+rule = "touchpad"
+threshold_lines = 0.5
+threshold_px = 30.0
+max_steps = 5
+swipe_gap_ms = 300
+outcome = "experiment"
+
+# --- Ползунок: сеансы и классы без данных — правило по умолчанию (ОВС-2 а) ---
+
+[[slider]]
+desktop = "kde"
+session = "x11"
+class = "wheel"
+rule = "default"
+outcome = "default_rule"
+
+[[slider]]
+desktop = "gnome"
+session = "x11"
+class = "wheel"
+rule = "default"
+outcome = "default_rule"
+
+[[slider]]
+desktop = "kde"
+class = "touchpad"
+rule = "default"
+outcome = "default_rule"
+
+[[slider]]
+desktop = "gnome"
+class = "touchpad"
+rule = "default"
+outcome = "default_rule"
+
+[[slider]]
+desktop = "other_linux"
+class = "wheel"
+rule = "default"
+outcome = "default_rule"
+
+[[slider]]
+desktop = "other_linux"
+class = "touchpad"
+rule = "default"
+outcome = "default_rule"
+
+# --- Ползунок: macOS — правило по умолчанию, исход «по документации» ---
+
+[[slider]]
+desktop = "macos"
+session = "appkit"
+class = "wheel"
+rule = "default"
+outcome = "platform_docs"
+
+[[slider]]
+desktop = "macos"
+session = "appkit"
+class = "touchpad"
+rule = "default"
+outcome = "platform_docs"
+
+# --- Трей (В-5) ---
+
+[[tray]]
+host = "kde_plasma"
+sign = 1
+division = 120
+outcome = "experiment"
+
+[[tray]]
+host = "gnome_appindicator"
+sign = -1
+division = 1
+outcome = "experiment"
+
+[[tray]]
+host = "unknown"
+sign = 1
+division = 0
+outcome = "default_rule"

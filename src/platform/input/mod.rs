@@ -5,6 +5,13 @@
 
 use crate::audio::clock::ClockInstant;
 
+pub mod table;
+
+pub use table::{
+    parse_wheel_table, Outcome, SliderRow, SliderRule, TableError, TouchpadParams, TrayRow,
+    WheelTable,
+};
+
 // Временный мост этапа С11: определения переносятся сюда отдельными шагами.
 pub use crate::core::volume::Clicks;
 pub use crate::platform::lifecycle::TrayScroll;
