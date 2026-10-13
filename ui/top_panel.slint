@@ -617,30 +617,6 @@ export component TopPanel inherits Rectangle {
                     }
                 }
 
-                // Громкость задана режимом (ТЗ-41, ADR-23, §6.18): слайдер не
-                // прячется через opacity, подсказка всплывает при наведении.
-                if !root.volume-enabled && wheel-vol.has-hover: Rectangle {
-                    y: -self.height - 6px;
-                    x: (parent.width - self.width) / 2;
-                    width: 170px;
-                    height: vol-hint-text.preferred-height + 10px;
-                    background: Colors.bg-elevated;
-                    border-color: Colors.border-default;
-                    border-width: 1px;
-                    border-radius: 4px;
-                    z: 10;
-
-                    vol-hint-text := Text {
-                        text: "Громкость задана режимом";
-                        color: Colors.text-secondary;
-                        font-size: 11px;
-                        wrap: word-wrap;
-                        x: 6px;
-                        y: 5px;
-                        width: parent.width - 12px;
-                    }
-                }
-
                 }
             VerticalLayout {
                 vertical-stretch: 1;
