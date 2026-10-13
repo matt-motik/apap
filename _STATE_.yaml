@@ -10,6 +10,7 @@ whitelist:
   - src/core/volume.rs
   - src/core/mod.rs
   - src/core/testing.rs
+  - src/persist/state_file.rs
   - src/app/mod.rs
   - src/app/playback_manager.rs
   - ui/top_panel.slint
@@ -23,8 +24,8 @@ steps:
     description: "Юнит-тесты чистых функций в src/core/volume.rs: volume_block_tooltips, Set/Step с clamp 0…100, блокировка в Строгом, блокировка при volume_lock, Unchanged при том же значении (§7.2, И-Р13). Проверка: cargo test core::volume зелёный"
     done: true
   - id: 3
-    description: "src/core/mod.rs: AppCore::volume(src, cmd) -> VolumeOutcome (volume_block до любого изменения, И-Р13; Changed → change_state(User, Volume)) и AppCore::toggle_mute() -> bool (change_state(User, Muted), работает при блокировке) (§2.12, ADR-14, ТЗ-37, ТЗ-38). Проверка: cargo check без ошибок"
-    done: false
+    description: "src/persist/state_file.rs: геттер SessionState::playback_state() -> &PlaybackState (вайтлист расширен по разрешению пользователя 2026-10-13); src/core/mod.rs: AppCore::volume(src, cmd) -> VolumeOutcome (volume_block до любого изменения, И-Р13; Changed → change_state(User, Volume)) и AppCore::toggle_mute() -> bool (change_state(User, Muted), работает при блокировке) (§2.12, ADR-14, ТЗ-37, ТЗ-38). Проверка: cargo check без ошибок"
+    done: true
   - id: 4
     description: "Тесты ядра в src/core/testing.rs, ч. 1: slider_shows_active_mode_volume, strict_mode_wheel_and_hotkeys_do_not_change_volume, optimal_volume_lock_ignores_all_sources (§7.2, ТЗ-35, ТЗ-37). Проверка: cargo test по этим трём именам зелёный"
     done: false
@@ -55,8 +56,8 @@ steps:
   - id: 13
     description: "ЧЕКПОИНТ: cargo build, cargo clippy --all-targets (0 новых предупреждений в файлах вайтлиста), полный cargo test (без новых падений сверх 6 тестов SP1.0-B7); grep: нет WHEEL_VOLUME_STEP и 0.04 в путях громкости. Проверка: все три команды с ожидаемым итогом"
     done: false
-current_step: 3
-next_action: "Шаг 3: субагент добавляет AppCore::volume и AppCore::toggle_mute в src/core/mod.rs"
+current_step: 4
+next_action: "Шаг 4: субагент пишет три теста ядра громкости в src/core/testing.rs"
 fail_counter: 0
 fail_counter_max: 3
 failed_attempts: []

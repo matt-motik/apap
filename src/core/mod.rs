@@ -25,6 +25,7 @@ use geometry::GeometryTracker;
 use io::{CacheKind, IoDone, IoJob, IoWorker};
 use load::LoadCtl;
 use messages::{Message, MessageButtons, MessageLevel};
+use volume::{apply_volume, VolumeBlock, VolumeCmd, VolumeOutcome, VolumeSource};
 
 use crate::audio::clock::{Clock, ClockInstant};
 use crate::engine::messages::EngineCmd;
@@ -478,6 +479,50 @@ impl AppCore {
             let now = self.now();
             self.tracker.on_state_changed(origin, now);
         }
+    }
+
+    /// Единая команда громкости для всех источников — ползунок, колёсико
+    /// над ползунком, колёсико трея, горячие клавиши (ADR-14, ТЗ-37, И-Р13,
+    /// §2.12). При `Changed` громкость активного режима меняется через
+    /// `change_state` с `Origin::User` (отсчёт отложенной записи). При
+    /// `Unchanged` и `Blocked` не меняется ничего: ни громкость, ни
+    /// состояние, ни срок записи (ТЗ-37).
+    ///
+    /// Источник не влияет на правило — решение 3, ТЗ-36; параметр `_src`
+    /// сохраняет сигнатуру §2.12.
+    ///
+    /// ОТКЛОНЕНИЕ от §2.12: возвращается `VolumeOutcome`, а не `UiChanges` —
+    /// такого типа в коде нет (см. `DialogSaved`).
+    ///
+    /// Команду движку метод не отправляет: до снятия моста `audio_facade`
+    /// её выполняет слой `app` (ADR-14).
+    pub fn volume(&mut self, _src: VolumeSource, cmd: VolumeCmd) -> VolumeOutcome {
+        let outcome = apply_volume(self.state.playback_state(), &self.settings.playback, cmd);
+        if let VolumeOutcome::Changed(v) = outcome {
+            self.change_state(Origin::User, StateChange::Volume(v.get()));
+        }
+        outcome
+    }
+
+    /// Переключает mute активного режима (в Строгом — `strict_muted`) и
+    /// возвращает новое значение (ADR-14, ТЗ-37, ТЗ-38, §2.12). Работает и
+    /// при недоступной громкости: `volume_block` здесь не проверяется.
+    ///
+    /// ОТКЛОНЕНИЕ от §2.12: возвращается новое значение mute, а не
+    /// `UiChanges` — такого типа в коде нет (см. `DialogSaved`).
+    ///
+    /// Команду движку метод не отправляет: до снятия моста `audio_facade`
+    /// её выполняет слой `app` (ADR-14).
+    pub fn toggle_mute(&mut self) -> bool {
+        let muted = !self.state.playback().muted;
+        self.change_state(Origin::User, StateChange::Muted(muted));
+        muted
+    }
+
+    /// Причина недоступности громкости в активном режиме — для подсказки
+    /// регулятора; `None` — громкость доступна (ТЗ-39, ADR-14, И-Р13, §2.12).
+    pub fn volume_block(&self) -> Option<VolumeBlock> {
+        volume::volume_block(self.state.playback_state(), &self.settings.playback)
     }
 
     /// Плейлист изменён пользователем — взводит дедлайн отложенной записи

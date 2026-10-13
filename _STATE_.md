@@ -10,6 +10,7 @@
   - src/core/volume.rs
   - src/core/mod.rs
   - src/core/testing.rs
+  - src/persist/state_file.rs
   - src/app/mod.rs
   - src/app/playback_manager.rs
   - ui/top_panel.slint
@@ -19,8 +20,8 @@
 ## Итерационный трекер
 - [x] Шаг 1: src/core/volume.rs (новый) + pub mod в src/core/mod.rs: VolumeCmd, VolumeSource, VolumeBlock, VolumeOutcome, Clicks (временно здесь до platform/input, С11), VOLUME_STEP_PCT, volume_block, apply_volume, VolumeBlock::tooltip (§2.11, §2.13, ADR-14, НФ-2, ТЗ-37, ТЗ-39). Проверка: cargo check без ошибок
 - [x] Шаг 2: Юнит-тесты чистых функций в src/core/volume.rs: volume_block_tooltips, Set/Step с clamp 0…100, блокировка в Строгом, блокировка при volume_lock, Unchanged при том же значении (§7.2, И-Р13). Проверка: cargo test core::volume зелёный
-- [>] **Шаг 3: src/core/mod.rs: AppCore::volume(src, cmd) -> VolumeOutcome (volume_block до любого изменения, И-Р13; Changed → change_state(User, Volume)) и AppCore::toggle_mute() -> bool (change_state(User, Muted), работает при блокировке) (§2.12, ADR-14, ТЗ-37, ТЗ-38). Проверка: cargo check без ошибок**
-- [ ] Шаг 4: Тесты ядра в src/core/testing.rs, ч. 1: slider_shows_active_mode_volume, strict_mode_wheel_and_hotkeys_do_not_change_volume, optimal_volume_lock_ignores_all_sources (§7.2, ТЗ-35, ТЗ-37). Проверка: cargo test по этим трём именам зелёный
+- [x] Шаг 3: src/persist/state_file.rs: геттер SessionState::playback_state() -> &PlaybackState (вайтлист расширен по разрешению пользователя 2026-10-13); src/core/mod.rs: AppCore::volume(src, cmd) -> VolumeOutcome (volume_block до любого изменения, И-Р13; Changed → change_state(User, Volume)) и AppCore::toggle_mute() -> bool (change_state(User, Muted), работает при блокировке) (§2.12, ADR-14, ТЗ-37, ТЗ-38). Проверка: cargo check без ошибок
+- [>] **Шаг 4: Тесты ядра в src/core/testing.rs, ч. 1: slider_shows_active_mode_volume, strict_mode_wheel_and_hotkeys_do_not_change_volume, optimal_volume_lock_ignores_all_sources (§7.2, ТЗ-35, ТЗ-37). Проверка: cargo test по этим трём именам зелёный**
 - [ ] Шаг 5: Тесты ядра в src/core/testing.rs, ч. 2: mute_per_mode_survives_restart; mute_starts_timer дополнить путём через AppCore::toggle_mute (§7.2, ТЗ-38). Проверка: cargo test mute_ зелёный
 - [ ] Шаг 6: Ползунок → VolumeCmd::Set: MusicApp::apply_volume_cmd(src, cmd) в src/app/playback_manager.rs (core.volume → при Changed player.set_volume + AppEvent::VolumeChanged; свойство ползунка выставляется безусловно после каждой команды), on_volume_changed в src/app/mod.rs вызывает его (ADR-14, ТЗ-35). Проверка: cargo check без ошибок
 - [ ] Шаг 7: Slint: объявить и пробросить callback volume-step(int) в ui/top_panel.slint и ui/app.slint; привязка ползунка value <=> volume (значение приходит только из Rust, ТЗ-35, ADR-14). Проверка: cargo check без ошибок
@@ -33,8 +34,8 @@
 
 Легенда: [x] сделано · [>] текущий шаг · [ ] не начато
 
-- **Текущий шаг (current_step):** Шаг 3
-- **Следующий ход:** Шаг 3: субагент добавляет AppCore::volume и AppCore::toggle_mute в src/core/mod.rs
+- **Текущий шаг (current_step):** Шаг 4
+- **Следующий ход:** Шаг 4: субагент пишет три теста ядра громкости в src/core/testing.rs
 - **Счетчик безуспешных компиляций:** 0/3
 - **Состояние:** in_progress
 

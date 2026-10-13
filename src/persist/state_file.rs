@@ -89,6 +89,12 @@ impl SessionState {
         self.playback.active
     }
 
+    /// Громкость и mute по режимам (ADR-04, §2.11) — для единой команды
+    /// громкости (ADR-14).
+    pub fn playback_state(&self) -> &PlaybackState {
+        &self.playback
+    }
+
     pub fn column_widths(&self) -> &BTreeMap<ColumnId, WidthPct> {
         &self.column_widths
     }
