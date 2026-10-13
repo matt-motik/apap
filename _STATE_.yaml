@@ -162,7 +162,7 @@ steps:
   done: true
 - id: 9
   description: 'Скрипт перевода замеров (§7.4): tools/wheel_probe/to_fixture.py — читает CSV, env.txt, summary.txt через `git show <коммит>:<путь>`, пишет tests/data/wheel/<замер>/<NN>_<шаг>.fixture (шапка [fixture], CSV t_ms,kind,phase,delta_x,delta_y,modifiers,slint_dy; source — фактический по событиям; expected_steps пусто); каталог results/ не меняется. Проверка: python tools/wheel_probe/to_fixture.py --help и пробный перевод одного шага во временный каталог'
-  done: false
+  done: true
 - id: 10
   description: 'Фикстуры (§7.4): прогнать to_fixture.py по шести замерам (KDE-1 815d874, KDE-2 028f9f5, KDE-3 64edab4, GNOME-1 d7014de, GNOME-2 d15caeb, Windows eb6fb72) → 104 файла tests/data/wheel/{kde-1,kde-2,kde-3,gnome-1,gnome-2,windows}/. Проверка: 104 файла; число строк данных ползунка = числу событий winit исходного CSV, трея — числу событий tray'
   done: false
@@ -229,8 +229,8 @@ steps:
 - id: 31
   description: 'ЧЕКПОИНТ и закрытие: полный cargo test, cargo clippy --all-targets, cargo build; grep — winit_030 и cfg(target_os) модуля ввода только в src/platform/input/** (ТЗ-54 п. 3); условия §8 всех этапов; обновить заметки плана (отклонения SP1.0-8.10 по Clicks и знаку трея сняты, ручные проверки С11)'
   done: false
-current_step: 9
-next_action: "Шаг 9: субагент пишет tools/wheel_probe/to_fixture.py"
+current_step: 10
+next_action: "Шаг 10: прогнать to_fixture.py по шести замерам → 104 фикстуры"
 fail_counter: 0
 fail_counter_max: 3
 failed_attempts: []
