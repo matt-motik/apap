@@ -8,7 +8,10 @@ use std::time::Duration;
 use crate::audio::clock::ClockInstant;
 
 use super::table::{SliderRule, TouchpadParams, WheelTable};
-use super::{Clicks, Desktop, DeviceClass, Session, SlintScroll, WheelDelta, WheelEvent};
+use super::{
+    Clicks, Desktop, DeviceClass, Session, SlintScroll, TrayHost, TrayScroll, WheelDelta,
+    WheelEvent,
+};
 
 /// Один щелчок колеса в `scroll-event` Slint: 60 логических px (§6.11, В-2).
 const SLINT_WHEEL_CLICK_PX: f64 = 60.0;
@@ -28,6 +31,20 @@ impl TouchState {
     const EMPTY: TouchState = TouchState { acc: 0.0, steps: 0, last_t: None };
 }
 
+/// Состояние накопителя трея (В-5, §6.11): независимо от накопителя тачпада
+/// ползунка.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+struct TrayState {
+    /// Остаток в единицах события хоста, знак уже приведён к «вверх = громче».
+    acc: i64,
+    /// Модуль первого ненулевого события: деление неизвестного хоста (В-5).
+    first_abs: Option<u32>,
+}
+
+impl TrayState {
+    const EMPTY: TrayState = TrayState { acc: 0, first_abs: None };
+}
+
 /// Нормализатор колёсика (ADR-8, §6.11): колесо — k делений = k щелчков
 /// (В-3), тачпад — накопитель с порогом и не больше K шагов на свайп (В-4).
 #[derive(Clone, PartialEq, Debug)]
@@ -39,13 +56,21 @@ pub struct WheelNormalizer {
     /// вскоре после дробного — тоже тачпад.
     last_fraction: Option<ClockInstant>,
     touch: TouchState,
+    tray: TrayState,
 }
 
 impl WheelNormalizer {
     /// Нормализатор для таблицы и платформы (ADR-8, §6.11). `session` —
     /// `None`, пока окно не присоединено.
     pub fn new(table: WheelTable, desktop: Desktop, session: Option<Session>) -> Self {
-        WheelNormalizer { table, desktop, session, last_fraction: None, touch: TouchState::EMPTY }
+        WheelNormalizer {
+            table,
+            desktop,
+            session,
+            last_fraction: None,
+            touch: TouchState::EMPTY,
+            tray: TrayState::EMPTY,
+        }
     }
 
     /// Сеанс окна становится известен при attach (§6.11); состояние
@@ -105,6 +130,36 @@ impl WheelNormalizer {
         }
         let p = self.table.default_touchpad;
         self.touch_step(p, ev.t, dy, p.threshold_px)
+    }
+
+    /// Прокрутка над значком трея → щелчки (§6.11 «Трей», В-5, ADR-8, НФ-2).
+    /// Знак и единица деления — из строки таблицы для хоста; у неизвестного
+    /// хоста (деление 0) единицей становится модуль первого ненулевого
+    /// события. Дробные деления накапливаются в собственном накопителе трея,
+    /// не связанном с накопителем тачпада ползунка. Положительный результат —
+    /// громче. Горизонтальная прокрутка и `delta == 0` — 0 щелчков, состояние
+    /// не меняется.
+    pub fn tray(&mut self, ev: TrayScroll, host: TrayHost) -> Clicks {
+        if !ev.vertical || ev.delta == 0 {
+            return Clicks(0);
+        }
+        let row = self.table.tray_row(host);
+        let div = if row.division == 0 {
+            *self.tray.first_abs.get_or_insert(ev.delta.unsigned_abs())
+        } else {
+            row.division
+        };
+        if div == 0 {
+            return Clicks(0);
+        }
+        let div = i64::from(div);
+        let step = i64::from(row.sign).saturating_mul(i64::from(ev.delta));
+        let acc = self.tray.acc.saturating_add(step);
+        // Деление целых — к нулю; остаток сохраняет знак накопителя.
+        let k = acc / div;
+        self.tray.acc = acc % div;
+        let max = i64::from(i32::MAX);
+        Clicks(i32::try_from(k.clamp(-max, max)).unwrap_or(0))
     }
 
     /// Класс устройства по виду события (§6.11, ОВС-1 а): `Px` и дробные
@@ -311,5 +366,56 @@ mod tests {
         assert_eq!(with, without);
         assert_eq!(with.slider_unpaired(slint(100, 15.0)), Clicks(1));
         assert_eq!(without.slider_unpaired(slint(100, 15.0)), Clicks(1));
+    }
+
+    fn tray_ev(delta: i32, vertical: bool) -> TrayScroll {
+        TrayScroll { t: ClockInstant::from_start(Duration::ZERO), delta, vertical }
+    }
+
+    fn tray_normalizer() -> WheelNormalizer {
+        let table = match parse_wheel_table(include_str!("wheel_table.toml")) {
+            Ok(table) => table,
+            Err(e) => panic!("wheel_table.toml не разобран: {e}"),
+        };
+        WheelNormalizer::new(table, Desktop::Kde, None)
+    }
+
+    /// В-5: KDE Plasma — 120 единиц = щелчок, дробные деления накапливаются.
+    #[test]
+    fn tray_kde_division_120() {
+        let mut n = tray_normalizer();
+        assert_eq!(n.tray(tray_ev(120, true), TrayHost::KdePlasma), Clicks(1));
+        assert_eq!(n.tray(tray_ev(-240, true), TrayHost::KdePlasma), Clicks(-2));
+        assert_eq!(n.tray(tray_ev(60, true), TrayHost::KdePlasma), Clicks(0));
+        assert_eq!(n.tray(tray_ev(60, true), TrayHost::KdePlasma), Clicks(1));
+    }
+
+    /// В-5: GNOME AppIndicator — единица 1, знак обратный.
+    #[test]
+    fn tray_gnome_sign_is_inverted() {
+        let mut n = tray_normalizer();
+        assert_eq!(n.tray(tray_ev(-1, true), TrayHost::GnomeAppIndicator), Clicks(1));
+        assert_eq!(n.tray(tray_ev(1, true), TrayHost::GnomeAppIndicator), Clicks(-1));
+    }
+
+    /// В-5: неизвестный хост — деление по модулю первого события.
+    #[test]
+    fn tray_unknown_first_event_sets_division() {
+        let mut n = tray_normalizer();
+        assert_eq!(n.tray(tray_ev(15, true), TrayHost::Unknown), Clicks(1));
+        assert_eq!(n.tray(tray_ev(15, true), TrayHost::Unknown), Clicks(1));
+        assert_eq!(n.tray(tray_ev(-30, true), TrayHost::Unknown), Clicks(-2));
+    }
+
+    /// §6.11: горизонтальная прокрутка — 0 щелчков, накопитель не тронут.
+    #[test]
+    fn tray_horizontal_is_ignored() {
+        let mut with = tray_normalizer();
+        let mut without = tray_normalizer();
+        assert_eq!(with.tray(tray_ev(60, true), TrayHost::KdePlasma), Clicks(0));
+        assert_eq!(without.tray(tray_ev(60, true), TrayHost::KdePlasma), Clicks(0));
+        assert_eq!(with.tray(tray_ev(120, false), TrayHost::KdePlasma), Clicks(0));
+        assert_eq!(with, without);
+        assert_eq!(with.tray(tray_ev(60, true), TrayHost::KdePlasma), Clicks(1));
     }
 }
