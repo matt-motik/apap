@@ -142,7 +142,9 @@ export component AppWindow inherits Window {
     in property <bool> repeat-one: false;
     in property <bool> shuffle: false;
     in property <bool> muted: false;
-    in property <float> volume: 0.8;
+    // ADR-14, ТЗ-35, ТЗ-37: значение приходит только из Rust (`set_volume` после
+    // каждой команды); до ползунка в TopPanel проброшено двусторонне.
+    in-out property <float> volume: 0.8;
     // ТЗ-41, ADR-23, §6.18: громкость задана активным режимом (не bit-perfect) —
     // программный слайдер блокируется, мьют остаётся доступен.
     in property <bool> volume-enabled: true;
@@ -275,6 +277,8 @@ export component AppWindow inherits Window {
     callback seek(float);
     callback seek-commit(float);
     callback volume-changed(float);
+    // щелчки колёсика над ползунком: положительные — громче (ADR-14, ТЗ-37, НФ-2)
+    callback volume-step(int);
     callback toggle-mute();
     callback play-track(int);
     callback scroll-to-row(int);
@@ -439,7 +443,7 @@ export component AppWindow inherits Window {
                 repeat-one: root.repeat-one;
                 shuffle: root.shuffle;
                 muted: root.muted;
-                volume: root.volume;
+                volume <=> root.volume;
                 volume-enabled: root.volume-enabled;
                 active-mode: root.active-mode;
                 mode-available: root.mode-available;
@@ -482,6 +486,7 @@ export component AppWindow inherits Window {
                 seek(v) => { root.seek(v); }
                 seek-commit(v) => { root.seek-commit(v); }
                 volume-changed(v) => { root.volume-changed(v); }
+                volume-step(n) => { root.volume-step(n); }
                 toggle-mute => { root.toggle-mute(); }
                 select-mode(i) => { root.select-mode(i); }
             }

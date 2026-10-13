@@ -133,7 +133,10 @@ export component TopPanel inherits Rectangle {
     in property <bool> repeat-one: false;
     in property <bool> shuffle: false;
     in property <bool> muted: false;
-    in property <float> volume: 0.8;
+    // ADR-14, ТЗ-35, ТЗ-37: значение приходит только из Rust (`set_volume` после
+    // каждой команды); привязка к ползунку двусторонняя, чтобы перетаскивание
+    // её не разрывало.
+    in-out property <float> volume: 0.8;
     // ТЗ-41, ADR-23, §6.18: громкость задана активным режимом (не bit-perfect) —
     // программный слайдер блокируется, мьют остаётся доступен.
     in property <bool> volume-enabled: true;
@@ -209,6 +212,8 @@ export component TopPanel inherits Rectangle {
     callback seek(float);
     callback seek-commit(float);
     callback volume-changed(float);
+    // щелчки колёсика над ползунком: положительные — громче (ADR-14, ТЗ-37, НФ-2)
+    callback volume-step(int);
     callback toggle-mute();
 
     background: transparent;
@@ -570,7 +575,7 @@ export component TopPanel inherits Rectangle {
                             Slider {
                                 vertical-stretch: 1;
                                 width: 24px;
-                                value: root.volume;
+                                value <=> root.volume;
                                 minimum: 0;
                                 maximum: 1;
                                 orientation: vertical;
