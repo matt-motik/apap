@@ -139,8 +139,8 @@
 ## Итерационный трекер
 - [x] Шаг 1: Типы ввода (§2.8, ADR-8, ТЗ-36): создать src/platform/input/mod.rs — WheelEvent, WheelDelta, WheelPhase, SlintScroll, DeviceClass, Desktop, Session, TrayHost; Clicks и TrayScroll — временный мост `pub use` из core::volume и platform::lifecycle (снимается шагами 26–27); `pub mod input` в src/platform/mod.rs. Проверка: cargo check
 - [x] Шаг 2: Таблица данных (§2.8, §6.11, НФ-8, ОВС-2 а): src/platform/input/table.rs — WheelTable, SliderRow, SliderRule, TouchpadParams, TrayRow, Outcome, TableError, parse_wheel_table, встроенное правило по умолчанию, поиск строк slider_row/tray_row; src/platform/input/wheel_table.toml (все Desktop и TrayHost); тест wheel_table_parses. Проверка: cargo test wheel_table
-- [>] **Шаг 3: WheelNormalizer::new и slider (§6.11, В-3, В-4, ОВС-1 а, И-Р19): src/platform/input/normalizer.rs — класс устройства, Division, touch_step (граница свайпа, перенос остатка, ≤ K на свайп), momentum == Some(true) → 0; ≤5 модульных тестов. Проверка: cargo test platform::input::normalizer**
-- [ ] Шаг 4: WheelNormalizer::slider_unpaired (§6.11, В-2, ОВС-2 а): src/platform/input/normalizer.rs — dy кратно 60 → Clicks(dy/60), иначе touch_step с threshold_px; тесты. Проверка: cargo test platform::input::normalizer
+- [x] Шаг 3: WheelNormalizer::new и slider (§6.11, В-3, В-4, ОВС-1 а, И-Р19): src/platform/input/normalizer.rs — класс устройства, Division, touch_step (граница свайпа, перенос остатка, ≤ K на свайп), momentum == Some(true) → 0; ≤5 модульных тестов. Проверка: cargo test platform::input::normalizer
+- [>] **Шаг 4: WheelNormalizer::slider_unpaired (§6.11, В-2, ОВС-2 а): src/platform/input/normalizer.rs — dy кратно 60 → Clicks(dy/60), иначе touch_step с threshold_px; тесты. Проверка: cargo test platform::input::normalizer**
 - [ ] Шаг 5: WheelNormalizer::tray (§6.11, В-5): src/platform/input/normalizer.rs — горизонталь → 0, знак и деление по строке хоста, division = 0 → |первое событие|, накопитель с делением к нулю; тесты. Проверка: cargo test platform::input::normalizer
 - [ ] Шаг 6: WheelMatcher и MomentumMark (§2.8, §6.11, В-2, ОВС-1 а): src/platform/input/matcher.rs — слот pending (новое событие вытесняет прежнее), сопоставление со SlintScroll (Lines: y·60 == dy; Px: y == dy), end_tick, FIFO меток инерции с проверкой согласия; тесты. Проверка: cargo test platform::input::matcher
 - [ ] Шаг 7: Трейт WheelInput, AttachOutcome (§2.8) в src/platform/input/mod.rs и FakeWheelInput (§7.1) в src/platform/input/fake.rs; тесты unpaired_slint_scroll_uses_default_rule, unpaired_winit_event_ignored, macos_momentum_ignored, macos_mark_mismatch_treated_as_gesture (§7.2). Проверка: cargo test platform::input
@@ -171,8 +171,8 @@
 
 Легенда: [x] сделано · [>] текущий шаг · [ ] не начато
 
-- **Текущий шаг (current_step):** Шаг 3
-- **Следующий ход:** Шаг 3: субагент создаёт src/platform/input/normalizer.rs — WheelNormalizer::new и slider
+- **Текущий шаг (current_step):** Шаг 4
+- **Следующий ход:** Шаг 4: субагент добавляет WheelNormalizer::slider_unpaired
 - **Счетчик безуспешных компиляций:** 0/3
 - **Состояние:** in_progress
 

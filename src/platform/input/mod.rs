@@ -5,8 +5,10 @@
 
 use crate::audio::clock::ClockInstant;
 
+pub mod normalizer;
 pub mod table;
 
+pub use normalizer::WheelNormalizer;
 pub use table::{
     parse_wheel_table, Outcome, SliderRow, SliderRule, TableError, TouchpadParams, TrayRow,
     WheelTable,
