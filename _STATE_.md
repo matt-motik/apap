@@ -2,37 +2,10 @@
      Source of truth: _STATE_.yaml — edit that, then run:
      python tools/state_tool.py render -->
 
+# Состояние сессии
 
-# Текущая микро-сессия
-
-- **Задача из ROADMAP:** SP1.0-B16 — Тачпад над ползунком громкости — пальцы вверх всегда громче (знак по системной настройке направления прокрутки; Windows)
-- **Вайтлист файлов в работе (Изменяемые файлы):**
-  - Cargo.toml
-  - Cargo.lock
-  - src/platform/input/mod.rs
-  - src/platform/input/normalizer.rs
-  - src/platform/input/windows.rs
-  - src/platform/input/winit.rs
-  - src/journal.rs
-  - ROADMAP.md
-  - docs/02_settings_persistence_v1.0/02_tz.md
-  - docs/02_settings_persistence_v1.0/03_spec.md
-- **Критерий успеха (Definition of Done):** Windows: два пальца вверх над ползунком — громче при обоих значениях PrecisionTouchPad\ScrollDirection (автотест нормализатора + ручная проверка пользователя); колесо мыши и трей не затронуты; фикстуры wheel_fixtures_* без изменений; полный cargo test без новых падений сверх шести SP1.0-B7; cargo clippy --all-targets без новых предупреждений в изменённых файлах
-
-## Итерационный трекер
-- [x] Шаг 1: Регистрация и поправка документации (разрешение пользователя 2026-10-13): строка SP1.0-B16 в ROADMAP.md; ТЗ-36 (02_tz.md) — тачпад: пальцы вверх громче при любой настройке, источник настройки Windows, приёмка; §6.11 (03_spec.md) — поправка dir в touch_step, абзац «Направление тачпада». Проверка: python tools/state_tool.py check
-- [x] Шаг 2: Поправка направления в нормализаторе (§6.11 «Направление тачпада», ТЗ-36): тип TouchpadDirection { UpPositive, UpNegative } в src/platform/input/mod.rs; в normalizer.rs — поле, set_touchpad_direction(Option<TouchpadDirection>), touch_idle(t), умножение смещения на dir в touch_step (путь slider/Touchpad и slider_unpaired); Division и tray без изменений; ≤5 тестов. Проверка: cargo test platform::input (включая wheel_fixtures_*)
-- [x] Шаг 3: Чтение настройки Windows (§6.11 «Направление тачпада», ТЗ-54 п. 3): feature Win32_System_Registry в Cargo.toml; новый src/platform/input/windows.rs — touchpad_direction() -> Result<TouchpadDirection, Box<str>> через RegGetValueW и чистая direction_from_value(u32) с тестом; объявление модуля под cfg(windows) в mod.rs. Проверка: cargo check; cargo test platform::input::windows
-- [x] Шаг 4: Запись журнала TouchpadDirection { error } (§6.11, ТЗ-36): вариант JournalRecord, заголовок и текст в src/journal.rs, тест текста. Проверка: полный cargo test --lib без новых падений (общий тип)
-- [x] Шаг 5: Подключение в WinitWheelInput (§6.11 «Направление тачпада»): src/platform/input/winit.rs — в new чтение настройки и запись журнала при неудаче, в slider_scroll перечитывание при touch_idle перед нормализацией; на не-Windows источник отсутствует (None). Проверка: cargo check
-- [>] **Шаг 6: ЧЕКПОИНТ: полный cargo test, cargo clippy --all-targets, cargo build; закрытие SP1.0-B16 (Шаг 5), ручная проверка Windows — в заметку плана. Проверка: нет новых падений сверх шести SP1.0-B7, нет новых предупреждений**
-
-Легенда: [x] сделано · [>] текущий шаг · [ ] не начато
-
-- **Текущий шаг (current_step):** Шаг 6
-- **Следующий ход:** Шаг 6: ЧЕКПОИНТ — полный test, clippy --all-targets, build; закрытие
-- **Счетчик безуспешных компиляций:** 0/3
-- **Состояние:** in_progress
+- **Текущая задача:** Нет (все шаги завершены)
+- **Состояние:** done
 
 ## План: Executable workflow: правила AGENTS.md → исполняемые механизмы
 _Источник: чат с пользователем (ноутбук), начат в 67686ce; перенесён в репо 2026-09-22_
@@ -43,6 +16,8 @@ _Источник: чат с пользователем (ноутбук), нач
   - Закрытые этапы и баги — в ROADMAP.md (✅ с хэшем); здесь только открытое.
   - SP1.0-8.11 (С11 (02) «Модуль ввода колёсика») закрыт в ed4d975 (2026-10-13, Windows-ноутбук); СЛЕДУЮЩИЙ (п. 18 сквозного порядка): AM1.0-8.5 (С5 (01) «Путь сигнала, бейдж, окно»). AM1.0-8.4 закрыт в c078c9c с хвостом Linux-проверок (строка «Ручные проверки … AM1.0-8.4»).
   - Ручные проверки за пользователем: SP1.0-8.11 — (GUI на этапе не запускался; Linux- и macOS-код этапа не компилировался) (Linux) cargo build / полный cargo test / clippy --all-targets зелёные, в т. ч. src/platform/tray/mod.rs (определение хоста трея, zbus) и тесты classify_host_*; (macOS) сборка src/platform/input/macos.rs; ТЗ-36: колёсико над ползунком громкости — ±2 % за щелчок, вверх = громче, на Windows, KDE и GNOME (Wayland и X11), тачпад не даёт рывков; колёсико над значком трея на KDE и на GNOME (AppIndicator) — вверх = громче, один щелчок = 2 %; в журнале запись TrayHost с верным хостом (kde_plasma / gnome_appindicator) и нет записи BackendFallback при обычном запуске; ТЗ-24: колёсико трея работает при открытом диалоге настроек и окне сообщения.
+  - Ручные проверки за пользователем: SP1.0-B16 — (GUI не запускался) Windows: два пальца вверх над ползунком громкости — громче при обоих положениях системной настройки направления прокрутки тачпада; смена настройки действует без перезапуска плеера (со следующего свайпа); колесо мыши над ползунком не изменилось (вверх = громче, ±2 % за щелчок); в журнале нет записи «направление тачпада» при обычном запуске.
+  - SP1.0-B16 закрыт в 74afd65 только для Windows (реестр, значение ScrollDirection раздела PrecisionTouchPad). ОТКРЫТО (решение пользователя 2026-10-13 — по мере проверки на машинах): macOS (NSEvent.isDirectionInvertedFromDevice), GNOME (natural-scroll), KDE (naturalScroll KWin) — там знак тачпада как пришёл; ветка cfg(not(windows)) в winit.rs на Linux/macOS не компилировалась. Известное ограничение: первое целое Lines свайпа тачпада без предшествующего дробного классифицируется как колесо и поправку не получает.
   - SP1.0-8.11, открытое: при хосте трея Unknown (не KDE/GNOME) знак +1 и единица = модуль первого события — направление может отличаться от прежнего (до С11 было delta < 0 — громче), проверить на реальном хосте и при необходимости добавить строку в wheel_table.toml; отклонение от §2.12: модуль ввода — поле AppCore (set_input / input_mut), а не AppDeps, до set_input стоит FakeWheelInput; ветка «бэкенд выбран, но DefaultRuleOnly» в main.rs с WinitWheelInput недостижима (attach не проверяет, что окно winit); у D-Bus-запросов хоста трея нет таймаута; SLINT_WHEEL_CLICK_PX дублируется в matcher.rs и normalizer.rs; отладочный eprintln в on_volume_scroll и poll_tray; имена файлов фикстур gnome-2/21, kde-3/16–20 не совпадают с source в шапке.
   - Ручные проверки за пользователем: SP1.0-8.10 — (GUI на этапе не запускался) ТЗ-35/37: ползунок на 40 %, колёсико трея +3 щелчка → 46 %, ползунок показывает 46 %; колёсико над ползунком ±2 % за щелчок; после смены режима ползунок показывает громкость нового режима; ТЗ-39: в Строгом и в Оптимальном с фиксацией ползунок/колёсико/трей не меняют громкость, при наведении на ползунок через ~0,5 с появляется подсказка с текстом §2.13 (не обрезается; при доступной громкости подсказки нет и область подсказки не мешает тянуть ползунок); ТЗ-38: кнопка mute работает в Строгом и при фиксации, mute каждого режима переживает перезапуск; (Linux) полный cargo test зелёный (на Windows: build и clippy --all-targets чистые, test — только 6 падений SP1.0-B7).
   - Отклонения SP1.0-8.10 от спецификации (убрать на С3): AppCore::volume возвращает VolumeOutcome, toggle_mute — bool (типа UiChanges из §2.12 нет); мост bit-perfect: при player.bit_perfect() apply_volume_cmd не вызывает ядро (Unchanged); команду громкости/mute движку шлёт слой app (до С3).
