@@ -86,7 +86,7 @@ steps:
     done: true
   - id: 21
     description: "ui/settings.slint, ui/app.slint: удалить свойство theme-save-enabled (заменено save-enabled; ТЗ-27). Проверка: cargo check; grep theme-save-enabled и theme_save_enabled пуст"
-    done: false
+    done: true
   - id: 22
     description: "ui/settings.slint: текст на вкладке кэша «Очистка выполняется сразу и не отменяется кнопкой „Отмена“» (§2.13, ТЗ-34). Проверка: cargo check"
     done: false
@@ -96,8 +96,8 @@ steps:
   - id: 24
     description: "ЧЕКПОИНТ: cargo build; cargo test --no-fail-fast (только 6 падений SP1.0-B7); cargo clippy --all-targets — 0 новых предупреждений в файлах вайтлиста; каждый обработчик команды главного окна спрашивает шлюз (сверка с перечнем MainCmd); ручные проверки ТЗ-23/27/34 — пользователю. Проверка: всё перечисленное зелёное"
     done: false
-current_step: 21
-next_action: "Шаг 21: ui/settings.slint, ui/app.slint — удалить theme-save-enabled (и последний вызов set_theme_save_enabled в src/app/mod.rs); cargo check --all-targets; grep пуст"
+current_step: 22
+next_action: "Шаг 22: ui/settings.slint — текст на вкладке кэша «Очистка выполняется сразу и не отменяется кнопкой „Отмена“»; cargo check --all-targets"
 fail_counter: 0
 fail_counter_max: 3
 failed_attempts: []

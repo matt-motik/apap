@@ -1111,10 +1111,6 @@ impl MusicApp {
         let Some(ui) = self.try_ui() else { return };
         ui.set_settings_save_enabled(enabled);
         ui.set_settings_save_tooltip(tooltip.into());
-        // Прежнее свойство `theme-save-enabled` (по умолчанию false) ещё
-        // участвует в условии кнопки в Slint и удаляется шагом 21 этапа
-        // SP1.0-8.9; до тех пор оно всегда true и на доступность не влияет.
-        ui.set_theme_save_enabled(true);
     }
 
     /// Правка настроек черновика; при закрытом диалоге — ничего (§6.9, ADR-11).

@@ -245,7 +245,6 @@ export component AppWindow inherits Window {
     in property <string> theme-current: "";
     in property <string> theme-name: "";
     in property <string> theme-description: "";
-    in property <bool> theme-save-enabled: false;
     // Доступность «Сохранить» и подсказка с причиной недоступности (ТЗ-27, §6.9).
     in property <bool> settings-save-enabled: true;
     in property <string> settings-save-tooltip: "";
@@ -708,7 +707,6 @@ export component AppWindow inherits Window {
         theme-current: root.theme-current;
         theme-name: root.theme-name;
         theme-description: root.theme-description;
-        theme-save-enabled: root.theme-save-enabled;
         close => { root.settings-close(); }
         settings-theme-selected(s) => { root.settings-theme-selected(s); }
         set-cover-size(v) => { root.settings-cover-size(v); }
