@@ -11,6 +11,8 @@ use crate::journal::Journal;
 pub mod fake;
 #[cfg(test)]
 mod fixture_tests;
+#[cfg(target_os = "macos")]
+mod macos;
 pub mod matcher;
 pub mod normalizer;
 pub mod table;

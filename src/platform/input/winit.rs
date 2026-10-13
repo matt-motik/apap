@@ -2,8 +2,9 @@
 //! §2.8, §6.11): единственный фильтр окна `on_winit_window_event` кладёт
 //! событие winit в `WheelMatcher`, `scroll-event` ползунка забирает пару,
 //! `WheelNormalizer` считает щелчки. `winit_030` и `cfg(target_os)` для этой
-//! задачи встречаются только в `src/platform/input/` (ТЗ-54 п. 3). Монитор
-//! AppKit подключается в `macos.rs`.
+//! задачи встречаются только в `src/platform/input/` (ТЗ-54 п. 3). На macOS
+//! `attach` дополнительно ставит монитор AppKit (`macos.rs`, ОВС-1 а): он
+//! кладёт метки инерции в очередь того же `WheelMatcher`.
 #![deny(clippy::unwrap_used, clippy::expect_used, clippy::unreachable)]
 
 use std::cell::{Cell, RefCell};
@@ -39,6 +40,11 @@ pub struct WinitWheelInput {
     tray_host: TrayHost,
     /// Причина, по которой бэкенд winit не выбран (ADR-8 «Подключение»).
     backend_error: Option<Box<str>>,
+    /// Монитор прокрутки AppKit (ADR-8 «macOS-инерция», ОВС-1 а, §6.11):
+    /// ставится в `attach`, снимается при уничтожении модуля. `None` — ещё не
+    /// поставлен или AppKit его не создал: меток нет, события неинерционные.
+    #[cfg(target_os = "macos")]
+    monitor: Option<super::macos::ScrollMonitor>,
 }
 
 impl WinitWheelInput {
@@ -62,6 +68,8 @@ impl WinitWheelInput {
             clock: Rc::from(clock),
             tray_host: TrayHost::Unknown,
             backend_error,
+            #[cfg(target_os = "macos")]
+            monitor: None,
         }
     }
 }
@@ -70,7 +78,9 @@ impl WheelInput for WinitWheelInput {
     /// Регистрирует единственный фильтр окна (ADR-8, §6.11 «Сопоставление»).
     /// Фильтр ставится на адаптер окна, даже если окна winit ещё нет; сеанс
     /// уточняется по raw-window-handle сразу или по первому событию колёсика.
-    /// Бэкенд не winit — `DefaultRuleOnly` без регистрации (В-2).
+    /// Бэкенд не winit — `DefaultRuleOnly` без регистрации (В-2). На macOS
+    /// после фильтра ставится монитор AppKit (ADR-8 «macOS-инерция», ОВС-1 а,
+    /// §6.11) — один на модуль: повторный `attach` второй монитор не ставит.
     fn attach(&mut self, window: &slint::Window) -> AttachOutcome {
         if let Some(reason) = &self.backend_error {
             return AttachOutcome::DefaultRuleOnly { reason: reason.clone() };
@@ -111,6 +121,12 @@ impl WheelInput for WinitWheelInput {
             }
             EventResult::Propagate
         });
+        // macOS (ОВС-1 а, §6.11): метки инерции для `push_winit_marked`. Без
+        // монитора очередь пуста, и событие считается неинерционным.
+        #[cfg(target_os = "macos")]
+        if self.monitor.is_none() {
+            self.monitor = super::macos::ScrollMonitor::install(Rc::clone(&self.matcher));
+        }
         AttachOutcome::Winit
     }
 
