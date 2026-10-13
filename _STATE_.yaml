@@ -138,7 +138,7 @@ dod: Тесты §7.2 этапа зелёные (wheel_fixtures_*, linux_emulate
 steps:
 - id: 1
   description: 'Типы ввода (§2.8, ADR-8, ТЗ-36): создать src/platform/input/mod.rs — WheelEvent, WheelDelta, WheelPhase, SlintScroll, DeviceClass, Desktop, Session, TrayHost; Clicks и TrayScroll — временный мост `pub use` из core::volume и platform::lifecycle (снимается шагами 26–27); `pub mod input` в src/platform/mod.rs. Проверка: cargo check'
-  done: false
+  done: true
 - id: 2
   description: 'Таблица данных (§2.8, §6.11, НФ-8, ОВС-2 а): src/platform/input/table.rs — WheelTable, SliderRow, SliderRule, TouchpadParams, TrayRow, Outcome, TableError, parse_wheel_table, встроенное правило по умолчанию, поиск строк slider_row/tray_row; src/platform/input/wheel_table.toml (все Desktop и TrayHost); тест wheel_table_parses. Проверка: cargo test wheel_table'
   done: false
@@ -229,8 +229,8 @@ steps:
 - id: 31
   description: 'ЧЕКПОИНТ и закрытие: полный cargo test, cargo clippy --all-targets, cargo build; grep — winit_030 и cfg(target_os) модуля ввода только в src/platform/input/** (ТЗ-54 п. 3); условия §8 всех этапов; обновить заметки плана (отклонения SP1.0-8.10 по Clicks и знаку трея сняты, ручные проверки С11)'
   done: false
-current_step: 1
-next_action: 'Шаг 1: субагент создаёт src/platform/input/mod.rs с типами §2.8 и подключает модуль в src/platform/mod.rs'
+current_step: 2
+next_action: "Шаг 2: субагент создаёт src/platform/input/table.rs и wheel_table.toml, тест wheel_table_parses"
 fail_counter: 0
 fail_counter_max: 3
 failed_attempts: []

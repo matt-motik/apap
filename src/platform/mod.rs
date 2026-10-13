@@ -4,6 +4,7 @@
 
 pub mod devwatch;
 pub mod fs;
+pub mod input;
 pub mod lifecycle;
 pub mod notify;
 pub mod pick;

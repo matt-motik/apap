@@ -137,8 +137,8 @@
 - **Критерий успеха (Definition of Done):** Тесты §7.2 этапа зелёные (wheel_fixtures_*, linux_emulated_touchpad_is_wheel, windows_touchpad_swipes_capped, tray_matches_slider, unpaired_*, same_sequence_slider_and_tray_same_result, macos_*, wheel_table_parses, tray_works_during_dialog/_message с колёсиком); инверсия трея в poll_tray и вычисление щелчков в Slint удалены; полный cargo test без новых падений сверх шести SP1.0-B7; cargo clippy --all-targets без новых предупреждений; cargo build зелёный
 
 ## Итерационный трекер
-- [>] **Шаг 1: Типы ввода (§2.8, ADR-8, ТЗ-36): создать src/platform/input/mod.rs — WheelEvent, WheelDelta, WheelPhase, SlintScroll, DeviceClass, Desktop, Session, TrayHost; Clicks и TrayScroll — временный мост `pub use` из core::volume и platform::lifecycle (снимается шагами 26–27); `pub mod input` в src/platform/mod.rs. Проверка: cargo check**
-- [ ] Шаг 2: Таблица данных (§2.8, §6.11, НФ-8, ОВС-2 а): src/platform/input/table.rs — WheelTable, SliderRow, SliderRule, TouchpadParams, TrayRow, Outcome, TableError, parse_wheel_table, встроенное правило по умолчанию, поиск строк slider_row/tray_row; src/platform/input/wheel_table.toml (все Desktop и TrayHost); тест wheel_table_parses. Проверка: cargo test wheel_table
+- [x] Шаг 1: Типы ввода (§2.8, ADR-8, ТЗ-36): создать src/platform/input/mod.rs — WheelEvent, WheelDelta, WheelPhase, SlintScroll, DeviceClass, Desktop, Session, TrayHost; Clicks и TrayScroll — временный мост `pub use` из core::volume и platform::lifecycle (снимается шагами 26–27); `pub mod input` в src/platform/mod.rs. Проверка: cargo check
+- [>] **Шаг 2: Таблица данных (§2.8, §6.11, НФ-8, ОВС-2 а): src/platform/input/table.rs — WheelTable, SliderRow, SliderRule, TouchpadParams, TrayRow, Outcome, TableError, parse_wheel_table, встроенное правило по умолчанию, поиск строк slider_row/tray_row; src/platform/input/wheel_table.toml (все Desktop и TrayHost); тест wheel_table_parses. Проверка: cargo test wheel_table**
 - [ ] Шаг 3: WheelNormalizer::new и slider (§6.11, В-3, В-4, ОВС-1 а, И-Р19): src/platform/input/normalizer.rs — класс устройства, Division, touch_step (граница свайпа, перенос остатка, ≤ K на свайп), momentum == Some(true) → 0; ≤5 модульных тестов. Проверка: cargo test platform::input::normalizer
 - [ ] Шаг 4: WheelNormalizer::slider_unpaired (§6.11, В-2, ОВС-2 а): src/platform/input/normalizer.rs — dy кратно 60 → Clicks(dy/60), иначе touch_step с threshold_px; тесты. Проверка: cargo test platform::input::normalizer
 - [ ] Шаг 5: WheelNormalizer::tray (§6.11, В-5): src/platform/input/normalizer.rs — горизонталь → 0, знак и деление по строке хоста, division = 0 → |первое событие|, накопитель с делением к нулю; тесты. Проверка: cargo test platform::input::normalizer
@@ -171,8 +171,8 @@
 
 Легенда: [x] сделано · [>] текущий шаг · [ ] не начато
 
-- **Текущий шаг (current_step):** Шаг 1
-- **Следующий ход:** Шаг 1: субагент создаёт src/platform/input/mod.rs с типами §2.8 и подключает модуль в src/platform/mod.rs
+- **Текущий шаг (current_step):** Шаг 2
+- **Следующий ход:** Шаг 2: субагент создаёт src/platform/input/table.rs и wheel_table.toml, тест wheel_table_parses
 - **Счетчик безуспешных компиляций:** 0/3
 - **Состояние:** in_progress
 
