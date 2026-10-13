@@ -2667,7 +2667,7 @@ match row.rule:
 touch_step(p, t, v):
   if touch.last_t is Some(l) and t − l > p.swipe_gap_ms: touch.acc := 0; touch.steps := 0   // граница свайпа
   touch.last_t := t
-  touch.acc += v / threshold(p, единица ev)              // знак как пришёл (системная инверсия уже применена)
+  touch.acc += dir · v / threshold(p, единица ev)        // dir = ±1 — поправка направления тачпада (SP1.0-B16)
   k := trunc(touch.acc); touch.acc −= k                  // перенос остатка
   k := clamp(k, −(p.max_steps − |touch.steps|), +(p.max_steps − |touch.steps|))   // ≤ K на свайп
   touch.steps += k
@@ -2676,7 +2676,12 @@ touch_step(p, t, v):
 
 Знак: положительное `y` winit и положительное `dy` Slint — «вверх» (`wheel_test.md` §4.2: знак «вверх» `+` для ползунка на всех платформах с данными). Поэтому `Clicks = +k` значит громче (НФ-2).
 
-**Правило по умолчанию без пары** (`slider_unpaired`, В-2): `dy` кратно 60 → `Clicks(dy / 60)`. Иначе — `touch_step(default_touchpad, t, dy)` с порогом `threshold_px` (30 px, ОВС-2 а).
+**Направление тачпада** (ТЗ-36, SP1.0-B16). Для колеса (`Division`) и трея знак берётся как пришёл. Для класса «тачпад» знак события зависит от системной настройки направления прокрутки, поэтому `touch_step` умножает смещение на поправку `dir`: `+1` — пальцы вверх приходят с плюсом (`TouchpadDirection::UpPositive`), `−1` — с минусом (`UpNegative`); настройка не прочитана — `+1` (знак как пришёл). Нормализатор платформу не знает: поправку ему задаёт модуль ввода через `WheelNormalizer::set_touchpad_direction`, и только когда свайп не идёт (`WheelNormalizer::touch_idle(t)` — событий тачпада ещё не было или пауза больше `swipe_gap_ms`), так что внутри свайпа знак не меняется. Источник настройки — платформенный файл внутри `src/platform/input/` (ТЗ-54 п. 3):
+
+- Windows (`windows.rs`): `RegGetValueW(HKCU, "Software\Microsoft\Windows\CurrentVersion\PrecisionTouchPad", "ScrollDirection", RRF_RT_REG_DWORD)`; `0` → `UpNegative`, `0xFFFFFFFF` → `UpPositive`, ошибка чтения или иное значение → настройки нет. Чтение — в `WinitWheelInput::new` (при неудаче — запись журнала `TouchpadDirection { error }`, один раз) и в `slider_scroll` перед нормализацией, если `touch_idle`;
+- macOS, GNOME, KDE, прочие — источник не подключён, `dir = +1` (подключается по мере проверки на машине).
+
+**Правило по умолчанию без пары** (`slider_unpaired`, В-2): `dy` кратно 60 → `Clicks(dy / 60)`. Иначе — `touch_step(default_touchpad, t, dy)` с порогом `threshold_px` (30 px, ОВС-2 а) и той же поправкой направления `dir`.
 
 **Трей** (`WheelNormalizer::tray`):
 

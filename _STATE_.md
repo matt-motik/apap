@@ -2,10 +2,37 @@
      Source of truth: _STATE_.yaml — edit that, then run:
      python tools/state_tool.py render -->
 
-# Состояние сессии
 
-- **Текущая задача:** Нет (все шаги завершены)
-- **Состояние:** done
+# Текущая микро-сессия
+
+- **Задача из ROADMAP:** SP1.0-B16 — Тачпад над ползунком громкости — пальцы вверх всегда громче (знак по системной настройке направления прокрутки; Windows)
+- **Вайтлист файлов в работе (Изменяемые файлы):**
+  - Cargo.toml
+  - Cargo.lock
+  - src/platform/input/mod.rs
+  - src/platform/input/normalizer.rs
+  - src/platform/input/windows.rs
+  - src/platform/input/winit.rs
+  - src/journal.rs
+  - ROADMAP.md
+  - docs/02_settings_persistence_v1.0/02_tz.md
+  - docs/02_settings_persistence_v1.0/03_spec.md
+- **Критерий успеха (Definition of Done):** Windows: два пальца вверх над ползунком — громче при обоих значениях PrecisionTouchPad\ScrollDirection (автотест нормализатора + ручная проверка пользователя); колесо мыши и трей не затронуты; фикстуры wheel_fixtures_* без изменений; полный cargo test без новых падений сверх шести SP1.0-B7; cargo clippy --all-targets без новых предупреждений в изменённых файлах
+
+## Итерационный трекер
+- [x] Шаг 1: Регистрация и поправка документации (разрешение пользователя 2026-10-13): строка SP1.0-B16 в ROADMAP.md; ТЗ-36 (02_tz.md) — тачпад: пальцы вверх громче при любой настройке, источник настройки Windows, приёмка; §6.11 (03_spec.md) — поправка dir в touch_step, абзац «Направление тачпада». Проверка: python tools/state_tool.py check
+- [>] **Шаг 2: Поправка направления в нормализаторе (§6.11 «Направление тачпада», ТЗ-36): тип TouchpadDirection { UpPositive, UpNegative } в src/platform/input/mod.rs; в normalizer.rs — поле, set_touchpad_direction(Option<TouchpadDirection>), touch_idle(t), умножение смещения на dir в touch_step (путь slider/Touchpad и slider_unpaired); Division и tray без изменений; ≤5 тестов. Проверка: cargo test platform::input (включая wheel_fixtures_*)**
+- [ ] Шаг 3: Чтение настройки Windows (§6.11 «Направление тачпада», ТЗ-54 п. 3): feature Win32_System_Registry в Cargo.toml; новый src/platform/input/windows.rs — touchpad_direction() -> Result<TouchpadDirection, Box<str>> через RegGetValueW и чистая direction_from_value(u32) с тестом; объявление модуля под cfg(windows) в mod.rs. Проверка: cargo check; cargo test platform::input::windows
+- [ ] Шаг 4: Запись журнала TouchpadDirection { error } (§6.11, ТЗ-36): вариант JournalRecord, заголовок и текст в src/journal.rs, тест текста. Проверка: полный cargo test --lib без новых падений (общий тип)
+- [ ] Шаг 5: Подключение в WinitWheelInput (§6.11 «Направление тачпада»): src/platform/input/winit.rs — в new чтение настройки и запись журнала при неудаче, в slider_scroll перечитывание при touch_idle перед нормализацией; на не-Windows источник отсутствует (None). Проверка: cargo check
+- [ ] Шаг 6: ЧЕКПОИНТ: полный cargo test, cargo clippy --all-targets, cargo build; закрытие SP1.0-B16 (Шаг 5), ручная проверка Windows — в заметку плана. Проверка: нет новых падений сверх шести SP1.0-B7, нет новых предупреждений
+
+Легенда: [x] сделано · [>] текущий шаг · [ ] не начато
+
+- **Текущий шаг (current_step):** Шаг 2
+- **Следующий ход:** Шаг 2: TouchpadDirection и поправка dir в WheelNormalizer
+- **Счетчик безуспешных компиляций:** 0/3
+- **Состояние:** in_progress
 
 ## План: Executable workflow: правила AGENTS.md → исполняемые механизмы
 _Источник: чат с пользователем (ноутбук), начат в 67686ce; перенесён в репо 2026-09-22_
