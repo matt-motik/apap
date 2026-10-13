@@ -6,7 +6,7 @@ source = "slider"
 natural_scroll = "off"
 direction = "down"
 action = "single"
-expected_steps = []
+expected_steps = [-10]
 origin = "64edab4:tools/wheel_probe/results/linux_wayland_kde-3/02_mouse_slider_single_down.csv"
 ---
 t_ms,kind,phase,delta_x,delta_y,modifiers,slint_dy

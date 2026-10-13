@@ -6,7 +6,7 @@ source = "tray"
 natural_scroll = "on"
 direction = "up"
 action = "short"
-expected_steps = []
+expected_steps = [8, 7, 7, 7, 58]
 origin = "64edab4:tools/wheel_probe/results/linux_wayland_kde-3/15_touchpad_tray_short_up-natural_on.csv"
 ---
 t_ms,kind,phase,delta_x,delta_y,modifiers,slint_dy

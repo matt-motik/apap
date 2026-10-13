@@ -6,7 +6,7 @@ source = "tray"
 natural_scroll = "unknown"
 direction = "down"
 action = "single"
-expected_steps = []
+expected_steps = [-10]
 origin = "028f9f5:tools/wheel_probe/results/linux_wayland_kde-2/06_mouse_tray_single_down.csv"
 ---
 t_ms,kind,phase,delta_x,delta_y,modifiers,slint_dy

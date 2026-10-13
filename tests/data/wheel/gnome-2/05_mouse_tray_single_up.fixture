@@ -6,7 +6,7 @@ source = "tray"
 natural_scroll = "off"
 direction = "up"
 action = "single"
-expected_steps = []
+expected_steps = [10]
 origin = "d15caeb:tools/wheel_probe/results/linux_not-winit_ubuntu/05_mouse_tray_single_up.csv"
 ---
 t_ms,kind,phase,delta_x,delta_y,modifiers,slint_dy

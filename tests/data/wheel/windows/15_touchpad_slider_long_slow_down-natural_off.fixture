@@ -6,7 +6,7 @@ source = "slider"
 natural_scroll = "off"
 direction = "down"
 action = "long_slow"
-expected_steps = []
+expected_steps = [5, 5, 5]
 origin = "eb6fb72:tools/wheel_probe/results/windows_win32_windows/15_touchpad_slider_long_slow_down-natural_off.csv"
 ---
 t_ms,kind,phase,delta_x,delta_y,modifiers,slint_dy

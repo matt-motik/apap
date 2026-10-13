@@ -6,7 +6,7 @@ source = "tray"
 natural_scroll = "off"
 direction = "up"
 action = "shift"
-expected_steps = []
+expected_steps = [10]
 origin = "64edab4:tools/wheel_probe/results/linux_wayland_kde-3/08_mouse_tray_shift_single_up.csv"
 ---
 t_ms,kind,phase,delta_x,delta_y,modifiers,slint_dy

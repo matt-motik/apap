@@ -6,7 +6,7 @@ source = "slider"
 natural_scroll = "off"
 direction = "up"
 action = "fast"
-expected_steps = []
+expected_steps = [71, 145, 97]
 origin = "64edab4:tools/wheel_probe/results/linux_wayland_kde-3/23_touchpad_slider_fast_up-natural_off.csv"
 ---
 t_ms,kind,phase,delta_x,delta_y,modifiers,slint_dy

@@ -17,7 +17,7 @@
     natural_scroll = "unknown"  # on|off|unknown
     direction = "up"            # up|down
     action = "single"           # single|fast|shift|short|long_slow
-    expected_steps = []         # скрипт пишет пустым; вписывается вручную (§7.4)
+    expected_steps = [10]       # ожидаемые щелчки громкости, см. ниже
     origin = "<коммит>:<путь csv>"
     ---
     t_ms,kind,phase,delta_x,delta_y,modifiers,slint_dy
@@ -35,6 +35,34 @@
 событием winit и следующим событием winit, согласующееся по значению
 (line: delta_y * 60 == slint delta_y; pixel: delta_y == slint delta_y;
 допуск 1e-3).
+
+Ожидаемые щелчки `expected_steps` (§7.4; `wheel_test.md` §5.1, §5.2):
+
+  * единица — щелчок громкости; знак: `+` — громче, `−` — тише. Знак — как его
+    даёт таблица знаков (`wheel_test.md` §5.3, В-5), системная инверсия уже
+    применена ОС: у тачпада знак НЕ обязан совпадать с `direction`;
+  * значимые события шага — те, что доходят до нормализатора (§6.11):
+    source = slider — строки с непустым `slint_dy` (пара winit или kind = slint),
+    значение в строках = slint_dy / 60; события winit без пары не считаются (В-2);
+    source = tray — строки kind = tray с непустым `delta_y`, значение в делениях =
+    sign * delta_y / division (KDE: +1, 120; GNOME: −1, 1 — В-5, §6.11);
+  * свайп — серия значимых событий, в которой соседние разделены паузой
+    не больше 300 мс; пауза строго больше 300 мс (t[i] − t[i−1] > 300, `t_ms`
+    значимых строк) начинает новый свайп (§6.11 `swipe_gap_ms`, `wheel_test.md` §3);
+  * ОДНО число — сумма щелчков за весь шаг: device = mouse. Равна числу событий
+    со знаком `direction` (up → +, down → −); каждое событие — ровно одно деление;
+  * НЕСКОЛЬКО чисел — щелчки по свайпам, в порядке свайпов: device = touchpad.
+    Число элементов равно числу свайпов по правилу паузы; сумма списка — щелчки
+    за весь шаг. Windows — столбец «T=0,5, K=5» таблицы §5.2 (явная таблица
+    `WINDOWS_TOUCHPAD`); KDE-3 и GNOME-2 — сумма делений свайпа (эмулированное
+    колесо: одно деление = один щелчок, без ограничения, В-3);
+  * пустой список — ожидание не определено (сейчас таких шагов нет).
+
+Скрипт ничего не подгоняет: вычисленное сверяется с числами протокола, и любое
+расхождение завершает его ошибкой — число событий мыши (§5.2, §2.2:
+`MOUSE_EVENTS`), число свайпов (§3.2–§3.4: `SWIPES`), диапазоны делений на
+свайп (§5.2: `EMULATED_RANGE`, `EMULATED_OUTLIERS`), таблица тачпада Windows —
+прогоном модели §5.1 / §6.11 (T = 0,5 строки, K = 5, пауза 300 мс) по данным шага.
 
 Числа и модификаторы переносятся из исходника как есть (строками), порядок
 строк — порядок исходника; повторный запуск даёт байт-в-байт тот же результат.
@@ -90,6 +118,71 @@ WINIT_PHASES = ("started", "moved", "ended", "cancelled")
 SESSIONS = ("wayland", "x11", "win32", "appkit")
 LINE_PX = 60.0  # slint: LineDelta -> px (env.txt, i-slint-backend-winit)
 PAIR_EPS = 1e-3
+
+# --- expected_steps (03_spec.md §7.4; wheel_test.md §5.1, §5.2) ---------------
+
+SWIPE_GAP_MS = 300.0  # граница свайпа: пауза строго больше (§6.11, wheel_test.md §3)
+INT_EPS = 1e-6
+DIRECTION_SIGN = {"up": 1, "down": -1}
+# Трей по хосту: platform -> (знак, деление) (В-5; §6.11 tray_row; wheel_test.md §5.3).
+TRAY_ROW = {"kde": (1, 120.0), "gnome": (-1, 1.0)}
+
+# Мышь, wheel_test.md §5.2 (и §2.2): «Результат равен числу событий: 10 во всех
+# шагах, кроме…». (замер, шаг) -> число событий.
+MOUSE_EVENTS_DEFAULT = 10
+MOUSE_EVENTS = {
+    ("gnome-1", "01"): 11,
+    ("gnome-2", "04"): 12,
+    ("windows", "03"): 12,
+    ("windows", "04"): 11,
+    ("kde-3", "07"): 8,
+    ("gnome-2", "07"): 7,
+}
+
+# Тачпад Windows, wheel_test.md §5.2, таблица «шаги на свайп», столбец
+# «T=0,5, K=5» (решение В-4; «= T=0,5» раскрыто по столбцу «T=0,5»). Шаг -> свайпы.
+WINDOWS_TOUCHPAD = {
+    "05": [2, 2, 2, 4, 2],
+    "08": [-2, -1, -1, -2, -3],
+    "11": [-4, -3, -3, -3, -3],
+    "14": [1, 1, 1, 1, 2],
+    "06": [5, 5, 5],
+    "09": [-5, -5, -5],
+    "12": [-5, -5, -5],
+    "15": [5, 5, 5],
+    "07": [5, 5, 5],
+    "10": [-5, -5, -5],
+    "13": [-5, -5, -5],
+    "16": [5, 5, 5],
+}
+# Параметры модели для сверки таблицы с данными (§5.1; §6.11 touch_step; В-4).
+TOUCH_THRESHOLD_LINES = 0.5
+TOUCH_MAX_STEPS = 5
+INTEGER_AFTER_FRACTION_MS = 200.0
+
+# Число свайпов тачпада, столбец «Свайпов» wheel_test.md §3.2 (KDE-3), §3.3
+# (GNOME-2), §3.4 (Windows): короткий — 5, длинный и быстрый — 3, кроме…
+SWIPES_DEFAULT = {"short": 5, "long_slow": 3, "fast": 3}
+SWIPES = {
+    ("kde-3", "12"): 6,
+    ("kde-3", "18"): 4,
+    ("kde-3", "24"): 7,
+    ("kde-3", "28"): 4,
+    ("gnome-2", "22"): 4,
+}
+
+# «Тачпад» KDE и GNOME (эмулированное колесо), wheel_test.md §5.2: делений на
+# свайп — «короткий 1…21, длинный 10…42, быстрый 42…263».
+EMULATED_RANGE = {"short": (1, 21), "long_slow": (10, 42), "fast": (42, 263)}
+# Свайпы вне диапазонов §5.2: (замер, шаг) -> {номер свайпа с 1: |делений|}.
+#   kde-3/15 — выброс 58 назван в wheel_test.md §4.5;
+#   kde-3/18 (свайп 3: 51) и kde-3/28 (свайп 2: 1) в тексте §5.2 НЕ оговорены:
+#   числа взяты из данных замера, а не из протокола.
+EMULATED_OUTLIERS = {
+    ("kde-3", "15"): {5: 58},
+    ("kde-3", "18"): {3: 51},
+    ("kde-3", "28"): {2: 1},
+}
 
 
 class FixtureError(Exception):
@@ -317,6 +410,163 @@ def build_rows(events, where):
     return rows, stats
 
 
+def effective_events(rows, source, platform, where):
+    """Значимые события шага: [(t_ms, значение)] — строки (slider) или деления (tray)."""
+    kinds = {row[1] for row in rows}
+    events = []
+    if source == "tray":
+        if kinds != {"tray"}:
+            raise FixtureError(
+                f"{where}: в шаге трея есть события {sorted(kinds - {'tray'})} — "
+                "expected_steps не определён"
+            )
+        if platform not in TRAY_ROW:
+            raise FixtureError(f"{where}: нет знака и деления трея для platform={platform!r}")
+        sign, division = TRAY_ROW[platform]
+        for row in rows:
+            if row[4] != "":  # вертикаль; горизонталь (delta_x) не считается (§6.11)
+                events.append((to_float(row[0], where), sign * to_float(row[4], where) / division))
+    else:
+        for row in rows:
+            if row[6] != "":
+                events.append((to_float(row[0], where), to_float(row[6], where) / LINE_PX))
+    if not events:
+        raise FixtureError(f"{where}: нет значимых событий — expected_steps не определён")
+    return events
+
+
+def split_swipes(events):
+    """Свайпы: новый начинается после паузы строго больше SWIPE_GAP_MS."""
+    swipes = []
+    last = None
+    for t, value in events:
+        if last is None or t - last > SWIPE_GAP_MS:
+            swipes.append([])
+        swipes[-1].append((t, value))
+        last = t
+    return swipes
+
+
+def whole(value, where):
+    """Целое число делений или ошибка."""
+    nearest = round(value)
+    if abs(value - nearest) > INT_EPS:
+        raise FixtureError(f"{where}: значение {value!r} — не целое число делений")
+    return int(nearest)
+
+
+def expected_mouse(measure, meta, events, where):
+    """Мышь (§5.2): одно число — число событий со знаком направления."""
+    sign = DIRECTION_SIGN[meta["direction"]]
+    for t, value in events:
+        if whole(value, where) != sign:
+            raise FixtureError(
+                f"{where}: событие мыши t={t} даёт {value!r} делений, ожидалось {sign:+d} "
+                f"(direction={meta['direction']})"
+            )
+    declared = MOUSE_EVENTS.get((measure, meta["nn"]), MOUSE_EVENTS_DEFAULT)
+    if len(events) != declared:
+        raise FixtureError(
+            f"{where}: событий мыши {len(events)}, wheel_test.md §5.2 — {declared}"
+        )
+    return [sign * len(events)]
+
+
+def check_swipe_count(measure, meta, swipes, where):
+    declared = SWIPES.get((measure, meta["nn"]), SWIPES_DEFAULT[meta["action"]])
+    if len(swipes) != declared:
+        raise FixtureError(
+            f"{where}: свайпов по паузе > {SWIPE_GAP_MS:g} мс — {len(swipes)}, "
+            f"wheel_test.md §3.2–§3.4 — {declared}"
+        )
+
+
+def touchpad_model(events):
+    """Щелчки по свайпам по модели §5.1 / §6.11 (тачпад Windows: T, K, пауза)."""
+    per_swipe = []
+    acc = 0.0
+    steps = 0
+    last = None
+    last_fraction = None
+    for t, value in events:
+        if abs(value - round(value)) > INT_EPS:
+            last_fraction = t
+        elif last_fraction is None or t - last_fraction > INTEGER_AFTER_FRACTION_MS:
+            return None  # событие класса «колесо»: модель тачпада неприменима
+        if last is None or t - last > SWIPE_GAP_MS:
+            acc = 0.0
+            steps = 0
+            per_swipe.append(0)
+        last = t
+        acc += value / TOUCH_THRESHOLD_LINES
+        k = int(acc)  # к нулю
+        acc -= k
+        room = TOUCH_MAX_STEPS - abs(steps)
+        k = max(-room, min(room, k))
+        steps += k
+        per_swipe[-1] += k
+    return per_swipe
+
+
+def expected_windows_touchpad(measure, meta, events, where):
+    """Тачпад Windows (§5.2, столбец «T=0,5, K=5»): явная таблица, сверенная с данными."""
+    table = WINDOWS_TOUCHPAD.get(meta["nn"])
+    if table is None:
+        raise FixtureError(f"{where}: шага нет в таблице wheel_test.md §5.2 (тачпад Windows)")
+    swipes = split_swipes(events)
+    check_swipe_count(measure, meta, swipes, where)
+    if len(swipes) != len(table):
+        raise FixtureError(
+            f"{where}: свайпов {len(swipes)}, в таблице §5.2 — {len(table)} значений"
+        )
+    model = touchpad_model(events)
+    if model != table:
+        raise FixtureError(
+            f"{where}: модель §5.1 (T=0,5, K=5) по данным даёт {model}, таблица §5.2 — {table}"
+        )
+    return list(table)
+
+
+def expected_emulated_wheel(measure, meta, events, where):
+    """«Тачпад» KDE/GNOME (§5.2, В-3): деления по свайпам, одно деление = один щелчок."""
+    swipes = split_swipes(events)
+    check_swipe_count(measure, meta, swipes, where)
+    low, high = EMULATED_RANGE[meta["action"]]
+    outliers = EMULATED_OUTLIERS.get((measure, meta["nn"]), {})
+    result = []
+    for number, swipe in enumerate(swipes, start=1):
+        total = sum(whole(value, where) for _, value in swipe)
+        if number in outliers:
+            if abs(total) != outliers[number]:
+                raise FixtureError(
+                    f"{where}: свайп {number} — {total} делений, в EMULATED_OUTLIERS — "
+                    f"{outliers[number]}"
+                )
+        elif not low <= abs(total) <= high:
+            raise FixtureError(
+                f"{where}: свайп {number} — {total} делений, wheel_test.md §5.2 — {low}…{high}"
+            )
+        result.append(total)
+    for number in outliers:
+        if number > len(swipes):
+            raise FixtureError(f"{where}: в EMULATED_OUTLIERS свайп {number}, свайпов {len(swipes)}")
+    if not (all(v > 0 for v in result) or all(v < 0 for v in result)):
+        raise FixtureError(f"{where}: свайпы шага разного знака: {result}")
+    return result
+
+
+def expected_steps(measure, platform, source, meta, rows, where):
+    """`expected_steps` шага (семантика — в docstring модуля)."""
+    events = effective_events(rows, source, platform, where)
+    if meta["device"] == "mouse":
+        return expected_mouse(measure, meta, events, where)
+    if platform == "windows":
+        return expected_windows_touchpad(measure, meta, events, where)
+    if platform in ("kde", "gnome"):
+        return expected_emulated_wheel(measure, meta, events, where)
+    raise FixtureError(f"{where}: нет правила expected_steps для тачпада на {platform!r}")
+
+
 def render(header, rows):
     out = io.StringIO(newline="")
     out.write("[fixture]\n")
@@ -351,6 +601,7 @@ def convert_step(measure, commit, directory, name, platform, session, summary):
         source = "slider"
     else:
         raise FixtureError(f"{where}: в шаге нет событий — source определить нельзя")
+    expected = expected_steps(measure, platform, source, meta, rows, where)
     header = [
         ("platform", toml_str(platform)),
         ("session", toml_str(session)),
@@ -359,7 +610,7 @@ def convert_step(measure, commit, directory, name, platform, session, summary):
         ("natural_scroll", toml_str(meta["natural"])),
         ("direction", toml_str(meta["direction"])),
         ("action", toml_str(meta["action"])),
-        ("expected_steps", "[]"),
+        ("expected_steps", "[" + ", ".join(str(v) for v in expected) + "]"),
         ("origin", toml_str(f"{commit}:{path}")),
     ]
     notes = []

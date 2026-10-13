@@ -6,7 +6,7 @@ source = "slider"
 natural_scroll = "on"
 direction = "up"
 action = "long_slow"
-expected_steps = []
+expected_steps = [-20, -26, -26]
 origin = "d15caeb:tools/wheel_probe/results/linux_not-winit_ubuntu/10_touchpad_slider_long_slow_up-natural_on.csv"
 ---
 t_ms,kind,phase,delta_x,delta_y,modifiers,slint_dy

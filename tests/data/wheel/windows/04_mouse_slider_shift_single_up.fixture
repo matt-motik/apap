@@ -6,7 +6,7 @@ source = "slider"
 natural_scroll = "unknown"
 direction = "up"
 action = "shift"
-expected_steps = []
+expected_steps = [11]
 origin = "eb6fb72:tools/wheel_probe/results/windows_win32_windows/04_mouse_slider_shift_single_up.csv"
 ---
 t_ms,kind,phase,delta_x,delta_y,modifiers,slint_dy
