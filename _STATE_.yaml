@@ -30,15 +30,15 @@ steps:
   done: true
 - id: 4
   description: 'Запись журнала TouchpadDirection { error } (§6.11, ТЗ-36): вариант JournalRecord, заголовок и текст в src/journal.rs, тест текста. Проверка: полный cargo test --lib без новых падений (общий тип)'
-  done: false
+  done: true
 - id: 5
   description: 'Подключение в WinitWheelInput (§6.11 «Направление тачпада»): src/platform/input/winit.rs — в new чтение настройки и запись журнала при неудаче, в slider_scroll перечитывание при touch_idle перед нормализацией; на не-Windows источник отсутствует (None). Проверка: cargo check'
   done: false
 - id: 6
   description: 'ЧЕКПОИНТ: полный cargo test, cargo clippy --all-targets, cargo build; закрытие SP1.0-B16 (Шаг 5), ручная проверка Windows — в заметку плана. Проверка: нет новых падений сверх шести SP1.0-B7, нет новых предупреждений'
   done: false
-current_step: 4
-next_action: "Шаг 4: запись журнала TouchpadDirection (src/journal.rs)"
+current_step: 5
+next_action: "Шаг 5: подключение чтения направления тачпада в WinitWheelInput (winit.rs)"
 fail_counter: 0
 fail_counter_max: 3
 failed_attempts: []

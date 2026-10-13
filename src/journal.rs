@@ -49,6 +49,9 @@ pub enum JournalRecord {
     /// Ошибка таблицы данных модуля ввода `wheel_table.toml`; действует
     /// встроенное правило по умолчанию (§2.9, §6.11, ADR-8).
     WheelTable { error: Box<str> },
+    /// Системная настройка направления прокрутки тачпада не прочитана: знак
+    /// событий тачпада — как пришёл (ТЗ-36, §6.11 «Направление тачпада»).
+    TouchpadDirection { error: Box<str> },
     /// Хост значка трея и способ, которым он определён (§2.9, §6.11, ADR-8).
     TrayHost { host: TrayHost, via: HostSource },
     /// Системное уведомление не доставлено (ошибка D-Bus); окно сообщения
@@ -89,6 +92,7 @@ impl JournalRecord {
             JournalRecord::ExitSummary(_) => "итог выхода",
             JournalRecord::BackendFallback { .. } => "бэкенд по умолчанию",
             JournalRecord::WheelTable { .. } => "таблица колёсика",
+            JournalRecord::TouchpadDirection { .. } => "направление тачпада",
             JournalRecord::TrayHost { .. } => "хост трея",
             JournalRecord::Notify { .. } => "уведомление не доставлено",
         }
@@ -144,6 +148,9 @@ impl JournalRecord {
             JournalRecord::BackendFallback { error } => format!("winit не выбран: {error}"),
             JournalRecord::WheelTable { error } => {
                 format!("wheel_table.toml: {error}; действует встроенное правило по умолчанию")
+            }
+            JournalRecord::TouchpadDirection { error } => {
+                format!("настройка не прочитана, знак как пришёл: {error}")
             }
             JournalRecord::TrayHost { host, via } => {
                 format!("{}; способ определения: {}", tray_host_text(*host), host_source_text(*via))
@@ -544,6 +551,17 @@ mod tests {
             format_line(&rec, UNIX_EPOCH),
             "1970-01-01T00:00:00.000Z таблица колёсика: wheel_table.toml: строка 4: нет ключа division; \
              действует встроенное правило по умолчанию"
+        );
+    }
+
+    #[test]
+    fn journal_touchpad_direction_line_has_error() {
+        let rec = JournalRecord::TouchpadDirection { error: "нет значения ScrollDirection".into() };
+        assert_eq!(rec.kind(), "направление тачпада");
+        assert_eq!(
+            format_line(&rec, UNIX_EPOCH),
+            "1970-01-01T00:00:00.000Z направление тачпада: настройка не прочитана, знак как пришёл: \
+             нет значения ScrollDirection"
         );
     }
 
