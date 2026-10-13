@@ -1564,6 +1564,19 @@ export component Settings inherits Rectangle {
                                         }
                                     }
 
+                                    // Постоянное пояснение: очистка кэша необратима и не входит
+                                    // в черновик диалога (§2.13, ТЗ-34).
+                                    VerticalLayout {
+                                        padding-left: 8px;
+                                        padding-right: 8px;
+                                        Text {
+                                            text: "Очистка выполняется сразу и не отменяется кнопкой „Отмена“";
+                                            color: Colors.text-secondary;
+                                            font-size: 11px;
+                                            wrap: word-wrap;
+                                        }
+                                    }
+
                                     Rectangle {
                                         vertical-stretch: 1;
                                     }
