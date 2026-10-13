@@ -31,7 +31,7 @@ steps:
     done: true
   - id: 5
     description: "Тесты ядра в src/core/testing.rs, ч. 2: mute_per_mode_survives_restart; mute_starts_timer дополнить путём через AppCore::toggle_mute (§7.2, ТЗ-38). Проверка: cargo test mute_ зелёный"
-    done: false
+    done: true
   - id: 6
     description: "Ползунок → VolumeCmd::Set: MusicApp::apply_volume_cmd(src, cmd) в src/app/playback_manager.rs (core.volume → при Changed player.set_volume + AppEvent::VolumeChanged; свойство ползунка выставляется безусловно после каждой команды), on_volume_changed в src/app/mod.rs вызывает его (ADR-14, ТЗ-35). Проверка: cargo check без ошибок"
     done: false
@@ -56,8 +56,8 @@ steps:
   - id: 13
     description: "ЧЕКПОИНТ: cargo build, cargo clippy --all-targets (0 новых предупреждений в файлах вайтлиста), полный cargo test (без новых падений сверх 6 тестов SP1.0-B7); grep: нет WHEEL_VOLUME_STEP и 0.04 в путях громкости. Проверка: все три команды с ожидаемым итогом"
     done: false
-current_step: 5
-next_action: "Шаг 5: субагент пишет mute_per_mode_survives_restart и дополняет mute_starts_timer путём через AppCore::toggle_mute"
+current_step: 6
+next_action: "Шаг 6: субагент добавляет MusicApp::apply_volume_cmd в playback_manager.rs и переводит on_volume_changed на VolumeCmd::Set"
 fail_counter: 0
 fail_counter_max: 3
 failed_attempts: []

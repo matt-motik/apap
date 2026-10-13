@@ -1098,8 +1098,10 @@ mod tests {
         assert_eq!(h.writes(WorkFile::State), 1);
     }
 
-    /// Переключение mute взводит срок N; через N с — одна запись (ТЗ-38,
-    /// §6.4, §7.2 `mute_starts_timer`).
+    /// Переключение mute путём пользователя (`AppCore::toggle_mute`) взводит
+    /// срок N; через N с — одна запись. Повторное переключение снимает mute и
+    /// снова взводит срок N — вторая запись (ТЗ-38, ADR-14, §6.4, §7.2
+    /// `mute_starts_timer`).
     #[test]
     fn mute_starts_timer() {
         let h = Harness::new();
@@ -1107,13 +1109,57 @@ mod tests {
         h.put_state(b"");
         let mut core = h.boot();
 
-        core.change_state(Origin::User, StateChange::Muted(true));
+        assert!(core.toggle_mute(), "первое переключение включает mute");
         let interval = core.settings().save_interval.duration();
         h.advance(&mut core, interval);
         h.settle(&mut core);
 
         assert_eq!(h.writes(WorkFile::State), 1);
         assert!(core.state().playback().muted);
+
+        assert!(!core.toggle_mute(), "повторное переключение снимает mute");
+        h.advance(&mut core, interval);
+        h.settle(&mut core);
+
+        assert_eq!(h.writes(WorkFile::State), 2);
+        assert!(!core.state().playback().muted);
+    }
+
+    /// Mute хранится по режимам и переживает перезапуск: mute, включённый в
+    /// Строгом режиме, не затрагивает Совместимый и Оптимальный и после
+    /// выхода и нового запуска на тех же файлах остаётся за Строгим (ТЗ-38,
+    /// ADR-14, §7.2 `mute_per_mode_survives_restart`).
+    #[test]
+    fn mute_per_mode_survives_restart() {
+        let h = Harness::new();
+        h.put_settings(b"");
+        h.put_state(b"");
+        let mut core = h.boot();
+        assert_eq!(core.state().active_mode(), ModeKind::Compatible);
+        assert!(!core.state().playback().muted);
+
+        core.change_state(Origin::User, StateChange::ActiveMode(ModeKind::Strict));
+        assert!(core.toggle_mute(), "mute Строгого режима включён");
+        assert!(core.state().playback().muted);
+
+        // Возврат в Совместимый: его mute не тронут, mute Строгого сохранён.
+        core.change_state(Origin::User, StateChange::ActiveMode(ModeKind::Compatible));
+        assert!(!core.state().playback().muted);
+        assert!(core.state().playback_state().strict_muted);
+
+        let outcome = core.exit(ExitReason::WindowClose, &mut || true);
+        assert_eq!(outcome, ExitOutcome::Completed);
+
+        // Перезапуск: новый `AppCore` из тех же "файлов на диске".
+        let mut core2 = h.boot();
+        assert_eq!(core2.state().active_mode(), ModeKind::Compatible);
+        assert!(!core2.state().playback().muted);
+        assert!(core2.state().playback_state().strict_muted);
+        assert!(!core2.state().playback_state().compatible.muted);
+        assert!(!core2.state().playback_state().optimal.muted);
+
+        core2.change_state(Origin::User, StateChange::ActiveMode(ModeKind::Strict));
+        assert!(core2.state().playback().muted);
     }
 
     /// Все источники единой команды громкости (ADR-14, ТЗ-37, §2.11).
