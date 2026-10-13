@@ -30,6 +30,7 @@
   - ui/top_panel.slint
   - ui/app.slint
   - tools/wheel_probe/to_fixture.py
+  - docs/02_settings_persistence_v1.0/03_spec.md
   - tests/data/wheel/kde-1/01_mouse_slider_single_up.fixture
   - tests/data/wheel/kde-1/02_mouse_slider_single_down.fixture
   - tests/data/wheel/kde-1/03_mouse_slider_fast_up.fixture

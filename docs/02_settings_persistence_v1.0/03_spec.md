@@ -3192,8 +3192,8 @@ command SavePlaylist (через UiGate) → picker(SavePlaylist) → path:
   | GNOME-2 | `linux_not-winit_ubuntu` | `d15caeb` | 32 |
   | Windows | `windows_win32_windows` | `eb6fb72` | 16 |
 
-- **Формат** — `wheel_test.md` §7.2: TOML-шапка `[fixture]` (`platform`, `session`, `device`, `source`, `natural_scroll`, `direction`, `action`, `expected_steps`, `origin`), затем строки CSV `t_ms,kind,phase,delta_x,delta_y,modifiers`.
-  - Для ползунка `kind` — `line` или `pixel`, данные — события `winit` шага. Для пар со `scroll-event` в фикстуру добавляется столбец `slint_dy`; пустое значение означает, что пары нет.
+- **Формат** — `wheel_test.md` §7.2: TOML-шапка `[fixture]` (`platform`, `session`, `device`, `source`, `natural_scroll`, `direction`, `action`, `expected_steps`, `origin`), затем строка-разделитель `---` и строки CSV `t_ms,kind,phase,delta_x,delta_y,modifiers,slint_dy`.
+  - Для ползунка `kind` — `line` или `pixel`, данные — события `winit` шага. Столбец `slint_dy` есть во всех фикстурах (у трея он пуст): для пары со `scroll-event` в нём `delta-y` события Slint; пустое значение означает, что пары нет.
   - Для трея `kind = tray`, данные — `delta` ksni.
   - `source` — фактический источник по событиям, а не имя файла. Так, KDE-3 шаги 16–20 — ползунок, GNOME-2 шаг 21 — трей (`wheel_test.md` §2.2).
 - **Где лежат:** `tests/data/wheel/<замер>/<NN>_<шаг>.fixture` (каталог `tests/data/` вводит С0 (01_audio_modes)). Тест читает их по `env!("CARGO_MANIFEST_DIR")` — это файлы репозитория, а не пользователя (ТЗ-49).
@@ -3203,7 +3203,7 @@ command SavePlaylist (через UiGate) → picker(SavePlaylist) → path:
   - «тачпад» KDE-3 и GNOME-2 — число делений (правило колеса, В-3).
 
   Знак — как в протоколе (с учётом инверсии ОС).
-- **Перевод** выполняет одноразовый скрипт `tools/wheel_probe/to_fixture.py` этапа С11. Он читает CSV, `env.txt` и `summary.txt` из коммита и пишет фикстуру с пустым `expected_steps`; числа вписываются вручную по §5.2 и проверяются ревью. Скрипт и фикстуры не меняют `tools/wheel_probe/results/`.
+- **Перевод** выполняет одноразовый скрипт `tools/wheel_probe/to_fixture.py` этапа С11. Он читает CSV, `env.txt` и `summary.txt` из коммита и пишет фикстуру вместе с `expected_steps`. Числа мыши и «тачпада» KDE-3 и GNOME-2 скрипт вычисляет из данных (одно число — сумма щелчков за шаг; несколько — щелчки по свайпам, новый свайп при паузе больше 300 мс), числа тачпада Windows берёт из таблицы §5.2; всё сверяется с §5.2, при расхождении скрипт завершается ошибкой. Свайпы вне диапазонов §5.2 (KDE-3/15 свайп 5, KDE-3/18 свайп 3, KDE-3/28 свайп 2) перечислены в скрипте явно. Скрипт и фикстуры не меняют `tools/wheel_probe/results/`.
 - **Новые замеры** (`wheel_test.md` §7.3: KDE/GNOME X11, тачпад libinput, macOS, высокоточное колесо, горизонтальная ось) добавляют фикстуры, а при необходимости меняют строки `wheel_table.toml` и исход в протоколе приёмки. Код модуля ввода не меняется (НФ-8). Если новый замер противоречит правилу кода, а не данным, это новый вопрос к спецификации.
 
 ### 7.5. Существующие тесты: переписать или удалить (ТЗ-51)
