@@ -181,7 +181,7 @@ steps:
   done: true
 - id: 15
   description: 'Зависимости (§8.1 С11): Cargo.toml — feature slint `unstable-winit-030`; для macOS block2 0.5.1 и objc2-app-kit 0.2.2 (features NSEvent, block2); Cargo.lock. Проверка: cargo check'
-  done: false
+  done: true
 - id: 16
   description: 'Выбор бэкенда winit (§8.1 С11, ADR-8): src/main.rs — BackendSelector::new().backend_name("winit").select() до создания окна; при ошибке — бэкенд по умолчанию и запись журнала BackendFallback. Проверка: cargo check'
   done: false
@@ -230,8 +230,8 @@ steps:
 - id: 31
   description: 'ЧЕКПОИНТ и закрытие: полный cargo test, cargo clippy --all-targets, cargo build; grep — winit_030 и cfg(target_os) модуля ввода только в src/platform/input/** (ТЗ-54 п. 3); условия §8 всех этапов; обновить заметки плана (отклонения SP1.0-8.10 по Clicks и знаку трея сняты, ручные проверки С11)'
   done: false
-current_step: 15
-next_action: "Шаг 15: субагент добавляет feature unstable-winit-030 и macOS-зависимости в Cargo.toml"
+current_step: 16
+next_action: "Шаг 16: субагент добавляет выбор бэкенда winit с откатом и журналом в src/main.rs"
 fail_counter: 0
 fail_counter_max: 3
 failed_attempts: []
