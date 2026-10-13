@@ -83,7 +83,7 @@ steps:
     done: true
   - id: 20
     description: "src/app/mod.rs: синхронизация save-enabled/save-tooltip из core.save_button() после открытия диалога, каждой правки черновика и ответа apap-io по теме; set_theme_save_enabled больше не вызывается (ТЗ-27, §6.9). Проверка: cargo check"
-    done: false
+    done: true
   - id: 21
     description: "ui/settings.slint, ui/app.slint: удалить свойство theme-save-enabled (заменено save-enabled; ТЗ-27). Проверка: cargo check; grep theme-save-enabled и theme_save_enabled пуст"
     done: false
@@ -96,8 +96,8 @@ steps:
   - id: 24
     description: "ЧЕКПОИНТ: cargo build; cargo test --no-fail-fast (только 6 падений SP1.0-B7); cargo clippy --all-targets — 0 новых предупреждений в файлах вайтлиста; каждый обработчик команды главного окна спрашивает шлюз (сверка с перечнем MainCmd); ручные проверки ТЗ-23/27/34 — пользователю. Проверка: всё перечисленное зелёное"
     done: false
-current_step: 20
-next_action: "Шаг 20: src/app/mod.rs — синхронизация settings-save-enabled/settings-save-tooltip из core.save_button(); set_theme_save_enabled больше не вызывается; cargo check --all-targets"
+current_step: 21
+next_action: "Шаг 21: ui/settings.slint, ui/app.slint — удалить theme-save-enabled (и последний вызов set_theme_save_enabled в src/app/mod.rs); cargo check --all-targets; grep пуст"
 fail_counter: 0
 fail_counter_max: 3
 failed_attempts: []

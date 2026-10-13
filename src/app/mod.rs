@@ -19,6 +19,7 @@ use music_player_rs::audio::visualizer::{
     FreqScale, LevelScale, VisualizationMode, VisualizerConfig,
 };
 use music_player_rs::core::dialog::{ApplyStep, DialogDraft, ThemeLoad};
+use music_player_rs::core::SaveButton;
 use music_player_rs::core::gate::{BlockReason, LoadKind, MainCmd};
 use music_player_rs::core::messages::{
     CloseEffect, Message, MessageButton, MessageButtons, MessageCenter, MessageLevel, MsgEffect,
@@ -135,12 +136,13 @@ fn widths_on_save(
 }
 
 /// Метаданные темы, показываемые в диалоге настроек (T1.0 §8.2):
-/// name/description + полная валидность (структура + HEX, §6).
+/// name/description. Пустое имя — файл есть, но не читается/невалиден.
+/// Доступность «Сохранить» от них не зависит — её считает
+/// `save_button_view` по черновику (ТЗ-27, §6.9).
 #[derive(Debug, Clone, PartialEq, Eq)]
 struct ThemeMeta {
     name: String,
     description: Option<String>,
-    valid: bool,
 }
 
 /// Throttle for persisting user-dragged column widths: ticks (100 ms each)
@@ -260,6 +262,32 @@ fn validate_colors(colors: &ColorsData) -> Result<(), ThemeError> {
         }
     }
     Ok(())
+}
+
+/// Вид кнопки «Сохранить» диалога настроек — `(активна, подсказка)` (ТЗ-27,
+/// §6.9, ADR-11). Основа — ответ ядра `AppCore::save_button`: отличия есть и
+/// недопустимых значений нет; подсказка — первое недопустимое значение
+/// «<param>: <reason>», без него — пустая строка. Ядро проверяет только
+/// структуру прочитанной темы, поэтому HEX-цвета темы черновика
+/// (`ThemeLoad::Ready`) проверяются здесь: при недопустимом цвете кнопка
+/// неактивна, а если у ядра подсказки нет — подсказка называет параметр
+/// «Тема» и причину. Тема в остальных состояниях на результат не влияет.
+fn save_button_view(button: SaveButton, theme: Option<&ThemeLoad>) -> (bool, String) {
+    let colors_error = match theme {
+        Some(ThemeLoad::Ready(data)) => validate_colors(&data.colors).err(),
+        _ => None,
+    };
+    let Some(error) = colors_error else {
+        return (button.enabled, button.tooltip.unwrap_or_default());
+    };
+    let tooltip = button.tooltip.unwrap_or_else(|| {
+        let reason = match error {
+            ThemeError::InvalidHex { field } => format!("недопустимый HEX-цвет в поле `{field}`"),
+            other => other.to_string(),
+        };
+        format!("Тема: {reason}")
+    });
+    (false, tooltip)
 }
 
 /// Разрешает стартовую тему без GUI (§8.2/§6.1).
@@ -1066,8 +1094,27 @@ impl MusicApp {
 
     /// Правка черновика диалога в ядре; при закрытом диалоге — ничего:
     /// настройки меняются только через «Сохранить» (§6.9, ADR-11, ТЗ-25).
+    /// После каждой правки пересчитывается кнопка «Сохранить» (ТЗ-27).
     fn edit_draft(&mut self, f: impl FnOnce(&mut DialogDraft)) {
         self.core.dialog_edit(f);
+        self.sync_save_button();
+    }
+
+    /// Синхронизирует кнопку «Сохранить» диалога с черновиком (ТЗ-27, §6.9,
+    /// ADR-11): доступность и подсказку считает `save_button_view` по ответу
+    /// ядра `save_button` и теме черновика — это единственный источник
+    /// доступности кнопки. Вызывается после открытия диалога, каждой правки
+    /// черновика и принятого черновиком ответа `apap-io` по теме.
+    fn sync_save_button(&self) {
+        let (enabled, tooltip) =
+            save_button_view(self.core.save_button(), self.core.draft().map(|d| &d.theme));
+        let Some(ui) = self.try_ui() else { return };
+        ui.set_settings_save_enabled(enabled);
+        ui.set_settings_save_tooltip(tooltip.into());
+        // Прежнее свойство `theme-save-enabled` (по умолчанию false) ещё
+        // участвует в условии кнопки в Slint и удаляется шагом 21 этапа
+        // SP1.0-8.9; до тех пор оно всегда true и на доступность не влияет.
+        ui.set_theme_save_enabled(true);
     }
 
     /// Правка настроек черновика; при закрытом диалоге — ничего (§6.9, ADR-11).
@@ -1090,10 +1137,12 @@ impl MusicApp {
     /// ядро проверяет шлюз, создаёт черновик, взводит блокировку `Dialog` и
     /// ставит один подсчёт размера кэшей; его поколение запоминается для
     /// сверки ответа `IoDone::CacheSizes`. `false` — диалог не открыт
-    /// (шлюз не пропустил команду или черновик уже есть).
+    /// (шлюз не пропустил команду или черновик уже есть). У открытого диалога
+    /// кнопка «Сохранить» приводится к свежему черновику (ТЗ-27).
     fn open_dialog_draft(&mut self) -> bool {
         let Some(gen) = self.core.dialog_open() else { return false };
         self.io_gens.sizes = gen;
+        self.sync_save_button();
         true
     }
 
@@ -1174,39 +1223,35 @@ impl MusicApp {
 
     /// Применяет метаданные темы к UI диалога (§5.2/§5.3). `None` — тема не
     /// найдена в `themes/`; `name` пуст — файл есть, но не читается/невалиден.
+    /// Только показ под ComboBox: на кнопку «Сохранить» не влияет (ТЗ-27).
     fn set_theme_meta(&mut self, meta: Option<ThemeMeta>) {
         self.theme_meta = meta;
-        let (name, desc, valid) = match &self.theme_meta {
+        let (name, desc) = match &self.theme_meta {
             Some(m) if !m.name.is_empty() => (
                 m.name.clone(),
                 m.description.clone().unwrap_or_default(),
-                m.valid,
             ),
             Some(_) => (
                 "(не удалось загрузить метаданные)".to_string(),
                 String::new(),
-                false,
             ),
-            None => ("(тема не найдена)".to_string(), String::new(), false),
+            None => ("(тема не найдена)".to_string(), String::new()),
         };
         if let Some(ui) = self.try_ui() {
             ui.set_theme_name(name.into());
             ui.set_theme_description(desc.into());
-            ui.set_theme_save_enabled(valid);
         }
     }
 
     /// Запрашивает список тем при открытии диалога через поток `apap-io`
-    /// (ТЗ-22, ADR-20, §6.2): без обхода каталога `themes/` в UI-потоке. Save
-    /// блокируется до ответа; список и метаданные текущей темы применяются
+    /// (ТЗ-22, ADR-20, §6.2): без обхода каталога `themes/` в UI-потоке.
+    /// Список и метаданные текущей темы применяются
     /// `apply_theme_list`/`apply_theme_read` в `drain_io`, когда ответ
-    /// приходит.
+    /// приходит; «Сохранить» этот запрос не блокирует — черновик он не
+    /// меняет (ТЗ-27).
     fn populate_theme_ui(&mut self) {
         self.io_gens.themes = self.io_gens.themes.wrapping_add(1);
         self.core.io().submit(IoJob::ListThemes { gen: self.io_gens.themes });
-        if let Some(ui) = self.try_ui() {
-            ui.set_theme_save_enabled(false);
-        }
     }
 
     /// Применяет ответ `IoJob::ListThemes` (ТЗ-22, ADR-20, §6.2): заполняет
@@ -1230,34 +1275,30 @@ impl MusicApp {
     /// Запрашивает у потока `apap-io` файл действующей темы только ради
     /// показа её метаданных под ComboBox (ТЗ-22, ADR-20, §6.2): поколение
     /// берётся из общего счётчика ядра и запоминается в `io_gens.theme`,
-    /// черновик не меняется. «Сохранить» блокируется до ответа.
+    /// черновик не меняется, поэтому «Сохранить» это чтение не блокирует
+    /// (ТЗ-27): действующая тема сохранением не применяется.
     fn request_current_theme_meta(&mut self, name: ThemeName) {
         let gen = self.core.next_io_gen();
         self.io_gens.theme = gen;
         self.core.io().submit(IoJob::ReadTheme { gen, name });
-        if let Some(ui) = self.try_ui() {
-            ui.set_theme_save_enabled(false);
-        }
     }
 
-    /// Метаданные прочитанной темы (§5.2/§5.3, ТЗ-27): `valid` — полная
-    /// проверка HEX-цветов; поток `apap-io` и ядро проверяют только
-    /// структуру файла.
+    /// Метаданные прочитанной темы (§5.2/§5.3): имя и описание для показа
+    /// под ComboBox. HEX-цвета темы черновика проверяет `save_button_view`
+    /// (ТЗ-27).
     fn theme_meta_read(data: &ThemeData) -> ThemeMeta {
         ThemeMeta {
             name: data.name.clone(),
             description: data.description.clone(),
-            valid: validate_colors(&data.colors).is_ok(),
         }
     }
 
-    /// Метаданные темы, файл которой есть, но не читается/невалиден (§5.2,
-    /// ТЗ-27): пустое имя, «Сохранить» заблокирована.
+    /// Метаданные темы, файл которой есть, но не читается/невалиден (§5.2):
+    /// пустое имя — под ComboBox показывается «не удалось загрузить».
     fn theme_meta_broken() -> ThemeMeta {
         ThemeMeta {
             name: String::new(),
             description: None,
-            valid: false,
         }
     }
 
@@ -1279,16 +1320,18 @@ impl MusicApp {
     /// (`ThemeLoad::Loading { gen }`) — это ответ на выбор в ComboBox: данные
     /// уходят в черновик ядра (`dialog_theme_loaded`), и «Сохранить» применит
     /// их без повторного чтения файла; под ComboBox показываются метаданные
-    /// по состоянию черновика. Иначе, если поколение совпадает с
+    /// по состоянию черновика, кнопка «Сохранить» пересчитывается
+    /// (`sync_save_button`). Иначе, если поколение совпадает с
     /// `io_gens.theme`, — это чтение действующей темы для показа: `Ok` —
-    /// метаданные с полной валидацией (структура + HEX), `Err` — файл есть,
-    /// но не читается/невалиден (Save заблокирован); черновик не меняется.
+    /// её метаданные, `Err` — файл есть, но не читается/невалиден; черновик
+    /// не меняется, и на «Сохранить» это не влияет.
     /// Любой другой ответ устарел и отбрасывается.
     fn apply_theme_read(&mut self, gen: u64, result: Result<Arc<ThemeData>, Box<str>>) {
         let awaited = self.core.draft().is_some_and(|d| d.theme == ThemeLoad::Loading { gen });
         if awaited {
             if self.core.dialog_theme_loaded(gen, result) {
                 self.show_draft_theme_meta();
+                self.sync_save_button();
             }
             return;
         }
@@ -1305,8 +1348,9 @@ impl MusicApp {
     /// Обработчик выбора темы в ComboBox (§5.4/§6.3, ТЗ-22, ADR-11, ADR-20):
     /// без доступа к диску — имя темы пишется в черновик ядра, которое само
     /// переводит его в `ThemeLoad::Loading` и отправляет `IoJob::ReadTheme`
-    /// потоку `apap-io`; «Сохранить» блокируется до ответа, а прежнее чтение
-    /// метаданных действующей темы объявляется устаревшим. Возврат к
+    /// потоку `apap-io`; «Сохранить» неактивна до ответа (черновик в
+    /// `Loading` недопустим для ядра, кнопку обновляет `edit_draft`, ТЗ-27),
+    /// а прежнее чтение метаданных действующей темы объявляется устаревшим. Возврат к
     /// действующей теме (`ThemeLoad::Unchanged`) ядро не читает — её
     /// метаданные запрашиваются для показа. Невалидное имя черновик не
     /// трогает.
@@ -1327,9 +1371,6 @@ impl MusicApp {
             // Запоздавший ответ на чтение метаданных действующей темы не
             // должен перезаписать UI выбранной темы (ADR-20).
             self.io_gens.theme = self.core.next_io_gen();
-            if let Some(ui) = self.try_ui() {
-                ui.set_theme_save_enabled(false);
-            }
         } else if unchanged {
             self.request_current_theme_meta(theme_name);
         } else {
@@ -2992,6 +3033,58 @@ mod tests {
         data.colors.viz_3 = "zzzzzz".to_string();
         let err = validate_colors(&data.colors).unwrap_err();
         assert!(err.to_string().contains("viz_3"), "ошибка: {err}");
+    }
+
+    /// ТЗ-27, §6.9: без темы в черновике и с действующей темой
+    /// (`Unchanged`) вид кнопки — ровно ответ ядра, подсказка пуста.
+    #[test]
+    fn save_button_view_follows_core_without_draft_theme() {
+        let enabled = SaveButton { enabled: true, tooltip: None };
+        assert_eq!(save_button_view(enabled.clone(), None), (true, String::new()));
+        assert_eq!(save_button_view(enabled, Some(&ThemeLoad::Unchanged)), (true, String::new()));
+    }
+
+    /// ТЗ-27, §6.9: подсказка ядра о недопустимом значении сохраняется.
+    #[test]
+    fn save_button_view_keeps_core_tooltip() {
+        let button = SaveButton { enabled: false, tooltip: Some("Буфер: недопустимая пара".to_string()) };
+        assert_eq!(
+            save_button_view(button, Some(&ThemeLoad::Unchanged)),
+            (false, "Буфер: недопустимая пара".to_string())
+        );
+    }
+
+    /// ТЗ-27, §6.9: прочитанная тема с недопустимым HEX-цветом делает кнопку
+    /// неактивной; подсказка называет параметр «Тема» и поле; подсказка ядра,
+    /// если она есть, имеет приоритет.
+    #[test]
+    fn save_button_view_blocks_ready_theme_with_bad_hex() {
+        let mut data: ThemeData = toml::from_str(music_player_rs::theme::DEFAULT_DARK_TOML).unwrap();
+        data.colors.viz_3 = "zzzzzz".to_string();
+        let theme = ThemeLoad::Ready(Arc::new(data));
+
+        let (enabled, tooltip) = save_button_view(SaveButton { enabled: true, tooltip: None }, Some(&theme));
+        assert!(!enabled);
+        assert!(tooltip.starts_with("Тема: "), "подсказка: {tooltip}");
+        assert!(tooltip.contains("viz_3"), "подсказка: {tooltip}");
+
+        let core = SaveButton { enabled: false, tooltip: Some("Буфер: недопустимая пара".to_string()) };
+        assert_eq!(save_button_view(core, Some(&theme)), (false, "Буфер: недопустимая пара".to_string()));
+    }
+
+    /// ТЗ-27, §6.9: прочитанная тема с допустимыми цветами ответ ядра не меняет.
+    #[test]
+    fn save_button_view_ready_theme_with_valid_colors() {
+        let data: ThemeData = toml::from_str(music_player_rs::theme::DEFAULT_DARK_TOML).unwrap();
+        let theme = ThemeLoad::Ready(Arc::new(data));
+        assert_eq!(
+            save_button_view(SaveButton { enabled: true, tooltip: None }, Some(&theme)),
+            (true, String::new())
+        );
+        assert_eq!(
+            save_button_view(SaveButton { enabled: false, tooltip: None }, Some(&theme)),
+            (false, String::new())
+        );
     }
 
     #[test]
