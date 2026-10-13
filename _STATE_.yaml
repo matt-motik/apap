@@ -2,15 +2,235 @@
 # _STATE_.md генерируется из этого файла — не редактировать его руками.
 # Редактируйте этот файл, затем: python tools/state_tool.py render
 
-status: done
+status: in_progress
 task:
-  roadmap_id: null
-  title: null
-whitelist: []
-dod: null
-steps: []
-current_step: null
-next_action: null
+  roadmap_id: SP1.0-8.11
+  title: С11 (02). Модуль ввода колёсика (ТЗ-36, 54 п. 3; НФ-8; 24 — тест с колёсиком трея)
+whitelist:
+- Cargo.toml
+- Cargo.lock
+- src/platform/mod.rs
+- src/platform/input/mod.rs
+- src/platform/input/table.rs
+- src/platform/input/wheel_table.toml
+- src/platform/input/normalizer.rs
+- src/platform/input/matcher.rs
+- src/platform/input/fake.rs
+- src/platform/input/fixture_tests.rs
+- src/platform/input/winit.rs
+- src/platform/input/macos.rs
+- src/platform/lifecycle/mod.rs
+- src/platform/tray/mod.rs
+- src/core/volume.rs
+- src/core/mod.rs
+- src/core/testing.rs
+- src/journal.rs
+- src/main.rs
+- src/app/mod.rs
+- ui/top_panel.slint
+- ui/app.slint
+- tools/wheel_probe/to_fixture.py
+- tests/data/wheel/kde-1/01_mouse_slider_single_up.fixture
+- tests/data/wheel/kde-1/02_mouse_slider_single_down.fixture
+- tests/data/wheel/kde-1/03_mouse_slider_fast_up.fixture
+- tests/data/wheel/kde-1/04_mouse_slider_shift_single_up.fixture
+- tests/data/wheel/kde-1/05_mouse_tray_single_up.fixture
+- tests/data/wheel/kde-1/06_mouse_tray_single_down.fixture
+- tests/data/wheel/kde-1/07_mouse_tray_fast_up.fixture
+- tests/data/wheel/kde-1/08_mouse_tray_shift_single_up.fixture
+- tests/data/wheel/kde-2/01_mouse_slider_single_up.fixture
+- tests/data/wheel/kde-2/02_mouse_slider_single_down.fixture
+- tests/data/wheel/kde-2/03_mouse_slider_fast_up.fixture
+- tests/data/wheel/kde-2/04_mouse_slider_shift_single_up.fixture
+- tests/data/wheel/kde-2/05_mouse_tray_single_up.fixture
+- tests/data/wheel/kde-2/06_mouse_tray_single_down.fixture
+- tests/data/wheel/kde-2/07_mouse_tray_fast_up.fixture
+- tests/data/wheel/kde-2/08_mouse_tray_shift_single_up.fixture
+- tests/data/wheel/kde-3/01_mouse_slider_single_up.fixture
+- tests/data/wheel/kde-3/02_mouse_slider_single_down.fixture
+- tests/data/wheel/kde-3/03_mouse_slider_fast_up.fixture
+- tests/data/wheel/kde-3/04_mouse_slider_shift_single_up.fixture
+- tests/data/wheel/kde-3/05_mouse_tray_single_up.fixture
+- tests/data/wheel/kde-3/06_mouse_tray_single_down.fixture
+- tests/data/wheel/kde-3/07_mouse_tray_fast_up.fixture
+- tests/data/wheel/kde-3/08_mouse_tray_shift_single_up.fixture
+- tests/data/wheel/kde-3/09_touchpad_slider_short_up-natural_on.fixture
+- tests/data/wheel/kde-3/10_touchpad_slider_long_slow_up-natural_on.fixture
+- tests/data/wheel/kde-3/11_touchpad_slider_fast_up-natural_on.fixture
+- tests/data/wheel/kde-3/12_touchpad_slider_short_down-natural_on.fixture
+- tests/data/wheel/kde-3/13_touchpad_slider_long_slow_down-natural_on.fixture
+- tests/data/wheel/kde-3/14_touchpad_slider_fast_down-natural_on.fixture
+- tests/data/wheel/kde-3/15_touchpad_tray_short_up-natural_on.fixture
+- tests/data/wheel/kde-3/16_touchpad_tray_long_slow_up-natural_on.fixture
+- tests/data/wheel/kde-3/17_touchpad_tray_fast_up-natural_on.fixture
+- tests/data/wheel/kde-3/18_touchpad_tray_short_down-natural_on.fixture
+- tests/data/wheel/kde-3/19_touchpad_tray_long_slow_down-natural_on.fixture
+- tests/data/wheel/kde-3/20_touchpad_tray_fast_down-natural_on.fixture
+- tests/data/wheel/kde-3/21_touchpad_slider_short_up-natural_off.fixture
+- tests/data/wheel/kde-3/22_touchpad_slider_long_slow_up-natural_off.fixture
+- tests/data/wheel/kde-3/23_touchpad_slider_fast_up-natural_off.fixture
+- tests/data/wheel/kde-3/24_touchpad_slider_short_down-natural_off.fixture
+- tests/data/wheel/kde-3/25_touchpad_slider_long_slow_down-natural_off.fixture
+- tests/data/wheel/kde-3/26_touchpad_slider_fast_down-natural_off.fixture
+- tests/data/wheel/kde-3/27_touchpad_tray_short_up-natural_off.fixture
+- tests/data/wheel/kde-3/28_touchpad_tray_long_slow_up-natural_off.fixture
+- tests/data/wheel/kde-3/29_touchpad_tray_fast_up-natural_off.fixture
+- tests/data/wheel/kde-3/30_touchpad_tray_short_down-natural_off.fixture
+- tests/data/wheel/kde-3/31_touchpad_tray_long_slow_down-natural_off.fixture
+- tests/data/wheel/kde-3/32_touchpad_tray_fast_down-natural_off.fixture
+- tests/data/wheel/gnome-1/01_mouse_slider_single_up.fixture
+- tests/data/wheel/gnome-1/02_mouse_slider_single_down.fixture
+- tests/data/wheel/gnome-1/03_mouse_slider_fast_up.fixture
+- tests/data/wheel/gnome-1/04_mouse_slider_shift_single_up.fixture
+- tests/data/wheel/gnome-1/05_mouse_tray_single_up.fixture
+- tests/data/wheel/gnome-1/06_mouse_tray_single_down.fixture
+- tests/data/wheel/gnome-1/07_mouse_tray_fast_up.fixture
+- tests/data/wheel/gnome-1/08_mouse_tray_shift_single_up.fixture
+- tests/data/wheel/gnome-2/01_mouse_slider_single_up.fixture
+- tests/data/wheel/gnome-2/02_mouse_slider_single_down.fixture
+- tests/data/wheel/gnome-2/03_mouse_slider_fast_up.fixture
+- tests/data/wheel/gnome-2/04_mouse_slider_shift_single_up.fixture
+- tests/data/wheel/gnome-2/05_mouse_tray_single_up.fixture
+- tests/data/wheel/gnome-2/06_mouse_tray_single_down.fixture
+- tests/data/wheel/gnome-2/07_mouse_tray_fast_up.fixture
+- tests/data/wheel/gnome-2/08_mouse_tray_shift_single_up.fixture
+- tests/data/wheel/gnome-2/09_touchpad_slider_short_up-natural_on.fixture
+- tests/data/wheel/gnome-2/10_touchpad_slider_long_slow_up-natural_on.fixture
+- tests/data/wheel/gnome-2/11_touchpad_slider_fast_up-natural_on.fixture
+- tests/data/wheel/gnome-2/12_touchpad_slider_short_down-natural_on.fixture
+- tests/data/wheel/gnome-2/13_touchpad_slider_long_slow_down-natural_on.fixture
+- tests/data/wheel/gnome-2/14_touchpad_slider_fast_down-natural_on.fixture
+- tests/data/wheel/gnome-2/15_touchpad_tray_short_up-natural_on.fixture
+- tests/data/wheel/gnome-2/16_touchpad_tray_long_slow_up-natural_on.fixture
+- tests/data/wheel/gnome-2/17_touchpad_tray_fast_up-natural_on.fixture
+- tests/data/wheel/gnome-2/18_touchpad_tray_short_down-natural_on.fixture
+- tests/data/wheel/gnome-2/19_touchpad_tray_long_slow_down-natural_on.fixture
+- tests/data/wheel/gnome-2/20_touchpad_tray_fast_down-natural_on.fixture
+- tests/data/wheel/gnome-2/21_touchpad_slider_short_up-natural_off.fixture
+- tests/data/wheel/gnome-2/22_touchpad_slider_long_slow_up-natural_off.fixture
+- tests/data/wheel/gnome-2/23_touchpad_slider_fast_up-natural_off.fixture
+- tests/data/wheel/gnome-2/24_touchpad_slider_short_down-natural_off.fixture
+- tests/data/wheel/gnome-2/25_touchpad_slider_long_slow_down-natural_off.fixture
+- tests/data/wheel/gnome-2/26_touchpad_slider_fast_down-natural_off.fixture
+- tests/data/wheel/gnome-2/27_touchpad_tray_short_up-natural_off.fixture
+- tests/data/wheel/gnome-2/28_touchpad_tray_long_slow_up-natural_off.fixture
+- tests/data/wheel/gnome-2/29_touchpad_tray_fast_up-natural_off.fixture
+- tests/data/wheel/gnome-2/30_touchpad_tray_short_down-natural_off.fixture
+- tests/data/wheel/gnome-2/31_touchpad_tray_long_slow_down-natural_off.fixture
+- tests/data/wheel/gnome-2/32_touchpad_tray_fast_down-natural_off.fixture
+- tests/data/wheel/windows/01_mouse_slider_single_up.fixture
+- tests/data/wheel/windows/02_mouse_slider_single_down.fixture
+- tests/data/wheel/windows/03_mouse_slider_fast_up.fixture
+- tests/data/wheel/windows/04_mouse_slider_shift_single_up.fixture
+- tests/data/wheel/windows/05_touchpad_slider_short_up-natural_on.fixture
+- tests/data/wheel/windows/06_touchpad_slider_long_slow_up-natural_on.fixture
+- tests/data/wheel/windows/07_touchpad_slider_fast_up-natural_on.fixture
+- tests/data/wheel/windows/08_touchpad_slider_short_down-natural_on.fixture
+- tests/data/wheel/windows/09_touchpad_slider_long_slow_down-natural_on.fixture
+- tests/data/wheel/windows/10_touchpad_slider_fast_down-natural_on.fixture
+- tests/data/wheel/windows/11_touchpad_slider_short_up-natural_off.fixture
+- tests/data/wheel/windows/12_touchpad_slider_long_slow_up-natural_off.fixture
+- tests/data/wheel/windows/13_touchpad_slider_fast_up-natural_off.fixture
+- tests/data/wheel/windows/14_touchpad_slider_short_down-natural_off.fixture
+- tests/data/wheel/windows/15_touchpad_slider_long_slow_down-natural_off.fixture
+- tests/data/wheel/windows/16_touchpad_slider_fast_down-natural_off.fixture
+dod: Тесты §7.2 этапа зелёные (wheel_fixtures_*, linux_emulated_touchpad_is_wheel, windows_touchpad_swipes_capped, tray_matches_slider, unpaired_*, same_sequence_slider_and_tray_same_result, macos_*, wheel_table_parses, tray_works_during_dialog/_message с колёсиком); инверсия трея в poll_tray и вычисление щелчков в Slint удалены; полный cargo test без новых падений сверх шести SP1.0-B7; cargo clippy --all-targets без новых предупреждений; cargo build зелёный
+steps:
+- id: 1
+  description: 'Типы ввода (§2.8, ADR-8, ТЗ-36): создать src/platform/input/mod.rs — WheelEvent, WheelDelta, WheelPhase, SlintScroll, DeviceClass, Desktop, Session, TrayHost; Clicks и TrayScroll — временный мост `pub use` из core::volume и platform::lifecycle (снимается шагами 26–27); `pub mod input` в src/platform/mod.rs. Проверка: cargo check'
+  done: false
+- id: 2
+  description: 'Таблица данных (§2.8, §6.11, НФ-8, ОВС-2 а): src/platform/input/table.rs — WheelTable, SliderRow, SliderRule, TouchpadParams, TrayRow, Outcome, TableError, parse_wheel_table, встроенное правило по умолчанию, поиск строк slider_row/tray_row; src/platform/input/wheel_table.toml (все Desktop и TrayHost); тест wheel_table_parses. Проверка: cargo test wheel_table'
+  done: false
+- id: 3
+  description: 'WheelNormalizer::new и slider (§6.11, В-3, В-4, ОВС-1 а, И-Р19): src/platform/input/normalizer.rs — класс устройства, Division, touch_step (граница свайпа, перенос остатка, ≤ K на свайп), momentum == Some(true) → 0; ≤5 модульных тестов. Проверка: cargo test platform::input::normalizer'
+  done: false
+- id: 4
+  description: 'WheelNormalizer::slider_unpaired (§6.11, В-2, ОВС-2 а): src/platform/input/normalizer.rs — dy кратно 60 → Clicks(dy/60), иначе touch_step с threshold_px; тесты. Проверка: cargo test platform::input::normalizer'
+  done: false
+- id: 5
+  description: 'WheelNormalizer::tray (§6.11, В-5): src/platform/input/normalizer.rs — горизонталь → 0, знак и деление по строке хоста, division = 0 → |первое событие|, накопитель с делением к нулю; тесты. Проверка: cargo test platform::input::normalizer'
+  done: false
+- id: 6
+  description: 'WheelMatcher и MomentumMark (§2.8, §6.11, В-2, ОВС-1 а): src/platform/input/matcher.rs — слот pending (новое событие вытесняет прежнее), сопоставление со SlintScroll (Lines: y·60 == dy; Px: y == dy), end_tick, FIFO меток инерции с проверкой согласия; тесты. Проверка: cargo test platform::input::matcher'
+  done: false
+- id: 7
+  description: 'Трейт WheelInput, AttachOutcome (§2.8) в src/platform/input/mod.rs и FakeWheelInput (§7.1) в src/platform/input/fake.rs; тесты unpaired_slint_scroll_uses_default_rule, unpaired_winit_event_ignored, macos_momentum_ignored, macos_mark_mismatch_treated_as_gesture (§7.2). Проверка: cargo test platform::input'
+  done: false
+- id: 8
+  description: 'ЧЕКПОИНТ: полный cargo test (нет новых падений сверх шести SP1.0-B7) и cargo clippy --all-targets без новых предупреждений в файлах вайтлиста'
+  done: false
+- id: 9
+  description: 'Скрипт перевода замеров (§7.4): tools/wheel_probe/to_fixture.py — читает CSV, env.txt, summary.txt через `git show <коммит>:<путь>`, пишет tests/data/wheel/<замер>/<NN>_<шаг>.fixture (шапка [fixture], CSV t_ms,kind,phase,delta_x,delta_y,modifiers,slint_dy; source — фактический по событиям; expected_steps пусто); каталог results/ не меняется. Проверка: python tools/wheel_probe/to_fixture.py --help и пробный перевод одного шага во временный каталог'
+  done: false
+- id: 10
+  description: 'Фикстуры (§7.4): прогнать to_fixture.py по шести замерам (KDE-1 815d874, KDE-2 028f9f5, KDE-3 64edab4, GNOME-1 d7014de, GNOME-2 d15caeb, Windows eb6fb72) → 104 файла tests/data/wheel/{kde-1,kde-2,kde-3,gnome-1,gnome-2,windows}/. Проверка: 104 файла; число строк данных ползунка = числу событий winit исходного CSV, трея — числу событий tray'
+  done: false
+- id: 11
+  description: 'expected_steps фикстур (§7.4, wheel_test.md §5.2): мышь — число событий со знаком направления (10, кроме GNOME-1/01 — 11, GNOME-2/04 — 12, Windows/03 — 12, Windows/04 — 11, KDE-3/07 — 8, GNOME-2/07 — 7); тачпад Windows 05–16 — столбец «T=0,5, K=5»; «тачпад» KDE-3 и GNOME-2 — число делений. Проверка: ни одной фикстуры с пустым expected_steps, кроме шагов без событий; сверка с §5.2'
+  done: false
+- id: 12
+  description: 'Тесты по фикстурам (§7.2, ТЗ-36): src/platform/input/fixture_tests.rs (cfg(test)) — разбор фикстуры, прогон через FakeWheelInput, макрос, порождающий wheel_fixtures_<замер>_<шаг> по списку шагов; расхождение с expected_steps не подгоняется, а докладывается. Проверка: cargo test wheel_fixtures'
+  done: false
+- id: 13
+  description: 'Именованные тесты по фикстурам (§7.2, В-3, В-4, В-5): src/platform/input/fixture_tests.rs — linux_emulated_touchpad_is_wheel, windows_touchpad_swipes_capped, tray_matches_slider, same_sequence_slider_and_tray_same_result. Проверка: cargo test platform::input'
+  done: false
+- id: 14
+  description: 'Записи журнала (§2.9, ADR-8): src/journal.rs — JournalRecord::WheelTable { error }, TrayHost { host, via }, BackendFallback { error }, enum HostSource; kind() и текст строки. Общий тип — проверка: полный cargo test'
+  done: false
+- id: 15
+  description: 'Зависимости (§8.1 С11): Cargo.toml — feature slint `unstable-winit-030`; для macOS block2 0.5.1 и objc2-app-kit 0.2.2 (features NSEvent, block2); Cargo.lock. Проверка: cargo check'
+  done: false
+- id: 16
+  description: 'Выбор бэкенда winit (§8.1 С11, ADR-8): src/main.rs — BackendSelector::new().backend_name("winit").select() до создания окна; при ошибке — бэкенд по умолчанию и запись журнала BackendFallback. Проверка: cargo check'
+  done: false
+- id: 17
+  description: 'Реальный модуль ввода (ADR-8, §6.11, ТЗ-54 п. 3): src/platform/input/winit.rs — WinitWheelInput: attach через on_winit_window_event (WindowEvent::MouseWheel → WheelEvent в логических единицах, EventResult::Propagate), сеанс по raw-window-handle, рабочий стол по cfg и XDG_CURRENT_DESKTOP, таблица из include_str! с откатом на встроенное правило и записью WheelTable; фабрика platform_wheel_input в src/platform/input/mod.rs. Проверка: cargo check'
+  done: false
+- id: 18
+  description: 'Монитор AppKit (ADR-8, ОВС-1 а): src/platform/input/macos.rs (cfg target_os = "macos") — локальный монитор NSEvent прокрутки → MomentumMark в очередь WheelMatcher; подключение в attach. На Windows не компилируется — проверка ревью; cargo check зелёный'
+  done: false
+- id: 19
+  description: 'Поле ввода ядра (§2.12): src/core/mod.rs — AppCore.input: Box<dyn WheelInput> (по умолчанию — правило по умолчанию без winit), input_mut(), set_input(). Проверка: полный cargo test'
+  done: false
+- id: 20
+  description: 'ЧЕКПОИНТ: полный cargo test (нет новых падений сверх шести SP1.0-B7) и cargo clippy --all-targets без новых предупреждений в файлах вайтлиста'
+  done: false
+- id: 21
+  description: 'Slint: сырой scroll-event (§8.1 С11 «удаляется обработчик колёсика ползунка в Slint»): ui/top_panel.slint и ui/app.slint — колбэк volume-scroll(dx, dy) с сырыми delta-x/delta-y в логических px вместо вычисления щелчков в scroll-event. Проверка: cargo check'
+  done: false
+- id: 22
+  description: 'Ползунок через модуль ввода (§6.11, НФ-2): src/app/mod.rs — on_volume_scroll → input.slider_scroll(SlintScroll) → при ненулевом Clicks AppCore::volume(SliderWheel, Step); on_volume_step удалён. Проверка: cargo check'
+  done: false
+- id: 23
+  description: 'Slint: удалить колбэк volume-step из ui/top_panel.slint и ui/app.slint. Проверка: cargo check'
+  done: false
+- id: 24
+  description: 'Трей через модуль ввода (§6.11, §8.1 С11 «удаляется инверсия трея в poll_tray»): src/app/mod.rs — TrayEvent::Scroll → input.tray_scroll(ev) → Step; end_tick на тике. Проверка: cargo check'
+  done: false
+- id: 25
+  description: 'Подключение к окну (ADR-8): src/main.rs и src/app/mod.rs — set_input(platform_wheel_input(..)) при сборке ядра, attach(window) после показа окна; DefaultRuleOnly → запись журнала. Проверка: cargo check'
+  done: false
+- id: 26
+  description: 'Перенос Clicks (§2.8; снять отклонение SP1.0-8.10): определение — в src/platform/input/mod.rs, в src/core/volume.rs — импорт и реэкспорт, комментарий об отклонении удалён. Проверка: полный cargo test'
+  done: false
+- id: 27
+  description: 'Перенос TrayScroll (§2.8): определение — в src/platform/input/mod.rs, в src/platform/lifecycle/mod.rs — реэкспорт. Проверка: полный cargo test'
+  done: false
+- id: 28
+  description: 'Хост трея в канале событий (§6.11, §3 «Хост трея»): src/platform/lifecycle/mod.rs — TrayEvent::Host { host, via }; src/app/mod.rs — в poll_tray set_tray_host и запись журнала TrayHost. Проверка: cargo check'
+  done: false
+- id: 29
+  description: 'Определение хоста трея (ADR-8, §6.11): src/platform/tray/mod.rs (Linux) — GetNameOwner(org.kde.StatusNotifierWatcher) → GetConnectionUnixProcessID → /proc/<pid>/comm → XDG_CURRENT_DESKTOP → Unknown; одно событие TrayEvent::Host при запуске трея. На Windows не компилируется — проверка ревью, сборка — за пользователем на Linux; cargo check зелёный'
+  done: false
+- id: 30
+  description: 'Тесты ТЗ-24 с колёсиком трея (§7.2): src/core/testing.rs — tray_works_during_dialog и tray_works_during_message идут через FakeWheelInput::tray_scroll → AppCore::volume(TrayWheel, Step). Проверка: cargo test tray_works_during'
+  done: false
+- id: 31
+  description: 'ЧЕКПОИНТ и закрытие: полный cargo test, cargo clippy --all-targets, cargo build; grep — winit_030 и cfg(target_os) модуля ввода только в src/platform/input/** (ТЗ-54 п. 3); условия §8 всех этапов; обновить заметки плана (отклонения SP1.0-8.10 по Clicks и знаку трея сняты, ручные проверки С11)'
+  done: false
+current_step: 1
+next_action: 'Шаг 1: субагент создаёт src/platform/input/mod.rs с типами §2.8 и подключает модуль в src/platform/mod.rs'
 fail_counter: 0
 fail_counter_max: 3
 failed_attempts: []
@@ -33,7 +253,7 @@ plan:
       status: in_progress
       note:
         - "Закрытые этапы и баги — в ROADMAP.md (✅ с хэшем); здесь только открытое."
-        - "SP1.0-8.10 (С10 (02) «Громкость и mute в UI») закрыт в 12c43f2 (2026-10-13, Windows-ноутбук); СЛЕДУЮЩИЙ (п. 17 сквозного порядка): SP1.0-8.11 (С11 (02) «Модуль ввода колёсика»). AM1.0-8.4 закрыт в c078c9c с хвостом Linux-проверок (строка «Ручные проверки … AM1.0-8.4»)."
+        - "SP1.0-8.10 (С10 (02) «Громкость и mute в UI») закрыт в 12c43f2 (2026-10-13, Windows-ноутбук); В РАБОТЕ (п. 17 сквозного порядка): SP1.0-8.11 (С11 (02) «Модуль ввода колёсика»), начат 2026-10-13 на Windows-ноутбуке; шаги — в steps. AM1.0-8.4 закрыт в c078c9c с хвостом Linux-проверок (строка «Ручные проверки … AM1.0-8.4»)."
         - "Ручные проверки за пользователем: SP1.0-8.10 — (GUI на этапе не запускался) ТЗ-35/37: ползунок на 40 %, колёсико трея +3 щелчка → 46 %, ползунок показывает 46 %; колёсико над ползунком ±2 % за щелчок; после смены режима ползунок показывает громкость нового режима; ТЗ-39: в Строгом и в Оптимальном с фиксацией ползунок/колёсико/трей не меняют громкость, при наведении на ползунок через ~0,5 с появляется подсказка с текстом §2.13 (не обрезается; при доступной громкости подсказки нет и область подсказки не мешает тянуть ползунок); ТЗ-38: кнопка mute работает в Строгом и при фиксации, mute каждого режима переживает перезапуск; (Linux) полный cargo test зелёный (на Windows: build и clippy --all-targets чистые, test — только 6 падений SP1.0-B7)."
         - "Отклонения SP1.0-8.10 от спецификации (убрать на С11/С3): Clicks объявлен в src/core/volume.rs (по §2.8 — platform/input, С11); знак колёсика трея нормализуется в app/mod.rs (delta < 0 — громче) до С11; AppCore::volume возвращает VolumeOutcome, toggle_mute — bool (типа UiChanges из §2.12 нет); мост bit-perfect: при player.bit_perfect() apply_volume_cmd не вызывает ядро (Unchanged); команду громкости/mute движку шлёт слой app (до С3)."
         - "Ручные проверки за пользователем: SP1.0-8.9 — (GUI на этапе не запускался) ТЗ-27: «Сохранить» неактивна без отличий и после «изменить и вернуть», подсказка при наведении на неактивную кнопку (не обрезается, ряд кнопок не сдвинут), поведение при выборе темы (загрузка/битая тема/плохой HEX); ТЗ-34: текст на вкладке кэша, очистка не отменяется «Отменой»; ТЗ-23: при открытом диалоге и окне сообщения команды главного окна не срабатывают (в т. ч. клавиша V, меню «Визуализация», переключатель режимов); ТЗ-25/28/29: «Сохранить» применяет только изменённое, «Отмена» ничего не меняет; (Linux) полный cargo test зелёный (на Windows: build и clippy --all-targets чистые, test — только 6 падений SP1.0-B7)."
