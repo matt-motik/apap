@@ -39,6 +39,7 @@ use music_player_rs::persist::state_file::{
 };
 use music_player_rs::persist::tracker::ReplyEffect;
 use music_player_rs::persist::{ConfigPaths, WorkFile};
+use music_player_rs::platform::input::SlintScroll;
 use music_player_rs::platform::lifecycle::PlatformCaps;
 use music_player_rs::platform::notify::Notifier;
 use music_player_rs::platform::pick::{FilePicker, PickRequest, PickResult};
@@ -1551,19 +1552,26 @@ impl MusicApp {
             });
         }
 
-        // 8a. volume-step
+        // 8a. volume-scroll
         {
             let app = this.clone();
-            ui.on_volume_step(move |clicks| {
-                eprintln!("[gui] volume_step clicks={clicks}");
+            ui.on_volume_scroll(move |dx, dy| {
+                eprintln!("[gui] volume_scroll dx={dx:.1} dy={dy:.1}");
                 let mut a = app.borrow_mut();
                 if !a.core.gate().allows(MainCmd::Volume) {
                     return;
                 }
                 // Колёсико над ползунком — источник единой команды громкости
-                // (ADR-14, ТЗ-37): UI передаёт только число щелчков, шаг
-                // 2 % за щелчок считает ядро (НФ-2).
-                a.apply_volume_cmd(VolumeSource::SliderWheel, VolumeCmd::Step(Clicks(clicks)));
+                // (ADR-14, ТЗ-37): UI передаёт сырые смещения `scroll-event`,
+                // щелчки считает модуль ввода (ADR-8, §6.11, ТЗ-36), шаг
+                // 2 % за щелчок — ядро (НФ-2).
+                let t = a.core.now();
+                let clicks = a.core.input_mut().slider_scroll(SlintScroll { t, dx, dy });
+                // Ноль щелчков — накопитель тачпада ещё не набрал шаг:
+                // команда громкости не подаётся.
+                if clicks.0 != 0 {
+                    a.apply_volume_cmd(VolumeSource::SliderWheel, VolumeCmd::Step(clicks));
+                }
             });
         }
 

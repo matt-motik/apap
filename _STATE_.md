@@ -159,8 +159,8 @@
 - [x] Шаг 19: Поле ввода ядра (§2.12): src/core/mod.rs — AppCore.input: Box<dyn WheelInput> (по умолчанию — правило по умолчанию без winit), input_mut(), set_input(). Проверка: полный cargo test
 - [x] Шаг 20: ЧЕКПОИНТ: полный cargo test (нет новых падений сверх шести SP1.0-B7) и cargo clippy --all-targets без новых предупреждений в файлах вайтлиста
 - [x] Шаг 21: Slint: сырой scroll-event (§8.1 С11 «удаляется обработчик колёсика ползунка в Slint»): ui/top_panel.slint и ui/app.slint — колбэк volume-scroll(dx, dy) с сырыми delta-x/delta-y в логических px вместо вычисления щелчков в scroll-event. Проверка: cargo check
-- [>] **Шаг 22: Ползунок через модуль ввода (§6.11, НФ-2): src/app/mod.rs — on_volume_scroll → input.slider_scroll(SlintScroll) → при ненулевом Clicks AppCore::volume(SliderWheel, Step); on_volume_step удалён. Проверка: cargo check**
-- [ ] Шаг 23: Slint: удалить колбэк volume-step из ui/top_panel.slint и ui/app.slint. Проверка: cargo check
+- [x] Шаг 22: Ползунок через модуль ввода (§6.11, НФ-2): src/app/mod.rs — on_volume_scroll → input.slider_scroll(SlintScroll) → при ненулевом Clicks AppCore::volume(SliderWheel, Step); on_volume_step удалён. Проверка: cargo check
+- [>] **Шаг 23: Slint: удалить колбэк volume-step из ui/top_panel.slint и ui/app.slint. Проверка: cargo check**
 - [ ] Шаг 24: Трей через модуль ввода (§6.11, §8.1 С11 «удаляется инверсия трея в poll_tray»): src/app/mod.rs — TrayEvent::Scroll → input.tray_scroll(ev) → Step; end_tick на тике. Проверка: cargo check
 - [ ] Шаг 25: Подключение к окну (ADR-8): src/main.rs и src/app/mod.rs — set_input(platform_wheel_input(..)) при сборке ядра, attach(window) после показа окна; DefaultRuleOnly → запись журнала. Проверка: cargo check
 - [ ] Шаг 26: Перенос Clicks (§2.8; снять отклонение SP1.0-8.10): определение — в src/platform/input/mod.rs, в src/core/volume.rs — импорт и реэкспорт, комментарий об отклонении удалён. Проверка: полный cargo test
@@ -172,8 +172,8 @@
 
 Легенда: [x] сделано · [>] текущий шаг · [ ] не начато
 
-- **Текущий шаг (current_step):** Шаг 22
-- **Следующий ход:** Шаг 22: субагент подключает on_volume_scroll к input.slider_scroll в src/app/mod.rs и удаляет on_volume_step
+- **Текущий шаг (current_step):** Шаг 23
+- **Следующий ход:** Шаг 23: субагент удаляет колбэк volume-step из ui/top_panel.slint и ui/app.slint
 - **Счетчик безуспешных компиляций:** 0/3
 - **Состояние:** in_progress
 

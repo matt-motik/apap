@@ -266,8 +266,9 @@ impl AppCore {
     }
 
     /// Текущее время по инжектируемым часам (ADR-20); без `deps` — начало
-    /// отсчёта `ClockInstant::START`.
-    fn now(&self) -> ClockInstant {
+    /// отсчёта `ClockInstant::START`. Этим же временем слой UI штампует
+    /// `SlintScroll::t` (§2.8, §6.11).
+    pub fn now(&self) -> ClockInstant {
         match &self.deps {
             Some(deps) => deps.clock.now(),
             None => ClockInstant::START,
