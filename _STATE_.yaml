@@ -49,15 +49,15 @@ steps:
     done: true
   - id: 11
     description: "Slint: свойство volume-block-text (string) в ui/top_panel.slint и ui/app.slint; Tooltip с этим текстом на неотключаемой обёртке ползунка (ТЗ-39, ADR-14, §2.13). Проверка: cargo check без ошибок"
-    done: false
+    done: true
   - id: 12
     description: "Текст подсказки из ядра: src/app/mod.rs выставляет volume-block-text из volume_block(...).tooltip() вместе с volume-enabled; самодельная подсказка «Громкость задана режимом» в ui/top_panel.slint удалена (ТЗ-39, §2.13). Проверка: cargo check без ошибок"
     done: false
   - id: 13
     description: "ЧЕКПОИНТ: cargo build, cargo clippy --all-targets (0 новых предупреждений в файлах вайтлиста), полный cargo test (без новых падений сверх 6 тестов SP1.0-B7); grep: нет WHEEL_VOLUME_STEP и 0.04 в путях громкости. Проверка: все три команды с ожидаемым итогом"
     done: false
-current_step: 11
-next_action: "Шаг 11: свойство volume-block-text в top_panel.slint/app.slint и Tooltip на неотключаемой обёртке ползунка"
+current_step: 12
+next_action: "Шаг 12: app/mod.rs выставляет volume-block-text из core.volume_block(); удалить самодельную подсказку в top_panel.slint"
 fail_counter: 0
 fail_counter_max: 3
 failed_attempts: []

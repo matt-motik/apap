@@ -140,6 +140,10 @@ export component TopPanel inherits Rectangle {
     // ТЗ-41, ADR-23, §6.18: громкость задана активным режимом (не bit-perfect) —
     // программный слайдер блокируется, мьют остаётся доступен.
     in property <bool> volume-enabled: true;
+    // ТЗ-39, ADR-14, §2.13: текст подсказки недоступной громкости (Строгий
+    // режим; Оптимальный с фиксацией на 100 %). Пустая строка — громкость
+    // доступна, подсказки нет.
+    in property <string> volume-block-text: "";
     // Переключатель режимов (ТЗ-18, ТЗ-109, ТЗ-110): постоянно виден в
     // главном окне. active-mode — 0 Совместимый, 1 Оптимальный, 2 Строгий.
     // mode-available/mode-unavailable-reason — по индексу режима; пустая
@@ -584,6 +588,31 @@ export component TopPanel inherits Rectangle {
                                 enabled: !root.bit-perfect && root.volume-enabled;
                                 changed(v) => { root.volume-changed(v); }
                             }
+                        }
+                    }
+                }
+
+                // Подсказка недоступной громкости (ТЗ-39, ADR-14, §2.13).
+                // Tooltip стоит на обёртке колонки, которая сама не
+                // отключается (wheel-vol и Slider отключаются отдельно), и
+                // существует только при непустом тексте из Rust.
+                if root.volume-block-text != "": Tooltip {
+                    Rectangle {
+                        width: 170px;
+                        height: vol-block-tip-text.preferred-height + 10px;
+                        background: Colors.bg-elevated;
+                        border-color: Colors.border-default;
+                        border-width: 1px;
+                        border-radius: 4px;
+
+                        vol-block-tip-text := Text {
+                            text: root.volume-block-text;
+                            color: Colors.text-secondary;
+                            font-size: 11px;
+                            wrap: word-wrap;
+                            x: 6px;
+                            y: 5px;
+                            width: parent.width - 12px;
                         }
                     }
                 }
