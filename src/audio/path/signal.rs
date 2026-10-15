@@ -7,6 +7,7 @@
 #![deny(clippy::unwrap_used, clippy::expect_used, clippy::unreachable)]
 
 use crate::audio::backend::DriverFormat;
+use crate::audio::test_run::TestBadge;
 use crate::settings::playback::ModeKind;
 
 use super::transform::{Lossiness, Transform};
@@ -176,9 +177,6 @@ impl StageView<'_> {
 
 /// Меняется во время воспроизведения; приходит событием `DynamicsChanged`
 /// только при изменении (§3.5, ADR-05).
-///
-/// Поле `test: Option<TestBadge>` из §3.5 добавляется на шаге 17 этапа
-/// AM1.0-8.5 вместе с `TestBadge` (`audio/test_run.rs`).
 #[derive(Clone, PartialEq, Debug, Default)]
 pub struct DynamicPathState {
     /// ТЗ-68; сброс при новом потоке.
@@ -195,6 +193,9 @@ pub struct DynamicPathState {
     pub decode_errors: u32,
     /// ТЗ-69: результат проверки MD5.
     pub md5: Md5Status,
+    /// Кнопка-бейдж «Тест» (§3.5, §2.7, ТЗ-61). `None` — состояние ещё не
+    /// вычислено движком (нет потока или хранилище результатов не прочитано).
+    pub test: Option<TestBadge>,
 }
 
 /// Результат проверки MD5 потока FLAC (§3.5, ТЗ-69, ОВ-15).
@@ -385,5 +386,16 @@ mod tests {
         assert_eq!(p.stages()[3].status(), StageStatus::Unknown);
         assert_eq!(p.device.accepted, None);
         assert_eq!(p.stages()[5].status(), StageStatus::Unknown);
+    }
+
+    /// §3.5, ТЗ-61: новый поток — без бейджа «Теста»; бейдж входит в сравнение
+    /// для `DynamicsChanged` (событие только при изменении, ADR-05).
+    #[test]
+    fn dynamic_state_test_badge() {
+        use crate::audio::test_run::{IncompleteWhy, TestBadge};
+        let d = DynamicPathState::default();
+        assert_eq!(d.test, None);
+        let with = DynamicPathState { test: Some(TestBadge::Unknown(Some(IncompleteWhy::Seek))), ..d.clone() };
+        assert_ne!(with, d);
     }
 }
