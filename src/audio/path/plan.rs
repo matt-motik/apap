@@ -19,8 +19,9 @@ use crate::audio::format::{
     SourceKind, StreamFormat,
 };
 use crate::audio::session::RingPayload;
+use crate::audio::verdict::GainState;
 use crate::settings::params::ParamId;
-use crate::settings::playback::{DsdAboveDac, DsdFilter, ModeKind, PathPolicy, RateFallbackRule};
+use crate::settings::playback::{Dither, DsdAboveDac, DsdFilter, ModeKind, PathPolicy, RateFallbackRule};
 
 use super::transform::{Cause, Confidence, Transform, TransformKind, Truncate, ZeroPad};
 use super::{Blocked, DopRoute, DsdChainStep, DsdChainView, DsdStepKind, DsdStepStatus, PathPlan, Route, StageId};
@@ -74,9 +75,10 @@ type StepError = (StageId, Incompatibility);
 /// - шаг 3 (частота, §6.4) реализован полностью; для `DsdToPcm` частота
 ///   источника — `pcm_rate` маршрута;
 /// - шаги 5–6 (усиление и дизеринг) выполняет не `plan()`, а
-///   `with_gain(&PathPlan, GainState)` (§6.3, шаг 13 этапа): громкость
-///   меняется без переоткрытия; наличие переквантования для `Dither`
-///   определяет `requantizes` (ТЗ-8);
+///   `with_gain(&plan, gain, policy)` (§6.3, ТЗ-8, ТЗ-60): громкость меняется
+///   без переоткрытия, поэтому `plan()` возвращает план без `Volume`, `Mute`,
+///   `SilenceGate` и `Dither`; движок применяет к нему `with_gain` со снимком
+///   `GainState`;
 /// - шаг 7 (полезная нагрузка ring) реализован полностью.
 ///
 /// Все преобразования планировщика имеют `Confidence::Assumed`: план строится
@@ -755,7 +757,8 @@ fn f32_payload(draft: &PathPlan) -> bool {
 /// `Truncate` или есть `Volume(v)` с `v ≠ 100` при целом выходе. `ZeroPad`,
 /// `MonoToStereo`, `ChannelPad`, `DopPack`, `IntToFloat` и выход `F32`
 /// переквантования не дают. По нему `with_gain` решает, добавлять ли
-/// `Dither` (шаг 6 §6.3); `plan` дизеринг не добавляет.
+/// `Dither` (шаг 6 §6.3), проверяя план уже с `Volume` шага 5; `plan`
+/// дизеринг не добавляет.
 pub fn requantizes(plan: &PathPlan) -> bool {
     let int_out = plan.target.sample != OutputSampleFormat::F32;
     let f32_to_int = int_out && matches!(plan.ring, RingPayload::F32);
@@ -765,6 +768,100 @@ pub fn requantizes(plan: &PathPlan) -> bool {
         _ => false,
     });
     f32_to_int || lossy
+}
+
+// ---------------------------------------------------------------------------
+// Шаги 5–6. Усиление и дизеринг (with_gain)
+// ---------------------------------------------------------------------------
+
+/// Стадия усиления колбэка (ADR-23, ОВС-18, ОВС-19).
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+enum GainStage {
+    /// Ступени громкости нет, mute — подменой тишиной (Строгий, Оптимальный
+    /// с фиксацией громкости, DoP; ТЗ-41).
+    NoGain,
+    /// Атомарная громкость и mute (Совместимый, Оптимальный без фиксации, PCM).
+    AtomicGain,
+}
+
+/// Стадия усиления плана (ADR-23, ОВС-18, ОВС-19): `NoGain` для Строгого
+/// режима, Оптимального с `volume_lock` и маршрута `Dop` (у DoP громкости нет,
+/// ADR-12); иначе `AtomicGain`.
+fn gain_stage(plan: &PathPlan, policy: PathPolicy<'_>) -> GainStage {
+    if matches!(plan.route, Route::Dop(_)) {
+        return GainStage::NoGain;
+    }
+    match policy {
+        PathPolicy::Strict(_) => GainStage::NoGain,
+        PathPolicy::Optimal(opts) if opts.volume_lock => GainStage::NoGain,
+        PathPolicy::Optimal(_) | PathPolicy::Compatible(_) => GainStage::AtomicGain,
+    }
+}
+
+/// Опция дизеринга режима (ТЗ-8, ОВ-7): у Строгого режима её нет — он не
+/// переквантует (ТЗ-35, ТЗ-41), поэтому `Dither::Off`.
+fn dither_opt(policy: PathPolicy<'_>) -> Dither {
+    match policy {
+        PathPolicy::Compatible(opts) => opts.dither,
+        PathPolicy::Optimal(opts) => opts.dither,
+        PathPolicy::Strict(_) => Dither::Off,
+    }
+}
+
+/// Преобразования шагов 5–6, которые пересчитывает `with_gain` (§6.3).
+fn is_gain_step(kind: &TransformKind) -> bool {
+    matches!(
+        kind,
+        TransformKind::Volume(_) | TransformKind::Mute | TransformKind::SilenceGate | TransformKind::Dither(_)
+    )
+}
+
+/// Шаги 5–6 планировщика (§6.3, ТЗ-8, ТЗ-41, ТЗ-60, ОВС-15, ОВС-18, ОВС-19,
+/// ADR-23): новый план с усилением и дизерингом для снимка `gain`.
+///
+/// Громкость меняется без переоткрытия, поэтому шаги 5–6 выполняет не `plan`,
+/// а эта функция: она меняет только `Volume`/`Mute`/`SilenceGate`/`Dither`, а
+/// `route`, `target`, `ring` и преобразования шагов 1–4 сохраняет. Прежние
+/// преобразования шагов 5–6 удаляются, поэтому повторный вызов идемпотентен.
+///
+/// Отличие от сигнатуры §6.3 `with_gain(&PathPlan, GainState)`: третий
+/// параметр `policy`. Опции `dither` (`CompatibleOpts`/`OptimalOpts`) и
+/// `volume_lock` (`OptimalOpts`) хранятся в настройках режима, а не в
+/// `PathPlan` (решение шага AM1.0-8.5).
+///
+/// Шаг 5. Стадия `NoGain` (`gain_stage`): `Muted` → `SilenceGate`, иначе
+/// ничего — ступени громкости нет (ТЗ-41). Стадия `AtomicGain`: `Muted` →
+/// `Mute`; `Scaled(v)` с `v ≠ 100` → `Volume(v)`; `Scaled(100)`, `Unity`,
+/// `NotApplicable` → ничего (единичное усиление побитово прозрачно, И-Р19).
+///
+/// Шаг 6. `Dither(Tpdf)`, если `requantizes` и опция режима — `Tpdf`.
+/// `Dither::Off` в преобразования не вносится (решение шага AM1.0-8.5). При
+/// mute дизеринг не добавляется: на выходе нули формата (ADR-03).
+///
+/// Причины (`Cause::PlayerSetting`): `Volume` — `ParamId::Volume`, `Mute` и
+/// `SilenceGate` — `ParamId::Mute`, `Dither` — `ParamId::DitherKind`; все три
+/// — пользовательские регуляторы, рекомендация укажет на них (§3.3, ТЗ-71).
+pub fn with_gain(plan: &PathPlan, gain: GainState, policy: PathPolicy<'_>) -> PathPlan {
+    let mut next = plan.clone();
+    next.transforms.retain(|t| !is_gain_step(&t.kind));
+    let stage = gain_stage(&next, policy);
+    let gain_kind = match (stage, gain) {
+        (GainStage::NoGain, GainState::Muted) => Some((TransformKind::SilenceGate, ParamId::Mute)),
+        (GainStage::AtomicGain, GainState::Muted) => Some((TransformKind::Mute, ParamId::Mute)),
+        (GainStage::AtomicGain, GainState::Scaled(v)) if v.get() != 100 => {
+            Some((TransformKind::Volume(v), ParamId::Volume))
+        }
+        (GainStage::NoGain, _) | (GainStage::AtomicGain, _) => None,
+    };
+    if let Some((kind, param)) = gain_kind {
+        next.transforms.push(assumed(kind, Cause::PlayerSetting(param)));
+    }
+    let muted = gain == GainState::Muted;
+    if !muted && dither_opt(policy) == Dither::Tpdf && requantizes(&next) {
+        next.transforms
+            .push(assumed(TransformKind::Dither(Dither::Tpdf), Cause::PlayerSetting(ParamId::DitherKind)));
+    }
+    next
 }
 
 // ---------------------------------------------------------------------------

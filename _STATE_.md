@@ -59,9 +59,9 @@
 - [x] Шаг 10: Тесты форматов, ч. 2: compatible_int32_source_marks_float_lossy, lossy_source_is_24bit_in_all_modes, float_pcm_source_per_mode, optimal_dsp_path_uses_largest_format, compatible_int_output_when_no_f32 (§7.2). Строки «+ Dither» до with_gain (шаг 13) проверять через requantizes(&plan) == true. Проверка: cargo test audio::path
 - [x] Шаг 11: plan.rs: цепочка DSD §6.9 (dop_ok, DoP только при Exclusive, dsd_pcm_rate, dsd_stop_hz, DsdAboveDac) (ТЗ-59, ТЗ-60). Проверка: cargo check
 - [x] Шаг 12: Тесты DSD: compatible_dsd_only_pcm, optimal_dsd_chain_dop_then_pcm, optimal_dsd_above_dac_converts, strict_dsd_chain_allows_native_to_dop_forbids_pcm, validate_dop_shared_is_unsupported (§7.2). Проверка: cargo test audio::path
-- [>] **Шаг 13: plan.rs: шаги 5–7 §6.3 — with_gain(&PathPlan, GainState), дизеринг (по requantizes; Dither(Off) в transforms не вносить), RingPayload + тест strict_never_lossy_property (ТЗ-8, ТЗ-39). В plan_tests заменить заглушки «requantizes == true» на проверку Dither через with_gain (float_pcm_source_per_mode, optimal_dsp_path_uses_largest_format, compatible_int_output_when_no_f32). Проверка: cargo test audio::path. ЧЕКПОИНТ: полный test + clippy**
-- [ ] Шаг 14: path/signal.rs: SignalPath::from_opened (поколение), stages(), lossy(), DynamicPathState, Md5Status, RtPriorityState (§3.2, §4.3, ТЗ-70, ТЗ-71). Проверка: cargo check
-- [ ] Шаг 15: audio/verdict.rs: BadgeState, SharedBadge, ExclusiveBadge (вкл. Muted, ОВС-18), BitPerfectProof, NbpReason, NbpSummary, GainState, verdict() §6.22 (ADR-06, ТЗ-52). Проверка: cargo check
+- [x] Шаг 13: plan.rs: шаги 5–7 §6.3 — with_gain(&PathPlan, GainState), дизеринг (по requantizes; Dither(Off) в transforms не вносить), RingPayload + тест strict_never_lossy_property (ТЗ-8, ТЗ-39). В plan_tests заменить заглушки «requantizes == true» на проверку Dither через with_gain (float_pcm_source_per_mode, optimal_dsp_path_uses_largest_format, compatible_int_output_when_no_f32). Проверка: cargo test audio::path. ЧЕКПОИНТ: полный test + clippy
+- [>] **Шаг 14: path/signal.rs: SignalPath::from_opened (поколение), stages(), lossy(), DynamicPathState, Md5Status, RtPriorityState (§3.2, §4.3, ТЗ-70, ТЗ-71). Проверка: cargo check**
+- [ ] Шаг 15: audio/verdict.rs: BadgeState, SharedBadge, ExclusiveBadge (вкл. Muted, ОВС-18), BitPerfectProof, NbpReason, NbpSummary, verdict() §6.22 (ADR-06, ТЗ-52); GainState уже добавлен на шаге 13. Проверка: cargo check
 - [ ] Шаг 16: Тесты бейджа, ч. 1: badge_honesty_table, badge_driver_unconfirmed, badge_bitperfect_ignores_mono_underrun_md5, badge_each_reason, badge_reason_priority_and_more (§7.2). Покрыть и бейдж строки strict_passthrough_24_192: «Bit-perfect» при Confirmed драйвера (из plan_tests отложено — нужны OpenedFacts). Проверка: cargo test verdict
 - [ ] Шаг 17: audio/test_run.rs (минимум С5): ConfigKey, TestRecord, TestBadge, TestAvailability/TestBlocker (+Muted, ОВС-18), test_availability() §6.22 + тест test_availability_rules (ТЗ-106, ТЗ-139). Проверка: cargo test test_run
 - [ ] Шаг 18: Тесты бейджа, ч. 2: compatible_badge_never_bitperfect, badge_no_stream_after_failed_open, badge_from_path_not_settings_dsd, badge_test_failed_matching_config (§7.2). Проверка: cargo test verdict
@@ -81,8 +81,8 @@
 
 Легенда: [x] сделано · [>] текущий шаг · [ ] не начато
 
-- **Текущий шаг (current_step):** Шаг 13
-- **Следующий ход:** Шаг 13: субагент реализует with_gain(&PathPlan, GainState) и дизеринг в plan.rs, тест strict_never_lossy_property, заменяет заглушки requantizes на проверки Dither; затем ЧЕКПОИНТ (полный test + clippy).
+- **Текущий шаг (current_step):** Шаг 14
+- **Следующий ход:** Шаг 14: субагент пишет path/signal.rs — SignalPath::from_opened (поколение), stages(), lossy(), DynamicPathState, Md5Status, RtPriorityState.
 - **Счетчик безуспешных компиляций:** 0/3
 - **Состояние:** in_progress
 

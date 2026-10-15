@@ -13,14 +13,14 @@ use crate::audio::format::{
     SourceKind,
 };
 use crate::settings::params::ParamId;
-use crate::settings::playback::{DsdFilter, ModeSettings, PathPolicy, RateFallbackRule};
+use crate::settings::playback::{Dither, DsdFilter, ModeKind, ModeSettings, PathPolicy, RateFallbackRule, Volume};
 
 use crate::audio::session::RingPayload;
-use crate::audio::verdict::NbpReason;
+use crate::audio::verdict::{GainState, NbpReason};
 
 use super::super::transform::{Cause, Lossiness, Transform, TransformKind, Truncate, ZeroPad};
 use super::super::{Blocked, DsdChainStep, DsdStepKind, DsdStepStatus, PathPlan, Route, StageId};
-use super::{dsd_pcm_rate, dsd_stop_hz, plan, requantizes};
+use super::{dsd_pcm_rate, dsd_stop_hz, plan, requantizes, with_gain};
 
 fn sr(hz: u32) -> SampleRate {
     SampleRate::new(hz).unwrap()
@@ -354,6 +354,13 @@ fn kinds(p: &PathPlan) -> Vec<&TransformKind> {
     p.transforms.iter().map(|t| &t.kind).collect()
 }
 
+/// Есть ли `Dither(Tpdf)` в плане после `with_gain` с единичным усилением
+/// (§6.3 шаг 6, ТЗ-8).
+fn gets_tpdf(p: &PathPlan, policy: PathPolicy<'_>) -> bool {
+    let g = with_gain(p, GainState::Unity, policy);
+    g.transforms.iter().any(|t| t.kind == TransformKind::Dither(Dither::Tpdf))
+}
+
 /// §7.2, ТЗ-26: Оптимальный, 24/192 стерео на устройстве с 192 кГц и
 /// `S24_LE`/`S32_LE` — passthrough: ни одного преобразования (24 бита в
 /// `S24_LE` — без `ZeroPad`, ОВ-32), переквантования нет.
@@ -601,9 +608,9 @@ fn float_pcm_source_per_mode() {
         assert_eq!(p.transforms[0].kind.badge_reason(), Some(NbpReason::FloatToInt), "double={double}");
         assert_eq!(p.target.sample, S32Le, "double={double}");
         assert_eq!(p.ring, RingPayload::F32, "double={double}");
-        // `Dither` добавляет `with_gain` (AM1.0-8.5 шаг 13); здесь — только
-        // признак переквантования, по которому он будет добавлен (§6.3).
+        // Квантование `F32` → `S32_LE`: `with_gain` добавляет TPDF (§6.3 шаг 6, ТЗ-8).
         assert!(requantizes(&p), "double={double}");
+        assert!(gets_tpdf(&p, PathPolicy::Optimal(&s.optimal)), "double={double}");
     }
 
     // Строгий: float-источник несовместим (ТЗ-132).
@@ -631,9 +638,9 @@ fn optimal_dsp_path_uses_largest_format() {
     assert_eq!(p.transforms.len(), 1, "лишние преобразования: {:?}", p.transforms);
     assert_eq!(p.target.sample, S32Le);
     assert_eq!(p.ring, RingPayload::F32);
-    // TPDF (`Dither`) добавляет `with_gain` (AM1.0-8.5 шаг 13); здесь —
-    // признак переквантования `F32` → `S32_LE` (§6.3).
+    // Переквантование `F32` → `S32_LE`: `with_gain` добавляет TPDF (§6.3 шаг 6).
     assert!(requantizes(&p));
+    assert!(gets_tpdf(&p, PathPolicy::Optimal(&s.optimal)));
 
     // Без SRC: `S16_LE`, ни одного преобразования, без переквантования.
     let c = caps_exclusive(rates(&[44_100]), &[S16Le, S32Le]);
@@ -669,9 +676,9 @@ fn compatible_int_output_when_no_f32() {
     assert_eq!(p.transforms[0].cause, Cause::ServerLimit);
     assert_eq!(cut.badge_reason(), Some(NbpReason::Truncation));
     assert_eq!(p.target.sample, S16Le);
-    // `Dither` добавляет `with_gain` (AM1.0-8.5 шаг 13); здесь — признак
-    // переквантования при `Truncate` (§6.3, ТЗ-8).
+    // Переквантование при `Truncate`: `with_gain` добавляет TPDF (§6.3, ТЗ-8).
     assert!(requantizes(&p));
+    assert!(gets_tpdf(&p, PathPolicy::Compatible(&s.compatible)));
 }
 
 /// DSD-источник DSF стерео: частота — частота DSD-битов на канал.
@@ -780,10 +787,11 @@ fn optimal_dsd_chain_dop_then_pcm() {
     let p = plan(&src_dsd(DsdRate::Dsd64), &c, PathPolicy::Optimal(&s.optimal)).unwrap();
     assert_eq!(chain(&p), want_chain(NotImplemented, Unsupported, Chosen));
     assert_dsd_to_pcm(&p, DsdRate::Dsd64, 88_200, 30_000, Cause::DeviceLimit, "без 176.4");
-    // `F32`-нагрузка DSD→PCM — наибольший формат устройства (§6.5); `Dither`
-    // добавляет `with_gain` (AM1.0-8.5 шаг 13), здесь — признак переквантования.
+    // `F32`-нагрузка DSD→PCM — наибольший формат устройства (§6.5);
+    // переквантование в целый выход — `with_gain` добавляет TPDF (§6.3 шаг 6).
     assert_eq!(p.target.sample, S32Le);
     assert!(requantizes(&p));
+    assert!(gets_tpdf(&p, PathPolicy::Optimal(&s.optimal)));
 }
 
 /// §7.2, ТЗ-33: Оптимальный — DSD512 при DoP до DSD256 → DSD→PCM с причиной
@@ -933,4 +941,164 @@ fn validate_dop_shared_is_unsupported() {
     // Вторая часть строки («`SharedRender` не содержит DoP») обеспечена типом:
     // `SharedRender` оборачивает только `PcmRenderF32Out` (backend/shared.rs),
     // DoP-варианта нет — проверяется компиляцией, а не тестом.
+}
+
+fn vol(v: u8) -> Volume {
+    Volume::new(v).unwrap()
+}
+
+/// Число преобразований вида `pred` в плане.
+fn count(p: &PathPlan, pred: impl Fn(&TransformKind) -> bool) -> usize {
+    p.transforms.iter().filter(|t| pred(&t.kind)).count()
+}
+
+/// §7.2, ТЗ-35, §6.3 «Свойство Строгого режима»: декартово произведение
+/// источников (частоты × разрядности × каналы, float-PCM, DSD, lossy) на
+/// устройства (Shared и Exclusive, разные частоты, форматы, каналы, с DoP и
+/// без). Каждый `Ok` в Строгом режиме — только преобразования без потерь, и
+/// так же после `with_gain` с mute и без него; иначе — `Blocked`.
+#[test]
+fn strict_never_lossy_property() {
+    use OutputSampleFormat::{S16Le, S24Le, S24_3Le, S32Le, F32};
+
+    const PCM_RATES: [u32; 7] = [44_100, 48_000, 88_200, 96_000, 176_400, 192_000, 384_000];
+    let mut sources = Vec::new();
+    for rate in PCM_RATES {
+        for bits in [16, 24, 32] {
+            for ch in [1, 2, 6] {
+                sources.push(src_pcm(bits, rate, ch));
+            }
+        }
+        sources.push(src_float(false, rate));
+        sources.push(src_float(true, rate));
+        sources.push(src_mp3(rate));
+    }
+    sources.push(src_51());
+    sources.extend(DsdRate::ALL.into_iter().map(src_dsd));
+
+    let all_rates = [44_100, 48_000, 88_200, 96_000, 176_400, 192_000, 352_800, 384_000, 705_600, 1_411_200];
+    let range = RateSet::Range { min: sr(44_100), max: sr(384_000) };
+    let format_sets: [&[OutputSampleFormat]; 5] =
+        [&[S16Le], &[S16Le, S24Le], &[S24_3Le, S32Le], &[S16Le, S24Le, S32Le, F32], &[F32]];
+    let rate_sets = [rates(&[44_100]), rates(&[48_000, 96_000]), rates(&DOP_RATES_64_256), rates(&all_rates), range];
+    let channel_sets: [&[u8]; 4] = [&[2], &[1, 2], &[2, 6], &[8]];
+    let mut devices = Vec::new();
+    for r in &rate_sets {
+        for f in format_sets {
+            for ch in channel_sets {
+                devices.push(with_channels(caps_exclusive(r.clone(), f), ch));
+                devices.push(with_channels(caps_shared(r.clone(), f), ch));
+            }
+        }
+    }
+
+    let s = settings();
+    let policy = PathPolicy::Strict(&s.strict);
+    let (mut ok, mut blocked) = (0usize, 0usize);
+    for src in &sources {
+        for c in &devices {
+            let Ok(p) = plan(src, c, policy) else {
+                blocked += 1;
+                continue;
+            };
+            ok += 1;
+            assert_eq!(p.mode, ModeKind::Strict);
+            assert!(p.transforms.iter().all(|t| t.kind.allowed_in(ModeKind::Strict)), "{src:?} на {c:?}: {:?}", p.transforms);
+            for gain in [GainState::NotApplicable, GainState::Unity, GainState::Muted, GainState::Scaled(vol(50))] {
+                let g = with_gain(&p, gain, policy);
+                assert!(
+                    g.transforms.iter().all(|t| t.kind.allowed_in(ModeKind::Strict)),
+                    "{src:?} на {c:?}, {gain:?}: {:?}",
+                    g.transforms
+                );
+            }
+        }
+    }
+    assert!(ok > 0 && blocked > 0, "вырожденный перебор: ok={ok}, blocked={blocked}");
+}
+
+/// §6.3 шаги 5–6, ТЗ-8, ОВ-5: Совместимый, целый выход. `Scaled(50)` →
+/// `Volume` + `Dither(Tpdf)`; `Scaled(100)` и `Unity` — без `Volume` и без
+/// дизеринга; при `Dither::Off` — `Volume` без `Dither`; повторный вызов не
+/// дублирует преобразования.
+#[test]
+fn with_gain_volume_adds_dither_compatible() {
+    use OutputSampleFormat::S16Le;
+
+    let mut s = settings();
+    let c = caps_shared(rates(&[44_100]), &[S16Le]);
+    let p = plan(&src_pcm(16, 44_100, 2), &c, PathPolicy::Compatible(&s.compatible)).unwrap();
+    assert!(p.transforms.is_empty(), "лишние преобразования: {:?}", p.transforms);
+    let policy = PathPolicy::Compatible(&s.compatible);
+
+    let g = with_gain(&p, GainState::Scaled(vol(50)), policy);
+    assert_eq!(kinds(&g), vec![&TransformKind::Volume(vol(50)), &TransformKind::Dither(Dither::Tpdf)]);
+    assert_eq!(g.transforms[0].cause, Cause::PlayerSetting(ParamId::Volume));
+    assert_eq!(g.transforms[1].cause, Cause::PlayerSetting(ParamId::DitherKind));
+    assert_eq!(g.target, p.target);
+    assert_eq!(g.ring, p.ring);
+
+    // Повторный вызов на результате идемпотентен; новая громкость заменяет `Volume`.
+    assert_eq!(with_gain(&g, GainState::Scaled(vol(50)), policy), g);
+    let g2 = with_gain(&g, GainState::Scaled(vol(30)), policy);
+    assert_eq!(kinds(&g2), vec![&TransformKind::Volume(vol(30)), &TransformKind::Dither(Dither::Tpdf)]);
+
+    // 100 % и Unity побитово прозрачны: ни `Volume`, ни `Dither` (И-Р19).
+    for gain in [GainState::Scaled(vol(100)), GainState::Unity, GainState::NotApplicable] {
+        assert!(with_gain(&g, gain, policy).transforms.is_empty(), "{gain:?}");
+    }
+
+    s.compatible.dither = Dither::Off;
+    let policy = PathPolicy::Compatible(&s.compatible);
+    let g = with_gain(&p, GainState::Scaled(vol(50)), policy);
+    assert_eq!(kinds(&g), vec![&TransformKind::Volume(vol(50))]);
+    assert_eq!(count(&with_gain(&g, GainState::Scaled(vol(50)), policy), |k| matches!(k, TransformKind::Volume(_))), 1);
+}
+
+/// §6.3 шаг 5, ОВС-18, ОВС-19, ADR-23: mute по стадии усиления.
+/// `AtomicGain` (Совместимый, Оптимальный без фиксации) → `Mute`; `NoGain`
+/// (Оптимальный с `volume_lock`, Строгий, DoP) → `SilenceGate`; `Scaled` в
+/// стадии `NoGain` ничего не добавляет (ТЗ-41).
+#[test]
+fn with_gain_mute_by_stage() {
+    use OutputSampleFormat::{S24Le, S32Le};
+
+    let s = settings();
+    let c = caps_exclusive(rates(&[44_100]), &[S24Le, S32Le]);
+    let src = src_pcm(24, 44_100, 2);
+    let is_mute = |k: &TransformKind| matches!(k, TransformKind::Mute);
+    let is_gate = |k: &TransformKind| matches!(k, TransformKind::SilenceGate);
+
+    for policy in [PathPolicy::Compatible(&s.compatible), PathPolicy::Optimal(&s.optimal)] {
+        let p = plan(&src, &c, policy).unwrap();
+        let g = with_gain(&p, GainState::Muted, policy);
+        assert_eq!(kinds(&g).last(), Some(&&TransformKind::Mute), "{policy:?}");
+        assert_eq!(g.transforms.last().unwrap().cause, Cause::PlayerSetting(ParamId::Mute));
+        assert_eq!(count(&g, is_gate), 0, "{policy:?}");
+        assert_eq!(count(&g, |k| matches!(k, TransformKind::Dither(_))), 0, "{policy:?}: дизеринг при mute");
+        // Снятие mute убирает `Mute` (пересчёт шагов 5–6).
+        assert_eq!(count(&with_gain(&g, GainState::Unity, policy), is_mute), 0, "{policy:?}");
+    }
+
+    let mut locked = settings();
+    locked.optimal.volume_lock = true;
+    let dop_caps = caps_exclusive(rates(&[176_400]), &[S24Le, S32Le]);
+    let optimal = PathPolicy::Optimal(&s.optimal);
+    let dop = plan(&src_dsd(DsdRate::Dsd64), &dop_caps, optimal).unwrap();
+    assert!(matches!(dop.route, Route::Dop(_)), "ожидался Route::Dop: {:?}", dop.route);
+    let locked_policy = PathPolicy::Optimal(&locked.optimal);
+    let strict = PathPolicy::Strict(&s.strict);
+    let cases = [
+        (locked_policy, plan(&src, &c, locked_policy).unwrap()),
+        (strict, plan(&src, &c, strict).unwrap()),
+        // DoP: стадии громкости нет даже в Оптимальном без фиксации (ADR-12).
+        (optimal, dop),
+    ];
+    for (policy, p) in &cases {
+        let g = with_gain(p, GainState::Muted, *policy);
+        assert_eq!(kinds(&g).last(), Some(&&TransformKind::SilenceGate), "{policy:?} {:?}", p.route);
+        assert_eq!(g.transforms.last().unwrap().cause, Cause::PlayerSetting(ParamId::Mute));
+        assert_eq!(count(&g, is_mute), 0, "{policy:?}");
+        assert_eq!(with_gain(p, GainState::Scaled(vol(50)), *policy), *p, "{policy:?}: Scaled в стадии NoGain");
+    }
 }

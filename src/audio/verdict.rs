@@ -1,6 +1,8 @@
 //! Бейдж bit-perfect (AM1.0 §2.5, ADR-06).
 #![deny(clippy::unwrap_used, clippy::expect_used, clippy::unreachable)]
 
+use crate::settings::playback::Volume;
+
 /// Причина «Не bit-perfect». Порядок вариантов — приоритет показа: первая
 /// причина становится основной, остальные идут в признак «+N» (ADR-06, ТЗ-53, §2.5).
 #[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Debug)]
@@ -27,4 +29,16 @@ pub enum NbpReason {
     Volume,
     /// Применён дизеринг.
     Dither,
+}
+
+/// Состояние усиления в момент вердикта (из SessionShared / PlaybackState, ОВС-15).
+/// NotApplicable — стадия NoGain без mute (Строгий, Оптимальный с фиксацией, DoP);
+/// Muted — mute любой стадией, включая ворота тишины NoGain/DopRender (ОВС-18).
+/// Тот же снимок принимает `with_gain` для шагов 5–6 планировщика (§2.5, §6.3).
+#[derive(Clone, Copy, PartialEq, Debug)]
+pub enum GainState {
+    NotApplicable,
+    Unity,
+    Scaled(Volume),
+    Muted,
 }
