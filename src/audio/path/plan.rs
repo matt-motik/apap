@@ -15,19 +15,40 @@ use smallvec::SmallVec;
 use crate::audio::backend::{AccessKind, DeviceCaps, RateSet};
 use crate::audio::error::Incompatibility;
 use crate::audio::format::{
-    BitDepth, ChannelLayout, ChannelPos, OutputSampleFormat, SampleRate, SourceFormat, SourceKind, StreamFormat,
+    BitDepth, ChannelLayout, ChannelPos, DopOutFormat, DsdRate, OutputSampleFormat, SampleRate, SourceFormat,
+    SourceKind, StreamFormat,
 };
 use crate::audio::session::RingPayload;
 use crate::settings::params::ParamId;
-use crate::settings::playback::{ModeKind, PathPolicy, RateFallbackRule};
+use crate::settings::playback::{DsdAboveDac, DsdFilter, ModeKind, PathPolicy, RateFallbackRule};
 
 use super::transform::{Cause, Confidence, Transform, TransformKind, Truncate, ZeroPad};
-use super::{Blocked, PathPlan, Route, StageId};
+use super::{Blocked, DopRoute, DsdChainStep, DsdChainView, DsdStepKind, DsdStepStatus, PathPlan, Route, StageId};
 
 /// Стандартный ряд частот для `RateSet::Range` (§6.4), Гц.
 const STANDARD_RATES_HZ: [u32; 10] = [
     44_100, 48_000, 88_200, 96_000, 176_400, 192_000, 352_800, 384_000, 705_600, 768_000,
 ];
+
+/// Базовые частоты DSD→PCM (§6.9, ОВС-6): 88,2 и 176,4 кГц.
+const RATE_88K2: SampleRate = const_rate(88_200);
+const RATE_176K4: SampleRate = const_rate(176_400);
+
+/// Разрядность нагрузки DoP в ring: 16 DSD-бит в битах 23..8 `ExactI32`,
+/// младшие 8 бит — нули (ADR-12, §2.9). Решение шага AM1.0-8.5:
+/// `valid_bits = 24`.
+const DOP_PAYLOAD_BITS: BitDepth = match BitDepth::new(24) {
+    Some(bits) => bits,
+    None => panic!("24 бита — допустимая разрядность"),
+};
+
+/// Частота-константа; ноль отвергается при компиляции.
+const fn const_rate(hz: u32) -> SampleRate {
+    match SampleRate::new(hz) {
+        Some(rate) => rate,
+        None => panic!("частота-константа должна быть ненулевой"),
+    }
+}
 
 /// Несовместимость шага: этап, на котором план остановлен, и причина (§6.3).
 type StepError = (StageId, Incompatibility);
@@ -39,16 +60,19 @@ type StepError = (StageId, Incompatibility);
 /// `partial` — план с результатами уже выполненных шагов (ТЗ-80).
 ///
 /// Текущее состояние каркаса (этап AM1.0-8.5):
-/// - шаг 1 (маршрут, §6.9): PCM-источник → `Route::Pcm`. DSD-маршрут (DoP,
-///   DSD→PCM) строится на шаге 11 этапа; до него DSD-источник в любом режиме
-///   даёт `Blocked { at: Output, reason: DopUnsupported { max_dop: None } }`;
+/// - шаг 1 (маршрут, §6.9, ТЗ-23, ТЗ-40) реализован полностью: `Route::Pcm`,
+///   `Dop` (только Exclusive, И-Т3) или `DsdToPcm`, цепочка `dsd_chain`; в
+///   Строгом режиме без DoP — `DopUnsupported { dsd, max_dop }`. Для `Dop`
+///   шаги 2–4 пропускаются: цель целиком задаёт маршрут (`dop_ok`
+///   гарантирует каналы, частоту и формат);
 /// - шаг 2 (каналы, §6.5, §6.13, ТЗ-54) реализован полностью: `MonoToStereo`,
 ///   `Downmix`, `ChannelPad` или `ChannelsUnsupported` в Строгом режиме;
 /// - шаг 4 (формат сэмпла, §6.5, ТЗ-26, ТЗ-28, ТЗ-37, ТЗ-132) реализован
 ///   полностью: `ZeroPad`, `Truncate`, `IntToFloat`, `Int32ToFloat`,
 ///   `FloatNarrow`, `FloatToInt` или в Строгом режиме `TruncationForbidden` /
 ///   `FloatUnsupported`;
-/// - шаг 3 (частота, §6.4) реализован полностью;
+/// - шаг 3 (частота, §6.4) реализован полностью; для `DsdToPcm` частота
+///   источника — `pcm_rate` маршрута;
 /// - шаги 5–6 (усиление и дизеринг) выполняет не `plan()`, а
 ///   `with_gain(&PathPlan, GainState)` (§6.3, шаг 13 этапа): громкость
 ///   меняется без переоткрытия; наличие переквантования для `Dither`
@@ -82,12 +106,16 @@ pub fn plan(src: &SourceFormat, caps: &DeviceCaps, policy: PathPolicy<'_>) -> Re
     }
 }
 
-/// Шаги §6.3 по порядку; шаги 5–6 — в `with_gain` (см. doc `plan`).
+/// Шаги §6.3 по порядку; шаги 5–6 — в `with_gain`, шаги 2–4 для `Dop` не
+/// нужны (см. doc `plan`).
 fn run_steps(draft: &mut PathPlan, caps: &DeviceCaps, policy: PathPolicy<'_>) -> Result<(), StepError> {
-    step_route(draft)?;
-    step_channels(draft, caps)?;
-    step_rate(draft, caps, policy)?;
-    step_sample_format(draft, caps)?;
+    step_route(draft, caps, policy)?;
+    if !matches!(draft.route, Route::Dop(_)) {
+        // DoP: каналы, частоту и формат уже выбрал шаг 1 (`dop_ok`, ADR-12).
+        step_channels(draft, caps)?;
+        step_rate(draft, caps, policy)?;
+        step_sample_format(draft, caps)?;
+    }
     step_ring(draft);
     Ok(())
 }
@@ -111,20 +139,177 @@ fn assumed(kind: TransformKind, cause: Cause) -> Transform {
 // Шаг 1. Маршрут (§6.9)
 // ---------------------------------------------------------------------------
 
-/// Шаг 1 (§6.3): PCM-источник → `Route::Pcm`. DSD-маршрут (§6.9, ТЗ-23,
-/// ТЗ-40) строится на шаге 11 этапа AM1.0-8.5; до него DSD-источник
-/// останавливает план на этапе «Вывод» с `DopUnsupported` без известного
-/// максимума DoP (`max_dop: None`).
-fn step_route(draft: &mut PathPlan) -> Result<(), StepError> {
-    match draft.source.kind {
-        SourceKind::Pcm { .. } | SourceKind::FloatPcm { .. } => {
-            draft.route = Route::Pcm;
-            draft.dsd_chain = None;
+/// Шаг 1 (§6.3, §6.9, ТЗ-1, ТЗ-23, ТЗ-31, ТЗ-33, ТЗ-39, ТЗ-40, И-Т3, И-Т5).
+///
+/// PCM-источник → `Route::Pcm` без DSD-цепочки. DSD-источник проходит
+/// цепочку Native → DoP → PCM; статусы шагов попадают в `dsd_chain` (ТЗ-40,
+/// Native всегда виден и не пробуется — И-Т5):
+/// - Совместимый: Native и DoP «отключено режимом», PCM выбран →
+///   `DsdToPcm` с `Cause::ModeRule` (Shared не умеет DoP, И-Т3);
+/// - Оптимальный: Native «не реализовано»; `Dop`, если `dop_ok`, иначе
+///   `DsdToPcm`. Причина DSD→PCM: DSD выше возможностей устройства
+///   (`max_dop` есть, но ниже `dsd`) → `PlayerSetting(DsdAboveDac)` (ТЗ-33,
+///   `DsdAboveDac::ConvertToPcm`), иначе «устройство не поддерживает DoP» →
+///   `DeviceLimit`;
+/// - Строгий: Native «не реализовано», PCM «отключено режимом»; `Dop`, если
+///   `dop_ok`, иначе `DopUnsupported { dsd, max_dop }` на этапе «Вывод».
+///
+/// `Dop` задаёт цель целиком: частота `dsd / 16`, формат `DopOutFormat`
+/// (ADR-12), каналы источника (их гарантирует `dop_ok`); `DopPack` имеет
+/// причину `ModeRule` (DoP закреплён режимом, строка «DSD: DoP» матрицы).
+fn step_route(draft: &mut PathPlan, caps: &DeviceCaps, policy: PathPolicy<'_>) -> Result<(), StepError> {
+    use DsdStepStatus::{Chosen, DisabledByMode, NotImplemented, NotTried, Unsupported};
+    let SourceKind::Dsd { dsd } = draft.source.kind else {
+        draft.route = Route::Pcm;
+        draft.dsd_chain = None;
+        return Ok(());
+    };
+    let channels = draft.source.layout.count().get();
+    let dop = dop_route(dsd, channels, caps);
+    match policy {
+        PathPolicy::Compatible(opts) => {
+            draft.dsd_chain = Some(dsd_chain(DisabledByMode, DisabledByMode, Chosen));
+            route_dsd_to_pcm(draft, dsd, opts.dsd_filter, opts.dsd_gain_comp, caps, Cause::ModeRule);
             Ok(())
         }
-        SourceKind::Dsd { dsd } => {
-            Err((StageId::Output, Incompatibility::DopUnsupported { dsd, max_dop: None }))
+        PathPolicy::Optimal(opts) => {
+            if let Some((route, fmt)) = dop {
+                draft.dsd_chain = Some(dsd_chain(NotImplemented, Chosen, NotTried));
+                route_dop(draft, route, fmt);
+                return Ok(());
+            }
+            draft.dsd_chain = Some(dsd_chain(NotImplemented, Unsupported, Chosen));
+            let above_dac = max_dop(channels, caps).is_some_and(|max| max.bit_rate_hz() < dsd.bit_rate_hz());
+            let cause = match (above_dac, opts.dsd_above_dac) {
+                (true, DsdAboveDac::ConvertToPcm) => Cause::PlayerSetting(ParamId::DsdAboveDac),
+                (false, _) => Cause::DeviceLimit,
+            };
+            route_dsd_to_pcm(draft, dsd, opts.dsd_filter, opts.dsd_gain_comp, caps, cause);
+            Ok(())
         }
+        PathPolicy::Strict(_) => {
+            if let Some((route, fmt)) = dop {
+                draft.dsd_chain = Some(dsd_chain(NotImplemented, Chosen, DisabledByMode));
+                route_dop(draft, route, fmt);
+                return Ok(());
+            }
+            draft.dsd_chain = Some(dsd_chain(NotImplemented, Unsupported, DisabledByMode));
+            let max_dop = max_dop(channels, caps);
+            Err((StageId::Output, Incompatibility::DopUnsupported { dsd, max_dop }))
+        }
+    }
+}
+
+/// Цепочка Native → DoP → PCM со статусами шагов (§6.9, ТЗ-40).
+fn dsd_chain(native: DsdStepStatus, dop: DsdStepStatus, pcm: DsdStepStatus) -> DsdChainView {
+    let step = |kind, status| DsdChainStep { kind, status };
+    DsdChainView {
+        steps: SmallVec::from_buf([
+            step(DsdStepKind::Native, native),
+            step(DsdStepKind::Dop, dop),
+            step(DsdStepKind::Pcm, pcm),
+        ]),
+    }
+}
+
+/// Частота PCM-контейнера DoP: `dsd / 16` (DSD64 → 176,4 кГц, …, DSD512 →
+/// 1411,2 кГц; §6.9).
+fn dop_rate(dsd: DsdRate) -> Option<SampleRate> {
+    SampleRate::new(dsd.bit_rate_hz() / 16)
+}
+
+/// `dop_ok` (§6.9, И-Т3, ADR-12): монопольный доступ, частота `dsd / 16`,
+/// каналы источника и хотя бы один 24-битный контейнер DoP. Возвращает
+/// формат DoP — первый поддерживаемый в порядке `S24_3LE`, `S24_LE`,
+/// `S32_LE` (ADR-12); `None` — DoP невозможен. Решение шага AM1.0-8.5:
+/// пустые `caps.channels` или `caps.formats` дают `None` (условие §6.9
+/// буквально: `∋` и `∩ ≠ ∅`).
+fn dop_format(dsd: DsdRate, channels: u8, caps: &DeviceCaps) -> Option<DopOutFormat> {
+    if caps.access != AccessKind::Exclusive || !caps.channels.contains(&channels) {
+        return None;
+    }
+    if !caps.rates.contains(dop_rate(dsd)?) {
+        return None;
+    }
+    [DopOutFormat::S24_3Le, DopOutFormat::S24Le, DopOutFormat::S32Le]
+        .into_iter()
+        .find(|&f| caps.formats.contains(&OutputSampleFormat::from(f)))
+}
+
+/// Маршрут DoP и его формат, если выполняется `dop_ok` (§6.9); `DopRoute::new`
+/// повторно проверяет монопольный доступ (И-Т3).
+fn dop_route(dsd: DsdRate, channels: u8, caps: &DeviceCaps) -> Option<(DopRoute, DopOutFormat)> {
+    let fmt = dop_format(dsd, channels, caps)?;
+    let route = DopRoute::new(dsd, dop_rate(dsd)?, caps.access)?;
+    Some((route, fmt))
+}
+
+/// `max_dop` (§6.9): наибольшая DSD-частота, для которой выполняется `dop_ok`.
+fn max_dop(channels: u8, caps: &DeviceCaps) -> Option<DsdRate> {
+    DsdRate::ALL.into_iter().rev().find(|&d| dop_format(d, channels, caps).is_some())
+}
+
+/// Маршрут `Dop` (§6.9, ADR-12): цель — частота контейнера и формат DoP,
+/// каналы источника; преобразование `DopPack` без потерь.
+fn route_dop(draft: &mut PathPlan, route: DopRoute, fmt: DopOutFormat) {
+    draft.route = Route::Dop(route);
+    draft.target.rate = route.pcm_rate();
+    draft.target.sample = OutputSampleFormat::from(fmt);
+    draft.target.channels = draft.source.layout.count();
+    draft
+        .transforms
+        .push(assumed(TransformKind::DopPack { dsd: route.dsd() }, Cause::ModeRule));
+}
+
+/// Маршрут `DsdToPcm` (§6.9, ОВС-6, ОВС-6б, ТЗ-16, ТЗ-31, ТЗ-128): частота
+/// `dsd_pcm_rate`, действующая граница фильтра `dsd_stop_hz`. Частоту и
+/// формат выхода дальше выбирают шаги 3–4 от `pcm_rate` (нагрузка `F32`).
+fn route_dsd_to_pcm(draft: &mut PathPlan, dsd: DsdRate, filter: DsdFilter, gain_comp: bool, caps: &DeviceCaps, cause: Cause) {
+    let pcm_rate = dsd_pcm_rate(dsd, filter, caps);
+    let stop_hz = dsd_stop_hz(filter, pcm_rate);
+    draft.route = Route::DsdToPcm { dsd, pcm_rate, filter, stop_hz, gain_comp };
+    draft.target.rate = pcm_rate;
+    draft
+        .transforms
+        .push(assumed(TransformKind::DsdToPcm { dsd, rate: pcm_rate, filter, stop_hz, gain_comp }, cause));
+}
+
+/// Частота PCM для DSD→PCM (§6.9, ОВС-6, И-Р11): базовая 88,2 кГц для
+/// DSD64 с фильтром не 50 кГц, иначе 176,4 кГц; первая поддерживаемая из
+/// `base`, `base / 2`, `base / 4`; иначе наибольшая поддерживаемая частота
+/// семейства 44,1 кГц ниже `base`, иначе наибольшая поддерживаемая. Решение
+/// шага AM1.0-8.5: если кандидатов нет (пустой `Discrete` или `Range` без
+/// стандартных частот) — `base`; её проверяет шаг 3.
+///
+/// Общая функция планировщика, декодера DSD→PCM и окна (И-Р11, ТЗ-16).
+pub fn dsd_pcm_rate(dsd: DsdRate, filter: DsdFilter, caps: &DeviceCaps) -> SampleRate {
+    let base = if dsd == DsdRate::Dsd64 && filter != DsdFilter::K50 { RATE_88K2 } else { RATE_176K4 };
+    let halves = [base.hz(), base.hz() / 2, base.hz() / 4];
+    if let Some(rate) = halves.into_iter().filter_map(SampleRate::new).find(|&r| caps.rates.contains(r)) {
+        return rate;
+    }
+    let cands = candidates(&caps.rates);
+    cands
+        .iter()
+        .copied()
+        .filter(|&r| family(r) == Family::F44k1 && r < base)
+        .max()
+        .or_else(|| cands.iter().copied().max())
+        .unwrap_or(base)
+}
+
+/// Действующая граница фильтра DSD→PCM: `min(filter, fs_out / 2)` (§6.9,
+/// ТЗ-16, ТЗ-128, И-Р11).
+pub fn dsd_stop_hz(filter: DsdFilter, fs_out: SampleRate) -> u32 {
+    dsd_filter_hz(filter).min(fs_out.hz() / 2)
+}
+
+/// Выбранная граница фильтра DSD→PCM, Гц (ОВС-6): 24, 30 или 50 кГц.
+fn dsd_filter_hz(filter: DsdFilter) -> u32 {
+    match filter {
+        DsdFilter::K24 => 24_000,
+        DsdFilter::K30 => 30_000,
+        DsdFilter::K50 => 50_000,
     }
 }
 
@@ -243,8 +428,15 @@ fn default_layout(count: u8) -> ChannelLayout {
 /// - Оптимальный: поддерживается — без SRC; иначе правило `rate_fallback`
 ///   с `Cause::DeviceLimit` (ОВ-3).
 /// - Строгий: не поддерживается — `RateUnsupported` на этапе «Вывод» (ТЗ-36).
+///
+/// Для `DsdToPcm` частота источника — `pcm_rate` маршрута (§6.9): она уже
+/// выбрана из поддерживаемых, поэтому SRC возможен только по `fixed_rate`
+/// Совместимого режима (решение шага AM1.0-8.5).
 fn step_rate(draft: &mut PathPlan, caps: &DeviceCaps, policy: PathPolicy<'_>) -> Result<(), StepError> {
-    let src_rate = draft.source.rate;
+    let src_rate = match draft.route {
+        Route::DsdToPcm { pcm_rate, .. } => pcm_rate,
+        Route::Pcm | Route::Dop(_) => draft.source.rate,
+    };
     let chosen = match policy {
         PathPolicy::Compatible(opts) => {
             let wanted = opts.fixed_rate.unwrap_or(src_rate);
@@ -468,8 +660,8 @@ fn exclusive_format(draft: &mut PathPlan, caps: &DeviceCaps, cause: Cause) -> Re
         return Ok(());
     }
     let SourceKind::Pcm { bits: need } = draft.source.kind else {
-        // DSD без DSD→PCM сюда не доходит: формат DoP выбирается по
-        // `DopOutFormat` (ADR-12), а DSD→PCM — это `F32`-нагрузка.
+        // DSD сюда не доходит: для DoP шаг 4 пропускается (формат —
+        // `DopOutFormat`, ADR-12), а DSD→PCM — это `F32`-нагрузка.
         draft.target.sample = largest;
         return Ok(());
     };
@@ -543,8 +735,12 @@ fn natural_format(kind: SourceKind) -> OutputSampleFormat {
 }
 
 /// Нагрузка ring — `F32` (§6.3 шаг 7, ОВС-10 п. 1): есть `Resample`,
-/// `Downmix` или `DsdToPcm`, либо источник не целый PCM.
+/// `Downmix` или `DsdToPcm`, либо источник не целый PCM. Исключение — `Dop`:
+/// нагрузка DoP целая (`ExactI32`, ADR-12).
 fn f32_payload(draft: &PathPlan) -> bool {
+    if matches!(draft.route, Route::Dop(_)) {
+        return false;
+    }
     let converted = draft.transforms.iter().any(|t| {
         matches!(
             t.kind,
@@ -577,8 +773,13 @@ pub fn requantizes(plan: &PathPlan) -> bool {
 
 /// Шаг 7 (§6.3, ОВС-10 п. 1): `ExactI32 { valid_bits }`, если нет ни
 /// `Resample`, ни `Downmix`, ни `DsdToPcm` и источник не float-PCM; иначе `F32`
-/// (`f32_payload`).
+/// (`f32_payload`). DoP — `ExactI32 { valid_bits: 24 }`: 16 бит DSD-нагрузки
+/// в битах 23..8, маркер ставит колбэк (ADR-12, §2.9).
 fn step_ring(draft: &mut PathPlan) {
+    if matches!(draft.route, Route::Dop(_)) {
+        draft.ring = RingPayload::ExactI32 { valid_bits: DOP_PAYLOAD_BITS };
+        return;
+    }
     draft.ring = match draft.source.kind {
         SourceKind::Pcm { bits } if !f32_payload(draft) => RingPayload::ExactI32 { valid_bits: bits },
         SourceKind::Pcm { .. } | SourceKind::FloatPcm { .. } | SourceKind::Dsd { .. } => RingPayload::F32,
@@ -657,6 +858,64 @@ mod tests {
             channels: SmallVec::from_slice(&[2]),
         };
         assert_eq!(int_candidates(&caps).as_slice(), &[S16Le, S24_3Le, S24Le, S32Le]);
+    }
+
+    fn dsd_caps(access: AccessKind, hz: &[u32], formats: &[OutputSampleFormat]) -> DeviceCaps {
+        DeviceCaps {
+            api: crate::audio::backend::OutputApi::AlsaHw,
+            access,
+            name: "test".to_owned(),
+            rates: RateSet::Discrete(set(hz)),
+            formats: SmallVec::from_slice(formats),
+            channels: SmallVec::from_slice(&[2]),
+        }
+    }
+
+    /// §6.9, ОВС-6: базовая частота DSD→PCM и спуск `base / 2`, `base / 4`,
+    /// затем семейство 44,1 кГц ниже `base`, затем наибольшая.
+    #[test]
+    fn dsd_pcm_rate_base_and_fallbacks() {
+        let full = dsd_caps(AccessKind::Exclusive, &[44_100, 88_200, 176_400, 192_000], &[]);
+        assert_eq!(dsd_pcm_rate(DsdRate::Dsd64, DsdFilter::K30, &full), sr(88_200));
+        assert_eq!(dsd_pcm_rate(DsdRate::Dsd64, DsdFilter::K50, &full), sr(176_400));
+        assert_eq!(dsd_pcm_rate(DsdRate::Dsd256, DsdFilter::K24, &full), sr(176_400));
+        let max96 = dsd_caps(AccessKind::Exclusive, &[44_100, 48_000, 88_200, 96_000], &[]);
+        assert_eq!(dsd_pcm_rate(DsdRate::Dsd512, DsdFilter::K30, &max96), sr(88_200));
+        let odd = dsd_caps(AccessKind::Exclusive, &[22_050, 48_000], &[]);
+        assert_eq!(dsd_pcm_rate(DsdRate::Dsd64, DsdFilter::K30, &odd), sr(22_050));
+        let only48 = dsd_caps(AccessKind::Exclusive, &[48_000, 96_000], &[]);
+        assert_eq!(dsd_pcm_rate(DsdRate::Dsd64, DsdFilter::K30, &only48), sr(96_000));
+        let none = dsd_caps(AccessKind::Exclusive, &[], &[]);
+        assert_eq!(dsd_pcm_rate(DsdRate::Dsd128, DsdFilter::K30, &none), sr(176_400));
+    }
+
+    /// §6.9, ТЗ-16: действующая граница — `min(filter, fs_out / 2)`.
+    #[test]
+    fn dsd_stop_hz_clamps_to_nyquist() {
+        assert_eq!(dsd_stop_hz(DsdFilter::K30, sr(88_200)), 30_000);
+        assert_eq!(dsd_stop_hz(DsdFilter::K50, sr(88_200)), 44_100);
+        assert_eq!(dsd_stop_hz(DsdFilter::K30, sr(44_100)), 22_050);
+        assert_eq!(dsd_stop_hz(DsdFilter::K24, sr(176_400)), 24_000);
+    }
+
+    /// §6.9, И-Т3, ADR-12: `dop_ok` только для Exclusive; формат — первый
+    /// из `S24_3LE`, `S24_LE`, `S32_LE`; `max_dop` — наибольшая частота.
+    #[test]
+    fn dop_format_and_max_dop() {
+        use OutputSampleFormat::{S16Le, S24Le, S24_3Le, S32Le};
+        let hz = [176_400, 352_800, 705_600];
+        let excl = dsd_caps(AccessKind::Exclusive, &hz, &[S16Le, S32Le, S24Le]);
+        assert_eq!(dop_format(DsdRate::Dsd64, 2, &excl), Some(DopOutFormat::S24Le));
+        assert_eq!(dop_format(DsdRate::Dsd64, 6, &excl), None);
+        assert_eq!(dop_format(DsdRate::Dsd512, 2, &excl), None);
+        assert_eq!(max_dop(2, &excl), Some(DsdRate::Dsd256));
+        let packed = dsd_caps(AccessKind::Exclusive, &hz, &[S32Le, S24_3Le]);
+        assert_eq!(dop_format(DsdRate::Dsd128, 2, &packed), Some(DopOutFormat::S24_3Le));
+        let only16 = dsd_caps(AccessKind::Exclusive, &hz, &[S16Le]);
+        assert_eq!(max_dop(2, &only16), None);
+        let shared = dsd_caps(AccessKind::Shared, &hz, &[S24Le]);
+        assert_eq!(max_dop(2, &shared), None);
+        assert!(dop_route(DsdRate::Dsd64, 2, &shared).is_none());
     }
 }
 

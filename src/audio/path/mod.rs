@@ -89,9 +89,7 @@ pub struct DopRoute {
 
 impl DopRoute {
     /// Маршрут DoP для `dsd` в PCM-контейнере `pcm_rate`; `None`, если доступ
-    /// не монопольный (И-Т3). Вызывающий — `plan()` (шаг 5 AM1.0-8.5); до него
-    /// конструктор используется только тестами, отсюда точечный `expect`.
-    #[cfg_attr(not(test), expect(dead_code, reason = "вызывается plan() с шага 5 AM1.0-8.5"))]
+    /// не монопольный (И-Т3). Вызывающий — `plan()` (шаг 1 §6.3, §6.9).
     pub(crate) fn new(dsd: DsdRate, pcm_rate: SampleRate, access: AccessKind) -> Option<DopRoute> {
         match access {
             AccessKind::Exclusive => Some(DopRoute { dsd, pcm_rate }),

@@ -57,8 +57,8 @@
 - [x] Шаг 8: plan.rs: форматы Exclusive/Shared §6.5 (zero-pad, truncation, float) + правило переквантования §6.3 (ТЗ-56, ТЗ-57). Проверка: cargo check
 - [x] Шаг 9: Тесты форматов, ч. 1: optimal_passthrough_24_192, optimal_zero_pad_16_to_32, optimal_format_no_needless_truncation, strict_passthrough_24_192, strict_truncation_is_incompatible; дополнить compatible_passthrough_when_server_accepts проверкой «только IntToFloat» (§7.2). Проверка: cargo test audio::path
 - [x] Шаг 10: Тесты форматов, ч. 2: compatible_int32_source_marks_float_lossy, lossy_source_is_24bit_in_all_modes, float_pcm_source_per_mode, optimal_dsp_path_uses_largest_format, compatible_int_output_when_no_f32 (§7.2). Строки «+ Dither» до with_gain (шаг 13) проверять через requantizes(&plan) == true. Проверка: cargo test audio::path
-- [>] **Шаг 11: plan.rs: цепочка DSD §6.9 (dop_ok, DoP только при Exclusive, dsd_pcm_rate, dsd_stop_hz, DsdAboveDac) (ТЗ-59, ТЗ-60). Проверка: cargo check**
-- [ ] Шаг 12: Тесты DSD: compatible_dsd_only_pcm, optimal_dsd_chain_dop_then_pcm, optimal_dsd_above_dac_converts, strict_dsd_chain_allows_native_to_dop_forbids_pcm, validate_dop_shared_is_unsupported (§7.2). Проверка: cargo test audio::path
+- [x] Шаг 11: plan.rs: цепочка DSD §6.9 (dop_ok, DoP только при Exclusive, dsd_pcm_rate, dsd_stop_hz, DsdAboveDac) (ТЗ-59, ТЗ-60). Проверка: cargo check
+- [>] **Шаг 12: Тесты DSD: compatible_dsd_only_pcm, optimal_dsd_chain_dop_then_pcm, optimal_dsd_above_dac_converts, strict_dsd_chain_allows_native_to_dop_forbids_pcm, validate_dop_shared_is_unsupported (§7.2). Проверка: cargo test audio::path**
 - [ ] Шаг 13: plan.rs: шаги 5–7 §6.3 — with_gain(&PathPlan, GainState), дизеринг (по requantizes; Dither(Off) в transforms не вносить), RingPayload + тест strict_never_lossy_property (ТЗ-8, ТЗ-39). В plan_tests заменить заглушки «requantizes == true» на проверку Dither через with_gain (float_pcm_source_per_mode, optimal_dsp_path_uses_largest_format, compatible_int_output_when_no_f32). Проверка: cargo test audio::path. ЧЕКПОИНТ: полный test + clippy
 - [ ] Шаг 14: path/signal.rs: SignalPath::from_opened (поколение), stages(), lossy(), DynamicPathState, Md5Status, RtPriorityState (§3.2, §4.3, ТЗ-70, ТЗ-71). Проверка: cargo check
 - [ ] Шаг 15: audio/verdict.rs: BadgeState, SharedBadge, ExclusiveBadge (вкл. Muted, ОВС-18), BitPerfectProof, NbpReason, NbpSummary, GainState, verdict() §6.22 (ADR-06, ТЗ-52). Проверка: cargo check
@@ -81,8 +81,8 @@
 
 Легенда: [x] сделано · [>] текущий шаг · [ ] не начато
 
-- **Текущий шаг (current_step):** Шаг 11
-- **Следующий ход:** Шаг 11: субагент реализует цепочку DSD §6.9 в plan.rs (step_route: DoP только при Exclusive, dsd_pcm_rate, dsd_stop_hz, DsdAboveDac), снимает expect(dead_code) с DopRoute::new.
+- **Текущий шаг (current_step):** Шаг 12
+- **Следующий ход:** Шаг 12: субагент пишет тесты DSD в plan_tests.rs (compatible_dsd_only_pcm, optimal_dsd_chain_dop_then_pcm, optimal_dsd_above_dac_converts, strict_dsd_chain_allows_native_to_dop_forbids_pcm, validate_dop_shared_is_unsupported).
 - **Счетчик безуспешных компиляций:** 0/3
 - **Состояние:** in_progress
 

@@ -78,7 +78,7 @@ steps:
     done: true
   - id: 11
     description: "plan.rs: цепочка DSD §6.9 (dop_ok, DoP только при Exclusive, dsd_pcm_rate, dsd_stop_hz, DsdAboveDac) (ТЗ-59, ТЗ-60). Проверка: cargo check"
-    done: false
+    done: true
   - id: 12
     description: "Тесты DSD: compatible_dsd_only_pcm, optimal_dsd_chain_dop_then_pcm, optimal_dsd_above_dac_converts, strict_dsd_chain_allows_native_to_dop_forbids_pcm, validate_dop_shared_is_unsupported (§7.2). Проверка: cargo test audio::path"
     done: false
@@ -139,8 +139,8 @@ steps:
   - id: 31
     description: "Удаление легаси (§8, §7.4): bp_report.rs, StreamDesc, FallbackReason, dsd_pcm_breaks_bit_perfect и тесты dsd_pcm_breaks_bit_perfect_detects_conflict, bp_report_marks_volume_issue; ссылки в settings.rs/state_file.rs. Проверка: полный cargo test + clippy --all-targets. Шаг дробится при декомпозиции"
     done: false
-current_step: 11
-next_action: "Шаг 11: субагент реализует цепочку DSD §6.9 в plan.rs (step_route: DoP только при Exclusive, dsd_pcm_rate, dsd_stop_hz, DsdAboveDac), снимает expect(dead_code) с DopRoute::new."
+current_step: 12
+next_action: "Шаг 12: субагент пишет тесты DSD в plan_tests.rs (compatible_dsd_only_pcm, optimal_dsd_chain_dop_then_pcm, optimal_dsd_above_dac_converts, strict_dsd_chain_allows_native_to_dop_forbids_pcm, validate_dop_shared_is_unsupported)."
 fail_counter: 0
 fail_counter_max: 3
 failed_attempts: []
