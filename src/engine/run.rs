@@ -608,32 +608,7 @@ impl Engine {
     }
 }
 
-/// Что умеет бэкенд на этой платформе (§2.3, ОВС-12, ТЗ-109, ТЗ-110).
-/// Статичен для платформы: `ExclusiveBackend::caps()` не выполняет I/O,
-/// поэтому UI знает доступность режимов синхронно (§2.8). Определён здесь,
-/// а не в `audio/backend/mod.rs` (§2.3), т.к. этот шаг не вправе менять тот
-/// файл — перенос в `audio/backend` целиком относится к более позднему этапу.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub struct BackendCaps {
-    /// Доступен ли Exclusive-бэкенд на этой сборке. Временное соответствие
-    /// старому exclusive-пути (ОВС-12): `true` только на Linux, т.к. других
-    /// реализаций `ExclusiveBackend` пока нет (ТЗ-109, ТЗ-110).
-    pub exclusive: bool,
-}
-
-impl BackendCaps {
-    /// Возможности текущей сборки (ОВС-12, ТЗ-109, ТЗ-110).
-    pub fn current() -> Self {
-        Self { exclusive: cfg!(target_os = "linux") }
-    }
-
-    /// Доступность режима `mode` при данных возможностях бэкенда (ТЗ-109):
-    /// Совместимый доступен всегда, Оптимальный/Строгий — только при
-    /// `exclusive`.
-    pub fn available(&self, mode: ModeKind) -> bool {
-        mode == ModeKind::Compatible || self.exclusive
-    }
-}
+pub use crate::audio::backend::BackendCaps;
 
 /// Handle движка в UI (§2.8, ADR-01): хранит неблокирующий `Sender` и
 /// `JoinHandle` для выхода (ТЗ-45).

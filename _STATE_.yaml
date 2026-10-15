@@ -48,7 +48,7 @@ dod: "Все шаги [x]; cargo build, clippy --all-targets чистые; по�
 steps:
   - id: 1
     description: "Типы возможностей устройства в audio/backend/mod.rs: DeviceCaps, AccessKind, OutputApi, DriverFormat, DeviceBufferActual; перенос BackendCaps из engine/run.rs (§2.3, ОВС-12, ТЗ-109). Проверка: cargo check; полный cargo test (общий тип)"
-    done: false
+    done: true
   - id: 2
     description: "Убрать EngineHandle::spawn_with_caps: caps через EngineDeps (deps.rs, run.rs, tests.rs) (§2.3, ADR-20). Проверка: cargo test engine:: зелёный"
     done: false
@@ -139,8 +139,8 @@ steps:
   - id: 31
     description: "Удаление легаси (§8, §7.4): bp_report.rs, StreamDesc, FallbackReason, dsd_pcm_breaks_bit_perfect и тесты dsd_pcm_breaks_bit_perfect_detects_conflict, bp_report_marks_volume_issue; ссылки в settings.rs/state_file.rs. Проверка: полный cargo test + clippy --all-targets. Шаг дробится при декомпозиции"
     done: false
-current_step: 1
-next_action: "Шаг 1: субагент добавляет DeviceCaps/AccessKind/OutputApi/DriverFormat/DeviceBufferActual в src/audio/backend/mod.rs и переносит туда BackendCaps из src/engine/run.rs."
+current_step: 2
+next_action: "Шаг 2: субагент убирает EngineHandle::spawn_with_caps — BackendCaps через EngineDeps (deps.rs, run.rs, tests.rs)."
 fail_counter: 0
 fail_counter_max: 3
 failed_attempts: []

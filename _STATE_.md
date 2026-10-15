@@ -47,8 +47,8 @@
 - **Критерий успеха (Definition of Done):** Все шаги [x]; cargo build, clippy --all-targets чистые; полный cargo test — без новых падений сверх 6 известных SP1.0-B7 (Windows); тесты §7.2 этапа С5 (планировщик, бейдж/Тест, окно) зелёные; StreamDesc, FallbackReason, bp_report.rs, bool-бейджи и dsd_pcm_breaks_bit_perfect удалены; audio_facade.rs снят; плеер играет в Совместимом, бейдж «Shared: …»/«Не bit-perfect: …» честный.
 
 ## Итерационный трекер
-- [>] **Шаг 1: Типы возможностей устройства в audio/backend/mod.rs: DeviceCaps, AccessKind, OutputApi, DriverFormat, DeviceBufferActual; перенос BackendCaps из engine/run.rs (§2.3, ОВС-12, ТЗ-109). Проверка: cargo check; полный cargo test (общий тип)**
-- [ ] Шаг 2: Убрать EngineHandle::spawn_with_caps: caps через EngineDeps (deps.rs, run.rs, tests.rs) (§2.3, ADR-20). Проверка: cargo test engine:: зелёный
+- [x] Шаг 1: Типы возможностей устройства в audio/backend/mod.rs: DeviceCaps, AccessKind, OutputApi, DriverFormat, DeviceBufferActual; перенос BackendCaps из engine/run.rs (§2.3, ОВС-12, ТЗ-109). Проверка: cargo check; полный cargo test (общий тип)
+- [>] **Шаг 2: Убрать EngineHandle::spawn_with_caps: caps через EngineDeps (deps.rs, run.rs, tests.rs) (§2.3, ADR-20). Проверка: cargo test engine:: зелёный**
 - [ ] Шаг 3: audio/path/mod.rs: типы плана §3.1 — PathPlan, Route, Blocked, OpenedFacts, StageId, StageStatus, OsStage (ADR-05, ТЗ-52, ТЗ-70). Проверка: cargo check
 - [ ] Шаг 4: audio/path/transform.rs: Transform, TransformKind, дескриптор из 5 методов, Cause, Confidence/ConfirmedBy + тест transform_descriptor_is_total (§3.3, ТЗ-72). Проверка: cargo test transform_descriptor
 - [ ] Шаг 5: plan.rs: каркас plan(src, caps, policy) + выбор частоты §6.4 (семейства, SameFamily/Nearest/NoDownsample, фиксированная частота) (ТЗ-53, ТЗ-55). Решение шага: DoP допустим только при caps.access == Exclusive (И-Т3), усиление — через with_gain (шаг 13). Проверка: cargo check
@@ -81,8 +81,8 @@
 
 Легенда: [x] сделано · [>] текущий шаг · [ ] не начато
 
-- **Текущий шаг (current_step):** Шаг 1
-- **Следующий ход:** Шаг 1: субагент добавляет DeviceCaps/AccessKind/OutputApi/DriverFormat/DeviceBufferActual в src/audio/backend/mod.rs и переносит туда BackendCaps из src/engine/run.rs.
+- **Текущий шаг (current_step):** Шаг 2
+- **Следующий ход:** Шаг 2: субагент убирает EngineHandle::spawn_with_caps — BackendCaps через EngineDeps (deps.rs, run.rs, tests.rs).
 - **Счетчик безуспешных компиляций:** 0/3
 - **Состояние:** in_progress
 

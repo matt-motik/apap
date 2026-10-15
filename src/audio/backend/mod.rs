@@ -2,7 +2,8 @@
 //! этапам (таблица «Трейт → этап» под §8); в С0 — набор частот устройства.
 #![deny(clippy::unwrap_used, clippy::expect_used, clippy::unreachable)]
 
-use crate::audio::format::SampleRate;
+use crate::audio::format::{OutputSampleFormat, SampleRate, StreamFormat};
+use crate::settings::playback::ModeKind;
 use smallvec::SmallVec;
 
 pub mod catalog;
@@ -59,6 +60,78 @@ impl RateSet {
     }
 }
 
+/// Способ доступа к устройству: через системный микшер или монопольно
+/// (§2.3, ТЗ-109).
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub enum AccessKind {
+    Shared,
+    Exclusive,
+}
+
+/// Системный API, через который идёт вывод (§2.3, ТЗ-109, ТЗ-110).
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub enum OutputApi {
+    AlsaHw,
+    PipeWire,
+    PulseAudio,
+    WasapiShared,
+    CoreAudio,
+}
+
+/// Возможности устройства. Для Exclusive снимаются с захваченного PCM
+/// (§2.3, ТЗ-109).
+#[derive(Clone, PartialEq, Eq, Debug)]
+pub struct DeviceCaps {
+    pub api: OutputApi,
+    pub access: AccessKind,
+    pub name: String,
+    pub rates: RateSet,
+    pub formats: SmallVec<[OutputSampleFormat; 5]>,
+    pub channels: SmallVec<[u8; 4]>,
+}
+
+/// Результат чтения hw_params после открытия (§2.3, ОВ-14).
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub enum DriverFormat {
+    /// Прочитано у драйвера.
+    Confirmed(StreamFormat),
+    /// Прочитать не удалось (ОВ-14): бейдж — «параметры драйвера не
+    /// подтверждены».
+    Unreadable { requested: StreamFormat },
+}
+
+/// Фактические период и буфер из hw_params_current (§2.3, ТЗ-76, ТЗ-131).
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub struct DeviceBufferActual {
+    pub period_frames: u32,
+    pub buffer_frames: u32,
+}
+
+/// Что умеет бэкенд на этой платформе (§2.3, ОВС-12, ТЗ-109, ТЗ-110).
+/// Статичен для платформы: `ExclusiveBackend::caps()` не выполняет I/O,
+/// поэтому UI знает доступность режимов синхронно (§2.8).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct BackendCaps {
+    /// Доступен ли Exclusive-бэкенд на этой сборке. Временное соответствие
+    /// старому exclusive-пути (ОВС-12): `true` только на Linux, т.к. других
+    /// реализаций `ExclusiveBackend` пока нет (ТЗ-109, ТЗ-110).
+    pub exclusive: bool,
+}
+
+impl BackendCaps {
+    /// Возможности текущей сборки (ОВС-12, ТЗ-109, ТЗ-110).
+    pub fn current() -> Self {
+        Self { exclusive: cfg!(target_os = "linux") }
+    }
+
+    /// Доступность режима `mode` при данных возможностях бэкенда (ТЗ-109):
+    /// Совместимый доступен всегда, Оптимальный/Строгий — только при
+    /// `exclusive`.
+    pub fn available(&self, mode: ModeKind) -> bool {
+        mode == ModeKind::Compatible || self.exclusive
+    }
+}
+
 #[cfg(test)]
 #[allow(clippy::unwrap_used, clippy::expect_used, clippy::unreachable)]
 mod tests {
@@ -76,5 +149,14 @@ mod tests {
         let range = RateSet::Range { min: r(44_100), max: r(192_000) };
         assert!(range.contains(r(44_100)) && range.contains(r(192_000)) && range.contains(r(88_200)));
         assert!(!range.contains(r(384_000)));
+    }
+
+    #[test]
+    fn backend_caps_available_per_mode() {
+        let shared_only = BackendCaps { exclusive: false };
+        assert!(shared_only.available(ModeKind::Compatible));
+        assert!(!shared_only.available(ModeKind::Optimal) && !shared_only.available(ModeKind::Strict));
+        let full = BackendCaps { exclusive: true };
+        assert!(full.available(ModeKind::Compatible) && full.available(ModeKind::Optimal) && full.available(ModeKind::Strict));
     }
 }
