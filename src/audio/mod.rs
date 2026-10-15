@@ -10,6 +10,7 @@ pub mod fulltrack;
 pub mod palettes;
 pub mod path;
 pub mod spectrogram;
+pub mod test_run;
 pub mod testing;
 pub mod output;
 pub mod player;

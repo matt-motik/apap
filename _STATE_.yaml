@@ -90,12 +90,12 @@ steps:
     done: true
   - id: 15
     description: "audio/verdict.rs: BadgeState, SharedBadge, ExclusiveBadge (вкл. Muted, ОВС-18), BitPerfectProof, NbpReason, NbpSummary, verdict() §6.22 (ADR-06, ТЗ-52); GainState уже добавлен на шаге 13. Проверка: cargo check"
-    done: false
+    done: true
   - id: 16
     description: "Тесты бейджа, ч. 1: badge_honesty_table, badge_driver_unconfirmed, badge_bitperfect_ignores_mono_underrun_md5, badge_each_reason, badge_reason_priority_and_more (§7.2). Покрыть и бейдж строки strict_passthrough_24_192: «Bit-perfect» при Confirmed драйвера (из plan_tests отложено — нужны OpenedFacts). Проверка: cargo test verdict"
     done: false
   - id: 17
-    description: "audio/test_run.rs (минимум С5): ConfigKey, TestRecord, TestBadge, TestAvailability/TestBlocker (+Muted, ОВС-18), test_availability() §6.22 + тест test_availability_rules (ТЗ-106, ТЗ-139); поле test: Option<TestBadge> в DynamicPathState (path/signal.rs, §3.5). Проверка: cargo test test_run"
+    description: "audio/test_run.rs (минимум С5): ConfigKey и TestRecord уже есть (шаг 15; Hash/serde — с хранением, ADR-19); добавить TestBadge, TestAvailability/TestBlocker (+Muted, ОВС-18), test_availability() §6.22 + тест test_availability_rules; поле test: Option<TestBadge> в DynamicPathState (signal.rs) (ТЗ-106, ТЗ-139). Проверка: cargo test test_run"
     done: false
   - id: 18
     description: "Тесты бейджа, ч. 2: compatible_badge_never_bitperfect, badge_no_stream_after_failed_open, badge_from_path_not_settings_dsd, badge_test_failed_matching_config (§7.2). Проверка: cargo test verdict"
@@ -139,8 +139,8 @@ steps:
   - id: 31
     description: "Удаление легаси (§8, §7.4): bp_report.rs, StreamDesc, FallbackReason, dsd_pcm_breaks_bit_perfect и тесты dsd_pcm_breaks_bit_perfect_detects_conflict, bp_report_marks_volume_issue; ссылки в settings.rs/state_file.rs. Проверка: полный cargo test + clippy --all-targets. Шаг дробится при декомпозиции"
     done: false
-current_step: 15
-next_action: "Шаг 15: субагент пишет audio/verdict.rs — BadgeState, SharedBadge, ExclusiveBadge (Muted), BitPerfectProof, NbpSummary, verdict() §6.22 по SignalPath и GainState."
+current_step: 16
+next_action: "Шаг 16: субагент пишет тесты бейджа ч.1 в src/audio/verdict.rs (badge_honesty_table, badge_driver_unconfirmed, badge_bitperfect_ignores_mono_underrun_md5, badge_each_reason, badge_reason_priority_and_more) + проверка Bit-perfect при Confirmed для strict_passthrough_24_192."
 fail_counter: 0
 fail_counter_max: 3
 failed_attempts: []
