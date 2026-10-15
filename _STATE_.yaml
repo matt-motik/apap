@@ -75,7 +75,7 @@ steps:
     done: true
   - id: 10
     description: "Тесты форматов, ч. 2: compatible_int32_source_marks_float_lossy, lossy_source_is_24bit_in_all_modes, float_pcm_source_per_mode, optimal_dsp_path_uses_largest_format, compatible_int_output_when_no_f32 (§7.2). Строки «+ Dither» до with_gain (шаг 13) проверять через requantizes(&plan) == true. Проверка: cargo test audio::path"
-    done: false
+    done: true
   - id: 11
     description: "plan.rs: цепочка DSD §6.9 (dop_ok, DoP только при Exclusive, dsd_pcm_rate, dsd_stop_hz, DsdAboveDac) (ТЗ-59, ТЗ-60). Проверка: cargo check"
     done: false
@@ -83,7 +83,7 @@ steps:
     description: "Тесты DSD: compatible_dsd_only_pcm, optimal_dsd_chain_dop_then_pcm, optimal_dsd_above_dac_converts, strict_dsd_chain_allows_native_to_dop_forbids_pcm, validate_dop_shared_is_unsupported (§7.2). Проверка: cargo test audio::path"
     done: false
   - id: 13
-    description: "plan.rs: шаги 5–7 §6.3 — with_gain(&PathPlan, GainState), дизеринг, RingPayload + тест strict_never_lossy_property (ТЗ-8, ТЗ-39). Проверка: cargo test audio::path. ЧЕКПОИНТ: полный test + clippy"
+    description: "plan.rs: шаги 5–7 §6.3 — with_gain(&PathPlan, GainState), дизеринг (по requantizes; Dither(Off) в transforms не вносить), RingPayload + тест strict_never_lossy_property (ТЗ-8, ТЗ-39). В plan_tests заменить заглушки «requantizes == true» на проверку Dither через with_gain (float_pcm_source_per_mode, optimal_dsp_path_uses_largest_format, compatible_int_output_when_no_f32). Проверка: cargo test audio::path. ЧЕКПОИНТ: полный test + clippy"
     done: false
   - id: 14
     description: "path/signal.rs: SignalPath::from_opened (поколение), stages(), lossy(), DynamicPathState, Md5Status, RtPriorityState (§3.2, §4.3, ТЗ-70, ТЗ-71). Проверка: cargo check"
@@ -139,8 +139,8 @@ steps:
   - id: 31
     description: "Удаление легаси (§8, §7.4): bp_report.rs, StreamDesc, FallbackReason, dsd_pcm_breaks_bit_perfect и тесты dsd_pcm_breaks_bit_perfect_detects_conflict, bp_report_marks_volume_issue; ссылки в settings.rs/state_file.rs. Проверка: полный cargo test + clippy --all-targets. Шаг дробится при декомпозиции"
     done: false
-current_step: 10
-next_action: "Шаг 10: субагент пишет тесты форматов ч.2 в plan_tests.rs (Dither — через requantizes)."
+current_step: 11
+next_action: "Шаг 11: субагент реализует цепочку DSD §6.9 в plan.rs (step_route: DoP только при Exclusive, dsd_pcm_rate, dsd_stop_hz, DsdAboveDac), снимает expect(dead_code) с DopRoute::new."
 fail_counter: 0
 fail_counter_max: 3
 failed_attempts: []

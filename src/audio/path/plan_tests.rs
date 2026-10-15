@@ -14,6 +14,7 @@ use crate::audio::format::{
 use crate::settings::params::ParamId;
 use crate::settings::playback::{ModeSettings, PathPolicy, RateFallbackRule};
 
+use crate::audio::session::RingPayload;
 use crate::audio::verdict::NbpReason;
 
 use super::super::transform::{Cause, Lossiness, Transform, TransformKind, Truncate, ZeroPad};
@@ -472,4 +473,202 @@ fn strict_truncation_is_incompatible() {
     assert_eq!(kinds(&p), vec![&pad], "ожидался один ZeroPad 16→32");
     assert_eq!(pad.lossiness(), Lossiness::Lossless);
     assert_eq!(p.target.sample, OutputSampleFormat::S32Le);
+}
+
+/// Lossy-источник MP3 стерео: выход декодера — 24-битные целые (ОВ-36).
+fn src_mp3(rate: u32) -> SourceFormat {
+    SourceFormat {
+        container: Container::Mp3,
+        codec: Codec::Mp3,
+        lossy: true,
+        rate: sr(rate),
+        layout: ChannelLayout::stereo(),
+        kind: SourceKind::Pcm { bits: bd(24) },
+    }
+}
+
+/// Float-источник WAV стерео: float32 (`double = false`) или float64.
+fn src_float(double: bool, rate: u32) -> SourceFormat {
+    SourceFormat {
+        container: Container::Wav,
+        codec: Codec::Wav,
+        lossy: false,
+        rate: sr(rate),
+        layout: ChannelLayout::stereo(),
+        kind: SourceKind::FloatPcm { double },
+    }
+}
+
+/// §7.2, ТЗ-22, ТЗ-53: Совместимый, 32-битный источник на сервере с `F32` —
+/// единственное `Int32ToFloat` с потерями (мантисса float32 — 24 бита),
+/// причина бейджа — `Int32ToFloat`.
+#[test]
+fn compatible_int32_source_marks_float_lossy() {
+    let s = settings();
+    let c = caps_shared(rates(&[48_000]), &[OutputSampleFormat::F32]);
+    let p = plan(&src_pcm(32, 48_000, 2), &c, PathPolicy::Compatible(&s.compatible)).unwrap();
+    assert_eq!(kinds(&p), vec![&TransformKind::Int32ToFloat], "ожидался только Int32ToFloat");
+    assert_eq!(p.transforms[0].cause, Cause::ServerLimit);
+    assert_eq!(p.transforms[0].kind.lossiness(), Lossiness::Lossy);
+    assert_eq!(p.transforms[0].kind.badge_reason(), Some(NbpReason::Int32ToFloat));
+    assert_eq!(p.target.sample, OutputSampleFormat::F32);
+    // Выход `F32` переквантования не даёт (§6.3).
+    assert!(!requantizes(&p));
+}
+
+/// §7.2, ТЗ-35, ТЗ-74, ТЗ-75, ОВ-36: MP3 — `need = 24` во всех режимах.
+/// Строгий на {24} — passthrough; на {16} — `Blocked(TruncationForbidden
+/// { from: 24, max: 16 })`; при достаточной разрядности ни в одном режиме нет
+/// округления (`Truncate`/переквантования).
+#[test]
+fn lossy_source_is_24bit_in_all_modes() {
+    let s = settings();
+    let src = src_mp3(44_100);
+
+    // Строгий на {24}: путь без преобразований.
+    let c = caps_exclusive(rates(&[44_100]), &[OutputSampleFormat::S24Le]);
+    let p = plan(&src, &c, PathPolicy::Strict(&s.strict)).unwrap();
+    assert!(p.transforms.is_empty(), "лишние преобразования: {:?}", p.transforms);
+    assert_eq!(p.target.sample, OutputSampleFormat::S24Le);
+    assert!(!requantizes(&p));
+
+    // Строгий на {16}: усечение 24→16 запрещено.
+    let c = caps_exclusive(rates(&[44_100]), &[OutputSampleFormat::S16Le]);
+    let err = plan(&src, &c, PathPolicy::Strict(&s.strict)).unwrap_err();
+    let Blocked { at, reason, .. } = err;
+    assert_eq!(at, StageId::Output);
+    assert_eq!(reason, Incompatibility::TruncationForbidden { from: bd(24), max: 16 });
+
+    // «Обработка» без округления: Совместимый на `F32` — `IntToFloat { 24 }`
+    // без потерь; Оптимальный и Строгий на {16, 24} — `S24_LE` без
+    // преобразований (16-битный формат не выбирается: `need = 24`).
+    let shared = caps_shared(rates(&[44_100]), &[OutputSampleFormat::F32]);
+    let excl = caps_exclusive(rates(&[44_100]), &[OutputSampleFormat::S16Le, OutputSampleFormat::S24Le]);
+    for policy in all_policies(&s) {
+        let compatible = matches!(policy, PathPolicy::Compatible(_));
+        let c = if compatible { &shared } else { &excl };
+        let p = plan(&src, c, policy).unwrap_or_else(|b| panic!("{policy:?}: Blocked {b:?}"));
+        assert!(
+            !p.transforms.iter().any(|t| matches!(t.kind, TransformKind::Truncate(_))),
+            "{policy:?}: Truncate {:?}",
+            p.transforms
+        );
+        assert!(!requantizes(&p), "{policy:?}: переквантование");
+        if compatible {
+            assert_eq!(kinds(&p), vec![&TransformKind::IntToFloat { bits: bd(24) }], "{policy:?}");
+            assert_eq!(p.target.sample, OutputSampleFormat::F32, "{policy:?}");
+        } else {
+            assert!(p.transforms.is_empty(), "{policy:?}: лишние преобразования {:?}", p.transforms);
+            assert_eq!(p.target.sample, OutputSampleFormat::S24Le, "{policy:?}");
+        }
+    }
+}
+
+/// §7.2, ТЗ-132, ОВС-1: WAV float. Совместимый: float32 — без
+/// преобразований (выход `F32`, ring `F32`: побитово), float64 —
+/// `FloatNarrow` (бейдж `Truncation`). Оптимальный — `FloatToInt` в
+/// наибольший формат устройства с переквантованием. Строгий —
+/// `Blocked { at: Output, FloatUnsupported }`.
+#[test]
+fn float_pcm_source_per_mode() {
+    use OutputSampleFormat::{S16Le, S24Le, S32Le, F32};
+
+    let s = settings();
+
+    // Совместимый, float32: ни одного преобразования, нагрузка и выход `F32`.
+    let c = caps_shared(rates(&[48_000]), &[F32]);
+    let p = plan(&src_float(false, 48_000), &c, PathPolicy::Compatible(&s.compatible)).unwrap();
+    assert!(p.transforms.is_empty(), "лишние преобразования: {:?}", p.transforms);
+    assert_eq!(p.target.sample, F32);
+    assert_eq!(p.ring, RingPayload::F32);
+    assert!(!requantizes(&p));
+
+    // Совместимый, float64: `FloatNarrow` с потерями.
+    let p = plan(&src_float(true, 48_000), &c, PathPolicy::Compatible(&s.compatible)).unwrap();
+    assert_eq!(kinds(&p), vec![&TransformKind::FloatNarrow], "ожидался только FloatNarrow");
+    assert_eq!(p.transforms[0].cause, Cause::ServerLimit);
+    assert_eq!(p.transforms[0].kind.lossiness(), Lossiness::Lossy);
+    assert_eq!(p.transforms[0].kind.badge_reason(), Some(NbpReason::Truncation));
+    assert_eq!(p.target.sample, F32);
+
+    // Оптимальный: `FloatToInt { 32 }` в наибольший формат {16, 24, 32}.
+    let c = caps_exclusive(rates(&[48_000]), &[S16Le, S24Le, S32Le]);
+    for double in [false, true] {
+        let p = plan(&src_float(double, 48_000), &c, PathPolicy::Optimal(&s.optimal)).unwrap();
+        assert_eq!(kinds(&p), vec![&TransformKind::FloatToInt { bits: 32 }], "double={double}");
+        assert_eq!(p.transforms[0].cause, Cause::DeviceLimit, "double={double}");
+        assert_eq!(p.transforms[0].kind.badge_reason(), Some(NbpReason::FloatToInt), "double={double}");
+        assert_eq!(p.target.sample, S32Le, "double={double}");
+        assert_eq!(p.ring, RingPayload::F32, "double={double}");
+        // `Dither` добавляет `with_gain` (AM1.0-8.5 шаг 13); здесь — только
+        // признак переквантования, по которому он будет добавлен (§6.3).
+        assert!(requantizes(&p), "double={double}");
+    }
+
+    // Строгий: float-источник несовместим (ТЗ-132).
+    for double in [false, true] {
+        let err = plan(&src_float(double, 48_000), &c, PathPolicy::Strict(&s.strict)).unwrap_err();
+        let Blocked { at, reason, .. } = err;
+        assert_eq!(at, StageId::Output, "double={double}");
+        assert_eq!(reason, Incompatibility::FloatUnsupported, "double={double}");
+    }
+}
+
+/// §7.2, ТЗ-28, ОВС-3: Оптимальный, 16-битный трек на {16, 32}. С SRC
+/// (`F32`-нагрузка) — наибольший формат `S32_LE` с переквантованием (TPDF);
+/// без SRC — `S16_LE` без преобразований.
+#[test]
+fn optimal_dsp_path_uses_largest_format() {
+    use OutputSampleFormat::{S16Le, S32Le};
+
+    let s = settings();
+
+    // С SRC 44.1→48: единственное преобразование — `Resample`, выход `S32_LE`.
+    let c = caps_exclusive(rates(&[48_000]), &[S16Le, S32Le]);
+    let p = plan(&src_pcm(16, 44_100, 2), &c, PathPolicy::Optimal(&s.optimal)).unwrap();
+    assert_eq!(single_resample(&p), (sr(44_100), sr(48_000), Cause::DeviceLimit));
+    assert_eq!(p.transforms.len(), 1, "лишние преобразования: {:?}", p.transforms);
+    assert_eq!(p.target.sample, S32Le);
+    assert_eq!(p.ring, RingPayload::F32);
+    // TPDF (`Dither`) добавляет `with_gain` (AM1.0-8.5 шаг 13); здесь —
+    // признак переквантования `F32` → `S32_LE` (§6.3).
+    assert!(requantizes(&p));
+
+    // Без SRC: `S16_LE`, ни одного преобразования, без переквантования.
+    let c = caps_exclusive(rates(&[44_100]), &[S16Le, S32Le]);
+    let p = plan(&src_pcm(16, 44_100, 2), &c, PathPolicy::Optimal(&s.optimal)).unwrap();
+    assert!(p.transforms.is_empty(), "лишние преобразования: {:?}", p.transforms);
+    assert_eq!(p.target.sample, S16Le);
+    assert_eq!(p.ring, RingPayload::ExactI32 { valid_bits: bd(16) });
+    assert!(!requantizes(&p));
+}
+
+/// §7.2, ТЗ-22, ОВС-4: Совместимый, сервер без `F32`. На {16, 32} 24-битный
+/// трек → `S32_LE` + `ZeroPad 24→32` без потерь; только {16} → `S16_LE` +
+/// `Truncate 24→16` (`ServerLimit`) с переквантованием.
+#[test]
+fn compatible_int_output_when_no_f32() {
+    use OutputSampleFormat::{S16Le, S32Le};
+
+    let s = settings();
+
+    let c = caps_shared(rates(&[48_000]), &[S16Le, S32Le]);
+    let p = plan(&src_pcm(24, 48_000, 2), &c, PathPolicy::Compatible(&s.compatible)).unwrap();
+    let pad = TransformKind::ZeroPad(ZeroPad::new(bd(24), bd(32)).unwrap());
+    assert_eq!(kinds(&p), vec![&pad], "ожидался один ZeroPad 24→32");
+    assert_eq!(p.transforms[0].cause, Cause::FormatContainer);
+    assert_eq!(pad.lossiness(), Lossiness::Lossless);
+    assert_eq!(p.target.sample, S32Le);
+    assert!(!requantizes(&p));
+
+    let c = caps_shared(rates(&[48_000]), &[S16Le]);
+    let p = plan(&src_pcm(24, 48_000, 2), &c, PathPolicy::Compatible(&s.compatible)).unwrap();
+    let cut = TransformKind::Truncate(Truncate::new(bd(24), bd(16)).unwrap());
+    assert_eq!(kinds(&p), vec![&cut], "ожидался один Truncate 24→16");
+    assert_eq!(p.transforms[0].cause, Cause::ServerLimit);
+    assert_eq!(cut.badge_reason(), Some(NbpReason::Truncation));
+    assert_eq!(p.target.sample, S16Le);
+    // `Dither` добавляет `with_gain` (AM1.0-8.5 шаг 13); здесь — признак
+    // переквантования при `Truncate` (§6.3, ТЗ-8).
+    assert!(requantizes(&p));
 }
