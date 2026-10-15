@@ -8,12 +8,15 @@
 #![deny(clippy::unwrap_used, clippy::expect_used, clippy::unreachable)]
 
 use std::cmp::Reverse;
+use std::num::NonZeroU8;
 
 use smallvec::SmallVec;
 
-use crate::audio::backend::{DeviceCaps, RateSet};
+use crate::audio::backend::{AccessKind, DeviceCaps, RateSet};
 use crate::audio::error::Incompatibility;
-use crate::audio::format::{OutputSampleFormat, SampleRate, SourceFormat, SourceKind, StreamFormat};
+use crate::audio::format::{
+    ChannelLayout, ChannelPos, OutputSampleFormat, SampleRate, SourceFormat, SourceKind, StreamFormat,
+};
 use crate::audio::session::RingPayload;
 use crate::settings::params::ParamId;
 use crate::settings::playback::{ModeKind, PathPolicy, RateFallbackRule};
@@ -39,10 +42,11 @@ type StepError = (StageId, Incompatibility);
 /// - шаг 1 (маршрут, §6.9): PCM-источник → `Route::Pcm`. DSD-маршрут (DoP,
 ///   DSD→PCM) строится на шаге 11 этапа; до него DSD-источник в любом режиме
 ///   даёт `Blocked { at: Output, reason: DopUnsupported { max_dop: None } }`;
-/// - шаги 2 и 4 (каналы и формат сэмпла, §6.5) реализуются на шагах 7–8
-///   этапа. Пока `target.channels` = число каналов источника, а формат
+/// - шаг 2 (каналы, §6.5, §6.13, ТЗ-54) реализован полностью: `MonoToStereo`,
+///   `Downmix`, `ChannelPad` или `ChannelsUnsupported` в Строгом режиме;
+/// - шаг 4 (формат сэмпла, §6.5) реализуется на шаге 8 этапа. Пока формат
 ///   сэмпла — точное совпадение с источником из `caps.formats`, иначе первый
-///   формат устройства (`device_sample_format`); преобразования каналов и формата не добавляются;
+///   формат устройства (`device_sample_format`); преобразования формата не добавляются;
 /// - шаг 3 (частота, §6.4) реализован полностью;
 /// - шаги 5–6 (усиление и дизеринг) выполняет не `plan()`, а
 ///   `with_gain(&PathPlan, GainState)` (§6.3, шаг 13 этапа): громкость
@@ -79,7 +83,7 @@ pub fn plan(src: &SourceFormat, caps: &DeviceCaps, policy: PathPolicy<'_>) -> Re
 /// Шаги §6.3 по порядку; шаги 5–6 — в `with_gain` (см. doc `plan`).
 fn run_steps(draft: &mut PathPlan, caps: &DeviceCaps, policy: PathPolicy<'_>) -> Result<(), StepError> {
     step_route(draft)?;
-    step_channels(draft);
+    step_channels(draft, caps)?;
     step_rate(draft, caps, policy)?;
     step_sample_format(draft, caps);
     step_ring(draft);
@@ -126,11 +130,98 @@ fn step_route(draft: &mut PathPlan) -> Result<(), StepError> {
 // Шаг 2. Каналы (§6.5)
 // ---------------------------------------------------------------------------
 
-/// Шаг 2 (§6.3): правила каналов §6.5 реализуются на шаге 7 этапа
-/// AM1.0-8.5. Пока число каналов цели равно числу каналов источника,
-/// преобразования не добавляются.
-fn step_channels(draft: &mut PathPlan) {
+/// Шаг 2 (§6.3, §6.5, ТЗ-12, ТЗ-13, ТЗ-36, ТЗ-54, ТЗ-133, ОВ-2, ОВС-2).
+///
+/// `n` — каналы источника, `C` — `caps.channels` (нули отбрасываются):
+/// 1. `n ∈ C` — без изменений;
+/// 2. `n = 1`, `2 ∈ C` — `MonoToStereo` во всех режимах;
+/// 3. `n > 1`, есть `c < n`: Совместимый и Оптимальный — `Downmix` в
+///    раскладку `max{c ∈ C : c < n}` (§6.13); Строгий — `ChannelsUnsupported`
+///    на этапе «Вывод»;
+/// 4. все `c > n` — `ChannelPad { from: n, to: min C }` во всех режимах
+///    (без потерь); для моно без `2 ∈ C` сначала `MonoToStereo`, затем
+///    `ChannelPad { from: 2, to: min C }`.
+///
+/// Причина преобразований — `ServerLimit` для Shared и `DeviceLimit` для
+/// Exclusive. Решение шага AM1.0-8.5: пустой `C` (устройство не сообщило
+/// числа каналов) — без изменений, как пустой `caps.formats` на шаге 4.
+fn step_channels(draft: &mut PathPlan, caps: &DeviceCaps) -> Result<(), StepError> {
+    let n = draft.source.layout.count().get();
     draft.target.channels = draft.source.layout.count();
+    let supported = || caps.channels.iter().copied().filter(|&c| c > 0);
+    let Some(min_c) = supported().min() else {
+        return Ok(());
+    };
+    if supported().any(|c| c == n) {
+        return Ok(());
+    }
+    let cause = channel_cause(caps);
+    if n == 1 {
+        draft.transforms.push(assumed(TransformKind::MonoToStereo, cause.clone()));
+        if supported().any(|c| c == 2) {
+            set_target_channels(draft, 2);
+            return Ok(());
+        }
+        // Правило 4 для моно: все c > 1 и 2 ∉ C, значит min C > 2.
+        draft.transforms.push(assumed(TransformKind::ChannelPad { from: 2, to: min_c }, cause));
+        set_target_channels(draft, min_c);
+        return Ok(());
+    }
+    if let Some(to) = supported().filter(|&c| c < n).max() {
+        if draft.mode == ModeKind::Strict {
+            return Err((
+                StageId::Output,
+                Incompatibility::ChannelsUnsupported { src: n, supported: caps.channels.clone() },
+            ));
+        }
+        let from = draft.source.layout.clone();
+        draft
+            .transforms
+            .push(assumed(TransformKind::Downmix { from, to: default_layout(to) }, cause));
+        set_target_channels(draft, to);
+        return Ok(());
+    }
+    // Правило 4: n ∉ C и нет c < n, значит все c > n.
+    draft.transforms.push(assumed(TransformKind::ChannelPad { from: n, to: min_c }, cause));
+    set_target_channels(draft, min_c);
+    Ok(())
+}
+
+/// Причина преобразования каналов (§6.5): ограничение сервера (Shared) или
+/// устройства (Exclusive).
+fn channel_cause(caps: &DeviceCaps) -> Cause {
+    match caps.access {
+        AccessKind::Shared => Cause::ServerLimit,
+        AccessKind::Exclusive => Cause::DeviceLimit,
+    }
+}
+
+/// Число каналов цели; `count > 0` гарантирует вызывающий (нули из `C`
+/// отброшены, `n ≥ 1`).
+fn set_target_channels(draft: &mut PathPlan, count: u8) {
+    if let Some(ch) = NonZeroU8::new(count) {
+        draft.target.channels = ch;
+    }
+}
+
+/// Раскладка по умолчанию для числа каналов (§6.13, порядок
+/// WAVEFORMATEXTENSIBLE): цель `Downmix`, пока раскладки устройства
+/// неизвестны. Больше 8 каналов — позиции `Unknown(i)`, как у декодера
+/// без маски каналов.
+fn default_layout(count: u8) -> ChannelLayout {
+    use ChannelPos::{BC, BL, BR, FC, FL, FR, LFE, SL, SR};
+    let positions: SmallVec<[ChannelPos; 8]> = match count {
+        1 => return ChannelLayout::mono(),
+        2 => return ChannelLayout::stereo(),
+        3 => SmallVec::from_slice(&[FL, FR, FC]),
+        4 => SmallVec::from_slice(&[FL, FR, BL, BR]),
+        5 => SmallVec::from_slice(&[FL, FR, FC, BL, BR]),
+        6 => SmallVec::from_slice(&[FL, FR, FC, LFE, BL, BR]),
+        7 => SmallVec::from_slice(&[FL, FR, FC, LFE, BC, SL, SR]),
+        8 => SmallVec::from_slice(&[FL, FR, FC, LFE, BL, BR, SL, SR]),
+        n => (0..n).map(ChannelPos::Unknown).collect(),
+    };
+    ChannelLayout::new(&positions).unwrap_or_else(ChannelLayout::stereo)
 }
 
 // ---------------------------------------------------------------------------

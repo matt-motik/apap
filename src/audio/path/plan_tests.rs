@@ -1,6 +1,7 @@
-//! Тесты планировщика `plan()` по таблице §7.2 (AM1.0 §6.4, ТЗ-22, ТЗ-27,
-//! ТЗ-36, ОВ-3, ОВ-4): выбор частоты в трёх режимах на синтетических
-//! `DeviceCaps` — без реального устройства (ТЗ-114).
+//! Тесты планировщика `plan()` по таблице §7.2 (AM1.0 §6.4, §6.5, §6.13,
+//! ТЗ-22, ТЗ-27, ТЗ-36, ТЗ-54, ТЗ-133, ОВ-3, ОВ-4, ОВС-2): выбор частоты и
+//! правила каналов в трёх режимах на синтетических `DeviceCaps` — без
+//! реального устройства (ТЗ-114).
 #![allow(clippy::unwrap_used, clippy::expect_used, clippy::unreachable)]
 
 use smallvec::SmallVec;
@@ -13,7 +14,9 @@ use crate::audio::format::{
 use crate::settings::params::ParamId;
 use crate::settings::playback::{ModeSettings, PathPolicy, RateFallbackRule};
 
-use super::super::transform::{Cause, Transform, TransformKind};
+use crate::audio::verdict::NbpReason;
+
+use super::super::transform::{Cause, Lossiness, Transform, TransformKind};
 use super::super::{Blocked, PathPlan, StageId};
 use super::plan;
 
@@ -64,6 +67,39 @@ fn caps_shared(rates: RateSet, formats: &[OutputSampleFormat]) -> DeviceCaps {
 /// Exclusive-устройство (Оптимальный и Строгий режимы).
 fn caps_exclusive(rates: RateSet, formats: &[OutputSampleFormat]) -> DeviceCaps {
     caps(AccessKind::Exclusive, OutputApi::AlsaHw, rates, formats)
+}
+
+/// Источник 5.1 (FLAC 24/48) с раскладкой ITU: FL FR FC LFE BL BR (§6.13).
+fn src_51() -> SourceFormat {
+    use ChannelPos::{BL, BR, FC, FL, FR, LFE};
+    let mut s = src_pcm(24, 48_000, 6);
+    s.layout = ChannelLayout::new(&[FL, FR, FC, LFE, BL, BR]).unwrap();
+    s
+}
+
+/// `DeviceCaps` с заданным набором чисел каналов `C` (§6.5).
+fn with_channels(mut c: DeviceCaps, channels: &[u8]) -> DeviceCaps {
+    c.channels = SmallVec::from_slice(channels);
+    c
+}
+
+/// Политика каждого из трёх режимов (ADR-04).
+fn all_policies(s: &ModeSettings) -> [PathPolicy<'_>; 3] {
+    [PathPolicy::Compatible(&s.compatible), PathPolicy::Optimal(&s.optimal), PathPolicy::Strict(&s.strict)]
+}
+
+/// Преобразования каналов плана (§6.5) по порядку.
+fn channel_kinds(p: &PathPlan) -> Vec<&TransformKind> {
+    p.transforms
+        .iter()
+        .map(|t| &t.kind)
+        .filter(|k| {
+            matches!(
+                k,
+                TransformKind::MonoToStereo | TransformKind::ChannelPad { .. } | TransformKind::Downmix { .. }
+            )
+        })
+        .collect()
 }
 
 fn settings() -> ModeSettings {
@@ -199,4 +235,105 @@ fn strict_rejects_rate() {
     assert_eq!(reason, Incompatibility::RateUnsupported { rate: sr(192_000), supported: set });
     // Текст «частота 192 кГц не поддерживается устройством» не проверяется:
     // у `Incompatibility` пока нет `Display`/текстового метода.
+}
+
+/// §7.2, ТЗ-22, ТЗ-12: 5.1 на сервере с 2 каналами — `Downmix 5.1 → 2.0`,
+/// `ServerLimit`, цель — 2 канала.
+#[test]
+fn compatible_downmix_when_server_limits() {
+    let s = settings();
+    let c = caps_shared(rates(&[48_000]), &[OutputSampleFormat::F32]);
+    let p = plan(&src_51(), &c, PathPolicy::Compatible(&s.compatible)).unwrap();
+    let downmixes: Vec<&Transform> = p
+        .transforms
+        .iter()
+        .filter(|t| matches!(t.kind, TransformKind::Downmix { .. }))
+        .collect();
+    assert_eq!(downmixes.len(), 1, "ожидался один Downmix: {:?}", p.transforms);
+    assert_eq!(downmixes[0].cause, Cause::ServerLimit);
+    assert_eq!(p.target.channels.get(), 2);
+}
+
+/// §7.2, ТЗ-29: Оптимальный, 5.1 на стерео-устройстве — `Downmix 5.1 → 2.0`
+/// с раскладками ITU, причина бейджа — `Downmix`.
+#[test]
+fn optimal_downmix_51_to_stereo_uses_itu_matrix() {
+    let s = settings();
+    let c = caps_exclusive(rates(&[48_000]), &[OutputSampleFormat::S32Le]);
+    let p = plan(&src_51(), &c, PathPolicy::Optimal(&s.optimal)).unwrap();
+    // План несёт только раскладки: матрица ITU `G[out][in]` (§6.13) строится
+    // по ним в потоке декодирования, поэтому здесь проверяются from/to.
+    let kinds = channel_kinds(&p);
+    assert_eq!(kinds.len(), 1, "ожидался один Downmix: {:?}", p.transforms);
+    let TransformKind::Downmix { from, to } = kinds[0] else {
+        panic!("ожидался Downmix: {:?}", kinds[0]);
+    };
+    assert_eq!(*from, src_51().layout);
+    assert_eq!(*to, ChannelLayout::stereo());
+    assert_eq!(kinds[0].badge_reason(), Some(NbpReason::Downmix));
+    assert_eq!(p.target.channels.get(), 2);
+    let t = p.transforms.iter().find(|t| matches!(t.kind, TransformKind::Downmix { .. })).unwrap();
+    assert_eq!(t.cause, Cause::DeviceLimit);
+}
+
+/// §7.2, ТЗ-36: Строгий, 5.1 на стерео — `Blocked { at: Output,
+/// ChannelsUnsupported { src: 6 } }`.
+#[test]
+fn strict_rejects_channel_mismatch() {
+    let s = settings();
+    let c = caps_exclusive(rates(&[48_000]), &[OutputSampleFormat::S24Le]);
+    let err = plan(&src_51(), &c, PathPolicy::Strict(&s.strict)).unwrap_err();
+    let Blocked { at, reason, .. } = err;
+    assert_eq!(at, StageId::Output);
+    assert_eq!(reason, Incompatibility::ChannelsUnsupported { src: 6, supported: SmallVec::from_slice(&[2]) });
+    // Текст «число каналов 6 не поддерживается устройством» проверяется в
+    // шаге отчёта (AM1.0-8.5 шаг 22): у `Incompatibility` пока нет `Display`.
+}
+
+/// §7.2, ТЗ-13, ТЗ-36: Строгий, моно на стерео — `MonoToStereo`, не
+/// несовместимость.
+#[test]
+fn strict_mono_on_stereo_plays() {
+    let s = settings();
+    let c = caps_exclusive(rates(&[44_100]), &[OutputSampleFormat::S16Le]);
+    let p = plan(&src_pcm(16, 44_100, 1), &c, PathPolicy::Strict(&s.strict)).unwrap();
+    assert_eq!(channel_kinds(&p), vec![&TransformKind::MonoToStereo]);
+    assert_eq!(p.target.channels.get(), 2);
+}
+
+/// §7.2, ТЗ-133, ОВС-2: стерео на {4, 8} → `ChannelPad 2→4` без потерь;
+/// моно на {4} → `MonoToStereo` + `ChannelPad 2→4`; во всех режимах, в
+/// Строгом — не `Blocked`. Нули в каналах 3–4 записывает поток
+/// декодирования (§6.5), план фиксирует только размещение.
+#[test]
+fn channel_pad_to_wider_device_all_modes() {
+    let s = settings();
+    for policy in all_policies(&s) {
+        let c = with_channels(caps_exclusive(rates(&[48_000]), &[OutputSampleFormat::S24Le]), &[4, 8]);
+        let p = plan(&src_pcm(24, 48_000, 2), &c, policy)
+            .unwrap_or_else(|b| panic!("{policy:?}: стерео на {{4, 8}} Blocked {b:?}"));
+        assert_eq!(channel_kinds(&p), vec![&TransformKind::ChannelPad { from: 2, to: 4 }], "{policy:?}");
+        assert!(
+            p.transforms
+                .iter()
+                .filter(|t| matches!(t.kind, TransformKind::ChannelPad { .. }))
+                .all(|t| t.kind.lossiness() == Lossiness::Lossless),
+            "{policy:?}: ChannelPad с потерями"
+        );
+        assert_eq!(p.target.channels.get(), 4, "{policy:?}");
+
+        let c = with_channels(caps_exclusive(rates(&[48_000]), &[OutputSampleFormat::S24Le]), &[4]);
+        let p = plan(&src_pcm(24, 48_000, 1), &c, policy)
+            .unwrap_or_else(|b| panic!("{policy:?}: моно на {{4}} Blocked {b:?}"));
+        assert_eq!(
+            channel_kinds(&p),
+            vec![&TransformKind::MonoToStereo, &TransformKind::ChannelPad { from: 2, to: 4 }],
+            "{policy:?}"
+        );
+        assert!(
+            channel_kinds(&p).iter().all(|k| k.lossiness() == Lossiness::Lossless),
+            "{policy:?}: преобразование каналов с потерями"
+        );
+        assert_eq!(p.target.channels.get(), 4, "{policy:?}");
+    }
 }

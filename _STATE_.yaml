@@ -66,7 +66,7 @@ steps:
     done: true
   - id: 7
     description: "plan.rs: каналы §6.5 (паддинг, ITU-даунмикс, отказ Строгого) + тесты compatible_downmix_when_server_limits, optimal_downmix_51_to_stereo_uses_itu_matrix, strict_rejects_channel_mismatch, strict_mono_on_stereo_plays, channel_pad_to_wider_device_all_modes (ТЗ-54). Проверка: cargo test audio::path"
-    done: false
+    done: true
   - id: 8
     description: "plan.rs: форматы Exclusive/Shared §6.5 (zero-pad, truncation, float) + правило переквантования §6.3 (ТЗ-56, ТЗ-57). Проверка: cargo check"
     done: false
@@ -139,8 +139,8 @@ steps:
   - id: 31
     description: "Удаление легаси (§8, §7.4): bp_report.rs, StreamDesc, FallbackReason, dsd_pcm_breaks_bit_perfect и тесты dsd_pcm_breaks_bit_perfect_detects_conflict, bp_report_marks_volume_issue; ссылки в settings.rs/state_file.rs. Проверка: полный cargo test + clippy --all-targets. Шаг дробится при декомпозиции"
     done: false
-current_step: 7
-next_action: "Шаг 7: субагент реализует шаг каналов §6.5 в plan.rs и пишет 5 тестов каналов в plan_tests.rs."
+current_step: 8
+next_action: "Шаг 8: субагент реализует форматы Exclusive/Shared §6.5 (zero-pad, truncation, float) и правило переквантования §6.3 в step_sample_format (plan.rs)."
 fail_counter: 0
 fail_counter_max: 3
 failed_attempts: []
