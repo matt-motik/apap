@@ -57,7 +57,7 @@ steps:
     done: true
   - id: 4
     description: "audio/path/mod.rs: типы плана §3.1–3.2 — PathPlan, Route, DopRoute, DsdChainView, Blocked, OpenedFacts, ReservationView, StageId, StageStatus, SourceStage…DeviceStage, OsStage, OsServer (ADR-05, ТЗ-52, ТЗ-70). Проверка: cargo check"
-    done: false
+    done: true
   - id: 5
     description: "plan.rs: каркас plan(src, caps, policy) + выбор частоты §6.4 (семейства, SameFamily/Nearest/NoDownsample, фиксированная частота) (ТЗ-53, ТЗ-55). Решение шага: DoP допустим только при caps.access == Exclusive (И-Т3), усиление — через with_gain (шаг 13). Проверка: cargo check"
     done: false
@@ -139,8 +139,8 @@ steps:
   - id: 31
     description: "Удаление легаси (§8, §7.4): bp_report.rs, StreamDesc, FallbackReason, dsd_pcm_breaks_bit_perfect и тесты dsd_pcm_breaks_bit_perfect_detects_conflict, bp_report_marks_volume_issue; ссылки в settings.rs/state_file.rs. Проверка: полный cargo test + clippy --all-targets. Шаг дробится при декомпозиции"
     done: false
-current_step: 4
-next_action: "Шаг 4: субагент добавляет типы плана §3.1–3.2 в src/audio/path/mod.rs. Учесть на шаге 13: Dither(Off) не вносить в transforms (иначе ложная причина Dither)."
+current_step: 5
+next_action: "Шаг 5: субагент создаёт src/audio/path/plan.rs (каркас plan() + выбор частоты §6.4). Снять cfg_attr(expect(dead_code)) с DopRoute::new в path/mod.rs, если plan() начнёт его вызывать (тогда mod.rs — второй файл шага)."
 fail_counter: 0
 fail_counter_max: 3
 failed_attempts: []
