@@ -3,6 +3,7 @@
 #![deny(clippy::unwrap_used, clippy::expect_used, clippy::unreachable)]
 
 pub mod plan;
+pub mod signal;
 pub mod transform;
 
 pub use self::plan::plan;
@@ -267,9 +268,10 @@ pub enum OsStage {
 impl OsStage {
     /// Статус вычисляется (§3.2): `NotInvolved` → `Unchanged`, `Unknown` →
     /// `Unknown`. Для `Known` по спецификации `Unknown`, если `rate`/`format`
-    /// отличаются от требуемого; без входа требуемый формат не узнать, поэтому
-    /// здесь `Known` всегда даёт `Unknown`. Правило сравнения появится в
-    /// `signal.rs` (шаг 14 AM1.0-8.5), где известен запрошенный формат.
+    /// отличаются от требуемого. Решение шага 14 AM1.0-8.5: `Known` всегда
+    /// даёт `Unknown` — системный микшер плеер не контролирует (ТЗ-77), и даже
+    /// совпавшая частота не исключает пересчёта громкости или формата (ТЗ-52);
+    /// совпадение `rate` учитывают только рекомендации (§6.25).
     pub fn status(&self) -> StageStatus {
         match self {
             OsStage::NotInvolved => StageStatus::Unchanged,
