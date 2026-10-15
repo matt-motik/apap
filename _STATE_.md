@@ -54,9 +54,9 @@
 - [x] Шаг 5: plan.rs: каркас plan(src, caps, policy) + выбор частоты §6.4 (семейства, SameFamily/Nearest/NoDownsample, фиксированная частота) (ТЗ-53, ТЗ-55). Решение шага: DoP допустим только при caps.access == Exclusive (И-Т3), усиление — через with_gain (шаг 13). Проверка: cargo check
 - [x] Шаг 6: Тесты частоты: compatible_passthrough_when_server_accepts, compatible_src_when_server_limits, compatible_fixed_rate_src, optimal_rate_fallback_rules, strict_rejects_rate (§7.2). Проверка: cargo test audio::path
 - [x] Шаг 7: plan.rs: каналы §6.5 (паддинг, ITU-даунмикс, отказ Строгого) + тесты compatible_downmix_when_server_limits, optimal_downmix_51_to_stereo_uses_itu_matrix, strict_rejects_channel_mismatch, strict_mono_on_stereo_plays, channel_pad_to_wider_device_all_modes (ТЗ-54). Проверка: cargo test audio::path
-- [>] **Шаг 8: plan.rs: форматы Exclusive/Shared §6.5 (zero-pad, truncation, float) + правило переквантования §6.3 (ТЗ-56, ТЗ-57). Проверка: cargo check**
-- [ ] Шаг 9: Тесты форматов, ч. 1: optimal_passthrough_24_192, optimal_zero_pad_16_to_32, optimal_format_no_needless_truncation, strict_passthrough_24_192, strict_truncation_is_incompatible; дополнить compatible_passthrough_when_server_accepts проверкой «только IntToFloat» (§7.2). Проверка: cargo test audio::path
-- [ ] Шаг 10: Тесты форматов, ч. 2: compatible_int32_source_marks_float_lossy, lossy_source_is_24bit_in_all_modes, float_pcm_source_per_mode, optimal_dsp_path_uses_largest_format, compatible_int_output_when_no_f32 (§7.2). Проверка: cargo test audio::path
+- [x] Шаг 8: plan.rs: форматы Exclusive/Shared §6.5 (zero-pad, truncation, float) + правило переквантования §6.3 (ТЗ-56, ТЗ-57). Проверка: cargo check
+- [>] **Шаг 9: Тесты форматов, ч. 1: optimal_passthrough_24_192, optimal_zero_pad_16_to_32, optimal_format_no_needless_truncation, strict_passthrough_24_192, strict_truncation_is_incompatible; дополнить compatible_passthrough_when_server_accepts проверкой «только IntToFloat» (§7.2). Проверка: cargo test audio::path**
+- [ ] Шаг 10: Тесты форматов, ч. 2: compatible_int32_source_marks_float_lossy, lossy_source_is_24bit_in_all_modes, float_pcm_source_per_mode, optimal_dsp_path_uses_largest_format, compatible_int_output_when_no_f32 (§7.2). Строки «+ Dither» до with_gain (шаг 13) проверять через requantizes(&plan) == true. Проверка: cargo test audio::path
 - [ ] Шаг 11: plan.rs: цепочка DSD §6.9 (dop_ok, DoP только при Exclusive, dsd_pcm_rate, dsd_stop_hz, DsdAboveDac) (ТЗ-59, ТЗ-60). Проверка: cargo check
 - [ ] Шаг 12: Тесты DSD: compatible_dsd_only_pcm, optimal_dsd_chain_dop_then_pcm, optimal_dsd_above_dac_converts, strict_dsd_chain_allows_native_to_dop_forbids_pcm, validate_dop_shared_is_unsupported (§7.2). Проверка: cargo test audio::path
 - [ ] Шаг 13: plan.rs: шаги 5–7 §6.3 — with_gain(&PathPlan, GainState), дизеринг, RingPayload + тест strict_never_lossy_property (ТЗ-8, ТЗ-39). Проверка: cargo test audio::path. ЧЕКПОИНТ: полный test + clippy
@@ -81,8 +81,8 @@
 
 Легенда: [x] сделано · [>] текущий шаг · [ ] не начато
 
-- **Текущий шаг (current_step):** Шаг 8
-- **Следующий ход:** Шаг 8: субагент реализует форматы Exclusive/Shared §6.5 (zero-pad, truncation, float) и правило переквантования §6.3 в step_sample_format (plan.rs).
+- **Текущий шаг (current_step):** Шаг 9
+- **Следующий ход:** Шаг 9: субагент пишет тесты форматов ч.1 в plan_tests.rs и дописывает в compatible_passthrough_when_server_accepts проверку «только IntToFloat».
 - **Счетчик безуспешных компиляций:** 0/3
 - **Состояние:** in_progress
 

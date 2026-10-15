@@ -69,12 +69,12 @@ steps:
     done: true
   - id: 8
     description: "plan.rs: форматы Exclusive/Shared §6.5 (zero-pad, truncation, float) + правило переквантования §6.3 (ТЗ-56, ТЗ-57). Проверка: cargo check"
-    done: false
+    done: true
   - id: 9
     description: "Тесты форматов, ч. 1: optimal_passthrough_24_192, optimal_zero_pad_16_to_32, optimal_format_no_needless_truncation, strict_passthrough_24_192, strict_truncation_is_incompatible; дополнить compatible_passthrough_when_server_accepts проверкой «только IntToFloat» (§7.2). Проверка: cargo test audio::path"
     done: false
   - id: 10
-    description: "Тесты форматов, ч. 2: compatible_int32_source_marks_float_lossy, lossy_source_is_24bit_in_all_modes, float_pcm_source_per_mode, optimal_dsp_path_uses_largest_format, compatible_int_output_when_no_f32 (§7.2). Проверка: cargo test audio::path"
+    description: "Тесты форматов, ч. 2: compatible_int32_source_marks_float_lossy, lossy_source_is_24bit_in_all_modes, float_pcm_source_per_mode, optimal_dsp_path_uses_largest_format, compatible_int_output_when_no_f32 (§7.2). Строки «+ Dither» до with_gain (шаг 13) проверять через requantizes(&plan) == true. Проверка: cargo test audio::path"
     done: false
   - id: 11
     description: "plan.rs: цепочка DSD §6.9 (dop_ok, DoP только при Exclusive, dsd_pcm_rate, dsd_stop_hz, DsdAboveDac) (ТЗ-59, ТЗ-60). Проверка: cargo check"
@@ -139,8 +139,8 @@ steps:
   - id: 31
     description: "Удаление легаси (§8, §7.4): bp_report.rs, StreamDesc, FallbackReason, dsd_pcm_breaks_bit_perfect и тесты dsd_pcm_breaks_bit_perfect_detects_conflict, bp_report_marks_volume_issue; ссылки в settings.rs/state_file.rs. Проверка: полный cargo test + clippy --all-targets. Шаг дробится при декомпозиции"
     done: false
-current_step: 8
-next_action: "Шаг 8: субагент реализует форматы Exclusive/Shared §6.5 (zero-pad, truncation, float) и правило переквантования §6.3 в step_sample_format (plan.rs)."
+current_step: 9
+next_action: "Шаг 9: субагент пишет тесты форматов ч.1 в plan_tests.rs и дописывает в compatible_passthrough_when_server_accepts проверку «только IntToFloat»."
 fail_counter: 0
 fail_counter_max: 3
 failed_attempts: []
