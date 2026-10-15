@@ -62,8 +62,8 @@
 - [x] Шаг 13: plan.rs: шаги 5–7 §6.3 — with_gain(&PathPlan, GainState), дизеринг (по requantizes; Dither(Off) в transforms не вносить), RingPayload + тест strict_never_lossy_property (ТЗ-8, ТЗ-39). В plan_tests заменить заглушки «requantizes == true» на проверку Dither через with_gain (float_pcm_source_per_mode, optimal_dsp_path_uses_largest_format, compatible_int_output_when_no_f32). Проверка: cargo test audio::path. ЧЕКПОИНТ: полный test + clippy
 - [x] Шаг 14: path/signal.rs: SignalPath::from_opened (поколение), stages(), lossy(), DynamicPathState, Md5Status, RtPriorityState (§3.2, §4.3, ТЗ-70, ТЗ-71). Проверка: cargo check
 - [x] Шаг 15: audio/verdict.rs: BadgeState, SharedBadge, ExclusiveBadge (вкл. Muted, ОВС-18), BitPerfectProof, NbpReason, NbpSummary, verdict() §6.22 (ADR-06, ТЗ-52); GainState уже добавлен на шаге 13. Проверка: cargo check
-- [>] **Шаг 16: Тесты бейджа, ч. 1: badge_honesty_table, badge_driver_unconfirmed, badge_bitperfect_ignores_mono_underrun_md5, badge_each_reason, badge_reason_priority_and_more (§7.2). Покрыть и бейдж строки strict_passthrough_24_192: «Bit-perfect» при Confirmed драйвера (из plan_tests отложено — нужны OpenedFacts). Проверка: cargo test verdict**
-- [ ] Шаг 17: audio/test_run.rs (минимум С5): ConfigKey и TestRecord уже есть (шаг 15; Hash/serde — с хранением, ADR-19); добавить TestBadge, TestAvailability/TestBlocker (+Muted, ОВС-18), test_availability() §6.22 + тест test_availability_rules; поле test: Option<TestBadge> в DynamicPathState (signal.rs) (ТЗ-106, ТЗ-139). Проверка: cargo test test_run
+- [x] Шаг 16: Тесты бейджа, ч. 1: badge_honesty_table, badge_driver_unconfirmed, badge_bitperfect_ignores_mono_underrun_md5, badge_each_reason, badge_reason_priority_and_more (§7.2). Покрыть и бейдж строки strict_passthrough_24_192: «Bit-perfect» при Confirmed драйвера (из plan_tests отложено — нужны OpenedFacts). Проверка: cargo test verdict
+- [>] **Шаг 17: audio/test_run.rs (минимум С5): ConfigKey и TestRecord уже есть (шаг 15; Hash/serde — с хранением, ADR-19); добавить TestBadge, TestAvailability/TestBlocker (+Muted, ОВС-18), test_availability() §6.22 + тест test_availability_rules; поле test: Option<TestBadge> в DynamicPathState (signal.rs) (ТЗ-106, ТЗ-139). Проверка: cargo test test_run**
 - [ ] Шаг 18: Тесты бейджа, ч. 2: compatible_badge_never_bitperfect, badge_no_stream_after_failed_open, badge_from_path_not_settings_dsd, badge_test_failed_matching_config (§7.2). Проверка: cargo test verdict
 - [ ] Шаг 19: path/recommend.rs: Recommendation, PlayerSettingRec::new→Option, OsTopic, HwRequirement, recommend() по таблице §6.25 + тесты recommendations_three_types, recommendations_underrun_vs_xrun, recommendations_respect_mode_matrix (ТЗ-80–84). Проверка: cargo test recommend
 - [ ] Шаг 20: path/report.rs: PathSubject, PathReport, StageRow, build_report() §6.25 (ТЗ-73–79). Проверка: cargo check
@@ -81,8 +81,8 @@
 
 Легенда: [x] сделано · [>] текущий шаг · [ ] не начато
 
-- **Текущий шаг (current_step):** Шаг 16
-- **Следующий ход:** Шаг 16: субагент пишет тесты бейджа ч.1 в src/audio/verdict.rs (badge_honesty_table, badge_driver_unconfirmed, badge_bitperfect_ignores_mono_underrun_md5, badge_each_reason, badge_reason_priority_and_more) + проверка Bit-perfect при Confirmed для strict_passthrough_24_192.
+- **Текущий шаг (current_step):** Шаг 17
+- **Следующий ход:** Шаг 17: субагент добавляет в src/audio/test_run.rs TestBadge, TestAvailability/TestBlocker (+Muted), test_availability() §6.22 + тест test_availability_rules; поле test: Option<TestBadge> в DynamicPathState (signal.rs).
 - **Счетчик безуспешных компиляций:** 0/3
 - **Состояние:** in_progress
 

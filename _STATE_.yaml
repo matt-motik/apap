@@ -93,7 +93,7 @@ steps:
     done: true
   - id: 16
     description: "Тесты бейджа, ч. 1: badge_honesty_table, badge_driver_unconfirmed, badge_bitperfect_ignores_mono_underrun_md5, badge_each_reason, badge_reason_priority_and_more (§7.2). Покрыть и бейдж строки strict_passthrough_24_192: «Bit-perfect» при Confirmed драйвера (из plan_tests отложено — нужны OpenedFacts). Проверка: cargo test verdict"
-    done: false
+    done: true
   - id: 17
     description: "audio/test_run.rs (минимум С5): ConfigKey и TestRecord уже есть (шаг 15; Hash/serde — с хранением, ADR-19); добавить TestBadge, TestAvailability/TestBlocker (+Muted, ОВС-18), test_availability() §6.22 + тест test_availability_rules; поле test: Option<TestBadge> в DynamicPathState (signal.rs) (ТЗ-106, ТЗ-139). Проверка: cargo test test_run"
     done: false
@@ -139,8 +139,8 @@ steps:
   - id: 31
     description: "Удаление легаси (§8, §7.4): bp_report.rs, StreamDesc, FallbackReason, dsd_pcm_breaks_bit_perfect и тесты dsd_pcm_breaks_bit_perfect_detects_conflict, bp_report_marks_volume_issue; ссылки в settings.rs/state_file.rs. Проверка: полный cargo test + clippy --all-targets. Шаг дробится при декомпозиции"
     done: false
-current_step: 16
-next_action: "Шаг 16: субагент пишет тесты бейджа ч.1 в src/audio/verdict.rs (badge_honesty_table, badge_driver_unconfirmed, badge_bitperfect_ignores_mono_underrun_md5, badge_each_reason, badge_reason_priority_and_more) + проверка Bit-perfect при Confirmed для strict_passthrough_24_192."
+current_step: 17
+next_action: "Шаг 17: субагент добавляет в src/audio/test_run.rs TestBadge, TestAvailability/TestBlocker (+Muted), test_availability() §6.22 + тест test_availability_rules; поле test: Option<TestBadge> в DynamicPathState (signal.rs)."
 fail_counter: 0
 fail_counter_max: 3
 failed_attempts: []
