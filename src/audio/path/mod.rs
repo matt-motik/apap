@@ -2,7 +2,10 @@
 //! (AM1.0 §3.1–§3.3, ТЗ-38, ТЗ-70…ТЗ-80).
 #![deny(clippy::unwrap_used, clippy::expect_used, clippy::unreachable)]
 
+pub mod plan;
 pub mod transform;
+
+pub use self::plan::plan;
 
 use smallvec::SmallVec;
 

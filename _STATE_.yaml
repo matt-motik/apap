@@ -60,7 +60,7 @@ steps:
     done: true
   - id: 5
     description: "plan.rs: каркас plan(src, caps, policy) + выбор частоты §6.4 (семейства, SameFamily/Nearest/NoDownsample, фиксированная частота) (ТЗ-53, ТЗ-55). Решение шага: DoP допустим только при caps.access == Exclusive (И-Т3), усиление — через with_gain (шаг 13). Проверка: cargo check"
-    done: false
+    done: true
   - id: 6
     description: "Тесты частоты: compatible_passthrough_when_server_accepts, compatible_src_when_server_limits, compatible_fixed_rate_src, optimal_rate_fallback_rules, strict_rejects_rate (§7.2). Проверка: cargo test audio::path"
     done: false
@@ -139,8 +139,8 @@ steps:
   - id: 31
     description: "Удаление легаси (§8, §7.4): bp_report.rs, StreamDesc, FallbackReason, dsd_pcm_breaks_bit_perfect и тесты dsd_pcm_breaks_bit_perfect_detects_conflict, bp_report_marks_volume_issue; ссылки в settings.rs/state_file.rs. Проверка: полный cargo test + clippy --all-targets. Шаг дробится при декомпозиции"
     done: false
-current_step: 5
-next_action: "Шаг 5: субагент создаёт src/audio/path/plan.rs (каркас plan() + выбор частоты §6.4). Снять cfg_attr(expect(dead_code)) с DopRoute::new в path/mod.rs, если plan() начнёт его вызывать (тогда mod.rs — второй файл шага)."
+current_step: 6
+next_action: "Шаг 6: субагент пишет сценарные тесты частоты в src/audio/path/plan_tests.rs (подключить из plan.rs через #[cfg(test)] #[path] mod)."
 fail_counter: 0
 fail_counter_max: 3
 failed_attempts: []
