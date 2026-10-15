@@ -49,8 +49,8 @@
 ## Итерационный трекер
 - [x] Шаг 1: Типы возможностей устройства в audio/backend/mod.rs: DeviceCaps, AccessKind, OutputApi, DriverFormat, DeviceBufferActual; перенос BackendCaps из engine/run.rs (§2.3, ОВС-12, ТЗ-109). Проверка: cargo check; полный cargo test (общий тип)
 - [x] Шаг 2: Убрать EngineHandle::spawn_with_caps: caps через EngineDeps (deps.rs, run.rs, tests.rs) (§2.3, ADR-20). Проверка: cargo test engine:: зелёный
-- [>] **Шаг 3: audio/path/transform.rs: Transform, TransformKind (ZeroPad/Truncate с проверяющими конструкторами), Lossiness, Cause, Confidence/ConfirmedBy, Description, дескриптор из 5 методов + NbpReason в audio/verdict.rs (только enum) + тест transform_descriptor_is_total (§3.3, §2.5, ТЗ-71, ТЗ-73). Проверка: cargo test transform_descriptor**
-- [ ] Шаг 4: audio/path/mod.rs: типы плана §3.1–3.2 — PathPlan, Route, DopRoute, DsdChainView, Blocked, OpenedFacts, ReservationView, StageId, StageStatus, SourceStage…DeviceStage, OsStage, OsServer (ADR-05, ТЗ-52, ТЗ-70). Проверка: cargo check
+- [x] Шаг 3: audio/path/transform.rs: Transform, TransformKind (ZeroPad/Truncate с проверяющими конструкторами), Lossiness, Cause, Confidence/ConfirmedBy, Description, дескриптор из 5 методов + NbpReason в audio/verdict.rs (только enum) + тест transform_descriptor_is_total (§3.3, §2.5, ТЗ-71, ТЗ-73). Проверка: cargo test transform_descriptor
+- [>] **Шаг 4: audio/path/mod.rs: типы плана §3.1–3.2 — PathPlan, Route, DopRoute, DsdChainView, Blocked, OpenedFacts, ReservationView, StageId, StageStatus, SourceStage…DeviceStage, OsStage, OsServer (ADR-05, ТЗ-52, ТЗ-70). Проверка: cargo check**
 - [ ] Шаг 5: plan.rs: каркас plan(src, caps, policy) + выбор частоты §6.4 (семейства, SameFamily/Nearest/NoDownsample, фиксированная частота) (ТЗ-53, ТЗ-55). Решение шага: DoP допустим только при caps.access == Exclusive (И-Т3), усиление — через with_gain (шаг 13). Проверка: cargo check
 - [ ] Шаг 6: Тесты частоты: compatible_passthrough_when_server_accepts, compatible_src_when_server_limits, compatible_fixed_rate_src, optimal_rate_fallback_rules, strict_rejects_rate (§7.2). Проверка: cargo test audio::path
 - [ ] Шаг 7: plan.rs: каналы §6.5 (паддинг, ITU-даунмикс, отказ Строгого) + тесты compatible_downmix_when_server_limits, optimal_downmix_51_to_stereo_uses_itu_matrix, strict_rejects_channel_mismatch, strict_mono_on_stereo_plays, channel_pad_to_wider_device_all_modes (ТЗ-54). Проверка: cargo test audio::path
@@ -81,8 +81,8 @@
 
 Легенда: [x] сделано · [>] текущий шаг · [ ] не начато
 
-- **Текущий шаг (current_step):** Шаг 3
-- **Следующий ход:** Шаг 3: субагент создаёт audio/path/{mod,transform}.rs и NbpReason в audio/verdict.rs, дескриптор и тест transform_descriptor_is_total.
+- **Текущий шаг (current_step):** Шаг 4
+- **Следующий ход:** Шаг 4: субагент добавляет типы плана §3.1–3.2 в src/audio/path/mod.rs. Учесть на шаге 13: Dither(Off) не вносить в transforms (иначе ложная причина Dither).
 - **Счетчик безуспешных компиляций:** 0/3
 - **Состояние:** in_progress
 
