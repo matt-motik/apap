@@ -619,15 +619,10 @@ pub struct EngineHandle {
 
 impl EngineHandle {
     /// Запускает поток `apap-engine` через `deps.spawner` (ТЗ-88, ADR-20) и
-    /// возвращает синхронно `BackendCaps` платформы (§2.8, ОВС-12).
+    /// возвращает синхронно `BackendCaps` платформы из `deps.caps` (§2.8,
+    /// ОВС-12, ТЗ-109).
     pub fn spawn(deps: EngineDeps) -> Result<(EngineHandle, BackendCaps), EngineFault> {
-        Self::spawn_with_caps(deps, BackendCaps::current())
-    }
-
-    /// Как [`Self::spawn`], но с явными `BackendCaps` — для тестов
-    /// недоступности режима без зависимости от платформы сборки (ТЗ-109,
-    /// ТЗ-111).
-    pub(crate) fn spawn_with_caps(deps: EngineDeps, caps: BackendCaps) -> Result<(EngineHandle, BackendCaps), EngineFault> {
+        let caps = deps.caps;
         let spawner = Arc::clone(&deps.spawner);
         let (tx, rx) = mpsc::channel();
         let join = spawner.spawn(
@@ -732,6 +727,7 @@ mod tests {
             store: Box::new(FsPersistStore::new(Arc::new(mem.clone()), Box::new(mem.clone()), PathBuf::from("/cfg"))),
             events,
             spawner,
+            caps: BackendCaps::current(),
         }
     }
 

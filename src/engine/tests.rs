@@ -58,6 +58,7 @@ fn build_deps(
         store: Box::new(FsPersistStore::new(Arc::new(mem.clone()), Box::new(mem), PathBuf::from("/cfg"))),
         events,
         spawner,
+        caps: BackendCaps::current(),
     }
 }
 
@@ -448,10 +449,10 @@ fn modes_availability_from_backend_caps() {
 #[test]
 fn saved_unavailable_mode_no_playback() {
     let sink = VecSink::new();
-    let deps = fake_deps(Box::new(sink.clone()), Arc::new(StdSpawner));
+    let mut deps = fake_deps(Box::new(sink.clone()), Arc::new(StdSpawner));
+    deps.caps = BackendCaps { exclusive: false };
 
-    let (handle, _caps) =
-        EngineHandle::spawn_with_caps(deps, BackendCaps { exclusive: false }).expect("spawn ok");
+    let (handle, _caps) = EngineHandle::spawn(deps).expect("spawn ok");
 
     assert!(handle.send(EngineCmd::SetActiveMode(ModeKind::Strict)));
     assert!(handle.send(EngineCmd::Open {

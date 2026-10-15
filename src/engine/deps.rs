@@ -9,6 +9,7 @@ use std::path::PathBuf;
 use std::sync::Arc;
 
 use crate::audio::backend::catalog::DeviceWatcher;
+use crate::audio::backend::BackendCaps;
 use crate::audio::backend::shared::{CpalSharedBackend, SharedBackend};
 use crate::audio::clock::{Clock, MonotonicClock};
 use crate::engine::sink::EventSink;
@@ -31,6 +32,9 @@ pub struct EngineDeps {
     pub events: Box<dyn EventSink>,
     /// Отказ запуска потока подменяется (ТЗ-88, §2.10).
     pub spawner: Arc<dyn ThreadSpawner>,
+    /// Возможности бэкенда платформы (§2.3, ОВС-12, ТЗ-109); статичны,
+    /// тесты подставляют свои.
+    pub caps: BackendCaps,
 }
 
 impl EngineDeps {
@@ -47,6 +51,7 @@ impl EngineDeps {
             store: Box::new(FsPersistStore::new(reader, store_writer, dir)),
             events,
             spawner: Arc::new(StdSpawner),
+            caps: BackendCaps::current(),
         }
     }
 }
@@ -91,6 +96,7 @@ mod tests {
             store: Box::new(FsPersistStore::new(Arc::new(mem.clone()), Box::new(mem.clone()), PathBuf::from("/cfg"))),
             events: Box::new(VecSink::new()),
             spawner: Arc::new(StdSpawner),
+            caps: BackendCaps::current(),
         };
 
         let format = deps.sources.probe(Path::new("fake.flac")).expect("probe ok");
