@@ -81,7 +81,7 @@ steps:
     done: true
   - id: 12
     description: "Тесты DSD: compatible_dsd_only_pcm, optimal_dsd_chain_dop_then_pcm, optimal_dsd_above_dac_converts, strict_dsd_chain_allows_native_to_dop_forbids_pcm, validate_dop_shared_is_unsupported (§7.2). Проверка: cargo test audio::path"
-    done: false
+    done: true
   - id: 13
     description: "plan.rs: шаги 5–7 §6.3 — with_gain(&PathPlan, GainState), дизеринг (по requantizes; Dither(Off) в transforms не вносить), RingPayload + тест strict_never_lossy_property (ТЗ-8, ТЗ-39). В plan_tests заменить заглушки «requantizes == true» на проверку Dither через with_gain (float_pcm_source_per_mode, optimal_dsp_path_uses_largest_format, compatible_int_output_when_no_f32). Проверка: cargo test audio::path. ЧЕКПОИНТ: полный test + clippy"
     done: false
@@ -139,8 +139,8 @@ steps:
   - id: 31
     description: "Удаление легаси (§8, §7.4): bp_report.rs, StreamDesc, FallbackReason, dsd_pcm_breaks_bit_perfect и тесты dsd_pcm_breaks_bit_perfect_detects_conflict, bp_report_marks_volume_issue; ссылки в settings.rs/state_file.rs. Проверка: полный cargo test + clippy --all-targets. Шаг дробится при декомпозиции"
     done: false
-current_step: 12
-next_action: "Шаг 12: субагент пишет тесты DSD в plan_tests.rs (compatible_dsd_only_pcm, optimal_dsd_chain_dop_then_pcm, optimal_dsd_above_dac_converts, strict_dsd_chain_allows_native_to_dop_forbids_pcm, validate_dop_shared_is_unsupported)."
+current_step: 13
+next_action: "Шаг 13: субагент реализует with_gain(&PathPlan, GainState) и дизеринг в plan.rs, тест strict_never_lossy_property, заменяет заглушки requantizes на проверки Dither; затем ЧЕКПОИНТ (полный test + clippy)."
 fail_counter: 0
 fail_counter_max: 3
 failed_attempts: []
