@@ -415,3 +415,7 @@ mod tests {
         assert_eq!(no_downsample(&s, sr(192_000)), Some(sr(96_000)));
     }
 }
+
+#[cfg(test)]
+#[path = "plan_tests.rs"]
+mod plan_tests;

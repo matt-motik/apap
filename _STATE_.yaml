@@ -63,7 +63,7 @@ steps:
     done: true
   - id: 6
     description: "Тесты частоты: compatible_passthrough_when_server_accepts, compatible_src_when_server_limits, compatible_fixed_rate_src, optimal_rate_fallback_rules, strict_rejects_rate (§7.2). Проверка: cargo test audio::path"
-    done: false
+    done: true
   - id: 7
     description: "plan.rs: каналы §6.5 (паддинг, ITU-даунмикс, отказ Строгого) + тесты compatible_downmix_when_server_limits, optimal_downmix_51_to_stereo_uses_itu_matrix, strict_rejects_channel_mismatch, strict_mono_on_stereo_plays, channel_pad_to_wider_device_all_modes (ТЗ-54). Проверка: cargo test audio::path"
     done: false
@@ -71,7 +71,7 @@ steps:
     description: "plan.rs: форматы Exclusive/Shared §6.5 (zero-pad, truncation, float) + правило переквантования §6.3 (ТЗ-56, ТЗ-57). Проверка: cargo check"
     done: false
   - id: 9
-    description: "Тесты форматов, ч. 1: optimal_passthrough_24_192, optimal_zero_pad_16_to_32, optimal_format_no_needless_truncation, strict_passthrough_24_192, strict_truncation_is_incompatible (§7.2). Проверка: cargo test audio::path"
+    description: "Тесты форматов, ч. 1: optimal_passthrough_24_192, optimal_zero_pad_16_to_32, optimal_format_no_needless_truncation, strict_passthrough_24_192, strict_truncation_is_incompatible; дополнить compatible_passthrough_when_server_accepts проверкой «только IntToFloat» (§7.2). Проверка: cargo test audio::path"
     done: false
   - id: 10
     description: "Тесты форматов, ч. 2: compatible_int32_source_marks_float_lossy, lossy_source_is_24bit_in_all_modes, float_pcm_source_per_mode, optimal_dsp_path_uses_largest_format, compatible_int_output_when_no_f32 (§7.2). Проверка: cargo test audio::path"
@@ -110,7 +110,7 @@ steps:
     description: "Тесты окна, ч. 1: report_has_six_stages_in_order, report_stage_fields_optimal_192_on_96, report_lists_all_transforms, report_source_stage, report_decoder_stage (§7.2). Проверка: cargo test report"
     done: false
   - id: 22
-    description: "Display для PathReport + тесты окна, ч. 2: report_output_stage_driver_facts, report_clip_notes, report_built_without_backend_access, report_skipped_track_blocked_stage, report_text_contains_all_parts (§7.2). Проверка: cargo test report. ЧЕКПОИНТ: полный test + clippy"
+    description: "Display для PathReport + тесты окна, ч. 2: report_output_stage_driver_facts, report_clip_notes, report_built_without_backend_access, report_skipped_track_blocked_stage (вкл. текст «частота 192 кГц не поддерживается устройством» из strict_rejects_rate — у Incompatibility нет текста), report_text_contains_all_parts (§7.2). Проверка: cargo test report. ЧЕКПОИНТ: полный test + clippy"
     done: false
   - id: 23
     description: "backend/os_probe.rs: трейт OsLevelProbe, FakeOsProbe, Windows-реализация (Known{WasapiMixer, rate, format} из cpal default_output_config), Unknown для прочих ОС; поле os_probe в EngineDeps (§6.26, ТЗ-75). Проверка: cargo test engine::"
@@ -139,8 +139,8 @@ steps:
   - id: 31
     description: "Удаление легаси (§8, §7.4): bp_report.rs, StreamDesc, FallbackReason, dsd_pcm_breaks_bit_perfect и тесты dsd_pcm_breaks_bit_perfect_detects_conflict, bp_report_marks_volume_issue; ссылки в settings.rs/state_file.rs. Проверка: полный cargo test + clippy --all-targets. Шаг дробится при декомпозиции"
     done: false
-current_step: 6
-next_action: "Шаг 6: субагент пишет сценарные тесты частоты в src/audio/path/plan_tests.rs (подключить из plan.rs через #[cfg(test)] #[path] mod)."
+current_step: 7
+next_action: "Шаг 7: субагент реализует шаг каналов §6.5 в plan.rs и пишет 5 тестов каналов в plan_tests.rs."
 fail_counter: 0
 fail_counter_max: 3
 failed_attempts: []

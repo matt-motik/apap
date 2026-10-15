@@ -52,10 +52,10 @@
 - [x] Шаг 3: audio/path/transform.rs: Transform, TransformKind (ZeroPad/Truncate с проверяющими конструкторами), Lossiness, Cause, Confidence/ConfirmedBy, Description, дескриптор из 5 методов + NbpReason в audio/verdict.rs (только enum) + тест transform_descriptor_is_total (§3.3, §2.5, ТЗ-71, ТЗ-73). Проверка: cargo test transform_descriptor
 - [x] Шаг 4: audio/path/mod.rs: типы плана §3.1–3.2 — PathPlan, Route, DopRoute, DsdChainView, Blocked, OpenedFacts, ReservationView, StageId, StageStatus, SourceStage…DeviceStage, OsStage, OsServer (ADR-05, ТЗ-52, ТЗ-70). Проверка: cargo check
 - [x] Шаг 5: plan.rs: каркас plan(src, caps, policy) + выбор частоты §6.4 (семейства, SameFamily/Nearest/NoDownsample, фиксированная частота) (ТЗ-53, ТЗ-55). Решение шага: DoP допустим только при caps.access == Exclusive (И-Т3), усиление — через with_gain (шаг 13). Проверка: cargo check
-- [>] **Шаг 6: Тесты частоты: compatible_passthrough_when_server_accepts, compatible_src_when_server_limits, compatible_fixed_rate_src, optimal_rate_fallback_rules, strict_rejects_rate (§7.2). Проверка: cargo test audio::path**
-- [ ] Шаг 7: plan.rs: каналы §6.5 (паддинг, ITU-даунмикс, отказ Строгого) + тесты compatible_downmix_when_server_limits, optimal_downmix_51_to_stereo_uses_itu_matrix, strict_rejects_channel_mismatch, strict_mono_on_stereo_plays, channel_pad_to_wider_device_all_modes (ТЗ-54). Проверка: cargo test audio::path
+- [x] Шаг 6: Тесты частоты: compatible_passthrough_when_server_accepts, compatible_src_when_server_limits, compatible_fixed_rate_src, optimal_rate_fallback_rules, strict_rejects_rate (§7.2). Проверка: cargo test audio::path
+- [>] **Шаг 7: plan.rs: каналы §6.5 (паддинг, ITU-даунмикс, отказ Строгого) + тесты compatible_downmix_when_server_limits, optimal_downmix_51_to_stereo_uses_itu_matrix, strict_rejects_channel_mismatch, strict_mono_on_stereo_plays, channel_pad_to_wider_device_all_modes (ТЗ-54). Проверка: cargo test audio::path**
 - [ ] Шаг 8: plan.rs: форматы Exclusive/Shared §6.5 (zero-pad, truncation, float) + правило переквантования §6.3 (ТЗ-56, ТЗ-57). Проверка: cargo check
-- [ ] Шаг 9: Тесты форматов, ч. 1: optimal_passthrough_24_192, optimal_zero_pad_16_to_32, optimal_format_no_needless_truncation, strict_passthrough_24_192, strict_truncation_is_incompatible (§7.2). Проверка: cargo test audio::path
+- [ ] Шаг 9: Тесты форматов, ч. 1: optimal_passthrough_24_192, optimal_zero_pad_16_to_32, optimal_format_no_needless_truncation, strict_passthrough_24_192, strict_truncation_is_incompatible; дополнить compatible_passthrough_when_server_accepts проверкой «только IntToFloat» (§7.2). Проверка: cargo test audio::path
 - [ ] Шаг 10: Тесты форматов, ч. 2: compatible_int32_source_marks_float_lossy, lossy_source_is_24bit_in_all_modes, float_pcm_source_per_mode, optimal_dsp_path_uses_largest_format, compatible_int_output_when_no_f32 (§7.2). Проверка: cargo test audio::path
 - [ ] Шаг 11: plan.rs: цепочка DSD §6.9 (dop_ok, DoP только при Exclusive, dsd_pcm_rate, dsd_stop_hz, DsdAboveDac) (ТЗ-59, ТЗ-60). Проверка: cargo check
 - [ ] Шаг 12: Тесты DSD: compatible_dsd_only_pcm, optimal_dsd_chain_dop_then_pcm, optimal_dsd_above_dac_converts, strict_dsd_chain_allows_native_to_dop_forbids_pcm, validate_dop_shared_is_unsupported (§7.2). Проверка: cargo test audio::path
@@ -68,7 +68,7 @@
 - [ ] Шаг 19: path/recommend.rs: Recommendation, PlayerSettingRec::new→Option, OsTopic, HwRequirement, recommend() по таблице §6.25 + тесты recommendations_three_types, recommendations_underrun_vs_xrun, recommendations_respect_mode_matrix (ТЗ-80–84). Проверка: cargo test recommend
 - [ ] Шаг 20: path/report.rs: PathSubject, PathReport, StageRow, build_report() §6.25 (ТЗ-73–79). Проверка: cargo check
 - [ ] Шаг 21: Тесты окна, ч. 1: report_has_six_stages_in_order, report_stage_fields_optimal_192_on_96, report_lists_all_transforms, report_source_stage, report_decoder_stage (§7.2). Проверка: cargo test report
-- [ ] Шаг 22: Display для PathReport + тесты окна, ч. 2: report_output_stage_driver_facts, report_clip_notes, report_built_without_backend_access, report_skipped_track_blocked_stage, report_text_contains_all_parts (§7.2). Проверка: cargo test report. ЧЕКПОИНТ: полный test + clippy
+- [ ] Шаг 22: Display для PathReport + тесты окна, ч. 2: report_output_stage_driver_facts, report_clip_notes, report_built_without_backend_access, report_skipped_track_blocked_stage (вкл. текст «частота 192 кГц не поддерживается устройством» из strict_rejects_rate — у Incompatibility нет текста), report_text_contains_all_parts (§7.2). Проверка: cargo test report. ЧЕКПОИНТ: полный test + clippy
 - [ ] Шаг 23: backend/os_probe.rs: трейт OsLevelProbe, FakeOsProbe, Windows-реализация (Known{WasapiMixer, rate, format} из cpal default_output_config), Unknown для прочих ОС; поле os_probe в EngineDeps (§6.26, ТЗ-75). Проверка: cargo test engine::
 - [ ] Шаг 24: OpenError::Incompatible(Blocked) и SkipReason::Incompatible(Blocked) (error.rs, messages.rs) (§2.4, ТЗ-57). Проверка: полный cargo test (общий тип)
 - [ ] Шаг 25: Движок: в Совместимом строит PathPlan из caps устройства и SourceFormat, после открытия — Arc<SignalPath> с поколением; EngineEvent::Opened несёт SignalPath вместо StreamDesc; пересборка SignalPath при volume/mute без переоткрытия (§4.3, ТЗ-52, ТЗ-38). Проверка: полный cargo test (общий тип). Шаг дробится при декомпозиции
@@ -81,8 +81,8 @@
 
 Легенда: [x] сделано · [>] текущий шаг · [ ] не начато
 
-- **Текущий шаг (current_step):** Шаг 6
-- **Следующий ход:** Шаг 6: субагент пишет сценарные тесты частоты в src/audio/path/plan_tests.rs (подключить из plan.rs через #[cfg(test)] #[path] mod).
+- **Текущий шаг (current_step):** Шаг 7
+- **Следующий ход:** Шаг 7: субагент реализует шаг каналов §6.5 в plan.rs и пишет 5 тестов каналов в plan_tests.rs.
 - **Счетчик безуспешных компиляций:** 0/3
 - **Состояние:** in_progress
 
