@@ -55,14 +55,14 @@
 - [x] Шаг 6: Тесты частоты: compatible_passthrough_when_server_accepts, compatible_src_when_server_limits, compatible_fixed_rate_src, optimal_rate_fallback_rules, strict_rejects_rate (§7.2). Проверка: cargo test audio::path
 - [x] Шаг 7: plan.rs: каналы §6.5 (паддинг, ITU-даунмикс, отказ Строгого) + тесты compatible_downmix_when_server_limits, optimal_downmix_51_to_stereo_uses_itu_matrix, strict_rejects_channel_mismatch, strict_mono_on_stereo_plays, channel_pad_to_wider_device_all_modes (ТЗ-54). Проверка: cargo test audio::path
 - [x] Шаг 8: plan.rs: форматы Exclusive/Shared §6.5 (zero-pad, truncation, float) + правило переквантования §6.3 (ТЗ-56, ТЗ-57). Проверка: cargo check
-- [>] **Шаг 9: Тесты форматов, ч. 1: optimal_passthrough_24_192, optimal_zero_pad_16_to_32, optimal_format_no_needless_truncation, strict_passthrough_24_192, strict_truncation_is_incompatible; дополнить compatible_passthrough_when_server_accepts проверкой «только IntToFloat» (§7.2). Проверка: cargo test audio::path**
-- [ ] Шаг 10: Тесты форматов, ч. 2: compatible_int32_source_marks_float_lossy, lossy_source_is_24bit_in_all_modes, float_pcm_source_per_mode, optimal_dsp_path_uses_largest_format, compatible_int_output_when_no_f32 (§7.2). Строки «+ Dither» до with_gain (шаг 13) проверять через requantizes(&plan) == true. Проверка: cargo test audio::path
+- [x] Шаг 9: Тесты форматов, ч. 1: optimal_passthrough_24_192, optimal_zero_pad_16_to_32, optimal_format_no_needless_truncation, strict_passthrough_24_192, strict_truncation_is_incompatible; дополнить compatible_passthrough_when_server_accepts проверкой «только IntToFloat» (§7.2). Проверка: cargo test audio::path
+- [>] **Шаг 10: Тесты форматов, ч. 2: compatible_int32_source_marks_float_lossy, lossy_source_is_24bit_in_all_modes, float_pcm_source_per_mode, optimal_dsp_path_uses_largest_format, compatible_int_output_when_no_f32 (§7.2). Строки «+ Dither» до with_gain (шаг 13) проверять через requantizes(&plan) == true. Проверка: cargo test audio::path**
 - [ ] Шаг 11: plan.rs: цепочка DSD §6.9 (dop_ok, DoP только при Exclusive, dsd_pcm_rate, dsd_stop_hz, DsdAboveDac) (ТЗ-59, ТЗ-60). Проверка: cargo check
 - [ ] Шаг 12: Тесты DSD: compatible_dsd_only_pcm, optimal_dsd_chain_dop_then_pcm, optimal_dsd_above_dac_converts, strict_dsd_chain_allows_native_to_dop_forbids_pcm, validate_dop_shared_is_unsupported (§7.2). Проверка: cargo test audio::path
 - [ ] Шаг 13: plan.rs: шаги 5–7 §6.3 — with_gain(&PathPlan, GainState), дизеринг, RingPayload + тест strict_never_lossy_property (ТЗ-8, ТЗ-39). Проверка: cargo test audio::path. ЧЕКПОИНТ: полный test + clippy
 - [ ] Шаг 14: path/signal.rs: SignalPath::from_opened (поколение), stages(), lossy(), DynamicPathState, Md5Status, RtPriorityState (§3.2, §4.3, ТЗ-70, ТЗ-71). Проверка: cargo check
 - [ ] Шаг 15: audio/verdict.rs: BadgeState, SharedBadge, ExclusiveBadge (вкл. Muted, ОВС-18), BitPerfectProof, NbpReason, NbpSummary, GainState, verdict() §6.22 (ADR-06, ТЗ-52). Проверка: cargo check
-- [ ] Шаг 16: Тесты бейджа, ч. 1: badge_honesty_table, badge_driver_unconfirmed, badge_bitperfect_ignores_mono_underrun_md5, badge_each_reason, badge_reason_priority_and_more (§7.2). Проверка: cargo test verdict
+- [ ] Шаг 16: Тесты бейджа, ч. 1: badge_honesty_table, badge_driver_unconfirmed, badge_bitperfect_ignores_mono_underrun_md5, badge_each_reason, badge_reason_priority_and_more (§7.2). Покрыть и бейдж строки strict_passthrough_24_192: «Bit-perfect» при Confirmed драйвера (из plan_tests отложено — нужны OpenedFacts). Проверка: cargo test verdict
 - [ ] Шаг 17: audio/test_run.rs (минимум С5): ConfigKey, TestRecord, TestBadge, TestAvailability/TestBlocker (+Muted, ОВС-18), test_availability() §6.22 + тест test_availability_rules (ТЗ-106, ТЗ-139). Проверка: cargo test test_run
 - [ ] Шаг 18: Тесты бейджа, ч. 2: compatible_badge_never_bitperfect, badge_no_stream_after_failed_open, badge_from_path_not_settings_dsd, badge_test_failed_matching_config (§7.2). Проверка: cargo test verdict
 - [ ] Шаг 19: path/recommend.rs: Recommendation, PlayerSettingRec::new→Option, OsTopic, HwRequirement, recommend() по таблице §6.25 + тесты recommendations_three_types, recommendations_underrun_vs_xrun, recommendations_respect_mode_matrix (ТЗ-80–84). Проверка: cargo test recommend
@@ -81,8 +81,8 @@
 
 Легенда: [x] сделано · [>] текущий шаг · [ ] не начато
 
-- **Текущий шаг (current_step):** Шаг 9
-- **Следующий ход:** Шаг 9: субагент пишет тесты форматов ч.1 в plan_tests.rs и дописывает в compatible_passthrough_when_server_accepts проверку «только IntToFloat».
+- **Текущий шаг (current_step):** Шаг 10
+- **Следующий ход:** Шаг 10: субагент пишет тесты форматов ч.2 в plan_tests.rs (Dither — через requantizes).
 - **Счетчик безуспешных компиляций:** 0/3
 - **Состояние:** in_progress
 

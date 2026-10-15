@@ -72,7 +72,7 @@ steps:
     done: true
   - id: 9
     description: "Тесты форматов, ч. 1: optimal_passthrough_24_192, optimal_zero_pad_16_to_32, optimal_format_no_needless_truncation, strict_passthrough_24_192, strict_truncation_is_incompatible; дополнить compatible_passthrough_when_server_accepts проверкой «только IntToFloat» (§7.2). Проверка: cargo test audio::path"
-    done: false
+    done: true
   - id: 10
     description: "Тесты форматов, ч. 2: compatible_int32_source_marks_float_lossy, lossy_source_is_24bit_in_all_modes, float_pcm_source_per_mode, optimal_dsp_path_uses_largest_format, compatible_int_output_when_no_f32 (§7.2). Строки «+ Dither» до with_gain (шаг 13) проверять через requantizes(&plan) == true. Проверка: cargo test audio::path"
     done: false
@@ -92,7 +92,7 @@ steps:
     description: "audio/verdict.rs: BadgeState, SharedBadge, ExclusiveBadge (вкл. Muted, ОВС-18), BitPerfectProof, NbpReason, NbpSummary, GainState, verdict() §6.22 (ADR-06, ТЗ-52). Проверка: cargo check"
     done: false
   - id: 16
-    description: "Тесты бейджа, ч. 1: badge_honesty_table, badge_driver_unconfirmed, badge_bitperfect_ignores_mono_underrun_md5, badge_each_reason, badge_reason_priority_and_more (§7.2). Проверка: cargo test verdict"
+    description: "Тесты бейджа, ч. 1: badge_honesty_table, badge_driver_unconfirmed, badge_bitperfect_ignores_mono_underrun_md5, badge_each_reason, badge_reason_priority_and_more (§7.2). Покрыть и бейдж строки strict_passthrough_24_192: «Bit-perfect» при Confirmed драйвера (из plan_tests отложено — нужны OpenedFacts). Проверка: cargo test verdict"
     done: false
   - id: 17
     description: "audio/test_run.rs (минимум С5): ConfigKey, TestRecord, TestBadge, TestAvailability/TestBlocker (+Muted, ОВС-18), test_availability() §6.22 + тест test_availability_rules (ТЗ-106, ТЗ-139). Проверка: cargo test test_run"
@@ -139,8 +139,8 @@ steps:
   - id: 31
     description: "Удаление легаси (§8, §7.4): bp_report.rs, StreamDesc, FallbackReason, dsd_pcm_breaks_bit_perfect и тесты dsd_pcm_breaks_bit_perfect_detects_conflict, bp_report_marks_volume_issue; ссылки в settings.rs/state_file.rs. Проверка: полный cargo test + clippy --all-targets. Шаг дробится при декомпозиции"
     done: false
-current_step: 9
-next_action: "Шаг 9: субагент пишет тесты форматов ч.1 в plan_tests.rs и дописывает в compatible_passthrough_when_server_accepts проверку «только IntToFloat»."
+current_step: 10
+next_action: "Шаг 10: субагент пишет тесты форматов ч.2 в plan_tests.rs (Dither — через requantizes)."
 fail_counter: 0
 fail_counter_max: 3
 failed_attempts: []

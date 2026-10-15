@@ -16,12 +16,16 @@ use crate::settings::playback::{ModeSettings, PathPolicy, RateFallbackRule};
 
 use crate::audio::verdict::NbpReason;
 
-use super::super::transform::{Cause, Lossiness, Transform, TransformKind};
+use super::super::transform::{Cause, Lossiness, Transform, TransformKind, Truncate, ZeroPad};
 use super::super::{Blocked, PathPlan, StageId};
-use super::plan;
+use super::{plan, requantizes};
 
 fn sr(hz: u32) -> SampleRate {
     SampleRate::new(hz).unwrap()
+}
+
+fn bd(bits: u8) -> BitDepth {
+    BitDepth::new(bits).unwrap()
 }
 
 fn rates(hz: &[u32]) -> RateSet {
@@ -132,8 +136,13 @@ fn compatible_passthrough_when_server_accepts() {
     assert!(resamples(&p).is_empty(), "лишний Resample: {:?}", p.transforms);
     assert_eq!(p.target.rate, sr(96_000));
     assert_eq!(p.target.channels.get(), 2);
-    // Проверка формата сэмпла (только IntToFloat) — при реализации шага
-    // формата, AM1.0-8.5 шаг 9.
+    // Формат сэмпла (§6.5, Shared): выход `F32`, единственное преобразование —
+    // `IntToFloat { 24 }` без потерь с причиной `ServerLimit`.
+    assert_eq!(p.target.sample, OutputSampleFormat::F32);
+    let kinds: Vec<&TransformKind> = p.transforms.iter().map(|t| &t.kind).collect();
+    assert_eq!(kinds, vec![&TransformKind::IntToFloat { bits: bd(24) }], "ожидался только IntToFloat");
+    assert_eq!(p.transforms[0].cause, Cause::ServerLimit);
+    assert_eq!(p.transforms[0].kind.lossiness(), Lossiness::Lossless);
 }
 
 /// §7.2, ТЗ-22: сервер принимает только 48 кГц — `Resample 96→48`, `ServerLimit`.
@@ -336,4 +345,131 @@ fn channel_pad_to_wider_device_all_modes() {
         );
         assert_eq!(p.target.channels.get(), 4, "{policy:?}");
     }
+}
+
+/// Виды преобразований плана по порядку.
+fn kinds(p: &PathPlan) -> Vec<&TransformKind> {
+    p.transforms.iter().map(|t| &t.kind).collect()
+}
+
+/// §7.2, ТЗ-26: Оптимальный, 24/192 стерео на устройстве с 192 кГц и
+/// `S24_LE`/`S32_LE` — passthrough: ни одного преобразования (24 бита в
+/// `S24_LE` — без `ZeroPad`, ОВ-32), переквантования нет.
+#[test]
+fn optimal_passthrough_24_192() {
+    let s = settings();
+    let c = caps_exclusive(
+        rates(&[44_100, 96_000, 192_000]),
+        &[OutputSampleFormat::S32Le, OutputSampleFormat::S24Le, OutputSampleFormat::S16Le],
+    );
+    let p = plan(&src_pcm(24, 192_000, 2), &c, PathPolicy::Optimal(&s.optimal)).unwrap();
+    assert!(
+        p.transforms.iter().all(|t| t.kind.lossiness() == Lossiness::Lossless),
+        "преобразование с потерями: {:?}",
+        p.transforms
+    );
+    assert!(p.transforms.is_empty(), "лишние преобразования: {:?}", p.transforms);
+    assert_eq!(p.target.rate, sr(192_000));
+    assert_eq!(p.target.sample, OutputSampleFormat::S24Le);
+    assert_eq!(p.target.channels.get(), 2);
+    assert!(!requantizes(&p));
+}
+
+/// §7.2, ТЗ-26: Оптимальный, 16-битный трек на устройстве только с
+/// `S32_LE` — ровно один `ZeroPad 16→32` без потерь (`FormatContainer`).
+#[test]
+fn optimal_zero_pad_16_to_32() {
+    let s = settings();
+    let c = caps_exclusive(rates(&[44_100]), &[OutputSampleFormat::S32Le]);
+    let p = plan(&src_pcm(16, 44_100, 2), &c, PathPolicy::Optimal(&s.optimal)).unwrap();
+    let pad = TransformKind::ZeroPad(ZeroPad::new(bd(16), bd(32)).unwrap());
+    assert_eq!(kinds(&p), vec![&pad], "ожидался один ZeroPad 16→32");
+    assert_eq!(p.transforms[0].cause, Cause::FormatContainer);
+    assert_eq!(pad.lossiness(), Lossiness::Lossless);
+    assert_eq!(p.target.sample, OutputSampleFormat::S32Le);
+    // ZeroPad переквантования не даёт (§6.3, ТЗ-8).
+    assert!(!requantizes(&p));
+}
+
+/// §7.2, ТЗ-28: устройства {16}, {16, 24(3)}, {16, 24-в-32}, {16, 32} ×
+/// треки 16/24 — усечение только 24 на {16}; в остальных случаях выбирается
+/// первый формат с `field_bits ≥ need` (§6.5).
+#[test]
+fn optimal_format_no_needless_truncation() {
+    use OutputSampleFormat::{S16Le, S24Le, S24_3Le, S32Le};
+
+    let s = settings();
+    let devices: [&[OutputSampleFormat]; 4] = [&[S16Le], &[S16Le, S24_3Le], &[S16Le, S24Le], &[S16Le, S32Le]];
+    // (устройство, трек, ожидаемый формат, ожидаемые преобразования формата).
+    let cases: Vec<(usize, u8, OutputSampleFormat, Vec<TransformKind>)> = vec![
+        (0, 16, S16Le, vec![]),
+        (0, 24, S16Le, vec![TransformKind::Truncate(Truncate::new(bd(24), bd(16)).unwrap())]),
+        (1, 16, S16Le, vec![]),
+        (1, 24, S24_3Le, vec![]),
+        (2, 16, S16Le, vec![]),
+        // ОВ-32: 24 бита в `S24_LE` — поле равно сэмплу, преобразования нет.
+        (2, 24, S24Le, vec![]),
+        (3, 16, S16Le, vec![]),
+        (3, 24, S32Le, vec![TransformKind::ZeroPad(ZeroPad::new(bd(24), bd(32)).unwrap())]),
+    ];
+    for (dev, bits, want_fmt, want_kinds) in cases {
+        let formats = devices[dev];
+        let c = caps_exclusive(rates(&[48_000]), formats);
+        let p = plan(&src_pcm(bits, 48_000, 2), &c, PathPolicy::Optimal(&s.optimal))
+            .unwrap_or_else(|b| panic!("{formats:?} × {bits}: Blocked {b:?}"));
+        let ctx = format!("{formats:?} × {bits}");
+        assert_eq!(p.target.sample, want_fmt, "{ctx}");
+        assert_eq!(kinds(&p), want_kinds.iter().collect::<Vec<_>>(), "{ctx}");
+        let truncates = p.transforms.iter().any(|t| matches!(t.kind, TransformKind::Truncate(_)));
+        assert_eq!(truncates, dev == 0 && bits == 24, "{ctx}: лишнее усечение");
+        if truncates {
+            assert_eq!(p.transforms[0].cause, Cause::DeviceLimit, "{ctx}");
+        }
+        // Переквантование (и TPDF в `with_gain`) — только при усечении (ТЗ-8).
+        assert_eq!(requantizes(&p), truncates, "{ctx}");
+    }
+}
+
+/// §7.2, ТЗ-35: Строгий, 24/192 стерео на устройстве с 192 кГц и `S24_LE` —
+/// путь без преобразований.
+#[test]
+fn strict_passthrough_24_192() {
+    let s = settings();
+    let c = caps_exclusive(rates(&[96_000, 192_000]), &[OutputSampleFormat::S24Le, OutputSampleFormat::S32Le]);
+    let p = plan(&src_pcm(24, 192_000, 2), &c, PathPolicy::Strict(&s.strict)).unwrap();
+    assert!(p.transforms.is_empty(), "лишние преобразования: {:?}", p.transforms);
+    assert_eq!(p.target.rate, sr(192_000));
+    assert_eq!(p.target.sample, OutputSampleFormat::S24Le);
+    assert_eq!(p.target.channels.get(), 2);
+    assert!(!requantizes(&p));
+    // Бейдж «Bit-perfect» при `Confirmed` зависит от `OpenedFacts` после
+    // открытия устройства и проверяется в тестах вердикта: план даёт только
+    // необходимое условие — нет преобразований с причиной бейджа.
+}
+
+/// §7.2, ТЗ-37: Строгий, 24 бита на {16} — `Blocked { at: Output,
+/// TruncationForbidden { from: 24, max: 16 } }`; 16 бит на {32} —
+/// воспроизведение с `ZeroPad 16→32` без потерь.
+#[test]
+fn strict_truncation_is_incompatible() {
+    let s = settings();
+    let c = caps_exclusive(rates(&[48_000]), &[OutputSampleFormat::S16Le]);
+    let err = plan(&src_pcm(24, 48_000, 2), &c, PathPolicy::Strict(&s.strict)).unwrap_err();
+    let Blocked { at, reason, partial } = err;
+    assert_eq!(at, StageId::Output);
+    assert_eq!(reason, Incompatibility::TruncationForbidden { from: bd(24), max: 16 });
+    assert!(
+        !partial.transforms.iter().any(|t| matches!(t.kind, TransformKind::Truncate(_))),
+        "Truncate в partial: {:?}",
+        partial.transforms
+    );
+    // Текст «усечение 24→16 запрещено режимом» (ТЗ-37) проверяется в шаге
+    // отчёта (AM1.0-8.5 шаг 22): у `Incompatibility` пока нет `Display`.
+
+    let c = caps_exclusive(rates(&[48_000]), &[OutputSampleFormat::S32Le]);
+    let p = plan(&src_pcm(16, 48_000, 2), &c, PathPolicy::Strict(&s.strict)).unwrap();
+    let pad = TransformKind::ZeroPad(ZeroPad::new(bd(16), bd(32)).unwrap());
+    assert_eq!(kinds(&p), vec![&pad], "ожидался один ZeroPad 16→32");
+    assert_eq!(pad.lossiness(), Lossiness::Lossless);
+    assert_eq!(p.target.sample, OutputSampleFormat::S32Le);
 }
