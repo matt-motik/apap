@@ -749,4 +749,273 @@ mod tests {
         // (Resample, Downmix, Truncation, FloatToInt, Int32ToFloat, Mute, Volume, Dither).
         assert_eq!(verdict(&p, GainState::Unity, None), excl_nbp(NbpReason::DriverParamsUnconfirmed, 8));
     }
+
+    // -----------------------------------------------------------------------
+    // Тесты бейджа §7.2 (ТЗ-54, ТЗ-56, ТЗ-57, ТЗ-58), часть 2
+    // -----------------------------------------------------------------------
+
+    /// Shared-устройство (звуковой сервер) стерео.
+    fn caps_shared(hz: &[u32], formats: &[OutputSampleFormat]) -> DeviceCaps {
+        caps(AccessKind::Shared, OutputApi::WasapiShared, hz, formats)
+    }
+
+    /// Бейдж текущего потока: без снимка пути (поток не открыт или последнее
+    /// открытие не удалось) — `NoStream`, иначе `verdict` (ТЗ-56, §2.5).
+    /// Модельная часть правила, которое выполняет `UiAudioState`.
+    fn badge_of(current: Option<&SignalPath>, gain: GainState, test: Option<&TestRecord>) -> BadgeState {
+        current.map_or(BadgeState::NoStream, |p| verdict(p, gain, test))
+    }
+
+    /// Ключ «Теста», совпадающий с путём `p` (`ConfigKey::matches_path`).
+    fn key_of(p: &SignalPath) -> ConfigKey {
+        let req = &p.output.requested;
+        ConfigKey {
+            device: p.output.device_name.clone(),
+            mode: p.mode,
+            rate: req.rate,
+            format: req.sample,
+            channels: req.channels.get(),
+            player_version: "0.1.0".to_owned(),
+            kernel: "6.8.0".to_owned(),
+        }
+    }
+
+    /// §7.2, ТЗ-54, И-Т9: в Совместимом режиме бейдж всегда `Shared(..)` —
+    /// при любых источниках, возможностях сервера, ответе драйвера и усилении,
+    /// в том числе при идеальном passthrough; `Exclusive(BitPerfect)`
+    /// непредставим. 24/96 при 100 % → «Shared: без изменений»; 80 % → «громкость».
+    #[test]
+    fn compatible_badge_never_bitperfect() {
+        use OutputSampleFormat::{S16Le, S24Le, S32Le, F32};
+
+        let s = ModeSettings::default();
+        let compatible = PathPolicy::Compatible(&s.compatible);
+
+        // Строка спеки: 24/96 при 100 % и при 80 %.
+        let server = caps_shared(&[96_000], &[F32]);
+        let p = real_plan(&src_pcm(24, 96_000, 2), &server, compatible, GainState::Unity);
+        let f = p.target;
+        let p = opened(p, AccessKind::Shared, DriverFormat::Confirmed(f));
+        assert_eq!(verdict(&p, GainState::Unity, None), BadgeState::Shared(SharedBadge::Clean));
+        let v80 = GainState::Scaled(vol(80));
+        let p = real_plan(&src_pcm(24, 96_000, 2), &server, compatible, v80);
+        let f = p.target;
+        let p = opened(p, AccessKind::Shared, DriverFormat::Confirmed(f));
+        assert!(
+            matches!(
+                verdict(&p, v80, None),
+                BadgeState::Shared(SharedBadge::NotBitPerfect(NbpSummary { primary: NbpReason::Volume, .. }))
+            ),
+            "80 %: {:?}",
+            p.processing.transforms
+        );
+
+        // Перебор: источники × сервер × драйвер × усиление.
+        let sources = [
+            src_pcm(16, 44_100, 2),
+            src_pcm(24, 96_000, 2),
+            src_pcm(24, 192_000, 2),
+            src_pcm(16, 44_100, 1),
+            src_pcm(24, 48_000, 6),
+            src_dsd(DsdRate::Dsd64),
+        ];
+        let servers = [
+            caps_shared(&[44_100], &[S16Le]),
+            caps_shared(&[48_000], &[S32Le]),
+            caps_shared(&[96_000], &[F32]),
+            caps_shared(&[44_100, 48_000, 96_000, 192_000], &[S16Le, S24Le, S32Le, F32]),
+        ];
+        let gains = [GainState::NotApplicable, GainState::Unity, v80, GainState::Muted];
+        let mut clean = 0usize;
+        for src in &sources {
+            for server in &servers {
+                for g in gains {
+                    let p = real_plan(src, server, compatible, g);
+                    assert_eq!(p.mode, ModeKind::Compatible);
+                    let f = p.target;
+                    let drivers = [DriverFormat::Confirmed(f), DriverFormat::Unreadable { requested: f }];
+                    for d in drivers {
+                        let path = opened(p.clone(), AccessKind::Shared, d);
+                        let b = verdict(&path, g, None);
+                        assert!(matches!(b, BadgeState::Shared(_)), "{src:?} {server:?} {g:?} {d:?}: {b:?}");
+                        assert_ne!(b, bit_perfect());
+                        if b == BadgeState::Shared(SharedBadge::Clean) {
+                            clean += 1;
+                        }
+                    }
+                }
+            }
+        }
+        // Перебор содержит и чистые случаи (passthrough до сервера).
+        assert!(clean > 0);
+
+        // Идеальный passthrough литералом: без преобразований, Confirmed ==
+        // запрошенному, без регулировки — всё равно Shared(Clean).
+        let ideal = path(AccessKind::Shared, DriverFormat::Confirmed(fmt(44_100)), &[]);
+        for g in [GainState::NotApplicable, GainState::Unity] {
+            assert_eq!(verdict(&ideal, g, None), BadgeState::Shared(SharedBadge::Clean));
+            // Пройденный «Тест» с совпадающим ключом Bit-perfect не даёт.
+            let passed = record(key_of(&ideal), true);
+            assert_eq!(verdict(&ideal, g, Some(&passed)), BadgeState::Shared(SharedBadge::Clean));
+        }
+    }
+
+    /// §7.2, ТЗ-56, И-Р14: A открыт → открытие B не удалось → `NoStream`,
+    /// отчёт «поток не открыт» без параметров A.
+    ///
+    /// `verdict` всегда получает снимок пути, поэтому здесь проверяется
+    /// модельная часть: план B заблокирован до открытия, снимка B нет, снимок A
+    /// не переиспользуется → `NoStream`; «Тест» недоступен с `NoStream`.
+    /// Хранение снимка и сброс бейджа в UI (`UiAudioState`) — шаг 26.
+    #[test]
+    fn badge_no_stream_after_failed_open() {
+        use crate::audio::error::Incompatibility;
+        use crate::audio::path::StageId;
+        use crate::audio::test_run::{test_availability, TestAvailability, TestBlocker};
+        use OutputSampleFormat::{S24Le, S32Le};
+
+        let s = ModeSettings::default();
+        let strict = PathPolicy::Strict(&s.strict);
+        let na = GainState::NotApplicable;
+        // Без 176,4 кГц: DoP для DSD64 невозможен.
+        let dev = caps_excl(&[44_100, 88_200, 192_000], &[S24Le, S32Le]);
+
+        // Трек A: 24/192 открыт, «Bit-perfect».
+        let a = confirmed(real_plan(&src_pcm(24, 192_000, 2), &dev, strict, na));
+        let failed_a = record(key_of(&a), false);
+        let mut current: Option<SignalPath> = Some(a);
+        assert_eq!(badge_of(current.as_ref(), na, None), bit_perfect());
+
+        // Трек B: DSD64 в Строгом без DoP → Blocked на этапе «Вывод», без открытия.
+        let b = src_dsd(DsdRate::Dsd64);
+        let blocked = match plan(&b, &dev, strict) {
+            Ok(p) => panic!("ожидалась блокировка B: {p:?}"),
+            Err(bl) => bl,
+        };
+        assert!(matches!(blocked.at, StageId::Output), "{:?}", blocked.at);
+        assert!(
+            matches!(blocked.reason, Incompatibility::DopUnsupported { dsd: DsdRate::Dsd64, .. }),
+            "{:?}",
+            blocked.reason
+        );
+        // Отчёт строится из частичного плана B: источник — B, не A.
+        assert_eq!(blocked.partial.source, b);
+        assert!(matches!(blocked.partial.source.kind, SourceKind::Dsd { .. }));
+
+        // Неудачное открытие снимает снимок A: бейдж «нет потока».
+        current = None;
+        assert_eq!(badge_of(current.as_ref(), na, None), BadgeState::NoStream);
+        assert_eq!(badge_of(current.as_ref(), GainState::Muted, None), BadgeState::NoStream);
+        // Запись «Теста» для конфигурации A на бейдж без потока не влияет.
+        assert_eq!(badge_of(current.as_ref(), na, Some(&failed_a)), BadgeState::NoStream);
+        assert_eq!(
+            test_availability(&BadgeState::NoStream, ModeKind::Strict),
+            TestAvailability::Disabled(TestBlocker::NoStream)
+        );
+    }
+
+    /// §7.2, ТЗ-57: бейдж DSD выводится из фактического пути, а не из настроек
+    /// (замена `dsd_pcm_breaks_bit_perfect_detects_conflict`). При тех же
+    /// настройках Оптимального режима (DoP разрешён) устройство с DoP даёт
+    /// «Bit-perfect», устройство без DoP — «DSD→PCM».
+    #[test]
+    fn badge_from_path_not_settings_dsd() {
+        use OutputSampleFormat::{S24Le, S32Le};
+
+        let s = ModeSettings::default();
+        let optimal = PathPolicy::Optimal(&s.optimal);
+        let na = GainState::NotApplicable;
+        let unity = GainState::Unity;
+        let src = src_dsd(DsdRate::Dsd64);
+
+        // Устройство с 176,4 кГц: DoP DSD64 → «Bit-perfect».
+        let dev_dop = caps_excl(&[176_400, 352_800], &[S24Le, S32Le]);
+        let p = confirmed(real_plan(&src, &dev_dop, optimal, na));
+        assert!(matches!(p.route, Route::Dop(_)), "ожидался DoP: {:?}", p.route);
+        assert_eq!(verdict(&p, na, None), bit_perfect());
+
+        // Те же настройки, устройство без DoP: путь DSD→PCM → «DSD→PCM» (+ TPDF).
+        let dev_pcm = caps_excl(&[44_100, 88_200], &[S24Le, S32Le]);
+        let p = confirmed(real_plan(&src, &dev_pcm, optimal, unity));
+        assert!(matches!(p.route, Route::DsdToPcm { .. }), "ожидался DSD→PCM: {:?}", p.route);
+        assert!(p.dsd_chain.is_some());
+        assert_eq!(verdict(&p, unity, None), excl_nbp(NbpReason::DsdToPcm, 1));
+
+        // Режим пути (настройка) причину не подавляет: DsdToPcm в пути
+        // Строгого режима — всё равно «DSD→PCM»; DopPack в пути — не причина.
+        let dsd_to_pcm = TransformKind::DsdToPcm {
+            dsd: DsdRate::Dsd64,
+            rate: sr(88_200),
+            filter: DsdFilter::default(),
+            stop_hz: 30_000,
+            gain_comp: true,
+        };
+        let mut strict_plan = plan_with(&[dsd_to_pcm]);
+        strict_plan.mode = ModeKind::Strict;
+        assert_eq!(verdict(&confirmed(strict_plan), na, None), excl_nbp(NbpReason::DsdToPcm, 0));
+        let mut dop_plan = plan_with(&[TransformKind::DopPack { dsd: DsdRate::Dsd64 }]);
+        dop_plan.mode = ModeKind::Optimal;
+        assert_eq!(verdict(&confirmed(dop_plan), na, None), bit_perfect());
+
+        // Совместимый: DSD всегда через PCM → Shared с причиной «DSD→PCM».
+        let compatible = PathPolicy::Compatible(&s.compatible);
+        let server = caps_shared(&[88_200, 176_400], &[OutputSampleFormat::F32]);
+        let p = real_plan(&src, &server, compatible, unity);
+        let f = p.target;
+        let p = opened(p, AccessKind::Shared, DriverFormat::Confirmed(f));
+        assert!(
+            matches!(
+                verdict(&p, unity, None),
+                BadgeState::Shared(SharedBadge::NotBitPerfect(NbpSummary { primary: NbpReason::DsdToPcm, .. }))
+            ),
+            "{:?}",
+            p.processing.transforms
+        );
+    }
+
+    /// §7.2, ТЗ-58: непройденный «Тест» (✕) с ключом, совпадающим с путём, →
+    /// «тест не пройден»; при отличии устройства, режима, частоты, формата или
+    /// каналов, а также при пройденном тесте — обычные правила §6.22.
+    #[test]
+    fn badge_test_failed_matching_config() {
+        use OutputSampleFormat::{S24Le, S32Le};
+
+        let s = ModeSettings::default();
+        let strict = PathPolicy::Strict(&s.strict);
+        let na = GainState::NotApplicable;
+        let dev = caps_excl(&[96_000, 192_000], &[S24Le, S32Le]);
+        let p = confirmed(real_plan(&src_pcm(24, 192_000, 2), &dev, strict, na));
+        let k = key_of(&p);
+        assert!(k.matches_path(&p));
+
+        // ✕ для ключа пути → «тест не пройден», единственная причина.
+        assert_eq!(verdict(&p, na, Some(&record(k.clone(), false))), excl_nbp(NbpReason::TestFailed, 0));
+        // ✓ для того же ключа → обычные правила («Bit-perfect»).
+        assert_eq!(verdict(&p, na, Some(&record(k.clone(), true))), bit_perfect());
+
+        // Другой ключ → обычные правила.
+        let others = [
+            ("device", ConfigKey { device: "hw:1".to_owned(), ..k.clone() }),
+            ("mode", ConfigKey { mode: ModeKind::Optimal, ..k.clone() }),
+            ("rate", ConfigKey { rate: sr(96_000), ..k.clone() }),
+            ("format", ConfigKey { format: S32Le, ..k.clone() }),
+            ("channels", ConfigKey { channels: 4, ..k.clone() }),
+        ];
+        for (name, other) in &others {
+            assert!(!other.matches_path(&p), "{name}");
+            assert_eq!(verdict(&p, na, Some(&record(other.clone(), false))), bit_perfect(), "{name}");
+        }
+
+        // Путь с потерями: ✕ совпадающего ключа — основная причина, «+N»;
+        // другой ключ — обычная причина пути.
+        let opt = PathPolicy::Optimal(&s.optimal);
+        let v80 = GainState::Scaled(vol(80));
+        let dev_16 = caps_excl(&[44_100], &[OutputSampleFormat::S16Le]);
+        let lossy = confirmed(real_plan(&src_pcm(16, 44_100, 2), &dev_16, opt, v80));
+        let lk = key_of(&lossy);
+        assert_eq!(verdict(&lossy, v80, Some(&record(lk.clone(), false))), excl_nbp(NbpReason::TestFailed, 2));
+        assert_eq!(verdict(&lossy, v80, Some(&record(lk.clone(), true))), excl_nbp(NbpReason::Volume, 1));
+        let other = ConfigKey { rate: sr(48_000), ..lk };
+        assert_eq!(verdict(&lossy, v80, Some(&record(other, false))), excl_nbp(NbpReason::Volume, 1));
+    }
 }
