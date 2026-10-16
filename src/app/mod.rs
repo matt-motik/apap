@@ -46,7 +46,7 @@ use music_player_rs::platform::pick::{FilePicker, PickRequest, PickResult};
 use music_player_rs::playlist::{self, ScanMsg, Track};
 use music_player_rs::playlist::model::TrackId;
 use music_player_rs::settings::playback::Volume;
-use music_player_rs::settings::{ColumnId, DsdMode, ModeKind, RepeatMode};
+use music_player_rs::settings::{ColumnId, ModeKind, RepeatMode};
 use music_player_rs::theme::{
     ColorsData, ThemeData, ThemeEntry, ThemeError, DEFAULT_LIGHT_TOML, parse_hex,
 };
@@ -81,7 +81,6 @@ struct UiState {
     muted: bool,
     volume: f32,
     bit_perfect: bool,
-    bp_resample: bool,
     pos: String,
     dur: String,
     seek_fraction: f32,
@@ -96,7 +95,6 @@ impl Default for UiState {
             // Sentinel: forces the first tick to push the real volume.
             volume: -1.0,
             bit_perfect: false,
-            bp_resample: false,
             pos: String::new(),
             dur: String::new(),
             seek_fraction: -1.0,
@@ -2160,10 +2158,6 @@ impl MusicApp {
                 if rebuild_table {
                     a.sync_playlist_to_ui();
                 }
-                // §8 С4, §6.18, ADR-04: DSD-статус бейджа синхронизируется
-                // после каждого Save — DSD-режим берётся из активного
-                // `ModeSettings`.
-                a.sync_dsd_status_ui();
                 a.sync_audio_devices();
                 if let Some(ui) = a.try_ui() {
                     ui.set_settings_open(false);
@@ -2458,7 +2452,6 @@ impl MusicApp {
         for message in output.messages {
             self.push_message(message);
         }
-        self.sync_dsd_status_ui();
         if self.try_ui().is_some_and(|ui| ui.get_bp_report_open()) {
             let report = bp_report::build_bp_report(&bp_report::bp_inputs(self));
             self.push_bp_report_to_ui(report);

@@ -17,21 +17,8 @@ export component StatusBar inherits Rectangle {
     in property <string> track-count: "0 tracks";
     in property <bool> busy: false;
     callback bp-clicked();
-    // ТЗ-52: «Bit-perfect» только при выполнении всех условий. Старый путь
-    // их не проверяет — Rust держит false (§8 С1); не флаг настроек.
-    in property <bool> bp-active: false;
-    // ТЗ-52, §8 С1: текст бейджа «Не bit-perfect: причина»; пусто — бейдж скрыт.
-    in property <string> bp-text: "";
-    // ТЗ §7.5: активен bit-perfect, но DSD выводится конверсией в PCM — для
-    // DSD-потока bit-perfect не сохраняется.
-    in property <bool> dsd-not-bp: false;
-    // ТЗ A2.0 §4.2: bit-perfect без гарантии — режим активен, но устройство
-    // не поддерживает нативный rate, поэтому тракт ресемплит (re-quantization).
-    in property <bool> bp-resample: false;
 
-    // ADR-06, ТЗ-52, ТЗ-56: новая модель бейджа тракта (BadgeState). Старые
-    // bp-* свойства выше остаются до следующего шага (мост на время переноса
-    // Rust-стороны); пока Rust не выставляет badge-kind, новый блок скрыт.
+    // ADR-06, ТЗ-52, ТЗ-56: модель бейджа тракта (BadgeState).
     in property <BadgeKind> badge-kind: BadgeKind.none;
     // Готовый текст бейджа (строится в Rust, например «Bit-perfect» /
     // «Shared, не bit-perfect: ...» / «Нет потока»).
@@ -92,100 +79,6 @@ export component StatusBar inherits Rectangle {
             font-size: 12px;
             vertical-alignment: center;
             horizontal-alignment: right;
-        }
-        // ТЗ-52: значок «Bit-perfect» — только когда все условия подтверждены.
-        // Мост: пока Rust не выставил badge-kind (ADR-06), показывает старый блок.
-        if root.badge-kind == BadgeKind.none && root.bp-active && !root.dsd-not-bp: VerticalLayout {
-            padding: 2px;
-            Rectangle {
-                border-width: 1px;
-                border-color: Colors.accent;
-                border-radius: 4px;
-                touch_bitperfect := TouchArea {
-                    clicked => { root.bp-clicked(); }
-                }
-
-                VerticalLayout {
-                    padding-left: 4px;
-                    padding-right: 4px;
-                    Text {
-                        text: "Bit-perfect";
-                        color: Colors.accent;
-                        font-size: 10px;
-                        vertical-alignment: center;
-                    }
-                }
-            }
-        }
-        // ТЗ-52, §8 С1: «Не bit-perfect: причина», когда условия не подтверждены.
-        if root.badge-kind == BadgeKind.none && !root.bp-active && !root.dsd-not-bp && root.bp-text != "": VerticalLayout {
-            padding: 2px;
-            Rectangle {
-                border-width: 1px;
-                border-color: Colors.text-warn;
-                border-radius: 4px;
-                touch_not_bp := TouchArea {
-                    clicked => { root.bp-clicked(); }
-                }
-
-                VerticalLayout {
-                    padding-left: 4px;
-                    padding-right: 4px;
-                    Text {
-                        text: root.bp-text;
-                        color: Colors.text-warn;
-                        font-size: 10px;
-                        vertical-alignment: center;
-                    }
-                }
-            }
-        }
-        // DSD→PCM warning badge (dsd-not-bp уже учитывает включённый bit-perfect)
-        if root.badge-kind == BadgeKind.none && root.dsd-not-bp:  VerticalLayout {
-            padding: 2px;
-            Rectangle {
-                border-width: 1px;
-                border-color: Colors.text-error;
-                border-radius: 4px;
-                touch_dsd := TouchArea {
-                    clicked => { root.bp-clicked(); }
-                }
-
-                VerticalLayout {
-                    padding-left: 4px;
-                    padding-right: 4px;
-                    Text {
-                        text: "Не bit-perfect (DSD→PCM)";
-                        color: Colors.text-error;
-                        font-size: 10px;
-                        vertical-alignment: center;
-                    }
-                }
-            }
-        }
-        // ТЗ A2.0 §4.2: bit-perfect активен, но тракт ресемплит (rate mismatch
-        // с устройством) — bit-perfect без гарантии.
-        if root.badge-kind == BadgeKind.none && root.bp-resample:  VerticalLayout {
-            padding: 2px;
-            Rectangle {
-                border-width: 1px;
-                border-color: Colors.text-warn;
-                border-radius: 4px;
-                touch_resample := TouchArea {
-                    clicked => { root.bp-clicked(); }
-                }
-
-                VerticalLayout {
-                    padding-left: 4px;
-                    padding-right: 4px;
-                    Text {
-                        text: "Resample (device limit)";
-                        color: Colors.text-warn;
-                        font-size: 10px;
-                        vertical-alignment: center;
-                    }
-                }
-            }
         }
         // ADR-06, ТЗ-52, ТЗ-56: новый бейдж тракта по BadgeState. Текст и
         // детали строит Rust (badge-text); Slint только выбирает цвет по виду.

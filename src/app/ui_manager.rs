@@ -4,7 +4,6 @@
 use super::*;
 
 use music_player_rs::audio::output::DeviceCategory;
-use music_player_rs::engine::legacy_path::legacy_audio;
 use music_player_rs::persist::state_file::{
     effective_width_pct, Origin, PhysPos, PhysSize, SizeUnits, StateChange,
     WindowGeometry,
@@ -220,17 +219,6 @@ impl MusicApp {
             .set_settings_cache_viz_size(music_player_rs::audio::fulltrack::fmt_cache_bytes(disk.viz_disk).into());
         ui
             .set_settings_cache_cover_size(music_player_rs::audio::fulltrack::fmt_cache_bytes(disk.covers).into());
-    }
-
-    /// ТЗ §7.5: актуализировать индикатор статус-бара «Не bit-perfect
-    /// (DSD→PCM)» по текущему треку. Вызывается в `tick()`, поэтому всегда
-    /// отражает последний выбранный трек и live-настройки.
-    pub(super) fn sync_dsd_status_ui(&self) {
-        let (la, _) = legacy_audio(&self.cfg().playback, self.core.state().active_mode());
-        let warn = self.current_track_is_dsd() && la.bit_perfect && la.dsd_mode == DsdMode::Pcm;
-        if let Some(ui) = self.try_ui() {
-            ui.set_status_dsd_not_bp(warn);
-        }
     }
 
     /// True, если текущий трек — DSD (DSF/DFF по расширению в `Track.format`).

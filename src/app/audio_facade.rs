@@ -373,10 +373,6 @@ impl AudioFacade {
         self.legacy_bit_perfect()
     }
 
-    pub(crate) fn bit_perfect_resampled(&self) -> bool {
-        self.legacy_bit_perfect() && self.stream_desc().is_some_and(|d| d.resampled)
-    }
-
     // --- Настройки режимов (С4) ------------------------------------------------
 
     /// Применить новые настройки трёх режимов (ОВС-14, ОВС-17, §6.18, §6.27,
@@ -473,13 +469,6 @@ mod tests {
 
         f.set_active_mode(ModeKind::Optimal);
         assert!(!f.bit_perfect());
-    }
-
-    #[test]
-    fn bit_perfect_resampled_false_without_stream_desc() {
-        let f = facade();
-        assert!(f.stream_desc().is_none());
-        assert!(!f.bit_perfect_resampled());
     }
 
     #[test]

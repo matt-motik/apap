@@ -148,7 +148,7 @@ steps:
     done: true
   - id: 34
     description: "Удаление bool-бейджей: bp-active/bp-text/dsd-not-bp/bp-resample из status.slint/app.slint; set_status_bp_*/set_status_dsd_not_bp, sync_dsd_status_ui и его вызовы, UiState.bp_resample, AudioFacade::bit_perfect_resampled (ADR-06, R-1). Шаг-очистка моста шага 31 (только удаление, 5 файлов). Проверка: cargo build + полный cargo test + clippy --all-targets (ЧЕКПОИНТ)"
-    done: false
+    done: true
   - id: 35
     description: "Окно «Путь сигнала»: показ PathReport (Display) вместо bp_report + тест window_no_recompute_on_idle_ticks (ТЗ-70–79). Проверка: cargo test. Шаг дробится при декомпозиции"
     done: false
@@ -158,8 +158,8 @@ steps:
   - id: 37
     description: "Удаление легаси (§8, §7.4): bp_report.rs, StreamDesc, FallbackReason, dsd_pcm_breaks_bit_perfect и тесты dsd_pcm_breaks_bit_perfect_detects_conflict, bp_report_marks_volume_issue; ссылки в settings.rs/state_file.rs. Проверка: полный cargo test + clippy --all-targets. Шаг дробится при декомпозиции"
     done: false
-current_step: 34
-next_action: "Шаг 34 (ЧЕКПОИНТ): удалить bool-бейджи bp-active/bp-text/dsd-not-bp/bp-resample из status.slint/app.slint, set_status_bp_*/set_status_dsd_not_bp, sync_dsd_status_ui, UiState.bp_resample, AudioFacade::bit_perfect_resampled. Проверка: cargo build + полный cargo test + clippy --all-targets"
+current_step: 35
+next_action: "Шаг 35: Окно «Путь сигнала»: показ PathReport (Display) вместо bp_report + тест window_no_recompute_on_idle_ticks (ТЗ-70–79). Проверка: cargo test. Шаг дробится при декомпозиции"
 fail_counter: 0
 fail_counter_max: 3
 failed_attempts: []
