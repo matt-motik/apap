@@ -4,6 +4,7 @@
 
 pub mod plan;
 pub mod recommend;
+pub mod report;
 pub mod signal;
 pub mod transform;
 

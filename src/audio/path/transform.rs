@@ -350,7 +350,7 @@ impl TransformKind {
 
 /// Частота в кГц с десятичной запятой без лишних нулей: 44 100 → «44,1 кГц»,
 /// 96 000 → «96 кГц», 22 050 → «22,05 кГц» (без `as`, целочисленно).
-fn khz(hz: u32) -> String {
+pub(super) fn khz(hz: u32) -> String {
     let int = hz / 1000;
     let frac = hz % 1000;
     if frac == 0 {
@@ -361,7 +361,7 @@ fn khz(hz: u32) -> String {
 }
 
 /// Имя DSD-частоты для текста (§3.3).
-fn dsd_name(dsd: DsdRate) -> &'static str {
+pub(super) fn dsd_name(dsd: DsdRate) -> &'static str {
     match dsd {
         DsdRate::Dsd64 => "DSD64",
         DsdRate::Dsd128 => "DSD128",
