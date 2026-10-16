@@ -14,7 +14,9 @@ use crate::audio::format::{Codec, OutputSampleFormat, SourceFormat, SourceKind, 
 use crate::settings::params::PARAMS;
 use crate::settings::playback::{DsdFilter, ModeKind, ModeSettings};
 
-use super::recommend::{recommend, PathSubject, Recommendation};
+use super::recommend::{
+    recommend, HwRequirement, OsTopic, PathSubject, PlayerSettingRec, RecAction, Recommendation, SwitchWhy,
+};
 use super::signal::{DynamicPathState, Md5Status, NotCheckedWhy, RtPriorityState, SignalPath};
 use super::transform::{dsd_name, khz, Cause, Confidence, ConfirmedBy, Transform, TransformKind};
 use super::{
@@ -450,6 +452,165 @@ fn dsd_filter_hz(filter: DsdFilter) -> u32 {
     }
 }
 
+// ---------------------------------------------------------------------------
+// Display (ТЗ-84, §6.25)
+// ---------------------------------------------------------------------------
+
+/// Текстовое представление отчёта (ТЗ-84, §6.25): заголовок, шесть блоков
+/// «Этап: статус / изменения / причины / достоверность / заметки»,
+/// рекомендации по трём группам («Настройки плеера», «Настройки ОС»,
+/// «Оборудование» — смена режима показывается строкой внутри этой группы,
+/// так как сопровождает её рекомендации), версия плеера, ОС и ядро.
+/// Без разметки UI.
+impl std::fmt::Display for PathReport {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        writeln!(f, "{}", self.subject_title)?;
+        for row in &self.stages {
+            writeln!(f)?;
+            writeln!(f, "{}: {}", stage_name(row.id), status_text(row.status))?;
+            if !row.changes.is_empty() {
+                writeln!(f, "  изменения: {}", row.changes.join("; "))?;
+            }
+            if !row.causes.is_empty() {
+                writeln!(f, "  причины: {}", row.causes.join("; "))?;
+            }
+            writeln!(f, "  достоверность: {}", confidence_text(row.confidence))?;
+            if !row.notes.is_empty() {
+                writeln!(f, "  заметки: {}", row.notes.join("; "))?;
+            }
+        }
+
+        let (player, os, hardware) = group_recommendations(&self.recommendations);
+        writeln!(f)?;
+        writeln!(f, "Рекомендации:")?;
+        if player.is_empty() && os.is_empty() && hardware.is_empty() {
+            writeln!(f, "  нет")?;
+        } else {
+            write_group(f, "Настройки плеера", &player)?;
+            write_group(f, "Настройки ОС", &os)?;
+            write_group(f, "Оборудование", &hardware)?;
+        }
+
+        writeln!(f)?;
+        writeln!(f, "{}", self.guarantee_boundary)?;
+        writeln!(f)?;
+        writeln!(f, "Версия плеера: {}", self.player_version)?;
+        write!(f, "ОС: {}", self.os)
+    }
+}
+
+fn write_group(f: &mut std::fmt::Formatter<'_>, title: &str, items: &[String]) -> std::fmt::Result {
+    if items.is_empty() {
+        return Ok(());
+    }
+    writeln!(f, "  {title}:")?;
+    for item in items {
+        writeln!(f, "    - {item}")?;
+    }
+    Ok(())
+}
+
+/// Группировка рекомендаций по трём группам (§6.25): «Настройки плеера»,
+/// «Настройки ОС», «Оборудование» (смена режима — строкой в группе
+/// «Оборудование», так как в таблице §6.25 она всегда сопровождает
+/// рекомендацию по оборудованию или несовместимости режима).
+fn group_recommendations(recs: &[Recommendation]) -> (Vec<String>, Vec<String>, Vec<String>) {
+    let mut player = Vec::new();
+    let mut os = Vec::new();
+    let mut hardware = Vec::new();
+    for rec in recs {
+        match rec {
+            Recommendation::PlayerSetting(r) => player.push(player_setting_text(r)),
+            Recommendation::Os { topic } => os.push(os_topic_text(*topic).to_owned()),
+            Recommendation::Hardware { need } => hardware.push(hw_requirement_text(need)),
+            Recommendation::SwitchMode { to, why } => {
+                hardware.push(format!("смена режима: {} ({})", mode_name(*to), switch_why_text(*why)));
+            }
+        }
+    }
+    (player, os, hardware)
+}
+
+fn stage_name(id: StageId) -> &'static str {
+    match id {
+        StageId::Source => "Источник",
+        StageId::Decoder => "Декодер",
+        StageId::Processing => "Обработка",
+        StageId::Output => "Вывод",
+        StageId::OsLevel => "Уровень ОС",
+        StageId::Device => "Устройство",
+    }
+}
+
+fn status_text(status: StageStatus) -> &'static str {
+    match status {
+        StageStatus::Unchanged => "✓ без изменений",
+        StageStatus::Lossless => "≈ изменено без потерь",
+        StageStatus::Unknown => "? неизвестно",
+        StageStatus::Lossy => "✗ с потерями / несовместимо",
+    }
+}
+
+fn confidence_text(c: Confidence) -> String {
+    match c {
+        Confidence::Confirmed(by) => format!("подтверждено ({})", confirmed_by_text(by)),
+        Confidence::Assumed => "предположено".to_owned(),
+    }
+}
+
+fn confirmed_by_text(by: ConfirmedBy) -> &'static str {
+    match by {
+        ConfirmedBy::DriverHwParams => "hw_params драйвера",
+        ConfirmedBy::RuntimeTest => "тест тракта",
+        ConfirmedBy::FileHeader => "заголовок файла",
+        ConfirmedBy::OsQuery => "запрос к ОС",
+    }
+}
+
+fn player_setting_text(rec: &PlayerSettingRec) -> String {
+    let label = PARAMS.iter().find(|d| d.id == rec.param()).map_or("—", |d| d.label_key);
+    format!("{label}: {}", rec_action_text(rec.action()))
+}
+
+fn rec_action_text(a: RecAction) -> &'static str {
+    match a {
+        RecAction::SetVolumeFull => "громкость → 100 %",
+        RecAction::Unmute => "выключить mute",
+        RecAction::TurnOff => "выключить",
+        RecAction::ChooseQualityFilter => "выбрать фильтр SRC «Качество»",
+        RecAction::Increase => "увеличить",
+    }
+}
+
+fn os_topic_text(t: OsTopic) -> &'static str {
+    match t {
+        OsTopic::PipeWireAllowedRates => "PipeWire: allowed-rates",
+        OsTopic::PipeWireForceRate => "PipeWire: force-rate",
+        OsTopic::WindowsSharedFormat => "формат общего режима WASAPI",
+        OsTopic::WindowsExclusivePermission => "разрешение на монопольный доступ WASAPI",
+        OsTopic::RealtimePriority => "приоритет реального времени (rtkit, группа audio)",
+    }
+}
+
+fn hw_requirement_text(need: &HwRequirement) -> String {
+    match need {
+        HwRequirement::Rate(r) => format!("частота {}", khz(r.hz())),
+        HwRequirement::BitDepth(b) => format!("разрядность {} бит", b.bits()),
+        HwRequirement::Channels(n) => format!("{n} кан."),
+        HwRequirement::DopRate(d) => format!("DoP {}", dsd_name(*d)),
+    }
+}
+
+fn switch_why_text(why: SwitchWhy) -> &'static str {
+    match why {
+        SwitchWhy::Resample => "ресемплинг",
+        SwitchWhy::Truncate => "усечение разрядности",
+        SwitchWhy::Downmix => "сведение каналов",
+        SwitchWhy::DsdToPcm => "DSD→PCM",
+        SwitchWhy::Exclusive => "Exclusive",
+    }
+}
+
 #[cfg(test)]
 mod tests {
     //! Тесты окна «Путь сигнала», ч. 1 (§7.2, ТЗ-70–ТЗ-75).
@@ -601,5 +762,162 @@ mod tests {
         assert_eq!(dec.status, StageStatus::Lossy);
         assert!(has(&dec.changes, "с потерями, округление до 24 бит"), "{:?}", dec.changes);
         assert!(row(&r, StageId::Processing).changes.is_empty(), "{:?}", row(&r, StageId::Processing).changes);
+    }
+
+    /// §7.2 `report_output_stage_driver_facts` (ТЗ-76): факты этапа «Вывод» —
+    /// частота у драйвера, непрочитанные параметры, Shared без «Exclusive»,
+    /// предупреждение ОВ-35, буфер устройства, RT-приоритет. Заметки статус
+    /// этапа не меняют.
+    #[test]
+    fn report_output_stage_driver_facts() {
+        let s = ModeSettings::default();
+        let caps = exclusive(&[48_000], &[OutputSampleFormat::S32Le]);
+        let plan_ok = plan(&flac(24, 48_000), &caps, PathPolicy::Optimal(&s.optimal)).unwrap();
+        let requested = plan_ok.target;
+        let actual = StreamFormat { sample: OutputSampleFormat::S24Le, ..requested };
+
+        // Драйвер принял другой формат: фактическая частота/формат «прочитано у
+        // драйвера», предупреждение ОВ-35, буфер устройства, RT-приоритет получен.
+        let facts = OpenedFacts {
+            access: AccessKind::Exclusive,
+            api: OutputApi::AlsaHw,
+            device_name: "test".to_owned(),
+            driver: DriverFormat::Confirmed(actual),
+            reservation: ReservationView::UnavailableNoServer,
+            os: OsStage::NotInvolved,
+            device_buffer: Some(DeviceBufferActual { period_frames: 256, buffer_frames: 2016 }),
+        };
+        let d = DynamicPathState { rt_priority: RtPriorityState::Granted(10), ..DynamicPathState::default() };
+        let path = SignalPath::from_opened(plan_ok.clone(), facts, 1);
+        let r = build_report(PathSubject::Opened(&path), &d, &s);
+        let out = row(&r, StageId::Output);
+        assert_eq!(out.status, StageStatus::Unchanged);
+        assert!(has(&out.notes, "прочитано у драйвера"), "{:?}", out.notes);
+        assert!(has(&out.notes, "устройство открыто без резервирования"), "{:?}", out.notes);
+        assert!(has(&out.notes, "буфер устройства 42 мс"), "{:?}", out.notes);
+        assert!(has(&out.notes, "приоритет реального времени: получен"), "{:?}", out.notes);
+        assert!(has(&out.notes, "Underrun: 0"), "{:?}", out.notes);
+        assert!(has(&out.notes, "Xrun: 0"), "{:?}", out.notes);
+
+        // Драйвер не прочитан: «запрошено, не подтверждено».
+        let facts_unreadable = OpenedFacts {
+            access: AccessKind::Exclusive,
+            api: OutputApi::AlsaHw,
+            device_name: "test".to_owned(),
+            driver: DriverFormat::Unreadable { requested },
+            reservation: ReservationView::NotApplicable,
+            os: OsStage::NotInvolved,
+            device_buffer: None,
+        };
+        let path_unreadable = SignalPath::from_opened(plan_ok.clone(), facts_unreadable, 1);
+        let r_unreadable = build_report(PathSubject::Opened(&path_unreadable), &DynamicPathState::default(), &s);
+        assert!(has(&row(&r_unreadable, StageId::Output).notes, "запрошено, не подтверждено"));
+
+        // Shared-доступ: нет строки про «Exclusive» и нет «Xrun» (только Exclusive).
+        let facts_shared = OpenedFacts {
+            access: AccessKind::Shared,
+            api: OutputApi::PipeWire,
+            device_name: "test".to_owned(),
+            driver: DriverFormat::Confirmed(requested),
+            reservation: ReservationView::NotApplicable,
+            os: OsStage::NotInvolved,
+            device_buffer: None,
+        };
+        let d_denied = DynamicPathState { rt_priority: RtPriorityState::Denied, ..DynamicPathState::default() };
+        let path_shared = SignalPath::from_opened(plan_ok, facts_shared, 1);
+        let r_shared = build_report(PathSubject::Opened(&path_shared), &d_denied, &s);
+        let out_shared = row(&r_shared, StageId::Output);
+        assert!(!has(&out_shared.notes, "Exclusive"), "{:?}", out_shared.notes);
+        assert!(!has(&out_shared.notes, "Xrun"), "{:?}", out_shared.notes);
+        assert!(has(&out_shared.notes, "приоритет реального времени: не получен"), "{:?}", out_shared.notes);
+        assert_eq!(out_shared.status, StageStatus::Unchanged);
+    }
+
+    /// §7.2 `report_clip_notes` (ТЗ-75, ТЗ-129, ОВС-11): «ограничено N сэмплов»
+    /// у «Декодер» (`lossy_clipped`) и «Обработка» (`dsd_clipped`); статус
+    /// этапа не меняется.
+    #[test]
+    fn report_clip_notes() {
+        let caps = exclusive(&[96_000], &[OutputSampleFormat::S32Le]);
+        let zero = DynamicPathState::default();
+        let clipped = DynamicPathState { lossy_clipped: 5, dsd_clipped: 3, ..DynamicPathState::default() };
+
+        let r0 = optimal_report(&mp3(44_100), &caps, &zero);
+        let r1 = optimal_report(&mp3(44_100), &caps, &clipped);
+        assert!(has(&row(&r1, StageId::Decoder).notes, "ограничено 5 сэмплов"), "{:?}", row(&r1, StageId::Decoder).notes);
+        assert_eq!(row(&r0, StageId::Decoder).status, row(&r1, StageId::Decoder).status);
+
+        let r2 = optimal_report(&flac(24, 192_000), &caps, &clipped);
+        assert!(
+            has(&row(&r2, StageId::Processing).notes, "ограничено 3 сэмплов"),
+            "{:?}",
+            row(&r2, StageId::Processing).notes
+        );
+        let r2_zero = optimal_report(&flac(24, 192_000), &caps, &zero);
+        assert_eq!(row(&r2, StageId::Processing).status, row(&r2_zero, StageId::Processing).status);
+    }
+
+    /// §7.2 `report_built_without_backend_access` (ТЗ-79): `build_report`
+    /// строится только из конструкторов `PathPlan`/`Blocked`/`PathSubject` —
+    /// без `Player`, `AudioHost` или иного обращения к движку/бэкенду.
+    #[test]
+    fn report_built_without_backend_access() {
+        let s = ModeSettings::default();
+        let caps = exclusive(&[44_100], &[OutputSampleFormat::S32Le]);
+        let path = opened(plan(&flac(16, 44_100), &caps, PathPolicy::Optimal(&s.optimal)).unwrap());
+        let opened_report = build_report(PathSubject::Opened(&path), &DynamicPathState::default(), &s);
+
+        let dev96 = exclusive(&[96_000], &[OutputSampleFormat::S32Le]);
+        let blocked = plan(&flac(24, 192_000), &dev96, PathPolicy::Strict(&s.strict)).unwrap_err();
+        let skipped_report = build_report(PathSubject::Skipped(&blocked), &DynamicPathState::default(), &s);
+
+        let no_stream_report = build_report(PathSubject::NoStream, &DynamicPathState::default(), &s);
+
+        for r in [&opened_report, &skipped_report, &no_stream_report] {
+            assert_eq!(r.stages.len(), 6);
+        }
+    }
+
+    /// §7.2 `report_skipped_track_blocked_stage` (ТЗ-80): 24 бит/192 кГц на
+    /// Exclusive-устройстве с потолком 96 кГц в Строгом режиме — этап
+    /// `blocked.at` с причиной несовместимости и рекомендациями «Оборудование»
+    /// + смена режима на Оптимальный.
+    #[test]
+    fn report_skipped_track_blocked_stage() {
+        let s = ModeSettings::default();
+        let dev96 = exclusive(&[44_100, 48_000, 96_000], &[OutputSampleFormat::S32Le]);
+        let blocked = plan(&flac(24, 192_000), &dev96, PathPolicy::Strict(&s.strict)).unwrap_err();
+        let r = build_report(PathSubject::Skipped(&blocked), &DynamicPathState::default(), &s);
+        let stage = row(&r, blocked.at);
+        assert!(has(&stage.causes, "частота 192 кГц не поддерживается устройством"), "{:?}", stage.causes);
+
+        assert!(
+            r.recommendations.contains(&Recommendation::SwitchMode { to: ModeKind::Optimal, why: SwitchWhy::Resample }),
+            "{:?}",
+            r.recommendations
+        );
+        assert!(
+            r.recommendations.contains(&Recommendation::Hardware { need: HwRequirement::Rate(sr(192_000)) }),
+            "{:?}",
+            r.recommendations
+        );
+    }
+
+    /// §7.2 `report_text_contains_all_parts` (ТЗ-84): `Display` содержит все
+    /// шесть названий этапов, текст рекомендаций, версию плеера и ОС.
+    #[test]
+    fn report_text_contains_all_parts() {
+        let s = ModeSettings::default();
+        let dev96 = exclusive(&[44_100, 48_000, 96_000], &[OutputSampleFormat::S32Le]);
+        let blocked = plan(&flac(24, 192_000), &dev96, PathPolicy::Strict(&s.strict)).unwrap_err();
+        let r = build_report(PathSubject::Skipped(&blocked), &DynamicPathState::default(), &s);
+        let text = format!("{r}");
+        for name in ["Источник", "Декодер", "Обработка", "Вывод", "Уровень ОС", "Устройство"] {
+            assert!(text.contains(name), "{name} отсутствует в:\n{text}");
+        }
+        assert!(text.contains("Оборудование"), "{text}");
+        assert!(text.contains("смена режима"), "{text}");
+        assert!(text.contains(r.player_version), "{text}");
+        assert!(text.contains(&r.os), "{text}");
     }
 }
