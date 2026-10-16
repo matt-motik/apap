@@ -65,8 +65,8 @@
 - [x] Шаг 16: Тесты бейджа, ч. 1: badge_honesty_table, badge_driver_unconfirmed, badge_bitperfect_ignores_mono_underrun_md5, badge_each_reason, badge_reason_priority_and_more (§7.2). Покрыть и бейдж строки strict_passthrough_24_192: «Bit-perfect» при Confirmed драйвера (из plan_tests отложено — нужны OpenedFacts). Проверка: cargo test verdict
 - [x] Шаг 17: audio/test_run.rs (минимум С5): ConfigKey и TestRecord уже есть (шаг 15; Hash/serde — с хранением, ADR-19); добавить TestBadge, TestAvailability/TestBlocker (+Muted, ОВС-18), test_availability() §6.22 + тест test_availability_rules; поле test: Option<TestBadge> в DynamicPathState (signal.rs) (ТЗ-106, ТЗ-139). Проверка: cargo test test_run
 - [x] Шаг 18: Тесты бейджа, ч. 2: compatible_badge_never_bitperfect, badge_no_stream_after_failed_open, badge_from_path_not_settings_dsd, badge_test_failed_matching_config (§7.2). Проверка: cargo test verdict
-- [>] **Шаг 19: path/recommend.rs: Recommendation, PlayerSettingRec::new→Option, OsTopic, HwRequirement, recommend() по таблице §6.25 + тесты recommendations_three_types, recommendations_underrun_vs_xrun, recommendations_respect_mode_matrix (ТЗ-80–84). Проверка: cargo test recommend**
-- [ ] Шаг 20: path/report.rs: PathSubject, PathReport, StageRow, build_report() §6.25 (ТЗ-73–79). Проверка: cargo check
+- [x] Шаг 19: path/recommend.rs: Recommendation, PlayerSettingRec::new→Option, OsTopic, HwRequirement, recommend() по таблице §6.25 + тесты recommendations_three_types, recommendations_underrun_vs_xrun, recommendations_respect_mode_matrix (ТЗ-80–84). Проверка: cargo test recommend
+- [>] **Шаг 20: path/report.rs: PathReport (PathSubject уже в recommend.rs), StageRow, build_report() §6.25 (ТЗ-73–79). Проверка: cargo check**
 - [ ] Шаг 21: Тесты окна, ч. 1: report_has_six_stages_in_order, report_stage_fields_optimal_192_on_96, report_lists_all_transforms, report_source_stage, report_decoder_stage (§7.2). Проверка: cargo test report
 - [ ] Шаг 22: Display для PathReport + тесты окна, ч. 2: report_output_stage_driver_facts, report_clip_notes, report_built_without_backend_access, report_skipped_track_blocked_stage (вкл. текст «частота 192 кГц не поддерживается устройством» из strict_rejects_rate — у Incompatibility нет текста), report_text_contains_all_parts (§7.2). Проверка: cargo test report. ЧЕКПОИНТ: полный test + clippy
 - [ ] Шаг 23: backend/os_probe.rs: трейт OsLevelProbe, FakeOsProbe, Windows-реализация (Known{WasapiMixer, rate, format} из cpal default_output_config), Unknown для прочих ОС; поле os_probe в EngineDeps (§6.26, ТЗ-75). Проверка: cargo test engine::
@@ -81,8 +81,8 @@
 
 Легенда: [x] сделано · [>] текущий шаг · [ ] не начато
 
-- **Текущий шаг (current_step):** Шаг 19
-- **Следующий ход:** Шаг 19: субагент делает src/audio/path/recommend.rs (Recommendation, PlayerSettingRec::new→Option, OsTopic, HwRequirement, recommend() по §6.25) + 3 теста.
+- **Текущий шаг (current_step):** Шаг 20
+- **Следующий ход:** Шаг 20: src/audio/path/report.rs — PathReport, StageRow, build_report() §6.25 (ТЗ-73–79); PathSubject и recommend() уже в recommend.rs.
 - **Счетчик безуспешных компиляций:** 0/3
 - **Состояние:** in_progress
 

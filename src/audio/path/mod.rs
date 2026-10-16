@@ -3,6 +3,7 @@
 #![deny(clippy::unwrap_used, clippy::expect_used, clippy::unreachable)]
 
 pub mod plan;
+pub mod recommend;
 pub mod signal;
 pub mod transform;
 

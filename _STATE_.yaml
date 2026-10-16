@@ -102,9 +102,9 @@ steps:
     done: true
   - id: 19
     description: "path/recommend.rs: Recommendation, PlayerSettingRec::new→Option, OsTopic, HwRequirement, recommend() по таблице §6.25 + тесты recommendations_three_types, recommendations_underrun_vs_xrun, recommendations_respect_mode_matrix (ТЗ-80–84). Проверка: cargo test recommend"
-    done: false
+    done: true
   - id: 20
-    description: "path/report.rs: PathSubject, PathReport, StageRow, build_report() §6.25 (ТЗ-73–79). Проверка: cargo check"
+    description: "path/report.rs: PathReport (PathSubject уже в recommend.rs), StageRow, build_report() §6.25 (ТЗ-73–79). Проверка: cargo check"
     done: false
   - id: 21
     description: "Тесты окна, ч. 1: report_has_six_stages_in_order, report_stage_fields_optimal_192_on_96, report_lists_all_transforms, report_source_stage, report_decoder_stage (§7.2). Проверка: cargo test report"
@@ -139,8 +139,8 @@ steps:
   - id: 31
     description: "Удаление легаси (§8, §7.4): bp_report.rs, StreamDesc, FallbackReason, dsd_pcm_breaks_bit_perfect и тесты dsd_pcm_breaks_bit_perfect_detects_conflict, bp_report_marks_volume_issue; ссылки в settings.rs/state_file.rs. Проверка: полный cargo test + clippy --all-targets. Шаг дробится при декомпозиции"
     done: false
-current_step: 19
-next_action: "Шаг 19: субагент делает src/audio/path/recommend.rs (Recommendation, PlayerSettingRec::new→Option, OsTopic, HwRequirement, recommend() по §6.25) + 3 теста."
+current_step: 20
+next_action: "Шаг 20: src/audio/path/report.rs — PathReport, StageRow, build_report() §6.25 (ТЗ-73–79); PathSubject и recommend() уже в recommend.rs."
 fail_counter: 0
 fail_counter_max: 3
 failed_attempts: []
