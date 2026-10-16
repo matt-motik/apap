@@ -128,8 +128,8 @@ steps:
     description: "Форма событий: EngineEvent::Opened получает path: Option<Arc<SignalPath>> и badge: BadgeState (stream остаётся мостом до удаления StreamDesc), новый вариант BadgeChanged(BadgeState); run.rs шлёт None/NoStream; фикстуры ui_audio_state.rs/audio_facade.rs (§4.3, ТЗ-52, ТЗ-56). Проверка: полный cargo test (общий тип)"
     done: true
   - id: 28
-    description: "run.rs: в Совместимом после успешного open — SourceFormat из probe, caps из моста шага 26, plan(), os_probe.probe, SignalPath::from_opened с поколением (счётчик движка), verdict → badge; активный путь (plan, facts, Arc<SignalPath>) хранится в движке; Opened несёт path/badge; Blocked → стоп и Skipped(Incompatible); + тесты opened_carries_signal_path_in_compatible, generation_increments_per_open (§6.3, §6.18, ТЗ-52, ТЗ-57). Проверка: cargo test engine::"
-    done: false
+    description: "run.rs: в Совместимом после успешного open — SourceFormat из probe, caps из моста шага 26, plan(), os_probe.probe, SignalPath::from_opened с поколением (счётчик движка), verdict → badge; активный путь (plan, facts, Arc<SignalPath>) хранится в движке; Opened несёт path/badge; Blocked → стоп и Skipped(Incompatible); + тесты чистой build_compatible_path (open требует реального устройства): build_compatible_path_ok_reports_clean_shared_badge, build_compatible_path_muted_badge_is_not_bit_perfect, build_compatible_path_never_blocks_on_channel_mismatch (§6.3, §6.18, ТЗ-52, ТЗ-57). Проверка: cargo test engine::"
+    done: true
   - id: 29
     description: "run.rs: при SetVolume/SetMuted с активным путём — with_gain(plan, gain, policy) → новый SignalPath с теми же OpenedFacts и новым поколением без переоткрытия; BadgeChanged только при смене вердикта; + тесты volume_rebuilds_path_without_reopen, badge_changed_only_on_verdict_change (§4.3, §6.3, ТЗ-38, ТЗ-60). Проверка: полный cargo test + clippy --all-targets (ЧЕКПОИНТ)"
     done: false
@@ -151,8 +151,8 @@ steps:
   - id: 35
     description: "Удаление легаси (§8, §7.4): bp_report.rs, StreamDesc, FallbackReason, dsd_pcm_breaks_bit_perfect и тесты dsd_pcm_breaks_bit_perfect_detects_conflict, bp_report_marks_volume_issue; ссылки в settings.rs/state_file.rs. Проверка: полный cargo test + clippy --all-targets. Шаг дробится при декомпозиции"
     done: false
-current_step: 28
-next_action: "Шаг 28: run.rs — в Совместимом после open строит PathPlan (SourceFormat из probe, caps из моста legacy_path), os_probe, SignalPath::from_opened с поколением, verdict → badge; Opened несёт path/badge; Blocked → стоп + Skipped(Incompatible); тесты в engine/tests.rs. Баг AM1.0-B7 — не чинить в этом этапе."
+current_step: 29
+next_action: "Шаг 29: run.rs — SetVolume/SetMuted при active_path: with_gain(active.plan, gain_state(), policy) → SignalPath::from_opened(.., active.facts.clone(), новое поколение) без переоткрытия; verdict; BadgeChanged только при смене вердикта; снять #[allow(dead_code)] с ActivePath.plan/facts; тесты на чистой функции пересборки. ЧЕКПОИНТ: полный cargo test + clippy --all-targets."
 fail_counter: 0
 fail_counter_max: 3
 failed_attempts: []

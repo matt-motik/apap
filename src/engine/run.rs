@@ -13,13 +13,18 @@ use std::time::Duration;
 use crate::audio::backend::catalog::DeviceCatalog;
 use crate::audio::clock::ClockInstant;
 use crate::audio::error::{CaptureFailure, EngineFault, FileError, OpenError};
-use crate::audio::player::{Player, ReservationEvent};
-use crate::audio::verdict::BadgeState;
+use crate::audio::format::{SampleRate, SourceFormat};
+use crate::audio::path::plan::{plan, with_gain};
+use crate::audio::path::signal::SignalPath;
+use crate::audio::path::{Blocked, OpenedFacts, OsStage, PathPlan};
+use crate::audio::player::{Player, ReservationEvent, StreamDesc};
+use crate::audio::verdict::{verdict, BadgeState, GainState};
 use crate::engine::deps::EngineDeps;
-use crate::engine::legacy_path::legacy_audio;
+use crate::engine::legacy_path::{legacy_audio, opened_facts_from_desc, shared_caps_from_desc};
 use crate::engine::messages::{EngineCmd, EngineEvent, LegacyAudio, Notice, SkipReason, TransportState};
+use crate::persist::state_file::LegacyPlaybackState;
 use crate::settings::params::{ApplyKind, ModeSettingsDiff};
-use crate::settings::playback::{ModeKind, ModeSettings};
+use crate::settings::playback::{ModeKind, ModeSettings, PathPolicy, Volume};
 
 /// Минимальный интервал между событиями `Position` (§6.1, И-Р13).
 const POSITION_INTERVAL: Duration = Duration::from_millis(100);
@@ -68,6 +73,62 @@ pub(crate) fn effective_gain(settings: &ModeSettings, active: ModeKind, volume_g
         ModeKind::Optimal if settings.optimal.volume_lock => 1.0,
         _ => volume_gain,
     }
+}
+
+/// Запасная частота потока для [`crate::audio::backend::os_probe::OsLevelProbe::probe`],
+/// если `StreamDesc::rate` не заполнена (нулевая/`StreamDesc::default()`,
+/// ТЗ-57, §6.3) — то же значение, что приватная `legacy_path::FALLBACK_RATE`
+/// (своя копия здесь, т.к. та константа не публична); убирается вместе со
+/// `StreamDesc` на этапе С6.
+const FALLBACK_STREAM_RATE: SampleRate = match SampleRate::new(44_100) {
+    Some(rate) => rate,
+    None => panic!("FALLBACK_STREAM_RATE_HZ must be non-zero"),
+};
+
+/// Собранный `SignalPath` Совместимого режима и материалы для его
+/// пересборки без повторного обращения к устройству (§6.3, §6.18 шаг 28,
+/// ADR-20, ТЗ-52): `plan` — план ДО `with_gain` (шаги 1–4), `facts` — факты
+/// открытого потока; оба нужны следующему шагу (пересборка на `SetVolume`/
+/// `SetMuted`), который эту структуру уже не строит с нуля.
+struct ActivePath {
+    /// Читается следующим шагом (пересборка на `SetVolume`/`SetMuted`).
+    #[allow(dead_code)]
+    plan: PathPlan,
+    /// Читается следующим шагом (пересборка на `SetVolume`/`SetMuted`).
+    #[allow(dead_code)]
+    facts: OpenedFacts,
+    path: Arc<SignalPath>,
+    badge: BadgeState,
+}
+
+/// Строит `SignalPath` Совместимого режима из уже открытого `StreamDesc`
+/// (§6.3, §6.18 шаг 28, ADR-20, ТЗ-52, ТЗ-57): чистая функция без доступа к
+/// `Player`/`Engine` — тестируется без реального аудио-устройства (ТЗ-114).
+/// `src` — формат источника с шага 3 (`SourceOpener::probe`); план строится
+/// без усиления (шаги 1–4, §6.3), `with_gain` добавляет громкость/mute/
+/// дизеринг (шаги 5–6) для текущего `gain`. `Err(Blocked)` — план не
+/// построен (несовместимый формат), вызывающая сторона останавливает
+/// воспроизведение и шлёт `Skipped(Incompatible)`.
+#[expect(
+    clippy::result_large_err,
+    reason = "сигнатура `plan()` (§6.3): Blocked несёт partial PathPlan (§3.1, ТЗ-80); вызывается раз на открытие трека"
+)]
+fn build_compatible_path(
+    src: &SourceFormat,
+    desc: &StreamDesc,
+    os: OsStage,
+    settings: &ModeSettings,
+    gain: GainState,
+    generation: u64,
+) -> Result<ActivePath, Blocked> {
+    let caps = shared_caps_from_desc(desc);
+    let policy = PathPolicy::active(settings, ModeKind::Compatible);
+    let base = plan(src, &caps, policy)?;
+    let gained = with_gain(&base, gain, policy);
+    let facts = opened_facts_from_desc(desc, os);
+    let path = Arc::new(SignalPath::from_opened(gained, facts.clone(), generation));
+    let badge = verdict(&path, gain, None);
+    Ok(ActivePath { plan: base, facts, path, badge })
 }
 
 /// Цикл обработки команд (мост С3): владеет `Player` целиком, пока
@@ -124,6 +185,17 @@ struct Engine {
     /// `active_mode` для проверки в `Open` (§6.18 п. 2). Снимок на момент
     /// запуска потока — платформа не меняется на ходу.
     caps: BackendCaps,
+    /// Счётчик поколений `SignalPath` (§5, §6.3, ADR-20): увеличивается на
+    /// каждую сборку нового пути (сейчас — только успешный `Open` в
+    /// Совместимом режиме, С6 добавит остальные). UI сверяет поколение
+    /// `BadgeChanged` с поколением текущего пути, чтобы отбросить устаревшее
+    /// событие от уже закрытой сессии.
+    path_generation: u64,
+    /// Текущий собранный `SignalPath` Совместимого режима (§6.3, §6.18 шаг
+    /// 28), если он есть: `None` в Оптимальном/Строгом режиме (пока
+    /// исполняются старым путём, С6) и без открытого потока. Очищается во
+    /// всех точках конца/отказа сессии — рядом с очисткой `self.current`.
+    active_path: Option<ActivePath>,
 }
 
 impl Engine {
@@ -147,6 +219,8 @@ impl Engine {
             last_volume: player_volume,
             last_muted: false,
             caps,
+            path_generation: 0,
+            active_path: None,
         }
     }
 
@@ -205,15 +279,20 @@ impl Engine {
                 }
                 // §6.18 шаг 3: сначала только заголовок через `SourceOpener`,
                 // без касания `Player` (ТЗ-86, ТЗ-103, ADR-20). Ошибка —
-                // классифицированный `FileError`, сразу `Skipped`.
-                if let Err(e) = self.deps.sources.probe(&path) {
-                    self.deps.events.emit(EngineEvent::Skipped {
-                        req_gen,
-                        path,
-                        reason: SkipReason::File(e),
-                    });
-                    return false;
-                }
+                // классифицированный `FileError`, сразу `Skipped`. Формат
+                // источника сохраняется (шаг 28) — нужен для `plan()` моста
+                // Совместимого режима.
+                let src = match self.deps.sources.probe(&path) {
+                    Ok(src) => src,
+                    Err(e) => {
+                        self.deps.events.emit(EngineEvent::Skipped {
+                            req_gen,
+                            path,
+                            reason: SkipReason::File(e),
+                        });
+                        return false;
+                    }
+                };
                 match self.player.open(&path) {
                     Ok(info) => {
                         if start_secs > 0.0 {
@@ -227,13 +306,44 @@ impl Engine {
                         self.last_pos = None;
                         self.session_failed = false;
                         let stream = self.player.stream_desc().cloned();
-                        self.deps.events.emit(EngineEvent::Opened {
-                            req_gen,
-                            info,
-                            stream,
-                            path: None,
-                            badge: BadgeState::NoStream,
-                        });
+                        // §6.3, §6.18 шаг 28 (ADR-20, ТЗ-52, ТЗ-57): Совместимый
+                        // режим — `SignalPath` строится мостом из `StreamDesc`
+                        // старого пути. Оптимальный/Строгий пока исполняются
+                        // старым путём без снимка (С6); без потока — нет пути
+                        // (ТЗ-56).
+                        let compatible_desc =
+                            if self.active_mode == ModeKind::Compatible { stream.clone() } else { None };
+                        let mut path_arc = None;
+                        let mut badge = BadgeState::NoStream;
+                        if let Some(desc) = compatible_desc {
+                            let generation = self.path_generation.saturating_add(1);
+                            let gain = self.gain_state();
+                            let stream_rate = SampleRate::new(desc.rate).unwrap_or(FALLBACK_STREAM_RATE);
+                            let os = self.deps.os_probe.probe(&self.mode_settings.compatible.device, stream_rate);
+                            match build_compatible_path(&src, &desc, os, &self.mode_settings, gain, generation) {
+                                Ok(active) => {
+                                    self.path_generation = generation;
+                                    path_arc = Some(Arc::clone(&active.path));
+                                    badge = active.badge.clone();
+                                    self.active_path = Some(active);
+                                }
+                                Err(blocked) => {
+                                    self.player.stop();
+                                    self.stopped = true;
+                                    self.current = None;
+                                    self.active_path = None;
+                                    self.deps.events.emit(EngineEvent::Skipped {
+                                        req_gen,
+                                        path,
+                                        reason: SkipReason::Incompatible(blocked),
+                                    });
+                                    return false;
+                                }
+                            }
+                        } else {
+                            self.active_path = None;
+                        }
+                        self.deps.events.emit(EngineEvent::Opened { req_gen, info, stream, path: path_arc, badge });
                         self.refresh_transport();
                     }
                     Err(msg) => {
@@ -276,6 +386,7 @@ impl Engine {
             EngineCmd::Stop => {
                 self.player.stop();
                 self.stopped = true;
+                self.active_path = None;
                 self.refresh_transport();
             }
             EngineCmd::Seek { secs } => {
@@ -303,6 +414,7 @@ impl Engine {
                         // Мост С3: `set_device` возвращает текст ошибки, а не
                         // классифицированный `CaptureFailure` (§6.6 — будущий
                         // шаг); ближайший по смыслу вариант — потеря устройства.
+                        self.active_path = None;
                         self.deps
                             .events
                             .emit(EngineEvent::OpenFailed { req_gen, err: OpenError::DeviceLost });
@@ -373,6 +485,25 @@ impl Engine {
     fn apply_gain(&mut self) {
         let gain = effective_gain(&self.mode_settings, self.active_mode, self.last_volume, self.last_muted);
         self.player.set_volume(gain);
+    }
+
+    /// `GainState` для `verdict`/`with_gain` (§6.3, §6.18 шаг 28, ADR-23) по
+    /// тому же правилу источников громкости, что `apply_gain` (mute — вне
+    /// `effective_gain`, см. его doc-комментарий). `100 %`/без mute —
+    /// `GainState::Unity`, а не `Scaled(100)`: `verdict` помечает `Scaled(_)`
+    /// как причину «не bit-perfect» независимо от процента, а `with_gain`
+    /// уже не добавляет `Volume`-трансформ при `100` — `Unity` здесь
+    /// сохраняет согласованность бейджа с реально построенным планом.
+    fn gain_state(&self) -> GainState {
+        if self.last_muted {
+            return GainState::Muted;
+        }
+        let frac = effective_gain(&self.mode_settings, self.active_mode, self.last_volume, false);
+        let pct = LegacyPlaybackState::pct_from_gain(frac);
+        match Volume::new(pct) {
+            Some(v) if v.get() != 100 => GainState::Scaled(v),
+            _ => GainState::Unity,
+        }
     }
 
     /// Применяет `self.mode_settings`/`self.active_mode` к старому пути для
@@ -461,6 +592,7 @@ impl Engine {
                 // (§6.6 — будущий шаг), ближайший по смыслу вариант — потеря
                 // устройства.
                 self.stopped = true;
+                self.active_path = None;
                 self.deps
                     .events
                     .emit(EngineEvent::OpenFailed { req_gen, err: OpenError::DeviceLost });
@@ -484,6 +616,7 @@ impl Engine {
         self.player.release_engine();
         self.current = None;
         self.stopped = true;
+        self.active_path = None;
         self.deps.events.emit(EngineEvent::ShutdownComplete);
     }
 
@@ -547,6 +680,7 @@ impl Engine {
                 ReservationEvent::Failed(_) => {
                     self.player.stop();
                     self.stopped = true;
+                    self.active_path = None;
                     let req_gen = self.current.as_ref().map_or(0, |(gen, _)| *gen);
                     // Мост С3: легаси `Player` отдаёт только текст ошибки;
                     // точная классификация `CaptureFailure` — следующий этап.
@@ -559,6 +693,7 @@ impl Engine {
                 ReservationEvent::Lost(_) => {
                     // `Player` уже освободил движок внутри себя (И-Р20).
                     self.stopped = true;
+                    self.active_path = None;
                     let req_gen = self.current.as_ref().map_or(0, |(gen, _)| *gen);
                     self.deps.events.emit(EngineEvent::OpenFailed {
                         req_gen,
@@ -597,6 +732,7 @@ impl Engine {
                     self.deps.events.emit(EngineEvent::Ended { session: *req_gen });
                 }
             }
+            self.active_path = None;
             // Движок — единственный потребитель флага конца трека теперь
             // (легаси UI-слой флаг больше не читает).
             self.player.clear_end();
@@ -828,5 +964,49 @@ mod tests {
             EngineEvent::Notice(Notice::DevicesUnavailable(BackendError::Unavailable(msg))) if msg == "no host"
         )));
         assert!(!events.iter().any(|e| matches!(e, EngineEvent::Devices(_))));
+    }
+
+    /// `StreamDesc` старого пути, точно совпадающий с `pcm_format()` (ТЗ-52,
+    /// §6.3 шаг 28): частота, каналы и формат равны источнику, поэтому
+    /// `plan()` не добавляет `Resample`/`Downmix` — только безлоссовый
+    /// `IntToFloat` (16 бит → F32), не влияющий на бейдж (ТЗ-53).
+    fn matching_desc() -> StreamDesc {
+        StreamDesc { device: "pipewire".to_owned(), rate: 44_100, channels: 2, format: "F32", ..StreamDesc::default() }
+    }
+
+    #[test]
+    fn build_compatible_path_ok_reports_clean_shared_badge() {
+        let src = pcm_format();
+        let desc = matching_desc();
+        let settings = ModeSettings::default();
+        let active =
+            build_compatible_path(&src, &desc, OsStage::Unknown, &settings, GainState::Unity, 1).expect("plan ok");
+        assert_eq!(active.badge, BadgeState::Shared(crate::audio::verdict::SharedBadge::Clean));
+        assert_eq!(active.path.generation, 1);
+    }
+
+    #[test]
+    fn build_compatible_path_muted_badge_is_not_bit_perfect() {
+        let src = pcm_format();
+        let desc = matching_desc();
+        let settings = ModeSettings::default();
+        let active =
+            build_compatible_path(&src, &desc, OsStage::Unknown, &settings, GainState::Muted, 7).expect("plan ok");
+        assert!(matches!(active.badge, BadgeState::Shared(crate::audio::verdict::SharedBadge::NotBitPerfect(_))));
+        assert_eq!(active.path.generation, 7);
+    }
+
+    #[test]
+    fn build_compatible_path_never_blocks_on_channel_mismatch() {
+        // Совместимый режим не блокирует (ТЗ-52): несовпадение каналов
+        // источника (стерео) и устройства старого пути (моно) даёт
+        // `Downmix`, а не `Blocked` — блокировка в `plan()` только для
+        // Строгого режима (§6.3).
+        let src = pcm_format();
+        let desc = StreamDesc { device: "pipewire".to_owned(), rate: 44_100, channels: 1, format: "F32", ..StreamDesc::default() };
+        let settings = ModeSettings::default();
+        let active = build_compatible_path(&src, &desc, OsStage::Unknown, &settings, GainState::Unity, 1)
+            .expect("Совместимый режим не блокирует");
+        assert_eq!(active.plan.target.channels.get(), 1);
     }
 }
