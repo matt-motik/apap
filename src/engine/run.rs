@@ -91,11 +91,12 @@ const FALLBACK_STREAM_RATE: SampleRate = match SampleRate::new(44_100) {
 /// открытого потока; оба нужны следующему шагу (пересборка на `SetVolume`/
 /// `SetMuted`), который эту структуру уже не строит с нуля.
 struct ActivePath {
-    /// Читается следующим шагом (пересборка на `SetVolume`/`SetMuted`).
-    #[allow(dead_code)]
+    /// План ДО `with_gain` — пересборка на `SetVolume`/`SetMuted` строит
+    /// гейн-транспорт заново от него, не трогая шаги 1–4 (`rebuild_with_gain`).
     plan: PathPlan,
-    /// Читается следующим шагом (пересборка на `SetVolume`/`SetMuted`).
-    #[allow(dead_code)]
+    /// Факты открытого потока — переиспользуются пересборкой на
+    /// `SetVolume`/`SetMuted` без повторного обращения к устройству
+    /// (`rebuild_with_gain`).
     facts: OpenedFacts,
     path: Arc<SignalPath>,
     badge: BadgeState,
@@ -129,6 +130,30 @@ fn build_compatible_path(
     let path = Arc::new(SignalPath::from_opened(gained, facts.clone(), generation));
     let badge = verdict(&path, gain, None);
     Ok(ActivePath { plan: base, facts, path, badge })
+}
+
+/// Пересобирает `SignalPath` Совместимого режима на новую громкость/mute без
+/// переоткрытия устройства (§6.3, ADR-20, ТЗ-38, ТЗ-60): `with_gain` по тому
+/// же `plan` (шаги 1–4, ДО усиления) пересчитывает гейн-транспорт (шаги 5–6)
+/// для актуального `gain`; `OpenedFacts` и устройство не меняются —
+/// `from_opened` переиспользует `active.facts` целиком, без обращения к
+/// `Player`. Новое `generation` — путь меняется без переоткрытия потока, UI
+/// должен отличать пересобранный путь от предыдущего по номеру поколения
+/// (§5). Второй элемент пары — изменился ли вердикт (`BadgeState`)
+/// относительно `active.badge`; вызывающая сторона (`Engine::refresh_path_gain`)
+/// шлёт `EngineEvent::BadgeChanged` только при `true` (ТЗ-60).
+fn rebuild_with_gain(
+    active: ActivePath,
+    settings: &ModeSettings,
+    gain: GainState,
+    generation: u64,
+) -> (ActivePath, bool) {
+    let policy = PathPolicy::active(settings, ModeKind::Compatible);
+    let gained = with_gain(&active.plan, gain, policy);
+    let path = Arc::new(SignalPath::from_opened(gained, active.facts.clone(), generation));
+    let badge = verdict(&path, gain, None);
+    let changed = badge != active.badge;
+    (ActivePath { plan: active.plan, facts: active.facts, path, badge }, changed)
 }
 
 /// Цикл обработки команд (мост С3): владеет `Player` целиком, пока
@@ -395,12 +420,14 @@ impl Engine {
             EngineCmd::SetVolume(v) => {
                 self.last_volume = v;
                 self.apply_gain();
+                self.refresh_path_gain();
             }
             EngineCmd::SetMuted(m) => {
                 // Mute гасит сигнал во всех режимах (ОВС-18) напрямую через
                 // `Player`, минуя `effective_gain`/`apply_gain`.
                 self.last_muted = m;
                 self.player.set_muted(m);
+                self.refresh_path_gain();
             }
             EngineCmd::SetDevice { id } => {
                 let (req_gen, path) = match &self.current {
@@ -503,6 +530,26 @@ impl Engine {
         match Volume::new(pct) {
             Some(v) if v.get() != 100 => GainState::Scaled(v),
             _ => GainState::Unity,
+        }
+    }
+
+    /// Пересобирает `self.active_path` после `SetVolume`/`SetMuted` (§6.3,
+    /// §6.18, ADR-20, ТЗ-38, ТЗ-60): без активного пути (Оптимальный/Строгий
+    /// режим, нет открытого потока) не делает ничего — нет `SignalPath` для
+    /// пересборки. Поколение растёт при каждом вызове независимо от того,
+    /// изменился ли вердикт — путь всё равно пересобран (новый гейн-транспорт
+    /// в плане); `BadgeChanged` шлётся только при изменении самого бейджа,
+    /// чтобы UI не перерисовывал неизменную плашку.
+    fn refresh_path_gain(&mut self) {
+        let gain = self.gain_state();
+        let Some(active) = self.active_path.take() else { return };
+        let generation = self.path_generation.saturating_add(1);
+        let (rebuilt, changed) = rebuild_with_gain(active, &self.mode_settings, gain, generation);
+        self.path_generation = generation;
+        let badge = rebuilt.badge.clone();
+        self.active_path = Some(rebuilt);
+        if changed {
+            self.deps.events.emit(EngineEvent::BadgeChanged(badge));
         }
     }
 
@@ -1008,5 +1055,60 @@ mod tests {
         let active = build_compatible_path(&src, &desc, OsStage::Unknown, &settings, GainState::Unity, 1)
             .expect("Совместимый режим не блокирует");
         assert_eq!(active.plan.target.channels.get(), 1);
+    }
+
+    #[test]
+    fn volume_rebuilds_path_without_reopen() {
+        let src = pcm_format();
+        let desc = matching_desc();
+        let settings = ModeSettings::default();
+        let active =
+            build_compatible_path(&src, &desc, OsStage::Unknown, &settings, GainState::Unity, 1).expect("plan ok");
+
+        let opened_facts = active.facts.clone();
+        let scaled = GainState::Scaled(Volume::new(50).expect("valid percent"));
+        let (rebuilt, changed) = rebuild_with_gain(active, &settings, scaled, 2);
+
+        assert_eq!(rebuilt.path.generation, 2);
+        assert_eq!(rebuilt.facts, opened_facts);
+        assert!(matches!(rebuilt.badge, BadgeState::Shared(crate::audio::verdict::SharedBadge::NotBitPerfect(_))));
+        assert!(changed);
+    }
+
+    #[test]
+    fn badge_changed_only_on_verdict_change() {
+        let src = pcm_format();
+        let desc = matching_desc();
+        let settings = ModeSettings::default();
+        let active =
+            build_compatible_path(&src, &desc, OsStage::Unknown, &settings, GainState::Unity, 1).expect("plan ok");
+
+        let scaled_50 = GainState::Scaled(Volume::new(50).expect("valid percent"));
+        let (at_50, changed_to_scaled) = rebuild_with_gain(active, &settings, scaled_50, 2);
+        assert!(changed_to_scaled);
+
+        let scaled_40 = GainState::Scaled(Volume::new(40).expect("valid percent"));
+        let (at_40, changed_within_scaled) = rebuild_with_gain(at_50, &settings, scaled_40, 3);
+        assert!(!changed_within_scaled);
+
+        let (_at_unity, changed_back_to_unity) = rebuild_with_gain(at_40, &settings, GainState::Unity, 4);
+        assert!(changed_back_to_unity);
+    }
+
+    #[test]
+    fn mute_unmute_restores_clean_badge() {
+        let src = pcm_format();
+        let desc = matching_desc();
+        let settings = ModeSettings::default();
+        let active =
+            build_compatible_path(&src, &desc, OsStage::Unknown, &settings, GainState::Unity, 1).expect("plan ok");
+
+        let (muted, changed_to_muted) = rebuild_with_gain(active, &settings, GainState::Muted, 2);
+        assert!(changed_to_muted);
+        assert!(matches!(muted.badge, BadgeState::Shared(crate::audio::verdict::SharedBadge::NotBitPerfect(_))));
+
+        let (unmuted, changed_back) = rebuild_with_gain(muted, &settings, GainState::Unity, 3);
+        assert!(changed_back);
+        assert_eq!(unmuted.badge, BadgeState::Shared(crate::audio::verdict::SharedBadge::Clean));
     }
 }
