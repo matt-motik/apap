@@ -155,7 +155,7 @@ steps:
     done: true
   - id: 36
     description: "app/path_view.rs (чистый презентер): PathReport -> PathView {title, stages: [StageView{name, status, changes, causes, confidence, notes}; 6], player/os/hardware: Vec<RecView{text, action}>, footer, copy_text = report.to_string()}; RecView.action: QuickFix(Volume|Unmute) | OpenSettings(tab) | None + ≤5 тестов (§3.6, ТЗ-71, ТЗ-81, ТЗ-84). Проверка: cargo test path_view"
-    done: false
+    done: true
   - id: 37
     description: "AudioFacade: кэш PathReport — build_report только при смене пути (take_path_dirty), пропуске (Blocked), неудачном открытии, set_mode_settings/set_active_mode; take_report_dirty; счётчик построений под cfg(test) + тест window_no_recompute_on_idle_ticks (ТЗ-79, ТЗ-83, §7.2). Проверка: cargo test audio_facade"
     done: false
@@ -174,8 +174,8 @@ steps:
   - id: 42
     description: "Удаление легаси (§8, §7.4): bp_report.rs, StreamDesc, FallbackReason, dsd_pcm_breaks_bit_perfect и тесты dsd_pcm_breaks_bit_perfect_detects_conflict, bp_report_marks_volume_issue; ссылки в settings.rs/state_file.rs. Проверка: полный cargo test + clippy --all-targets. Шаг дробится при декомпозиции"
     done: false
-current_step: 36
-next_action: "Шаг 36: app/path_view.rs (чистый презентер): PathReport -> PathView {title, stages: [StageView{name, status, changes, causes, confidence, notes}; 6], player/os/hardware: Vec<RecView{text, action}>, footer, copy_text = report.to_string()}; RecView.action: QuickFix(Volume|Unmute) | OpenSettings(tab) | None + ≤5 тестов (§3.6, ТЗ-71, ТЗ-81, ТЗ-84). Проверка: cargo test path_view"
+current_step: 37
+next_action: "Шаг 37: AudioFacade: кэш PathReport — build_report только при смене пути (take_path_dirty), пропуске (Blocked), неудачном открытии, set_mode_settings/set_active_mode; take_report_dirty; счётчик построений под cfg(test) + тест window_no_recompute_on_idle_ticks (ТЗ-79, ТЗ-83, §7.2). Проверка: cargo test audio_facade"
 fail_counter: 0
 fail_counter_max: 3
 failed_attempts: []
