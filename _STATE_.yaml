@@ -120,7 +120,7 @@ steps:
     done: true
   - id: 25
     description: "OpenError::Incompatible(Blocked) и SkipReason::Incompatible(Blocked) (error.rs, messages.rs) (§2.4, ТЗ-57). Проверка: полный cargo test (общий тип)"
-    done: false
+    done: true
   - id: 26
     description: "Движок: в Совместимом строит PathPlan из caps устройства и SourceFormat, после открытия — Arc<SignalPath> с поколением; EngineEvent::Opened несёт SignalPath вместо StreamDesc; пересборка SignalPath при volume/mute без переоткрытия (§4.3, ТЗ-52, ТЗ-38). Проверка: полный cargo test (общий тип). Шаг дробится при декомпозиции"
     done: false
@@ -142,8 +142,8 @@ steps:
   - id: 32
     description: "Удаление легаси (§8, §7.4): bp_report.rs, StreamDesc, FallbackReason, dsd_pcm_breaks_bit_perfect и тесты dsd_pcm_breaks_bit_perfect_detects_conflict, bp_report_marks_volume_issue; ссылки в settings.rs/state_file.rs. Проверка: полный cargo test + clippy --all-targets. Шаг дробится при декомпозиции"
     done: false
-current_step: 25
-next_action: "Шаг 25: OpenError::Incompatible(Blocked) и SkipReason::Incompatible(Blocked) (error.rs, messages.rs) (§2.4, ТЗ-57). Проверка: полный cargo test (общий тип). Найден баг AM1.0-B7 (нет усечения 24→16 после SRC в plan) — не чинить в этом этапе."
+current_step: 26
+next_action: "Шаг 26 (сначала раздробить на подшаги по движку): Движок: в Совместимом строит PathPlan из caps устройства и SourceFormat, после открытия — Arc<SignalPath> с поколением; EngineEvent::Opened несёт SignalPath вместо StreamDesc; пересборка SignalPath при volume/mute без переоткрытия (§4.3, ТЗ-52, ТЗ-38). Проверка: полный cargo test (общий тип). Шаг дробится при декомпозиции Найден баг AM1.0-B7 (нет усечения 24→16 после SRC в plan) — не чинить в этом этапе."
 fail_counter: 0
 fail_counter_max: 3
 failed_attempts: []

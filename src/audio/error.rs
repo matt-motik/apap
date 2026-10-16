@@ -1,13 +1,13 @@
 //! Ошибки тракта (AM1.0 §2.4). `OpenError`, `Reaction`, `classify`, `reaction`
 //! (С3, ADR-14, ТЗ-86) классифицируют ошибку открытия трека и определяют
 //! реакцию по режиму; `ModeUnavailable(ModeKind)` (С4, ТЗ-109, ТЗ-111, §6.18
-//! п. 2) — сохранённый режим недоступен на платформе. `Incompatible(Blocked)`
-//! (С5) — ещё не представлен в `OpenError`, добавляется позже (таблица
-//! «Трейт → этап» под §8).
+//! п. 2) — сохранённый режим недоступен на платформе; `Incompatible(Blocked)`
+//! (С5, ТЗ-57, ТЗ-80) — трек несовместим с устройством в Строгом режиме.
 #![deny(clippy::unwrap_used, clippy::expect_used, clippy::unreachable)]
 
 use crate::audio::backend::RateSet;
 use crate::audio::format::{BitDepth, DsdRate, OutputSampleFormat, SampleRate};
+use crate::audio::path::Blocked;
 use crate::settings::ModeKind;
 use smallvec::SmallVec;
 
@@ -114,10 +114,15 @@ pub enum DeviceChoiceKind {
     Hw,
 }
 
-/// Ошибка открытия трека на границе движка (§2.4). Подмножество С3/С4:
-/// `Incompatible(Blocked)` — С5, ещё не представлен.
+/// Ошибка открытия трека на границе движка (§2.4).
+// `Incompatible(Blocked)` несёт план целиком (форма задана спецификацией
+// §2.4) — боксинг одного варианта расходится с объявленной сигнатурой enum.
+#[allow(clippy::large_enum_variant)]
 #[derive(Clone, PartialEq, Debug)]
 pub enum OpenError {
+    /// Трек несовместим с устройством в Строгом режиме: план остановлен на
+    /// этапе `blocked.at` (§2.4, ТЗ-57, ТЗ-80).
+    Incompatible(Blocked),
     Capture(CaptureFailure),
     DeviceLost,
     File(FileError),
@@ -141,6 +146,7 @@ pub enum Reaction {
 /// Классификация `OpenError` для таблицы реакций (ADR-14, §2.4).
 pub fn classify(e: &OpenError) -> ErrorClass {
     match e {
+        OpenError::Incompatible(_) => ErrorClass::Incompatible,
         OpenError::Capture(_) => ErrorClass::CaptureFailed,
         OpenError::DeviceLost => ErrorClass::DeviceLost,
         OpenError::File(FileError::ReadDuringPlayback { .. }) => ErrorClass::ReadError,
@@ -208,6 +214,10 @@ pub fn reaction(class: ErrorClass, mode: ModeKind, device: DeviceChoiceKind) -> 
 #[allow(clippy::unwrap_used, clippy::expect_used, clippy::unreachable)]
 mod tests {
     use super::*;
+    use crate::audio::backend::{AccessKind, DeviceCaps, OutputApi};
+    use crate::audio::format::{BitDepth, ChannelLayout, Codec, Container, SourceFormat, SourceKind};
+    use crate::audio::path::plan::plan;
+    use crate::settings::playback::{ModeSettings, PathPolicy};
 
     #[test]
     fn stream_fault_code_roundtrip() {
@@ -228,6 +238,28 @@ mod tests {
 
     #[test]
     fn classify_maps_open_error_variants() {
+        let src = SourceFormat {
+            container: Container::Flac,
+            codec: Codec::Flac,
+            lossy: false,
+            rate: SampleRate::new(192_000).unwrap(),
+            layout: ChannelLayout::stereo(),
+            kind: SourceKind::Pcm { bits: BitDepth::new(24).unwrap() },
+        };
+        let caps = DeviceCaps {
+            api: OutputApi::AlsaHw,
+            access: AccessKind::Exclusive,
+            name: "test".to_owned(),
+            rates: RateSet::Discrete(
+                [44_100, 48_000, 96_000].iter().map(|&hz| SampleRate::new(hz).unwrap()).collect(),
+            ),
+            formats: SmallVec::from_slice(&[OutputSampleFormat::S32Le]),
+            channels: SmallVec::from_slice(&[2]),
+        };
+        let s = ModeSettings::default();
+        let blocked = plan(&src, &caps, PathPolicy::Strict(&s.strict)).unwrap_err();
+        assert_eq!(classify(&OpenError::Incompatible(blocked)), ErrorClass::Incompatible);
+
         assert_eq!(classify(&OpenError::Capture(CaptureFailure::OwnerNotResponding)), ErrorClass::CaptureFailed);
         assert_eq!(classify(&OpenError::DeviceLost), ErrorClass::DeviceLost);
         assert_eq!(

@@ -71,8 +71,8 @@
 - [x] Шаг 22: Display для PathReport + тесты окна, ч. 2: report_output_stage_driver_facts, report_clip_notes, report_built_without_backend_access, report_skipped_track_blocked_stage (вкл. текст «частота 192 кГц не поддерживается устройством» из strict_rejects_rate — у Incompatibility нет текста), report_text_contains_all_parts (§7.2). Проверка: cargo test report. ЧЕКПОИНТ: полный test + clippy
 - [x] Шаг 23: backend/os_probe.rs: трейт OsLevelProbe (probe(dev, stream_rate) -> OsStage), FakeOsProbe, чистый разбор вывода pw-metadata -n settings → OsStage (force-rate ≠ 0 → force-rate; частота потока ∈ allowed-rates → она, Assumed; иначе clock.rate, Confirmed(OsQuery); разбор не удался → Unknown) + ≤5 тестов (§6.26, ADR-21, ТЗ-77, ОВС-9). Проверка: cargo test os_probe
 - [x] Шаг 24: Системная проба SystemOsProbe: Linux — pw-metadata в служебном потоке с таймаутом 500 мс, нет утилиты/таймаут → Unknown; Windows — Known{WasapiMixer} из cpal default_output_config; macOS — номинальная частота, Assumed; поле os_probe в EngineDeps (system() и тестовые наборы) (§6.26, ADR-20, ADR-21, ТЗ-77). Проверка: cargo test engine::
-- [>] **Шаг 25: OpenError::Incompatible(Blocked) и SkipReason::Incompatible(Blocked) (error.rs, messages.rs) (§2.4, ТЗ-57). Проверка: полный cargo test (общий тип)**
-- [ ] Шаг 26: Движок: в Совместимом строит PathPlan из caps устройства и SourceFormat, после открытия — Arc<SignalPath> с поколением; EngineEvent::Opened несёт SignalPath вместо StreamDesc; пересборка SignalPath при volume/mute без переоткрытия (§4.3, ТЗ-52, ТЗ-38). Проверка: полный cargo test (общий тип). Шаг дробится при декомпозиции
+- [x] Шаг 25: OpenError::Incompatible(Blocked) и SkipReason::Incompatible(Blocked) (error.rs, messages.rs) (§2.4, ТЗ-57). Проверка: полный cargo test (общий тип)
+- [>] **Шаг 26: Движок: в Совместимом строит PathPlan из caps устройства и SourceFormat, после открытия — Arc<SignalPath> с поколением; EngineEvent::Opened несёт SignalPath вместо StreamDesc; пересборка SignalPath при volume/mute без переоткрытия (§4.3, ТЗ-52, ТЗ-38). Проверка: полный cargo test (общий тип). Шаг дробится при декомпозиции**
 - [ ] Шаг 27: UiAudioState: хранит Arc<SignalPath>, BadgeState, DynamicPathState; бейдж пересчитывается только при смене поколения; при неудачном открытии путь сбрасывается → NoStream (UI-часть badge_no_stream_after_failed_open, ТЗ-56) + тесты badge_no_recompute_on_idle_ticks, badge_shows_mute_and_restores_without_reopen (ТЗ-52, ТЗ-38). Проверка: cargo test ui_audio_state
 - [ ] Шаг 28: Slint: свойства бейджа (текст/вид), кнопки «Тест» (доступность + подсказка блокера) и замка (ADR-06) в status.slint/app.slint вместо bool-бейджей bp-active/dsd-not-bp/bp-resample (ТЗ-21, ТЗ-22, ТЗ-106). Проверка: cargo build
 - [ ] Шаг 29: Rust-проводка бейджа/«Теста»/замка в ui_manager/playback_manager (удаление set_status_bp_*/set_status_dsd_not_bp) (ТЗ-52, ТЗ-106). Проверка: cargo check
@@ -82,8 +82,8 @@
 
 Легенда: [x] сделано · [>] текущий шаг · [ ] не начато
 
-- **Текущий шаг (current_step):** Шаг 25
-- **Следующий ход:** Шаг 25: OpenError::Incompatible(Blocked) и SkipReason::Incompatible(Blocked) (error.rs, messages.rs) (§2.4, ТЗ-57). Проверка: полный cargo test (общий тип). Найден баг AM1.0-B7 (нет усечения 24→16 после SRC в plan) — не чинить в этом этапе.
+- **Текущий шаг (current_step):** Шаг 26
+- **Следующий ход:** Шаг 26 (сначала раздробить на подшаги по движку): Движок: в Совместимом строит PathPlan из caps устройства и SourceFormat, после открытия — Arc<SignalPath> с поколением; EngineEvent::Opened несёт SignalPath вместо StreamDesc; пересборка SignalPath при volume/mute без переоткрытия (§4.3, ТЗ-52, ТЗ-38). Проверка: полный cargo test (общий тип). Шаг дробится при декомпозиции Найден баг AM1.0-B7 (нет усечения 24→16 после SRC в plan) — не чинить в этом этапе.
 - **Счетчик безуспешных компиляций:** 0/3
 - **Состояние:** in_progress
 

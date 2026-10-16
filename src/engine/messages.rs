@@ -10,6 +10,7 @@ use crate::audio::backend::catalog::DeviceCatalog;
 use crate::audio::backend::BackendError;
 use crate::audio::decoder::TrackInfo;
 use crate::audio::error::{FileError, OpenError, Reaction};
+use crate::audio::path::Blocked;
 use crate::audio::player::{ReservationEvent, StreamDesc};
 use crate::settings::params::ModeSettingsUpdate;
 use crate::settings::playback::ModeKind;
@@ -109,9 +110,14 @@ pub enum TransportState {
     Paused,
 }
 
-/// Incompatible(Blocked) — С5.
+// `Incompatible(Blocked)` несёт план целиком (форма задана спецификацией
+// §2.4) — боксинг одного варианта расходится с объявленной сигнатурой enum.
+#[allow(clippy::large_enum_variant)]
 #[derive(Clone, PartialEq, Debug)]
 pub enum SkipReason {
+    /// Трек несовместим с устройством в Строгом режиме: план остановлен на
+    /// этапе `blocked.at` (§2.4, ТЗ-57, ТЗ-80).
+    Incompatible(Blocked),
     File(FileError),
 }
 

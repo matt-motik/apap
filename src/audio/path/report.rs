@@ -295,6 +295,12 @@ fn skipped_rows(blocked: &Blocked) -> [StageRow; 6] {
     })
 }
 
+/// Текст несовместимости для сообщения о пропуске трека: этап и причина
+/// теми же словами, что в окне «Путь сигнала» (ТЗ-57, ТЗ-80).
+pub fn blocked_text(blocked: &Blocked) -> String {
+    format!("{}: {}", stage_name(blocked.at), incompatibility_text(&blocked.reason))
+}
+
 /// Текст причины несовместимости (ТЗ-80): «частота 192 кГц не поддерживается устройством».
 fn incompatibility_text(reason: &Incompatibility) -> String {
     match reason {

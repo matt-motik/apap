@@ -2957,6 +2957,11 @@ fn visible_col_at_index(columns: &ColumnsConfig, visible_index: i32) -> Option<C
 /// (дублирует уведомление о резервировании).
 fn describe_open_error(err: &OpenError) -> String {
     match err {
+        // §2.4, ТЗ-57, ТЗ-80: план остановлен на этапе `blocked.at` —
+        // устройство несовместимо с треком в Строгом режиме.
+        OpenError::Incompatible(blocked) => {
+            format!("трек несовместим с устройством — {}", music_player_rs::audio::path::report::blocked_text(blocked))
+        }
         OpenError::Capture(_) => String::new(),
         OpenError::DeviceLost => "устройство вывода потеряно".to_string(),
         OpenError::File(file_err) => describe_file_error(file_err),
@@ -2981,6 +2986,11 @@ fn describe_file_error(err: &FileError) -> String {
 /// Короткий русский текст причины пропуска трека (ТЗ-86, ТЗ-87).
 fn describe_skip_reason(reason: &SkipReason) -> String {
     match reason {
+        // §2.4, ТЗ-57, ТЗ-80: план остановлен на этапе `blocked.at` —
+        // устройство несовместимо с треком в Строгом режиме.
+        SkipReason::Incompatible(blocked) => {
+            format!("трек несовместим с устройством — {}", music_player_rs::audio::path::report::blocked_text(blocked))
+        }
         SkipReason::File(err) => describe_file_error(err),
     }
 }
