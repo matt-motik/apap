@@ -23,6 +23,24 @@ export struct BpReason {
     severity: int,
 }
 
+// Окно «Путь сигнала» (§3.6, ТЗ-71, ТЗ-81, ТЗ-84): строка этапа отчёта.
+export struct PathStageRow {
+    name: string,
+    status: string,
+    changes: string,
+    causes: string,
+    confidence: string,
+    notes: string,
+}
+
+// Строка рекомендации окна «Путь сигнала» (ТЗ-81, ТЗ-84): action-id < 0 —
+// кнопка не показывается, иначе значение передаётся в path-rec-action как есть.
+export struct PathRecItem {
+    text: string,
+    action-label: string,
+    action-id: int,
+}
+
 export component AppWindow inherits Window {
     title: "Music Player";
     background: Colors.bg-window;
@@ -255,6 +273,15 @@ export component AppWindow inherits Window {
     in property <string> bp-source-desc: "";
     in property <[BpReason]> bp-reasons: [];
     in property <[string]> bp-positives: [];
+    // Окно «Путь сигнала» (§3.6, ТЗ-71, ТЗ-81, ТЗ-84): новый вид на смену
+    // bp-* выше (мост до шага 40, Rust пока заполняет оба).
+    in property <string> path-title: "";
+    in property <[PathStageRow]> path-stages: [];
+    in property <[PathRecItem]> path-recs-player: [];
+    in property <[PathRecItem]> path-recs-os: [];
+    in property <[PathRecItem]> path-recs-hardware: [];
+    in property <string> path-footer: "";
+    in property <string> path-copy-text: "";
     // T1.0 §7: палитра стандартных виджетов/иконок (0=dark, 1=light).
     in property <int> theme-palette: 0;
     // T1.0 §5: список тем и состояние UI выбора темы в диалоге.
@@ -324,6 +351,8 @@ export component AppWindow inherits Window {
     callback bp-report-close();
     callback bp-report-action(int);
     callback bp-report-open-settings();
+    // Окно «Путь сигнала» (ТЗ-81): клик по кнопке рекомендации, int — её action-id.
+    callback path-rec-action(int);
     callback settings-toggle-col(int);
     callback settings-reset-cols();
     callback settings-move-col-up(int);
@@ -579,8 +608,8 @@ export component AppWindow inherits Window {
     // только внутри самой панели, снаружи доходят до главного окна.
     Rectangle {
         visible: root.bp-report-open;
-        width: 520px;
-        height: 420px;
+        width: 560px;
+        height: 480px;
         x: (root.width - self.width) / 2;
         y: (root.height - self.height) / 2;
         background: Colors.bg-surface;
@@ -597,44 +626,27 @@ export component AppWindow inherits Window {
             }
         }
 
+        // Скрытое read-only поле для «Копировать отчёт» (ТЗ-84): нулевой
+        // размер, вне VerticalLayout ниже, чтобы не занимать место в разметке.
+        // select-all()/copy() у TextInput работают независимо от visible/width.
+        path_copy_input := TextInput {
+            x: 0px;
+            y: 0px;
+            width: 0px;
+            height: 0px;
+            text: root.path-copy-text;
+            read-only: true;
+        }
+
         VerticalLayout {
             padding: 16px;
             spacing: 12px;
 
             Text {
-                text: root.bit-perfect ? "Статус bit-perfect" : "Bit-perfect выключен";
+                text: root.path-title;
                 color: Colors.text-primary;
                 font-size: 16px;
-            }
-
-            HorizontalLayout {
-                spacing: 6px;
-                Text {
-                    text: "Поток:";
-                    color: Colors.text-tertiary;
-                    font-size: 12px;
-                }
-
-                Text {
-                    text: root.bp-stream-desc;
-                    color: Colors.text-primary;
-                    font-size: 12px;
-                }
-            }
-
-            HorizontalLayout {
-                spacing: 6px;
-                Text {
-                    text: "Источник:";
-                    color: Colors.text-tertiary;
-                    font-size: 12px;
-                }
-
-                Text {
-                    text: root.bp-source-desc;
-                    color: Colors.text-primary;
-                    font-size: 12px;
-                }
+                wrap: word-wrap;
             }
 
             Rectangle {
@@ -645,41 +657,144 @@ export component AppWindow inherits Window {
                     VerticalLayout {
                         padding: 8px;
                         spacing: 8px;
-                        for reason[i] in root.bp-reasons: Rectangle {
+
+                        for stage[i] in root.path-stages: Rectangle {
                             background: Colors.surface-hover;
                             border-radius: 4px;
                             VerticalLayout {
                                 padding: 8px;
                                 spacing: 2px;
-                                Text {
-                                    text: reason.title;
-                                    color: reason.severity == 0 ? Colors.text-warn : Colors.text-secondary;
-                                    font-size: 13px;
+                                HorizontalLayout {
+                                    spacing: 6px;
+                                    Text {
+                                        text: stage.name;
+                                        color: Colors.text-primary;
+                                        font-size: 13px;
+                                    }
+
+                                    Text {
+                                        text: stage.status;
+                                        color: Colors.text-secondary;
+                                        font-size: 13px;
+                                    }
                                 }
 
-                                Text {
-                                    text: reason.detail;
+                                if stage.changes != "": Text {
+                                    text: "Изменения: " + stage.changes;
                                     color: Colors.text-secondary;
                                     font-size: 11px;
+                                    wrap: word-wrap;
                                 }
 
-                                if reason.action-id > 0: HorizontalLayout {
-                                    alignment: end;
-                                    Button {
-                                        text: reason.action-label;
-                                        preferred-height: 22px;
-                                        clicked => { root.bp-report-action(reason.action-id); }
-                                    }
+                                if stage.causes != "": Text {
+                                    text: "Причины: " + stage.causes;
+                                    color: Colors.text-secondary;
+                                    font-size: 11px;
+                                    wrap: word-wrap;
+                                }
+
+                                if stage.confidence != "": Text {
+                                    text: "Достоверность: " + stage.confidence;
+                                    color: Colors.text-tertiary;
+                                    font-size: 11px;
+                                    wrap: word-wrap;
+                                }
+
+                                if stage.notes != "": Text {
+                                    text: stage.notes;
+                                    color: Colors.text-tertiary;
+                                    font-size: 11px;
+                                    wrap: word-wrap;
                                 }
                             }
                         }
-                        for p in root.bp-positives: Text {
-                            text: "✓ " + p;
-                            color: Colors.text-tertiary;
-                            font-size: 11px;
+
+                        if root.path-recs-player.length > 0: VerticalLayout {
+                            spacing: 4px;
+                            Text {
+                                text: "Настройки плеера";
+                                color: Colors.text-tertiary;
+                                font-size: 12px;
+                            }
+
+                            for item in root.path-recs-player: HorizontalLayout {
+                                spacing: 6px;
+                                Text {
+                                    text: item.text;
+                                    color: Colors.text-primary;
+                                    font-size: 12px;
+                                    wrap: word-wrap;
+                                    horizontal-stretch: 1;
+                                }
+
+                                if item.action-id >= 0: Button {
+                                    text: item.action-label;
+                                    preferred-height: 22px;
+                                    clicked => { root.path-rec-action(item.action-id); }
+                                }
+                            }
+                        }
+
+                        if root.path-recs-os.length > 0: VerticalLayout {
+                            spacing: 4px;
+                            Text {
+                                text: "Система";
+                                color: Colors.text-tertiary;
+                                font-size: 12px;
+                            }
+
+                            for item in root.path-recs-os: HorizontalLayout {
+                                spacing: 6px;
+                                Text {
+                                    text: item.text;
+                                    color: Colors.text-primary;
+                                    font-size: 12px;
+                                    wrap: word-wrap;
+                                    horizontal-stretch: 1;
+                                }
+
+                                if item.action-id >= 0: Button {
+                                    text: item.action-label;
+                                    preferred-height: 22px;
+                                    clicked => { root.path-rec-action(item.action-id); }
+                                }
+                            }
+                        }
+
+                        if root.path-recs-hardware.length > 0: VerticalLayout {
+                            spacing: 4px;
+                            Text {
+                                text: "Оборудование";
+                                color: Colors.text-tertiary;
+                                font-size: 12px;
+                            }
+
+                            for item in root.path-recs-hardware: HorizontalLayout {
+                                spacing: 6px;
+                                Text {
+                                    text: item.text;
+                                    color: Colors.text-primary;
+                                    font-size: 12px;
+                                    wrap: word-wrap;
+                                    horizontal-stretch: 1;
+                                }
+
+                                if item.action-id >= 0: Button {
+                                    text: item.action-label;
+                                    preferred-height: 22px;
+                                    clicked => { root.path-rec-action(item.action-id); }
+                                }
+                            }
                         }
                     }
                 }
+            }
+
+            Text {
+                text: root.path-footer;
+                color: Colors.text-tertiary;
+                font-size: 11px;
+                wrap: word-wrap;
             }
 
             HorizontalLayout {
@@ -687,6 +802,16 @@ export component AppWindow inherits Window {
                 alignment: end;
                 Rectangle {
                     horizontal-stretch: 1;
+                }
+
+                Button {
+                    text: "Копировать отчёт";
+                    preferred-height: 28px;
+                    clicked => {
+                        path_copy_input.select-all();
+                        path_copy_input.copy();
+                        path_copy_input.clear-selection();
+                    }
                 }
 
                 Button {

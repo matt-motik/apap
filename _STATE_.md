@@ -86,16 +86,16 @@
 - [x] Шаг 35: audio/path/report.rs: публичный текстовый API для окна — stage_name, status_text, confidence_text, recommendation_text(&Recommendation) -> String, RecGroup {Player, Os, Hardware} + recommendation_group; group_recommendations/Display переводятся на них без смены вывода (§3.6, ТЗ-71, ТЗ-81, ТЗ-84). Проверка: cargo test path::report
 - [x] Шаг 36: app/path_view.rs (чистый презентер): PathReport -> PathView {title, stages: [StageView{name, status, changes, causes, confidence, notes}; 6], player/os/hardware: Vec<RecView{text, action}>, footer, copy_text = report.to_string()}; RecView.action: QuickFix(Volume|Unmute) | OpenSettings(tab) | None + ≤5 тестов (§3.6, ТЗ-71, ТЗ-81, ТЗ-84). Проверка: cargo test path_view
 - [x] Шаг 37: AudioFacade: кэш PathReport — build_report только при смене пути (take_path_dirty), пропуске (Blocked), неудачном открытии, set_mode_settings/set_active_mode; take_report_dirty; счётчик построений под cfg(test) + тест window_no_recompute_on_idle_ticks (ТЗ-79, ТЗ-83, §7.2). Проверка: cargo test audio_facade
-- [>] **Шаг 38: ui/app.slint: новое содержимое окна «Путь сигнала» — структуры PathStageRow/PathRecItem, свойства path-title/path-stages/path-recs-player/os/hardware/path-footer/path-copy-text, колбэки path-rec-action(int), копирование через TextInput select-all/copy; старые bp-* свойства остаются мостом (ТЗ-70–ТЗ-84). Проверка: cargo check**
-- [ ] Шаг 39: app/mod.rs: проводка окна — on_bp_clicked/тик пишут path-* из PathView только по take_report_dirty (не по таймеру), path-rec-action → QuickFix/открытие настроек (ТЗ-81, ТЗ-83, ТЗ-84). Проверка: cargo check
+- [x] Шаг 38: ui/app.slint: новое содержимое окна «Путь сигнала» — структуры PathStageRow/PathRecItem, свойства path-title/path-stages/path-recs-player/os/hardware/path-footer/path-copy-text, колбэки path-rec-action(int), копирование через TextInput select-all/copy; старые bp-* свойства остаются мостом (ТЗ-70–ТЗ-84). Проверка: cargo check
+- [>] **Шаг 39: app/mod.rs: проводка окна — on_bp_clicked/тик пишут path-* из PathView только по take_report_dirty (не по таймеру), path-rec-action → QuickFix/открытие настроек (ТЗ-81, ТЗ-83, ТЗ-84). Проверка: cargo check**
 - [ ] Шаг 40: Очистка моста окна: удалить bp-stream-desc/bp-source-desc/bp-reasons/bp-positives/bp-report-action, BpReason из app.slint и push_bp_report_to_ui/вызовы bp_report в mod.rs (ЧЕКПОИНТ). Проверка: cargo build + полный cargo test + clippy --all-targets
 - [ ] Шаг 41: Снятие моста audio_facade.rs: перенос состояния (req_gen, кэш транспорта/трека/потока, ended, очередь резервирования, volume/muted/LegacyAudio) в MusicApp/UiAudioState; вызовы → EngineHandle; удаление файла; снять #![allow(dead_code)] в engine_sink.rs/ui_audio_state.rs (решение пользователя 2026-10-08). Проверка: полный cargo test. Шаг дробится при декомпозиции
 - [ ] Шаг 42: Удаление легаси (§8, §7.4): bp_report.rs, StreamDesc, FallbackReason, dsd_pcm_breaks_bit_perfect и тесты dsd_pcm_breaks_bit_perfect_detects_conflict, bp_report_marks_volume_issue; ссылки в settings.rs/state_file.rs. Проверка: полный cargo test + clippy --all-targets. Шаг дробится при декомпозиции
 
 Легенда: [x] сделано · [>] текущий шаг · [ ] не начато
 
-- **Текущий шаг (current_step):** Шаг 38
-- **Следующий ход:** Шаг 38: ui/app.slint: новое содержимое окна «Путь сигнала» — структуры PathStageRow/PathRecItem, свойства path-title/path-stages/path-recs-player/os/hardware/path-footer/path-copy-text, колбэки path-rec-action(int), копирование через TextInput select-all/copy; старые bp-* свойства остаются мостом (ТЗ-70–ТЗ-84). Проверка: cargo check
+- **Текущий шаг (current_step):** Шаг 39
+- **Следующий ход:** Шаг 39: app/mod.rs: проводка окна — on_bp_clicked/тик пишут path-* из PathView только по take_report_dirty (не по таймеру), path-rec-action → QuickFix/открытие настроек (ТЗ-81, ТЗ-83, ТЗ-84). Проверка: cargo check
 - **Счетчик безуспешных компиляций:** 0/3
 - **Состояние:** in_progress
 
