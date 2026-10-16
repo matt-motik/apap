@@ -325,6 +325,32 @@ fn num_str(v: u32, suffix: &str) -> SharedString {
     if v > 0 { format!("{v}{suffix}").into() } else { "—".into() }
 }
 
+/// Строки рекомендаций одной группы окна «Путь сигнала» → `PathRecItem`
+/// (ТЗ-81, ТЗ-84). Действие с кнопкой (`QuickFix`/`OpenSettings`) дописывается
+/// в `actions`, а `action-id` элемента — его индекс там; без действия —
+/// `action-id: -1` (кнопка не показывается, см. `ui/app.slint`).
+fn path_rec_items(
+    recs: Vec<path_view::RecView>,
+    actions: &mut Vec<path_view::RecViewAction>,
+) -> Vec<PathRecItem> {
+    recs.into_iter()
+        .map(|r| {
+            let (action_id, action_label) = match r.action {
+                path_view::RecViewAction::None => (-1, String::new()),
+                path_view::RecViewAction::QuickFix(_) => {
+                    actions.push(r.action);
+                    (i32::try_from(actions.len() - 1).unwrap_or(-1), "Исправить".to_string())
+                }
+                path_view::RecViewAction::OpenSettings(_) => {
+                    actions.push(r.action);
+                    (i32::try_from(actions.len() - 1).unwrap_or(-1), "Открыть настройку".to_string())
+                }
+            };
+            PathRecItem { text: r.text.into(), action_label: action_label.into(), action_id }
+        })
+        .collect()
+}
+
 /// Текущее поколение задания на каждый вид ответа потока `apap-io` (ADR-20,
 /// §4): растёт при каждой новой постановке задания своего вида, сверяется
 /// с `gen` пришедшего `IoDone` в `drain_io`, чтобы отбросить устаревший
@@ -496,6 +522,11 @@ pub struct MusicApp {
     /// закрыто (ТЗ-111, §6.2 п. 5, ADR-13): не копится повторно при старте и
     /// при каждом неудачном открытии трека по той же причине.
     mode_notice_pending: bool,
+    /// Действия кнопок последнего показанного окна «Путь сигнала» (ТЗ-81,
+    /// ТЗ-84): индекс в этом векторе — `action-id`, переданный Slint в
+    /// `path-rec-action`; `push_path_view_to_ui` заполняет его заново на
+    /// каждый показ отчёта.
+    path_actions: Vec<path_view::RecViewAction>,
 }
 
 impl MusicApp {
@@ -676,6 +707,7 @@ impl MusicApp {
             backend_caps,
             pending_mode_reopen: None,
             mode_notice_pending: false,
+            path_actions: Vec::new(),
         };
         // Стартовая загрузка плейлиста в фоне (ADR-16, ADR-23 шаг 9, §6.12,
         // ТЗ-21, ТЗ-47): поток `apap-playlist` через `AppCore`; `tick()`
@@ -1232,6 +1264,42 @@ impl MusicApp {
 
         let positives: Vec<SharedString> = report.positives.into_iter().map(SharedString::from).collect();
         ui.set_bp_positives(ModelRc::from(positives.as_slice()));
+    }
+
+    /// Переносит вид окна «Путь сигнала» в Slint-свойства (§3.6, ТЗ-71,
+    /// ТЗ-81, ТЗ-84): шесть этапов, рекомендации по трём группам, подвал и
+    /// текст копирования. Действия кнопок рекомендаций записываются в
+    /// `self.path_actions` по порядку показа — `action-id` элемента в
+    /// `PathRecItem` — это индекс в нём (ТЗ-81), `on_path_rec_action` ищет
+    /// по нему исходное действие.
+    fn push_path_view_to_ui(&mut self, view: path_view::PathView) {
+        let Some(ui) = self.try_ui() else { return };
+        ui.set_path_title(view.title.into());
+
+        let stages: Vec<PathStageRow> = view
+            .stages
+            .iter()
+            .map(|s| PathStageRow {
+                name: s.name.clone().into(),
+                status: s.status.clone().into(),
+                changes: s.changes.clone().into(),
+                causes: s.causes.clone().into(),
+                confidence: s.confidence.clone().into(),
+                notes: s.notes.clone().into(),
+            })
+            .collect();
+        ui.set_path_stages(ModelRc::from(stages.as_slice()));
+
+        self.path_actions.clear();
+        let player_items = path_rec_items(view.player, &mut self.path_actions);
+        ui.set_path_recs_player(ModelRc::from(player_items.as_slice()));
+        let os_items = path_rec_items(view.os, &mut self.path_actions);
+        ui.set_path_recs_os(ModelRc::from(os_items.as_slice()));
+        let hardware_items = path_rec_items(view.hardware, &mut self.path_actions);
+        ui.set_path_recs_hardware(ModelRc::from(hardware_items.as_slice()));
+
+        ui.set_path_footer(view.footer.into());
+        ui.set_path_copy_text(view.copy_text.into());
     }
 
     // ---------------- Тема: состояние диалога настроек (T1.0) ----------------
@@ -1891,12 +1959,14 @@ impl MusicApp {
         {
             let app = this.clone();
             ui.on_bp_clicked(move || {
-                let a = app.borrow_mut();
+                let mut a = app.borrow_mut();
                 if let Some(ui) = a.try_ui() {
                     ui.set_bp_report_open(true);
                 }
                 let report = bp_report::build_bp_report(&bp_report::bp_inputs(&a));
                 a.push_bp_report_to_ui(report);
+                let view = path_view::path_view(a.player.path_report());
+                a.push_path_view_to_ui(view);
             });
         }
 
@@ -1934,6 +2004,43 @@ impl MusicApp {
                 }
                 a.sync_audio_devices();
                 a.sync_gate_ui();
+            });
+        }
+
+        // 25f-c. окно «Путь сигнала»: действие кнопки рекомендации (ТЗ-81,
+        // ТЗ-84). Быстрые исправления громкости/mute повторяют эффект
+        // старого `bp_report::apply_action(1|2)` напрямую (отчёт этого окна
+        // не зависит от `bp_report`, который снимается на шаге 40); переход
+        // к настройкам повторяет `on_bp_report_open_settings` — отдельного
+        // выбора вкладки в диалоге пока нет (ТЗ-81).
+        {
+            let app = this.clone();
+            ui.on_path_rec_action(move |id| {
+                let mut a = app.borrow_mut();
+                let Ok(idx) = usize::try_from(id) else { return };
+                let Some(action) = a.path_actions.get(idx).copied() else { return };
+                match action {
+                    path_view::RecViewAction::QuickFix(path_view::QuickFix::Volume) => {
+                        a.player.set_volume(1.0);
+                        a.core.change_state(Origin::User, StateChange::Volume(100));
+                    }
+                    path_view::RecViewAction::QuickFix(path_view::QuickFix::Unmute) => {
+                        a.player.set_muted(false);
+                        a.core.change_state(Origin::User, StateChange::Muted(false));
+                    }
+                    path_view::RecViewAction::OpenSettings(_tab) => {
+                        if !a.open_dialog_draft() {
+                            return;
+                        }
+                        if let Some(ui) = a.try_ui() {
+                            ui.set_bp_report_open(false);
+                            ui.set_settings_open(true);
+                        }
+                        a.sync_audio_devices();
+                        a.sync_gate_ui();
+                    }
+                    path_view::RecViewAction::None => {}
+                }
             });
         }
 
@@ -2453,9 +2560,15 @@ impl MusicApp {
         for message in output.messages {
             self.push_message(message);
         }
+        // Окно «Путь сигнала» обновляется только по событию, взводящему
+        // отчёт устаревшим (`take_report_dirty`), а не каждый тик — закрытое
+        // окно не читает отчёт вовсе, чтобы не гасить его устаревший флаг
+        // впустую (ТЗ-79, ТЗ-83, §7.2).
         if self.try_ui().is_some_and(|ui| ui.get_bp_report_open()) {
-            let report = bp_report::build_bp_report(&bp_report::bp_inputs(self));
-            self.push_bp_report_to_ui(report);
+            if let Some(r) = self.player.take_report_dirty() {
+                let view = path_view::path_view(r);
+                self.push_path_view_to_ui(view);
+            }
         }
         self.push_tray_status();
 

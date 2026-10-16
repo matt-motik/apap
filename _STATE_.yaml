@@ -164,7 +164,7 @@ steps:
     done: true
   - id: 39
     description: "app/mod.rs: проводка окна — on_bp_clicked/тик пишут path-* из PathView только по take_report_dirty (не по таймеру), path-rec-action → QuickFix/открытие настроек (ТЗ-81, ТЗ-83, ТЗ-84). Проверка: cargo check"
-    done: false
+    done: true
   - id: 40
     description: "Очистка моста окна: удалить bp-stream-desc/bp-source-desc/bp-reasons/bp-positives/bp-report-action, BpReason из app.slint и push_bp_report_to_ui/вызовы bp_report в mod.rs (ЧЕКПОИНТ). Проверка: cargo build + полный cargo test + clippy --all-targets"
     done: false
@@ -174,8 +174,8 @@ steps:
   - id: 42
     description: "Удаление легаси (§8, §7.4): bp_report.rs, StreamDesc, FallbackReason, dsd_pcm_breaks_bit_perfect и тесты dsd_pcm_breaks_bit_perfect_detects_conflict, bp_report_marks_volume_issue; ссылки в settings.rs/state_file.rs. Проверка: полный cargo test + clippy --all-targets. Шаг дробится при декомпозиции"
     done: false
-current_step: 39
-next_action: "Шаг 39: app/mod.rs: проводка окна — on_bp_clicked/тик пишут path-* из PathView только по take_report_dirty (не по таймеру), path-rec-action → QuickFix/открытие настроек (ТЗ-81, ТЗ-83, ТЗ-84). Проверка: cargo check"
+current_step: 40
+next_action: "Шаг 40: Очистка моста окна: удалить bp-stream-desc/bp-source-desc/bp-reasons/bp-positives/bp-report-action, BpReason из app.slint и push_bp_report_to_ui/вызовы bp_report в mod.rs (ЧЕКПОИНТ). Проверка: cargo build + полный cargo test + clippy --all-targets"
 fail_counter: 0
 fail_counter_max: 3
 failed_attempts: []
