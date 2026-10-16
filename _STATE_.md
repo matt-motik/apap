@@ -39,6 +39,7 @@
   - src/app/visualizer_manager.rs
   - src/app/ui_manager.rs
   - src/app/bp_report.rs
+  - src/app/badge_view.rs
   - src/settings.rs
   - src/persist/state_file.rs
   - src/main.rs
@@ -78,15 +79,17 @@
 - [x] Шаг 29: run.rs: при SetVolume/SetMuted с активным путём — with_gain(plan, gain, policy) → новый SignalPath с теми же OpenedFacts и новым поколением без переоткрытия; BadgeChanged только при смене вердикта; + тесты volume_rebuilds_path_without_reopen, badge_changed_only_on_verdict_change, mute_unmute_restores_clean_badge (§4.3, §6.3, ТЗ-38, ТЗ-60). Проверка: полный cargo test + clippy --all-targets (ЧЕКПОИНТ)
 - [x] Шаг 30: UiAudioState: хранит Arc<SignalPath>, BadgeState, DynamicPathState; бейдж пересчитывается только при смене поколения; при неудачном открытии путь сбрасывается → NoStream (UI-часть badge_no_stream_after_failed_open, ТЗ-56) + тесты badge_no_recompute_on_idle_ticks, badge_shows_mute_and_restores_without_reopen (ТЗ-52, ТЗ-38). Проверка: cargo test ui_audio_state
 - [x] Шаг 31: Slint: свойства бейджа (export enum BadgeKind + текст + подсказка) и индикатор «Тест» (текст, доступность, подсказка блокера, без callback) в status.slint/app.slint; старые bool-бейджи bp-active/dsd-not-bp/bp-resample остаются мостом до шага 32. Решение пользователя 2026-10-16: callback «Теста» — на этапе раннера теста, свойства замка — в С6 вместе с LockState (ADR-06, ТЗ-52, ТЗ-61, ТЗ-62, ТЗ-106). Проверка: cargo build
-- [>] **Шаг 32: Rust-проводка бейджа/«Теста» в ui_manager/playback_manager из UiAudioState; удаление bool-свойств bp-active/dsd-not-bp/bp-resample из status.slint/app.slint и set_status_bp_*/set_status_dsd_not_bp (ТЗ-52, ТЗ-106). Проверка: cargo check**
-- [ ] Шаг 33: Окно «Путь сигнала»: показ PathReport (Display) вместо bp_report + тест window_no_recompute_on_idle_ticks (ТЗ-70–79). Проверка: cargo test. Шаг дробится при декомпозиции
-- [ ] Шаг 34: Снятие моста audio_facade.rs: перенос состояния (req_gen, кэш транспорта/трека/потока, ended, очередь резервирования, volume/muted/LegacyAudio) в MusicApp/UiAudioState; вызовы → EngineHandle; удаление файла; снять #![allow(dead_code)] в engine_sink.rs/ui_audio_state.rs (решение пользователя 2026-10-08). Проверка: полный cargo test. Шаг дробится при декомпозиции
-- [ ] Шаг 35: Удаление легаси (§8, §7.4): bp_report.rs, StreamDesc, FallbackReason, dsd_pcm_breaks_bit_perfect и тесты dsd_pcm_breaks_bit_perfect_detects_conflict, bp_report_marks_volume_issue; ссылки в settings.rs/state_file.rs. Проверка: полный cargo test + clippy --all-targets. Шаг дробится при декомпозиции
+- [x] Шаг 32: app/badge_view.rs (чистый презентер): nbp_reason_label(NbpReason) -> &'static str, badge_view(&BadgeState) -> BadgeView{kind, text} («Shared: без изменений до системы», «Не bit-perfect: <причина> +N», «Bit-perfect», «Mute», «Нет потока»), test_view(&BadgeState, ModeKind, Option<&TestBadge>) -> TestView{visible, enabled, text, hint} через test_availability (подсказка блокера, «Проверка недоступна в Shared») + ≤5 тестов; регистрация модуля в app/mod.rs (ТЗ-53, ТЗ-54, ТЗ-56, ТЗ-61, ТЗ-62, ADR-06). Проверка: cargo test badge_view
+- [>] **Шаг 33: Проводка: AudioFacade::on_event кэширует BadgeState из UiAudioState::take_badge_dirty (+ take_badge_dirty фасада); playback_manager пишет status-badge-kind/text и status-test-* только при изменении (ТЗ-52, ТЗ-60, ТЗ-106, И-Р13). Проверка: cargo check**
+- [ ] Шаг 34: Удаление bool-бейджей: bp-active/bp-text/dsd-not-bp/bp-resample из status.slint/app.slint; set_status_bp_*/set_status_dsd_not_bp, sync_dsd_status_ui и его вызовы, UiState.bp_resample, AudioFacade::bit_perfect_resampled (ADR-06, R-1). Шаг-очистка моста шага 31 (только удаление, 5 файлов). Проверка: cargo build + полный cargo test + clippy --all-targets (ЧЕКПОИНТ)
+- [ ] Шаг 35: Окно «Путь сигнала»: показ PathReport (Display) вместо bp_report + тест window_no_recompute_on_idle_ticks (ТЗ-70–79). Проверка: cargo test. Шаг дробится при декомпозиции
+- [ ] Шаг 36: Снятие моста audio_facade.rs: перенос состояния (req_gen, кэш транспорта/трека/потока, ended, очередь резервирования, volume/muted/LegacyAudio) в MusicApp/UiAudioState; вызовы → EngineHandle; удаление файла; снять #![allow(dead_code)] в engine_sink.rs/ui_audio_state.rs (решение пользователя 2026-10-08). Проверка: полный cargo test. Шаг дробится при декомпозиции
+- [ ] Шаг 37: Удаление легаси (§8, §7.4): bp_report.rs, StreamDesc, FallbackReason, dsd_pcm_breaks_bit_perfect и тесты dsd_pcm_breaks_bit_perfect_detects_conflict, bp_report_marks_volume_issue; ссылки в settings.rs/state_file.rs. Проверка: полный cargo test + clippy --all-targets. Шаг дробится при декомпозиции
 
 Легенда: [x] сделано · [>] текущий шаг · [ ] не начато
 
-- **Текущий шаг (current_step):** Шаг 32
-- **Следующий ход:** Шаг 32: Rust-проводка бейджа/«Теста» из UiAudioState в ui_manager/playback_manager (BadgeKind/текст, test-*); удаление bool-бейджей из status.slint/app.slint и set_status_bp_*/set_status_dsd_not_bp. Проверка: cargo check. Шаг может потребовать дробления.
+- **Текущий шаг (current_step):** Шаг 33
+- **Следующий ход:** Шаг 33: проводка бейджа/«Теста» — AudioFacade кэширует BadgeState (take_badge_dirty), playback_manager пишет status-badge-*/status-test-* через badge_view/test_view только при изменении. Проверка: cargo check
 - **Счетчик безуспешных компиляций:** 0/3
 - **Состояние:** in_progress
 

@@ -54,6 +54,7 @@ use music_player_rs::platform::lifecycle::TrayEvent;
 use music_player_rs::platform::tray;
 
 mod audio_facade;
+mod badge_view;
 pub mod bp_report;
 pub(crate) mod engine_sink;
 pub mod events;
