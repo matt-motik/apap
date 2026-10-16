@@ -146,7 +146,7 @@ impl UiAudioState {
     /// как устаревшие) — значения читаются через `take_*_dirty`.
     pub fn apply(&mut self, ev: EngineEvent) -> Applied {
         match ev {
-            EngineEvent::Opened { req_gen, info, stream } => {
+            EngineEvent::Opened { req_gen, info, stream, .. } => {
                 if req_gen < self.latest_req_gen {
                     return Applied::None;
                 }
@@ -189,6 +189,8 @@ impl UiAudioState {
                 self.position_secs.set(secs);
                 Applied::None
             }
+            // Хранение `BadgeState` в `UiAudioState` — отдельный шаг.
+            EngineEvent::BadgeChanged(_) => Applied::None,
             EngineEvent::DeviceLost { reaction } => Applied::DeviceLost(reaction),
             EngineEvent::Devices(catalog) => {
                 self.devices.set(DeviceSnapshot(catalog));
@@ -230,6 +232,7 @@ impl UiAudioState {
 mod tests {
     use super::*;
     use music_player_rs::audio::decoder::Tags;
+    use music_player_rs::audio::verdict::BadgeState;
     use music_player_rs::engine::messages::SkipReason;
     use music_player_rs::audio::error::FileError;
 
@@ -246,7 +249,13 @@ mod tests {
     }
 
     fn opened(req_gen: u64) -> EngineEvent {
-        EngineEvent::Opened { req_gen, info: track_info(), stream: Some(StreamDesc::default()) }
+        EngineEvent::Opened {
+            req_gen,
+            info: track_info(),
+            stream: Some(StreamDesc::default()),
+            path: None,
+            badge: BadgeState::NoStream,
+        }
     }
 
     #[test]

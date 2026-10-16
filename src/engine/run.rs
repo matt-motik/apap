@@ -14,6 +14,7 @@ use crate::audio::backend::catalog::DeviceCatalog;
 use crate::audio::clock::ClockInstant;
 use crate::audio::error::{CaptureFailure, EngineFault, FileError, OpenError};
 use crate::audio::player::{Player, ReservationEvent};
+use crate::audio::verdict::BadgeState;
 use crate::engine::deps::EngineDeps;
 use crate::engine::legacy_path::legacy_audio;
 use crate::engine::messages::{EngineCmd, EngineEvent, LegacyAudio, Notice, SkipReason, TransportState};
@@ -226,7 +227,13 @@ impl Engine {
                         self.last_pos = None;
                         self.session_failed = false;
                         let stream = self.player.stream_desc().cloned();
-                        self.deps.events.emit(EngineEvent::Opened { req_gen, info, stream });
+                        self.deps.events.emit(EngineEvent::Opened {
+                            req_gen,
+                            info,
+                            stream,
+                            path: None,
+                            badge: BadgeState::NoStream,
+                        });
                         self.refresh_transport();
                     }
                     Err(msg) => {

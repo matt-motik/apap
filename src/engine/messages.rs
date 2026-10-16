@@ -10,8 +10,10 @@ use crate::audio::backend::catalog::DeviceCatalog;
 use crate::audio::backend::BackendError;
 use crate::audio::decoder::TrackInfo;
 use crate::audio::error::{FileError, OpenError, Reaction};
+use crate::audio::path::signal::SignalPath;
 use crate::audio::path::Blocked;
 use crate::audio::player::{ReservationEvent, StreamDesc};
+use crate::audio::verdict::BadgeState;
 use crate::settings::params::ModeSettingsUpdate;
 use crate::settings::playback::ModeKind;
 use crate::settings::{
@@ -136,8 +138,17 @@ pub enum Notice {
 #[allow(clippy::large_enum_variant)]
 #[derive(Clone, Debug)]
 pub enum EngineEvent {
-    /// Мост С3: `TrackInfo` и `StreamDesc` старого пути вместо `SignalPath`/`BadgeState` (С5).
-    Opened { req_gen: u64, info: TrackInfo, stream: Option<StreamDesc> },
+    /// `path`/`badge` — новая модель (§2.3, §2.5, ADR-20): `None`/
+    /// `BadgeState::NoStream`, пока движок не построил путь (например,
+    /// Оптимальный/Строгий на легаси-исполнителе). `info` и `stream` —
+    /// мост старого пути до удаления `StreamDesc`.
+    Opened {
+        req_gen: u64,
+        info: TrackInfo,
+        stream: Option<StreamDesc>,
+        path: Option<Arc<SignalPath>>,
+        badge: BadgeState,
+    },
     Skipped { req_gen: u64, path: Arc<Path>, reason: SkipReason },
     OpenFailed { req_gen: u64, err: OpenError },
     /// Мост С3: session = req_gen открытия.
@@ -145,6 +156,9 @@ pub enum EngineEvent {
     Transport { state: TransportState },
     /// Только из цикла движка, при изменении (И-Р13); мост: секунды.
     Position { secs: f64 },
+    /// Бейдж пересчитан после перестройки пути (громкость/mute) и отправлен
+    /// только при изменении вердикта (ТЗ-60, §4.3).
+    BadgeChanged(BadgeState),
     DeviceLost { reaction: Reaction },
     /// Каталог устройств после перечисления (ТЗ-104, ТЗ-105, ADR-16, §6.2 п.3):
     /// шлётся при старте движка и затем только при изменении списка.

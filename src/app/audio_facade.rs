@@ -397,6 +397,7 @@ impl AudioFacade {
 mod tests {
     use super::*;
     use music_player_rs::audio::decoder::Tags;
+    use music_player_rs::audio::verdict::BadgeState;
     use music_player_rs::persist::keys::{FileRead, Parsed};
     use music_player_rs::persist::state_file::parse_state;
     use music_player_rs::settings::playback_dto::{load_mode_settings, playback_dto, PlaybackDto};
@@ -418,7 +419,13 @@ mod tests {
     }
 
     fn opened(req_gen: u64) -> EngineEvent {
-        EngineEvent::Opened { req_gen, info: track_info(), stream: Some(StreamDesc::default()) }
+        EngineEvent::Opened {
+            req_gen,
+            info: track_info(),
+            stream: Some(StreamDesc::default()),
+            path: None,
+            badge: BadgeState::NoStream,
+        }
     }
 
     #[test]
