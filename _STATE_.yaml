@@ -158,7 +158,7 @@ steps:
     done: true
   - id: 37
     description: "AudioFacade: кэш PathReport — build_report только при смене пути (take_path_dirty), пропуске (Blocked), неудачном открытии, set_mode_settings/set_active_mode; take_report_dirty; счётчик построений под cfg(test) + тест window_no_recompute_on_idle_ticks (ТЗ-79, ТЗ-83, §7.2). Проверка: cargo test audio_facade"
-    done: false
+    done: true
   - id: 38
     description: "ui/app.slint: новое содержимое окна «Путь сигнала» — структуры PathStageRow/PathRecItem, свойства path-title/path-stages/path-recs-player/os/hardware/path-footer/path-copy-text, колбэки path-rec-action(int), копирование через TextInput select-all/copy; старые bp-* свойства остаются мостом (ТЗ-70–ТЗ-84). Проверка: cargo check"
     done: false
@@ -174,8 +174,8 @@ steps:
   - id: 42
     description: "Удаление легаси (§8, §7.4): bp_report.rs, StreamDesc, FallbackReason, dsd_pcm_breaks_bit_perfect и тесты dsd_pcm_breaks_bit_perfect_detects_conflict, bp_report_marks_volume_issue; ссылки в settings.rs/state_file.rs. Проверка: полный cargo test + clippy --all-targets. Шаг дробится при декомпозиции"
     done: false
-current_step: 37
-next_action: "Шаг 37: AudioFacade: кэш PathReport — build_report только при смене пути (take_path_dirty), пропуске (Blocked), неудачном открытии, set_mode_settings/set_active_mode; take_report_dirty; счётчик построений под cfg(test) + тест window_no_recompute_on_idle_ticks (ТЗ-79, ТЗ-83, §7.2). Проверка: cargo test audio_facade"
+current_step: 38
+next_action: "Шаг 38: ui/app.slint: новое содержимое окна «Путь сигнала» — структуры PathStageRow/PathRecItem, свойства path-title/path-stages/path-recs-player/os/hardware/path-footer/path-copy-text, колбэки path-rec-action(int), копирование через TextInput select-all/copy; старые bp-* свойства остаются мостом (ТЗ-70–ТЗ-84). Проверка: cargo check"
 fail_counter: 0
 fail_counter_max: 3
 failed_attempts: []

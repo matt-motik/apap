@@ -23,10 +23,13 @@ use std::path::Path;
 use std::sync::Arc;
 
 use music_player_rs::audio::decoder::TrackInfo;
+use music_player_rs::audio::path::recommend::PathSubject;
+use music_player_rs::audio::path::report::{build_report, PathReport};
+use music_player_rs::audio::path::Blocked;
 use music_player_rs::audio::player::{ReservationEvent, StreamDesc};
 use music_player_rs::audio::verdict::BadgeState;
 use music_player_rs::engine::legacy_path::legacy_audio;
-use music_player_rs::engine::messages::{EngineCmd, EngineEvent, Notice, TransportState};
+use music_player_rs::engine::messages::{EngineCmd, EngineEvent, Notice, SkipReason, TransportState};
 use music_player_rs::engine::run::EngineHandle;
 use music_player_rs::settings::params::ModeSettingsUpdate;
 use music_player_rs::settings::playback::{ModeKind, ModeSettings};
@@ -86,6 +89,22 @@ pub(crate) struct AudioFacade {
     /// Зеркало `Player::device_desc` — публичное поле, не метод (сохраняет
     /// синтаксис вызывающей стороны `self.player.device_desc`).
     pub(crate) device_desc: String,
+    /// Активный план пропуска (`SkipReason::Incompatible`, §2.4, ТЗ-80) —
+    /// предмет отчёта окна «Путь сигнала» (`PathSubject::Skipped`), пока не
+    /// снят новым успешно открытым путём или иным исходом открытия (ТЗ-79).
+    skipped: Option<Blocked>,
+    /// Кэш отчёта окна «Путь сигнала» (ТЗ-79, ТЗ-83, §7.2) — пересчитывается
+    /// только через `take_report_dirty`/`path_report`, никогда по тику UI.
+    report: Option<PathReport>,
+    /// Истина, если `report` устарел с последнего пересчёта: взводится
+    /// событиями (новый/пропущенный/неоткрытый путь) и изменениями настроек
+    /// режимов/активного режима; снимается только построением отчёта
+    /// (ТЗ-79, ТЗ-83, §7.2, тест `window_no_recompute_on_idle_ticks`).
+    report_dirty: bool,
+    /// Счётчик фактических пересчётов отчёта — только для теста
+    /// `window_no_recompute_on_idle_ticks` (§7.2).
+    #[cfg(test)]
+    report_builds: usize,
 }
 
 impl AudioFacade {
@@ -115,6 +134,14 @@ impl AudioFacade {
             // покажет старые блоки совместимости (ТЗ-52, ТЗ-56).
             badge_view_dirty: true,
             device_desc: "none".to_string(),
+            skipped: None,
+            report: None,
+            // `true` с самого начала — первое чтение (`path_report`/
+            // `take_report_dirty`) должно построить отчёт «Поток не открыт»
+            // (ТЗ-79, §7.2).
+            report_dirty: true,
+            #[cfg(test)]
+            report_builds: 0,
         }
     }
 
@@ -174,11 +201,28 @@ impl AudioFacade {
             self.badge = b;
             self.badge_view_dirty = true;
         }
+        // Новый путь (включая переход к `None`) — предмет отчёта сменился,
+        // независимо от причины (ТЗ-79, ТЗ-83, §7.2). Успешно открытый путь
+        // снимает хранимый план пропуска — он относится к прошлому треку.
+        if let Some(path) = self.state.take_path_dirty() {
+            if path.is_some() {
+                self.skipped = None;
+            }
+            self.report_dirty = true;
+        }
 
         match &applied {
             Applied::Ended => self.ended = true,
             Applied::Notice(Notice::Reservation(event)) => {
                 self.reservation_queue.push_back(event.clone());
+            }
+            Applied::Skipped { reason: SkipReason::Incompatible(blocked), .. } => {
+                self.skipped = Some(blocked.clone());
+                self.report_dirty = true;
+            }
+            Applied::Skipped { .. } | Applied::OpenFailed { .. } => {
+                self.skipped = None;
+                self.report_dirty = true;
             }
             _ => {}
         }
@@ -204,6 +248,61 @@ impl AudioFacade {
         } else {
             None
         }
+    }
+
+    /// Собрать `PathReport` из предмета (пропуск/путь/нет потока), текущей
+    /// динамики и копии `modes` — свободная функция без доступа к `self`
+    /// целиком, чтобы вызываться и из `rebuild_report`, и из резервного
+    /// замыкания в `path_report` без конфликта заимствований с полем
+    /// `report` (ТЗ-79, ТЗ-83, §7.2).
+    fn compute_report(skipped: &Option<Blocked>, state: &UiAudioState, modes: &ModeSettings) -> PathReport {
+        let subject = if let Some(blocked) = skipped {
+            PathSubject::Skipped(blocked)
+        } else if let Some(path) = state.path() {
+            PathSubject::Opened(path.as_ref())
+        } else {
+            PathSubject::NoStream
+        };
+        build_report(subject, state.dynamics(), modes)
+    }
+
+    /// Пересчитать `report` — единственное место, которое взводит
+    /// `report_builds` (ТЗ-79, ТЗ-83, §7.2). Вызывается только из
+    /// `take_report_dirty`/`path_report`, никогда из `on_event` — поэтому
+    /// окно, пока оно закрыто, не тратит на пересчёт ничего.
+    fn rebuild_report(&mut self) {
+        self.report = Some(Self::compute_report(&self.skipped, &self.state, &self.modes));
+        self.report_dirty = false;
+        #[cfg(test)]
+        {
+            self.report_builds += 1;
+        }
+    }
+
+    /// Снять отчёт окна «Путь сигнала», если он устарел с прошлого чтения, —
+    /// одноразовое чтение для вызывающей стороны (ТЗ-79, ТЗ-83, §7.2):
+    /// повторный вызов без нового события/изменения настроек вернёт `None`,
+    /// а не пересчитает отчёт заново (тест `window_no_recompute_on_idle_ticks`).
+    pub(crate) fn take_report_dirty(&mut self) -> Option<&PathReport> {
+        if self.report_dirty {
+            self.rebuild_report();
+            self.report.as_ref()
+        } else {
+            None
+        }
+    }
+
+    /// Текущий отчёт окна «Путь сигнала», построенный при необходимости —
+    /// для момента открытия окна, когда нужен готовый снимок независимо от
+    /// того, был ли он уже снят через `take_report_dirty` (ТЗ-79, §7.2).
+    pub(crate) fn path_report(&mut self) -> &PathReport {
+        if self.report_dirty || self.report.is_none() {
+            self.rebuild_report();
+        }
+        let skipped = &self.skipped;
+        let state = &self.state;
+        let modes = &self.modes;
+        self.report.get_or_insert_with(|| Self::compute_report(skipped, state, modes))
     }
 
     /// Завершить сессию движка: отдать и уронить `EngineHandle` — его `Drop`
@@ -386,6 +485,10 @@ impl AudioFacade {
         }
         let diff = self.modes.diff(&settings);
         self.modes = settings.clone();
+        // Рекомендации/этапы отчёта зависят от `ModeSettings` (например,
+        // дизеринг, DSD-фильтр) — реальное изменение взводит пересчёт
+        // (ТЗ-79, ТЗ-83, §7.2).
+        self.report_dirty = true;
         self.send(EngineCmd::SetModeSettings(ModeSettingsUpdate { settings, diff: Some(diff) }));
     }
 
@@ -395,6 +498,11 @@ impl AudioFacade {
     /// синхронизирует свою копию — от неё считается следующий diff
     /// `set_mode_settings` и от неё зависят геттеры (`bit_perfect` и пр.).
     pub(crate) fn mode_settings_applied(&mut self, settings: ModeSettings) {
+        if settings != self.modes {
+            // Та же причина пересчёта, что и в `set_mode_settings` (ТЗ-79,
+            // ТЗ-83, §7.2).
+            self.report_dirty = true;
+        }
         self.modes = settings;
     }
 
@@ -408,6 +516,9 @@ impl AudioFacade {
             // Доступность «Теста» зависит от режима (ТЗ-62) — вид бейджа/
             // теста нужно пересчитать и записать в UI заново.
             self.badge_view_dirty = true;
+            // Рекомендации отчёта зависят от активного режима (ТЗ-79,
+            // ТЗ-83, §7.2).
+            self.report_dirty = true;
             self.send(EngineCmd::SetActiveMode(mode));
         }
     }
@@ -658,5 +769,100 @@ mod tests {
                 other => panic!("ожидались SetModeSettings/SetActiveMode, получено: {other:?}"),
             }
         }
+    }
+
+    /// ТЗ-79, ТЗ-83, §7.2: окно «Путь сигнала» получает отчёт из готового
+    /// кэша — за 100 холостых тиков без событий `take_report_dirty` не
+    /// пересчитывает его повторно (`report_builds` остаётся 1).
+    #[test]
+    fn window_no_recompute_on_idle_ticks() {
+        let mut f = facade();
+        let _ = f.path_report();
+        assert_eq!(f.report_builds, 1);
+
+        for _ in 0..100 {
+            assert!(f.take_report_dirty().is_none());
+        }
+        assert_eq!(f.report_builds, 1);
+    }
+
+    /// ТЗ-79, ТЗ-83, §7.2: смена активного режима взводит пересчёт отчёта
+    /// (рекомендации зависят от режима), даже без нового `Opened`.
+    #[test]
+    fn report_rebuilt_after_mode_change() {
+        let mut f = facade();
+        let _ = f.path_report();
+        assert_eq!(f.report_builds, 1);
+
+        f.set_active_mode(ModeKind::Strict);
+        assert!(f.take_report_dirty().is_some());
+        assert_eq!(f.report_builds, 2);
+    }
+
+    /// ТЗ-79, ТЗ-83, §7.2: принятое событие `Opened` взводит пересчёт отчёта
+    /// (новый предмет окна), даже если сам путь (`SignalPath`) ещё не готов.
+    #[test]
+    fn report_rebuilt_after_opened_event() {
+        let mut f = facade();
+        let _ = f.path_report();
+        assert_eq!(f.report_builds, 1);
+
+        let _ = f.open(Path::new("/tmp/a.flac"));
+        f.on_event(opened(1));
+
+        assert!(f.take_report_dirty().is_some());
+        assert_eq!(f.report_builds, 2);
+    }
+
+    /// ТЗ-79, ТЗ-80, §7.2: `Skipped(Incompatible)` даёт предмет
+    /// `PathSubject::Skipped` — заголовок отчёта отличается от «Поток не
+    /// открыт» (`PathSubject::NoStream`).
+    #[test]
+    fn report_subject_skipped_differs_from_no_stream() {
+        use music_player_rs::audio::backend::{AccessKind, DeviceCaps, OutputApi, RateSet};
+        use music_player_rs::audio::format::{
+            BitDepth, ChannelLayout, Codec, Container, OutputSampleFormat, SampleRate, SourceFormat, SourceKind,
+        };
+        use music_player_rs::audio::path::plan::plan;
+        use music_player_rs::settings::playback::PathPolicy;
+
+        let mut f = facade();
+        let no_stream_title = f.path_report().subject_title.clone();
+
+        // Устройство только на 96 кГц, источник 192 кГц — Строгий режим
+        // отвергает ресемплинг, план останавливается на этапе «Выход»
+        // (повторяет фикстуру `report_built_without_backend_access`,
+        // src/audio/path/report.rs).
+        let caps = DeviceCaps {
+            api: OutputApi::AlsaHw,
+            access: AccessKind::Exclusive,
+            name: "test".to_owned(),
+            rates: RateSet::Discrete(smallvec::SmallVec::from_slice(&[
+                SampleRate::new(96_000).expect("96000 — валидная частота")
+            ])),
+            formats: smallvec::SmallVec::from_slice(&[OutputSampleFormat::S32Le]),
+            channels: smallvec::SmallVec::from_slice(&[2]),
+        };
+        let src = SourceFormat {
+            container: Container::Flac,
+            codec: Codec::Flac,
+            lossy: false,
+            rate: SampleRate::new(192_000).expect("192000 — валидная частота"),
+            layout: ChannelLayout::stereo(),
+            kind: SourceKind::Pcm { bits: BitDepth::new(24).expect("24 бита — валидная разрядность") },
+        };
+        let settings = ModeSettings::default();
+        let blocked = plan(&src, &caps, PathPolicy::Strict(&settings.strict))
+            .expect_err("96 кГц устройство должно отвергнуть 192 кГц источник в Строгом режиме");
+
+        let _ = f.open(Path::new("/tmp/a.flac"));
+        f.on_event(EngineEvent::Skipped {
+            req_gen: 1,
+            path: Arc::from(Path::new("/tmp/a.flac")),
+            reason: SkipReason::Incompatible(blocked),
+        });
+
+        let report = f.path_report();
+        assert_ne!(report.subject_title, no_stream_title);
     }
 }
