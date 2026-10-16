@@ -40,6 +40,7 @@
   - src/app/ui_manager.rs
   - src/app/bp_report.rs
   - src/app/badge_view.rs
+  - src/app/path_view.rs
   - src/settings.rs
   - src/persist/state_file.rs
   - src/main.rs
@@ -82,14 +83,19 @@
 - [x] Шаг 32: app/badge_view.rs (чистый презентер): nbp_reason_label(NbpReason) -> &'static str, badge_view(&BadgeState) -> BadgeView{kind, text} («Shared: без изменений до системы», «Не bit-perfect: <причина> +N», «Bit-perfect», «Mute», «Нет потока»), test_view(&BadgeState, ModeKind, Option<&TestBadge>) -> TestView{visible, enabled, text, hint} через test_availability (подсказка блокера, «Проверка недоступна в Shared») + ≤5 тестов; регистрация модуля в app/mod.rs (ТЗ-53, ТЗ-54, ТЗ-56, ТЗ-61, ТЗ-62, ADR-06). Проверка: cargo test badge_view
 - [x] Шаг 33: Проводка: AudioFacade::on_event кэширует BadgeState из UiAudioState::take_badge_dirty (+ take_badge_dirty фасада); playback_manager пишет status-badge-kind/text и status-test-* только при изменении (ТЗ-52, ТЗ-60, ТЗ-106, И-Р13). Проверка: cargo check
 - [x] Шаг 34: Удаление bool-бейджей: bp-active/bp-text/dsd-not-bp/bp-resample из status.slint/app.slint; set_status_bp_*/set_status_dsd_not_bp, sync_dsd_status_ui и его вызовы, UiState.bp_resample, AudioFacade::bit_perfect_resampled (ADR-06, R-1). Шаг-очистка моста шага 31 (только удаление, 5 файлов). Проверка: cargo build + полный cargo test + clippy --all-targets (ЧЕКПОИНТ)
-- [>] **Шаг 35: Окно «Путь сигнала»: показ PathReport (Display) вместо bp_report + тест window_no_recompute_on_idle_ticks (ТЗ-70–79). Проверка: cargo test. Шаг дробится при декомпозиции**
-- [ ] Шаг 36: Снятие моста audio_facade.rs: перенос состояния (req_gen, кэш транспорта/трека/потока, ended, очередь резервирования, volume/muted/LegacyAudio) в MusicApp/UiAudioState; вызовы → EngineHandle; удаление файла; снять #![allow(dead_code)] в engine_sink.rs/ui_audio_state.rs (решение пользователя 2026-10-08). Проверка: полный cargo test. Шаг дробится при декомпозиции
-- [ ] Шаг 37: Удаление легаси (§8, §7.4): bp_report.rs, StreamDesc, FallbackReason, dsd_pcm_breaks_bit_perfect и тесты dsd_pcm_breaks_bit_perfect_detects_conflict, bp_report_marks_volume_issue; ссылки в settings.rs/state_file.rs. Проверка: полный cargo test + clippy --all-targets. Шаг дробится при декомпозиции
+- [x] Шаг 35: audio/path/report.rs: публичный текстовый API для окна — stage_name, status_text, confidence_text, recommendation_text(&Recommendation) -> String, RecGroup {Player, Os, Hardware} + recommendation_group; group_recommendations/Display переводятся на них без смены вывода (§3.6, ТЗ-71, ТЗ-81, ТЗ-84). Проверка: cargo test path::report
+- [>] **Шаг 36: app/path_view.rs (чистый презентер): PathReport -> PathView {title, stages: [StageView{name, status, changes, causes, confidence, notes}; 6], player/os/hardware: Vec<RecView{text, action}>, footer, copy_text = report.to_string()}; RecView.action: QuickFix(Volume|Unmute) | OpenSettings(tab) | None + ≤5 тестов (§3.6, ТЗ-71, ТЗ-81, ТЗ-84). Проверка: cargo test path_view**
+- [ ] Шаг 37: AudioFacade: кэш PathReport — build_report только при смене пути (take_path_dirty), пропуске (Blocked), неудачном открытии, set_mode_settings/set_active_mode; take_report_dirty; счётчик построений под cfg(test) + тест window_no_recompute_on_idle_ticks (ТЗ-79, ТЗ-83, §7.2). Проверка: cargo test audio_facade
+- [ ] Шаг 38: ui/app.slint: новое содержимое окна «Путь сигнала» — структуры PathStageRow/PathRecItem, свойства path-title/path-stages/path-recs-player/os/hardware/path-footer/path-copy-text, колбэки path-rec-action(int), копирование через TextInput select-all/copy; старые bp-* свойства остаются мостом (ТЗ-70–ТЗ-84). Проверка: cargo check
+- [ ] Шаг 39: app/mod.rs: проводка окна — on_bp_clicked/тик пишут path-* из PathView только по take_report_dirty (не по таймеру), path-rec-action → QuickFix/открытие настроек (ТЗ-81, ТЗ-83, ТЗ-84). Проверка: cargo check
+- [ ] Шаг 40: Очистка моста окна: удалить bp-stream-desc/bp-source-desc/bp-reasons/bp-positives/bp-report-action, BpReason из app.slint и push_bp_report_to_ui/вызовы bp_report в mod.rs (ЧЕКПОИНТ). Проверка: cargo build + полный cargo test + clippy --all-targets
+- [ ] Шаг 41: Снятие моста audio_facade.rs: перенос состояния (req_gen, кэш транспорта/трека/потока, ended, очередь резервирования, volume/muted/LegacyAudio) в MusicApp/UiAudioState; вызовы → EngineHandle; удаление файла; снять #![allow(dead_code)] в engine_sink.rs/ui_audio_state.rs (решение пользователя 2026-10-08). Проверка: полный cargo test. Шаг дробится при декомпозиции
+- [ ] Шаг 42: Удаление легаси (§8, §7.4): bp_report.rs, StreamDesc, FallbackReason, dsd_pcm_breaks_bit_perfect и тесты dsd_pcm_breaks_bit_perfect_detects_conflict, bp_report_marks_volume_issue; ссылки в settings.rs/state_file.rs. Проверка: полный cargo test + clippy --all-targets. Шаг дробится при декомпозиции
 
 Легенда: [x] сделано · [>] текущий шаг · [ ] не начато
 
-- **Текущий шаг (current_step):** Шаг 35
-- **Следующий ход:** Шаг 35: Окно «Путь сигнала»: показ PathReport (Display) вместо bp_report + тест window_no_recompute_on_idle_ticks (ТЗ-70–79). Проверка: cargo test. Шаг дробится при декомпозиции
+- **Текущий шаг (current_step):** Шаг 36
+- **Следующий ход:** Шаг 36: app/path_view.rs (чистый презентер): PathReport -> PathView {title, stages: [StageView{name, status, changes, causes, confidence, notes}; 6], player/os/hardware: Vec<RecView{text, action}>, footer, copy_text = report.to_string()}; RecView.action: QuickFix(Volume|Unmute) | OpenSettings(tab) | None + ≤5 тестов (§3.6, ТЗ-71, ТЗ-81, ТЗ-84). Проверка: cargo test path_view
 - **Счетчик безуспешных компиляций:** 0/3
 - **Состояние:** in_progress
 

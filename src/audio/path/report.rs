@@ -516,6 +516,39 @@ fn write_group(f: &mut std::fmt::Formatter<'_>, title: &str, items: &[String]) -
     Ok(())
 }
 
+/// Три группы рекомендаций (ТЗ-81): «Настройки плеера», «Настройки ОС»,
+/// «Оборудование» — смена режима попадает в `Hardware`, как поясняет
+/// комментарий группировки ниже.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub enum RecGroup {
+    Player,
+    Os,
+    Hardware,
+}
+
+/// Группа рекомендации (ТЗ-81): `SwitchMode` — в `Hardware` (§6.25, см.
+/// `group_recommendations`).
+pub fn recommendation_group(rec: &Recommendation) -> RecGroup {
+    match rec {
+        Recommendation::PlayerSetting(_) => RecGroup::Player,
+        Recommendation::Os { .. } => RecGroup::Os,
+        Recommendation::Hardware { .. } | Recommendation::SwitchMode { .. } => RecGroup::Hardware,
+    }
+}
+
+/// Текст рекомендации (ТЗ-81, ТЗ-84): та же строка, что в `Display` окна
+/// «Путь сигнала», для UI-презентера без дублирования текста.
+pub fn recommendation_text(rec: &Recommendation) -> String {
+    match rec {
+        Recommendation::PlayerSetting(r) => player_setting_text(r),
+        Recommendation::Os { topic } => os_topic_text(*topic).to_owned(),
+        Recommendation::Hardware { need } => hw_requirement_text(need),
+        Recommendation::SwitchMode { to, why } => {
+            format!("смена режима: {} ({})", mode_name(*to), switch_why_text(*why))
+        }
+    }
+}
+
 /// Группировка рекомендаций по трём группам (§6.25): «Настройки плеера»,
 /// «Настройки ОС», «Оборудование» (смена режима — строкой в группе
 /// «Оборудование», так как в таблице §6.25 она всегда сопровождает
@@ -525,19 +558,18 @@ fn group_recommendations(recs: &[Recommendation]) -> (Vec<String>, Vec<String>, 
     let mut os = Vec::new();
     let mut hardware = Vec::new();
     for rec in recs {
-        match rec {
-            Recommendation::PlayerSetting(r) => player.push(player_setting_text(r)),
-            Recommendation::Os { topic } => os.push(os_topic_text(*topic).to_owned()),
-            Recommendation::Hardware { need } => hardware.push(hw_requirement_text(need)),
-            Recommendation::SwitchMode { to, why } => {
-                hardware.push(format!("смена режима: {} ({})", mode_name(*to), switch_why_text(*why)));
-            }
+        let text = recommendation_text(rec);
+        match recommendation_group(rec) {
+            RecGroup::Player => player.push(text),
+            RecGroup::Os => os.push(text),
+            RecGroup::Hardware => hardware.push(text),
         }
     }
     (player, os, hardware)
 }
 
-fn stage_name(id: StageId) -> &'static str {
+/// Название этапа (ТЗ-71, ТЗ-84): для окна «Путь сигнала» и UI-презентера.
+pub fn stage_name(id: StageId) -> &'static str {
     match id {
         StageId::Source => "Источник",
         StageId::Decoder => "Декодер",
@@ -548,7 +580,8 @@ fn stage_name(id: StageId) -> &'static str {
     }
 }
 
-fn status_text(status: StageStatus) -> &'static str {
+/// Текст статуса этапа (ТЗ-71, ТЗ-84): значок + текст, не только цвет.
+pub fn status_text(status: StageStatus) -> &'static str {
     match status {
         StageStatus::Unchanged => "✓ без изменений",
         StageStatus::Lossless => "≈ изменено без потерь",
@@ -557,7 +590,8 @@ fn status_text(status: StageStatus) -> &'static str {
     }
 }
 
-fn confidence_text(c: Confidence) -> String {
+/// Текст достоверности этапа (ТЗ-71, ТЗ-84): «подтверждено (…)» / «предположено».
+pub fn confidence_text(c: Confidence) -> String {
     match c {
         Confidence::Confirmed(by) => format!("подтверждено ({})", confirmed_by_text(by)),
         Confidence::Assumed => "предположено".to_owned(),
@@ -925,5 +959,28 @@ mod tests {
         assert!(text.contains("смена режима"), "{text}");
         assert!(text.contains(r.player_version), "{text}");
         assert!(text.contains(&r.os), "{text}");
+    }
+
+    /// §7.2 `recommendation_text_matches_display_groups` (ТЗ-81, ТЗ-84):
+    /// `recommendation_text` каждой рекомендации отчёта — те же строки,
+    /// что в `Display`, без дублирования текста.
+    #[test]
+    fn recommendation_text_matches_display_groups() {
+        let s = ModeSettings::default();
+        let dev96 = exclusive(&[44_100, 48_000, 96_000], &[OutputSampleFormat::S32Le]);
+        let blocked = plan(&flac(24, 192_000), &dev96, PathPolicy::Strict(&s.strict)).unwrap_err();
+        let r = build_report(PathSubject::Skipped(&blocked), &DynamicPathState::default(), &s);
+        let text = format!("{r}");
+        for rec in &r.recommendations {
+            assert!(text.contains(&recommendation_text(rec)), "{:?} отсутствует в:\n{text}", rec);
+        }
+    }
+
+    /// §7.2 `recommendation_group_switch_mode_is_hardware` (ТЗ-81): смена
+    /// режима группируется с «Оборудование», как в `group_recommendations`.
+    #[test]
+    fn recommendation_group_switch_mode_is_hardware() {
+        let rec = Recommendation::SwitchMode { to: ModeKind::Optimal, why: SwitchWhy::Resample };
+        assert_eq!(recommendation_group(&rec), RecGroup::Hardware);
     }
 }
