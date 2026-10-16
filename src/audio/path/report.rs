@@ -154,9 +154,14 @@ fn decoder_row(fmt: &SourceFormat, stage: &DecoderStage, d: &DynamicPathState) -
 
 /// «Обработка» (ТЗ-71, ТЗ-72): каждое преобразование с причиной; заметки
 /// «ограничено N сэмплов» (ТЗ-129) и фактическая граница фильтра DSD→PCM,
-/// если она меньше выбранной (ТЗ-16).
-fn processing_row(stage: &ProcessingStage, d: &DynamicPathState, empty: Confidence) -> StageRow {
-    let mut row = StageRow::new(StageId::Processing, stage.status(), transforms_confidence(&stage.transforms, empty));
+/// если она меньше выбранной (ТЗ-16). Достоверность — от драйвера: формат,
+/// прочитанный у драйвера, подтверждает выход цепочки преобразований.
+fn processing_row(stage: &ProcessingStage, d: &DynamicPathState, driver: Confidence) -> StageRow {
+    let confidence = match driver {
+        Confidence::Confirmed(_) => driver,
+        Confidence::Assumed => transforms_confidence(&stage.transforms, Confidence::Assumed),
+    };
+    let mut row = StageRow::new(StageId::Processing, stage.status(), confidence);
     push_transforms(&mut row, &stage.transforms);
     if d.dsd_clipped > 0 {
         row.notes.push(format!("ограничено {} сэмплов", d.dsd_clipped));
@@ -442,5 +447,159 @@ fn dsd_filter_hz(filter: DsdFilter) -> u32 {
         DsdFilter::K24 => 24_000,
         DsdFilter::K30 => 30_000,
         DsdFilter::K50 => 50_000,
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    //! Тесты окна «Путь сигнала», ч. 1 (§7.2, ТЗ-70–ТЗ-75).
+    #![allow(clippy::unwrap_used, clippy::expect_used, clippy::unreachable)]
+
+    use smallvec::SmallVec;
+
+    use super::*;
+    use crate::audio::backend::{DeviceCaps, RateSet};
+    use crate::audio::format::{BitDepth, ChannelLayout, ChannelPos, Container, SampleRate};
+    use crate::audio::path::plan::plan;
+    use crate::audio::path::{OpenedFacts, PathPlan, ReservationView};
+    use crate::settings::playback::PathPolicy;
+
+    fn sr(hz: u32) -> SampleRate {
+        SampleRate::new(hz).unwrap()
+    }
+
+    fn flac(bits: u8, rate: u32) -> SourceFormat {
+        SourceFormat {
+            container: Container::Flac,
+            codec: Codec::Flac,
+            lossy: false,
+            rate: sr(rate),
+            layout: ChannelLayout::stereo(),
+            kind: SourceKind::Pcm { bits: BitDepth::new(bits).unwrap() },
+        }
+    }
+
+    fn mp3(rate: u32) -> SourceFormat {
+        SourceFormat { container: Container::Mp3, codec: Codec::Mp3, lossy: true, ..flac(24, rate) }
+    }
+
+    fn five_one(mut s: SourceFormat) -> SourceFormat {
+        use ChannelPos::{BL, BR, FC, FL, FR, LFE};
+        s.layout = ChannelLayout::new(&[FL, FR, FC, LFE, BL, BR]).unwrap();
+        s
+    }
+
+    fn exclusive(rates: &[u32], formats: &[OutputSampleFormat]) -> DeviceCaps {
+        DeviceCaps {
+            api: OutputApi::AlsaHw,
+            access: AccessKind::Exclusive,
+            name: "test".to_owned(),
+            rates: RateSet::Discrete(rates.iter().map(|&h| sr(h)).collect()),
+            formats: SmallVec::from_slice(formats),
+            channels: SmallVec::from_slice(&[2]),
+        }
+    }
+
+    fn opened(p: PathPlan) -> SignalPath {
+        let facts = OpenedFacts {
+            access: AccessKind::Exclusive,
+            api: OutputApi::AlsaHw,
+            device_name: "test".to_owned(),
+            driver: DriverFormat::Confirmed(p.target),
+            reservation: ReservationView::NotApplicable,
+            os: OsStage::NotInvolved,
+            device_buffer: None,
+        };
+        SignalPath::from_opened(p, facts, 1)
+    }
+
+    /// Отчёт Оптимального режима для `src` на Exclusive-устройстве.
+    fn optimal_report(src: &SourceFormat, caps: &DeviceCaps, d: &DynamicPathState) -> PathReport {
+        let s = ModeSettings::default();
+        let path = opened(plan(src, caps, PathPolicy::Optimal(&s.optimal)).unwrap());
+        build_report(PathSubject::Opened(&path), d, &s)
+    }
+
+    fn row(r: &PathReport, id: StageId) -> &StageRow {
+        r.stages.iter().find(|s| s.id == id).unwrap()
+    }
+
+    fn has(list: &[String], needle: &str) -> bool {
+        list.iter().any(|s| s.contains(needle))
+    }
+
+    #[test]
+    fn report_has_six_stages_in_order() {
+        let s = ModeSettings::default();
+        let caps = exclusive(&[44_100], &[OutputSampleFormat::S32Le]);
+        let reports = [
+            optimal_report(&flac(16, 44_100), &caps, &DynamicPathState::default()),
+            build_report(PathSubject::NoStream, &DynamicPathState::default(), &s),
+        ];
+        for r in &reports {
+            let ids: Vec<StageId> = r.stages.iter().map(|s| s.id).collect();
+            assert_eq!(ids, STAGE_ORDER.to_vec());
+            assert_eq!(r.guarantee_boundary, GUARANTEE_BOUNDARY);
+        }
+    }
+
+    #[test]
+    fn report_stage_fields_optimal_192_on_96() {
+        let caps = exclusive(&[96_000], &[OutputSampleFormat::S32Le]);
+        let r = optimal_report(&flac(24, 192_000), &caps, &DynamicPathState::default());
+        let p = row(&r, StageId::Processing);
+        assert_eq!(p.status, StageStatus::Lossy);
+        assert!(has(&p.changes, "192 кГц → 96 кГц"), "{:?}", p.changes);
+        assert!(has(&p.causes, "ограничение устройства"), "{:?}", p.causes);
+        assert!(matches!(p.confidence, Confidence::Confirmed(_)), "{:?}", p.confidence);
+    }
+
+    #[test]
+    fn report_lists_all_transforms() {
+        let caps = exclusive(&[96_000], &[OutputSampleFormat::S16Le]);
+        let s = ModeSettings::default();
+        let src = five_one(flac(24, 192_000));
+        let path = opened(plan(&src, &caps, PathPolicy::Optimal(&s.optimal)).unwrap());
+        let r = build_report(PathSubject::Opened(&path), &DynamicPathState::default(), &s);
+        let p = row(&r, StageId::Processing);
+        let ts = &path.processing.transforms;
+        assert!(ts.len() >= 2, "{:?}", p.changes);
+        assert_eq!(p.changes.len(), ts.len());
+        assert_eq!(p.causes.len(), ts.len(), "каждое преобразование со своей причиной");
+        for (change, t) in p.changes.iter().zip(ts.iter()) {
+            assert_eq!(*change, t.kind.describe().to_string());
+        }
+        assert!(has(&p.changes, "SRC"), "{:?}", p.changes);
+        assert!(has(&p.changes, "downmix"), "{:?}", p.changes);
+        // «усечение 24 → 16» план пока не строит — AM1.0-B7.
+    }
+
+    #[test]
+    fn report_source_stage() {
+        let caps = exclusive(&[44_100, 96_000], &[OutputSampleFormat::S32Le]);
+        let r = optimal_report(&mp3(44_100), &caps, &DynamicPathState::default());
+        let src = row(&r, StageId::Source);
+        assert!(has(&src.notes, "с потерями"), "{:?}", src.notes);
+        assert!(has(&src.notes, "24 бит (выход декодера)"), "{:?}", src.notes);
+
+        let r = optimal_report(&five_one(flac(24, 96_000)), &caps, &DynamicPathState::default());
+        let src = row(&r, StageId::Source);
+        assert!(has(&src.notes, "FLAC 24 бит / 96 кГц, 6 кан. (из открытого файла)"), "{:?}", src.notes);
+        assert!(!has(&src.notes, "с потерями"));
+        assert_eq!(src.confidence, Confidence::Confirmed(ConfirmedBy::FileHeader));
+    }
+
+    #[test]
+    fn report_decoder_stage() {
+        let caps = exclusive(&[44_100], &[OutputSampleFormat::S24Le]);
+        let d = DynamicPathState { decode_errors: 1, ..DynamicPathState::default() };
+        let r = optimal_report(&flac(16, 44_100), &caps, &d);
+        assert!(has(&row(&r, StageId::Decoder).notes, "ошибок декодирования: 1"));
+
+        let r = optimal_report(&mp3(44_100), &caps, &DynamicPathState::default());
+        let dec = row(&r, StageId::Decoder);
+        assert_eq!(dec.status, StageStatus::Lossy);
+        assert!(has(&dec.changes, "с потерями, округление до 24 бит"), "{:?}", dec.changes);
+        assert!(row(&r, StageId::Processing).changes.is_empty(), "{:?}", row(&r, StageId::Processing).changes);
     }
 }

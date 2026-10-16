@@ -108,7 +108,7 @@ steps:
     done: true
   - id: 21
     description: "Тесты окна, ч. 1: report_has_six_stages_in_order, report_stage_fields_optimal_192_on_96, report_lists_all_transforms, report_source_stage, report_decoder_stage (§7.2). Проверка: cargo test report"
-    done: false
+    done: true
   - id: 22
     description: "Display для PathReport + тесты окна, ч. 2: report_output_stage_driver_facts, report_clip_notes, report_built_without_backend_access, report_skipped_track_blocked_stage (вкл. текст «частота 192 кГц не поддерживается устройством» из strict_rejects_rate — у Incompatibility нет текста), report_text_contains_all_parts (§7.2). Проверка: cargo test report. ЧЕКПОИНТ: полный test + clippy"
     done: false
@@ -139,8 +139,8 @@ steps:
   - id: 31
     description: "Удаление легаси (§8, §7.4): bp_report.rs, StreamDesc, FallbackReason, dsd_pcm_breaks_bit_perfect и тесты dsd_pcm_breaks_bit_perfect_detects_conflict, bp_report_marks_volume_issue; ссылки в settings.rs/state_file.rs. Проверка: полный cargo test + clippy --all-targets. Шаг дробится при декомпозиции"
     done: false
-current_step: 21
-next_action: "Шаг 21: тесты окна ч. 1 в src/audio/path/report.rs (mod tests): report_has_six_stages_in_order, report_stage_fields_optimal_192_on_96, report_lists_all_transforms, report_source_stage, report_decoder_stage (§7.2). Текст несовместимости уже есть: incompatibility_text() в report.rs."
+current_step: 22
+next_action: "Шаг 22: impl Display для PathReport + тесты окна ч. 2 в report.rs: report_output_stage_driver_facts, report_clip_notes, report_built_without_backend_access, report_skipped_track_blocked_stage (текст из incompatibility_text), report_text_contains_all_parts. ЧЕКПОИНТ: полный cargo test + clippy. Найден баг AM1.0-B7 (нет усечения 24→16 после SRC в plan) — не чинить в этом этапе."
 fail_counter: 0
 fail_counter_max: 3
 failed_attempts: []

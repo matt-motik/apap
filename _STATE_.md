@@ -67,8 +67,8 @@
 - [x] Шаг 18: Тесты бейджа, ч. 2: compatible_badge_never_bitperfect, badge_no_stream_after_failed_open, badge_from_path_not_settings_dsd, badge_test_failed_matching_config (§7.2). Проверка: cargo test verdict
 - [x] Шаг 19: path/recommend.rs: Recommendation, PlayerSettingRec::new→Option, OsTopic, HwRequirement, recommend() по таблице §6.25 + тесты recommendations_three_types, recommendations_underrun_vs_xrun, recommendations_respect_mode_matrix (ТЗ-80–84). Проверка: cargo test recommend
 - [x] Шаг 20: path/report.rs: PathReport (PathSubject уже в recommend.rs), StageRow, build_report() §6.25 (ТЗ-73–79). Проверка: cargo check
-- [>] **Шаг 21: Тесты окна, ч. 1: report_has_six_stages_in_order, report_stage_fields_optimal_192_on_96, report_lists_all_transforms, report_source_stage, report_decoder_stage (§7.2). Проверка: cargo test report**
-- [ ] Шаг 22: Display для PathReport + тесты окна, ч. 2: report_output_stage_driver_facts, report_clip_notes, report_built_without_backend_access, report_skipped_track_blocked_stage (вкл. текст «частота 192 кГц не поддерживается устройством» из strict_rejects_rate — у Incompatibility нет текста), report_text_contains_all_parts (§7.2). Проверка: cargo test report. ЧЕКПОИНТ: полный test + clippy
+- [x] Шаг 21: Тесты окна, ч. 1: report_has_six_stages_in_order, report_stage_fields_optimal_192_on_96, report_lists_all_transforms, report_source_stage, report_decoder_stage (§7.2). Проверка: cargo test report
+- [>] **Шаг 22: Display для PathReport + тесты окна, ч. 2: report_output_stage_driver_facts, report_clip_notes, report_built_without_backend_access, report_skipped_track_blocked_stage (вкл. текст «частота 192 кГц не поддерживается устройством» из strict_rejects_rate — у Incompatibility нет текста), report_text_contains_all_parts (§7.2). Проверка: cargo test report. ЧЕКПОИНТ: полный test + clippy**
 - [ ] Шаг 23: backend/os_probe.rs: трейт OsLevelProbe, FakeOsProbe, Windows-реализация (Known{WasapiMixer, rate, format} из cpal default_output_config), Unknown для прочих ОС; поле os_probe в EngineDeps (§6.26, ТЗ-75). Проверка: cargo test engine::
 - [ ] Шаг 24: OpenError::Incompatible(Blocked) и SkipReason::Incompatible(Blocked) (error.rs, messages.rs) (§2.4, ТЗ-57). Проверка: полный cargo test (общий тип)
 - [ ] Шаг 25: Движок: в Совместимом строит PathPlan из caps устройства и SourceFormat, после открытия — Arc<SignalPath> с поколением; EngineEvent::Opened несёт SignalPath вместо StreamDesc; пересборка SignalPath при volume/mute без переоткрытия (§4.3, ТЗ-52, ТЗ-38). Проверка: полный cargo test (общий тип). Шаг дробится при декомпозиции
@@ -81,8 +81,8 @@
 
 Легенда: [x] сделано · [>] текущий шаг · [ ] не начато
 
-- **Текущий шаг (current_step):** Шаг 21
-- **Следующий ход:** Шаг 21: тесты окна ч. 1 в src/audio/path/report.rs (mod tests): report_has_six_stages_in_order, report_stage_fields_optimal_192_on_96, report_lists_all_transforms, report_source_stage, report_decoder_stage (§7.2). Текст несовместимости уже есть: incompatibility_text() в report.rs.
+- **Текущий шаг (current_step):** Шаг 22
+- **Следующий ход:** Шаг 22: impl Display для PathReport + тесты окна ч. 2 в report.rs: report_output_stage_driver_facts, report_clip_notes, report_built_without_backend_access, report_skipped_track_blocked_stage (текст из incompatibility_text), report_text_contains_all_parts. ЧЕКПОИНТ: полный cargo test + clippy. Найден баг AM1.0-B7 (нет усечения 24→16 после SRC в plan) — не чинить в этом этапе.
 - **Счетчик безуспешных компиляций:** 0/3
 - **Состояние:** in_progress
 
