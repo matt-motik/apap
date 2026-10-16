@@ -135,7 +135,7 @@ steps:
     done: true
   - id: 30
     description: "UiAudioState: хранит Arc<SignalPath>, BadgeState, DynamicPathState; бейдж пересчитывается только при смене поколения; при неудачном открытии путь сбрасывается → NoStream (UI-часть badge_no_stream_after_failed_open, ТЗ-56) + тесты badge_no_recompute_on_idle_ticks, badge_shows_mute_and_restores_without_reopen (ТЗ-52, ТЗ-38). Проверка: cargo test ui_audio_state"
-    done: false
+    done: true
   - id: 31
     description: "Slint: свойства бейджа (текст/вид), кнопки «Тест» (доступность + подсказка блокера) и замка (ADR-06) в status.slint/app.slint вместо bool-бейджей bp-active/dsd-not-bp/bp-resample (ТЗ-21, ТЗ-22, ТЗ-106). Проверка: cargo build"
     done: false
@@ -151,8 +151,8 @@ steps:
   - id: 35
     description: "Удаление легаси (§8, §7.4): bp_report.rs, StreamDesc, FallbackReason, dsd_pcm_breaks_bit_perfect и тесты dsd_pcm_breaks_bit_perfect_detects_conflict, bp_report_marks_volume_issue; ссылки в settings.rs/state_file.rs. Проверка: полный cargo test + clippy --all-targets. Шаг дробится при декомпозиции"
     done: false
-current_step: 30
-next_action: "Шаг 30: UiAudioState: хранит Arc<SignalPath>, BadgeState, DynamicPathState; бейдж пересчитывается только при смене поколения; при неудачном открытии путь сбрасывается → NoStream (UI-часть badge_no_stream_after_failed_open, ТЗ-56) + тесты badge_no_recompute_on_idle_ticks, badge_shows_mute_and_restores_without_reopen (ТЗ-52, ТЗ-38). Проверка: cargo test ui_audio_state"
+current_step: 31
+next_action: "Шаг 31: Slint: свойства бейджа (текст/вид), кнопки «Тест» (доступность + подсказка блокера) и замка (ADR-06) в status.slint/app.slint вместо bool-бейджей bp-active/dsd-not-bp/bp-resample (ТЗ-21, ТЗ-22, ТЗ-106). Проверка: cargo build"
 fail_counter: 0
 fail_counter_max: 3
 failed_attempts: []

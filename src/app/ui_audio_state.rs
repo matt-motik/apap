@@ -7,6 +7,12 @@
 //! открытия (И-Р14, ТЗ-56): модуль не знает о Slint и не пишет в UI —
 //! подключение к `MusicApp`/`ui_manager.rs` происходит в шаге 28 (после
 //! подключения мост снимается).
+//!
+//! Шаг 30: состояние хранит новую модель пути сигнала (§2.3, §2.5, ADR-20) —
+//! `path: Option<Arc<SignalPath>>` (сравнение по `generation`, ТЗ-68),
+//! `badge: BadgeState` (через `Written<T>`, И-Р13) и `DynamicPathState`
+//! (§3.5) без обвязки `Written<T>`: событие `DynamicsChanged` появится
+//! отдельным шагом, здесь поле только сбрасывается на новое открытие.
 #![allow(dead_code)]
 
 use std::path::Path;
@@ -15,7 +21,9 @@ use std::sync::Arc;
 use music_player_rs::audio::backend::catalog::DeviceCatalog;
 use music_player_rs::audio::decoder::TrackInfo;
 use music_player_rs::audio::error::{OpenError, Reaction};
+use music_player_rs::audio::path::signal::{DynamicPathState, SignalPath};
 use music_player_rs::audio::player::StreamDesc;
+use music_player_rs::audio::verdict::BadgeState;
 use music_player_rs::engine::messages::{EngineEvent, Notice, SkipReason, TransportState};
 
 /// Ячейка значения с копией «записано в UI» (ADR-02, И-Р13).
@@ -96,6 +104,24 @@ impl PartialEq for DeviceSnapshot {
     }
 }
 
+/// `SignalPath` реализует `PartialEq`, но полное сравнение полей дороже и не
+/// нужно (§3.1, ТЗ-68): новое открытие всегда даёт новый `generation`, тем
+/// же самым путём движок повторно не присылает. Отсутствие пути (`None`,
+/// пока путь не построен, или после неудачного открытия) — отдельное
+/// значение снимка.
+#[derive(Clone)]
+struct PathSnapshot(Option<Arc<SignalPath>>);
+
+impl PartialEq for PathSnapshot {
+    fn eq(&self, other: &Self) -> bool {
+        match (&self.0, &other.0) {
+            (Some(a), Some(b)) => a.generation == b.generation,
+            (None, None) => true,
+            _ => false,
+        }
+    }
+}
+
 /// Результат `UiAudioState::apply` для событий, не сводимых к полю
 /// состояния: вызывающий код (шаг 28) решает, что с ними делать
 /// (сообщение, реакция на потерю устройства, завершение сессии).
@@ -129,6 +155,9 @@ pub struct UiAudioState {
     track: Written<TrackSnapshot>,
     stream: Written<StreamSnapshot>,
     devices: Written<DeviceSnapshot>,
+    path: Written<PathSnapshot>,
+    badge: Written<BadgeState>,
+    dynamics: DynamicPathState,
 }
 
 impl UiAudioState {
@@ -146,7 +175,7 @@ impl UiAudioState {
     /// как устаревшие) — значения читаются через `take_*_dirty`.
     pub fn apply(&mut self, ev: EngineEvent) -> Applied {
         match ev {
-            EngineEvent::Opened { req_gen, info, stream, .. } => {
+            EngineEvent::Opened { req_gen, info, stream, path, badge } => {
                 if req_gen < self.latest_req_gen {
                     return Applied::None;
                 }
@@ -154,18 +183,31 @@ impl UiAudioState {
                 self.track.set(TrackSnapshot { session: req_gen, info: Arc::new(info) });
                 self.stream.set(StreamSnapshot { session: req_gen, desc: Arc::new(stream) });
                 self.position_secs.set(0.0);
+                self.path.set(PathSnapshot(path));
+                self.badge.set(badge);
+                self.dynamics = DynamicPathState::default();
                 Applied::None
             }
             EngineEvent::Skipped { req_gen, path, reason } => {
                 if req_gen < self.latest_req_gen {
                     return Applied::None;
                 }
+                // ТЗ-56: параметры прошлого трека не переносятся на пропуск.
+                self.session = None;
+                self.path.set(PathSnapshot(None));
+                self.badge.set(BadgeState::NoStream);
+                self.dynamics = DynamicPathState::default();
                 Applied::Skipped { path, reason }
             }
             EngineEvent::OpenFailed { req_gen, err } => {
                 if req_gen < self.latest_req_gen {
                     return Applied::None;
                 }
+                // ТЗ-56: параметры прошлого трека не переносятся на неудачу.
+                self.session = None;
+                self.path.set(PathSnapshot(None));
+                self.badge.set(BadgeState::NoStream);
+                self.dynamics = DynamicPathState::default();
                 Applied::OpenFailed { err }
             }
             EngineEvent::Ended { session } => {
@@ -189,8 +231,17 @@ impl UiAudioState {
                 self.position_secs.set(secs);
                 Applied::None
             }
-            // Хранение `BadgeState` в `UiAudioState` — отдельный шаг.
-            EngineEvent::BadgeChanged(_) => Applied::None,
+            EngineEvent::BadgeChanged(badge) => {
+                // Тот же фильтр И-Р14, что и у `Position`: бейдж пересчитан
+                // после перестройки пути для текущего трека (громкость/mute,
+                // ТЗ-38, ТЗ-60), поэтому относится только к активной сессии
+                // последнего запрошенного открытия.
+                if self.session != Some(self.latest_req_gen) {
+                    return Applied::None;
+                }
+                self.badge.set(badge);
+                Applied::None
+            }
             EngineEvent::DeviceLost { reaction } => Applied::DeviceLost(reaction),
             EngineEvent::Devices(catalog) => {
                 self.devices.set(DeviceSnapshot(catalog));
@@ -226,15 +277,39 @@ impl UiAudioState {
     pub fn take_devices_dirty(&mut self) -> Option<Arc<DeviceCatalog>> {
         self.devices.take_dirty().map(|d| d.0.clone())
     }
+
+    /// `Some`, только если бейдж изменился с прошлого чтения (И-Р13, ADR-20).
+    pub fn take_badge_dirty(&mut self) -> Option<BadgeState> {
+        self.badge.take_dirty().cloned()
+    }
+
+    /// `Some`, только если путь сменил `generation` (ТЗ-68), включая переход
+    /// к `None` (путь не построен или открытие не удалось, ТЗ-56).
+    pub fn take_path_dirty(&mut self) -> Option<Option<Arc<SignalPath>>> {
+        self.path.take_dirty().map(|p| p.0.clone())
+    }
+
+    /// Текущий путь сигнала без снятия «грязного» флага (для чтения вне
+    /// такта синхронизации, например статус-строкой).
+    pub fn path(&self) -> Option<&Arc<SignalPath>> {
+        self.path.value.as_ref().and_then(|p| p.0.as_ref())
+    }
+
+    /// Текущая динамическая часть пути (§3.5). Событие `DynamicsChanged` и
+    /// грязный флаг для него — отдельный шаг; пока поле только сбрасывается
+    /// на новое открытие и читается целиком.
+    pub fn dynamics(&self) -> &DynamicPathState {
+        &self.dynamics
+    }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
     use music_player_rs::audio::decoder::Tags;
-    use music_player_rs::audio::verdict::BadgeState;
-    use music_player_rs::engine::messages::SkipReason;
     use music_player_rs::audio::error::FileError;
+    use music_player_rs::audio::verdict::{NbpReason, NbpSummary, SharedBadge};
+    use music_player_rs::engine::messages::SkipReason;
 
     fn track_info() -> TrackInfo {
         TrackInfo {
@@ -256,6 +331,60 @@ mod tests {
             path: None,
             badge: BadgeState::NoStream,
         }
+    }
+
+    /// Снимок `SignalPath` для тестов (Shared/PCM, без преобразований) —
+    /// только то, что нужно, чтобы отличать поколения (ТЗ-68).
+    fn test_signal_path(generation: u64) -> Arc<SignalPath> {
+        use std::num::NonZeroU8;
+
+        use music_player_rs::audio::backend::{AccessKind, DriverFormat, OutputApi};
+        use music_player_rs::audio::format::{
+            BitDepth, ChannelLayout, Codec, Container, OutputSampleFormat, SampleRate, SourceFormat, SourceKind,
+            StreamFormat,
+        };
+        use music_player_rs::audio::path::{OpenedFacts, OsStage, PathPlan, ReservationView, Route};
+        use music_player_rs::audio::session::RingPayload;
+        use music_player_rs::settings::playback::ModeKind;
+        use smallvec::SmallVec;
+
+        let rate = SampleRate::new(44_100).expect("44100 — валидная частота");
+        let bits = BitDepth::new(16).expect("16 бит — валидная разрядность");
+        let target = StreamFormat {
+            rate,
+            sample: OutputSampleFormat::S32Le,
+            channels: NonZeroU8::new(2).expect("2 канала — валидно"),
+        };
+        let plan = PathPlan {
+            mode: ModeKind::Optimal,
+            source: SourceFormat {
+                container: Container::Flac,
+                codec: Codec::Flac,
+                lossy: false,
+                rate,
+                layout: ChannelLayout::stereo(),
+                kind: SourceKind::Pcm { bits },
+            },
+            route: Route::Pcm,
+            transforms: SmallVec::new(),
+            target,
+            ring: RingPayload::ExactI32 { valid_bits: bits },
+            dsd_chain: None,
+        };
+        let facts = OpenedFacts {
+            access: AccessKind::Shared,
+            api: OutputApi::PipeWire,
+            device_name: "test".to_owned(),
+            driver: DriverFormat::Confirmed(target),
+            reservation: ReservationView::NotApplicable,
+            os: OsStage::NotInvolved,
+            device_buffer: None,
+        };
+        Arc::new(SignalPath::from_opened(plan, facts, generation))
+    }
+
+    fn opened_with_badge(req_gen: u64, path: Option<Arc<SignalPath>>, badge: BadgeState) -> EngineEvent {
+        EngineEvent::Opened { req_gen, info: track_info(), stream: Some(StreamDesc::default()), path, badge }
     }
 
     #[test]
@@ -367,5 +496,90 @@ mod tests {
         let catalog_v2 = Arc::new(DeviceCatalog { shared: Vec::new(), generation: 2 });
         state.apply(EngineEvent::Devices(catalog_v2));
         assert!(state.take_devices_dirty().is_some());
+    }
+
+    /// ТЗ-56, И-Р14: неудачное открытие следующего трека сбрасывает бейдж и
+    /// путь прошлого трека — параметры прошлого трека не переносятся.
+    #[test]
+    fn badge_no_stream_after_failed_open() {
+        let mut state = UiAudioState::new();
+        state.begin_open(1);
+        state.apply(opened_with_badge(
+            1,
+            Some(test_signal_path(1)),
+            BadgeState::Shared(SharedBadge::Clean),
+        ));
+        assert!(state.path().is_some());
+
+        state.begin_open(2);
+        state.apply(EngineEvent::OpenFailed { req_gen: 2, err: OpenError::DeviceLost });
+
+        assert_eq!(state.take_badge_dirty(), Some(BadgeState::NoStream));
+        assert!(state.path().is_none());
+    }
+
+    /// ТЗ-60, И-Р13: тики транспорта/позиции не трогают бейдж — ни одной
+    /// лишней записи, пока бейдж не меняется движком.
+    #[test]
+    fn badge_no_recompute_on_idle_ticks() {
+        let mut state = UiAudioState::new();
+        state.begin_open(1);
+        state.apply(opened_with_badge(1, None, BadgeState::Shared(SharedBadge::Clean)));
+        assert!(state.take_badge_dirty().is_some());
+
+        let mut writes = 0;
+        for _ in 0..100 {
+            state.apply(EngineEvent::Transport { state: TransportState::Playing });
+            state.apply(EngineEvent::Position { secs: 1.0 });
+            if state.take_badge_dirty().is_some() {
+                writes += 1;
+            }
+        }
+        assert_eq!(writes, 0);
+    }
+
+    /// ТЗ-38, ТЗ-139: пересчёт бейджа на mute/снятии mute без переоткрытия
+    /// потока (та же сессия); устаревший `BadgeChanged` до принятого
+    /// `Opened` отбрасывается (И-Р14).
+    #[test]
+    fn badge_shows_mute_and_restores_without_reopen() {
+        let mut state = UiAudioState::new();
+
+        // До какого-либо принятого Opened сессии нет — BadgeChanged отбрасывается.
+        let dropped = state.apply(EngineEvent::BadgeChanged(BadgeState::Shared(SharedBadge::Clean)));
+        assert_eq!(dropped, Applied::None);
+        assert!(state.take_badge_dirty().is_none());
+
+        state.begin_open(1);
+        state.apply(opened_with_badge(1, None, BadgeState::Shared(SharedBadge::Clean)));
+        assert_eq!(state.take_badge_dirty(), Some(BadgeState::Shared(SharedBadge::Clean)));
+
+        let muted = BadgeState::Shared(SharedBadge::NotBitPerfect(NbpSummary { primary: NbpReason::Mute, more: 0 }));
+        state.apply(EngineEvent::BadgeChanged(muted.clone()));
+        assert_eq!(state.take_badge_dirty(), Some(muted));
+
+        state.apply(EngineEvent::BadgeChanged(BadgeState::Shared(SharedBadge::Clean)));
+        assert_eq!(state.take_badge_dirty(), Some(BadgeState::Shared(SharedBadge::Clean)));
+
+        // Сессия не менялась — восстановление без нового Opened.
+        assert_eq!(state.session, Some(1));
+    }
+
+    /// ТЗ-68: путь становится «грязным» только при смене `generation`,
+    /// включая переход к `None` (открытие не удалось).
+    #[test]
+    fn path_dirty_only_on_generation_change() {
+        let mut state = UiAudioState::new();
+        state.begin_open(1);
+        state.apply(opened_with_badge(1, Some(test_signal_path(1)), BadgeState::NoStream));
+        assert!(state.take_path_dirty().is_some());
+
+        // Тот же generation — BadgeChanged его не трогает, take_path_dirty молчит.
+        state.apply(EngineEvent::BadgeChanged(BadgeState::Shared(SharedBadge::Clean)));
+        assert!(state.take_path_dirty().is_none());
+
+        state.begin_open(2);
+        state.apply(EngineEvent::OpenFailed { req_gen: 2, err: OpenError::DeviceLost });
+        assert_eq!(state.take_path_dirty(), Some(None));
     }
 }
