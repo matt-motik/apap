@@ -1,8 +1,6 @@
 //! Чистый презентер окна «Путь сигнала»: `PathReport` → вид для Slint
 //! (§3.6, ТЗ-71, ТЗ-81, ТЗ-84). Модуль не знает о Slint-свойствах —
-//! подключение к `ui_manager.rs` будет следующим шагом, поэтому пока не
-//! вызывается.
-#![allow(dead_code)]
+//! подключение к ним — в `mod.rs` (`push_path_view_to_ui`).
 
 use music_player_rs::audio::path::recommend::{RecAction, Recommendation};
 use music_player_rs::audio::path::report::{

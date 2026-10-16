@@ -15,14 +15,6 @@ import {
 import { MessageWindow } from "message_window.slint";
 import { Button, ScrollView } from "std-widgets.slint";
 
-export struct BpReason {
-    title: string,
-    detail: string,
-    action-id: int,
-    action-label: string,
-    severity: int,
-}
-
 // Окно «Путь сигнала» (§3.6, ТЗ-71, ТЗ-81, ТЗ-84): строка этапа отчёта.
 export struct PathStageRow {
     name: string,
@@ -269,12 +261,7 @@ export component AppWindow inherits Window {
     callback msg-primary();
     callback msg-close();
     in property <bool> bp-report-open: false;
-    in property <string> bp-stream-desc: "";
-    in property <string> bp-source-desc: "";
-    in property <[BpReason]> bp-reasons: [];
-    in property <[string]> bp-positives: [];
-    // Окно «Путь сигнала» (§3.6, ТЗ-71, ТЗ-81, ТЗ-84): новый вид на смену
-    // bp-* выше (мост до шага 40, Rust пока заполняет оба).
+    // Окно «Путь сигнала» (§3.6, ТЗ-71, ТЗ-81, ТЗ-84).
     in property <string> path-title: "";
     in property <[PathStageRow]> path-stages: [];
     in property <[PathRecItem]> path-recs-player: [];
@@ -349,7 +336,6 @@ export component AppWindow inherits Window {
     callback settings-mode-row-slider-changed(int, float);
     callback bp-clicked();
     callback bp-report-close();
-    callback bp-report-action(int);
     callback bp-report-open-settings();
     // Окно «Путь сигнала» (ТЗ-81): клик по кнопке рекомендации, int — её action-id.
     callback path-rec-action(int);

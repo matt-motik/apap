@@ -56,6 +56,8 @@ use music_player_rs::platform::tray;
 mod audio_facade;
 mod badge_view;
 mod path_view;
+// мост: модуль удаляется на шаге 42 (AM1.0-8.5)
+#[allow(dead_code)]
 pub mod bp_report;
 pub(crate) mod engine_sink;
 pub mod events;
@@ -1241,31 +1243,6 @@ impl MusicApp {
         }
     }
 
-    fn push_bp_report_to_ui(&self, report: bp_report::BpReport) {
-        let Some(ui) = self.try_ui() else { return };
-        ui.set_bp_stream_desc(report.stream_desc.into());
-        ui.set_bp_source_desc(report.source_desc.into());
-
-        let reasons: Vec<BpReason> = report
-            .reasons
-            .into_iter()
-            .map(|r| BpReason {
-                title: r.title.into(),
-                detail: r.detail.into(),
-                action_id: r.action_id,
-                action_label: r.action_label.into(),
-                severity: match r.severity {
-                    bp_report::Severity::Warning => 0,
-                    bp_report::Severity::Info => 1,
-                },
-            })
-            .collect();
-        ui.set_bp_reasons(ModelRc::from(reasons.as_slice()));
-
-        let positives: Vec<SharedString> = report.positives.into_iter().map(SharedString::from).collect();
-        ui.set_bp_positives(ModelRc::from(positives.as_slice()));
-    }
-
     /// Переносит вид окна «Путь сигнала» в Slint-свойства (§3.6, ТЗ-71,
     /// ТЗ-81, ТЗ-84): шесть этапов, рекомендации по трём группам, подвал и
     /// текст копирования. Действия кнопок рекомендаций записываются в
@@ -1300,6 +1277,21 @@ impl MusicApp {
 
         ui.set_path_footer(view.footer.into());
         ui.set_path_copy_text(view.copy_text.into());
+    }
+
+    /// Переход из окна «Путь сигнала» в диалог настроек (ТЗ-81, ТЗ-84): как
+    /// `open_settings` — шлюз, черновик, блокировка `Dialog` и подсчёт
+    /// размера кэшей в ядре (ТЗ-22, ТЗ-23, ADR-11).
+    fn open_settings_from_path_window(&mut self) {
+        if !self.open_dialog_draft() {
+            return;
+        }
+        if let Some(ui) = self.try_ui() {
+            ui.set_bp_report_open(false);
+            ui.set_settings_open(true);
+        }
+        self.sync_audio_devices();
+        self.sync_gate_ui();
     }
 
     // ---------------- Тема: состояние диалога настроек (T1.0) ----------------
@@ -1963,8 +1955,6 @@ impl MusicApp {
                 if let Some(ui) = a.try_ui() {
                     ui.set_bp_report_open(true);
                 }
-                let report = bp_report::build_bp_report(&bp_report::bp_inputs(&a));
-                a.push_bp_report_to_ui(report);
                 let view = path_view::path_view(a.player.path_report());
                 a.push_path_view_to_ui(view);
             });
@@ -1981,38 +1971,15 @@ impl MusicApp {
 
         {
             let app = this.clone();
-            ui.on_bp_report_action(move |id| {
-                let mut a = app.borrow_mut();
-                bp_report::apply_action(&mut a, id);
-                let report = bp_report::build_bp_report(&bp_report::bp_inputs(&a));
-                a.push_bp_report_to_ui(report);
-            });
-        }
-
-        {
-            let app = this.clone();
             ui.on_bp_report_open_settings(move || {
-                let mut a = app.borrow_mut();
-                // Как `open_settings`: шлюз, черновик, блокировка `Dialog` и
-                // подсчёт размера кэшей — в ядре (ТЗ-22, ТЗ-23, ADR-11).
-                if !a.open_dialog_draft() {
-                    return;
-                }
-                if let Some(ui) = a.try_ui() {
-                    ui.set_bp_report_open(false);
-                    ui.set_settings_open(true);
-                }
-                a.sync_audio_devices();
-                a.sync_gate_ui();
+                app.borrow_mut().open_settings_from_path_window();
             });
         }
 
         // 25f-c. окно «Путь сигнала»: действие кнопки рекомендации (ТЗ-81,
-        // ТЗ-84). Быстрые исправления громкости/mute повторяют эффект
-        // старого `bp_report::apply_action(1|2)` напрямую (отчёт этого окна
-        // не зависит от `bp_report`, который снимается на шаге 40); переход
-        // к настройкам повторяет `on_bp_report_open_settings` — отдельного
-        // выбора вкладки в диалоге пока нет (ТЗ-81).
+        // ТЗ-84). Быстрые исправления громкости/mute применяются напрямую;
+        // переход к настройкам повторяет `on_bp_report_open_settings` —
+        // отдельного выбора вкладки в диалоге пока нет (ТЗ-81).
         {
             let app = this.clone();
             ui.on_path_rec_action(move |id| {
@@ -2029,15 +1996,7 @@ impl MusicApp {
                         a.core.change_state(Origin::User, StateChange::Muted(false));
                     }
                     path_view::RecViewAction::OpenSettings(_tab) => {
-                        if !a.open_dialog_draft() {
-                            return;
-                        }
-                        if let Some(ui) = a.try_ui() {
-                            ui.set_bp_report_open(false);
-                            ui.set_settings_open(true);
-                        }
-                        a.sync_audio_devices();
-                        a.sync_gate_ui();
+                        a.open_settings_from_path_window();
                     }
                     path_view::RecViewAction::None => {}
                 }
