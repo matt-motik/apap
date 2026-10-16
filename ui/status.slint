@@ -1,5 +1,16 @@
 import { Colors } from "theme.slint";
 
+// ADR-06, ТЗ-52, ТЗ-56: вид бейджа тракта по BadgeState (src/audio/verdict.rs).
+// Текст и детали строит Rust; Slint только отображает по варианту.
+export enum BadgeKind {
+    none,
+    no-stream,
+    shared-clean,
+    not-bit-perfect,
+    bit-perfect,
+    muted,
+}
+
 export component StatusBar inherits Rectangle {
     in property <string> status-text: "Stopped";
     in property <string> track-info: "";
@@ -17,6 +28,23 @@ export component StatusBar inherits Rectangle {
     // ТЗ A2.0 §4.2: bit-perfect без гарантии — режим активен, но устройство
     // не поддерживает нативный rate, поэтому тракт ресемплит (re-quantization).
     in property <bool> bp-resample: false;
+
+    // ADR-06, ТЗ-52, ТЗ-56: новая модель бейджа тракта (BadgeState). Старые
+    // bp-* свойства выше остаются до следующего шага (мост на время переноса
+    // Rust-стороны); пока Rust не выставляет badge-kind, новый блок скрыт.
+    in property <BadgeKind> badge-kind: BadgeKind.none;
+    // Готовый текст бейджа (строится в Rust, например «Bit-perfect» /
+    // «Shared, не bit-perfect: ...» / «Нет потока»).
+    in property <string> badge-text: "";
+
+    // ТЗ-61, ТЗ-62, ТЗ-106: индикатор автотеста bit-perfect (TestBadge /
+    // TestAvailability, src/audio/test_run.rs). Коллбэк клика добавится,
+    // когда появится сам раннер теста.
+    in property <bool> test-visible: false;
+    in property <bool> test-enabled: false;
+    in property <string> test-text: "";
+    // Текст причины блокировки (TestBlocker) — показывается рядом, когда тест недоступен.
+    in property <string> test-hint: "";
 
     background: Colors.bg-surface;
     border-width: 1px;
@@ -66,7 +94,8 @@ export component StatusBar inherits Rectangle {
             horizontal-alignment: right;
         }
         // ТЗ-52: значок «Bit-perfect» — только когда все условия подтверждены.
-        if root.bp-active && !root.dsd-not-bp: VerticalLayout {
+        // Мост: пока Rust не выставил badge-kind (ADR-06), показывает старый блок.
+        if root.badge-kind == BadgeKind.none && root.bp-active && !root.dsd-not-bp: VerticalLayout {
             padding: 2px;
             Rectangle {
                 border-width: 1px;
@@ -89,7 +118,7 @@ export component StatusBar inherits Rectangle {
             }
         }
         // ТЗ-52, §8 С1: «Не bit-perfect: причина», когда условия не подтверждены.
-        if !root.bp-active && !root.dsd-not-bp && root.bp-text != "": VerticalLayout {
+        if root.badge-kind == BadgeKind.none && !root.bp-active && !root.dsd-not-bp && root.bp-text != "": VerticalLayout {
             padding: 2px;
             Rectangle {
                 border-width: 1px;
@@ -112,7 +141,7 @@ export component StatusBar inherits Rectangle {
             }
         }
         // DSD→PCM warning badge (dsd-not-bp уже учитывает включённый bit-perfect)
-        if root.dsd-not-bp:  VerticalLayout {
+        if root.badge-kind == BadgeKind.none && root.dsd-not-bp:  VerticalLayout {
             padding: 2px;
             Rectangle {
                 border-width: 1px;
@@ -136,7 +165,7 @@ export component StatusBar inherits Rectangle {
         }
         // ТЗ A2.0 §4.2: bit-perfect активен, но тракт ресемплит (rate mismatch
         // с устройством) — bit-perfect без гарантии.
-        if root.bp-resample:  VerticalLayout {
+        if root.badge-kind == BadgeKind.none && root.bp-resample:  VerticalLayout {
             padding: 2px;
             Rectangle {
                 border-width: 1px;
@@ -152,6 +181,66 @@ export component StatusBar inherits Rectangle {
                     Text {
                         text: "Resample (device limit)";
                         color: Colors.text-warn;
+                        font-size: 10px;
+                        vertical-alignment: center;
+                    }
+                }
+            }
+        }
+        // ADR-06, ТЗ-52, ТЗ-56: новый бейдж тракта по BadgeState. Текст и
+        // детали строит Rust (badge-text); Slint только выбирает цвет по виду.
+        if root.badge-kind != BadgeKind.none: VerticalLayout {
+            padding: 2px;
+            Rectangle {
+                border-width: 1px;
+                border-color: root.badge-kind == BadgeKind.bit-perfect ? Colors.accent
+                    : root.badge-kind == BadgeKind.shared-clean ? Colors.text-secondary
+                    : root.badge-kind == BadgeKind.not-bit-perfect ? Colors.text-warn
+                    : root.badge-kind == BadgeKind.muted ? Colors.text-dim
+                    : Colors.text-dim;
+                border-radius: 4px;
+                touch_badge := TouchArea {
+                    clicked => { root.bp-clicked(); }
+                }
+
+                VerticalLayout {
+                    padding-left: 4px;
+                    padding-right: 4px;
+                    Text {
+                        text: root.badge-text;
+                        color: root.badge-kind == BadgeKind.bit-perfect ? Colors.accent
+                            : root.badge-kind == BadgeKind.shared-clean ? Colors.text-secondary
+                            : root.badge-kind == BadgeKind.not-bit-perfect ? Colors.text-warn
+                            : root.badge-kind == BadgeKind.muted ? Colors.text-dim
+                            : Colors.text-dim;
+                        font-size: 10px;
+                        vertical-alignment: center;
+                    }
+                }
+            }
+        }
+        // ТЗ-61, ТЗ-62, ТЗ-106: индикатор доступности автотеста bit-perfect
+        // (TestAvailability). Коллбэк клика появится вместе с самим раннером.
+        if root.test-visible: VerticalLayout {
+            padding: 2px;
+            Rectangle {
+                border-width: 1px;
+                border-color: root.test-enabled ? Colors.text-secondary : Colors.text-dim;
+                border-radius: 4px;
+
+                HorizontalLayout {
+                    padding-left: 4px;
+                    padding-right: 4px;
+                    spacing: 4px;
+                    Text {
+                        text: root.test-text;
+                        color: root.test-enabled ? Colors.text-secondary : Colors.text-dim;
+                        font-size: 10px;
+                        vertical-alignment: center;
+                    }
+                    if !root.test-enabled && root.test-hint != "": Text {
+                        text: root.test-hint;
+                        color: Colors.text-dim;
                         font-size: 10px;
                         vertical-alignment: center;
                     }

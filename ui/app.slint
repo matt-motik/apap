@@ -4,7 +4,8 @@ import { FluentPalette } from "builtin:/fluent/styling.slint";
 export { FluentPalette }
 import { TopPanel } from "top_panel.slint";
 import { Playlist } from "playlist.slint";
-import { StatusBar } from "status.slint";
+import { StatusBar, BadgeKind } from "status.slint";
+export { BadgeKind }
 import {
     Settings,
     ColumnSetting,
@@ -186,6 +187,16 @@ export component AppWindow inherits Window {
     // не флаг настроек bit-perfect.
     in property <bool> status-bp-active: false;
     in property <string> status-bp-text: "";
+
+    // ADR-06, ТЗ-52, ТЗ-56: новая модель бейджа тракта (BadgeState); мост —
+    // старые status-bp-* выше остаются, пока Rust не переведён на этот путь.
+    in property <BadgeKind> status-badge-kind: BadgeKind.none;
+    in property <string> status-badge-text: "";
+    // ТЗ-61, ТЗ-62, ТЗ-106: индикатор автотеста bit-perfect (TestBadge / TestAvailability).
+    in property <bool> status-test-visible: false;
+    in property <bool> status-test-enabled: false;
+    in property <string> status-test-text: "";
+    in property <string> status-test-hint: "";
 
     in property <string> info-artist: "—";
     in property <string> info-track: "—";
@@ -534,6 +545,12 @@ export component AppWindow inherits Window {
                 bp-text: root.status-bp-text;
                 dsd-not-bp: root.status-dsd-not-bp;
                 bp-resample: root.status-bp-resample;
+                badge-kind: root.status-badge-kind;
+                badge-text: root.status-badge-text;
+                test-visible: root.status-test-visible;
+                test-enabled: root.status-test-enabled;
+                test-text: root.status-test-text;
+                test-hint: root.status-test-hint;
                 bp-clicked => { root.bp-clicked(); }
             }
         }

@@ -77,16 +77,16 @@
 - [x] Шаг 28: run.rs: в Совместимом после успешного open — SourceFormat из probe, caps из моста шага 26, plan(), os_probe.probe, SignalPath::from_opened с поколением (счётчик движка), verdict → badge; активный путь (plan, facts, Arc<SignalPath>) хранится в движке; Opened несёт path/badge; Blocked → стоп и Skipped(Incompatible); + тесты чистой build_compatible_path (open требует реального устройства): build_compatible_path_ok_reports_clean_shared_badge, build_compatible_path_muted_badge_is_not_bit_perfect, build_compatible_path_never_blocks_on_channel_mismatch (§6.3, §6.18, ТЗ-52, ТЗ-57). Проверка: cargo test engine::
 - [x] Шаг 29: run.rs: при SetVolume/SetMuted с активным путём — with_gain(plan, gain, policy) → новый SignalPath с теми же OpenedFacts и новым поколением без переоткрытия; BadgeChanged только при смене вердикта; + тесты volume_rebuilds_path_without_reopen, badge_changed_only_on_verdict_change, mute_unmute_restores_clean_badge (§4.3, §6.3, ТЗ-38, ТЗ-60). Проверка: полный cargo test + clippy --all-targets (ЧЕКПОИНТ)
 - [x] Шаг 30: UiAudioState: хранит Arc<SignalPath>, BadgeState, DynamicPathState; бейдж пересчитывается только при смене поколения; при неудачном открытии путь сбрасывается → NoStream (UI-часть badge_no_stream_after_failed_open, ТЗ-56) + тесты badge_no_recompute_on_idle_ticks, badge_shows_mute_and_restores_without_reopen (ТЗ-52, ТЗ-38). Проверка: cargo test ui_audio_state
-- [>] **Шаг 31: Slint: свойства бейджа (текст/вид), кнопки «Тест» (доступность + подсказка блокера) и замка (ADR-06) в status.slint/app.slint вместо bool-бейджей bp-active/dsd-not-bp/bp-resample (ТЗ-21, ТЗ-22, ТЗ-106). Проверка: cargo build**
-- [ ] Шаг 32: Rust-проводка бейджа/«Теста»/замка в ui_manager/playback_manager (удаление set_status_bp_*/set_status_dsd_not_bp) (ТЗ-52, ТЗ-106). Проверка: cargo check
+- [x] Шаг 31: Slint: свойства бейджа (export enum BadgeKind + текст + подсказка) и индикатор «Тест» (текст, доступность, подсказка блокера, без callback) в status.slint/app.slint; старые bool-бейджи bp-active/dsd-not-bp/bp-resample остаются мостом до шага 32. Решение пользователя 2026-10-16: callback «Теста» — на этапе раннера теста, свойства замка — в С6 вместе с LockState (ADR-06, ТЗ-52, ТЗ-61, ТЗ-62, ТЗ-106). Проверка: cargo build
+- [>] **Шаг 32: Rust-проводка бейджа/«Теста» в ui_manager/playback_manager из UiAudioState; удаление bool-свойств bp-active/dsd-not-bp/bp-resample из status.slint/app.slint и set_status_bp_*/set_status_dsd_not_bp (ТЗ-52, ТЗ-106). Проверка: cargo check**
 - [ ] Шаг 33: Окно «Путь сигнала»: показ PathReport (Display) вместо bp_report + тест window_no_recompute_on_idle_ticks (ТЗ-70–79). Проверка: cargo test. Шаг дробится при декомпозиции
 - [ ] Шаг 34: Снятие моста audio_facade.rs: перенос состояния (req_gen, кэш транспорта/трека/потока, ended, очередь резервирования, volume/muted/LegacyAudio) в MusicApp/UiAudioState; вызовы → EngineHandle; удаление файла; снять #![allow(dead_code)] в engine_sink.rs/ui_audio_state.rs (решение пользователя 2026-10-08). Проверка: полный cargo test. Шаг дробится при декомпозиции
 - [ ] Шаг 35: Удаление легаси (§8, §7.4): bp_report.rs, StreamDesc, FallbackReason, dsd_pcm_breaks_bit_perfect и тесты dsd_pcm_breaks_bit_perfect_detects_conflict, bp_report_marks_volume_issue; ссылки в settings.rs/state_file.rs. Проверка: полный cargo test + clippy --all-targets. Шаг дробится при декомпозиции
 
 Легенда: [x] сделано · [>] текущий шаг · [ ] не начато
 
-- **Текущий шаг (current_step):** Шаг 31
-- **Следующий ход:** Шаг 31: Slint: свойства бейджа (текст/вид), кнопки «Тест» (доступность + подсказка блокера) и замка (ADR-06) в status.slint/app.slint вместо bool-бейджей bp-active/dsd-not-bp/bp-resample (ТЗ-21, ТЗ-22, ТЗ-106). Проверка: cargo build
+- **Текущий шаг (current_step):** Шаг 32
+- **Следующий ход:** Шаг 32: Rust-проводка бейджа/«Теста» из UiAudioState в ui_manager/playback_manager (BadgeKind/текст, test-*); удаление bool-бейджей из status.slint/app.slint и set_status_bp_*/set_status_dsd_not_bp. Проверка: cargo check. Шаг может потребовать дробления.
 - **Счетчик безуспешных компиляций:** 0/3
 - **Состояние:** in_progress
 
