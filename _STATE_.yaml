@@ -123,7 +123,7 @@ steps:
     done: true
   - id: 26
     description: "Мост С5 в legacy_path.rs: shared_caps_from_desc(&StreamDesc) -> DeviceCaps (Shared, частота/формат/каналы открытого потока) и opened_facts_from_desc(&StreamDesc, OsStage) -> OpenedFacts (Shared, driver не читается, без резервирования, device_buffer None) + ≤4 теста; удаляется вместе со StreamDesc (§2.3, §6.3, ADR-20). Проверка: cargo test legacy_path"
-    done: false
+    done: true
   - id: 27
     description: "Форма событий: EngineEvent::Opened получает path: Option<Arc<SignalPath>> и badge: BadgeState (stream остаётся мостом до удаления StreamDesc), новый вариант BadgeChanged(BadgeState); run.rs шлёт None/NoStream; фикстуры ui_audio_state.rs/audio_facade.rs (§4.3, ТЗ-52, ТЗ-56). Проверка: полный cargo test (общий тип)"
     done: false
@@ -151,8 +151,8 @@ steps:
   - id: 35
     description: "Удаление легаси (§8, §7.4): bp_report.rs, StreamDesc, FallbackReason, dsd_pcm_breaks_bit_perfect и тесты dsd_pcm_breaks_bit_perfect_detects_conflict, bp_report_marks_volume_issue; ссылки в settings.rs/state_file.rs. Проверка: полный cargo test + clippy --all-targets. Шаг дробится при декомпозиции"
     done: false
-current_step: 26
-next_action: "Шаг 26: мост shared_caps_from_desc/opened_facts_from_desc в src/engine/legacy_path.rs + тесты. Найден баг AM1.0-B7 (нет усечения 24→16 после SRC в plan) — не чинить в этом этапе."
+current_step: 27
+next_action: "Шаг 27: EngineEvent::Opened + path: Option<Arc<SignalPath>>, badge: BadgeState; вариант BadgeChanged(BadgeState); run.rs шлёт None/NoStream; фикстуры; полный cargo test. Функции моста шага 26 пока dead_code — используются в шаге 28. Баг AM1.0-B7 — не чинить в этом этапе."
 fail_counter: 0
 fail_counter_max: 3
 failed_attempts: []

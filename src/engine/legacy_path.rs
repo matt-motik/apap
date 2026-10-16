@@ -5,6 +5,14 @@
 //! умеет применять (`EngineCmd::SetLegacyAudio` / `EngineCmd::SetDevice`).
 #![deny(clippy::unwrap_used, clippy::expect_used, clippy::unreachable)]
 
+use std::num::NonZeroU8;
+
+use smallvec::SmallVec;
+
+use crate::audio::backend::{AccessKind, DeviceCaps, DriverFormat, OutputApi, RateSet};
+use crate::audio::format::{OutputSampleFormat, SampleRate, StreamFormat};
+use crate::audio::path::{OpenedFacts, OsStage, ReservationView};
+use crate::audio::player::StreamDesc;
 use crate::engine::messages::LegacyAudio;
 use crate::settings::playback::{
     CompatibleOpts, Dither, ModeKind, ModeSettings, OptimalOpts, RateFallbackRule,
@@ -142,6 +150,92 @@ fn strict_legacy_audio(opts: &StrictOpts) -> (LegacyAudio, Option<String>) {
     (legacy, opts.device.clone())
 }
 
+/// Запасная частота для случая, когда `StreamDesc::rate` не заполнена
+/// (нулевая/`StreamDesc::default()`, ТЗ-57, §2.3): `SampleRate` не может
+/// быть нулевым, поэтому мост не теряет инвариант нового пути. Константа
+/// заведомо ненулевая — вычисляется на этапе компиляции.
+const FALLBACK_RATE: SampleRate = match SampleRate::new(44_100) {
+    Some(rate) => rate,
+    None => panic!("FALLBACK_RATE_HZ must be non-zero"),
+};
+
+/// `OutputApi` Shared-вывода на этой платформе (§2.3, ТЗ-109, ТЗ-110): тот
+/// же выбор, что у `BackendCaps::current()` (`src/audio/backend/mod.rs`) —
+/// `cfg!` без I/O, статично для сборки.
+fn shared_output_api() -> OutputApi {
+    if cfg!(target_os = "windows") {
+        OutputApi::WasapiShared
+    } else if cfg!(target_os = "macos") {
+        OutputApi::CoreAudio
+    } else {
+        OutputApi::PipeWire
+    }
+}
+
+/// Короткое имя формата из [`StreamDesc::format`] (`format_name`,
+/// `src/audio/player.rs`) → [`OutputSampleFormat`] нового пути (§2.3).
+/// `"I24"` — 4-байтовый контейнер (ОВ-32), как `OutputSampleFormat::S24Le`,
+/// а не 3-байтовый `S24_3Le`, которого старый путь не производит.
+/// Нераспознанное имя (`"?"`) — `F32`, формат shared-микшера (§2.3).
+fn output_sample_format_from_desc(format: &str) -> OutputSampleFormat {
+    match format {
+        "I16" => OutputSampleFormat::S16Le,
+        "I24" => OutputSampleFormat::S24Le,
+        "I32" => OutputSampleFormat::S32Le,
+        _ => OutputSampleFormat::F32,
+    }
+}
+
+/// Безопасное число каналов потока (без `as`, §2.3): `StreamDesc::channels`
+/// (`u16`) в диапазон `u8`/`NonZeroU8`, с насыщением сверху и минимумом 1
+/// канал, если поле не заполнено (`StreamDesc::default()`).
+fn channel_count_u8(channels: u16) -> u8 {
+    u8::try_from(channels).unwrap_or(u8::MAX)
+}
+
+/// `DeviceCaps` открытого Shared-потока старого пути (ОВС-12, §2.3, §6.3,
+/// ADR-20, С5-мост): не возможности устройства, а точный снимок того, что
+/// уже открыто `StreamDesc`, чтобы `plan()` строил `PathPlan` для
+/// Совместимого режима, пока исполнителем остаётся `Player`. Мост убирается
+/// вместе со `StreamDesc` на этапе С6.
+pub(crate) fn shared_caps_from_desc(desc: &StreamDesc) -> DeviceCaps {
+    let rate = SampleRate::new(desc.rate).unwrap_or(FALLBACK_RATE);
+    DeviceCaps {
+        api: shared_output_api(),
+        access: AccessKind::Shared,
+        name: desc.device.clone(),
+        rates: RateSet::Discrete(SmallVec::from_slice(&[rate])),
+        formats: SmallVec::from_slice(&[output_sample_format_from_desc(desc.format)]),
+        channels: SmallVec::from_slice(&[channel_count_u8(desc.channels)]),
+    }
+}
+
+/// `OpenedFacts` открытого Shared-потока старого пути (ОВС-12, §2.3, §6.3,
+/// ADR-20, С5-мост): старый cpal shared-путь не читает hw_params устройства,
+/// поэтому `driver` — `DriverFormat::Unreadable` с запрошенным форматом, а
+/// не `Confirmed` (ОВ-14). Резервирование не применяется к Shared
+/// (`ReservationView::NotApplicable`), буфер устройства неизвестен (`None`).
+/// `os` передаётся вызывающим — он получен отдельной пробой `OsLevelProbe`
+/// (§6.26), не из `StreamDesc`. Мост убирается вместе со `StreamDesc` на
+/// этапе С6.
+pub(crate) fn opened_facts_from_desc(desc: &StreamDesc, os: OsStage) -> OpenedFacts {
+    let rate = SampleRate::new(desc.rate).unwrap_or(FALLBACK_RATE);
+    let requested = StreamFormat {
+        rate,
+        sample: output_sample_format_from_desc(desc.format),
+        channels: NonZeroU8::new(channel_count_u8(desc.channels)).unwrap_or(NonZeroU8::MIN),
+    };
+    OpenedFacts {
+        access: AccessKind::Shared,
+        api: shared_output_api(),
+        device_name: desc.device.clone(),
+        driver: DriverFormat::Unreadable { requested },
+        reservation: ReservationView::NotApplicable,
+        os,
+        device_buffer: None,
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -195,5 +289,65 @@ mod tests {
         // решение 4 (ОВС-12) запрещает это для Оптимального режима.
         assert_ne!(legacy.exclusive_mode, ExclusiveMode::Auto);
         assert_eq!(legacy.exclusive_mode, ExclusiveMode::Strict);
+    }
+
+    use crate::audio::format::{BitDepth, ChannelLayout, Codec, Container, SourceFormat, SourceKind};
+    use crate::audio::path::plan;
+    use crate::settings::playback::PathPolicy;
+
+    fn desc_48k_f32_stereo() -> StreamDesc {
+        StreamDesc {
+            device: "pipewire".to_owned(),
+            rate: 48_000,
+            channels: 2,
+            format: "F32",
+            ..StreamDesc::default()
+        }
+    }
+
+    #[test]
+    fn shared_caps_describe_opened_stream() {
+        let desc = desc_48k_f32_stereo();
+        let caps = shared_caps_from_desc(&desc);
+        assert_eq!(caps.access, AccessKind::Shared);
+        assert_eq!(caps.name, "pipewire");
+        assert_eq!(caps.rates, RateSet::Discrete(SmallVec::from_slice(&[SampleRate::new(48_000).unwrap()])));
+        assert_eq!(caps.formats.as_slice(), &[OutputSampleFormat::F32]);
+        assert_eq!(caps.channels.as_slice(), &[2]);
+    }
+
+    #[test]
+    fn shared_caps_unknown_format_is_f32() {
+        let mut desc = desc_48k_f32_stereo();
+        desc.format = "?";
+        let caps = shared_caps_from_desc(&desc);
+        assert_eq!(caps.formats.as_slice(), &[OutputSampleFormat::F32]);
+    }
+
+    #[test]
+    fn opened_facts_shared_no_reservation_no_buffer() {
+        let desc = desc_48k_f32_stereo();
+        let facts = opened_facts_from_desc(&desc, OsStage::Unknown);
+        assert_eq!(facts.access, AccessKind::Shared);
+        assert_eq!(facts.reservation, ReservationView::NotApplicable);
+        assert_eq!(facts.device_buffer, None);
+        assert!(matches!(facts.driver, crate::audio::backend::DriverFormat::Unreadable { .. }));
+    }
+
+    #[test]
+    fn shared_caps_build_a_plan_with_resample() {
+        let src = SourceFormat {
+            container: Container::Flac,
+            codec: Codec::Flac,
+            lossy: false,
+            rate: SampleRate::new(44_100).unwrap(),
+            layout: ChannelLayout::stereo(),
+            kind: SourceKind::Pcm { bits: BitDepth::new(16).unwrap() },
+        };
+        let desc = desc_48k_f32_stereo();
+        let caps = shared_caps_from_desc(&desc);
+        let opts = CompatibleOpts::default();
+        let plan_result = plan(&src, &caps, PathPolicy::Compatible(&opts));
+        assert!(plan_result.is_ok(), "{:?}", plan_result);
     }
 }

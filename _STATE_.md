@@ -72,8 +72,8 @@
 - [x] Шаг 23: backend/os_probe.rs: трейт OsLevelProbe (probe(dev, stream_rate) -> OsStage), FakeOsProbe, чистый разбор вывода pw-metadata -n settings → OsStage (force-rate ≠ 0 → force-rate; частота потока ∈ allowed-rates → она, Assumed; иначе clock.rate, Confirmed(OsQuery); разбор не удался → Unknown) + ≤5 тестов (§6.26, ADR-21, ТЗ-77, ОВС-9). Проверка: cargo test os_probe
 - [x] Шаг 24: Системная проба SystemOsProbe: Linux — pw-metadata в служебном потоке с таймаутом 500 мс, нет утилиты/таймаут → Unknown; Windows — Known{WasapiMixer} из cpal default_output_config; macOS — номинальная частота, Assumed; поле os_probe в EngineDeps (system() и тестовые наборы) (§6.26, ADR-20, ADR-21, ТЗ-77). Проверка: cargo test engine::
 - [x] Шаг 25: OpenError::Incompatible(Blocked) и SkipReason::Incompatible(Blocked) (error.rs, messages.rs) (§2.4, ТЗ-57). Проверка: полный cargo test (общий тип)
-- [>] **Шаг 26: Мост С5 в legacy_path.rs: shared_caps_from_desc(&StreamDesc) -> DeviceCaps (Shared, частота/формат/каналы открытого потока) и opened_facts_from_desc(&StreamDesc, OsStage) -> OpenedFacts (Shared, driver не читается, без резервирования, device_buffer None) + ≤4 теста; удаляется вместе со StreamDesc (§2.3, §6.3, ADR-20). Проверка: cargo test legacy_path**
-- [ ] Шаг 27: Форма событий: EngineEvent::Opened получает path: Option<Arc<SignalPath>> и badge: BadgeState (stream остаётся мостом до удаления StreamDesc), новый вариант BadgeChanged(BadgeState); run.rs шлёт None/NoStream; фикстуры ui_audio_state.rs/audio_facade.rs (§4.3, ТЗ-52, ТЗ-56). Проверка: полный cargo test (общий тип)
+- [x] Шаг 26: Мост С5 в legacy_path.rs: shared_caps_from_desc(&StreamDesc) -> DeviceCaps (Shared, частота/формат/каналы открытого потока) и opened_facts_from_desc(&StreamDesc, OsStage) -> OpenedFacts (Shared, driver не читается, без резервирования, device_buffer None) + ≤4 теста; удаляется вместе со StreamDesc (§2.3, §6.3, ADR-20). Проверка: cargo test legacy_path
+- [>] **Шаг 27: Форма событий: EngineEvent::Opened получает path: Option<Arc<SignalPath>> и badge: BadgeState (stream остаётся мостом до удаления StreamDesc), новый вариант BadgeChanged(BadgeState); run.rs шлёт None/NoStream; фикстуры ui_audio_state.rs/audio_facade.rs (§4.3, ТЗ-52, ТЗ-56). Проверка: полный cargo test (общий тип)**
 - [ ] Шаг 28: run.rs: в Совместимом после успешного open — SourceFormat из probe, caps из моста шага 26, plan(), os_probe.probe, SignalPath::from_opened с поколением (счётчик движка), verdict → badge; активный путь (plan, facts, Arc<SignalPath>) хранится в движке; Opened несёт path/badge; Blocked → стоп и Skipped(Incompatible); + тесты opened_carries_signal_path_in_compatible, generation_increments_per_open (§6.3, §6.18, ТЗ-52, ТЗ-57). Проверка: cargo test engine::
 - [ ] Шаг 29: run.rs: при SetVolume/SetMuted с активным путём — with_gain(plan, gain, policy) → новый SignalPath с теми же OpenedFacts и новым поколением без переоткрытия; BadgeChanged только при смене вердикта; + тесты volume_rebuilds_path_without_reopen, badge_changed_only_on_verdict_change (§4.3, §6.3, ТЗ-38, ТЗ-60). Проверка: полный cargo test + clippy --all-targets (ЧЕКПОИНТ)
 - [ ] Шаг 30: UiAudioState: хранит Arc<SignalPath>, BadgeState, DynamicPathState; бейдж пересчитывается только при смене поколения; при неудачном открытии путь сбрасывается → NoStream (UI-часть badge_no_stream_after_failed_open, ТЗ-56) + тесты badge_no_recompute_on_idle_ticks, badge_shows_mute_and_restores_without_reopen (ТЗ-52, ТЗ-38). Проверка: cargo test ui_audio_state
@@ -85,8 +85,8 @@
 
 Легенда: [x] сделано · [>] текущий шаг · [ ] не начато
 
-- **Текущий шаг (current_step):** Шаг 26
-- **Следующий ход:** Шаг 26: мост shared_caps_from_desc/opened_facts_from_desc в src/engine/legacy_path.rs + тесты. Найден баг AM1.0-B7 (нет усечения 24→16 после SRC в plan) — не чинить в этом этапе.
+- **Текущий шаг (current_step):** Шаг 27
+- **Следующий ход:** Шаг 27: EngineEvent::Opened + path: Option<Arc<SignalPath>>, badge: BadgeState; вариант BadgeChanged(BadgeState); run.rs шлёт None/NoStream; фикстуры; полный cargo test. Функции моста шага 26 пока dead_code — используются в шаге 28. Баг AM1.0-B7 — не чинить в этом этапе.
 - **Счетчик безуспешных компиляций:** 0/3
 - **Состояние:** in_progress
 
