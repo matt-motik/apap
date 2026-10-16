@@ -145,7 +145,7 @@ steps:
     done: true
   - id: 33
     description: "Проводка: AudioFacade::on_event кэширует BadgeState из UiAudioState::take_badge_dirty (+ take_badge_dirty фасада); playback_manager пишет status-badge-kind/text и status-test-* только при изменении (ТЗ-52, ТЗ-60, ТЗ-106, И-Р13). Проверка: cargo check"
-    done: false
+    done: true
   - id: 34
     description: "Удаление bool-бейджей: bp-active/bp-text/dsd-not-bp/bp-resample из status.slint/app.slint; set_status_bp_*/set_status_dsd_not_bp, sync_dsd_status_ui и его вызовы, UiState.bp_resample, AudioFacade::bit_perfect_resampled (ADR-06, R-1). Шаг-очистка моста шага 31 (только удаление, 5 файлов). Проверка: cargo build + полный cargo test + clippy --all-targets (ЧЕКПОИНТ)"
     done: false
@@ -158,8 +158,8 @@ steps:
   - id: 37
     description: "Удаление легаси (§8, §7.4): bp_report.rs, StreamDesc, FallbackReason, dsd_pcm_breaks_bit_perfect и тесты dsd_pcm_breaks_bit_perfect_detects_conflict, bp_report_marks_volume_issue; ссылки в settings.rs/state_file.rs. Проверка: полный cargo test + clippy --all-targets. Шаг дробится при декомпозиции"
     done: false
-current_step: 33
-next_action: "Шаг 33: проводка бейджа/«Теста» — AudioFacade кэширует BadgeState (take_badge_dirty), playback_manager пишет status-badge-*/status-test-* через badge_view/test_view только при изменении. Проверка: cargo check"
+current_step: 34
+next_action: "Шаг 34 (ЧЕКПОИНТ): удалить bool-бейджи bp-active/bp-text/dsd-not-bp/bp-resample из status.slint/app.slint, set_status_bp_*/set_status_dsd_not_bp, sync_dsd_status_ui, UiState.bp_resample, AudioFacade::bit_perfect_resampled. Проверка: cargo build + полный cargo test + clippy --all-targets"
 fail_counter: 0
 fail_counter_max: 3
 failed_attempts: []

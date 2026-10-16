@@ -58,6 +58,18 @@ impl MusicApp {
                 ui.set_status_bp_resample(bp_resample);
             }
         }
+        // ADR-06, ТЗ-52, ТЗ-60, ТЗ-61: новый бейдж тракта и индикатор «Тест» —
+        // снимаем разовое чтение независимо от наличия окна (И-Р13).
+        if let Some((badge, test)) = self.player.take_badge_view() {
+            if let Some(ui) = &ui {
+                ui.set_status_badge_kind(badge.kind);
+                ui.set_status_badge_text(badge.text.into());
+                ui.set_status_test_visible(test.visible);
+                ui.set_status_test_enabled(test.enabled);
+                ui.set_status_test_text(test.text.into());
+                ui.set_status_test_hint(test.hint.into());
+            }
+        }
         if !seeking && (pos_s != cur.pos || seek_f != cur.seek_fraction) {
             if let Some(ui) = &ui {
                 ui.set_pos(pos_s.clone().into());

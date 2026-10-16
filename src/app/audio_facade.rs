@@ -24,12 +24,14 @@ use std::sync::Arc;
 
 use music_player_rs::audio::decoder::TrackInfo;
 use music_player_rs::audio::player::{ReservationEvent, StreamDesc};
+use music_player_rs::audio::verdict::BadgeState;
 use music_player_rs::engine::legacy_path::legacy_audio;
 use music_player_rs::engine::messages::{EngineCmd, EngineEvent, Notice, TransportState};
 use music_player_rs::engine::run::EngineHandle;
 use music_player_rs::settings::params::ModeSettingsUpdate;
 use music_player_rs::settings::playback::{ModeKind, ModeSettings};
 
+use super::badge_view::{badge_view, test_view, BadgeView, TestView};
 use super::ui_audio_state::{Applied, UiAudioState};
 
 /// Безопасное преобразование числа фреймов (`u64`) в `f64` для расчёта
@@ -74,6 +76,13 @@ pub(crate) struct AudioFacade {
     /// снимается один раз через `take_opened` (ADR-02, И-Р13).
     opened: Option<Arc<TrackInfo>>,
     stream: Option<Arc<Option<StreamDesc>>>,
+    /// Текущий бейдж тракта (ADR-06, ТЗ-52, ТЗ-60) — зеркало
+    /// `UiAudioState::take_badge_dirty`, снимается через `take_badge_view`.
+    badge: BadgeState,
+    /// Истина, если `badge`/`active_mode` изменились с последнего
+    /// `take_badge_view` — вид бейджа/теста нужно пересчитать и записать в
+    /// UI (И-Р13, ТЗ-61, ТЗ-62).
+    badge_view_dirty: bool,
     /// Зеркало `Player::device_desc` — публичное поле, не метод (сохраняет
     /// синтаксис вызывающей стороны `self.player.device_desc`).
     pub(crate) device_desc: String,
@@ -100,6 +109,11 @@ impl AudioFacade {
             track: None,
             opened: None,
             stream: None,
+            badge: BadgeState::NoStream,
+            // `true` с самого начала: первый тик должен записать в UI
+            // бейдж «Нет потока», иначе Slint-дефолт `BadgeKind.none`
+            // покажет старые блоки совместимости (ТЗ-52, ТЗ-56).
+            badge_view_dirty: true,
             device_desc: "none".to_string(),
         }
     }
@@ -156,6 +170,10 @@ impl AudioFacade {
         if let Some(pos) = self.state.take_position_dirty() {
             self.position_secs = pos;
         }
+        if let Some(b) = self.state.take_badge_dirty() {
+            self.badge = b;
+            self.badge_view_dirty = true;
+        }
 
         match &applied {
             Applied::Ended => self.ended = true,
@@ -173,6 +191,19 @@ impl AudioFacade {
     /// следующего `Opened` вернёт `None`.
     pub(crate) fn take_opened(&mut self) -> Option<Arc<TrackInfo>> {
         self.opened.take()
+    }
+
+    /// Снять вид бейджа тракта и кнопки «Тест», если он устарел с прошлого
+    /// чтения, — одноразовое чтение для вызывающей стороны (И-Р13, ТЗ-52,
+    /// ТЗ-61, ТЗ-62). Без запущенного раннера «Теста» бейдж `test` всегда
+    /// `None` — передаётся `test_view` явно.
+    pub(crate) fn take_badge_view(&mut self) -> Option<(BadgeView, TestView)> {
+        if self.badge_view_dirty {
+            self.badge_view_dirty = false;
+            Some((badge_view(&self.badge), test_view(&self.badge, self.active_mode, None)))
+        } else {
+            None
+        }
     }
 
     /// Завершить сессию движка: отдать и уронить `EngineHandle` — его `Drop`
@@ -378,6 +409,9 @@ impl AudioFacade {
     pub(crate) fn set_active_mode(&mut self, mode: ModeKind) {
         if mode != self.active_mode {
             self.active_mode = mode;
+            // Доступность «Теста» зависит от режима (ТЗ-62) — вид бейджа/
+            // теста нужно пересчитать и записать в UI заново.
+            self.badge_view_dirty = true;
             self.send(EngineCmd::SetActiveMode(mode));
         }
     }
@@ -396,8 +430,8 @@ impl AudioFacade {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::app::BadgeKind;
     use music_player_rs::audio::decoder::Tags;
-    use music_player_rs::audio::verdict::BadgeState;
     use music_player_rs::persist::keys::{FileRead, Parsed};
     use music_player_rs::persist::state_file::parse_state;
     use music_player_rs::settings::playback_dto::{load_mode_settings, playback_dto, PlaybackDto};
@@ -569,6 +603,31 @@ mod tests {
         // Повторная установка того же режима — не меняет кэш (нет эффекта).
         f.set_active_mode(ModeKind::Strict);
         assert_eq!(f.active_mode, ModeKind::Strict);
+    }
+
+    /// И-Р13: свежий фасад взводит вид бейджа один раз («Нет потока» до
+    /// первого `Opened`), повторное чтение без изменений — `None`.
+    #[test]
+    fn badge_view_written_once_until_change() {
+        let mut f = facade();
+
+        let (badge, _test) = f.take_badge_view().expect("первое чтение взведено");
+        assert_eq!(badge.kind, BadgeKind::NoStream);
+
+        assert!(f.take_badge_view().is_none());
+    }
+
+    /// ТЗ-62: доступность «Теста» зависит от режима — смена активного
+    /// режима снова взводит вид бейджа/теста даже без нового `Opened`.
+    #[test]
+    fn badge_view_redirtied_on_mode_change() {
+        let mut f = facade();
+        assert!(f.take_badge_view().is_some());
+        assert!(f.take_badge_view().is_none());
+
+        f.set_active_mode(ModeKind::Strict);
+        assert!(f.take_badge_view().is_some());
+        assert!(f.take_badge_view().is_none());
     }
 
     /// ТЗ-19, И-Р14: после перезапуска стартовые команды (`startup_commands`),
