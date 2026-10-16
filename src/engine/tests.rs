@@ -13,11 +13,13 @@ use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
 use crate::audio::backend::catalog::{DeviceWatcher, FakeDeviceWatcher};
+use crate::audio::backend::os_probe::FakeOsProbe;
 use crate::audio::backend::shared::{fake_device, FakeSharedBackend, SharedBackend};
 use crate::audio::backend::{BackendError, SharedDeviceInfo};
 use crate::audio::clock::MonotonicClock;
 use crate::audio::error::{EngineFault, OpenError};
 use crate::audio::format::{ChannelLayout, Codec, Container, SampleRate, SourceFormat, SourceKind};
+use crate::audio::path::OsStage;
 use crate::engine::deps::EngineDeps;
 use crate::engine::messages::{EngineCmd, EngineEvent, TransportState};
 use crate::engine::run::{effective_gain, mode_apply_action, BackendCaps, EngineHandle, ModeApplyAction};
@@ -59,6 +61,7 @@ fn build_deps(
         events,
         spawner,
         caps: BackendCaps::current(),
+        os_probe: Box::new(FakeOsProbe::new(OsStage::Unknown)),
     }
 }
 

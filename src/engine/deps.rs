@@ -1,14 +1,14 @@
 //! Зависимости движка этапа С3 (§2.10, ADR-20, ТЗ-114, ТЗ-115, ТЗ-116):
 //! подмножество `EngineDeps` спецификации без `exclusive`, `reservation`,
-//! `server_probe`, `os_probe` — эти четыре поля пока живут внутри легаси
-//! `Player` (мост С3) и добавятся на этапах С6/С7 вместе с реализующими их
-//! трейтами.
+//! `server_probe` — эти три поля пока живут внутри легаси `Player` (мост С3)
+//! и добавятся на этапах С6/С7 вместе с реализующими их трейтами.
 #![deny(clippy::unwrap_used, clippy::expect_used, clippy::unreachable)]
 
 use std::path::PathBuf;
 use std::sync::Arc;
 
 use crate::audio::backend::catalog::DeviceWatcher;
+use crate::audio::backend::os_probe::{OsLevelProbe, SystemOsProbe};
 use crate::audio::backend::BackendCaps;
 use crate::audio::backend::shared::{CpalSharedBackend, SharedBackend};
 use crate::audio::clock::{Clock, MonotonicClock};
@@ -35,6 +35,8 @@ pub struct EngineDeps {
     /// Возможности бэкенда платформы (§2.3, ОВС-12, ТЗ-109); статичны,
     /// тесты подставляют свои.
     pub caps: BackendCaps,
+    /// Уровень ОС для этапа «Уровень ОС» (§6.26, ADR-21).
+    pub os_probe: Box<dyn OsLevelProbe>,
 }
 
 impl EngineDeps {
@@ -52,6 +54,7 @@ impl EngineDeps {
             events,
             spawner: Arc::new(StdSpawner),
             caps: BackendCaps::current(),
+            os_probe: Box::new(SystemOsProbe),
         }
     }
 }
@@ -67,7 +70,9 @@ mod tests {
     use super::*;
     use crate::audio::backend::shared::FakeSharedBackend;
     use crate::audio::backend::catalog::FakeDeviceWatcher;
+    use crate::audio::backend::os_probe::FakeOsProbe;
     use crate::audio::format::{ChannelLayout, Codec, Container, SampleRate, SourceFormat, SourceKind};
+    use crate::audio::path::OsStage;
     use crate::engine::sink::VecSink;
     use crate::engine::source::FakeSource;
     use crate::platform::fs::MemStore;
@@ -97,6 +102,7 @@ mod tests {
             events: Box::new(VecSink::new()),
             spawner: Arc::new(StdSpawner),
             caps: BackendCaps::current(),
+            os_probe: Box::new(FakeOsProbe::new(OsStage::Unknown)),
         };
 
         let format = deps.sources.probe(Path::new("fake.flac")).expect("probe ok");

@@ -8,6 +8,9 @@
 //! выделить было бы нельзя.
 #![deny(clippy::unwrap_used, clippy::expect_used, clippy::unreachable)]
 
+use std::process::{Command, Stdio};
+use std::time::{Duration, Instant};
+
 use crate::audio::format::SampleRate;
 use crate::audio::path::transform::{Confidence, ConfirmedBy};
 use crate::audio::path::{OsServer, OsStage};
@@ -18,6 +21,94 @@ use crate::settings::playback::SharedDeviceChoice;
 /// движок держит пробу за трейтом и вызывает её вне аудио-колбэка.
 pub trait OsLevelProbe: Send {
     fn probe(&mut self, dev: &SharedDeviceChoice, stream_rate: SampleRate) -> OsStage;
+}
+
+/// Таймаут ожидания `pw-metadata` на Linux (§6.26): процесс, который не
+/// успел ответить за это время, считается недоступным и убивается.
+const PW_METADATA_TIMEOUT: Duration = Duration::from_millis(500);
+
+/// Боевая реализация `OsLevelProbe` (§6.26, ADR-21, ТЗ-77). Exclusive —
+/// забота движка (он не вызывает пробу для Exclusive-потока, т. к. ОС в
+/// тракте не участвует), здесь это не проверяется.
+#[derive(Default)]
+pub struct SystemOsProbe;
+
+impl OsLevelProbe for SystemOsProbe {
+    #[cfg(target_os = "linux")]
+    fn probe(&mut self, _dev: &SharedDeviceChoice, stream_rate: SampleRate) -> OsStage {
+        let Some(text) = run_pw_metadata() else {
+            return OsStage::Unknown;
+        };
+        os_stage_from_pw_settings(&text, stream_rate)
+    }
+
+    #[cfg(target_os = "windows")]
+    fn probe(&mut self, _dev: &SharedDeviceChoice, _stream_rate: SampleRate) -> OsStage {
+        use cpal::traits::{DeviceTrait, HostTrait};
+        // §6.26: выбор конкретного устройства (`dev`) не учитывается — опрашивается
+        // устройство вывода по умолчанию (упрощение этого шага, помечено в задании).
+        let Some(device) = cpal::default_host().default_output_device() else {
+            return OsStage::Unknown;
+        };
+        let Ok(config) = device.default_output_config() else {
+            return OsStage::Unknown;
+        };
+        let Some(rate) = SampleRate::new(config.sample_rate().0) else {
+            return OsStage::Unknown;
+        };
+        OsStage::Known {
+            server: OsServer::WasapiMixer,
+            rate: Some(rate),
+            format: Some(format!("{:?}", config.sample_format())),
+            confidence: Confidence::Confirmed(ConfirmedBy::OsQuery),
+        }
+    }
+
+    #[cfg(target_os = "macos")]
+    fn probe(&mut self, _dev: &SharedDeviceChoice, _stream_rate: SampleRate) -> OsStage {
+        // `OsServer` не содержит варианта CoreAudio (§3.2); до его добавления
+        // номинальная частота устройства не может быть представлена как
+        // `Known` — отдаём `Unknown`.
+        OsStage::Unknown
+    }
+
+    #[cfg(not(any(target_os = "linux", target_os = "windows", target_os = "macos")))]
+    fn probe(&mut self, _dev: &SharedDeviceChoice, _stream_rate: SampleRate) -> OsStage {
+        OsStage::Unknown
+    }
+}
+
+/// Запуск `pw-metadata -n settings` с таймаутом `PW_METADATA_TIMEOUT`
+/// (§6.26). `None` при отсутствии процесса, таймауте, нечитаемом выводе или
+/// ошибке запуска.
+#[cfg(target_os = "linux")]
+fn run_pw_metadata() -> Option<String> {
+    let mut child = Command::new("pw-metadata")
+        .args(["-n", "settings"])
+        .stdin(Stdio::null())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::null())
+        .spawn()
+        .ok()?;
+
+    let start = Instant::now();
+    loop {
+        match child.try_wait() {
+            Ok(Some(_status)) => break,
+            Ok(None) => {
+                if start.elapsed() >= PW_METADATA_TIMEOUT {
+                    let _ = child.kill();
+                    let _ = child.wait();
+                    return None;
+                }
+                std::thread::sleep(Duration::from_millis(10));
+            }
+            Err(_) => return None,
+        }
+    }
+
+    let output = child.wait_with_output().ok()?;
+    String::from_utf8(output.stdout).ok()
 }
 
 /// Фейк для тестов движка (ADR-20): отдаёт заранее заданный `OsStage` и
@@ -213,5 +304,16 @@ update: id:0 key:'clock.force-rate' value:'0' type:''
     fn garbage_is_unknown() {
         assert_eq!(os_stage_from_pw_settings("", r(48_000)), OsStage::Unknown);
         assert_eq!(os_stage_from_pw_settings("Found nothing", r(48_000)), OsStage::Unknown);
+    }
+
+    #[cfg(target_os = "linux")]
+    #[test]
+    fn system_probe_never_panics() {
+        let mut probe = SystemOsProbe;
+        let stage = probe.probe(&SharedDeviceChoice::SystemDefault, r(48_000));
+        match stage {
+            OsStage::Known { server: OsServer::PipeWire, .. } | OsStage::Unknown => {}
+            other => panic!("unexpected stage without pw-metadata semantics: {other:?}"),
+        }
     }
 }

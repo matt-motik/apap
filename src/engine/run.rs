@@ -687,8 +687,10 @@ impl Drop for EngineHandle {
 mod tests {
     use super::*;
     use crate::audio::backend::catalog::FakeDeviceWatcher;
+    use crate::audio::backend::os_probe::FakeOsProbe;
     use crate::audio::backend::shared::{fake_device, FakeSharedBackend};
     use crate::audio::backend::{BackendError, SharedDeviceId};
+    use crate::audio::path::OsStage;
     use crate::audio::format::{ChannelLayout, Codec, Container, SampleRate, SourceFormat, SourceKind};
     use crate::audio::clock::MonotonicClock;
     use crate::engine::sink::VecSink;
@@ -728,6 +730,7 @@ mod tests {
             events,
             spawner,
             caps: BackendCaps::current(),
+            os_probe: Box::new(FakeOsProbe::new(OsStage::Unknown)),
         }
     }
 

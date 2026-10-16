@@ -117,7 +117,7 @@ steps:
     done: true
   - id: 24
     description: "Системная проба SystemOsProbe: Linux — pw-metadata в служебном потоке с таймаутом 500 мс, нет утилиты/таймаут → Unknown; Windows — Known{WasapiMixer} из cpal default_output_config; macOS — номинальная частота, Assumed; поле os_probe в EngineDeps (system() и тестовые наборы) (§6.26, ADR-20, ADR-21, ТЗ-77). Проверка: cargo test engine::"
-    done: false
+    done: true
   - id: 25
     description: "OpenError::Incompatible(Blocked) и SkipReason::Incompatible(Blocked) (error.rs, messages.rs) (§2.4, ТЗ-57). Проверка: полный cargo test (общий тип)"
     done: false
@@ -142,8 +142,8 @@ steps:
   - id: 32
     description: "Удаление легаси (§8, §7.4): bp_report.rs, StreamDesc, FallbackReason, dsd_pcm_breaks_bit_perfect и тесты dsd_pcm_breaks_bit_perfect_detects_conflict, bp_report_marks_volume_issue; ссылки в settings.rs/state_file.rs. Проверка: полный cargo test + clippy --all-targets. Шаг дробится при декомпозиции"
     done: false
-current_step: 24
-next_action: "Шаг 24: SystemOsProbe в os_probe.rs (Linux pw-metadata с таймаутом 500 мс через os_stage_from_pw_settings; Windows cpal default_output_config → Known{WasapiMixer}; macOS номинальная частота Assumed) + поле os_probe: Box<dyn OsLevelProbe> в EngineDeps (§6.26, ADR-20, ADR-21). Проверка: cargo test engine::. Найден баг AM1.0-B7 (нет усечения 24→16 после SRC в plan) — не чинить в этом этапе."
+current_step: 25
+next_action: "Шаг 25: OpenError::Incompatible(Blocked) и SkipReason::Incompatible(Blocked) (error.rs, messages.rs) (§2.4, ТЗ-57). Проверка: полный cargo test (общий тип). Найден баг AM1.0-B7 (нет усечения 24→16 после SRC в plan) — не чинить в этом этапе."
 fail_counter: 0
 fail_counter_max: 3
 failed_attempts: []
