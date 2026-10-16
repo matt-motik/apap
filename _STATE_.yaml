@@ -114,7 +114,7 @@ steps:
     done: true
   - id: 23
     description: "backend/os_probe.rs: трейт OsLevelProbe (probe(dev, stream_rate) -> OsStage), FakeOsProbe, чистый разбор вывода pw-metadata -n settings → OsStage (force-rate ≠ 0 → force-rate; частота потока ∈ allowed-rates → она, Assumed; иначе clock.rate, Confirmed(OsQuery); разбор не удался → Unknown) + ≤5 тестов (§6.26, ADR-21, ТЗ-77, ОВС-9). Проверка: cargo test os_probe"
-    done: false
+    done: true
   - id: 24
     description: "Системная проба SystemOsProbe: Linux — pw-metadata в служебном потоке с таймаутом 500 мс, нет утилиты/таймаут → Unknown; Windows — Known{WasapiMixer} из cpal default_output_config; macOS — номинальная частота, Assumed; поле os_probe в EngineDeps (system() и тестовые наборы) (§6.26, ADR-20, ADR-21, ТЗ-77). Проверка: cargo test engine::"
     done: false
@@ -142,8 +142,8 @@ steps:
   - id: 32
     description: "Удаление легаси (§8, §7.4): bp_report.rs, StreamDesc, FallbackReason, dsd_pcm_breaks_bit_perfect и тесты dsd_pcm_breaks_bit_perfect_detects_conflict, bp_report_marks_volume_issue; ссылки в settings.rs/state_file.rs. Проверка: полный cargo test + clippy --all-targets. Шаг дробится при декомпозиции"
     done: false
-current_step: 23
-next_action: "Шаг 23: os_probe.rs — трейт OsLevelProbe, FakeOsProbe, чистый разбор pw-metadata → OsStage + тесты (§6.26). Шаг 23 прежнего плана разбит на 23/24 (Linux-ветка pw-metadata входит в С5, на Windows не планировалась); шаги 24–31 → 25–32. Найден баг AM1.0-B7 (нет усечения 24→16 после SRC в plan) — не чинить в этом этапе."
+current_step: 24
+next_action: "Шаг 24: SystemOsProbe в os_probe.rs (Linux pw-metadata с таймаутом 500 мс через os_stage_from_pw_settings; Windows cpal default_output_config → Known{WasapiMixer}; macOS номинальная частота Assumed) + поле os_probe: Box<dyn OsLevelProbe> в EngineDeps (§6.26, ADR-20, ADR-21). Проверка: cargo test engine::. Найден баг AM1.0-B7 (нет усечения 24→16 после SRC в plan) — не чинить в этом этапе."
 fail_counter: 0
 fail_counter_max: 3
 failed_attempts: []

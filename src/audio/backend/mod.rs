@@ -7,6 +7,7 @@ use crate::settings::playback::ModeKind;
 use smallvec::SmallVec;
 
 pub mod catalog;
+pub mod os_probe;
 pub mod shared;
 
 /// Стабильный идентификатор Shared-устройства: имя PCM/CoreAudio-узла, в
