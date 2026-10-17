@@ -8,14 +8,15 @@ pub mod signals;
 
 use crate::audio::backend::catalog::HwDeviceInfo;
 use crate::audio::backend::exclusive::{
-    ClaimInfo, ConfigureError, DeviceClaim, ExclusiveBackend, ExclusiveRender, PcmHandle, StartError, StreamHandle,
+    ClaimInfo, ClaimJob, ConfigureError, DeviceClaim, ExclusiveBackend, ExclusiveRender, PcmHandle, StartError,
+    StreamHandle,
 };
 use crate::audio::backend::{AccessKind, BackendCaps, BackendError, DeviceBufferActual, DeviceCaps, DriverFormat, HwDeviceId, OutputApi, RateSet};
 use crate::audio::clock::{Clock, ClockInstant};
 use crate::audio::error::CaptureFailure;
 use crate::audio::format::{OutputSampleFormat, SampleRate, StreamFormat};
 use crate::audio::reservation::{
-    AudioServerProbe, CallError, LostNotify, NameFlags, RequestNameReply, Reservation, ReserveBus, ReserveObject,
+    self, AudioServerProbe, CallError, LostNotify, NameFlags, RequestNameReply, Reservation, ReserveBus, ReserveObject,
     SinkCard, OWNER_NAME_TIMEOUT, RELEASE_TIMEOUT,
 };
 use crate::audio::session::SessionShared;
@@ -377,7 +378,9 @@ impl StreamHandle for FakeExclusiveStream {
 /// через `with_*`, порядок вызовов виден в общем журнале `calls()`. `acquire`
 /// всегда перемещает полученное `Reservation` в возвращённый `DeviceClaim`
 /// (`pcm = None`) — наблюдать его освобождение можно по моменту `Drop` этого
-/// `DeviceClaim` в тесте.
+/// `DeviceClaim` в тесте. `claim_job` (ADR-01, §6.6) не заимствует фейк: в
+/// задании резервирование получается через `FakeReserveBus`/`ManualClock`
+/// (без D-Bus), а журнал и `acquire_result` разделяются с фейком через `Arc`.
 pub struct FakeExclusiveBackend {
     enumerate_result: Result<Vec<HwDeviceInfo>, BackendError>,
     acquire_result: Result<(), CaptureFailure>,
@@ -459,6 +462,18 @@ impl ExclusiveBackend for FakeExclusiveBackend {
         self.push(ExclusiveCall::Acquire(dev.clone()));
         self.acquire_result.clone()?;
         Ok(DeviceClaim::new(None, reservation, ClaimInfo { device: dev.clone() }))
+    }
+
+    fn claim_job(&self, dev: HwDeviceId, device_name: String, on_lost: LostNotify) -> ClaimJob {
+        let calls = Arc::clone(&self.calls);
+        let acquire_result = self.acquire_result.clone();
+        Box::new(move || {
+            calls.lock().unwrap_or_else(|e| e.into_inner()).push(ExclusiveCall::Acquire(dev.clone()));
+            acquire_result?;
+            let bus: Arc<dyn ReserveBus> = Arc::new(FakeReserveBus::new(ManualClock::new(), FakeOwner::Free));
+            let reservation = reservation::acquire(&bus, &FakeServerProbe::desktop(), 0, &device_name, on_lost)?;
+            Ok(DeviceClaim::new(None, reservation, ClaimInfo { device: dev }))
+        })
     }
 
     fn device_caps(&mut self, _claim: &mut DeviceClaim) -> Result<DeviceCaps, CaptureFailure> {
@@ -555,6 +570,32 @@ mod tests {
         let dev: HwDeviceId = "hw:CARD=RU3,DEV=0".parse().expect("hw id");
 
         let result = backend.acquire(&dev, Reservation::UnavailableNoServer);
+        assert_eq!(result.err(), Some(CaptureFailure::DeviceDisconnected));
+        assert_eq!(backend.calls(), vec![ExclusiveCall::Acquire(dev)]);
+    }
+
+    /// `claim_job` не заимствует бэкенд (ADR-01, §6.6): задание выполняется в
+    /// отдельном `std::thread`, как в служебном потоке захвата.
+    #[test]
+    fn claim_job_runs_on_spawned_thread_and_records_acquire() {
+        let backend = FakeExclusiveBackend::new();
+        let dev: HwDeviceId = "hw:CARD=RU3,DEV=0".parse().expect("hw id");
+        let job = backend.claim_job(dev.clone(), "Test DAC".to_string(), Box::new(|| {}));
+
+        let claim = std::thread::spawn(job).join().expect("job thread joined").expect("claim ok");
+
+        assert_eq!(claim.info().device, dev);
+        assert_eq!(backend.calls(), vec![ExclusiveCall::Acquire(dev)]);
+    }
+
+    #[test]
+    fn claim_job_propagates_scripted_acquire_failure() {
+        let backend = FakeExclusiveBackend::new().with_acquire(Err(CaptureFailure::DeviceDisconnected));
+        let dev: HwDeviceId = "hw:CARD=RU3,DEV=0".parse().expect("hw id");
+        let job = backend.claim_job(dev.clone(), "Test DAC".to_string(), Box::new(|| {}));
+
+        let result = std::thread::spawn(job).join().expect("job thread joined");
+
         assert_eq!(result.err(), Some(CaptureFailure::DeviceDisconnected));
         assert_eq!(backend.calls(), vec![ExclusiveCall::Acquire(dev)]);
     }

@@ -13,9 +13,13 @@ use crate::audio::render::dop::DopRender;
 use crate::audio::render::gain::{AtomicGain, GainStage, NoGain};
 use crate::audio::render::out::OutFormat;
 use crate::audio::render::pcm::{PcmRender, PcmSample};
-use crate::audio::reservation::Reservation;
+use crate::audio::reservation::{LostNotify, Reservation};
 use crate::audio::session::SessionShared;
 use crate::settings::playback::DeviceBuffer;
+
+/// Задание захвата для служебного потока (ADR-01, §6.6): резервирование,
+/// затем открытие PCM.
+pub type ClaimJob = Box<dyn FnOnce() -> Result<DeviceClaim, CaptureFailure> + Send>;
 
 /// Эксклюзивный бэкенд вывода: резервирование и ALSA `hw:` (§2.3, ADR-08).
 pub trait ExclusiveBackend: Send {
@@ -24,6 +28,10 @@ pub trait ExclusiveBackend: Send {
     /// Резервирование, затем открытие PCM. Без резервирования PCM не
     /// открывается (ТЗ-48, §2.3).
     fn acquire(&mut self, dev: &HwDeviceId, reservation: Reservation) -> Result<DeviceClaim, CaptureFailure>;
+    /// Задание захвата `dev`, не заимствующее бэкенд: выполняется в служебном
+    /// потоке (ADR-01), без резервирования PCM не открывается (ТЗ-48, §6.6).
+    /// `on_lost` — уведомление о потере резервирования.
+    fn claim_job(&self, dev: HwDeviceId, device_name: String, on_lost: LostNotify) -> ClaimJob;
     fn device_caps(&mut self, claim: &mut DeviceClaim) -> Result<DeviceCaps, CaptureFailure>;
     /// Установка hw_params и однократное чтение фактических параметров
     /// (ТЗ-113, §2.3). `buffer` — «Буфер устройства» из опций режима: буфер

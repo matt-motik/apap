@@ -159,7 +159,7 @@ steps:
     done: true
   - id: 34
     description: "Шаг 34: Захват вне движка: ExclusiveBackend::claim_job(&self, dev: HwDeviceId, device_name: String, on_lost: LostNotify) -> ClaimJob (Box<dyn FnOnce() -> Result<DeviceClaim, CaptureFailure> + Send>) — резервирование + открытие PCM в служебном потоке без доступа к бэкенду движка (exclusive.rs); AlsaExclusiveBackend: reserve → acquire (alsa.rs); FakeExclusiveBackend: журнал Acquire(dev) + заданный результат (audio/testing/mod.rs) + тест (§6.6, ADR-01, ТЗ-48). Общий тип → Проверка: полный cargo test"
-    done: false
+    done: true
   - id: 35
     description: "Шаг 35: run.rs: EngineCmd::Lock → lock_step; эффект Acquire — deps.exclusive.claim_job через spawner в служебном потоке → InternalMsg::ClaimDone → lock_step; эмиссия EngineEvent::Lock (Acquiring/Held/Failed) + тесты ≤3 на FakeExclusiveBackend (§6.19, ТЗ-118, 119, 123). Проверка: cargo test engine:: Обязательно: Acquiring.started перезаписать deps.clock.now() (lock_step чистая, ставит ClockInstant::START — ОВС-10 п. 7, ТЗ-119); DeviceReappeared(d) вызывать только при d = устройство ReacquirePoint (lock_step точку не видит, §6.20)."
     done: false
@@ -289,8 +289,8 @@ steps:
   - id: 77
     description: "Шаг 77: ФИНАЛ: cargo build/test/clippy зелёные; общие условия §8 (Совместимый играет, «Bit-perfect» только при ТЗ-52); ручные проверки в заметку плана: замок (ТЗ-1/2/48/118…122, AM1.0-8.1), B1 — возврат устройства в PipeWire после освобождения, B2 — текст «занято <владелец>» при чужом захвате"
     done: false
-current_step: 34
-next_action: "Шаг 34: ExclusiveBackend::claim_job (захват в служебном потоке) в exclusive.rs/alsa.rs/fake. Общий тип → полный cargo test. Свежий субагент code-writer sonnet."
+current_step: 35
+next_action: "Шаг 35: run.rs — EngineCmd::Lock → lock_step; эффект Acquire → deps.exclusive.claim_job через spawner → InternalMsg::ClaimDone{attempt} → lock_step(CaptureResult); EngineEvent::Lock; Acquiring.started = deps.clock.now(); устаревшие attempt игнорировать; on_lost → InternalMsg::ReservationLost; снять #[allow(dead_code)] с Engine::internal_sender. Свежий субагент code-writer sonnet."
 fail_counter: 0
 fail_counter_max: 3
 failed_attempts: []

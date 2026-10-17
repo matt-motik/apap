@@ -14,7 +14,8 @@ use smallvec::SmallVec;
 use super::alsa_out;
 use super::catalog::HwDeviceInfo;
 use super::exclusive::{
-    ClaimInfo, ConfigureError, DeviceClaim, ExclusiveBackend, ExclusiveRender, PcmHandle, StartError, StreamHandle,
+    ClaimInfo, ClaimJob, ConfigureError, DeviceClaim, ExclusiveBackend, ExclusiveRender, PcmHandle, StartError,
+    StreamHandle,
 };
 use super::{
     AccessKind, BackendCaps, BackendError, DeviceBufferActual, DeviceCaps, DriverFormat, HwDeviceId, OutputApi, RateSet,
@@ -154,9 +155,8 @@ impl AlsaExclusiveBackend {
     /// Номер карты — по `HwDeviceId` (ТЗ-126); отказ D-Bus уже классифицирован
     /// `reservation::acquire` (`ReservationDenied` с владельцем — AM1.0-B2,
     /// `OwnerNotResponding`, `NoSessionBus`), эта функция его не переопределяет.
-    /// Вызывающей стороны пока нет — появится вместе с реализацией
-    /// `ExclusiveBackend::acquire` (часть 2).
-    #[allow(dead_code)]
+    /// Вызывающая сторона — `claim_job` (ADR-01, §6.6): задание служебного
+    /// потока сначала резервирует карту, затем открывает PCM.
     pub(crate) fn reserve(
         &mut self,
         dev: &HwDeviceId,
@@ -169,12 +169,10 @@ impl AlsaExclusiveBackend {
     }
 
     /// Открытие `hw:` после уже полученного резервирования — вторая часть
-    /// `ExclusiveBackend::acquire` (§6.6 OPEN, ТЗ-48, ТЗ-49, ADR-08). Сигнатура
-    /// совпадает с методом трейта: полная реализация `ExclusiveBackend` для
-    /// `AlsaExclusiveBackend` появится вместе с `configure`/`start`. Выполняется
+    /// `ExclusiveBackend::acquire` (§6.6 OPEN, ТЗ-48, ТЗ-49, ADR-08). Вызывающая
+    /// сторона — `claim_job` (ADR-01) и реализация трейта `acquire`. Выполняется
     /// в служебном потоке захвата — блокирующий `PCM::new` и реальный `sleep`
     /// здесь допустимы (не аудио-колбэк).
-    #[allow(dead_code)]
     pub(crate) fn acquire(&mut self, dev: &HwDeviceId, reservation: Reservation) -> Result<DeviceClaim, CaptureFailure> {
         let hw_name = dev.as_str().to_string();
         let clock = MonotonicClock::new();
@@ -315,6 +313,14 @@ impl ExclusiveBackend for AlsaExclusiveBackend {
 
     fn acquire(&mut self, dev: &HwDeviceId, reservation: Reservation) -> Result<DeviceClaim, CaptureFailure> {
         AlsaExclusiveBackend::acquire(self, dev, reservation)
+    }
+
+    fn claim_job(&self, dev: HwDeviceId, device_name: String, on_lost: LostNotify) -> ClaimJob {
+        Box::new(move || {
+            let mut backend = AlsaExclusiveBackend::new();
+            let reservation = backend.reserve(&dev, &device_name, on_lost)?;
+            backend.acquire(&dev, reservation)
+        })
     }
 
     fn device_caps(&mut self, claim: &mut DeviceClaim) -> Result<DeviceCaps, CaptureFailure> {
