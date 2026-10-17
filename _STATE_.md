@@ -88,8 +88,8 @@
 - [x] Шаг 27: Шаг 27: Сигнатура ExclusiveBackend::start дополняется параметрами, нужными потоку (StreamFormat, period_frames из DeviceBufferActual, Arc<SessionShared>) в exclusive.rs; impl ExclusiveBackend for AlsaExclusiveBackend (делегирование inherent-методам) в alsa.rs; FakeExclusiveBackend — под новую сигнатуру (§2.3, §6.7, нужно шагу 31 EngineDeps). Общий тип → Проверка: полный cargo test
 - [x] Шаг 28: Шаг 28: Новый src/audio/rt.rs ч. 1: при старте движка — чтение свойств rtkit MaxRealtimePriority/RTTimeUSecMax (zbus) и RLIMIT_RTTIME через rustix; чистая функция выбора приоритета min(max, 20) + тест (§6.8, ТЗ-30). Проверка: cargo test rt::
 - [x] Шаг 29: Шаг 29: rt.rs ч. 2: request_realtime(tid, prio, done) — служебный поток вызывает org.freedesktop.RealtimeKit1.MakeThreadRealtime(tid, prio) на системной шине, итог Option<u32> (Some(prio) / None) отдаётся колбэком done; TID приходит готовым (ожидание TID ≤ 100 мс — в start, шаг 51) (§6.8 п. 3, ТЗ-99, ТЗ-76). Проверка: cargo check
-- [>] **Шаг 30: Шаг 30: ЧЕКПОИНТ: полный cargo test + cargo clippy --all-targets**
-- [ ] Шаг 31: Шаг 31: EngineDeps: поля exclusive: Box<dyn ExclusiveBackend>, server_probe (если ещё нет) в deps.rs; EngineDeps::system (AlsaExclusiveBackend) и фейковые сборки в deps.rs/engine/tests.rs (§2.7, §8 таблица EngineDeps). Общий тип → Проверка: полный cargo test
+- [x] Шаг 30: Шаг 30: ЧЕКПОИНТ: полный cargo test + cargo clippy --all-targets
+- [>] **Шаг 31: Шаг 31: EngineDeps: поля exclusive: Box<dyn ExclusiveBackend>, server_probe (если ещё нет) в deps.rs; EngineDeps::system (AlsaExclusiveBackend) и фейковые сборки в deps.rs/engine/tests.rs (§2.7, §8 таблица EngineDeps). Общий тип → Проверка: полный cargo test**
 - [ ] Шаг 32: Шаг 32: messages.rs: EngineCmd::Lock(LockInput), EngineEvent::Lock(LockState), EngineEvent::DeviceAutoSelected { mode, device } (§2.8, ADR-24); обработчики-заглушки не нужны — app игнорирует новые события через существующий `_ =>` (проверить). Общий тип → Проверка: полный cargo test
 - [ ] Шаг 33: Шаг 33: Внутренний канал движка InternalMsg { ClaimDone{attempt, result}, ReservationLost{card}, RtPriority{session, granted} } в messages.rs + приёмник в цикле run() (дренаж try_recv на каждой итерации) в run.rs (§2.8). Проверка: cargo test engine::
 - [ ] Шаг 34: Шаг 34: run.rs: EngineCmd::Lock → lock_step; эффект Acquire — захват через spawner в служебном потоке → InternalMsg::ClaimDone → lock_step; эмиссия EngineEvent::Lock (Acquiring/Held/Failed) + тесты ≤3 на FakeExclusiveBackend (§6.19, ТЗ-118, 119, 123). Проверка: cargo test engine:: Обязательно: Acquiring.started перезаписать deps.clock.now() (lock_step чистая, ставит ClockInstant::START — ОВС-10 п. 7, ТЗ-119); DeviceReappeared(d) вызывать только при d = устройство ReacquirePoint (lock_step точку не видит, §6.20).
@@ -138,8 +138,8 @@
 
 Легенда: [x] сделано · [>] текущий шаг · [ ] не начато
 
-- **Текущий шаг (current_step):** Шаг 30
-- **Следующий ход:** Шаг 30: ЧЕКПОИНТ: полный cargo test + cargo clippy --all-targets. Субагент test-runner haiku.
+- **Текущий шаг (current_step):** Шаг 31
+- **Следующий ход:** Шаг 31: EngineDeps: поля exclusive: Box<dyn ExclusiveBackend>, server_probe (если ещё нет) в deps.rs; EngineDeps::system (AlsaExclusiveBackend) и фейковые сборки в deps.rs/engine/tests.rs (§2.7, §8 таблица EngineDeps). Общий тип → Проверка: полный cargo test. Свежий субагент code-writer sonnet.
 - **Счетчик безуспешных компиляций:** 0/3
 - **Состояние:** in_progress
 
