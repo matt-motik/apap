@@ -1602,7 +1602,7 @@ mode = \"spectrum\"
                 buffer: BufferMs::new(2000).expect("2000 мс в допустимом диапазоне BufferMs"),
             },
             optimal: OptimalOpts {
-                device: Some("optimal-dev".to_owned()),
+                device: Some("optimal-dev".parse().expect("валидный HwDeviceId")),
                 rate_fallback: RateFallbackRule::Nearest,
                 src_filter: SrcFilter::VerySlow,
                 dither: Dither::Off,
@@ -1614,7 +1614,7 @@ mode = \"spectrum\"
                 device_buffer: DeviceBuffer::Ms400,
             },
             strict: StrictOpts {
-                device: Some("strict-dev".to_owned()),
+                device: Some("strict-dev".parse().expect("валидный HwDeviceId")),
                 buffer: BufferMs::new(400).expect("400 мс в допустимом диапазоне BufferMs"),
                 device_buffer: DeviceBuffer::Ms100,
             },

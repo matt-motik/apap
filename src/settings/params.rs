@@ -697,7 +697,7 @@ mod tests {
         compatible_buffer.compatible.buffer = buffer;
 
         let mut optimal_device = base.clone();
-        optimal_device.optimal.device = Some("dac".to_string());
+        optimal_device.optimal.device = Some("dac".parse().expect("валидный HwDeviceId"));
         let mut optimal_rate_fallback = base.clone();
         optimal_rate_fallback.optimal.rate_fallback = RateFallbackRule::Nearest;
         let mut optimal_src_filter = base.clone();
@@ -716,7 +716,7 @@ mod tests {
         optimal_device_buffer.optimal.device_buffer = DeviceBuffer::Ms200;
 
         let mut strict_device = base.clone();
-        strict_device.strict.device = Some("dac".to_string());
+        strict_device.strict.device = Some("dac".parse().expect("валидный HwDeviceId"));
         let mut strict_buffer = base.clone();
         strict_buffer.strict.buffer = buffer;
         let mut strict_device_buffer = base.clone();

@@ -14,7 +14,7 @@ use std::collections::BTreeMap;
 
 use serde::{Deserialize, Serialize};
 
-use crate::audio::backend::SharedDeviceId;
+use crate::audio::backend::{HwDeviceId, SharedDeviceId};
 use crate::audio::format::SampleRate;
 use crate::persist::keys::{KeyPath, LoadNote, LoadNoteKind};
 
@@ -180,7 +180,7 @@ fn optimal_dto(o: &OptimalOpts) -> OptimalDto {
         device: o
             .device
             .as_ref()
-            .map(|id| toml::Value::String(id.clone())),
+            .map(|id| toml::Value::String(id.as_str().to_owned())),
         rate_fallback: Some(toml::Value::String(
             rate_fallback_key(o.rate_fallback).to_owned(),
         )),
@@ -207,7 +207,7 @@ fn strict_dto(o: &StrictOpts) -> StrictDto {
         device: o
             .device
             .as_ref()
-            .map(|id| toml::Value::String(id.clone())),
+            .map(|id| toml::Value::String(id.as_str().to_owned())),
         buffer: Some(toml::Value::Integer(i64::from(o.buffer.get()))),
         device_buffer_ms: Some(toml::Value::Integer(device_buffer_ms_value(
             o.device_buffer,
@@ -443,16 +443,18 @@ fn read_shared_device(
     }
 }
 
-/// Устройство Оптимального/Строгого режима (временная `String`-замена
-/// `HwDeviceId`, см. doc-комментарий `OptimalOpts::device`; §6.27 п. 3).
-fn read_device_string(
+/// Устройство Оптимального/Строгого режима — `HwDeviceId` (§2.3, ADR-24,
+/// ТЗ-143, §6.27 п. 3): не строка, либо строка, которую `HwDeviceId::from_str`
+/// не принимает (пустая/из пробелов) — недопустимое значение, подстановка
+/// `None` с заметкой.
+fn read_hw_device_id(
     value: Option<&toml::Value>,
     key: &str,
     notes: &mut Vec<LoadNote>,
-) -> Option<String> {
+) -> Option<HwDeviceId> {
     let v = value?;
-    match v.as_str() {
-        Some(s) => Some(s.to_owned()),
+    match v.as_str().and_then(|s| s.parse().ok()) {
+        Some(id) => Some(id),
         None => {
             notes.push(invalid_note(key, v, "строка — идентификатор устройства"));
             None
@@ -528,7 +530,7 @@ fn parse_compatible(dto: CompatibleDto, notes: &mut Vec<LoadNote>) -> Compatible
 fn parse_optimal(dto: OptimalDto, notes: &mut Vec<LoadNote>) -> OptimalOpts {
     let default = OptimalOpts::default();
     let opts = OptimalOpts {
-        device: read_device_string(dto.device.as_ref(), "playback.optimal.device", notes),
+        device: read_hw_device_id(dto.device.as_ref(), "playback.optimal.device", notes),
         rate_fallback: read_str_enum(
             dto.rate_fallback.as_ref(),
             parse_rate_fallback,
@@ -602,7 +604,7 @@ fn parse_optimal(dto: OptimalDto, notes: &mut Vec<LoadNote>) -> OptimalOpts {
 fn parse_strict(dto: StrictDto, notes: &mut Vec<LoadNote>) -> StrictOpts {
     let default = StrictOpts::default();
     let opts = StrictOpts {
-        device: read_device_string(dto.device.as_ref(), "playback.strict.device", notes),
+        device: read_hw_device_id(dto.device.as_ref(), "playback.strict.device", notes),
         buffer: read_buffer_ms(dto.buffer.as_ref(), default.buffer, "playback.strict.buffer", notes),
         device_buffer: read_int_enum(
             dto.device_buffer_ms.as_ref(),
@@ -898,7 +900,7 @@ mod tests {
                 buffer: BufferMs::new(2000).expect("2000 мс в допустимом диапазоне BufferMs"),
             },
             optimal: OptimalOpts {
-                device: Some("optimal-dev".to_owned()),
+                device: Some("optimal-dev".parse().expect("валидный HwDeviceId")),
                 rate_fallback: RateFallbackRule::Nearest,
                 src_filter: SrcFilter::VerySlow,
                 dither: Dither::Off,
@@ -910,7 +912,7 @@ mod tests {
                 device_buffer: DeviceBuffer::Ms400,
             },
             strict: StrictOpts {
-                device: Some("strict-dev".to_owned()),
+                device: Some("strict-dev".parse().expect("валидный HwDeviceId")),
                 buffer: BufferMs::new(400).expect("400 мс в допустимом диапазоне BufferMs"),
                 device_buffer: DeviceBuffer::Ms100,
             },

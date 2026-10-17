@@ -130,7 +130,7 @@ fn optimal_legacy_audio(opts: &OptimalOpts) -> (LegacyAudio, Option<String>) {
         bit_perfect: false,
         dither: dither_to_legacy(opts.dither),
     };
-    (legacy, opts.device.clone())
+    (legacy, opts.device.clone().map(String::from))
 }
 
 fn strict_legacy_audio(opts: &StrictOpts) -> (LegacyAudio, Option<String>) {
@@ -147,7 +147,7 @@ fn strict_legacy_audio(opts: &StrictOpts) -> (LegacyAudio, Option<String>) {
         bit_perfect: true,
         dither: ResamplerDither::Off,
     };
-    (legacy, opts.device.clone())
+    (legacy, opts.device.clone().map(String::from))
 }
 
 /// Запасная частота для случая, когда `StreamDesc::rate` не заполнена
@@ -268,7 +268,7 @@ mod tests {
     fn optimal_maps_exclusive_strict_and_rate_fallback() {
         let mut settings = ModeSettings::default();
         settings.optimal.rate_fallback = RateFallbackRule::NoDownsample;
-        settings.optimal.device = Some(String::from("hw:CARD=Y"));
+        settings.optimal.device = Some("hw:CARD=Y".parse().expect("валидный HwDeviceId"));
         let (legacy, device) = legacy_audio(&settings, ModeKind::Optimal);
         assert_eq!(legacy.exclusive_mode, ExclusiveMode::Strict);
         assert_eq!(legacy.resampler_mode, ResamplerMode::Auto);

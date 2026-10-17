@@ -357,7 +357,7 @@ fn mode_apply_action_store_for_inactive_mode_param() {
 fn mode_apply_action_switch_device_absorbs_other_change() {
     let base = ModeSettings::default();
     let mut changed = base.clone();
-    changed.optimal.device = Some(String::from("hw:CARD=X"));
+    changed.optimal.device = Some("hw:CARD=X".parse().expect("валидный HwDeviceId"));
     changed.optimal.src_filter = SrcFilter::VerySlow;
     let diff = base.diff(&changed);
 

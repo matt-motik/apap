@@ -1,7 +1,7 @@
 //! Опции режимов воспроизведения (AM1.0 §2.2, ТЗ-93…ТЗ-131).
 #![deny(clippy::unwrap_used, clippy::expect_used, clippy::unreachable)]
 
-use crate::audio::backend::SharedDeviceId;
+use crate::audio::backend::{HwDeviceId, SharedDeviceId};
 use crate::audio::format::SampleRate;
 
 /// Режим вывода (ADR-04, §2.2).
@@ -178,13 +178,15 @@ impl ModeSettings {
                 SharedDeviceChoice::SystemDefault => None,
                 SharedDeviceChoice::Named(id) => Some(id.as_str()),
             },
-            ModeKind::Optimal => self.optimal.device.as_deref(),
-            ModeKind::Strict => self.strict.device.as_deref(),
+            ModeKind::Optimal => self.optimal.device.as_ref().map(HwDeviceId::as_str),
+            ModeKind::Strict => self.strict.device.as_ref().map(HwDeviceId::as_str),
         }
     }
 
     /// Записать устройство вывода режима `mode`; пустая строка — системное по
-    /// умолчанию / не выбрано (ТЗ-94, §2.4).
+    /// умолчанию / не выбрано; для Оптимального/Строгого недопустимая строка
+    /// (пустая/из пробелов, `HwDeviceId::from_str`) также даёт `None` (ТЗ-94,
+    /// ТЗ-143, ADR-24, §2.3, §2.4).
     pub fn set_device(&mut self, mode: ModeKind, id: &str) {
         match mode {
             ModeKind::Compatible => {
@@ -195,10 +197,10 @@ impl ModeSettings {
                 };
             }
             ModeKind::Optimal => {
-                self.optimal.device = if id.is_empty() { None } else { Some(id.to_string()) };
+                self.optimal.device = id.parse().ok();
             }
             ModeKind::Strict => {
-                self.strict.device = if id.is_empty() { None } else { Some(id.to_string()) };
+                self.strict.device = id.parse().ok();
             }
         }
     }
@@ -234,14 +236,11 @@ impl Default for CompatibleOpts {
 
 /// Режим 2 (Оптимальный, §2.2).
 ///
-/// Поле `device` — минимальная замена не существующему пока
-/// `crate::audio::backend::HwDeviceId` (§2.3): этот тип в кодовой базе ещё не
-/// определён (создаётся отдельным шагом вне вайтлиста этого шага), поэтому
-/// здесь используется строковый идентификатор устройства как временная
-/// faithful-репрезентация; заменить на `HwDeviceId`, когда тип появится.
+/// Поле `device` — стабильный идентификатор ALSA hw-устройства
+/// (`HwDeviceId`, §2.3, ADR-24, ТЗ-143); `None` — устройство не выбрано.
 #[derive(Clone, PartialEq, Debug)]
 pub struct OptimalOpts {
-    pub device: Option<String>,
+    pub device: Option<HwDeviceId>,
     pub rate_fallback: RateFallbackRule,
     pub src_filter: SrcFilter,
     pub dither: Dither,
@@ -279,11 +278,11 @@ impl Default for OptimalOpts {
 /// здесь нет — они непредставимы (ТЗ-41, ТЗ-94). Mute Строгого режима — в
 /// `PlaybackState` (ОВС-18).
 ///
-/// Поле `device` — та же временная замена `HwDeviceId`, что и в
-/// `OptimalOpts` (см. её doc-комментарий).
+/// Поле `device` — тот же `HwDeviceId`, что и в `OptimalOpts` (§2.3,
+/// ADR-24, ТЗ-143; см. её doc-комментарий).
 #[derive(Clone, PartialEq, Debug)]
 pub struct StrictOpts {
-    pub device: Option<String>,
+    pub device: Option<HwDeviceId>,
     pub buffer: BufferMs,
     /// Инвариант И-Р22: `buffer` ≥ 2 × `device_buffer`.
     pub device_buffer: DeviceBuffer,
