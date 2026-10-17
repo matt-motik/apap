@@ -408,7 +408,6 @@ pub struct MusicApp {
     /// Трек, открытие которого отправлено движку; применяется по событию
     /// Opened (ADR-01, ТЗ-103).
     pending_open: Option<(usize, Option<usize>)>,
-    stream_desc: Option<music_player_rs::audio::player::StreamDesc>,
     scan_rx: Option<Receiver<ScanMsg>>,
     /// Tracks buffered by `drain_scan` while a background scan runs; committed
     /// to `tracks` atomically when `ScanMsg::Done` arrives.
@@ -714,7 +713,6 @@ impl MusicApp {
             playlist_cols,
             current: None,
             pending_open: None,
-            stream_desc: None,
             scan_rx: None,
             scan_pending: Vec::new(),
             known_paths,

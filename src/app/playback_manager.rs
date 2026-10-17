@@ -177,7 +177,6 @@ impl MusicApp {
         };
         match event {
             ReservationEvent::Opened => {
-                self.stream_desc = self.audio().stream_desc().cloned();
                 self.status = self.playing_status().into();
                 self.sync_track_info_to_ui();
             }
@@ -443,7 +442,6 @@ impl MusicApp {
         track.album = info.tags.album.clone();
         track.genre = info.tags.genre.clone();
         track.year = info.tags.year.clone().unwrap_or_default();
-        self.stream_desc = self.audio().stream_desc().cloned();
         if info.tags.track_number > 0 || track.track_number == 0 {
             track.track_number = info.tags.track_number;
         }
