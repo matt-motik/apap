@@ -91,8 +91,8 @@
 - [x] Шаг 30: Шаг 30: ЧЕКПОИНТ: полный cargo test + cargo clippy --all-targets
 - [x] Шаг 31: Шаг 31: EngineDeps: поля exclusive: Box<dyn ExclusiveBackend>, server_probe (если ещё нет) в deps.rs; EngineDeps::system (AlsaExclusiveBackend) и фейковые сборки в deps.rs/engine/tests.rs (§2.7, §8 таблица EngineDeps). Общий тип → Проверка: полный cargo test
 - [x] Шаг 32: Шаг 32: messages.rs: EngineCmd::Lock(LockInput), EngineEvent::Lock(LockState), EngineEvent::DeviceAutoSelected { mode, device } (§2.8, ADR-24); обработчики-заглушки не нужны — app игнорирует новые события через существующий `_ =>` (проверить). Общий тип → Проверка: полный cargo test
-- [>] **Шаг 33: Шаг 33: Внутренний канал движка InternalMsg { ClaimDone{attempt, result}, ReservationLost{card}, RtPriority{session, granted} } в messages.rs + приёмник в цикле run() (дренаж try_recv на каждой итерации) в run.rs (§2.8). Проверка: cargo test engine::**
-- [ ] Шаг 34: Шаг 34: run.rs: EngineCmd::Lock → lock_step; эффект Acquire — захват через spawner в служебном потоке → InternalMsg::ClaimDone → lock_step; эмиссия EngineEvent::Lock (Acquiring/Held/Failed) + тесты ≤3 на FakeExclusiveBackend (§6.19, ТЗ-118, 119, 123). Проверка: cargo test engine:: Обязательно: Acquiring.started перезаписать deps.clock.now() (lock_step чистая, ставит ClockInstant::START — ОВС-10 п. 7, ТЗ-119); DeviceReappeared(d) вызывать только при d = устройство ReacquirePoint (lock_step точку не видит, §6.20).
+- [x] Шаг 33: Шаг 33: Внутренний канал движка InternalMsg { ClaimDone{attempt, result}, ReservationLost{card}, RtPriority{session, granted} } в messages.rs + приёмник в цикле run() (дренаж try_recv на каждой итерации) в run.rs (§2.8). Проверка: cargo test engine::
+- [>] **Шаг 34: Шаг 34: run.rs: EngineCmd::Lock → lock_step; эффект Acquire — захват через spawner в служебном потоке → InternalMsg::ClaimDone → lock_step; эмиссия EngineEvent::Lock (Acquiring/Held/Failed) + тесты ≤3 на FakeExclusiveBackend (§6.19, ТЗ-118, 119, 123). Проверка: cargo test engine:: Обязательно: Acquiring.started перезаписать deps.clock.now() (lock_step чистая, ставит ClockInstant::START — ОВС-10 п. 7, ТЗ-119); DeviceReappeared(d) вызывать только при d = устройство ReacquirePoint (lock_step точку не видит, §6.20).**
 - [ ] Шаг 35: Шаг 35: run.rs: разрешение устройства перед Acquire через resolve_device: AutoSelected → копия опций режима + EngineEvent::DeviceAutoSelected; None → Failed(NoDeviceSelected), ни acquire, ни SharedBackend::start + тесты ≤3 (§6.18, ADR-24, ТЗ-143, 144, 32). Проверка: cargo test engine::
 - [ ] Шаг 36: Шаг 36: run.rs: эффекты Release / StopPlayback / ForgetReacquire (UserClose, UserOpen, переход в Compatible) + тесты ≤3 (§6.19, ТЗ-120, 121). Проверка: cargo test engine::
 - [ ] Шаг 37: Шаг 37: app (engine_sink.rs/mod.rs): EngineEvent::DeviceAutoSelected → опции режима + запись settings.toml одной записью, SetModeSettings не отправляется, устройство другого режима не меняется + тест (ADR-24, ТЗ-143, ТЗ-134). Проверка: cargo test device_auto_selected
@@ -138,8 +138,8 @@
 
 Легенда: [x] сделано · [>] текущий шаг · [ ] не начато
 
-- **Текущий шаг (current_step):** Шаг 33
-- **Следующий ход:** Шаг 33: InternalMsg { ClaimDone, ReservationLost, RtPriority } в messages.rs + дренаж try_recv в run() (§2.8). Проверка: cargo test engine::. Свежий субагент code-writer sonnet.
+- **Текущий шаг (current_step):** Шаг 34
+- **Следующий ход:** Шаг 34: run.rs: EngineCmd::Lock → lock_step; Acquire через spawner → InternalMsg::ClaimDone → lock_step; EngineEvent::Lock + тесты ≤3 (§6.19, ТЗ-118, 119, 123). Снять #[allow(dead_code)] с Engine::internal_sender. Свежий субагент code-writer sonnet.
 - **Счетчик безуспешных компиляций:** 0/3
 - **Состояние:** in_progress
 

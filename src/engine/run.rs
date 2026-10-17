@@ -21,7 +21,7 @@ use crate::audio::player::{Player, ReservationEvent, StreamDesc};
 use crate::audio::verdict::{verdict, BadgeState, GainState};
 use crate::engine::deps::EngineDeps;
 use crate::engine::legacy_path::{legacy_audio, opened_facts_from_desc, shared_caps_from_desc, stream_format_from_desc};
-use crate::engine::messages::{EngineCmd, EngineEvent, LegacyAudio, Notice, SkipReason, TransportState};
+use crate::engine::messages::{EngineCmd, EngineEvent, InternalMsg, LegacyAudio, Notice, SkipReason, TransportState};
 use crate::persist::state_file::LegacyPlaybackState;
 use crate::settings::params::{ApplyKind, ModeSettingsDiff};
 use crate::settings::playback::{ModeKind, ModeSettings, PathPolicy, Volume};
@@ -221,6 +221,13 @@ struct Engine {
     /// исполняются старым путём, С6) и без открытого потока. Очищается во
     /// всех точках конца/отказа сессии — рядом с очисткой `self.current`.
     active_path: Option<ActivePath>,
+    /// Отправитель внутренних сообщений служебных потоков (§2.8, ADR-01):
+    /// клонируется для каждого служебного потока (резервирование §6.20,
+    /// открытие PCM §6.19, RT-приоритет §6.8 — проводка следующих шагов).
+    internal_tx: mpsc::Sender<InternalMsg>,
+    /// Приёмник внутренних сообщений (§2.8, ADR-01): вычитывается без
+    /// блокировки на каждой итерации цикла (`drain_internal`).
+    internal_rx: Receiver<InternalMsg>,
 }
 
 impl Engine {
@@ -228,6 +235,7 @@ impl Engine {
         let mut player = Player::new();
         player.set_spawner(Arc::clone(&deps.spawner));
         let player_volume = player.volume();
+        let (internal_tx, internal_rx) = mpsc::channel();
         Engine {
             player,
             deps,
@@ -246,14 +254,18 @@ impl Engine {
             caps,
             path_generation: 0,
             active_path: None,
+            internal_tx,
+            internal_rx,
         }
     }
 
     /// Цикл движка (§6.1): команда — сразу `handle`, тайм-аут 20 мс —
     /// следующая итерация; после каждой обработанной команды и на каждом
     /// тайм-ауте — опрос сессии `poll_session` (`Position`/`Transport`/
-    /// `Ended`/резервирование, §6.1 п. 1–5, И-Р13, ТЗ-60, ТЗ-102). Опрос не
-    /// выполняется после `Shutdown`/`Disconnected` — цикл уже завершается.
+    /// `Ended`/резервирование, §6.1 п. 1–5, И-Р13, ТЗ-60, ТЗ-102), затем
+    /// вычитка сообщений служебных потоков `drain_internal` (§2.8, ADR-01).
+    /// Ни опрос, ни вычитка не выполняются после `Shutdown`/`Disconnected` —
+    /// цикл уже завершается.
     ///
     /// Перед циклом (§6.2 п.3, ТЗ-104, ТЗ-105): запускается `DeviceWatcher` и
     /// выполняется первое перечисление устройств — UI должен получить ответ
@@ -276,7 +288,6 @@ impl Engine {
                 }
                 Err(RecvTimeoutError::Timeout) => {
                     self.poll_session();
-                    continue;
                 }
                 // UI исчез без Shutdown (§6.1): реагируем так же, как на Shutdown.
                 Err(RecvTimeoutError::Disconnected) => {
@@ -284,6 +295,43 @@ impl Engine {
                     break;
                 }
             }
+            self.drain_internal();
+        }
+    }
+
+    /// Отдельный отправитель внутренних сообщений для служебных потоков
+    /// (§2.8, ADR-01): клонируется, т.к. каждый служебный поток держит свою
+    /// копию. Используется проводкой следующих шагов (§6.19, §6.20, §6.8).
+    #[allow(dead_code)]
+    fn internal_sender(&self) -> mpsc::Sender<InternalMsg> {
+        self.internal_tx.clone()
+    }
+
+    /// Вычитывает все сообщения служебных потоков, пришедшие с прошлой
+    /// итерации (§2.8, ADR-01): `try_recv` в цикле до `Empty` — не блокирует
+    /// цикл движка. Канал не может быть отключён, пока `Engine` держит
+    /// `internal_tx` сам, поэтому `Disconnected` здесь не требует отдельной
+    /// обработки — цикл просто не находит сообщений.
+    fn drain_internal(&mut self) {
+        while let Ok(msg) = self.internal_rx.try_recv() {
+            self.handle_internal(msg);
+        }
+    }
+
+    /// Обрабатывает одно сообщение служебного потока (§2.8, ADR-01).
+    fn handle_internal(&mut self, msg: InternalMsg) {
+        match msg {
+            // Захват (если был получен) освобождается здесь же — `Drop`
+            // `DeviceClaim` закрывает PCM и снимает резервирование (§2.3,
+            // И-Р1), т.к. ни одна попытка `lock_step` ещё не ждёт ответа.
+            // Потребление результата замком приходит с его проводкой (§6.19,
+            // шаги 34/52/56).
+            InternalMsg::ClaimDone { .. } => {}
+            // Потеря резервирования вне захвата замка — обработка приходит с
+            // проводкой замка (§6.20).
+            InternalMsg::ReservationLost { .. } => {}
+            // Итог RT-приоритета не влияет на поведение движка (§6.8).
+            InternalMsg::RtPriority { .. } => {}
         }
     }
 
@@ -1122,5 +1170,33 @@ mod tests {
         let (unmuted, changed_back) = rebuild_with_gain(muted, &settings, GainState::Unity, 3);
         assert!(changed_back);
         assert_eq!(unmuted.badge, BadgeState::Shared(crate::audio::verdict::SharedBadge::Clean));
+    }
+
+    #[test]
+    fn drain_internal_consumes_all_pending_messages() {
+        let sink = VecSink::new();
+        let deps = fake_deps(Box::new(sink), Arc::new(StdSpawner));
+        let mut engine = Engine::new(deps, BackendCaps::current());
+        let tx = engine.internal_sender();
+        tx.send(InternalMsg::RtPriority { session: 1, granted: Some(5) }).expect("send ok");
+        tx.send(InternalMsg::ReservationLost { card: 2 }).expect("send ok");
+
+        engine.drain_internal();
+
+        assert!(matches!(engine.internal_rx.try_recv(), Err(mpsc::TryRecvError::Empty)));
+    }
+
+    #[test]
+    fn claim_done_for_unknown_attempt_is_ignored() {
+        let sink = VecSink::new();
+        let deps = fake_deps(Box::new(sink.clone()), Arc::new(StdSpawner));
+        let mut engine = Engine::new(deps, BackendCaps::current());
+
+        engine.handle_internal(InternalMsg::ClaimDone {
+            attempt: 42,
+            result: Err(CaptureFailure::NoDeviceSelected),
+        });
+
+        assert!(sink.take().is_empty());
     }
 }

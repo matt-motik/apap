@@ -156,7 +156,7 @@ steps:
     done: true
   - id: 33
     description: "Шаг 33: Внутренний канал движка InternalMsg { ClaimDone{attempt, result}, ReservationLost{card}, RtPriority{session, granted} } в messages.rs + приёмник в цикле run() (дренаж try_recv на каждой итерации) в run.rs (§2.8). Проверка: cargo test engine::"
-    done: false
+    done: true
   - id: 34
     description: "Шаг 34: run.rs: EngineCmd::Lock → lock_step; эффект Acquire — захват через spawner в служебном потоке → InternalMsg::ClaimDone → lock_step; эмиссия EngineEvent::Lock (Acquiring/Held/Failed) + тесты ≤3 на FakeExclusiveBackend (§6.19, ТЗ-118, 119, 123). Проверка: cargo test engine:: Обязательно: Acquiring.started перезаписать deps.clock.now() (lock_step чистая, ставит ClockInstant::START — ОВС-10 п. 7, ТЗ-119); DeviceReappeared(d) вызывать только при d = устройство ReacquirePoint (lock_step точку не видит, §6.20)."
     done: false
@@ -286,8 +286,8 @@ steps:
   - id: 76
     description: "Шаг 76: ФИНАЛ: cargo build/test/clippy зелёные; общие условия §8 (Совместимый играет, «Bit-perfect» только при ТЗ-52); ручные проверки в заметку плана: замок (ТЗ-1/2/48/118…122, AM1.0-8.1), B1 — возврат устройства в PipeWire после освобождения, B2 — текст «занято <владелец>» при чужом захвате"
     done: false
-current_step: 33
-next_action: "Шаг 33: InternalMsg { ClaimDone, ReservationLost, RtPriority } в messages.rs + дренаж try_recv в run() (§2.8). Проверка: cargo test engine::. Свежий субагент code-writer sonnet."
+current_step: 34
+next_action: "Шаг 34: run.rs: EngineCmd::Lock → lock_step; Acquire через spawner → InternalMsg::ClaimDone → lock_step; EngineEvent::Lock + тесты ≤3 (§6.19, ТЗ-118, 119, 123). Снять #[allow(dead_code)] с Engine::internal_sender. Свежий субагент code-writer sonnet."
 fail_counter: 0
 fail_counter_max: 3
 failed_attempts: []

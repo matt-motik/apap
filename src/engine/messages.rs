@@ -7,9 +7,10 @@ use std::path::Path;
 use std::sync::Arc;
 
 use crate::audio::backend::catalog::DeviceCatalog;
+use crate::audio::backend::exclusive::DeviceClaim;
 use crate::audio::backend::{BackendError, HwDeviceId};
 use crate::audio::decoder::TrackInfo;
-use crate::audio::error::{FileError, OpenError, Reaction};
+use crate::audio::error::{CaptureFailure, FileError, OpenError, Reaction};
 use crate::audio::format::StreamFormat;
 use crate::audio::path::signal::SignalPath;
 use crate::audio::path::Blocked;
@@ -186,11 +187,46 @@ pub enum EngineEvent {
     ShutdownComplete,
 }
 
+/// Сообщения служебных потоков движку (§2.8, ADR-01). Каждое несёт поколение
+/// попытки (`attempt`/`session`), чтобы движок отбрасывал ответы на
+/// отменённые операции.
+pub enum InternalMsg {
+    /// Имя `ReserveDevice1` потеряно (сигнал `NameLost`, ADR-08, И-Р20).
+    ReservationLost { card: u32 },
+    /// Итог открытия PCM после резервирования — поступает служебным потоком
+    /// захвата; потребление замком (`lock_step`) приходит с его проводкой
+    /// (§6.19, шаги 34/52/56).
+    ClaimDone { attempt: u64, result: Result<DeviceClaim, CaptureFailure> },
+    /// Итог RT-приоритета (§6.8): на поведение движка не влияет.
+    RtPriority { session: u64, granted: Option<u32> },
+}
+
+impl std::fmt::Debug for InternalMsg {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            InternalMsg::ReservationLost { card } => {
+                f.debug_struct("ReservationLost").field("card", card).finish()
+            }
+            InternalMsg::ClaimDone { attempt, result } => f
+                .debug_struct("ClaimDone")
+                .field("attempt", attempt)
+                .field("result", &result.as_ref().map(|_| "<claim>"))
+                .finish(),
+            InternalMsg::RtPriority { session, granted } => f
+                .debug_struct("RtPriority")
+                .field("session", session)
+                .field("granted", granted)
+                .finish(),
+        }
+    }
+}
+
 #[allow(dead_code)]
 const _: () = {
     fn assert_send<T: Send>() {}
     fn check() {
         assert_send::<EngineCmd>();
         assert_send::<EngineEvent>();
+        assert_send::<InternalMsg>();
     }
 };
