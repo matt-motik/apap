@@ -126,7 +126,7 @@ steps:
     done: true
   - id: 23
     description: "Шаг 23: AlsaExclusiveBackend::configure ч. 3: повторная конфигурация на удерживаемом PCM (смена частоты/«Буфера устройства»: drop → hw_free → configure без освобождения; неудача → LostOnReopen) (§6.7, §8 С6, ТЗ-131). Проверка: cargo check"
-    done: false
+    done: true
   - id: 24
     description: "Шаг 24: Новый src/audio/backend/alsa_out.rs ч. 1: чистая классификация ошибок записи errno → действие (EPIPE → xrun + prepare; ESTRPIPE → resume; ENODEV/EBADFD/EIO/ENXIO → DeviceUnavailable; прочее → BackendError) + тесты ≤5 (§6.7, ТЗ-51, 76). Проверка: cargo test alsa_out"
     done: false
@@ -277,8 +277,8 @@ steps:
   - id: 73
     description: "Шаг 73: ФИНАЛ: cargo build/test/clippy зелёные; общие условия §8 (Совместимый играет, «Bit-perfect» только при ТЗ-52); ручные проверки в заметку плана: замок (ТЗ-1/2/48/118…122, AM1.0-8.1), B1 — возврат устройства в PipeWire после освобождения, B2 — текст «занято <владелец>» при чужом захвате"
     done: false
-current_step: 23
-next_action: "Шаг 23: AlsaExclusiveBackend::configure ч. 3: повторная конфигурация на удерживаемом PCM (смена частоты/«Буфера устройства»: drop → hw_free → configure без освобождения; неудача → LostOnReopen) (§6.7, §8 С6, ТЗ-131). Проверка: cargo check. Свежий субагент code-writer sonnet."
+current_step: 24
+next_action: "Шаг 24: Новый src/audio/backend/alsa_out.rs ч. 1: чистая классификация ошибок записи errno → действие (EPIPE → xrun + prepare; ESTRPIPE → resume; ENODEV/EBADFD/EIO/ENXIO → DeviceUnavailable; прочее → BackendError) + тесты ≤5 (§6.7, ТЗ-51, 76). Проверка: cargo test alsa_out. Свежий субагент code-writer sonnet."
 fail_counter: 0
 fail_counter_max: 3
 failed_attempts: []

@@ -51,6 +51,16 @@ const FORMAT_MAP: [(alsa::pcm::Format, OutputSampleFormat); 5] = [
 #[derive(Debug, Default)]
 pub struct AlsaExclusiveBackend;
 
+/// Ошибка `reconfigure` держимого PCM при смене частоты (ТЗ-49) или «Буфера
+/// устройства» (ОВС-17, ТЗ-131, §6.7): `Configure` — `hw_params`/`sw_params`
+/// отказали без потери PCM, `Lost` — переоткрытие после такого отказа тоже
+/// не удалось (`CaptureFailure::LostOnReopen`).
+#[derive(Clone, PartialEq, Debug)]
+pub enum ReconfigureError {
+    Configure(ConfigureError),
+    Lost(CaptureFailure),
+}
+
 impl AlsaExclusiveBackend {
     pub fn new() -> AlsaExclusiveBackend {
         AlsaExclusiveBackend
@@ -199,6 +209,53 @@ impl AlsaExclusiveBackend {
         apply_sw_params(pcm, period_frames, buffer_frames)?;
 
         Ok(build_driver_format(fmt, read, requested_period_frames, requested_buffer_frames))
+    }
+
+    /// Переконфигурация держимого PCM при смене частоты (ТЗ-49) или «Буфера
+    /// устройства» (ОВС-17, ТЗ-131): `pcm.drop()` сбрасывает незавершённый
+    /// поток, затем на том же PCM без закрытия повторяются шаги `configure`
+    /// (§6.7). Крейт `alsa` 0.11 не оборачивает `snd_pcm_hw_free`: после
+    /// `drop()` PCM переходит в `SETUP`, а не `OPEN`, но `hw_params()`
+    /// переустанавливает полный набор параметров и из `SETUP` — отдельный
+    /// вызов `hw_free()` не нужен для результата, который требует спецификация
+    /// (новые hw_params/sw_params на том же PCM). Если `hw_params` всё же
+    /// отказал без закрытия PCM — PCM закрывается (`claim.pcm_mut()` → `None`)
+    /// и открывается заново под тем же резервированием через цикл OPEN (§6.6,
+    /// `OPEN_EBUSY_DEADLINE`); резервирование всё это время остаётся в
+    /// `claim` и этой функцией не трогается — она не извлекает и не снимает
+    /// его, снятие (если переоткрытие не удалось) — задача вызывающей стороны
+    /// вместе с освобождением всего `claim` (И-Р1, порядок полей
+    /// `DeviceClaim`). Любой отказ переоткрытия возвращается как
+    /// `CaptureFailure::LostOnReopen` (§6.7) независимо от конкретного errno —
+    /// в отличие от первого захвата (`acquire`), здесь устройство уже было
+    /// открыто и для вызывающей стороны важен только факт потери. Отказ
+    /// `configure` после успешного переоткрытия спецификацией отдельно не
+    /// определён — возвращается как обычный `Configure`.
+    pub fn reconfigure(
+        &mut self,
+        claim: &mut DeviceClaim,
+        fmt: StreamFormat,
+        buffer: DeviceBuffer,
+    ) -> Result<(DriverFormat, Option<DeviceBufferActual>), ReconfigureError> {
+        {
+            let Some(handle) = claim.pcm_mut().as_ref() else {
+                return Err(ReconfigureError::Configure(ConfigureError(
+                    "reconfigure вызван без открытого PCM (acquire не выполнен, §6.7)".to_string(),
+                )));
+            };
+            handle.pcm().drop().map_err(|e| ReconfigureError::Configure(configure_refused(e)))?;
+        }
+
+        if let Ok(result) = self.configure(claim, fmt, buffer) {
+            return Ok(result);
+        }
+
+        let dev = claim.info().device.clone();
+        *claim.pcm_mut() = None;
+        let pcm = reopen_pcm(&dev).map_err(|_| ReconfigureError::Lost(CaptureFailure::LostOnReopen))?;
+        *claim.pcm_mut() = Some(PcmHandle::new(pcm));
+
+        self.configure(claim, fmt, buffer).map_err(ReconfigureError::Configure)
     }
 }
 
@@ -367,45 +424,69 @@ fn build_driver_format(
     }
 }
 
-/// Цикл OPEN (§6.6, ТЗ-48, ТЗ-49, ТЗ-122): `EBUSY` повторяется с шагом
+/// Ядро цикла OPEN (§6.6, ТЗ-48, ТЗ-49, ТЗ-122): `EBUSY` повторяется с шагом
 /// `OPEN_RETRY_STEP`, пока `clock.now()` не достигнет дедлайна
 /// `OPEN_EBUSY_DEADLINE` от момента вызова, иначе — отказ
 /// `BusyOutsideProtocol`; `ENOENT`/`ENODEV` — устройство отключено,
-/// `DeviceDisconnected`; любой другой errno — `DriverRefused`.
-/// Резервирование при любом отказе явно снимается (`drop`) до возврата —
-/// bug AM1.0-B1 был вызван тем, что старый путь мог оставить резервирование
-/// удержанным без открытого PCM (устройство не возвращалось PipeWire); здесь
-/// `reservation` либо переходит в успешный результат вместе с открытым `P`,
-/// либо снимается в той же ветке, что возвращает отказ. `clock`/`sleep`/`open`
+/// `DeviceDisconnected`; любой другой errno — `DriverRefused`. Без знания о
+/// резервировании — общее между первым захватом (`open_claimed`) и
+/// переоткрытием при `reconfigure` (`reopen_pcm`, §6.7), которые по-разному
+/// решают, что делать с резервированием при отказе. `clock`/`sleep`/`open`
 /// инжектируются (ADR-20): тест на дедлайн 1 с не ждёт реальное время. `P` —
-/// открытый хэндл (в проде `alsa::PCM`, в тестах — фейк); функция не строит
+/// открытый хэндл (в проде `alsa::PCM`, в тестах — фейк).
+fn open_retry<P>(
+    clock: &dyn Clock,
+    mut sleep: impl FnMut(Duration),
+    mut open: impl FnMut() -> Result<P, i32>,
+) -> Result<P, CaptureFailure> {
+    let deadline = clock.now().saturating_add(OPEN_EBUSY_DEADLINE);
+    loop {
+        match open() {
+            Ok(pcm) => return Ok(pcm),
+            Err(errno) if errno == libc::EBUSY && clock.now() < deadline => sleep(OPEN_RETRY_STEP),
+            Err(errno) if errno == libc::EBUSY => return Err(CaptureFailure::BusyOutsideProtocol),
+            Err(errno) if errno == libc::ENOENT || errno == libc::ENODEV => return Err(CaptureFailure::DeviceDisconnected),
+            Err(errno) => return Err(CaptureFailure::DriverRefused { errno }),
+        }
+    }
+}
+
+/// Первый захват `hw:` после резервирования (§6.6, ТЗ-48, ТЗ-49, ТЗ-122):
+/// оборачивает `open_retry`, явно снимая резервирование (`drop`) при любом
+/// отказе до возврата — bug AM1.0-B1 был вызван тем, что старый путь мог
+/// оставить резервирование удержанным без открытого PCM (устройство не
+/// возвращалось PipeWire). `reservation` либо переходит в успешный результат
+/// вместе с открытым `P`, либо снимается здесь же. Функция не строит
 /// `DeviceClaim` сама, это делает вызывающая сторона на успехе.
 #[allow(dead_code)]
 fn open_claimed<P>(
     reservation: Reservation,
     clock: &dyn Clock,
-    mut sleep: impl FnMut(Duration),
-    mut open: impl FnMut() -> Result<P, i32>,
+    sleep: impl FnMut(Duration),
+    open: impl FnMut() -> Result<P, i32>,
 ) -> Result<(P, Reservation), CaptureFailure> {
-    let deadline = clock.now().saturating_add(OPEN_EBUSY_DEADLINE);
-    loop {
-        match open() {
-            Ok(pcm) => return Ok((pcm, reservation)),
-            Err(errno) if errno == libc::EBUSY && clock.now() < deadline => sleep(OPEN_RETRY_STEP),
-            Err(errno) if errno == libc::EBUSY => {
-                drop(reservation);
-                return Err(CaptureFailure::BusyOutsideProtocol);
-            }
-            Err(errno) if errno == libc::ENOENT || errno == libc::ENODEV => {
-                drop(reservation);
-                return Err(CaptureFailure::DeviceDisconnected);
-            }
-            Err(errno) => {
-                drop(reservation);
-                return Err(CaptureFailure::DriverRefused { errno });
-            }
+    match open_retry(clock, sleep, open) {
+        Ok(pcm) => Ok((pcm, reservation)),
+        Err(e) => {
+            drop(reservation);
+            Err(e)
         }
     }
+}
+
+/// Переоткрытие `hw:` того же устройства при `reconfigure` после отказа
+/// `hw_params` на держимом PCM (§6.7, ТЗ-49): то же ядро `open_retry`, что и
+/// у первого захвата, но без резервирования — оно всё это время остаётся в
+/// `DeviceClaim` вызывающей стороны (`reconfigure` его не трогает) и не
+/// снимается здесь при отказе (И-Р1: снимается вместе со всем `claim`, не
+/// раньше). Выполняется в служебном потоке захвата — блокирующий `PCM::new`
+/// и реальный `sleep` здесь допустимы (не аудио-колбэк).
+fn reopen_pcm(dev: &HwDeviceId) -> Result<alsa::PCM, CaptureFailure> {
+    let hw_name = dev.as_str().to_string();
+    let clock = MonotonicClock::new();
+    open_retry(&clock, std::thread::sleep, || {
+        alsa::PCM::new(&hw_name, alsa::Direction::Playback, false).map_err(|e| e.errno())
+    })
 }
 
 /// Номер карты ALSA из `HwDeviceId` (`hw:CARD=<id>,DEV=<d>`, §6.6, ТЗ-126):
@@ -643,5 +724,50 @@ mod tests {
             calls.iter().position(|c| *c == BusCall::ReleaseName { card: 7 }).expect("ReleaseName записан");
         let unexport_at = calls.iter().position(|c| *c == BusCall::Unexport { card: 7 }).expect("Unexport записан");
         assert!(release_at < unexport_at, "И-Р1/AM1.0-B1: ReleaseName должен предшествовать Unexport");
+    }
+
+    #[test]
+    fn alsa_reconfigure_retry_core_retries_ebusy_then_succeeds() {
+        let clock = ManualClock::new();
+        let mut attempts = 0;
+        let result: Result<i32, CaptureFailure> = open_retry(&clock, |d| clock.advance(d), || {
+            attempts += 1;
+            if attempts < 3 {
+                Err(libc::EBUSY)
+            } else {
+                Ok(42)
+            }
+        });
+
+        assert_eq!(result, Ok(42));
+        assert_eq!(attempts, 3);
+    }
+
+    #[test]
+    fn alsa_reconfigure_retry_core_ebusy_past_deadline_is_busy_outside_protocol() {
+        let clock = ManualClock::new();
+        let result: Result<i32, CaptureFailure> = open_retry(&clock, |d| clock.advance(d), || Err(libc::EBUSY));
+
+        assert_eq!(result, Err(CaptureFailure::BusyOutsideProtocol));
+    }
+
+    #[test]
+    fn alsa_reconfigure_without_open_pcm_returns_configure_error() {
+        let clock = ManualClock::new();
+        let fake = FakeReserveBus::new(clock.clone(), FakeOwner::Free);
+        let bus: Arc<dyn ReserveBus> = Arc::new(fake.clone());
+        let reservation = held(&bus);
+        let dev: HwDeviceId = "hw:CARD=7,DEV=0".parse().unwrap();
+        let mut claim = DeviceClaim::new(None, reservation, ClaimInfo { device: dev });
+        let mut backend = AlsaExclusiveBackend::new();
+        let fmt = StreamFormat {
+            rate: SampleRate::new(44_100).unwrap(),
+            sample: OutputSampleFormat::S16Le,
+            channels: NonZeroU8::new(2).unwrap(),
+        };
+
+        let result = backend.reconfigure(&mut claim, fmt, DeviceBuffer::Ms40);
+
+        assert!(matches!(result, Err(ReconfigureError::Configure(_))));
     }
 }
