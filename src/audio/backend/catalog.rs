@@ -3,6 +3,7 @@
 //! событию `DeviceWatcher` или по команде «Обновить» и обновляет каталог.
 #![deny(clippy::unwrap_used, clippy::expect_used, clippy::unreachable)]
 
+use super::exclusive::ExclusiveBackend;
 use super::shared::SharedBackend;
 use super::{BackendError, HwDeviceId, SharedDeviceId, SharedDeviceInfo};
 use crate::audio::reservation::SinkCard;
@@ -51,6 +52,21 @@ impl DeviceCatalog {
         Ok(true)
     }
 
+    /// Перечисляет аппаратные устройства Exclusive-бэкенда один раз и, если
+    /// список изменился, заменяет `hw` и увеличивает `generation` (§2.3,
+    /// ADR-24, ТЗ-42). Сравнение — по последовательности `(id, card, device,
+    /// name)`, так как `HwDeviceInfo` не реализует `PartialEq`. При ошибке
+    /// каталог не изменяется — симметрично `refresh`.
+    pub fn refresh_hw(&mut self, backend: &mut dyn ExclusiveBackend) -> Result<bool, BackendError> {
+        let devices = backend.enumerate()?;
+        if hw_devices_match(&self.hw, &devices) {
+            return Ok(false);
+        }
+        self.hw = devices;
+        self.generation = self.generation.wrapping_add(1);
+        Ok(true)
+    }
+
     pub fn find(&self, id: &SharedDeviceId) -> Option<&SharedDeviceInfo> {
         self.shared.iter().find(|dev| &dev.id == id)
     }
@@ -78,6 +94,13 @@ fn devices_match(a: &[SharedDeviceInfo], b: &[SharedDeviceInfo]) -> bool {
         && a.iter()
             .zip(b.iter())
             .all(|(x, y)| x.id == y.id && x.name == y.name && x.is_default == y.is_default)
+}
+
+fn hw_devices_match(a: &[HwDeviceInfo], b: &[HwDeviceInfo]) -> bool {
+    a.len() == b.len()
+        && a.iter()
+            .zip(b.iter())
+            .all(|(x, y)| x.id == y.id && x.card == y.card && x.device == y.device && x.name == y.name)
 }
 
 /// Наблюдатель подключения/отключения устройств (ADR-16, ТЗ-105): на Linux —
@@ -156,6 +179,7 @@ const _: fn() = || {
 mod tests {
     use super::*;
     use crate::audio::backend::shared::{fake_device, FakeSharedBackend};
+    use crate::audio::testing::FakeExclusiveBackend;
     use std::sync::atomic::{AtomicUsize, Ordering};
 
     #[test]
@@ -280,5 +304,45 @@ mod tests {
         let catalog = DeviceCatalog { hw: vec![fake_hw("hw:CARD=PCH,DEV=0", 0, 0, "PCH 0")], ..Default::default() };
 
         assert!(catalog.hw_for_sink(SinkCard { card: 5, device: None }).is_none());
+    }
+
+    #[test]
+    fn refresh_hw_bumps_generation_only_on_change() {
+        let mut catalog = DeviceCatalog::default();
+        let mut backend = FakeExclusiveBackend::new()
+            .with_enumerate(Ok(vec![fake_hw("hw:CARD=PCH,DEV=0", 0, 0, "PCH 0"), fake_hw("hw:CARD=USB,DEV=0", 1, 0, "USB 0")]));
+
+        assert!(catalog.refresh_hw(&mut backend).expect("refresh 1 ok"));
+        assert_eq!(catalog.generation, 1);
+        assert_eq!(catalog.hw.len(), 2);
+
+        let mut same_backend = FakeExclusiveBackend::new().with_enumerate(Ok(vec![
+            fake_hw("hw:CARD=PCH,DEV=0", 0, 0, "PCH 0"),
+            fake_hw("hw:CARD=USB,DEV=0", 1, 0, "USB 0"),
+        ]));
+        assert!(!catalog.refresh_hw(&mut same_backend).expect("refresh 2 ok"));
+        assert_eq!(catalog.generation, 1);
+
+        let mut changed_backend =
+            FakeExclusiveBackend::new().with_enumerate(Ok(vec![fake_hw("hw:CARD=PCH,DEV=0", 0, 0, "PCH 0")]));
+        assert!(catalog.refresh_hw(&mut changed_backend).expect("refresh 3 ok"));
+        assert_eq!(catalog.generation, 2);
+        assert_eq!(catalog.hw.len(), 1);
+    }
+
+    #[test]
+    fn refresh_hw_error_keeps_state() {
+        let mut catalog = DeviceCatalog::default();
+        let mut backend =
+            FakeExclusiveBackend::new().with_enumerate(Ok(vec![fake_hw("hw:CARD=PCH,DEV=0", 0, 0, "PCH 0")]));
+        assert!(catalog.refresh_hw(&mut backend).expect("refresh ok"));
+        let generation = catalog.generation;
+        let hw_len = catalog.hw.len();
+
+        let mut err_backend =
+            FakeExclusiveBackend::new().with_enumerate(Err(BackendError::Unavailable("no host".to_string())));
+        assert!(catalog.refresh_hw(&mut err_backend).is_err());
+        assert_eq!(catalog.generation, generation);
+        assert_eq!(catalog.hw.len(), hw_len);
     }
 }
