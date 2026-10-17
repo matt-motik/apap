@@ -3,6 +3,7 @@
 
 pub mod deps;
 pub mod legacy_path;
+pub mod lock;
 pub mod messages;
 pub mod run;
 pub mod sink;

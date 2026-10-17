@@ -69,8 +69,8 @@
 - [x] Шаг 8: Шаг 8: Новый src/audio/backend/exclusive.rs: трейт ExclusiveBackend (caps/enumerate/acquire/device_caps/configure/start), DeviceClaim (порядок полей = порядок освобождения: pcm до reservation, И-Р1), ClaimInfo, PcmHandle, StreamHandle::stop(self: Box<Self>), ExclusiveRender (+ ExclusivePcm<G>/DopRenderAny/OptimalRender/StrictRender — стирание типа ring/формата, §2.9), ConfigureError, StartError (§2.3, ТЗ-117…123). Только типы. Проверка: cargo check
 - [x] Шаг 9: Шаг 9: FakeExclusiveBackend (сценарные результаты acquire/configure/start, журнал вызовов, фиксация порядка release) в audio/testing/mod.rs + 2 теста самого фейка (§7.1, ТЗ-114). Проверка: cargo test fake_exclusive
 - [x] Шаг 10: Шаг 10: TrackRef { id: TrackId, path: Arc<Path> } в src/engine/messages.rs — только тип; сигнатуры моста С3 не меняются (§2.8, нужен ReacquirePoint §2.6). Проверка: cargo check
-- [>] **Шаг 11: Шаг 11: Новый src/engine/lock.rs: типы LockState, LockInput, LockEffect, ReacquirePoint { device, track: TrackRef, frame } (§2.6). Только типы. Проверка: cargo check**
-- [ ] Шаг 12: Шаг 12: Функция lock_step(state, input, mode, dev: Option<&HwDeviceId>) -> (LockState, SmallVec<[LockEffect;2]>) по таблице §6.19 в engine/lock.rs (ТЗ-118…123, 125, 126, 144). Проверка: cargo check
+- [x] Шаг 11: Шаг 11: Новый src/engine/lock.rs: типы LockState, LockInput, LockEffect, ReacquirePoint { device, track: TrackRef, frame } (§2.6). Только типы. Проверка: cargo check
+- [>] **Шаг 12: Шаг 12: Функция lock_step(state, input, mode, dev: Option<&HwDeviceId>) -> (LockState, SmallVec<[LockEffect;2]>) по таблице §6.19 в engine/lock.rs (ТЗ-118…123, 125, 126, 144). Проверка: cargo check**
 - [ ] Шаг 13: Шаг 13: Тесты lock_step ч. 1: lock_step_is_total (каждая пара состояние×вход), Compatible → NotApplicable, no_device_selected_* (Acquire без устройства → Failed(NoDeviceSelected), эффектов нет) — ≤5 (§7.2, ТЗ-144). Проверка: cargo test lock_step
 - [ ] Шаг 14: Шаг 14: Тесты lock_step ч. 2: UserClose/UserOpen/CaptureAndPlay/DeviceLost/DeviceReappeared/RetryCapture — ≤5 (§7.2, ТЗ-120…126). Проверка: cargo test lock_step
 - [ ] Шаг 15: Шаг 15: Чистая функция resolve_device(opts_device, probe, catalog) -> Resolved { Selected | AutoSelected(HwDeviceId) | None } в engine/lock.rs; выбранное устройство — без опроса probe (счётчик FakeServerProbe = 0) + тесты ≤4 (ADR-24, ТЗ-143, 144). Проверка: cargo test resolve_device
@@ -135,8 +135,8 @@
 
 Легенда: [x] сделано · [>] текущий шаг · [ ] не начато
 
-- **Текущий шаг (current_step):** Шаг 11
-- **Следующий ход:** Шаг 11: Новый src/engine/lock.rs: типы LockState, LockInput, LockEffect, ReacquirePoint { device, track: TrackRef, frame } (§2.6). Только типы. Проверка: cargo check. Свежий субагент code-writer sonnet.
+- **Текущий шаг (current_step):** Шаг 12
+- **Следующий ход:** Шаг 12: Функция lock_step(state, input, mode, dev: Option<&HwDeviceId>) -> (LockState, SmallVec<[LockEffect;2]>) по таблице §6.19 в engine/lock.rs (ТЗ-118…123, 125, 126, 144). Проверка: cargo check. Свежий субагент code-writer sonnet.
 - **Счетчик безуспешных компиляций:** 0/3
 - **Состояние:** in_progress
 
