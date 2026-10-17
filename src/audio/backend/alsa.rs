@@ -5,13 +5,15 @@
 #![deny(clippy::unwrap_used, clippy::expect_used, clippy::unreachable)]
 
 use std::num::NonZeroU8;
-use std::sync::Arc;
+use std::sync::atomic::AtomicBool;
+use std::sync::{mpsc, Arc, Mutex};
 use std::time::Duration;
 
 use smallvec::SmallVec;
 
+use super::alsa_out;
 use super::catalog::HwDeviceInfo;
-use super::exclusive::{ClaimInfo, ConfigureError, DeviceClaim, PcmHandle};
+use super::exclusive::{ClaimInfo, ConfigureError, DeviceClaim, ExclusiveRender, PcmHandle, StartError, StreamHandle};
 use super::{
     AccessKind, BackendCaps, BackendError, DeviceBufferActual, DeviceCaps, DriverFormat, HwDeviceId, OutputApi, RateSet,
 };
@@ -20,6 +22,7 @@ use crate::audio::error::CaptureFailure;
 use crate::audio::format::{OutputSampleFormat, SampleRate, StreamFormat};
 use crate::audio::reservation::dbus::{alsa_card_index, DbusReserveBus, SystemServerProbe};
 use crate::audio::reservation::{self, LostNotify, Reservation, ReserveBus};
+use crate::audio::session::SessionShared;
 use crate::settings::playback::DeviceBuffer;
 
 /// Дедлайн ожидания `EBUSY` при открытии `hw:` от момента вызова OPEN (§6.6,
@@ -257,6 +260,50 @@ impl AlsaExclusiveBackend {
 
         self.configure(claim, fmt, buffer).map_err(ReconfigureError::Configure)
     }
+
+    /// Поток вывода над захваченным PCM (§2.3, §6.7, ТЗ-51, ТЗ-76, ТЗ-112):
+    /// PCM целиком переходит в поток `apap-alsa-out` (`alsa_out::spawn_output_thread`)
+    /// до вызова `StreamHandle::stop` у возвращённого хендла. Трейт
+    /// `StreamHandle::stop(self: Box<Self>)` не параметризован `claim`
+    /// (`exclusive.rs`), поэтому PCM возвращается через второй элемент пары —
+    /// `PcmReturnSlot`, общий с хендлом: `stop()` кладёт туда PCM после
+    /// `join()`, а вызывающая сторона этого метода переносит его оттуда в
+    /// `claim.pcm_mut()`. Вся проверяемая логика (байт на сэмпл, размер
+    /// периода, таймаут `wait`) выполняется до `claim.pcm_mut().take()` —
+    /// при любом отказе до запуска потока PCM остаётся в `claim`, а не
+    /// теряется; отказ самого `spawn` (ОС не создала поток) — вне этого
+    /// гарантии, см. `alsa_out::spawn_output_thread`.
+    pub fn start(
+        &mut self,
+        claim: &mut DeviceClaim,
+        render: ExclusiveRender,
+        fmt: StreamFormat,
+        period_frames: u32,
+        shared: Arc<SessionShared>,
+    ) -> Result<(Box<dyn StreamHandle>, alsa_out::PcmReturnSlot), StartError> {
+        let bytes_per_sample = bytes_per_sample(fmt.sample)?;
+        let period_bytes = alsa_out::period_buffer_bytes(period_frames, bytes_per_sample, fmt.channels)
+            .ok_or_else(|| StartError("размер периода переполняет буфер (§6.7, ТЗ-112)".to_string()))?;
+        let wait_timeout_ms = alsa_out::wait_timeout_ms(period_frames, fmt.rate.hz())
+            .ok_or_else(|| StartError("таймаут wait переполнен или частота равна нулю (§6.7)".to_string()))?;
+
+        let Some(pcm) = claim.pcm_mut().take() else {
+            return Err(StartError("start вызван без открытого PCM (acquire не выполнен, §6.7)".to_string()));
+        };
+
+        let stop = Arc::new(AtomicBool::new(false));
+        let pcm_slot: alsa_out::PcmReturnSlot = Arc::new(Mutex::new(None));
+        let (tid_tx, tid_rx) = mpsc::channel();
+
+        let timing = alsa_out::LoopTiming { period_frames, period_bytes, wait_timeout_ms };
+        let join = match alsa_out::spawn_output_thread(pcm, render, timing, shared, Arc::clone(&stop), tid_tx) {
+            Ok(join) => join,
+            Err(e) => return Err(StartError(format!("не удалось создать поток apap-alsa-out: {e}"))),
+        };
+
+        let handle = alsa_out::AlsaStreamHandle::new(stop, join, Arc::clone(&pcm_slot), tid_rx);
+        Ok((Box::new(handle), pcm_slot))
+    }
 }
 
 /// hw_params Exclusive-потока: доступ `RW_INTERLEAVED`, формат, число
@@ -292,6 +339,17 @@ fn alsa_format(sample: OutputSampleFormat) -> Result<alsa::pcm::Format, Configur
         .find(|(_, out)| *out == sample)
         .map(|(alsa_fmt, _)| *alsa_fmt)
         .ok_or_else(|| ConfigureError(format!("формат {sample:?} не найден в FORMAT_MAP")))
+}
+
+/// Байт на сэмпл формата устройства (§6.7, ТЗ-112): ширина контейнера ALSA
+/// (`physical_width`, в битах) формата из `alsa_format`, а не значащих бит
+/// (`width`) — например, `S243LE` занимает контейнер 32 бита при 24
+/// значащих. Нужен для размера буфера периода потока вывода (§6.7).
+fn bytes_per_sample(sample: OutputSampleFormat) -> Result<u32, StartError> {
+    let fmt = alsa_format(sample).map_err(|e| StartError(e.0))?;
+    let bits = fmt.physical_width().map_err(|e| StartError(e.to_string()))?;
+    let bits = u32::try_from(bits).map_err(|_| StartError(format!("ширина формата {sample:?} отрицательна (§6.7)")))?;
+    Ok(bits / 8)
 }
 
 /// Период и буфер в микросекундах для `period_time_near`/`buffer_time_near`
