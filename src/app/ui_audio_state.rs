@@ -289,11 +289,17 @@ impl UiAudioState {
                 self.badge.set(badge);
                 Applied::None
             }
+            // Состояние замка не отражается в `UiAudioState` на этом шаге —
+            // проводка приходит вместе с `lock_step` (§2.6, §2.8, §6.19).
+            EngineEvent::Lock(_state) => Applied::None,
             EngineEvent::DeviceLost { reaction } => Applied::DeviceLost(reaction),
             EngineEvent::Devices(catalog) => {
                 self.devices.set(DeviceSnapshot(catalog));
                 Applied::None
             }
+            // Автовыбор сохраняется приложением в настройках (ТЗ-143,
+            // ADR-24) — проводка приходит отдельным шагом.
+            EngineEvent::DeviceAutoSelected { .. } => Applied::None,
             EngineEvent::Notice(notice) => {
                 // Движок публикует только терминальные `Notice::Reservation`
                 // без фильтра по `req_gen` (ТЗ-56, ADR-02) — та же очередь,

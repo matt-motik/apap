@@ -436,6 +436,8 @@ impl Engine {
                 self.player.set_muted(m);
                 self.refresh_path_gain();
             }
+            // Обработчик приходит вместе с проводкой `lock_step` (§6.19, шаг 34).
+            EngineCmd::Lock(_input) => {}
             EngineCmd::SetDevice { id } => {
                 let (req_gen, path) = match &self.current {
                     Some((gen, path)) => (*gen, Some(path.as_ref())),

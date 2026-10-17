@@ -7,7 +7,7 @@ use std::path::Path;
 use std::sync::Arc;
 
 use crate::audio::backend::catalog::DeviceCatalog;
-use crate::audio::backend::BackendError;
+use crate::audio::backend::{BackendError, HwDeviceId};
 use crate::audio::decoder::TrackInfo;
 use crate::audio::error::{FileError, OpenError, Reaction};
 use crate::audio::format::StreamFormat;
@@ -15,6 +15,7 @@ use crate::audio::path::signal::SignalPath;
 use crate::audio::path::Blocked;
 use crate::audio::player::ReservationEvent;
 use crate::audio::verdict::BadgeState;
+use crate::engine::lock::{LockInput, LockState};
 use crate::playlist::model::TrackId;
 use crate::settings::params::ModeSettingsUpdate;
 use crate::settings::playback::ModeKind;
@@ -60,6 +61,8 @@ pub enum EngineCmd {
     Seek { secs: f64 },
     SetVolume(f32),
     SetMuted(bool),
+    /// Команда замка устройства режима из главного окна (§2.8, §6.19).
+    Lock(LockInput),
     /// Выбор устройства вывода; позиция/трек переоткрытия — у движка.
     SetDevice { id: String },
     RefreshDevices,
@@ -99,6 +102,7 @@ impl std::fmt::Debug for EngineCmd {
             EngineCmd::Seek { secs } => f.debug_struct("Seek").field("secs", secs).finish(),
             EngineCmd::SetVolume(v) => f.debug_tuple("SetVolume").field(v).finish(),
             EngineCmd::SetMuted(m) => f.debug_tuple("SetMuted").field(m).finish(),
+            EngineCmd::Lock(input) => f.debug_tuple("Lock").field(input).finish(),
             EngineCmd::SetDevice { id } => f.debug_struct("SetDevice").field("id", id).finish(),
             EngineCmd::RefreshDevices => write!(f, "RefreshDevices"),
             EngineCmd::SetVizTap(on) => f.debug_tuple("SetVizTap").field(on).finish(),
@@ -170,10 +174,14 @@ pub enum EngineEvent {
     /// Бейдж пересчитан после перестройки пути (громкость/mute) и отправлен
     /// только при изменении вердикта (ТЗ-60, §4.3).
     BadgeChanged(BadgeState),
+    /// Состояние замка устройства режима (§2.8, §6.19, ТЗ-118).
+    Lock(LockState),
     DeviceLost { reaction: Reaction },
     /// Каталог устройств после перечисления (ТЗ-104, ТЗ-105, ADR-16, §6.2 п.3):
     /// шлётся при старте движка и затем только при изменении списка.
     Devices(Arc<DeviceCatalog>),
+    /// Автовыбор устройства режима (ТЗ-143, ADR-24); приложение сохраняет его в настройках.
+    DeviceAutoSelected { mode: ModeKind, device: HwDeviceId },
     Notice(Notice),
     ShutdownComplete,
 }

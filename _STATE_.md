@@ -90,8 +90,8 @@
 - [x] Шаг 29: Шаг 29: rt.rs ч. 2: request_realtime(tid, prio, done) — служебный поток вызывает org.freedesktop.RealtimeKit1.MakeThreadRealtime(tid, prio) на системной шине, итог Option<u32> (Some(prio) / None) отдаётся колбэком done; TID приходит готовым (ожидание TID ≤ 100 мс — в start, шаг 51) (§6.8 п. 3, ТЗ-99, ТЗ-76). Проверка: cargo check
 - [x] Шаг 30: Шаг 30: ЧЕКПОИНТ: полный cargo test + cargo clippy --all-targets
 - [x] Шаг 31: Шаг 31: EngineDeps: поля exclusive: Box<dyn ExclusiveBackend>, server_probe (если ещё нет) в deps.rs; EngineDeps::system (AlsaExclusiveBackend) и фейковые сборки в deps.rs/engine/tests.rs (§2.7, §8 таблица EngineDeps). Общий тип → Проверка: полный cargo test
-- [>] **Шаг 32: Шаг 32: messages.rs: EngineCmd::Lock(LockInput), EngineEvent::Lock(LockState), EngineEvent::DeviceAutoSelected { mode, device } (§2.8, ADR-24); обработчики-заглушки не нужны — app игнорирует новые события через существующий `_ =>` (проверить). Общий тип → Проверка: полный cargo test**
-- [ ] Шаг 33: Шаг 33: Внутренний канал движка InternalMsg { ClaimDone{attempt, result}, ReservationLost{card}, RtPriority{session, granted} } в messages.rs + приёмник в цикле run() (дренаж try_recv на каждой итерации) в run.rs (§2.8). Проверка: cargo test engine::
+- [x] Шаг 32: Шаг 32: messages.rs: EngineCmd::Lock(LockInput), EngineEvent::Lock(LockState), EngineEvent::DeviceAutoSelected { mode, device } (§2.8, ADR-24); обработчики-заглушки не нужны — app игнорирует новые события через существующий `_ =>` (проверить). Общий тип → Проверка: полный cargo test
+- [>] **Шаг 33: Шаг 33: Внутренний канал движка InternalMsg { ClaimDone{attempt, result}, ReservationLost{card}, RtPriority{session, granted} } в messages.rs + приёмник в цикле run() (дренаж try_recv на каждой итерации) в run.rs (§2.8). Проверка: cargo test engine::**
 - [ ] Шаг 34: Шаг 34: run.rs: EngineCmd::Lock → lock_step; эффект Acquire — захват через spawner в служебном потоке → InternalMsg::ClaimDone → lock_step; эмиссия EngineEvent::Lock (Acquiring/Held/Failed) + тесты ≤3 на FakeExclusiveBackend (§6.19, ТЗ-118, 119, 123). Проверка: cargo test engine:: Обязательно: Acquiring.started перезаписать deps.clock.now() (lock_step чистая, ставит ClockInstant::START — ОВС-10 п. 7, ТЗ-119); DeviceReappeared(d) вызывать только при d = устройство ReacquirePoint (lock_step точку не видит, §6.20).
 - [ ] Шаг 35: Шаг 35: run.rs: разрешение устройства перед Acquire через resolve_device: AutoSelected → копия опций режима + EngineEvent::DeviceAutoSelected; None → Failed(NoDeviceSelected), ни acquire, ни SharedBackend::start + тесты ≤3 (§6.18, ADR-24, ТЗ-143, 144, 32). Проверка: cargo test engine::
 - [ ] Шаг 36: Шаг 36: run.rs: эффекты Release / StopPlayback / ForgetReacquire (UserClose, UserOpen, переход в Compatible) + тесты ≤3 (§6.19, ТЗ-120, 121). Проверка: cargo test engine::
@@ -138,8 +138,8 @@
 
 Легенда: [x] сделано · [>] текущий шаг · [ ] не начато
 
-- **Текущий шаг (current_step):** Шаг 32
-- **Следующий ход:** Шаг 32: messages.rs: EngineCmd::Lock(LockInput), EngineEvent::Lock(LockState), EngineEvent::DeviceAutoSelected { mode, device } (§2.8, ADR-24). Общий тип → Проверка: полный cargo test. Свежий субагент code-writer sonnet.
+- **Текущий шаг (current_step):** Шаг 33
+- **Следующий ход:** Шаг 33: InternalMsg { ClaimDone, ReservationLost, RtPriority } в messages.rs + дренаж try_recv в run() (§2.8). Проверка: cargo test engine::. Свежий субагент code-writer sonnet.
 - **Счетчик безуспешных компиляций:** 0/3
 - **Состояние:** in_progress
 
