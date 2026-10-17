@@ -2,121 +2,10 @@
      Source of truth: _STATE_.yaml — edit that, then run:
      python tools/state_tool.py render -->
 
+# Состояние сессии
 
-# Текущая микро-сессия
-
-- **Задача из ROADMAP:** AM1.0-8.5 — С5 (01). Путь сигнала, бейдж, окно: plan() трёх режимов, SignalPath, verdict, recommend, build_report, OsLevelProbe, бейдж/Тест/замок в Slint (ТЗ-21–23, 25, 35–40, 52–57, 59, 60, 70–84, 106, 139)
-- **Вайтлист файлов в работе (Изменяемые файлы):**
-  - _STATE_.yaml
-  - _STATE_.md
-  - ROADMAP.md
-  - src/audio/mod.rs
-  - src/audio/backend/mod.rs
-  - src/audio/backend/os_probe.rs
-  - src/audio/path/mod.rs
-  - src/audio/path/transform.rs
-  - src/audio/path/plan.rs
-  - src/audio/path/plan_tests.rs
-  - src/audio/path/signal.rs
-  - src/audio/path/recommend.rs
-  - src/audio/path/report.rs
-  - src/audio/verdict.rs
-  - src/audio/test_run.rs
-  - src/audio/error.rs
-  - src/audio/player.rs
-  - src/audio/output.rs
-  - src/engine/run.rs
-  - src/engine/deps.rs
-  - src/engine/messages.rs
-  - src/engine/legacy_path.rs
-  - src/engine/tests.rs
-  - src/app/mod.rs
-  - src/app/audio_facade.rs
-  - src/app/ui_audio_state.rs
-  - src/app/engine_sink.rs
-  - src/app/playback_manager.rs
-  - src/app/playlist_manager.rs
-  - src/app/visualizer_manager.rs
-  - src/app/ui_manager.rs
-  - src/app/bp_report.rs
-  - src/app/badge_view.rs
-  - src/core/mod.rs
-  - src/app/path_view.rs
-  - src/settings.rs
-  - src/persist/state_file.rs
-  - src/main.rs
-  - ui/app.slint
-  - ui/status.slint
-- **Критерий успеха (Definition of Done):** Все шаги [x]; cargo build, clippy --all-targets чистые; полный cargo test — без новых падений сверх 6 известных SP1.0-B7 (Windows); тесты §7.2 этапа С5 (планировщик, бейдж/Тест, окно) зелёные; StreamDesc, FallbackReason, bp_report.rs, bool-бейджи и dsd_pcm_breaks_bit_perfect удалены; audio_facade.rs снят; плеер играет в Совместимом, бейдж «Shared: …»/«Не bit-perfect: …» честный.
-
-## Итерационный трекер
-- [x] Шаг 1: Типы возможностей устройства в audio/backend/mod.rs: DeviceCaps, AccessKind, OutputApi, DriverFormat, DeviceBufferActual; перенос BackendCaps из engine/run.rs (§2.3, ОВС-12, ТЗ-109). Проверка: cargo check; полный cargo test (общий тип)
-- [x] Шаг 2: Убрать EngineHandle::spawn_with_caps: caps через EngineDeps (deps.rs, run.rs, tests.rs) (§2.3, ADR-20). Проверка: cargo test engine:: зелёный
-- [x] Шаг 3: audio/path/transform.rs: Transform, TransformKind (ZeroPad/Truncate с проверяющими конструкторами), Lossiness, Cause, Confidence/ConfirmedBy, Description, дескриптор из 5 методов + NbpReason в audio/verdict.rs (только enum) + тест transform_descriptor_is_total (§3.3, §2.5, ТЗ-71, ТЗ-73). Проверка: cargo test transform_descriptor
-- [x] Шаг 4: audio/path/mod.rs: типы плана §3.1–3.2 — PathPlan, Route, DopRoute, DsdChainView, Blocked, OpenedFacts, ReservationView, StageId, StageStatus, SourceStage…DeviceStage, OsStage, OsServer (ADR-05, ТЗ-52, ТЗ-70). Проверка: cargo check
-- [x] Шаг 5: plan.rs: каркас plan(src, caps, policy) + выбор частоты §6.4 (семейства, SameFamily/Nearest/NoDownsample, фиксированная частота) (ТЗ-53, ТЗ-55). Решение шага: DoP допустим только при caps.access == Exclusive (И-Т3), усиление — через with_gain (шаг 13). Проверка: cargo check
-- [x] Шаг 6: Тесты частоты: compatible_passthrough_when_server_accepts, compatible_src_when_server_limits, compatible_fixed_rate_src, optimal_rate_fallback_rules, strict_rejects_rate (§7.2). Проверка: cargo test audio::path
-- [x] Шаг 7: plan.rs: каналы §6.5 (паддинг, ITU-даунмикс, отказ Строгого) + тесты compatible_downmix_when_server_limits, optimal_downmix_51_to_stereo_uses_itu_matrix, strict_rejects_channel_mismatch, strict_mono_on_stereo_plays, channel_pad_to_wider_device_all_modes (ТЗ-54). Проверка: cargo test audio::path
-- [x] Шаг 8: plan.rs: форматы Exclusive/Shared §6.5 (zero-pad, truncation, float) + правило переквантования §6.3 (ТЗ-56, ТЗ-57). Проверка: cargo check
-- [x] Шаг 9: Тесты форматов, ч. 1: optimal_passthrough_24_192, optimal_zero_pad_16_to_32, optimal_format_no_needless_truncation, strict_passthrough_24_192, strict_truncation_is_incompatible; дополнить compatible_passthrough_when_server_accepts проверкой «только IntToFloat» (§7.2). Проверка: cargo test audio::path
-- [x] Шаг 10: Тесты форматов, ч. 2: compatible_int32_source_marks_float_lossy, lossy_source_is_24bit_in_all_modes, float_pcm_source_per_mode, optimal_dsp_path_uses_largest_format, compatible_int_output_when_no_f32 (§7.2). Строки «+ Dither» до with_gain (шаг 13) проверять через requantizes(&plan) == true. Проверка: cargo test audio::path
-- [x] Шаг 11: plan.rs: цепочка DSD §6.9 (dop_ok, DoP только при Exclusive, dsd_pcm_rate, dsd_stop_hz, DsdAboveDac) (ТЗ-59, ТЗ-60). Проверка: cargo check
-- [x] Шаг 12: Тесты DSD: compatible_dsd_only_pcm, optimal_dsd_chain_dop_then_pcm, optimal_dsd_above_dac_converts, strict_dsd_chain_allows_native_to_dop_forbids_pcm, validate_dop_shared_is_unsupported (§7.2). Проверка: cargo test audio::path
-- [x] Шаг 13: plan.rs: шаги 5–7 §6.3 — with_gain(&PathPlan, GainState), дизеринг (по requantizes; Dither(Off) в transforms не вносить), RingPayload + тест strict_never_lossy_property (ТЗ-8, ТЗ-39). В plan_tests заменить заглушки «requantizes == true» на проверку Dither через with_gain (float_pcm_source_per_mode, optimal_dsp_path_uses_largest_format, compatible_int_output_when_no_f32). Проверка: cargo test audio::path. ЧЕКПОИНТ: полный test + clippy
-- [x] Шаг 14: path/signal.rs: SignalPath::from_opened (поколение), stages(), lossy(), DynamicPathState, Md5Status, RtPriorityState (§3.2, §4.3, ТЗ-70, ТЗ-71). Проверка: cargo check
-- [x] Шаг 15: audio/verdict.rs: BadgeState, SharedBadge, ExclusiveBadge (вкл. Muted, ОВС-18), BitPerfectProof, NbpReason, NbpSummary, verdict() §6.22 (ADR-06, ТЗ-52); GainState уже добавлен на шаге 13. Проверка: cargo check
-- [x] Шаг 16: Тесты бейджа, ч. 1: badge_honesty_table, badge_driver_unconfirmed, badge_bitperfect_ignores_mono_underrun_md5, badge_each_reason, badge_reason_priority_and_more (§7.2). Покрыть и бейдж строки strict_passthrough_24_192: «Bit-perfect» при Confirmed драйвера (из plan_tests отложено — нужны OpenedFacts). Проверка: cargo test verdict
-- [x] Шаг 17: audio/test_run.rs (минимум С5): ConfigKey и TestRecord уже есть (шаг 15; Hash/serde — с хранением, ADR-19); добавить TestBadge, TestAvailability/TestBlocker (+Muted, ОВС-18), test_availability() §6.22 + тест test_availability_rules; поле test: Option<TestBadge> в DynamicPathState (signal.rs) (ТЗ-106, ТЗ-139). Проверка: cargo test test_run
-- [x] Шаг 18: Тесты бейджа, ч. 2: compatible_badge_never_bitperfect, badge_no_stream_after_failed_open, badge_from_path_not_settings_dsd, badge_test_failed_matching_config (§7.2). Проверка: cargo test verdict
-- [x] Шаг 19: path/recommend.rs: Recommendation, PlayerSettingRec::new→Option, OsTopic, HwRequirement, recommend() по таблице §6.25 + тесты recommendations_three_types, recommendations_underrun_vs_xrun, recommendations_respect_mode_matrix (ТЗ-80–84). Проверка: cargo test recommend
-- [x] Шаг 20: path/report.rs: PathReport (PathSubject уже в recommend.rs), StageRow, build_report() §6.25 (ТЗ-73–79). Проверка: cargo check
-- [x] Шаг 21: Тесты окна, ч. 1: report_has_six_stages_in_order, report_stage_fields_optimal_192_on_96, report_lists_all_transforms, report_source_stage, report_decoder_stage (§7.2). Проверка: cargo test report
-- [x] Шаг 22: Display для PathReport + тесты окна, ч. 2: report_output_stage_driver_facts, report_clip_notes, report_built_without_backend_access, report_skipped_track_blocked_stage (вкл. текст «частота 192 кГц не поддерживается устройством» из strict_rejects_rate — у Incompatibility нет текста), report_text_contains_all_parts (§7.2). Проверка: cargo test report. ЧЕКПОИНТ: полный test + clippy
-- [x] Шаг 23: backend/os_probe.rs: трейт OsLevelProbe (probe(dev, stream_rate) -> OsStage), FakeOsProbe, чистый разбор вывода pw-metadata -n settings → OsStage (force-rate ≠ 0 → force-rate; частота потока ∈ allowed-rates → она, Assumed; иначе clock.rate, Confirmed(OsQuery); разбор не удался → Unknown) + ≤5 тестов (§6.26, ADR-21, ТЗ-77, ОВС-9). Проверка: cargo test os_probe
-- [x] Шаг 24: Системная проба SystemOsProbe: Linux — pw-metadata в служебном потоке с таймаутом 500 мс, нет утилиты/таймаут → Unknown; Windows — Known{WasapiMixer} из cpal default_output_config; macOS — номинальная частота, Assumed; поле os_probe в EngineDeps (system() и тестовые наборы) (§6.26, ADR-20, ADR-21, ТЗ-77). Проверка: cargo test engine::
-- [x] Шаг 25: OpenError::Incompatible(Blocked) и SkipReason::Incompatible(Blocked) (error.rs, messages.rs) (§2.4, ТЗ-57). Проверка: полный cargo test (общий тип)
-- [x] Шаг 26: Мост С5 в legacy_path.rs: shared_caps_from_desc(&StreamDesc) -> DeviceCaps (Shared, частота/формат/каналы открытого потока) и opened_facts_from_desc(&StreamDesc, OsStage) -> OpenedFacts (Shared, driver не читается, без резервирования, device_buffer None) + ≤4 теста; удаляется вместе со StreamDesc (§2.3, §6.3, ADR-20). Проверка: cargo test legacy_path
-- [x] Шаг 27: Форма событий: EngineEvent::Opened получает path: Option<Arc<SignalPath>> и badge: BadgeState (stream остаётся мостом до удаления StreamDesc), новый вариант BadgeChanged(BadgeState); run.rs шлёт None/NoStream; фикстуры ui_audio_state.rs/audio_facade.rs (§4.3, ТЗ-52, ТЗ-56). Проверка: полный cargo test (общий тип)
-- [x] Шаг 28: run.rs: в Совместимом после успешного open — SourceFormat из probe, caps из моста шага 26, plan(), os_probe.probe, SignalPath::from_opened с поколением (счётчик движка), verdict → badge; активный путь (plan, facts, Arc<SignalPath>) хранится в движке; Opened несёт path/badge; Blocked → стоп и Skipped(Incompatible); + тесты чистой build_compatible_path (open требует реального устройства): build_compatible_path_ok_reports_clean_shared_badge, build_compatible_path_muted_badge_is_not_bit_perfect, build_compatible_path_never_blocks_on_channel_mismatch (§6.3, §6.18, ТЗ-52, ТЗ-57). Проверка: cargo test engine::
-- [x] Шаг 29: run.rs: при SetVolume/SetMuted с активным путём — with_gain(plan, gain, policy) → новый SignalPath с теми же OpenedFacts и новым поколением без переоткрытия; BadgeChanged только при смене вердикта; + тесты volume_rebuilds_path_without_reopen, badge_changed_only_on_verdict_change, mute_unmute_restores_clean_badge (§4.3, §6.3, ТЗ-38, ТЗ-60). Проверка: полный cargo test + clippy --all-targets (ЧЕКПОИНТ)
-- [x] Шаг 30: UiAudioState: хранит Arc<SignalPath>, BadgeState, DynamicPathState; бейдж пересчитывается только при смене поколения; при неудачном открытии путь сбрасывается → NoStream (UI-часть badge_no_stream_after_failed_open, ТЗ-56) + тесты badge_no_recompute_on_idle_ticks, badge_shows_mute_and_restores_without_reopen (ТЗ-52, ТЗ-38). Проверка: cargo test ui_audio_state
-- [x] Шаг 31: Slint: свойства бейджа (export enum BadgeKind + текст + подсказка) и индикатор «Тест» (текст, доступность, подсказка блокера, без callback) в status.slint/app.slint; старые bool-бейджи bp-active/dsd-not-bp/bp-resample остаются мостом до шага 32. Решение пользователя 2026-10-16: callback «Теста» — на этапе раннера теста, свойства замка — в С6 вместе с LockState (ADR-06, ТЗ-52, ТЗ-61, ТЗ-62, ТЗ-106). Проверка: cargo build
-- [x] Шаг 32: app/badge_view.rs (чистый презентер): nbp_reason_label(NbpReason) -> &'static str, badge_view(&BadgeState) -> BadgeView{kind, text} («Shared: без изменений до системы», «Не bit-perfect: <причина> +N», «Bit-perfect», «Mute», «Нет потока»), test_view(&BadgeState, ModeKind, Option<&TestBadge>) -> TestView{visible, enabled, text, hint} через test_availability (подсказка блокера, «Проверка недоступна в Shared») + ≤5 тестов; регистрация модуля в app/mod.rs (ТЗ-53, ТЗ-54, ТЗ-56, ТЗ-61, ТЗ-62, ADR-06). Проверка: cargo test badge_view
-- [x] Шаг 33: Проводка: AudioFacade::on_event кэширует BadgeState из UiAudioState::take_badge_dirty (+ take_badge_dirty фасада); playback_manager пишет status-badge-kind/text и status-test-* только при изменении (ТЗ-52, ТЗ-60, ТЗ-106, И-Р13). Проверка: cargo check
-- [x] Шаг 34: Удаление bool-бейджей: bp-active/bp-text/dsd-not-bp/bp-resample из status.slint/app.slint; set_status_bp_*/set_status_dsd_not_bp, sync_dsd_status_ui и его вызовы, UiState.bp_resample, AudioFacade::bit_perfect_resampled (ADR-06, R-1). Шаг-очистка моста шага 31 (только удаление, 5 файлов). Проверка: cargo build + полный cargo test + clippy --all-targets (ЧЕКПОИНТ)
-- [x] Шаг 35: audio/path/report.rs: публичный текстовый API для окна — stage_name, status_text, confidence_text, recommendation_text(&Recommendation) -> String, RecGroup {Player, Os, Hardware} + recommendation_group; group_recommendations/Display переводятся на них без смены вывода (§3.6, ТЗ-71, ТЗ-81, ТЗ-84). Проверка: cargo test path::report
-- [x] Шаг 36: app/path_view.rs (чистый презентер): PathReport -> PathView {title, stages: [StageView{name, status, changes, causes, confidence, notes}; 6], player/os/hardware: Vec<RecView{text, action}>, footer, copy_text = report.to_string()}; RecView.action: QuickFix(Volume|Unmute) | OpenSettings(tab) | None + ≤5 тестов (§3.6, ТЗ-71, ТЗ-81, ТЗ-84). Проверка: cargo test path_view
-- [x] Шаг 37: AudioFacade: кэш PathReport — build_report только при смене пути (take_path_dirty), пропуске (Blocked), неудачном открытии, set_mode_settings/set_active_mode; take_report_dirty; счётчик построений под cfg(test) + тест window_no_recompute_on_idle_ticks (ТЗ-79, ТЗ-83, §7.2). Проверка: cargo test audio_facade
-- [x] Шаг 38: ui/app.slint: новое содержимое окна «Путь сигнала» — структуры PathStageRow/PathRecItem, свойства path-title/path-stages/path-recs-player/os/hardware/path-footer/path-copy-text, колбэки path-rec-action(int), копирование через TextInput select-all/copy; старые bp-* свойства остаются мостом (ТЗ-70–ТЗ-84). Проверка: cargo check
-- [x] Шаг 39: app/mod.rs: проводка окна — on_bp_clicked/тик пишут path-* из PathView только по take_report_dirty (не по таймеру), path-rec-action → QuickFix/открытие настроек (ТЗ-81, ТЗ-83, ТЗ-84). Проверка: cargo check
-- [x] Шаг 40: Очистка моста окна: удалить bp-stream-desc/bp-source-desc/bp-reasons/bp-positives/bp-report-action, BpReason из app.slint и push_bp_report_to_ui/вызовы bp_report в mod.rs (ЧЕКПОИНТ). Проверка: cargo build + полный cargo test + clippy --all-targets
-- [x] Шаг 41: Удалить мёртвый src/app/bp_report.rs (ссылок нет с шага 40) и pub mod bp_report в app/mod.rs — часть удаления легаси, перенесена вперёд: снимает 7 вызовов фасада (§8, ADR-06). Проверка: cargo build
-- [x] Шаг 42: UiAudioState: постоянные последние значения рядом с take_*_dirty (не меняя их семантику) — transport(), position_secs(), track(), stream_desc(), is_playing(), is_stopped() (None = остановлен), duration() (frames/rate), format() (дефолт 44100/2) + ≤4 теста (ADR-02, И-Р13, ТЗ-103). Проверка: cargo test ui_audio_state
-- [x] Шаг 43: UiAudioState: ended (взвод на Ended, сброс в begin_open, clear_end), take_opened() одноразово, очередь резервирования (Notice::Reservation → poll_reservation), skipped: Option<Blocked> (Skipped(Incompatible) → Some; прочий Skipped/OpenFailed/новый открытый путь → None) + ≤5 тестов по образцу ended_flag_set_and_cleared, take_opened_returns_once_after_opened_event, reservation_notice_queued_and_polled_once, stale_opened_event_is_ignored (ТЗ-56, ТЗ-80, И-Р14). Проверка: cargo test ui_audio_state
-- [x] Шаг 44: AudioFacade делегирует событийное состояние в UiAudioState (шаги 42–43): удалить поля transport/position_secs/track/opened/stream/ended/reservation_queue/skipped; device_desc из поля → метод, вызов в app/mod.rs (ADR-02). Файлы: audio_facade.rs, app/mod.rs. Проверка: cargo test audio_facade
-- [x] Шаг 45: path_view.rs: PathWindowCache {report, dirty, builds под cfg(test)} — invalidate(), take_dirty(&UiAudioState, &ModeSettings) -> Option<&PathReport>, get(..) -> &PathReport; перенос тестов window_no_recompute_on_idle_ticks, report_rebuilt_after_opened_event, report_rebuilt_after_mode_change, report_subject_skipped_differs_from_no_stream на UiAudioState + кэш; фасад делегирует (ТЗ-79, ТЗ-83, §7.2). Файлы: path_view.rs, audio_facade.rs. Проверка: cargo test path_view
-- [x] Шаг 46: badge_view.rs: BadgeViewState {badge, mode, dirty (true на старте)} — set_badge, set_mode, take_view() -> Option<(BadgeView, TestView)>; перенос тестов badge_view_written_once_until_change, badge_view_redirtied_on_mode_change; фасад делегирует (И-Р13, ТЗ-52, ТЗ-61, ТЗ-62). Файлы: badge_view.rs, audio_facade.rs. Проверка: cargo test badge_view
-- [x] Шаг 47: Мост-хелперы MusicApp в app/mod.rs: engine_send(EngineCmd) -> bool, audio() -> &UiAudioState, open_track(&Path) (req_gen, begin_open), on_engine_event(ev) -> Applied (инвалидация кэша окна и бейджа), bit_perfect() через legacy_audio(core.settings().playback, core.state().active_mode()); тела пока через временные аксессоры фасада. Файлы: app/mod.rs, audio_facade.rs. Проверка: cargo check
-- [x] Шаг 48: playback_manager.rs: все self.player.* → хелперы шага 47 и EngineCmd напрямую (Play/Pause/Stop/Seek/ReleaseExclusive/SetDevice/SetVolume/SetMuted); громкость/mute читаются из core.state().playback() (ADR-01, ADR-02, ADR-14). Проверка: cargo check
-- [x] Шаг 49: visualizer_manager.rs, playlist_manager.rs: self.player.* → хелперы шага 47 (format, snapshot, AttachVizTap/SetVizTap, Stop) (ADR-02). Проверка: cargo check
-- [x] Шаг 50: Хелперы MusicApp в app/mod.rs: audio_mut() -> &mut UiAudioState, take_badge_view(), path_report(), take_report_dirty() (пока через фасад, комментарий «мост: удаляется на шаге 53»); перевод 5 оставшихся вызовов playback_manager.rs: poll_reservation, clear_end ×2, take_badge_view, reservation_pending (всегда false — ветка удаляется) (ADR-02, И-Р13, ТЗ-79). Файлы: app/mod.rs, playback_manager.rs. Проверка: cargo check
-- [x] Шаг 51: app/mod.rs, UI-колбэки: транспорт (play/pause/stop/toggle/seek по дорожке, has_decoder, release_if_exclusive в колбэках окна и трея) → engine_send/audio(); громкость/mute колбэков (set_volume/set_muted, quick fix окна пути) → engine_send после изменения core; окно пути (path_report, take_report_dirty) → хелперы шага 50 (ADR-01, ADR-02, ADR-14, ТЗ-84). Проверка: cargo check
-- [x] Шаг 52: app/mod.rs, остаток: циклы приёма событий движка (player.on_event, take_opened) → on_engine_event/audio_mut(); select_active_mode → SetActiveMode + инвалидация кэша окна и бейджа; ApplyStep::Engine без mode_settings_applied — копия режимов больше не нужна; конструктор (send_startup_policy, SetVolume/SetMuted из pb_state, SetDevice) — через фасад до шага 53, если иначе нельзя (ADR-02, ADR-14, §6.18). Проверка: cargo check + cargo test --bin music-player-rs
-- [x] Шаг 53: Снятие моста: engine/UiAudioState/req_gen/PathWindowCache/BadgeViewState — поля MusicApp; хелперы шагов 47 и 50 работают с ними; startup_commands/send_startup_policy → MusicApp + тесты startup_policy_equals_saved_policy, bit_perfect_follows_active_mode и тест диспетчеризации (Opened/Skipped/смена режима → PathWindowCache и BadgeViewState снова dirty — после шага 45 тесты кэша инвалидируют вручную); удалить audio_facade.rs и mod audio_facade (ADR-01, ADR-02, ОВС-14). Проверка: полный cargo test
-- [x] Шаг 54: Устаревшие doc-ссылки на снятый мост AudioFacade (только комментарии): badge_view.rs, playback_manager.rs, ui_audio_state.rs, core/mod.rs (volume/toggle_mute: команду движку шлёт слой app, владелец EngineHandle) (ADR-01, ADR-02). Проверка: cargo check, grep AudioFacade|audio_facade по src/ пуст
-- [x] Шаг 55: Снять #![allow(dead_code)] в engine_sink.rs и ui_audio_state.rs, удалить ставшее неиспользуемым (ADR-02). ЧЕКПОИНТ. Проверка: cargo build + полный cargo test + clippy --all-targets
-- [x] Шаг 56: Удаление легаси, ч. 1 (§8 С5 «удаляется»): поле MusicApp::stream_desc (никем не читается) и его присваивания в playback_manager.rs (src/app/mod.rs, src/app/playback_manager.rs). Проверка: cargo check
-- [x] Шаг 57: Удаление легаси, ч. 2 (§8 С5, §3.1, ADR-05): UiAudioState::format() берёт частоту/каналы из SignalPath (path().output.requested), дефолт (44_100, 2) без пути; удалить StreamSnapshot, слот stream и stream_desc(); Opened.stream игнорируется (src/app/ui_audio_state.rs). Проверка: cargo test ui_audio_state
-- [x] Шаг 58: Удаление легаси, ч. 3 (§2.3, ADR-05, С5-мост): в src/engine/legacy_path.rs выделить pub(crate) fn stream_format_from_desc(&StreamDesc) -> StreamFormat (те же безопасные конвертеры), opened_facts_from_desc использует его; тест stream_format_from_desc_maps_rate_format_channels. Проверка: cargo test legacy_path
-- [x] Шаг 59: Удаление легаси, ч. 4 (§8 С5, ADR-02, ADR-05): поле EngineEvent::Opened.stream: Option<StreamDesc> → stream_format: Option<StreamFormat> (src/engine/messages.rs; заполнение в run.rs из StreamDesc через stream_format_from_desc из шага 58); UiAudioState хранит его и format() берёт path.output.requested → stream_format → (44_100, 2) — регрессия шага 57: в Оптимальном/Строгом пути нет до С6, а tap визуализатора идёт после ресемплера; фикстуры Opened в тестах ui_audio_state.rs, path_view.rs, mod.rs (одно поле — разбиение без моста невозможно). Поле stream_format убирается на С6, когда путь есть во всех режимах. Слой app больше не зависит от StreamDesc. Общий тип → полный cargo test
-- [x] Шаг 60: ЧЕКПОИНТ закрытия удаления легаси: удалить мёртвый MusicApp::current_track_is_dsd (src/app/ui_manager.rs, предупреждение dead_code с шага 41 — потребитель bp_report удалён); полный cargo build + cargo test + clippy --all-targets; ROADMAP: текст AM1.0-B8 (кэш отчёта — PathWindowCache в MusicApp, не AudioFacade) и отклонение — StreamDesc/FallbackReason внутри старого пути (audio/player.rs, audio/output.rs, engine/run.rs, engine/legacy_path.rs) живы, пока старый путь вывода не заменён, удаляются на С6 вместе с мостом legacy_path; dsd_pcm_breaks_bit_perfect и bp_report.rs уже удалены. Проверка: всё зелёное
-
-Легенда: [x] сделано · [>] текущий шаг · [ ] не начато
-
-- **Текущий шаг (current_step):** Шаг 60
-- **Следующий ход:** Все шаги AM1.0-8.5 выполнены: закрытие этапа по Шагу 5 AGENTS.md
-- **Счетчик безуспешных компиляций:** 0/3
-- **Состояние:** in_progress
+- **Текущая задача:** Нет (все шаги завершены)
+- **Состояние:** done
 
 ## План: Executable workflow: правила AGENTS.md → исполняемые механизмы
 _Источник: чат с пользователем (ноутбук), начат в 67686ce; перенесён в репо 2026-09-22_
@@ -125,7 +14,8 @@ _Источник: чат с пользователем (ноутбук), нач
   - Инструмент готов; ждёт прогонов пакета baseline-2026-09 на linux и windows (python tools/acceptance.py status)
 - [>] **13.** Реализация AM1.0 + SP1.0 по сквозному порядку (ROADMAP.md): docs/01_audio_modes_v1.0/ (С0…С11) и docs/02_settings_persistence_v1.0/ (С0…С12) — ТЕКУЩАЯ ОСНОВНАЯ ЗАДАЧА
   - Закрытые этапы и баги — в ROADMAP.md (✅ с хэшем); здесь только открытое.
-  - SP1.0-8.11 (С11 (02) «Модуль ввода колёсика») закрыт в ed4d975 (2026-10-13, Windows-ноутбук); СЛЕДУЮЩИЙ (п. 18 сквозного порядка): AM1.0-8.5 (С5 (01) «Путь сигнала, бейдж, окно»). AM1.0-8.4 закрыт в c078c9c; ручные проверки SP1.0-8.11, SP1.0-B17, AM1.0-8.4 подтверждены пользователем 2026-10-16 (Linux/KDE, Cayin RU3 вместо ADI-2: DSD и частоту показывает, битность — нет); settings.toml на Linux удалён пользователем, пересоздан (ТЗ-97).
+  - AM1.0-8.5 (С5 (01) «Путь сигнала, бейдж, окно») закрыт в 48bdad1 (2026-10-17, Linux-десктоп); СЛЕДУЮЩИЙ (п. 19 сквозного порядка): AM1.0-8.6 (С6 (01) «ALSA Exclusive, замок»). Мост AudioFacade снят, BackendCaps — в src/audio/backend/mod.rs. На С6: AM1.0-B10 (удалить StreamDesc, FallbackReason, Opened.stream_format и мосты legacy_path вместе со старым путём). Ручные проверки SP1.0-8.11, SP1.0-B17, AM1.0-8.4 подтверждены пользователем 2026-10-16 (Linux/KDE, Cayin RU3 вместо ADI-2).
+  - Ручные проверки за пользователем: AM1.0-8.5 — (GUI на этапе не запускался) плеер запускается и играет в Совместимом режиме; бейдж в Совместимом показывает не «Bit-perfect» при изменении громкости/ресемплинге (ТЗ-52); окно «Путь сигнала» показывает этапы и обновляется при смене трека/режима; кнопка «Тест» и строка замка в окне отображаются по правилам доступности (ТЗ-59, ТЗ-60); визуализация спектра в Оптимальном/Строгом использует фактическую частоту выхода (не 44,1 кГц).
   - SP1.0-B16 закрыт в 74afd65 только для Windows (реестр, значение ScrollDirection раздела PrecisionTouchPad). ОТКРЫТО (решение пользователя 2026-10-13 — по мере проверки на машинах): macOS (NSEvent.isDirectionInvertedFromDevice), GNOME (natural-scroll), KDE (naturalScroll KWin) — там знак тачпада как пришёл; ветка cfg(not(windows)) в winit.rs на Linux/macOS не компилировалась. Известное ограничение: первое целое Lines свайпа тачпада без предшествующего дробного классифицируется как колесо и поправку не получает.
   - SP1.0-8.11, открытое: при хосте трея Unknown (не KDE/GNOME) знак +1 и единица = модуль первого события — направление может отличаться от прежнего (до С11 было delta < 0 — громче), проверить на реальном хосте и при необходимости добавить строку в wheel_table.toml; отклонение от §2.12: модуль ввода — поле AppCore (set_input / input_mut), а не AppDeps, до set_input стоит FakeWheelInput; ветка «бэкенд выбран, но DefaultRuleOnly» в main.rs с WinitWheelInput недостижима (attach не проверяет, что окно winit); у D-Bus-запросов хоста трея нет таймаута; SLINT_WHEEL_CLICK_PX дублируется в matcher.rs и normalizer.rs; отладочный eprintln в on_volume_scroll и poll_tray; имена файлов фикстур gnome-2/21, kde-3/16–20 не совпадают с source в шапке.
   - Ручные проверки за пользователем: SP1.0-8.10 — (GUI на этапе не запускался) ТЗ-35/37: ползунок на 40 %, колёсико трея +3 щелчка → 46 %, ползунок показывает 46 %; колёсико над ползунком ±2 % за щелчок; после смены режима ползунок показывает громкость нового режима; ТЗ-39: в Строгом и в Оптимальном с фиксацией ползунок/колёсико/трей не меняют громкость, при наведении на ползунок через ~0,5 с появляется подсказка с текстом §2.13 (не обрезается; при доступной громкости подсказки нет и область подсказки не мешает тянуть ползунок); ТЗ-38: кнопка mute работает в Строгом и при фиксации, mute каждого режима переживает перезапуск.
@@ -140,9 +30,7 @@ _Источник: чат с пользователем (ноутбук), нач
   - ВОПРОС ПОЛЬЗОВАТЕЛЮ (AM1.0-8.4 шаг 17): OpenError::ModeUnavailable в classify() → ErrorClass::Internal (в спеке отдельного класса нет) → реакция StopWithError во всех режимах (стоп, без перехода к следующему треку). Подтвердить или задать класс.
   - AM1.0-8.4 после шага 18 (временно, до шагов 21–30): старый диалог аудио-настроек меняет только локальный кэш фасада и в движок не попадает. Не считать багом при ручном запуске.
   - AM1.0-8.4 шаг 7: имена ключей [playback] dither (tpdf/off), rate_fallback (same_family/nearest/no_downsample), volume_lock, fixed_rate (Гц), buffer (мс), device (строка) спекой поимённо не заданы — взяты по именам полей ModeSettings; подтвердить пользователю.
-  - На С5 (решение пользователя 2026-10-08): снять мост src/app/audio_facade.rs — вызовы в playback_manager, visualizer_manager, playlist_manager, bp_report, mod.rs → прямая работа с EngineHandle/SignalPath/BadgeState; удалить файл; снять #![allow(dead_code)] в engine_sink.rs и ui_audio_state.rs. Состояние фасада (req_gen, кэш транспорта/трека/потока, ended, очередь резервирования, volume/muted/LegacyAudio) переносить целиком, не по файлам.
   - Ручные проверки за пользователем: AM1.0-8.1 — сценарии ТЗ-1/2/48/118/119/120/122 — отложено до полной реализации замка (решение пользователя 2026-10-10).
-  - На С5/С6 (решение пользователя 2026-10-10): BackendCaps брать из аудио-бэкенда (§2.3, src/audio/backend/mod.rs), перенести туда тип из src/engine/run.rs; убрать pub(crate) EngineHandle::spawn_with_caps (временная точка подстановки caps для тестов шага 17 AM1.0-8.4, т.к. src/engine/deps.rs не был в вайтлисте).
   - Windows-ноутбук: полный cargo test красный на 6 lib-тестах с POSIX-путями (SP1.0-B7), воспроизводится без правок этапа; критерий шагов на Windows — нет новых падений сверх этих шести.
   - Отклонения старого пути до С6: повтор EBUSY на тике 100 мс; select_output_for может кратко пробовать hw: до резервирования.
   - На С6: баг AM1.0-B1 (устройство не возвращается в PipeWire после hw:, EBUSY при пересоздании узла); тест unreadable_playlist_never_written (в AppCore нет чтения плейлиста) — по §8 стартовое чтение в AppCore приходит в С8 (02), не в С6 (02).
