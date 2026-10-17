@@ -97,8 +97,8 @@
 - [x] Шаг 36: Шаг 36: run.rs: разрешение устройства перед Acquire через resolve_device: AutoSelected → копия опций режима + EngineEvent::DeviceAutoSelected; None → Failed(NoDeviceSelected), ни acquire, ни SharedBackend::start + тесты ≤3 (§6.18, ADR-24, ТЗ-143, 144, 32). Проверка: cargo test engine::
 - [x] Шаг 37: Шаг 37: run.rs: эффекты Release / StopPlayback / ForgetReacquire (UserClose, UserOpen, переход в Compatible) + тесты ≤3 (§6.19, ТЗ-120, 121). Проверка: cargo test engine::
 - [x] Шаг 38: Шаг 38: app (engine_sink.rs/mod.rs): EngineEvent::DeviceAutoSelected → опции режима + запись settings.toml одной записью, SetModeSettings не отправляется, устройство другого режима не меняется + тест (ADR-24, ТЗ-143, ТЗ-134). Проверка: cargo test device_auto_selected
-- [>] **Шаг 39: Шаг 39: ЧЕКПОИНТ: полный cargo test + cargo clippy --all-targets**
-- [ ] Шаг 40: Шаг 40: Мост: вынести из player.rs сборку сессии (EnginePlan, EngineFeed/EngineRing, build_render, ring_capacity, prime_frames, spawn_decoder) в новый src/audio/session_build.rs без изменения поведения; player.rs импортирует их (§6.18). Перенос кода → Проверка: полный cargo test
+- [x] Шаг 39: Шаг 39: ЧЕКПОИНТ: полный cargo test + cargo clippy --all-targets
+- [>] **Шаг 40: Шаг 40: Мост: вынести из player.rs сборку сессии (EnginePlan, EngineFeed/EngineRing, build_render, ring_capacity, prime_frames, spawn_decoder) в новый src/audio/session_build.rs без изменения поведения; player.rs импортирует их (§6.18). Перенос кода → Проверка: полный cargo test**
 - [ ] Шаг 41: Шаг 41: Чистая функция плана эксклюзивного вывода: PathPlan + DeviceBufferActual → ёмкость ring, вид feed/render, OptimalRender::PcmLocked / DoP (session_build.rs) + тесты ≤4 (§6.18 п. 5–6, §8 С6, ТЗ-137, 140). Проверка: cargo test session_build
 - [ ] Шаг 42: Шаг 42: Новый src/engine/exclusive_path.rs: ExclusivePath { claim, session, handle } и open(): configure при необходимости → сессия/декодер → start → OpenedFacts (DriverFormat::Confirmed) → SignalPath::from_opened (§6.18 п. 1–7, ТЗ-48, 50, 113). Проверка: cargo check
 - [ ] Шаг 43: Шаг 43: run.rs: Open в Оптимальном/Строгом диспетчеризуется в ExclusivePath (не Held → OpenFailed), Compatible — прежний путь + тесты ≤3 на фейке (Opened с Confirmed, OpenFailed без захвата) (§6.18, ТЗ-48, 137). Проверка: cargo test engine::
@@ -139,8 +139,8 @@
 
 Легенда: [x] сделано · [>] текущий шаг · [ ] не начато
 
-- **Текущий шаг (current_step):** Шаг 39
-- **Следующий ход:** Шаг 39 ЧЕКПОИНТ: полный cargo test + cargo clippy --all-targets (test-runner haiku).
+- **Текущий шаг (current_step):** Шаг 40
+- **Следующий ход:** Шаг 40: Мост: вынести из player.rs сборку сессии (EnginePlan, EngineFeed/EngineRing, build_render, ring_capacity, prime_frames, spawn_decoder) в новый src/audio/session_build.rs без изменения поведения; player.rs импортирует их (§6.18). Перенос кода → Проверка: полный cargo test Свежий субагент code-writer sonnet.
 - **Счетчик безуспешных компиляций:** 0/3
 - **Состояние:** in_progress
 

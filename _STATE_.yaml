@@ -174,7 +174,7 @@ steps:
     done: true
   - id: 39
     description: "Шаг 39: ЧЕКПОИНТ: полный cargo test + cargo clippy --all-targets"
-    done: false
+    done: true
   - id: 40
     description: "Шаг 40: Мост: вынести из player.rs сборку сессии (EnginePlan, EngineFeed/EngineRing, build_render, ring_capacity, prime_frames, spawn_decoder) в новый src/audio/session_build.rs без изменения поведения; player.rs импортирует их (§6.18). Перенос кода → Проверка: полный cargo test"
     done: false
@@ -289,8 +289,8 @@ steps:
   - id: 77
     description: "Шаг 77: ФИНАЛ: cargo build/test/clippy зелёные; общие условия §8 (Совместимый играет, «Bit-perfect» только при ТЗ-52); ручные проверки в заметку плана: замок (ТЗ-1/2/48/118…122, AM1.0-8.1), B1 — возврат устройства в PipeWire после освобождения, B2 — текст «занято <владелец>» при чужом захвате"
     done: false
-current_step: 39
-next_action: "Шаг 39 ЧЕКПОИНТ: полный cargo test + cargo clippy --all-targets (test-runner haiku)."
+current_step: 40
+next_action: "Шаг 40: Мост: вынести из player.rs сборку сессии (EnginePlan, EngineFeed/EngineRing, build_render, ring_capacity, prime_frames, spawn_decoder) в новый src/audio/session_build.rs без изменения поведения; player.rs импортирует их (§6.18). Перенос кода → Проверка: полный cargo test Свежий субагент code-writer sonnet."
 fail_counter: 0
 fail_counter_max: 3
 failed_attempts: []
