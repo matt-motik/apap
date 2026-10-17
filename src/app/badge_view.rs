@@ -125,6 +125,63 @@ pub(super) fn test_view(badge: &BadgeState, mode: ModeKind, test: Option<&TestBa
     TestView { visible: true, enabled, text, hint }
 }
 
+/// Состояние «устарел ли вид бейджа тракта» (И-Р13, ТЗ-52, ТЗ-61, ТЗ-62):
+/// хранит последний принятый бейдж и активный режим — предмет вида бейджа
+/// и кнопки «Тест» (ADR-06); вызывающая сторона (`AudioFacade`) взводит
+/// пересчёт через `set_badge`/`set_mode`, снимает его только `take_view`.
+pub(super) struct BadgeViewState {
+    badge: BadgeState,
+    mode: ModeKind,
+    /// Истина, если `badge`/`mode` изменились с последнего `take_view` —
+    /// вид бейджа/теста нужно пересчитать и записать в UI (И-Р13, ТЗ-61,
+    /// ТЗ-62).
+    dirty: bool,
+}
+
+impl BadgeViewState {
+    /// `dirty: true` с самого начала: первое чтение должно записать в UI
+    /// бейдж «Нет потока», иначе Slint-дефолт `BadgeKind.none` покажет
+    /// старые блоки совместимости (ТЗ-52, ТЗ-56).
+    pub(super) fn new() -> Self {
+        Self { badge: BadgeState::NoStream, mode: ModeKind::default(), dirty: true }
+    }
+
+    /// Принять новый бейдж тракта и взвести пересчёт вида (И-Р13, ТЗ-52,
+    /// ТЗ-60).
+    pub(super) fn set_badge(&mut self, badge: BadgeState) {
+        self.badge = badge;
+        self.dirty = true;
+    }
+
+    /// Принять смену активного режима и взвести пересчёт вида — доступность
+    /// «Теста» зависит от режима (ТЗ-62).
+    pub(super) fn set_mode(&mut self, mode: ModeKind) {
+        if mode != self.mode {
+            self.mode = mode;
+            self.dirty = true;
+        }
+    }
+
+    /// Снять вид бейджа тракта и кнопки «Тест», если он устарел с прошлого
+    /// чтения, — одноразовое чтение для вызывающей стороны (И-Р13, ТЗ-52,
+    /// ТЗ-61, ТЗ-62). Без запущенного раннера «Теста» бейдж `test` всегда
+    /// `None` — передаётся `test_view` явно.
+    pub(super) fn take_view(&mut self) -> Option<(BadgeView, TestView)> {
+        if self.dirty {
+            self.dirty = false;
+            Some((badge_view(&self.badge), test_view(&self.badge, self.mode, None)))
+        } else {
+            None
+        }
+    }
+}
+
+impl Default for BadgeViewState {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use music_player_rs::audio::verdict::NbpReason;
@@ -191,5 +248,30 @@ mod tests {
         assert!(!v.enabled);
         assert!(v.hint.contains("громкость"));
         assert!(v.hint.contains("Путь сигнала"));
+    }
+
+    /// И-Р13: свежее состояние взводит вид бейджа один раз («Нет потока» до
+    /// первого принятого бейджа), повторное чтение без изменений — `None`.
+    #[test]
+    fn badge_view_written_once_until_change() {
+        let mut s = BadgeViewState::new();
+
+        let (badge, _test) = s.take_view().expect("первое чтение взведено");
+        assert_eq!(badge.kind, BadgeKind::NoStream);
+
+        assert!(s.take_view().is_none());
+    }
+
+    /// ТЗ-62: доступность «Теста» зависит от режима — смена активного
+    /// режима снова взводит вид бейджа/теста даже без нового бейджа.
+    #[test]
+    fn badge_view_redirtied_on_mode_change() {
+        let mut s = BadgeViewState::new();
+        assert!(s.take_view().is_some());
+        assert!(s.take_view().is_none());
+
+        s.set_mode(ModeKind::Strict);
+        assert!(s.take_view().is_some());
+        assert!(s.take_view().is_none());
     }
 }
