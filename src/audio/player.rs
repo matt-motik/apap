@@ -163,6 +163,7 @@ pub fn capture_message(f: &CaptureFailure) -> String {
         CaptureFailure::DeviceDisconnected => "Устройство отключено".into(),
         CaptureFailure::ReservationLost => "Резервирование перехвачено".into(),
         CaptureFailure::PlatformUnsupported => "Монопольный режим не поддерживается на этой платформе".into(),
+        CaptureFailure::NoDeviceSelected => "Устройство не выбрано".into(),
     }
 }
 
@@ -1473,6 +1474,12 @@ mod tests {
         // At 8 kHz stereo the 100 ms request is only 1600 samples, so the
         // Fixed(2048)-frame floor (2 periods × 2 ch = 8192) wins.
         assert_eq!(ring_capacity(8_000, 2, 100, Some(2048)), 2048 * 2 * 2);
+    }
+
+    /// ТЗ-144: автовыбор устройства не нашёл карты — текст замка «устройство не выбрано».
+    #[test]
+    fn capture_message_no_device_selected() {
+        assert_eq!(capture_message(&CaptureFailure::NoDeviceSelected), "Устройство не выбрано");
     }
 
     #[test]

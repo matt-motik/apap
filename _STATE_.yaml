@@ -69,7 +69,7 @@ steps:
     done: true
   - id: 4
     description: "Шаг 4: CaptureFailure::NoDeviceSelected в src/audio/error.rs + ветка текста в capture_message (player.rs) (ТЗ-144, ADR-24). Публичный enum → Проверка: полный cargo test"
-    done: false
+    done: true
   - id: 5
     description: "Шаг 5: Чистая функция parse_wpctl_inspect(&str) -> Option<SinkCard> и тип SinkCard { card: u32, device: Option<u32> } в reservation/mod.rs (свойства api.alsa.pcm.card/device) + тесты ≤5: ALSA-sink, без device, Bluetooth, null-sink, мусор (ADR-24, ТЗ-143). Проверка: cargo test parse_wpctl"
     done: false
@@ -274,8 +274,8 @@ steps:
   - id: 72
     description: "Шаг 72: ФИНАЛ: cargo build/test/clippy зелёные; общие условия §8 (Совместимый играет, «Bit-perfect» только при ТЗ-52); ручные проверки в заметку плана: замок (ТЗ-1/2/48/118…122, AM1.0-8.1), B1 — возврат устройства в PipeWire после освобождения, B2 — текст «занято <владелец>» при чужом захвате"
     done: false
-current_step: 4
-next_action: "Шаг 4: CaptureFailure::NoDeviceSelected в src/audio/error.rs + текст в capture_message (player.rs) (ТЗ-144, ADR-24); полный cargo test. Свежий субагент code-writer sonnet."
+current_step: 5
+next_action: "Шаг 5: чистая parse_wpctl_inspect(&str) -> Option<SinkCard>, SinkCard { card: u32, device: Option<u32> } в reservation/mod.rs + ≤5 тестов (ADR-24, ТЗ-143); cargo test parse_wpctl. Свежий субагент code-writer sonnet."
 fail_counter: 0
 fail_counter_max: 3
 failed_attempts: []

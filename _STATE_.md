@@ -62,8 +62,8 @@
 - [x] Шаг 1: Шаг 1: Cargo.toml: зависимости alsa 0.11 (target linux, версия как транзитивная у cpal) и rustix (features process, thread) для §6.6–§6.8. Файлы: Cargo.toml, Cargo.lock. Проверка: cargo check
 - [x] Шаг 2: Шаг 2: Newtype HwDeviceId(String) (стабильный id карты + device, не номер) с Display/serde/FromStr в src/audio/backend/mod.rs (§2.3, ADR-24). Только тип, без использования. Проверка: cargo check
 - [x] Шаг 3: Шаг 3: Замена OptimalOpts/StrictOpts.device: Option<String> → Option<HwDeviceId>. Механическая правка ~20 строк в 5 файлах (settings/playback.rs, playback_dto.rs, settings/params.rs-тесты, engine/legacy_path.rs, engine/tests.rs); accessor device(mode) сохраняет сигнатуру Option<&str>, чтобы не трогать остальных потребителей (§2.3, ТЗ-143). Общий тип → Проверка: полный cargo test
-- [>] **Шаг 4: Шаг 4: CaptureFailure::NoDeviceSelected в src/audio/error.rs + ветка текста в capture_message (player.rs) (ТЗ-144, ADR-24). Публичный enum → Проверка: полный cargo test**
-- [ ] Шаг 5: Шаг 5: Чистая функция parse_wpctl_inspect(&str) -> Option<SinkCard> и тип SinkCard { card: u32, device: Option<u32> } в reservation/mod.rs (свойства api.alsa.pcm.card/device) + тесты ≤5: ALSA-sink, без device, Bluetooth, null-sink, мусор (ADR-24, ТЗ-143). Проверка: cargo test parse_wpctl
+- [x] Шаг 4: Шаг 4: CaptureFailure::NoDeviceSelected в src/audio/error.rs + ветка текста в capture_message (player.rs) (ТЗ-144, ADR-24). Публичный enum → Проверка: полный cargo test
+- [>] **Шаг 5: Шаг 5: Чистая функция parse_wpctl_inspect(&str) -> Option<SinkCard> и тип SinkCard { card: u32, device: Option<u32> } в reservation/mod.rs (свойства api.alsa.pcm.card/device) + тесты ≤5: ALSA-sink, без device, Bluetooth, null-sink, мусор (ADR-24, ТЗ-143). Проверка: cargo test parse_wpctl**
 - [ ] Шаг 6: Шаг 6: AudioServerProbe::default_sink_card(): системная реализация (wpctl inspect @DEFAULT_AUDIO_SINK@, тайм-аут 1 с, нет утилиты/сервера → None) в reservation/mod.rs; FakeServerProbe с заданным Option<SinkCard> и счётчиком вызовов в audio/testing/mod.rs (ADR-24). Проверка: cargo check
 - [ ] Шаг 7: Шаг 7: HwDeviceInfo + DeviceCatalog.hw + hw_for_sink(SinkCard) -> Option<&HwDeviceId> (тот же device, иначе первое устройство карты, нет карты → None) в backend/catalog.rs + тесты ≤4 (§2.3, ADR-24). Проверка: cargo test hw_for_sink
 - [ ] Шаг 8: Шаг 8: Новый src/audio/backend/exclusive.rs: трейт ExclusiveBackend (caps/enumerate/acquire/device_caps/configure/start), DeviceClaim (порядок полей = порядок освобождения: pcm до reservation, И-Р1), ClaimInfo, PcmHandle, StreamHandle::stop(self: Box<Self>), ExclusiveRender, ConfigureError, StartError (§2.3, ТЗ-117…123). Только типы. Проверка: cargo check
@@ -134,8 +134,8 @@
 
 Легенда: [x] сделано · [>] текущий шаг · [ ] не начато
 
-- **Текущий шаг (current_step):** Шаг 4
-- **Следующий ход:** Шаг 4: CaptureFailure::NoDeviceSelected в src/audio/error.rs + текст в capture_message (player.rs) (ТЗ-144, ADR-24); полный cargo test. Свежий субагент code-writer sonnet.
+- **Текущий шаг (current_step):** Шаг 5
+- **Следующий ход:** Шаг 5: чистая parse_wpctl_inspect(&str) -> Option<SinkCard>, SinkCard { card: u32, device: Option<u32> } в reservation/mod.rs + ≤5 тестов (ADR-24, ТЗ-143); cargo test parse_wpctl. Свежий субагент code-writer sonnet.
 - **Счетчик безуспешных компиляций:** 0/3
 - **Состояние:** in_progress
 
