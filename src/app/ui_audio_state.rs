@@ -13,6 +13,11 @@
 //! `badge: BadgeState` (через `Written<T>`, И-Р13) и `DynamicPathState`
 //! (§3.5) без обвязки `Written<T>`: событие `DynamicsChanged` появится
 //! отдельным шагом, здесь поле только сбрасывается на новое открытие.
+//!
+//! §8 С5: устаревший снимок `StreamDesc` (слот `stream`, геттер
+//! `stream_desc()`) удалён — `format()` (§3.1, ADR-05) читается из
+//! `path().output.requested`, единственного источника формата открытого
+//! потока.
 
 use std::collections::VecDeque;
 use std::path::Path;
@@ -23,7 +28,7 @@ use music_player_rs::audio::decoder::TrackInfo;
 use music_player_rs::audio::error::{OpenError, Reaction};
 use music_player_rs::audio::path::signal::{DynamicPathState, SignalPath};
 use music_player_rs::audio::path::Blocked;
-use music_player_rs::audio::player::{ReservationEvent, StreamDesc};
+use music_player_rs::audio::player::ReservationEvent;
 use music_player_rs::audio::verdict::BadgeState;
 use music_player_rs::engine::messages::{EngineEvent, Notice, SkipReason, TransportState};
 
@@ -94,21 +99,6 @@ impl PartialEq for TrackSnapshot {
     }
 }
 
-/// `StreamDesc` аналогично `TrackInfo` не реализует `PartialEq`; сравнение —
-/// по той же сессии, что и у `TrackSnapshot` (оба поля приходят одним
-/// `Opened`).
-#[derive(Clone)]
-struct StreamSnapshot {
-    session: u64,
-    desc: Arc<Option<StreamDesc>>,
-}
-
-impl PartialEq for StreamSnapshot {
-    fn eq(&self, other: &Self) -> bool {
-        self.session == other.session
-    }
-}
-
 /// `DeviceCatalog` не реализует `PartialEq`; движок сам шлёт `Devices`
 /// только при изменении списка (ADR-16), но сравнение по `generation`
 /// повторяет И-Р13 и на стороне UI, не завязываясь на идентичность `Arc`.
@@ -170,7 +160,6 @@ pub struct UiAudioState {
     transport: Written<TransportState>,
     position_secs: Written<f64>,
     track: Written<TrackSnapshot>,
-    stream: Written<StreamSnapshot>,
     devices: Written<DeviceSnapshot>,
     path: Written<PathSnapshot>,
     badge: Written<BadgeState>,
@@ -208,7 +197,7 @@ impl UiAudioState {
     /// как устаревшие) — значения читаются через `take_*_dirty`.
     pub fn apply(&mut self, ev: EngineEvent) -> Applied {
         match ev {
-            EngineEvent::Opened { req_gen, info, stream, path, badge } => {
+            EngineEvent::Opened { req_gen, info, stream: _, path, badge } => {
                 if req_gen < self.latest_req_gen {
                     return Applied::None;
                 }
@@ -217,7 +206,6 @@ impl UiAudioState {
                 self.track.set(TrackSnapshot { session: req_gen, info: info.clone() });
                 // Снимается один раз через `take_opened` (И-Р14, ADR-02).
                 self.opened = Some(info);
-                self.stream.set(StreamSnapshot { session: req_gen, desc: Arc::new(stream) });
                 self.position_secs.set(0.0);
                 // Успешно открытый путь снимает хранимый план пропуска — он
                 // относится к прошлому треку (ТЗ-79, ТЗ-80).
@@ -382,12 +370,6 @@ impl UiAudioState {
         self.track.get().map(|s| &s.info)
     }
 
-    /// Описание потока вывода последней принятой сессии открытия; `None`,
-    /// если поток не открыт (ADR-02, И-Р13).
-    pub fn stream_desc(&self) -> Option<&StreamDesc> {
-        self.stream.get().and_then(|s| s.desc.as_ref().as_ref())
-    }
-
     /// Истина, если транспорт воспроизводит (ADR-02, И-Р13).
     pub fn is_playing(&self) -> bool {
         self.transport() == Some(TransportState::Playing)
@@ -408,15 +390,16 @@ impl UiAudioState {
         Some(frames_to_f64(frames) / f64::from(info.sample_rate))
     }
 
-    /// `(частота, число каналов)` последнего принятого потока вывода, либо
-    /// дефолт до первого открытия (ADR-02, И-Р13).
+    /// `(частота, число каналов)` запрошенного формата вывода последнего
+    /// принятого открытого пути сигнала (`output.requested`, §3.1, ADR-05),
+    /// либо дефолт до первого открытия/после неудачного открытия (ADR-02,
+    /// И-Р13).
     pub fn format(&self) -> (u32, usize) {
-        match self.stream_desc() {
-            Some(desc) => (desc.rate, usize::from(desc.channels)),
+        match self.path() {
+            Some(path) => (path.output.requested.rate.hz(), usize::from(path.output.requested.channels.get())),
             None => (44_100, 2),
         }
     }
-
 }
 
 #[cfg(test)]
@@ -424,6 +407,7 @@ mod tests {
     use super::*;
     use music_player_rs::audio::decoder::Tags;
     use music_player_rs::audio::error::FileError;
+    use music_player_rs::audio::player::StreamDesc;
     use music_player_rs::audio::verdict::{NbpReason, NbpSummary, SharedBadge};
     use music_player_rs::engine::messages::SkipReason;
 
@@ -697,9 +681,34 @@ mod tests {
     fn format_default_before_open() {
         let state = UiAudioState::new();
         assert_eq!(state.format(), (44_100, 2));
-        assert!(state.stream_desc().is_none());
+        assert!(state.path().is_none());
         assert!(state.is_stopped());
         assert!(!state.is_playing());
+    }
+
+    /// §3.1, ADR-05: `format()` читает запрошенный формат вывода из
+    /// `path().output.requested` принятого пути — до первого открытия
+    /// остаётся дефолт `(44_100, 2)`. Фикстура `test_signal_path` сама
+    /// совпадает с дефолтом (44 100/2), поэтому запрошенный формат здесь
+    /// заменяется на заведомо отличный (96 000/1), чтобы тест отличал
+    /// значение, прочитанное из пути, от дефолта.
+    #[test]
+    fn format_follows_signal_path() {
+        use std::num::NonZeroU8;
+
+        use music_player_rs::audio::format::SampleRate;
+
+        let mut state = UiAudioState::new();
+        assert_eq!(state.format(), (44_100, 2));
+
+        let mut path = (*test_signal_path(1)).clone();
+        path.output.requested.rate = SampleRate::new(96_000).expect("96000 — валидная частота");
+        path.output.requested.channels = NonZeroU8::new(1).expect("1 канал — валидно");
+
+        state.begin_open(1);
+        state.apply(opened_with_badge(1, Some(Arc::new(path)), BadgeState::NoStream));
+
+        assert_eq!(state.format(), (96_000, 1));
     }
 
     /// Снимок `Blocked` для теста `skipped` (§2.4, ТЗ-80) — только то, что
