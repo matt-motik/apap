@@ -4,6 +4,8 @@
 //! `configure`, `start` трейта `ExclusiveBackend`).
 #![deny(clippy::unwrap_used, clippy::expect_used, clippy::unreachable)]
 
+use std::sync::Arc;
+
 use smallvec::SmallVec;
 
 use super::catalog::HwDeviceInfo;
@@ -11,6 +13,8 @@ use super::exclusive::DeviceClaim;
 use super::{AccessKind, BackendCaps, BackendError, DeviceCaps, HwDeviceId, OutputApi, RateSet};
 use crate::audio::error::CaptureFailure;
 use crate::audio::format::{OutputSampleFormat, SampleRate};
+use crate::audio::reservation::dbus::{alsa_card_index, DbusReserveBus, SystemServerProbe};
+use crate::audio::reservation::{self, LostNotify, Reservation, ReserveBus};
 
 /// Частоты, которые проверяются первыми через `test_rate` (§6.6): если
 /// устройство принимает любую из них, `DeviceCaps::rates` — дискретный
@@ -116,6 +120,34 @@ impl AlsaExclusiveBackend {
 
         Ok(DeviceCaps { api: OutputApi::AlsaHw, access: AccessKind::Exclusive, name, rates, formats, channels })
     }
+
+    /// Резервирование карты `dev` — первая часть `ExclusiveBackend::acquire`
+    /// (§6.6, ТЗ-48, ТЗ-117): открытие `hw:` PCM следует отдельным шагом.
+    /// Номер карты — по `HwDeviceId` (ТЗ-126); отказ D-Bus уже классифицирован
+    /// `reservation::acquire` (`ReservationDenied` с владельцем — AM1.0-B2,
+    /// `OwnerNotResponding`, `NoSessionBus`), эта функция его не переопределяет.
+    /// Вызывающей стороны пока нет — появится вместе с реализацией
+    /// `ExclusiveBackend::acquire` (часть 2).
+    #[allow(dead_code)]
+    pub(crate) fn reserve(
+        &mut self,
+        dev: &HwDeviceId,
+        device_name: &str,
+        on_lost: LostNotify,
+    ) -> Result<Reservation, CaptureFailure> {
+        let card = card_number(dev)?;
+        let bus: Arc<dyn ReserveBus> = Arc::new(DbusReserveBus::new());
+        reservation::acquire(&bus, &SystemServerProbe, card, device_name, on_lost)
+    }
+}
+
+/// Номер карты ALSA из `HwDeviceId` (`hw:CARD=<id>,DEV=<d>`, §6.6, ТЗ-126):
+/// разбор делегирован `reservation::dbus::alsa_card_index`. Карта не найдена
+/// в системе — устройство отключено, другого варианта `CaptureFailure` для
+/// этого случая спецификация не задаёт.
+#[allow(dead_code)]
+fn card_number(dev: &HwDeviceId) -> Result<u32, CaptureFailure> {
+    alsa_card_index(dev.as_str()).ok_or(CaptureFailure::DeviceDisconnected)
 }
 
 /// `hw:CARD=<id>,DEV=<d>` для перечисления (§6.6). `None`, если строка не
@@ -178,5 +210,29 @@ mod tests {
         assert_eq!(FORMAT_MAP.len(), 5);
         assert!(FORMAT_MAP.contains(&(alsa::pcm::Format::S16LE, OutputSampleFormat::S16Le)));
         assert!(FORMAT_MAP.contains(&(alsa::pcm::Format::FloatLE, OutputSampleFormat::F32)));
+    }
+
+    fn noop() -> LostNotify {
+        Box::new(|| {})
+    }
+
+    #[test]
+    fn card_number_parses_numeric_card() {
+        let dev: HwDeviceId = "hw:CARD=4,DEV=0".parse().unwrap();
+        assert_eq!(card_number(&dev), Ok(4));
+    }
+
+    #[test]
+    fn card_number_errs_device_disconnected_for_unknown_symbolic_card() {
+        let dev: HwDeviceId = "hw:CARD=NO_SUCH_CARD_IN_TEST_ENV,DEV=0".parse().unwrap();
+        assert_eq!(card_number(&dev), Err(CaptureFailure::DeviceDisconnected));
+    }
+
+    #[test]
+    fn reserve_short_circuits_on_unresolvable_card() {
+        let dev: HwDeviceId = "hw:CARD=NO_SUCH_CARD_IN_TEST_ENV,DEV=0".parse().unwrap();
+        let mut backend = AlsaExclusiveBackend::new();
+        let r = backend.reserve(&dev, "USB DAC", noop());
+        assert!(matches!(r, Err(CaptureFailure::DeviceDisconnected)));
     }
 }
