@@ -59,7 +59,7 @@ dod: "cargo build/test/clippy зелёные без новых варнинго�
 steps:
   - id: 1
     description: "Шаг 1: Cargo.toml: зависимости alsa 0.11 (target linux, версия как транзитивная у cpal) и rustix (features process, thread) для §6.6–§6.8. Файлы: Cargo.toml, Cargo.lock. Проверка: cargo check"
-    done: false
+    done: true
   - id: 2
     description: "Шаг 2: Newtype HwDeviceId(String) (стабильный id карты + device, не номер) с Display/serde/FromStr в src/audio/backend/mod.rs (§2.3, ADR-24). Только тип, без использования. Проверка: cargo check"
     done: false
@@ -273,8 +273,8 @@ steps:
   - id: 72
     description: "Шаг 72: ФИНАЛ: cargo build/test/clippy зелёные; общие условия §8 (Совместимый играет, «Bit-perfect» только при ТЗ-52); ручные проверки в заметку плана: замок (ТЗ-1/2/48/118…122, AM1.0-8.1), B1 — возврат устройства в PipeWire после освобождения, B2 — текст «занято <владелец>» при чужом захвате"
     done: false
-current_step: 1
-next_action: "Шаг 1: добавить в Cargo.toml alsa = \"0.11\" ([target.'cfg(target_os = \"linux\")'.dependencies], версия как транзитивная у cpal) и rustix (features process, thread); cargo check. Свежий субагент code-writer sonnet."
+current_step: 2
+next_action: "Шаг 2: newtype HwDeviceId(String) с Display/serde/FromStr в src/audio/backend/mod.rs (§2.3, ADR-24), только тип; cargo check. Свежий субагент code-writer sonnet."
 fail_counter: 0
 fail_counter_max: 3
 failed_attempts: []

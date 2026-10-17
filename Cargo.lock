@@ -2735,6 +2735,7 @@ dependencies = [
 name = "music-player-rs"
 version = "0.3.0"
 dependencies = [
+ "alsa",
  "block2 0.5.1",
  "clru",
  "cpal",
@@ -2750,6 +2751,7 @@ dependencies = [
  "rfd",
  "rtrb",
  "rustfft",
+ "rustix 1.1.4",
  "serde",
  "serde_json",
  "slint",

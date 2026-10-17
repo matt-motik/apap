@@ -45,6 +45,10 @@ libc = "0.2"
 ksni = "0.3.6"
 zbus = "5.19"
 tokio = { version = "1.53.1", features = ["rt-multi-thread"] }
+# Собственный ALSA-вывод Exclusive (§6.6–§6.8): версия alsa — как транзитивная
+# у cpal 0.18; rustix — приоритет RT-потока и pid процесса.
+alsa = "0.11"
+rustix = { version = "1.1", features = ["process", "thread"] }
 
 # Метод делегата `applicationShouldTerminate:` (ADR-7 п. 5): версия objc2 —
 # как у winit 0.30.13.

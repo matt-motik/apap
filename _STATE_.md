@@ -58,8 +58,8 @@
 - **Критерий успеха (Definition of Done):** cargo build/test/clippy зелёные без новых варнингов; Оптимальный/Строгий играют через собственный ALSA-вывод (AlsaExclusiveBackend) с замком lock_step и авто-выбором hw-карты системного sink (ADR-24); тесты §7.2 строки С6 зелёные; старый cpal-Exclusive путь удалён; закрыты AM1.0-B1, B2, B8, B9, B13 и отложенный тест AM1.0-8.4 шаг 14; B10 — закрыт или остаток перерегистрирован
 
 ## Итерационный трекер
-- [>] **Шаг 1: Шаг 1: Cargo.toml: зависимости alsa 0.11 (target linux, версия как транзитивная у cpal) и rustix (features process, thread) для §6.6–§6.8. Файлы: Cargo.toml, Cargo.lock. Проверка: cargo check**
-- [ ] Шаг 2: Шаг 2: Newtype HwDeviceId(String) (стабильный id карты + device, не номер) с Display/serde/FromStr в src/audio/backend/mod.rs (§2.3, ADR-24). Только тип, без использования. Проверка: cargo check
+- [x] Шаг 1: Шаг 1: Cargo.toml: зависимости alsa 0.11 (target linux, версия как транзитивная у cpal) и rustix (features process, thread) для §6.6–§6.8. Файлы: Cargo.toml, Cargo.lock. Проверка: cargo check
+- [>] **Шаг 2: Шаг 2: Newtype HwDeviceId(String) (стабильный id карты + device, не номер) с Display/serde/FromStr в src/audio/backend/mod.rs (§2.3, ADR-24). Только тип, без использования. Проверка: cargo check**
 - [ ] Шаг 3: Шаг 3: Замена OptimalOpts/StrictOpts.device: Option<String> → Option<HwDeviceId>. Механическая правка ~20 строк в 5 файлах (settings/playback.rs, playback_dto.rs, settings/params.rs-тесты, engine/legacy_path.rs, engine/tests.rs); accessor device(mode) сохраняет сигнатуру Option<&str>, чтобы не трогать остальных потребителей (§2.3, ТЗ-143). Общий тип → Проверка: полный cargo test
 - [ ] Шаг 4: Шаг 4: CaptureFailure::NoDeviceSelected в src/audio/error.rs + ветка текста в capture_message (player.rs) (ТЗ-144, ADR-24). Публичный enum → Проверка: полный cargo test
 - [ ] Шаг 5: Шаг 5: Чистая функция parse_wpctl_inspect(&str) -> Option<SinkCard> и тип SinkCard { card: u32, device: Option<u32> } в reservation/mod.rs (свойства api.alsa.pcm.card/device) + тесты ≤5: ALSA-sink, без device, Bluetooth, null-sink, мусор (ADR-24, ТЗ-143). Проверка: cargo test parse_wpctl
@@ -133,8 +133,8 @@
 
 Легенда: [x] сделано · [>] текущий шаг · [ ] не начато
 
-- **Текущий шаг (current_step):** Шаг 1
-- **Следующий ход:** Шаг 1: добавить в Cargo.toml alsa = "0.11" ([target.'cfg(target_os = "linux")'.dependencies], версия как транзитивная у cpal) и rustix (features process, thread); cargo check. Свежий субагент code-writer sonnet.
+- **Текущий шаг (current_step):** Шаг 2
+- **Следующий ход:** Шаг 2: newtype HwDeviceId(String) с Display/serde/FromStr в src/audio/backend/mod.rs (§2.3, ADR-24), только тип; cargo check. Свежий субагент code-writer sonnet.
 - **Счетчик безуспешных компиляций:** 0/3
 - **Состояние:** in_progress
 
