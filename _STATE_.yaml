@@ -75,7 +75,7 @@ steps:
     done: true
   - id: 6
     description: "Шаг 6: AudioServerProbe::default_sink_card(): системная реализация (wpctl inspect @DEFAULT_AUDIO_SINK@, тайм-аут 1 с, нет утилиты/сервера → None) в reservation/mod.rs; FakeServerProbe с заданным Option<SinkCard> и счётчиком вызовов в audio/testing/mod.rs (ADR-24). Проверка: cargo check"
-    done: false
+    done: true
   - id: 7
     description: "Шаг 7: HwDeviceInfo + DeviceCatalog.hw + hw_for_sink(SinkCard) -> Option<&HwDeviceId> (тот же device, иначе первое устройство карты, нет карты → None) в backend/catalog.rs + тесты ≤4 (§2.3, ADR-24). Проверка: cargo test hw_for_sink"
     done: false
@@ -274,8 +274,8 @@ steps:
   - id: 72
     description: "Шаг 72: ФИНАЛ: cargo build/test/clippy зелёные; общие условия §8 (Совместимый играет, «Bit-perfect» только при ТЗ-52); ручные проверки в заметку плана: замок (ТЗ-1/2/48/118…122, AM1.0-8.1), B1 — возврат устройства в PipeWire после освобождения, B2 — текст «занято <владелец>» при чужом захвате"
     done: false
-current_step: 6
-next_action: "Шаг 6: AudioServerProbe::default_sink_card() (wpctl inspect @DEFAULT_AUDIO_SINK@, тайм-аут 1 с, нет утилиты/сервера → None) в reservation/mod.rs; FakeServerProbe с Option<SinkCard> и счётчиком в audio/testing/mod.rs (ADR-24); cargo check. Свежий субагент code-writer sonnet."
+current_step: 7
+next_action: "Шаг 7: HwDeviceInfo + DeviceCatalog.hw + hw_for_sink(SinkCard) -> Option<&HwDeviceId> в backend/catalog.rs + тесты ≤4 (§2.3, ADR-24); cargo test hw_for_sink. Свежий субагент code-writer sonnet."
 fail_counter: 0
 fail_counter_max: 3
 failed_attempts: []

@@ -330,7 +330,7 @@ mod tests {
     #[test]
     fn no_bus_no_server_opens_hw_with_warning() {
         let fake = FakeReserveBus::new(ManualClock::new(), FakeOwner::Free);
-        let mut g = gate(&fake, FakeServerProbe { session_bus: false, server_running: false });
+        let mut g = gate(&fake, FakeServerProbe { session_bus: false, server_running: false, ..FakeServerProbe::desktop() });
         g.begin(0, "DAC");
         assert_eq!(wait(&mut g), GateEvent::Ready);
         assert!(g.unreserved());

@@ -8,11 +8,11 @@ pub mod signals;
 
 use crate::audio::clock::{Clock, ClockInstant};
 use crate::audio::reservation::{
-    AudioServerProbe, CallError, LostNotify, NameFlags, RequestNameReply, ReserveBus, ReserveObject,
+    AudioServerProbe, CallError, LostNotify, NameFlags, RequestNameReply, ReserveBus, ReserveObject, SinkCard,
     OWNER_NAME_TIMEOUT, RELEASE_TIMEOUT,
 };
 use std::collections::HashMap;
-use std::sync::atomic::{AtomicU64, Ordering};
+use std::sync::atomic::{AtomicU64, AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex, MutexGuard};
 use std::time::Duration;
 
@@ -48,17 +48,36 @@ impl Clock for ManualClock {
     }
 }
 
-/// Наличие шины и аудиосервера для тестов ОВ-35 (таблица «Трейт → этап», С1).
-#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+/// Наличие шины и аудиосервера для тестов ОВ-35 (таблица «Трейт → этап», С1);
+/// карта системного выхода для автовыбора устройства (ADR-24, ТЗ-143).
+#[derive(Debug)]
 pub struct FakeServerProbe {
     pub session_bus: bool,
     pub server_running: bool,
+    pub sink_card: Option<SinkCard>,
+    pub sink_card_calls: AtomicUsize,
 }
 
 impl FakeServerProbe {
-    /// Обычный рабочий стол: шина есть, PipeWire запущен.
+    /// Обычный рабочий стол: шина есть, PipeWire запущен, карта выхода не задана.
     pub fn desktop() -> FakeServerProbe {
-        FakeServerProbe { session_bus: true, server_running: true }
+        FakeServerProbe {
+            session_bus: true,
+            server_running: true,
+            sink_card: None,
+            sink_card_calls: AtomicUsize::new(0),
+        }
+    }
+
+    /// Карта, которую должен вернуть `default_sink_card` (ADR-24, ТЗ-143).
+    pub fn with_sink_card(mut self, card: Option<SinkCard>) -> FakeServerProbe {
+        self.sink_card = card;
+        self
+    }
+
+    /// Сколько раз был вызван `default_sink_card` (ADR-24, ТЗ-143).
+    pub fn sink_card_calls(&self) -> usize {
+        self.sink_card_calls.load(Ordering::Acquire)
     }
 }
 
@@ -69,6 +88,11 @@ impl AudioServerProbe for FakeServerProbe {
 
     fn server_running(&self) -> bool {
         self.server_running
+    }
+
+    fn default_sink_card(&self) -> Option<SinkCard> {
+        self.sink_card_calls.fetch_add(1, Ordering::AcqRel);
+        self.sink_card
     }
 }
 

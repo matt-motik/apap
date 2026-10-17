@@ -14,9 +14,10 @@ pub mod gate;
 
 use crate::audio::error::CaptureFailure;
 use std::fmt;
+use std::process::{Command, Stdio};
 use std::sync::mpsc::Sender;
 use std::sync::Arc;
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 /// Префикс имени шины; полное имя — `org.freedesktop.ReserveDevice1.AudioN`.
 pub const RESERVE_NAME_PREFIX: &str = "org.freedesktop.ReserveDevice1.Audio";
@@ -169,10 +170,20 @@ pub enum Reservation {
     UnavailableNoServer,
 }
 
-/// Наличие сессионной шины и аудиосервера (ОВ-35, §2.3).
+/// Наличие сессионной шины и аудиосервера (ОВ-35, §2.3); автовыбор устройства
+/// по системному выходу (ADR-24, ТЗ-143).
 pub trait AudioServerProbe: Send {
     fn session_bus(&self) -> bool;
     fn server_running(&self) -> bool;
+    /// Карта системного выхода для автовыбора устройства Оптимального/Строгого
+    /// режима (ADR-24, ТЗ-143): по умолчанию — `wpctl inspect
+    /// @DEFAULT_AUDIO_SINK@` в служебном потоке захвата с таймаутом
+    /// `WPCTL_INSPECT_TIMEOUT`. Нет утилиты, нет сервера, ненулевой код
+    /// возврата, нечитаемый вывод, таймаут или у узла нет `api.alsa.pcm.card`
+    /// (Bluetooth, виртуальный sink, null-sink) — `None`.
+    fn default_sink_card(&self) -> Option<SinkCard> {
+        parse_wpctl_inspect(&run_wpctl_inspect()?)
+    }
 }
 
 /// Снимок проверки ОВ-35: передаётся в служебный поток вместо самой проверки.
@@ -205,6 +216,47 @@ impl AudioServerProbe for ProbeSnapshot {
 pub struct SinkCard {
     pub card: u32,
     pub device: Option<u32>,
+}
+
+/// Таймаут ожидания `wpctl inspect` (ADR-24, ТЗ-143): дольше считается
+/// недоступным, процесс убивается.
+const WPCTL_INSPECT_TIMEOUT: Duration = Duration::from_secs(1);
+
+/// Запуск `wpctl inspect @DEFAULT_AUDIO_SINK@` с таймаутом
+/// `WPCTL_INSPECT_TIMEOUT` (ADR-24, ТЗ-143). `None` при отсутствии утилиты
+/// (ошибка запуска), ненулевом коде возврата, таймауте или нечитаемом выводе.
+fn run_wpctl_inspect() -> Option<String> {
+    let mut child = Command::new("wpctl")
+        .args(["inspect", "@DEFAULT_AUDIO_SINK@"])
+        .stdin(Stdio::null())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::null())
+        .spawn()
+        .ok()?;
+
+    let start = Instant::now();
+    loop {
+        match child.try_wait() {
+            Ok(Some(status)) => {
+                if !status.success() {
+                    return None;
+                }
+                break;
+            }
+            Ok(None) => {
+                if start.elapsed() >= WPCTL_INSPECT_TIMEOUT {
+                    let _ = child.kill();
+                    let _ = child.wait();
+                    return None;
+                }
+                std::thread::sleep(Duration::from_millis(10));
+            }
+            Err(_) => return None,
+        }
+    }
+
+    let output = child.wait_with_output().ok()?;
+    String::from_utf8(output.stdout).ok()
 }
 
 /// Разбор текста `wpctl inspect @DEFAULT_AUDIO_SINK@` (ADR-24, ТЗ-143).
@@ -373,7 +425,7 @@ mod tests {
     #[test]
     fn reservation_no_bus_no_server_is_unavailable_without_bus_calls() {
         let fake = FakeReserveBus::new(ManualClock::new(), FakeOwner::Free);
-        let probe = FakeServerProbe { session_bus: false, server_running: false };
+        let probe = FakeServerProbe { session_bus: false, server_running: false, ..FakeServerProbe::desktop() };
         let r = acquire(&bus_dyn(&fake), &probe, 0, "DAC", noop()).unwrap();
         assert!(matches!(r, Reservation::UnavailableNoServer));
         assert!(fake.calls().is_empty());
@@ -382,7 +434,7 @@ mod tests {
     #[test]
     fn reservation_no_bus_with_server_is_no_session_bus() {
         let fake = FakeReserveBus::new(ManualClock::new(), FakeOwner::Free);
-        let probe = FakeServerProbe { session_bus: false, server_running: true };
+        let probe = FakeServerProbe { session_bus: false, server_running: true, ..FakeServerProbe::desktop() };
         let r = acquire(&bus_dyn(&fake), &probe, 0, "DAC", noop());
         assert!(matches!(r, Err(CaptureFailure::NoSessionBus)));
         assert!(fake.calls().is_empty());
