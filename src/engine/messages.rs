@@ -15,12 +15,21 @@ use crate::audio::path::signal::SignalPath;
 use crate::audio::path::Blocked;
 use crate::audio::player::ReservationEvent;
 use crate::audio::verdict::BadgeState;
+use crate::playlist::model::TrackId;
 use crate::settings::params::ModeSettingsUpdate;
 use crate::settings::playback::ModeKind;
 use crate::settings::{
     ClockFamily, DsdMode, ExclusiveMode, FallbackPolicy, FallbackRatePolicy, ResamplerAlgorithm,
     ResamplerDither, ResamplerMode,
 };
+
+/// Ссылка на трек без тяжёлого `Track`: id строки плейлиста и путь (§2.8).
+/// Точка повторного захвата замка хранит её вместо пути (§2.6).
+#[derive(Clone, PartialEq, Eq, Debug)]
+pub struct TrackRef {
+    pub id: TrackId,
+    pub path: Arc<Path>,
+}
 
 /// Старые параметры звука, применяемые в памяти движка без I/O (ТЗ-134, И-Р24).
 /// Мост С3: больше не приходит командой от UI — строится внутри движка
