@@ -5,16 +5,25 @@
 #![deny(clippy::unwrap_used, clippy::expect_used, clippy::unreachable)]
 
 use std::sync::Arc;
+use std::time::Duration;
 
 use smallvec::SmallVec;
 
 use super::catalog::HwDeviceInfo;
-use super::exclusive::DeviceClaim;
+use super::exclusive::{ClaimInfo, DeviceClaim, PcmHandle};
 use super::{AccessKind, BackendCaps, BackendError, DeviceCaps, HwDeviceId, OutputApi, RateSet};
+use crate::audio::clock::{Clock, MonotonicClock};
 use crate::audio::error::CaptureFailure;
 use crate::audio::format::{OutputSampleFormat, SampleRate};
 use crate::audio::reservation::dbus::{alsa_card_index, DbusReserveBus, SystemServerProbe};
 use crate::audio::reservation::{self, LostNotify, Reservation, ReserveBus};
+
+/// Дедлайн ожидания `EBUSY` при открытии `hw:` от момента вызова OPEN (§6.6,
+/// ТЗ-48, ТЗ-122).
+const OPEN_EBUSY_DEADLINE: Duration = Duration::from_secs(1);
+
+/// Шаг повтора открытия после `EBUSY` (§6.6, ТЗ-122).
+const OPEN_RETRY_STEP: Duration = Duration::from_millis(50);
 
 /// Частоты, которые проверяются первыми через `test_rate` (§6.6): если
 /// устройство принимает любую из них, `DeviceCaps::rates` — дискретный
@@ -139,6 +148,63 @@ impl AlsaExclusiveBackend {
         let bus: Arc<dyn ReserveBus> = Arc::new(DbusReserveBus::new());
         reservation::acquire(&bus, &SystemServerProbe, card, device_name, on_lost)
     }
+
+    /// Открытие `hw:` после уже полученного резервирования — вторая часть
+    /// `ExclusiveBackend::acquire` (§6.6 OPEN, ТЗ-48, ТЗ-49, ADR-08). Сигнатура
+    /// совпадает с методом трейта: полная реализация `ExclusiveBackend` для
+    /// `AlsaExclusiveBackend` появится вместе с `configure`/`start`. Выполняется
+    /// в служебном потоке захвата — блокирующий `PCM::new` и реальный `sleep`
+    /// здесь допустимы (не аудио-колбэк).
+    #[allow(dead_code)]
+    pub(crate) fn acquire(&mut self, dev: &HwDeviceId, reservation: Reservation) -> Result<DeviceClaim, CaptureFailure> {
+        let hw_name = dev.as_str().to_string();
+        let clock = MonotonicClock::new();
+        let (pcm, reservation) = open_claimed(reservation, &clock, std::thread::sleep, || {
+            alsa::PCM::new(&hw_name, alsa::Direction::Playback, false).map_err(|e| e.errno())
+        })?;
+        Ok(DeviceClaim::new(Some(PcmHandle::new(pcm)), reservation, ClaimInfo { device: dev.clone() }))
+    }
+}
+
+/// Цикл OPEN (§6.6, ТЗ-48, ТЗ-49, ТЗ-122): `EBUSY` повторяется с шагом
+/// `OPEN_RETRY_STEP`, пока `clock.now()` не достигнет дедлайна
+/// `OPEN_EBUSY_DEADLINE` от момента вызова, иначе — отказ
+/// `BusyOutsideProtocol`; `ENOENT`/`ENODEV` — устройство отключено,
+/// `DeviceDisconnected`; любой другой errno — `DriverRefused`.
+/// Резервирование при любом отказе явно снимается (`drop`) до возврата —
+/// bug AM1.0-B1 был вызван тем, что старый путь мог оставить резервирование
+/// удержанным без открытого PCM (устройство не возвращалось PipeWire); здесь
+/// `reservation` либо переходит в успешный результат вместе с открытым `P`,
+/// либо снимается в той же ветке, что возвращает отказ. `clock`/`sleep`/`open`
+/// инжектируются (ADR-20): тест на дедлайн 1 с не ждёт реальное время. `P` —
+/// открытый хэндл (в проде `alsa::PCM`, в тестах — фейк); функция не строит
+/// `DeviceClaim` сама, это делает вызывающая сторона на успехе.
+#[allow(dead_code)]
+fn open_claimed<P>(
+    reservation: Reservation,
+    clock: &dyn Clock,
+    mut sleep: impl FnMut(Duration),
+    mut open: impl FnMut() -> Result<P, i32>,
+) -> Result<(P, Reservation), CaptureFailure> {
+    let deadline = clock.now().saturating_add(OPEN_EBUSY_DEADLINE);
+    loop {
+        match open() {
+            Ok(pcm) => return Ok((pcm, reservation)),
+            Err(errno) if errno == libc::EBUSY && clock.now() < deadline => sleep(OPEN_RETRY_STEP),
+            Err(errno) if errno == libc::EBUSY => {
+                drop(reservation);
+                return Err(CaptureFailure::BusyOutsideProtocol);
+            }
+            Err(errno) if errno == libc::ENOENT || errno == libc::ENODEV => {
+                drop(reservation);
+                return Err(CaptureFailure::DeviceDisconnected);
+            }
+            Err(errno) => {
+                drop(reservation);
+                return Err(CaptureFailure::DriverRefused { errno });
+            }
+        }
+    }
 }
 
 /// Номер карты ALSA из `HwDeviceId` (`hw:CARD=<id>,DEV=<d>`, §6.6, ТЗ-126):
@@ -192,6 +258,7 @@ fn probe_rates(hw: &alsa::pcm::HwParams<'_>) -> Result<RateSet, CaptureFailure> 
 #[allow(clippy::unwrap_used, clippy::expect_used, clippy::unreachable)]
 mod tests {
     use super::*;
+    use crate::audio::testing::{BusCall, FakeOwner, FakeReserveBus, FakeServerProbe, ManualClock};
 
     #[test]
     fn caps_reports_exclusive_on_linux() {
@@ -234,5 +301,69 @@ mod tests {
         let mut backend = AlsaExclusiveBackend::new();
         let r = backend.reserve(&dev, "USB DAC", noop());
         assert!(matches!(r, Err(CaptureFailure::DeviceDisconnected)));
+    }
+
+    /// Резервирование карты 7 через фейковую шину — общая подготовка для
+    /// тестов `open_claimed` (§6.6, ТЗ-48).
+    fn held(bus: &Arc<dyn ReserveBus>) -> Reservation {
+        reservation::acquire(bus, &FakeServerProbe::desktop(), 7, "Test DAC", noop()).expect("резервирование удержано")
+    }
+
+    #[test]
+    fn alsa_acquire_open_claimed_retries_ebusy_then_succeeds() {
+        let clock = ManualClock::new();
+        let fake = FakeReserveBus::new(clock.clone(), FakeOwner::Free);
+        let bus: Arc<dyn ReserveBus> = Arc::new(fake.clone());
+        let reservation = held(&bus);
+
+        let mut attempts = 0;
+        let (pcm, reservation) = open_claimed(reservation, &clock, |d| clock.advance(d), || {
+            attempts += 1;
+            if attempts < 3 {
+                Err(libc::EBUSY)
+            } else {
+                Ok(99)
+            }
+        })
+        .expect("успех после повторов EBUSY до дедлайна");
+
+        assert_eq!(pcm, 99);
+        assert_eq!(attempts, 3);
+        assert!(!fake.calls().contains(&BusCall::ReleaseName { card: 7 }), "резервирование снято раньше срока");
+        drop(reservation);
+        assert!(fake.calls().contains(&BusCall::ReleaseName { card: 7 }), "резервирование не снято после использования");
+    }
+
+    #[test]
+    fn alsa_acquire_open_claimed_ebusy_past_deadline_is_busy_outside_protocol() {
+        let clock = ManualClock::new();
+        let fake = FakeReserveBus::new(clock.clone(), FakeOwner::Free);
+        let bus: Arc<dyn ReserveBus> = Arc::new(fake.clone());
+        let reservation = held(&bus);
+
+        let result: Result<(i32, Reservation), CaptureFailure> =
+            open_claimed(reservation, &clock, |d| clock.advance(d), || Err(libc::EBUSY));
+
+        assert_eq!(result.err(), Some(CaptureFailure::BusyOutsideProtocol));
+        assert!(fake.calls().contains(&BusCall::ReleaseName { card: 7 }));
+        assert!(fake.calls().contains(&BusCall::Unexport { card: 7 }));
+    }
+
+    #[test]
+    fn alsa_acquire_open_claimed_releases_reservation_order_on_disconnect() {
+        let clock = ManualClock::new();
+        let fake = FakeReserveBus::new(clock.clone(), FakeOwner::Free);
+        let bus: Arc<dyn ReserveBus> = Arc::new(fake.clone());
+        let reservation = held(&bus);
+
+        let result: Result<(i32, Reservation), CaptureFailure> =
+            open_claimed(reservation, &clock, |d| clock.advance(d), || Err(libc::ENODEV));
+
+        assert_eq!(result.err(), Some(CaptureFailure::DeviceDisconnected));
+        let calls = fake.calls();
+        let release_at =
+            calls.iter().position(|c| *c == BusCall::ReleaseName { card: 7 }).expect("ReleaseName записан");
+        let unexport_at = calls.iter().position(|c| *c == BusCall::Unexport { card: 7 }).expect("Unexport записан");
+        assert!(release_at < unexport_at, "И-Р1/AM1.0-B1: ReleaseName должен предшествовать Unexport");
     }
 }
