@@ -348,4 +348,122 @@ mod tests {
             }
         }
     }
+
+    /// `UserClose` захватывает только из `Open`/`Failed` (§6.19) — перехода из
+    /// `Held` в таблице нет, состояние не меняется (ТЗ-43). `UserOpen` в
+    /// таблице определён только для `Held` (→ `Open` + `StopPlayback`,
+    /// `Release`, `ForgetReacquire`, ТЗ-44) и для `Failed(DeviceDisconnected)`
+    /// (→ `Open` + `ForgetReacquire`); из `Open` перехода `UserOpen` в таблице
+    /// нет, состояние не меняется.
+    #[test]
+    fn user_close_from_held_and_user_open_table() {
+        for mode in [ModeKind::Optimal, ModeKind::Strict] {
+            let held = LockState::Held { info: ClaimInfo { device: dev_a() } };
+
+            let (new_state, effects) = lock_step(&held, LockInput::UserClose, mode, Some(&dev_a()));
+            assert_eq!(new_state, held, "mode={mode:?}");
+            assert!(effects.is_empty(), "mode={mode:?}");
+
+            let (new_state, effects) = lock_step(&held, LockInput::UserOpen, mode, Some(&dev_a()));
+            assert_eq!(new_state, LockState::Open, "mode={mode:?}");
+            assert_eq!(
+                effects.as_slice(),
+                [LockEffect::StopPlayback, LockEffect::Release, LockEffect::ForgetReacquire],
+                "mode={mode:?}"
+            );
+
+            let failed_disconnected = LockState::Failed(CaptureFailure::DeviceDisconnected);
+            let (new_state, effects) = lock_step(&failed_disconnected, LockInput::UserOpen, mode, Some(&dev_a()));
+            assert_eq!(new_state, LockState::Open, "mode={mode:?}");
+            assert_eq!(effects.as_slice(), [LockEffect::ForgetReacquire], "mode={mode:?}");
+
+            let (new_state, effects) = lock_step(&LockState::Open, LockInput::UserOpen, mode, Some(&dev_a()));
+            assert_eq!(new_state, LockState::Open, "mode={mode:?}");
+            assert!(effects.is_empty(), "mode={mode:?}");
+        }
+    }
+
+    /// `CaptureAndPlay` и `RetryCapture` входят в строку «`Open`/`Failed` +
+    /// `Startup`/`ModeSelected(E)`/`UserClose`/`CaptureAndPlay`/`RetryCapture`
+    /// → `Acquiring`, `Acquire(dev)`» (§6.19, ТЗ-42, ТЗ-125).
+    #[test]
+    fn capture_and_play_and_retry_capture_acquire() {
+        let states = [LockState::Open, LockState::Failed(CaptureFailure::OwnerNotResponding)];
+        let inputs = [LockInput::CaptureAndPlay, LockInput::RetryCapture];
+        for mode in [ModeKind::Optimal, ModeKind::Strict] {
+            for state in &states {
+                for input in &inputs {
+                    let (new_state, effects) = lock_step(state, input.clone(), mode, Some(&dev_a()));
+                    assert_eq!(
+                        new_state,
+                        LockState::Acquiring { started: ClockInstant::START },
+                        "input={input:?} state={state:?} mode={mode:?}"
+                    );
+                    assert_eq!(
+                        effects.as_slice(),
+                        [LockEffect::Acquire(dev_a())],
+                        "input={input:?} state={state:?} mode={mode:?}"
+                    );
+                }
+            }
+        }
+    }
+
+    /// `DeviceLost` из `Held` → `Failed(DeviceDisconnected)` + `StopPlayback`,
+    /// `Release` (§6.19, ТЗ-51); из прочих состояний перехода в таблице нет.
+    #[test]
+    fn device_lost_from_held_fails() {
+        for mode in [ModeKind::Optimal, ModeKind::Strict] {
+            let held = LockState::Held { info: ClaimInfo { device: dev_a() } };
+            let (new_state, effects) = lock_step(&held, LockInput::DeviceLost, mode, Some(&dev_a()));
+            assert_eq!(new_state, LockState::Failed(CaptureFailure::DeviceDisconnected), "mode={mode:?}");
+            assert_eq!(effects.as_slice(), [LockEffect::StopPlayback, LockEffect::Release], "mode={mode:?}");
+
+            let (new_state, effects) = lock_step(&LockState::Open, LockInput::DeviceLost, mode, Some(&dev_a()));
+            assert_eq!(new_state, LockState::Open, "mode={mode:?}");
+            assert!(effects.is_empty(), "mode={mode:?}");
+        }
+    }
+
+    /// `DeviceReappeared(d)` захватывает только из `Failed(DeviceDisconnected)`
+    /// (§6.19, ТЗ-126); из прочих `Failed`-вариантов перехода в таблице нет.
+    #[test]
+    fn device_reappeared_from_failed_disconnected_acquires() {
+        for mode in [ModeKind::Optimal, ModeKind::Strict] {
+            let failed_disconnected = LockState::Failed(CaptureFailure::DeviceDisconnected);
+            let (new_state, effects) =
+                lock_step(&failed_disconnected, LockInput::DeviceReappeared(dev_b()), mode, Some(&dev_a()));
+            assert_eq!(new_state, LockState::Acquiring { started: ClockInstant::START }, "mode={mode:?}");
+            assert_eq!(effects.as_slice(), [LockEffect::Acquire(dev_b())], "mode={mode:?}");
+
+            let failed_other = LockState::Failed(CaptureFailure::NoDeviceSelected);
+            let (new_state, effects) =
+                lock_step(&failed_other, LockInput::DeviceReappeared(dev_b()), mode, Some(&dev_a()));
+            assert_eq!(new_state, failed_other, "mode={mode:?}");
+            assert!(effects.is_empty(), "mode={mode:?}");
+        }
+    }
+
+    /// `CaptureResult(Ok(info))`/`CaptureResult(Err(f))` из `Acquiring` →
+    /// `Held { info }` / `Failed(f)` без эффектов (§6.19).
+    #[test]
+    fn capture_result_resolves_acquiring() {
+        for mode in [ModeKind::Optimal, ModeKind::Strict] {
+            let acquiring = LockState::Acquiring { started: ClockInstant::START };
+
+            let (new_state, effects) =
+                lock_step(&acquiring, LockInput::CaptureResult(Ok(ClaimInfo { device: dev_b() })), mode, Some(&dev_a()));
+            assert_eq!(new_state, LockState::Held { info: ClaimInfo { device: dev_b() } }, "mode={mode:?}");
+            assert!(effects.is_empty(), "mode={mode:?}");
+
+            let (new_state, effects) = lock_step(
+                &acquiring,
+                LockInput::CaptureResult(Err(CaptureFailure::OwnerNotResponding)),
+                mode,
+                Some(&dev_a()),
+            );
+            assert_eq!(new_state, LockState::Failed(CaptureFailure::OwnerNotResponding), "mode={mode:?}");
+            assert!(effects.is_empty(), "mode={mode:?}");
+        }
+    }
 }

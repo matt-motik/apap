@@ -99,7 +99,7 @@ steps:
     done: true
   - id: 14
     description: "Шаг 14: Тесты lock_step ч. 2: UserClose/UserOpen/CaptureAndPlay/DeviceLost/DeviceReappeared/RetryCapture — ≤5 (§7.2, ТЗ-120…126). Проверка: cargo test lock_step"
-    done: false
+    done: true
   - id: 15
     description: "Шаг 15: Чистая функция resolve_device(opts_device, probe, catalog) -> Resolved { Selected | AutoSelected(HwDeviceId) | None } в engine/lock.rs; выбранное устройство — без опроса probe (счётчик FakeServerProbe = 0) + тесты ≤4 (ADR-24, ТЗ-143, 144). Проверка: cargo test resolve_device"
     done: false
@@ -277,8 +277,8 @@ steps:
   - id: 73
     description: "Шаг 73: ФИНАЛ: cargo build/test/clippy зелёные; общие условия §8 (Совместимый играет, «Bit-perfect» только при ТЗ-52); ручные проверки в заметку плана: замок (ТЗ-1/2/48/118…122, AM1.0-8.1), B1 — возврат устройства в PipeWire после освобождения, B2 — текст «занято <владелец>» при чужом захвате"
     done: false
-current_step: 14
-next_action: "Шаг 14: Тесты lock_step ч. 2: UserClose/UserOpen/CaptureAndPlay/DeviceLost/DeviceReappeared/RetryCapture — ≤5 (§7.2, ТЗ-120…126). Проверка: cargo test lock_step. Свежий субагент code-writer sonnet."
+current_step: 15
+next_action: "Шаг 15: Чистая функция resolve_device(opts_device, probe, catalog) -> Resolved { Selected | AutoSelected(HwDeviceId) | None } в engine/lock.rs; выбранное устройство — без опроса probe (счётчик FakeServerProbe = 0) + тесты ≤4 (ADR-24, ТЗ-143, 144). Проверка: cargo test resolve_device. Свежий субагент code-writer sonnet."
 fail_counter: 0
 fail_counter_max: 3
 failed_attempts: []
