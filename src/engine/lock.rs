@@ -174,3 +174,178 @@ pub fn lock_step(
         },
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// Устройство режима, используемое как `dev` (разрешённое движком, ADR-24).
+    fn dev_a() -> HwDeviceId {
+        "hw:CARD=X,DEV=0".parse().expect("валидный HwDeviceId")
+    }
+
+    /// Второе устройство — для входов, несущих собственное устройство
+    /// (`DeviceSelected`, `DeviceReappeared`, `CaptureResult`).
+    fn dev_b() -> HwDeviceId {
+        "hw:CARD=Y,DEV=0".parse().expect("валидный HwDeviceId")
+    }
+
+    /// Представительный набор состояний замка, включая несколько вариантов
+    /// `CaptureFailure` (§2.6).
+    fn state_samples() -> Vec<LockState> {
+        vec![
+            LockState::NotApplicable,
+            LockState::Open,
+            LockState::Acquiring { started: ClockInstant::START },
+            LockState::Held { info: ClaimInfo { device: dev_a() } },
+            LockState::Failed(CaptureFailure::DeviceDisconnected),
+            LockState::Failed(CaptureFailure::NoDeviceSelected),
+            LockState::Failed(CaptureFailure::ReservationDenied { owner: None }),
+            LockState::Failed(CaptureFailure::OwnerNotResponding),
+            LockState::Failed(CaptureFailure::NoSessionBus),
+            LockState::Failed(CaptureFailure::BusyOutsideProtocol),
+            LockState::Failed(CaptureFailure::DriverRefused { errno: 0 }),
+            LockState::Failed(CaptureFailure::LostOnReopen),
+            LockState::Failed(CaptureFailure::ReservationLost),
+            LockState::Failed(CaptureFailure::PlatformUnsupported),
+        ]
+    }
+
+    /// Представительный набор входов, по одному значению на вариант `LockInput`.
+    fn input_samples() -> Vec<LockInput> {
+        vec![
+            LockInput::Startup,
+            LockInput::ModeSelected(ModeKind::Compatible),
+            LockInput::ModeSelected(ModeKind::Optimal),
+            LockInput::ModeSelected(ModeKind::Strict),
+            LockInput::DeviceSelected(dev_b()),
+            LockInput::UserClose,
+            LockInput::UserOpen,
+            LockInput::CaptureAndPlay,
+            LockInput::DeviceReappeared(dev_b()),
+            LockInput::RetryCapture,
+            LockInput::CaptureResult(Ok(ClaimInfo { device: dev_b() })),
+            LockInput::CaptureResult(Err(CaptureFailure::DeviceDisconnected)),
+            LockInput::DeviceLost,
+            LockInput::Shutdown,
+        ]
+    }
+
+    /// Тест §7.2 `lock_step_is_total`: перебирает все пары «состояние × вход ×
+    /// режим» (с `dev` и `None`, и `Some`) и проверяет, что функция не паникует
+    /// и возвращает не более 3 эффектов (ТЗ-42…46, 50, 125, 144, И-Т17). Предел —
+    /// 3, а не ёмкость `SmallVec<[LockEffect; 2]>`: строки таблицы §6.19 с
+    /// `ModeSelected(Compatible)`/`DeviceSelected`/`UserOpen` из `Held` дают
+    /// `StopPlayback` + `Release` + `ForgetReacquire`/`Acquire` — тройку эффектов,
+    /// обслуживаемую переполнением `SmallVec` на кучу, а не инлайн-ёмкостью.
+    #[test]
+    fn lock_step_is_total() {
+        let devices = [None, Some(dev_a())];
+        for state in &state_samples() {
+            for input in &input_samples() {
+                for &mode in &[ModeKind::Compatible, ModeKind::Optimal, ModeKind::Strict] {
+                    for dev in &devices {
+                        let (_, effects) = lock_step(state, input.clone(), mode, dev.as_ref());
+                        assert!(
+                            effects.len() <= 3,
+                            "больше 3 эффектов: state={state:?} input={input:?} mode={mode:?} dev={dev:?}"
+                        );
+                    }
+                }
+            }
+        }
+    }
+
+    /// Совместимый режим: любой вход, кроме `ModeSelected(Optimal/Strict)`,
+    /// даёт `NotApplicable` без эффектов независимо от состояния (ТЗ-50).
+    #[test]
+    fn compatible_mode_gives_not_applicable() {
+        let inputs = [
+            LockInput::Startup,
+            LockInput::ModeSelected(ModeKind::Compatible),
+            LockInput::DeviceSelected(dev_b()),
+            LockInput::UserClose,
+            LockInput::UserOpen,
+            LockInput::CaptureAndPlay,
+            LockInput::DeviceReappeared(dev_b()),
+            LockInput::RetryCapture,
+            LockInput::CaptureResult(Ok(ClaimInfo { device: dev_b() })),
+            LockInput::CaptureResult(Err(CaptureFailure::DeviceDisconnected)),
+            LockInput::DeviceLost,
+            LockInput::Shutdown,
+        ];
+        for state in &state_samples() {
+            for input in &inputs {
+                let (new_state, effects) = lock_step(state, input.clone(), ModeKind::Compatible, Some(&dev_a()));
+                assert_eq!(new_state, LockState::NotApplicable, "input={input:?} state={state:?}");
+                assert!(effects.is_empty(), "input={input:?} state={state:?}");
+            }
+        }
+    }
+
+    /// `no_device_selected` (ТЗ-144): входы, которые по таблице §6.19 ведут к
+    /// захвату через `Acquire(dev)`, при `dev = None` дают `Failed(NoDeviceSelected)`
+    /// без эффектов — устройство режима не разрешено движком.
+    #[test]
+    fn no_device_selected_without_device_fails() {
+        // Строка «любое (Совм.) + ModeSelected(Optimal/Strict)».
+        for state in &state_samples() {
+            for mode in [ModeKind::Optimal, ModeKind::Strict] {
+                let (new_state, effects) = lock_step(state, LockInput::ModeSelected(mode), ModeKind::Compatible, None);
+                assert_eq!(new_state, LockState::Failed(CaptureFailure::NoDeviceSelected));
+                assert!(effects.is_empty());
+            }
+        }
+
+        // Строка «Open/Failed + Startup/ModeSelected(E)/UserClose/CaptureAndPlay/RetryCapture».
+        let inputs = [
+            LockInput::Startup,
+            LockInput::ModeSelected(ModeKind::Strict),
+            LockInput::UserClose,
+            LockInput::CaptureAndPlay,
+            LockInput::RetryCapture,
+        ];
+        let states = [LockState::Open, LockState::Failed(CaptureFailure::DeviceDisconnected)];
+        for mode in [ModeKind::Optimal, ModeKind::Strict] {
+            for state in &states {
+                for input in &inputs {
+                    let (new_state, effects) = lock_step(state, input.clone(), mode, None);
+                    assert_eq!(new_state, LockState::Failed(CaptureFailure::NoDeviceSelected), "input={input:?} state={state:?} mode={mode:?}");
+                    assert!(effects.is_empty(), "input={input:?} state={state:?} mode={mode:?}");
+                }
+            }
+        }
+    }
+
+    /// `no_device_selected` (ТЗ-144): те же входы при разрешённом `dev = Some(d)`
+    /// захватывают устройство как обычно — `Acquiring` + `Acquire(d)`.
+    #[test]
+    fn no_device_selected_with_device_acquires() {
+        for state in &state_samples() {
+            for mode in [ModeKind::Optimal, ModeKind::Strict] {
+                let (new_state, effects) =
+                    lock_step(state, LockInput::ModeSelected(mode), ModeKind::Compatible, Some(&dev_a()));
+                assert_eq!(new_state, LockState::Acquiring { started: ClockInstant::START });
+                assert_eq!(effects.as_slice(), [LockEffect::Acquire(dev_a())]);
+            }
+        }
+
+        let inputs = [
+            LockInput::Startup,
+            LockInput::ModeSelected(ModeKind::Strict),
+            LockInput::UserClose,
+            LockInput::CaptureAndPlay,
+            LockInput::RetryCapture,
+        ];
+        let states = [LockState::Open, LockState::Failed(CaptureFailure::DeviceDisconnected)];
+        for mode in [ModeKind::Optimal, ModeKind::Strict] {
+            for state in &states {
+                for input in &inputs {
+                    let (new_state, effects) = lock_step(state, input.clone(), mode, Some(&dev_a()));
+                    assert_eq!(new_state, LockState::Acquiring { started: ClockInstant::START }, "input={input:?} state={state:?} mode={mode:?}");
+                    assert_eq!(effects.as_slice(), [LockEffect::Acquire(dev_a())], "input={input:?} state={state:?} mode={mode:?}");
+                }
+            }
+        }
+    }
+}
