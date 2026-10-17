@@ -67,8 +67,8 @@
 - [x] Шаг 6: Шаг 6: AudioServerProbe::default_sink_card(): системная реализация (wpctl inspect @DEFAULT_AUDIO_SINK@, тайм-аут 1 с, нет утилиты/сервера → None) в reservation/mod.rs; FakeServerProbe с заданным Option<SinkCard> и счётчиком вызовов в audio/testing/mod.rs (ADR-24). Проверка: cargo check
 - [x] Шаг 7: Шаг 7: HwDeviceInfo + DeviceCatalog.hw + hw_for_sink(SinkCard) -> Option<&HwDeviceId> (тот же device, иначе первое устройство карты, нет карты → None) в backend/catalog.rs + тесты ≤4 (§2.3, ADR-24). Проверка: cargo test hw_for_sink
 - [x] Шаг 8: Шаг 8: Новый src/audio/backend/exclusive.rs: трейт ExclusiveBackend (caps/enumerate/acquire/device_caps/configure/start), DeviceClaim (порядок полей = порядок освобождения: pcm до reservation, И-Р1), ClaimInfo, PcmHandle, StreamHandle::stop(self: Box<Self>), ExclusiveRender (+ ExclusivePcm<G>/DopRenderAny/OptimalRender/StrictRender — стирание типа ring/формата, §2.9), ConfigureError, StartError (§2.3, ТЗ-117…123). Только типы. Проверка: cargo check
-- [>] **Шаг 9: Шаг 9: FakeExclusiveBackend (сценарные результаты acquire/configure/start, журнал вызовов, фиксация порядка release) в audio/testing/mod.rs + 2 теста самого фейка (§7.1, ТЗ-114). Проверка: cargo test fake_exclusive**
-- [ ] Шаг 10: Шаг 10: Новый src/engine/lock.rs: типы LockState, LockInput, LockEffect, ReacquirePoint { device, track: TrackRef, frame } (§2.6). Только типы. Проверка: cargo check
+- [x] Шаг 9: Шаг 9: FakeExclusiveBackend (сценарные результаты acquire/configure/start, журнал вызовов, фиксация порядка release) в audio/testing/mod.rs + 2 теста самого фейка (§7.1, ТЗ-114). Проверка: cargo test fake_exclusive
+- [>] **Шаг 10: Шаг 10: Новый src/engine/lock.rs: типы LockState, LockInput, LockEffect, ReacquirePoint { device, track: TrackRef, frame } (§2.6). Только типы. Проверка: cargo check**
 - [ ] Шаг 11: Шаг 11: Функция lock_step(state, input, mode, dev: Option<&HwDeviceId>) -> (LockState, SmallVec<[LockEffect;2]>) по таблице §6.19 в engine/lock.rs (ТЗ-118…123, 125, 126, 144). Проверка: cargo check
 - [ ] Шаг 12: Шаг 12: Тесты lock_step ч. 1: lock_step_is_total (каждая пара состояние×вход), Compatible → NotApplicable, no_device_selected_* (Acquire без устройства → Failed(NoDeviceSelected), эффектов нет) — ≤5 (§7.2, ТЗ-144). Проверка: cargo test lock_step
 - [ ] Шаг 13: Шаг 13: Тесты lock_step ч. 2: UserClose/UserOpen/CaptureAndPlay/DeviceLost/DeviceReappeared/RetryCapture — ≤5 (§7.2, ТЗ-120…126). Проверка: cargo test lock_step
@@ -134,8 +134,8 @@
 
 Легенда: [x] сделано · [>] текущий шаг · [ ] не начато
 
-- **Текущий шаг (current_step):** Шаг 9
-- **Следующий ход:** Шаг 9: FakeExclusiveBackend (сценарные результаты acquire/configure/start, журнал вызовов, порядок release) в audio/testing/mod.rs + 2 теста; cargo test fake_exclusive. Свежий субагент code-writer sonnet.
+- **Текущий шаг (current_step):** Шаг 10
+- **Следующий ход:** Шаг 10: Новый src/engine/lock.rs: типы LockState, LockInput, LockEffect, ReacquirePoint { device, track: TrackRef, frame } (§2.6). Только типы. Проверка: cargo check Свежий субагент code-writer sonnet.
 - **Счетчик безуспешных компиляций:** 0/3
 - **Состояние:** in_progress
 

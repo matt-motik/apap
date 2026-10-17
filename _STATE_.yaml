@@ -84,7 +84,7 @@ steps:
     done: true
   - id: 9
     description: "Шаг 9: FakeExclusiveBackend (сценарные результаты acquire/configure/start, журнал вызовов, фиксация порядка release) в audio/testing/mod.rs + 2 теста самого фейка (§7.1, ТЗ-114). Проверка: cargo test fake_exclusive"
-    done: false
+    done: true
   - id: 10
     description: "Шаг 10: Новый src/engine/lock.rs: типы LockState, LockInput, LockEffect, ReacquirePoint { device, track: TrackRef, frame } (§2.6). Только типы. Проверка: cargo check"
     done: false
@@ -274,8 +274,8 @@ steps:
   - id: 72
     description: "Шаг 72: ФИНАЛ: cargo build/test/clippy зелёные; общие условия §8 (Совместимый играет, «Bit-perfect» только при ТЗ-52); ручные проверки в заметку плана: замок (ТЗ-1/2/48/118…122, AM1.0-8.1), B1 — возврат устройства в PipeWire после освобождения, B2 — текст «занято <владелец>» при чужом захвате"
     done: false
-current_step: 9
-next_action: "Шаг 9: FakeExclusiveBackend (сценарные результаты acquire/configure/start, журнал вызовов, порядок release) в audio/testing/mod.rs + 2 теста; cargo test fake_exclusive. Свежий субагент code-writer sonnet."
+current_step: 10
+next_action: "Шаг 10: Новый src/engine/lock.rs: типы LockState, LockInput, LockEffect, ReacquirePoint { device, track: TrackRef, frame } (§2.6). Только типы. Проверка: cargo check Свежий субагент code-writer sonnet."
 fail_counter: 0
 fail_counter_max: 3
 failed_attempts: []
