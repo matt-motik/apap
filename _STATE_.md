@@ -82,8 +82,8 @@
 - [x] Шаг 21: Шаг 21: AlsaExclusiveBackend::configure ч. 1: hw_params — RW_INTERLEAVED, формат/каналы/частота из StreamFormat, set_rate_resample(false), period_time_near(B/4), buffer_time_near(B) (§6.7, ТЗ-50, 112, 131). Проверка: cargo check
 - [x] Шаг 22: Шаг 22: AlsaExclusiveBackend::configure ч. 2: sw_params (avail_min = period, start_threshold = buffer), однократное чтение hw_params_current → DriverFormat::Confirmed + DeviceBufferActual; сверка с запрошенным (§6.7, ТЗ-113). Проверка: cargo check
 - [x] Шаг 23: Шаг 23: AlsaExclusiveBackend::configure ч. 3: повторная конфигурация на удерживаемом PCM (смена частоты/«Буфера устройства»: drop → hw_free → configure без освобождения; неудача → LostOnReopen) (§6.7, §8 С6, ТЗ-131). Проверка: cargo check
-- [>] **Шаг 24: Шаг 24: Новый src/audio/backend/alsa_out.rs ч. 1: чистая классификация ошибок записи errno → действие (EPIPE → xrun + prepare; ESTRPIPE → resume; ENODEV/EBADFD/EIO/ENXIO → DeviceUnavailable; прочее → BackendError) + тесты ≤5 (§6.7, ТЗ-51, 76). Проверка: cargo test alsa_out**
-- [ ] Шаг 25: Шаг 25: alsa_out.rs ч. 2: поток apap-alsa-out — gettid → канал TID, цикл wait/avail_update/writei через ExclusiveRender::render (io_bytes §6.7), счётчик xruns в сессии, stop: AtomicBool, PCM возвращается через JoinHandle; StreamHandle-реализация; AlsaExclusiveBackend::start (§6.7, ТЗ-51, 76, 112). Проверка: cargo check
+- [x] Шаг 24: Шаг 24: Новый src/audio/backend/alsa_out.rs ч. 1: чистая классификация ошибок записи errno → действие (EPIPE → xrun + prepare; ESTRPIPE → resume; ENODEV/EBADFD/EIO/ENXIO → DeviceUnavailable; прочее → BackendError) + тесты ≤5 (§6.7, ТЗ-51, 76). Проверка: cargo test alsa_out
+- [>] **Шаг 25: Шаг 25: alsa_out.rs ч. 2: поток apap-alsa-out — gettid → канал TID, цикл wait/avail_update/writei через ExclusiveRender::render (io_bytes §6.7), счётчик xruns в сессии, stop: AtomicBool, PCM возвращается через JoinHandle; StreamHandle-реализация; AlsaExclusiveBackend::start (§6.7, ТЗ-51, 76, 112). Проверка: cargo check**
 - [ ] Шаг 26: Шаг 26: Новый src/audio/rt.rs ч. 1: при старте движка — чтение свойств rtkit MaxRealtimePriority/RTTimeUSecMax (zbus) и RLIMIT_RTTIME через rustix; чистая функция выбора приоритета min(max, 20) + тест (§6.8, ТЗ-30). Проверка: cargo test rt::
 - [ ] Шаг 27: Шаг 27: rt.rs ч. 2: служебный поток MakeThreadRealtime(tid, prio) — ожидание TID до 100 мс, результат Option<u32> отдаётся колбэком (§6.8, ТЗ-30, 76). Проверка: cargo check
 - [ ] Шаг 28: Шаг 28: ЧЕКПОИНТ: полный cargo test + cargo clippy --all-targets
@@ -135,8 +135,8 @@
 
 Легенда: [x] сделано · [>] текущий шаг · [ ] не начато
 
-- **Текущий шаг (current_step):** Шаг 24
-- **Следующий ход:** Шаг 24: Новый src/audio/backend/alsa_out.rs ч. 1: чистая классификация ошибок записи errno → действие (EPIPE → xrun + prepare; ESTRPIPE → resume; ENODEV/EBADFD/EIO/ENXIO → DeviceUnavailable; прочее → BackendError) + тесты ≤5 (§6.7, ТЗ-51, 76). Проверка: cargo test alsa_out. Свежий субагент code-writer sonnet.
+- **Текущий шаг (current_step):** Шаг 25
+- **Следующий ход:** Шаг 25: alsa_out.rs ч. 2: поток apap-alsa-out — gettid → канал TID, цикл wait/avail_update/writei через ExclusiveRender::render (io_bytes §6.7), счётчик xruns в сессии, stop: AtomicBool, PCM возвращается через JoinHandle; StreamHandle-реализация; AlsaExclusiveBackend::start (§6.7, ТЗ-51, 76, 112). Проверка: cargo check. Свежий субагент code-writer sonnet.
 - **Счетчик безуспешных компиляций:** 0/3
 - **Состояние:** in_progress
 

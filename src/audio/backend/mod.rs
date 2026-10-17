@@ -12,6 +12,8 @@ use smallvec::SmallVec;
 
 #[cfg(target_os = "linux")]
 pub mod alsa;
+#[cfg(target_os = "linux")]
+pub mod alsa_out;
 pub mod catalog;
 pub mod exclusive;
 pub mod os_probe;
