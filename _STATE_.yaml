@@ -233,9 +233,9 @@ steps:
     done: true
   - id: 60
     description: "ЧЕКПОИНТ закрытия удаления легаси: удалить мёртвый MusicApp::current_track_is_dsd (src/app/ui_manager.rs, предупреждение dead_code с шага 41 — потребитель bp_report удалён); полный cargo build + cargo test + clippy --all-targets; ROADMAP: текст AM1.0-B8 (кэш отчёта — PathWindowCache в MusicApp, не AudioFacade) и отклонение — StreamDesc/FallbackReason внутри старого пути (audio/player.rs, audio/output.rs, engine/run.rs, engine/legacy_path.rs) живы, пока старый путь вывода не заменён, удаляются на С6 вместе с мостом legacy_path; dsd_pcm_breaks_bit_perfect и bp_report.rs уже удалены. Проверка: всё зелёное"
-    done: false
+    done: true
 current_step: 60
-next_action: "Шаг 60: ЧЕКПОИНТ — удалить current_track_is_dsd, полный build/test/clippy --all-targets, ROADMAP B8 и отклонение по StreamDesc/FallbackReason → С6"
+next_action: "Все шаги AM1.0-8.5 выполнены: закрытие этапа по Шагу 5 AGENTS.md"
 fail_counter: 0
 fail_counter_max: 3
 failed_attempts: []

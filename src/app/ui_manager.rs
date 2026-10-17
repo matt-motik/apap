@@ -221,20 +221,6 @@ impl MusicApp {
             .set_settings_cache_cover_size(music_player_rs::audio::fulltrack::fmt_cache_bytes(disk.covers).into());
     }
 
-    /// True, если текущий трек — DSD (DSF/DFF по расширению в `Track.format`).
-    pub(super) fn current_track_is_dsd(&self) -> bool {
-        let Some(i) = self.current else {
-            return false;
-        };
-        match self.track_at(i) {
-            Some(t) => {
-                let fmt = t.format.to_ascii_lowercase();
-                fmt == "dsf" || fmt == "dff"
-            }
-            None => false,
-        }
-    }
-
     /// Refresh only the dialog's Columns list after a draft-only reorder /
     /// visibility toggle. Deliberately does NOT touch the live UI properties
     /// (`cover_size`, `col_info_w`, `col_gap`): those are Edit-Commit and must
