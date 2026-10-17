@@ -4,19 +4,34 @@
 #![deny(clippy::unwrap_used, clippy::expect_used, clippy::unreachable)]
 
 use super::shared::SharedBackend;
-use super::{BackendError, SharedDeviceId, SharedDeviceInfo};
+use super::{BackendError, HwDeviceId, SharedDeviceId, SharedDeviceInfo};
+use crate::audio::reservation::SinkCard;
 use std::sync::{Arc, Mutex};
 
-/// Кэш перечисления Shared-устройств (ADR-16). Меняется только по событию
-/// `DeviceWatcher` или по команде «Обновить» — не на каждое открытие трека.
+/// Устройство ALSA Exclusive-перечисления на момент обновления каталога
+/// (§2.3, ADR-24, ТЗ-143): стабильный `HwDeviceId`, номера карты и устройства
+/// ALSA на момент перечисления и человекочитаемое имя.
+#[derive(Clone, Debug)]
+pub struct HwDeviceInfo {
+    pub id: HwDeviceId,
+    pub card: u32,
+    pub device: u32,
+    pub name: String,
+}
+
+/// Кэш перечисления устройств (ADR-16, §2.3): `shared` — Shared-перечисление,
+/// `hw` — ALSA Exclusive-перечисление (ADR-24, ТЗ-143). Меняется только по
+/// событию `DeviceWatcher` или по команде «Обновить» — не на каждое открытие
+/// трека.
 ///
-/// В спецификации (§2.3) у `DeviceCatalog` есть ещё поле `hw: Vec<HwDeviceInfo>`
-/// для `ExclusiveBackend`; на этапе С3 Exclusive-режим всё ещё идёт через
-/// легаси-путь cpal (мост), поэтому поле `hw` здесь не заводится — заглушка
-/// без реального производителя данных противоречила бы запрету на заглушки.
+/// На этапе С3 Exclusive-режим всё ещё идёт через легаси-путь cpal (мост),
+/// поэтому `hw` пока не заполняется реальным перечислителем и остаётся
+/// пустым по умолчанию; производитель данных появится вместе с
+/// `AlsaExclusiveBackend::enumerate` (ТЗ-143).
 #[derive(Clone, Debug, Default)]
 pub struct DeviceCatalog {
     pub shared: Vec<SharedDeviceInfo>,
+    pub hw: Vec<HwDeviceInfo>,
     pub generation: u64,
 }
 
@@ -42,6 +57,19 @@ impl DeviceCatalog {
 
     pub fn default_device(&self) -> Option<&SharedDeviceInfo> {
         self.shared.iter().find(|dev| dev.is_default)
+    }
+
+    /// Аппаратное устройство карты системного выхода (§2.3, ADR-24, ТЗ-143):
+    /// среди записей `hw` с номером карты `sink.card` — запись с тем же
+    /// `device`, если `sink.device` задан и найдена; иначе первая запись
+    /// этой карты в порядке каталога; нет записей этой карты — `None`.
+    pub fn hw_for_sink(&self, sink: SinkCard) -> Option<&HwDeviceId> {
+        if let Some(device) = sink.device {
+            if let Some(dev) = self.hw.iter().find(|dev| dev.card == sink.card && dev.device == device) {
+                return Some(&dev.id);
+            }
+        }
+        self.hw.iter().find(|dev| dev.card == sink.card).map(|dev| &dev.id)
     }
 }
 
@@ -201,5 +229,56 @@ mod tests {
         assert_eq!(counter.load(Ordering::SeqCst), 1);
         assert!(trigger.fire());
         assert_eq!(counter.load(Ordering::SeqCst), 2);
+    }
+
+    fn fake_hw(id: &str, card: u32, device: u32, name: &str) -> HwDeviceInfo {
+        let id: HwDeviceId = id.parse().expect("hw id");
+        HwDeviceInfo { id, card, device, name: name.to_string() }
+    }
+
+    #[test]
+    fn hw_for_sink_exact_device_match() {
+        let catalog = DeviceCatalog {
+            hw: vec![
+                fake_hw("hw:CARD=PCH,DEV=0", 0, 0, "PCH 0"),
+                fake_hw("hw:CARD=PCH,DEV=1", 0, 1, "PCH 1"),
+            ],
+            ..Default::default()
+        };
+
+        let found = catalog.hw_for_sink(SinkCard { card: 0, device: Some(1) }).expect("found");
+        assert_eq!(found.as_str(), "hw:CARD=PCH,DEV=1");
+    }
+
+    #[test]
+    fn hw_for_sink_device_absent_picks_first_of_card() {
+        let catalog = DeviceCatalog {
+            hw: vec![fake_hw("hw:CARD=PCH,DEV=0", 0, 0, "PCH 0"), fake_hw("hw:CARD=USB,DEV=0", 1, 0, "USB 0")],
+            ..Default::default()
+        };
+
+        let found = catalog.hw_for_sink(SinkCard { card: 0, device: None }).expect("found");
+        assert_eq!(found.as_str(), "hw:CARD=PCH,DEV=0");
+    }
+
+    #[test]
+    fn hw_for_sink_device_not_on_card_picks_first_of_card() {
+        let catalog = DeviceCatalog {
+            hw: vec![
+                fake_hw("hw:CARD=PCH,DEV=0", 0, 0, "PCH 0"),
+                fake_hw("hw:CARD=PCH,DEV=1", 0, 1, "PCH 1"),
+            ],
+            ..Default::default()
+        };
+
+        let found = catalog.hw_for_sink(SinkCard { card: 0, device: Some(9) }).expect("found");
+        assert_eq!(found.as_str(), "hw:CARD=PCH,DEV=0");
+    }
+
+    #[test]
+    fn hw_for_sink_unknown_card_is_none() {
+        let catalog = DeviceCatalog { hw: vec![fake_hw("hw:CARD=PCH,DEV=0", 0, 0, "PCH 0")], ..Default::default() };
+
+        assert!(catalog.hw_for_sink(SinkCard { card: 5, device: None }).is_none());
     }
 }

@@ -65,8 +65,8 @@
 - [x] Шаг 4: Шаг 4: CaptureFailure::NoDeviceSelected в src/audio/error.rs + ветка текста в capture_message (player.rs) (ТЗ-144, ADR-24). Публичный enum → Проверка: полный cargo test
 - [x] Шаг 5: Шаг 5: Чистая функция parse_wpctl_inspect(&str) -> Option<SinkCard> и тип SinkCard { card: u32, device: Option<u32> } в reservation/mod.rs (свойства api.alsa.pcm.card/device) + тесты ≤5: ALSA-sink, без device, Bluetooth, null-sink, мусор (ADR-24, ТЗ-143). Проверка: cargo test parse_wpctl
 - [x] Шаг 6: Шаг 6: AudioServerProbe::default_sink_card(): системная реализация (wpctl inspect @DEFAULT_AUDIO_SINK@, тайм-аут 1 с, нет утилиты/сервера → None) в reservation/mod.rs; FakeServerProbe с заданным Option<SinkCard> и счётчиком вызовов в audio/testing/mod.rs (ADR-24). Проверка: cargo check
-- [>] **Шаг 7: Шаг 7: HwDeviceInfo + DeviceCatalog.hw + hw_for_sink(SinkCard) -> Option<&HwDeviceId> (тот же device, иначе первое устройство карты, нет карты → None) в backend/catalog.rs + тесты ≤4 (§2.3, ADR-24). Проверка: cargo test hw_for_sink**
-- [ ] Шаг 8: Шаг 8: Новый src/audio/backend/exclusive.rs: трейт ExclusiveBackend (caps/enumerate/acquire/device_caps/configure/start), DeviceClaim (порядок полей = порядок освобождения: pcm до reservation, И-Р1), ClaimInfo, PcmHandle, StreamHandle::stop(self: Box<Self>), ExclusiveRender, ConfigureError, StartError (§2.3, ТЗ-117…123). Только типы. Проверка: cargo check
+- [x] Шаг 7: Шаг 7: HwDeviceInfo + DeviceCatalog.hw + hw_for_sink(SinkCard) -> Option<&HwDeviceId> (тот же device, иначе первое устройство карты, нет карты → None) в backend/catalog.rs + тесты ≤4 (§2.3, ADR-24). Проверка: cargo test hw_for_sink
+- [>] **Шаг 8: Шаг 8: Новый src/audio/backend/exclusive.rs: трейт ExclusiveBackend (caps/enumerate/acquire/device_caps/configure/start), DeviceClaim (порядок полей = порядок освобождения: pcm до reservation, И-Р1), ClaimInfo, PcmHandle, StreamHandle::stop(self: Box<Self>), ExclusiveRender, ConfigureError, StartError (§2.3, ТЗ-117…123). Только типы. Проверка: cargo check**
 - [ ] Шаг 9: Шаг 9: FakeExclusiveBackend (сценарные результаты acquire/configure/start, журнал вызовов, фиксация порядка release) в audio/testing/mod.rs + 2 теста самого фейка (§7.1, ТЗ-114). Проверка: cargo test fake_exclusive
 - [ ] Шаг 10: Шаг 10: Новый src/engine/lock.rs: типы LockState, LockInput, LockEffect, ReacquirePoint { device, track: TrackRef, frame } (§2.6). Только типы. Проверка: cargo check
 - [ ] Шаг 11: Шаг 11: Функция lock_step(state, input, mode, dev: Option<&HwDeviceId>) -> (LockState, SmallVec<[LockEffect;2]>) по таблице §6.19 в engine/lock.rs (ТЗ-118…123, 125, 126, 144). Проверка: cargo check
@@ -134,8 +134,8 @@
 
 Легенда: [x] сделано · [>] текущий шаг · [ ] не начато
 
-- **Текущий шаг (current_step):** Шаг 7
-- **Следующий ход:** Шаг 7: HwDeviceInfo + DeviceCatalog.hw + hw_for_sink(SinkCard) -> Option<&HwDeviceId> в backend/catalog.rs + тесты ≤4 (§2.3, ADR-24); cargo test hw_for_sink. Свежий субагент code-writer sonnet.
+- **Текущий шаг (current_step):** Шаг 8
+- **Следующий ход:** Шаг 8: новый src/audio/backend/exclusive.rs — только типы: трейт ExclusiveBackend, DeviceClaim (порядок полей = порядок освобождения, И-Р1), ClaimInfo, PcmHandle, StreamHandle, ExclusiveRender, ConfigureError, StartError (§2.3, ТЗ-117…123); cargo check. Свежий субагент code-writer sonnet.
 - **Счетчик безуспешных компиляций:** 0/3
 - **Состояние:** in_progress
 
