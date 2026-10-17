@@ -165,7 +165,7 @@ steps:
     done: true
   - id: 36
     description: "Шаг 36: run.rs: разрешение устройства перед Acquire через resolve_device: AutoSelected → копия опций режима + EngineEvent::DeviceAutoSelected; None → Failed(NoDeviceSelected), ни acquire, ни SharedBackend::start + тесты ≤3 (§6.18, ADR-24, ТЗ-143, 144, 32). Проверка: cargo test engine::"
-    done: false
+    done: true
   - id: 37
     description: "Шаг 37: run.rs: эффекты Release / StopPlayback / ForgetReacquire (UserClose, UserOpen, переход в Compatible) + тесты ≤3 (§6.19, ТЗ-120, 121). Проверка: cargo test engine::"
     done: false
@@ -289,8 +289,8 @@ steps:
   - id: 77
     description: "Шаг 77: ФИНАЛ: cargo build/test/clippy зелёные; общие условия §8 (Совместимый играет, «Bit-perfect» только при ТЗ-52); ручные проверки в заметку плана: замок (ТЗ-1/2/48/118…122, AM1.0-8.1), B1 — возврат устройства в PipeWire после освобождения, B2 — текст «занято <владелец>» при чужом захвате"
     done: false
-current_step: 36
-next_action: "Шаг 36: run.rs — resolve_device перед Acquire (lock_input сейчас берёт mode_settings.<mode>.device напрямую): AutoSelected → копия опций режима + EngineEvent::DeviceAutoSelected; None → Failed(NoDeviceSelected). Нет устройства в каталоге → Failed(DeviceDisconnected) (уже в start_claim). Сбой spawn и отсутствие exclusive → PlatformUnsupported. Свежий субагент code-writer sonnet."
+current_step: 37
+next_action: "Шаг 37: run.rs — эффекты Release / StopPlayback / ForgetReacquire в lock_input (сейчас Release = drop self.claim, StopPlayback/ForgetReacquire — no-op с комментарием) + тесты ≤3 (§6.19, ТЗ-120, 121). UserClose = захват, UserOpen = освобождение. Свежий субагент code-writer sonnet."
 fail_counter: 0
 fail_counter_max: 3
 failed_attempts: []

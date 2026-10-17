@@ -24,7 +24,7 @@ use crate::audio::reservation::LostNotify;
 use crate::audio::verdict::{verdict, BadgeState, GainState};
 use crate::engine::deps::EngineDeps;
 use crate::engine::legacy_path::{legacy_audio, opened_facts_from_desc, shared_caps_from_desc, stream_format_from_desc};
-use crate::engine::lock::{lock_step, LockEffect, LockInput, LockState};
+use crate::engine::lock::{lock_step, resolve_device, LockEffect, LockInput, LockState, Resolved};
 use crate::engine::messages::{EngineCmd, EngineEvent, InternalMsg, LegacyAudio, Notice, SkipReason, TransportState};
 use crate::persist::state_file::LegacyPlaybackState;
 use crate::settings::params::{ApplyKind, ModeSettingsDiff};
@@ -372,16 +372,62 @@ impl Engine {
     /// попытки (`lock_step` заполняет `Acquiring.started` плейсхолдером
     /// `ClockInstant::START` — здесь он переписывается `deps.clock.now()`,
     /// как `poll_session` берёт `now` для `Position`), затем выполняет
-    /// эффекты. Устройство режима резолвится прямо из `mode_settings`
-    /// активного режима — без автовыбора (ADR-24, `resolve_device` — другая
-    /// точка входа, шаг 36).
+    /// эффекты. Устройство режима резолвится до `lock_step` (ADR-24, ТЗ-143,
+    /// ТЗ-144, §6.18): для `ModeSelected(m)` целевой режим — `m`, устройство
+    /// берётся из его настроек (а не из `self.active_mode`, который на этот
+    /// момент ещё не сменился), для прочих входов — из настроек текущего
+    /// `self.active_mode`.
     fn lock_input(&mut self, input: LockInput) {
-        let device = match self.active_mode {
-            ModeKind::Compatible => None,
-            ModeKind::Optimal => self.mode_settings.optimal.device.as_ref(),
-            ModeKind::Strict => self.mode_settings.strict.device.as_ref(),
+        // Режим, чьё устройство нужно разрешить: для `ModeSelected(m)` —
+        // целевой `m` (устройство режима, в который переключаются), иначе —
+        // текущий активный режим (ADR-24).
+        let device_mode = match input {
+            LockInput::ModeSelected(m) => m,
+            _ => self.active_mode,
         };
-        let (mut state, effects) = lock_step(&self.lock, input, self.active_mode, device);
+        // Разрешение (и тем самым опрос системного выхода в `resolve_device`)
+        // выполняется только для входов, которые по таблице §6.19 вообще
+        // могут дать эффект `Acquire(dev)` с этим `dev` — остальные
+        // (`Shutdown`, `CaptureResult`, `UserOpen`, `DeviceLost`,
+        // `DeviceSelected`, `DeviceReappeared`, …) либо не захватывают,
+        // либо несут собственное устройство во входе, минуя `dev` (ТЗ-32):
+        // опрос для них был бы лишним обращением к системному аудиосерверу.
+        let needs_resolution = matches!(
+            input,
+            LockInput::ModeSelected(ModeKind::Optimal) | LockInput::ModeSelected(ModeKind::Strict)
+        ) || (self.active_mode != ModeKind::Compatible
+            && matches!(
+                input,
+                LockInput::Startup | LockInput::UserClose | LockInput::CaptureAndPlay | LockInput::RetryCapture
+            ));
+
+        // Автовыбор устройства для записи в копию опций режима и события
+        // `DeviceAutoSelected`, но только если он действительно привёл к
+        // захвату (ТЗ-143) — выставляется после вызова `lock_step` ниже.
+        let mut auto_selected = None;
+        let device = if needs_resolution {
+            let opts_device = match device_mode {
+                ModeKind::Compatible => None,
+                ModeKind::Optimal => self.mode_settings.optimal.device.as_ref(),
+                ModeKind::Strict => self.mode_settings.strict.device.as_ref(),
+            };
+            match resolve_device(opts_device, &*self.deps.server_probe, &self.catalog) {
+                Resolved::Selected(d) => Some(d),
+                Resolved::AutoSelected(d) => {
+                    auto_selected = Some(d.clone());
+                    Some(d)
+                }
+                Resolved::None => None,
+            }
+        } else {
+            match device_mode {
+                ModeKind::Compatible => None,
+                ModeKind::Optimal => self.mode_settings.optimal.device.clone(),
+                ModeKind::Strict => self.mode_settings.strict.device.clone(),
+            }
+        };
+
+        let (mut state, effects) = lock_step(&self.lock, input, self.active_mode, device.as_ref());
         if let LockState::Acquiring { .. } = state {
             state = LockState::Acquiring { started: self.deps.clock.now() };
         }
@@ -389,6 +435,22 @@ impl Engine {
         self.lock = state;
         if changed {
             self.deps.events.emit(EngineEvent::Lock(self.lock.clone()));
+        }
+
+        // Автовыбор подтверждён реальным захватом (ТЗ-143): копия в опциях
+        // режима обновляется и шлётся `DeviceAutoSelected`, которое
+        // приложение должно сохранить в настройках (персистентность —
+        // следующий шаг). Без эффекта `Acquire` (например, устройство нашёл
+        // автовыбор, но вход всё равно не привёл к захвату) событие не шлётся.
+        if let Some(d) = auto_selected {
+            if effects.iter().any(|effect| matches!(effect, LockEffect::Acquire(_))) {
+                match device_mode {
+                    ModeKind::Optimal => self.mode_settings.optimal.device = Some(d.clone()),
+                    ModeKind::Strict => self.mode_settings.strict.device = Some(d.clone()),
+                    ModeKind::Compatible => {}
+                }
+                self.deps.events.emit(EngineEvent::DeviceAutoSelected { mode: device_mode, device: d });
+            }
         }
 
         for effect in effects {
@@ -1390,6 +1452,91 @@ mod tests {
             events.as_slice(),
             [EngineEvent::Lock(LockState::Failed(CaptureFailure::BusyOutsideProtocol))]
         ));
+    }
+
+    /// §6.18 (ADR-24, ТЗ-143, ТЗ-144): нет выбранного устройства режима, зонд
+    /// сообщает карту системного выхода, совпадающую с записью каталога —
+    /// `resolve_device` автовыбирает устройство, оно пишется в копию опций
+    /// режима и шлётся `DeviceAutoSelected`, захват уходит в `Acquiring`.
+    #[test]
+    fn lock_input_auto_selects_device_from_server_probe() {
+        let sink = VecSink::new();
+        let mem = MemStore::new();
+        let dev: HwDeviceId = "hw:CARD=RU3,DEV=0".parse().expect("hw id");
+        let deps = EngineDeps {
+            shared: Box::new(FakeSharedBackend::with_devices(Vec::new())),
+            exclusive: Some(Box::new(FakeExclusiveBackend::new())),
+            server_probe: Box::new(
+                FakeServerProbe::desktop().with_sink_card(Some(crate::audio::reservation::SinkCard { card: 1, device: Some(0) })),
+            ),
+            watcher: Box::new(FakeDeviceWatcher::new()),
+            sources: Arc::new(FakeSource::with_format(pcm_format())),
+            clock: Box::new(MonotonicClock::new()),
+            store: Box::new(FsPersistStore::new(Arc::new(mem.clone()), Box::new(mem.clone()), PathBuf::from("/cfg"))),
+            events: Box::new(sink.clone()),
+            spawner: Arc::new(StdSpawner),
+            caps: BackendCaps::current(),
+            os_probe: Box::new(FakeOsProbe::new(OsStage::Unknown)),
+        };
+        let mut engine = Engine::new(deps, BackendCaps::current());
+        engine.catalog.hw = vec![crate::audio::backend::catalog::HwDeviceInfo { id: dev.clone(), card: 1, device: 0, name: "RU3".to_string() }];
+        engine.active_mode = ModeKind::Optimal;
+        engine.mode_settings.optimal.device = None;
+        engine.lock = LockState::Open;
+
+        engine.lock_input(LockInput::Startup);
+
+        assert_eq!(engine.mode_settings.optimal.device, Some(dev.clone()));
+        assert!(matches!(engine.lock, LockState::Acquiring { .. }));
+        let events = sink.take();
+        assert!(events.iter().any(
+            |e| matches!(e, EngineEvent::DeviceAutoSelected { mode: ModeKind::Optimal, device } if *device == dev)
+        ));
+    }
+
+    /// §6.18 (ADR-24, ТЗ-32): нет выбранного устройства режима, зонд не
+    /// сообщает карту системного выхода — `resolve_device` возвращает
+    /// `None`, замок падает в `Failed(NoDeviceSelected)` без захвата:
+    /// `start_claim` не вызывается, служебный поток не запускается.
+    #[test]
+    fn lock_input_without_resolved_device_fails_without_claim() {
+        let sink = VecSink::new();
+        let deps = fake_deps(Box::new(sink.clone()), Arc::new(StdSpawner));
+        let mut engine = Engine::new(deps, BackendCaps::current());
+        engine.active_mode = ModeKind::Optimal;
+        engine.mode_settings.optimal.device = None;
+        engine.lock = LockState::Open;
+
+        engine.lock_input(LockInput::Startup);
+
+        match &engine.lock {
+            LockState::Failed(CaptureFailure::NoDeviceSelected) => {}
+            other => panic!("expected Failed(NoDeviceSelected), got {other:?}"),
+        }
+        assert!(engine.claim.is_none());
+        assert!(engine.internal_rx.try_recv().is_err());
+        let events = sink.take();
+        assert!(!events.iter().any(|e| matches!(e, EngineEvent::DeviceAutoSelected { .. })));
+    }
+
+    /// §6.18 (ADR-24, ТЗ-143): устройство режима уже выбрано — `resolve_device`
+    /// возвращает `Selected`, автовыбора нет и `DeviceAutoSelected` не шлётся.
+    #[test]
+    fn lock_input_with_selected_device_skips_auto_select_event() {
+        let sink = VecSink::new();
+        let deps = fake_deps(Box::new(sink.clone()), Arc::new(StdSpawner));
+        let mut engine = Engine::new(deps, BackendCaps::current());
+        let dev: HwDeviceId = "hw:CARD=RU3,DEV=0".parse().expect("hw id");
+        engine.catalog.hw = vec![crate::audio::backend::catalog::HwDeviceInfo { id: dev.clone(), card: 1, device: 0, name: "RU3".to_string() }];
+        engine.active_mode = ModeKind::Optimal;
+        engine.mode_settings.optimal.device = Some(dev.clone());
+        engine.lock = LockState::Open;
+
+        engine.lock_input(LockInput::Startup);
+
+        assert!(matches!(engine.lock, LockState::Acquiring { .. }));
+        let events = sink.take();
+        assert!(!events.iter().any(|e| matches!(e, EngineEvent::DeviceAutoSelected { .. })));
     }
 
     /// §6.19 (ТЗ-123): `ClaimDone` от отменённой попытки (несовпадающий
