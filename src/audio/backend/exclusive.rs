@@ -32,8 +32,9 @@ pub trait ExclusiveBackend: Send {
         fmt: StreamFormat,
         buffer: DeviceBuffer,
     ) -> Result<(DriverFormat, Option<DeviceBufferActual>), ConfigureError>;
-    /// Поток вывода над захваченным PCM; `stop` возвращает PCM в `claim`
-    /// без закрытия (§2.3, §6.7).
+    /// Поток вывода над захваченным PCM; `StreamHandle::stop` возвращает PCM
+    /// без закрытия — вызывающая сторона кладёт его в `claim` через
+    /// `DeviceClaim::pcm_mut` (§2.3, §6.7).
     fn start(&mut self, claim: &mut DeviceClaim, render: ExclusiveRender) -> Result<Box<dyn StreamHandle>, StartError>;
 }
 
@@ -156,7 +157,8 @@ impl DeviceClaim {
     }
 
     /// PCM захвата: `configure` ставит hw_params, `start` забирает PCM в поток
-    /// вывода, `StreamHandle::stop` возвращает его без закрытия (§2.3).
+    /// вывода; `StreamHandle::stop` возвращает PCM значением, и вызывающая
+    /// сторона кладёт его сюда (§2.3).
     pub fn pcm_mut(&mut self) -> &mut Option<PcmHandle> {
         &mut self.pcm
     }
@@ -197,9 +199,10 @@ pub struct PcmHandle(std::convert::Infallible);
 
 /// Поток вывода (§2.3). Общий для Shared- и Exclusive-бэкендов.
 pub trait StreamHandle: Send {
-    /// Остановить поток вывода; для Exclusive — вернуть PCM в `DeviceClaim`
-    /// без закрытия (§2.3).
-    fn stop(self: Box<Self>);
+    /// Остановить поток вывода. Exclusive возвращает `Some(pcm)` — PCM не
+    /// закрыт, вызывающая сторона кладёт его обратно в `DeviceClaim` через
+    /// `pcm_mut()`; Shared возвращает `None` (§2.3).
+    fn stop(self: Box<Self>) -> Option<PcmHandle>;
 }
 
 /// `ExclusiveBackend::configure` не смог установить hw_params (§2.3, ТЗ-113).

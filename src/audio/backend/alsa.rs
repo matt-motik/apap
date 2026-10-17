@@ -6,7 +6,7 @@
 
 use std::num::NonZeroU8;
 use std::sync::atomic::AtomicBool;
-use std::sync::{mpsc, Arc, Mutex};
+use std::sync::{mpsc, Arc};
 use std::time::Duration;
 
 use smallvec::SmallVec;
@@ -263,16 +263,13 @@ impl AlsaExclusiveBackend {
 
     /// Поток вывода над захваченным PCM (§2.3, §6.7, ТЗ-51, ТЗ-76, ТЗ-112):
     /// PCM целиком переходит в поток `apap-alsa-out` (`alsa_out::spawn_output_thread`)
-    /// до вызова `StreamHandle::stop` у возвращённого хендла. Трейт
-    /// `StreamHandle::stop(self: Box<Self>)` не параметризован `claim`
-    /// (`exclusive.rs`), поэтому PCM возвращается через второй элемент пары —
-    /// `PcmReturnSlot`, общий с хендлом: `stop()` кладёт туда PCM после
-    /// `join()`, а вызывающая сторона этого метода переносит его оттуда в
-    /// `claim.pcm_mut()`. Вся проверяемая логика (байт на сэмпл, размер
-    /// периода, таймаут `wait`) выполняется до `claim.pcm_mut().take()` —
-    /// при любом отказе до запуска потока PCM остаётся в `claim`, а не
-    /// теряется; отказ самого `spawn` (ОС не создала поток) — вне этого
-    /// гарантии, см. `alsa_out::spawn_output_thread`.
+    /// до вызова `StreamHandle::stop` у возвращённого хендла. `stop`
+    /// возвращает PCM значением (`Option<PcmHandle>`, трейт `exclusive.rs`);
+    /// вызывающая сторона кладёт его в `claim.pcm_mut()`. Вся проверяемая
+    /// логика (байт на сэмпл, размер периода, таймаут `wait`) выполняется до
+    /// `claim.pcm_mut().take()` — при любом отказе до запуска потока PCM
+    /// остаётся в `claim`, а не теряется; отказ самого `spawn` (ОС не создала
+    /// поток) — вне этого гарантии, см. `alsa_out::spawn_output_thread`.
     pub fn start(
         &mut self,
         claim: &mut DeviceClaim,
@@ -280,7 +277,7 @@ impl AlsaExclusiveBackend {
         fmt: StreamFormat,
         period_frames: u32,
         shared: Arc<SessionShared>,
-    ) -> Result<(Box<dyn StreamHandle>, alsa_out::PcmReturnSlot), StartError> {
+    ) -> Result<Box<dyn StreamHandle>, StartError> {
         let bytes_per_sample = bytes_per_sample(fmt.sample)?;
         let period_bytes = alsa_out::period_buffer_bytes(period_frames, bytes_per_sample, fmt.channels)
             .ok_or_else(|| StartError("размер периода переполняет буфер (§6.7, ТЗ-112)".to_string()))?;
@@ -292,7 +289,6 @@ impl AlsaExclusiveBackend {
         };
 
         let stop = Arc::new(AtomicBool::new(false));
-        let pcm_slot: alsa_out::PcmReturnSlot = Arc::new(Mutex::new(None));
         let (tid_tx, tid_rx) = mpsc::channel();
 
         let timing = alsa_out::LoopTiming { period_frames, period_bytes, wait_timeout_ms };
@@ -301,8 +297,8 @@ impl AlsaExclusiveBackend {
             Err(e) => return Err(StartError(format!("не удалось создать поток apap-alsa-out: {e}"))),
         };
 
-        let handle = alsa_out::AlsaStreamHandle::new(stop, join, Arc::clone(&pcm_slot), tid_rx);
-        Ok((Box::new(handle), pcm_slot))
+        let handle = alsa_out::AlsaStreamHandle::new(stop, join, tid_rx);
+        Ok(Box::new(handle))
     }
 }
 

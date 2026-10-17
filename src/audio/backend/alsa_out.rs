@@ -8,7 +8,7 @@
 
 use std::num::NonZeroU8;
 use std::sync::atomic::{AtomicBool, Ordering};
-use std::sync::{mpsc, Arc, Mutex};
+use std::sync::{mpsc, Arc};
 use std::thread::{self, JoinHandle};
 
 use super::exclusive::{ExclusiveRender, PcmHandle, StreamHandle};
@@ -105,14 +105,6 @@ pub(crate) fn wait_timeout_ms(period_frames: u32, rate_hz: u32) -> Option<u32> {
     u32::try_from(timeout_ms).ok()
 }
 
-/// Возврат PCM из потока вывода в `DeviceClaim` без закрытия (§2.3, §6.7):
-/// `StreamHandle::stop(self: Box<Self>)` (трейт `exclusive.rs`) не несёт
-/// параметра `claim`, поэтому PCM возвращается через этот общий слот —
-/// `AlsaStreamHandle::stop` кладёт его сюда после `JoinHandle::join()`, а
-/// `AlsaExclusiveBackend::start` отдаёт второй клон вызывающей стороне,
-/// которая переносит PCM в `claim.pcm_mut()` после вызова `stop()`.
-pub(crate) type PcmReturnSlot = Arc<Mutex<Option<PcmHandle>>>;
-
 /// Получатель TID потока `apap-alsa-out` (§6.7, §6.8, ТЗ-99): этот шаг
 /// только создаёт канал и отправляет TID из потока до входа в цикл, но не
 /// потребляет его — ожидание (не дольше 100 мс, вне RT) и вызов повышения
@@ -122,36 +114,30 @@ pub(crate) type TidReceiver = mpsc::Receiver<rustix::thread::Pid>;
 /// Имя потока вывода ALSA (§6.7).
 const THREAD_NAME: &str = "apap-alsa-out";
 
-/// Поток вывода (§2.3, §6.7): владеет флагом останова, `JoinHandle` и общим
-/// с `AlsaExclusiveBackend::start` слотом возврата PCM. `tid_rx` хранится
-/// до появления шага RT-приоритета (§6.8, см. `TidReceiver`).
+/// Поток вывода (§2.3, §6.7): владеет флагом останова и `JoinHandle`.
+/// `tid_rx` хранится до появления шага RT-приоритета (§6.8, см. `TidReceiver`).
 pub(crate) struct AlsaStreamHandle {
     stop: Arc<AtomicBool>,
     join: JoinHandle<PcmHandle>,
-    pcm_slot: PcmReturnSlot,
     #[allow(dead_code)] // потребитель — шаг RT-приоритета потока (§6.8, ТЗ-99)
     tid_rx: TidReceiver,
 }
 
 impl AlsaStreamHandle {
-    pub(crate) fn new(stop: Arc<AtomicBool>, join: JoinHandle<PcmHandle>, pcm_slot: PcmReturnSlot, tid_rx: TidReceiver) -> AlsaStreamHandle {
-        AlsaStreamHandle { stop, join, pcm_slot, tid_rx }
+    pub(crate) fn new(stop: Arc<AtomicBool>, join: JoinHandle<PcmHandle>, tid_rx: TidReceiver) -> AlsaStreamHandle {
+        AlsaStreamHandle { stop, join, tid_rx }
     }
 }
 
 impl StreamHandle for AlsaStreamHandle {
-    /// Остановить поток и вернуть PCM в `PcmReturnSlot` (§2.3, §6.7): флаг
-    /// `stop` заставляет цикл выйти не позднее `2 × period`, `join()`
-    /// забирает PCM из потока, слот отдаёт его вызывающей стороне (см.
-    /// `PcmReturnSlot`). Падение потока или отравленный `Mutex` не паникуют
-    /// здесь — PCM в этом случае просто не возвращается в слот.
-    fn stop(self: Box<Self>) {
+    /// Остановить поток и вернуть PCM значением (§2.3, §6.7): флаг `stop`
+    /// заставляет цикл выйти не позднее `2 × period`, `join()` забирает PCM
+    /// из потока. Падение потока не паникует здесь — PCM в этом случае
+    /// просто не возвращается (`None`), вызывающая сторона переносит `Some`
+    /// в `claim.pcm_mut()`.
+    fn stop(self: Box<Self>) -> Option<PcmHandle> {
         self.stop.store(true, Ordering::Release);
-        if let Ok(pcm) = self.join.join() {
-            if let Ok(mut slot) = self.pcm_slot.lock() {
-                *slot = Some(pcm);
-            }
-        }
+        self.join.join().ok()
     }
 }
 

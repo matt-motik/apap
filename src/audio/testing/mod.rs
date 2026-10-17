@@ -8,7 +8,7 @@ pub mod signals;
 
 use crate::audio::backend::catalog::HwDeviceInfo;
 use crate::audio::backend::exclusive::{
-    ClaimInfo, ConfigureError, DeviceClaim, ExclusiveBackend, ExclusiveRender, StartError, StreamHandle,
+    ClaimInfo, ConfigureError, DeviceClaim, ExclusiveBackend, ExclusiveRender, PcmHandle, StartError, StreamHandle,
 };
 use crate::audio::backend::{AccessKind, BackendCaps, BackendError, DeviceBufferActual, DeviceCaps, DriverFormat, HwDeviceId, OutputApi, RateSet};
 use crate::audio::clock::{Clock, ClockInstant};
@@ -365,8 +365,9 @@ struct FakeExclusiveStream {
 }
 
 impl StreamHandle for FakeExclusiveStream {
-    fn stop(self: Box<Self>) {
+    fn stop(self: Box<Self>) -> Option<PcmHandle> {
         self.calls.lock().unwrap_or_else(|e| e.into_inner()).push(ExclusiveCall::Stop);
+        None
     }
 }
 

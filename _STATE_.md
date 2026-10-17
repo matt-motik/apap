@@ -84,8 +84,8 @@
 - [x] Шаг 23: Шаг 23: AlsaExclusiveBackend::configure ч. 3: повторная конфигурация на удерживаемом PCM (смена частоты/«Буфера устройства»: drop → hw_free → configure без освобождения; неудача → LostOnReopen) (§6.7, §8 С6, ТЗ-131). Проверка: cargo check
 - [x] Шаг 24: Шаг 24: Новый src/audio/backend/alsa_out.rs ч. 1: чистая классификация ошибок записи errno → действие (EPIPE → xrun + prepare; ESTRPIPE → resume; ENODEV/EBADFD/EIO/ENXIO → DeviceUnavailable; прочее → BackendError) + тесты ≤5 (§6.7, ТЗ-51, 76). Проверка: cargo test alsa_out
 - [x] Шаг 25: Шаг 25: alsa_out.rs ч. 2: поток apap-alsa-out — gettid → канал TID, цикл wait/avail_update/writei через ExclusiveRender::render (io_bytes §6.7), счётчик xruns в сессии, stop: AtomicBool, PCM возвращается через JoinHandle; StreamHandle-реализация; AlsaExclusiveBackend::start (§6.7, ТЗ-51, 76, 112). Проверка: cargo check
-- [>] **Шаг 26: Шаг 26: StreamHandle::stop(self: Box<Self>) -> Option<PcmHandle> (Exclusive — Some(PCM) для возврата в DeviceClaim вызывающим, Shared — None) в exclusive.rs; в alsa_out.rs/alsa.rs убрать PcmReturnSlot (Arc<Mutex>) — AlsaStreamHandle::stop возвращает PCM из JoinHandle, AlsaExclusiveBackend::start возвращает только Box<dyn StreamHandle>; фейк в audio/testing/mod.rs, если реализует StreamHandle (§2.3, §6.7). Общий тип → Проверка: полный cargo test**
-- [ ] Шаг 27: Шаг 27: Сигнатура ExclusiveBackend::start дополняется параметрами, нужными потоку (StreamFormat, period_frames из DeviceBufferActual, Arc<SessionShared>) в exclusive.rs; impl ExclusiveBackend for AlsaExclusiveBackend (делегирование inherent-методам) в alsa.rs; FakeExclusiveBackend — под новую сигнатуру (§2.3, §6.7, нужно шагу 31 EngineDeps). Общий тип → Проверка: полный cargo test
+- [x] Шаг 26: Шаг 26: StreamHandle::stop(self: Box<Self>) -> Option<PcmHandle> (Exclusive — Some(PCM) для возврата в DeviceClaim вызывающим, Shared — None) в exclusive.rs; в alsa_out.rs/alsa.rs убрать PcmReturnSlot (Arc<Mutex>) — AlsaStreamHandle::stop возвращает PCM из JoinHandle, AlsaExclusiveBackend::start возвращает только Box<dyn StreamHandle>; фейк в audio/testing/mod.rs, если реализует StreamHandle (§2.3, §6.7). Общий тип → Проверка: полный cargo test
+- [>] **Шаг 27: Шаг 27: Сигнатура ExclusiveBackend::start дополняется параметрами, нужными потоку (StreamFormat, period_frames из DeviceBufferActual, Arc<SessionShared>) в exclusive.rs; impl ExclusiveBackend for AlsaExclusiveBackend (делегирование inherent-методам) в alsa.rs; FakeExclusiveBackend — под новую сигнатуру (§2.3, §6.7, нужно шагу 31 EngineDeps). Общий тип → Проверка: полный cargo test**
 - [ ] Шаг 28: Шаг 28: Новый src/audio/rt.rs ч. 1: при старте движка — чтение свойств rtkit MaxRealtimePriority/RTTimeUSecMax (zbus) и RLIMIT_RTTIME через rustix; чистая функция выбора приоритета min(max, 20) + тест (§6.8, ТЗ-30). Проверка: cargo test rt::
 - [ ] Шаг 29: Шаг 29: rt.rs ч. 2: служебный поток MakeThreadRealtime(tid, prio) — ожидание TID до 100 мс, результат Option<u32> отдаётся колбэком (§6.8, ТЗ-30, 76). Проверка: cargo check
 - [ ] Шаг 30: Шаг 30: ЧЕКПОИНТ: полный cargo test + cargo clippy --all-targets
@@ -137,8 +137,8 @@
 
 Легенда: [x] сделано · [>] текущий шаг · [ ] не начато
 
-- **Текущий шаг (current_step):** Шаг 26
-- **Следующий ход:** Шаг 26: StreamHandle::stop(self: Box<Self>) -> Option<PcmHandle> (Exclusive — Some(PCM) для возврата в DeviceClaim вызывающим, Shared — None) в exclusive.rs; в alsa_out.rs/alsa.rs убрать PcmReturnSlot (Arc<Mutex>) — AlsaStreamHandle::stop возвращает PCM из JoinHandle, AlsaExclusiveBackend::start возвращает только Box<dyn StreamHandle>; фейк в audio/testing/mod.rs, если реализует StreamHandle (§2.3, §6.7). Общий тип → Проверка: полный cargo test. Свежий субагент code-writer sonnet.
+- **Текущий шаг (current_step):** Шаг 27
+- **Следующий ход:** Шаг 27: Сигнатура ExclusiveBackend::start дополняется параметрами, нужными потоку (StreamFormat, period_frames из DeviceBufferActual, Arc<SessionShared>) в exclusive.rs; impl ExclusiveBackend for AlsaExclusiveBackend (делегирование inherent-методам) в alsa.rs; FakeExclusiveBackend — под новую сигнатуру (§2.3, §6.7, нужно шагу 31 EngineDeps). Общий тип → Проверка: полный cargo test. Свежий субагент code-writer sonnet.
 - **Счетчик безуспешных компиляций:** 0/3
 - **Состояние:** in_progress
 
