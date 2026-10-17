@@ -3,6 +3,7 @@
 #![deny(clippy::unwrap_used, clippy::expect_used, clippy::unreachable)]
 
 use std::marker::PhantomData;
+use std::sync::Arc;
 
 use super::catalog::HwDeviceInfo;
 use super::{BackendCaps, BackendError, DeviceBufferActual, DeviceCaps, DriverFormat, HwDeviceId};
@@ -13,6 +14,7 @@ use crate::audio::render::gain::{AtomicGain, GainStage, NoGain};
 use crate::audio::render::out::OutFormat;
 use crate::audio::render::pcm::{PcmRender, PcmSample};
 use crate::audio::reservation::Reservation;
+use crate::audio::session::SessionShared;
 use crate::settings::playback::DeviceBuffer;
 
 /// Эксклюзивный бэкенд вывода: резервирование и ALSA `hw:` (§2.3, ADR-08).
@@ -32,10 +34,19 @@ pub trait ExclusiveBackend: Send {
         fmt: StreamFormat,
         buffer: DeviceBuffer,
     ) -> Result<(DriverFormat, Option<DeviceBufferActual>), ConfigureError>;
-    /// Поток вывода над захваченным PCM; `StreamHandle::stop` возвращает PCM
-    /// без закрытия — вызывающая сторона кладёт его в `claim` через
-    /// `DeviceClaim::pcm_mut` (§2.3, §6.7).
-    fn start(&mut self, claim: &mut DeviceClaim, render: ExclusiveRender) -> Result<Box<dyn StreamHandle>, StartError>;
+    /// Поток вывода над захваченным PCM; `period_frames` — период из
+    /// `DeviceBufferActual`, возвращённого `configure` (§6.7 п. 1–3,
+    /// ТЗ-113). `StreamHandle::stop` возвращает PCM без закрытия —
+    /// вызывающая сторона кладёт его в `claim` через `DeviceClaim::pcm_mut`
+    /// (§2.3, §6.7).
+    fn start(
+        &mut self,
+        claim: &mut DeviceClaim,
+        render: ExclusiveRender,
+        fmt: StreamFormat,
+        period_frames: u32,
+        shared: Arc<SessionShared>,
+    ) -> Result<Box<dyn StreamHandle>, StartError>;
 }
 
 /// Рендер периода в LE-байты формата устройства: общий вход потока вывода

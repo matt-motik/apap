@@ -138,7 +138,7 @@ steps:
     done: true
   - id: 27
     description: "Шаг 27: Сигнатура ExclusiveBackend::start дополняется параметрами, нужными потоку (StreamFormat, period_frames из DeviceBufferActual, Arc<SessionShared>) в exclusive.rs; impl ExclusiveBackend for AlsaExclusiveBackend (делегирование inherent-методам) в alsa.rs; FakeExclusiveBackend — под новую сигнатуру (§2.3, §6.7, нужно шагу 31 EngineDeps). Общий тип → Проверка: полный cargo test"
-    done: false
+    done: true
   - id: 28
     description: "Шаг 28: Новый src/audio/rt.rs ч. 1: при старте движка — чтение свойств rtkit MaxRealtimePriority/RTTimeUSecMax (zbus) и RLIMIT_RTTIME через rustix; чистая функция выбора приоритета min(max, 20) + тест (§6.8, ТЗ-30). Проверка: cargo test rt::"
     done: false
@@ -283,8 +283,8 @@ steps:
   - id: 75
     description: "Шаг 75: ФИНАЛ: cargo build/test/clippy зелёные; общие условия §8 (Совместимый играет, «Bit-perfect» только при ТЗ-52); ручные проверки в заметку плана: замок (ТЗ-1/2/48/118…122, AM1.0-8.1), B1 — возврат устройства в PipeWire после освобождения, B2 — текст «занято <владелец>» при чужом захвате"
     done: false
-current_step: 27
-next_action: "Шаг 27: Сигнатура ExclusiveBackend::start дополняется параметрами, нужными потоку (StreamFormat, period_frames из DeviceBufferActual, Arc<SessionShared>) в exclusive.rs; impl ExclusiveBackend for AlsaExclusiveBackend (делегирование inherent-методам) в alsa.rs; FakeExclusiveBackend — под новую сигнатуру (§2.3, §6.7, нужно шагу 31 EngineDeps). Общий тип → Проверка: полный cargo test. Свежий субагент code-writer sonnet."
+current_step: 28
+next_action: "Шаг 28: Новый src/audio/rt.rs ч. 1: при старте движка — чтение свойств rtkit MaxRealtimePriority/RTTimeUSecMax (zbus) и RLIMIT_RTTIME через rustix; чистая функция выбора приоритета min(max, 20) + тест (§6.8, ТЗ-30). Проверка: cargo test rt::. Свежий субагент code-writer sonnet."
 fail_counter: 0
 fail_counter_max: 3
 failed_attempts: []

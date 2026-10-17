@@ -13,7 +13,9 @@ use smallvec::SmallVec;
 
 use super::alsa_out;
 use super::catalog::HwDeviceInfo;
-use super::exclusive::{ClaimInfo, ConfigureError, DeviceClaim, ExclusiveRender, PcmHandle, StartError, StreamHandle};
+use super::exclusive::{
+    ClaimInfo, ConfigureError, DeviceClaim, ExclusiveBackend, ExclusiveRender, PcmHandle, StartError, StreamHandle,
+};
 use super::{
     AccessKind, BackendCaps, BackendError, DeviceBufferActual, DeviceCaps, DriverFormat, HwDeviceId, OutputApi, RateSet,
 };
@@ -299,6 +301,44 @@ impl AlsaExclusiveBackend {
 
         let handle = alsa_out::AlsaStreamHandle::new(stop, join, tid_rx);
         Ok(Box::new(handle))
+    }
+}
+
+impl ExclusiveBackend for AlsaExclusiveBackend {
+    fn caps(&self) -> BackendCaps {
+        AlsaExclusiveBackend::caps(self)
+    }
+
+    fn enumerate(&mut self) -> Result<Vec<HwDeviceInfo>, BackendError> {
+        AlsaExclusiveBackend::enumerate(self)
+    }
+
+    fn acquire(&mut self, dev: &HwDeviceId, reservation: Reservation) -> Result<DeviceClaim, CaptureFailure> {
+        AlsaExclusiveBackend::acquire(self, dev, reservation)
+    }
+
+    fn device_caps(&mut self, claim: &mut DeviceClaim) -> Result<DeviceCaps, CaptureFailure> {
+        AlsaExclusiveBackend::device_caps(self, claim)
+    }
+
+    fn configure(
+        &mut self,
+        claim: &mut DeviceClaim,
+        fmt: StreamFormat,
+        buffer: DeviceBuffer,
+    ) -> Result<(DriverFormat, Option<DeviceBufferActual>), ConfigureError> {
+        AlsaExclusiveBackend::configure(self, claim, fmt, buffer)
+    }
+
+    fn start(
+        &mut self,
+        claim: &mut DeviceClaim,
+        render: ExclusiveRender,
+        fmt: StreamFormat,
+        period_frames: u32,
+        shared: Arc<SessionShared>,
+    ) -> Result<Box<dyn StreamHandle>, StartError> {
+        AlsaExclusiveBackend::start(self, claim, render, fmt, period_frames, shared)
     }
 }
 
@@ -600,6 +640,14 @@ mod tests {
     fn caps_reports_exclusive_on_linux() {
         let backend = AlsaExclusiveBackend::new();
         assert!(backend.caps().exclusive);
+    }
+
+    /// `AlsaExclusiveBackend` реализует `ExclusiveBackend` и годится в
+    /// `Box<dyn ExclusiveBackend>`, которым владеет `EngineDeps` (§2.3, §6.7).
+    /// Без обращения к оборудованию — только проверка типа при компиляции.
+    #[test]
+    fn alsa_exclusive_backend_is_boxable_dyn_exclusive_backend() {
+        let _backend: Box<dyn ExclusiveBackend> = Box::new(AlsaExclusiveBackend::new());
     }
 
     #[test]

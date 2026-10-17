@@ -18,6 +18,7 @@ use crate::audio::reservation::{
     AudioServerProbe, CallError, LostNotify, NameFlags, RequestNameReply, Reservation, ReserveBus, ReserveObject,
     SinkCard, OWNER_NAME_TIMEOUT, RELEASE_TIMEOUT,
 };
+use crate::audio::session::SessionShared;
 use crate::settings::playback::DeviceBuffer;
 use smallvec::SmallVec;
 use std::collections::HashMap;
@@ -475,7 +476,14 @@ impl ExclusiveBackend for FakeExclusiveBackend {
         self.configure_result.clone()
     }
 
-    fn start(&mut self, _claim: &mut DeviceClaim, _render: ExclusiveRender) -> Result<Box<dyn StreamHandle>, StartError> {
+    fn start(
+        &mut self,
+        _claim: &mut DeviceClaim,
+        _render: ExclusiveRender,
+        _fmt: StreamFormat,
+        _period_frames: u32,
+        _shared: Arc<SessionShared>,
+    ) -> Result<Box<dyn StreamHandle>, StartError> {
         self.push(ExclusiveCall::Start);
         self.start_result.clone()?;
         Ok(Box::new(FakeExclusiveStream { calls: Arc::clone(&self.calls) }))
@@ -524,7 +532,8 @@ mod tests {
             channels: NonZeroU8::new(2).expect("channels"),
         };
         assert!(backend.configure(&mut claim, fmt, DeviceBuffer::Ms40).is_ok());
-        let stream = backend.start(&mut claim, fake_render()).expect("start ok");
+        let stream =
+            backend.start(&mut claim, fake_render(), fmt, 480, Arc::new(SessionShared::new())).expect("start ok");
         stream.stop();
 
         assert_eq!(
