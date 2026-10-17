@@ -1065,7 +1065,7 @@ impl MusicApp {
     // Хелперы шага 47 (AM1.0-8.5): тела пока делегируют в `self.player`
     // (`AudioFacade`), вызывающий код `playback_manager.rs`/
     // `visualizer_manager.rs`/`playlist_manager.rs` переходит на эти хелперы
-    // шагами 48-50. На шаге 51 фасад снимается, а его поля (`state`, `report`,
+    // шагами 48-52. На шаге 53 фасад снимается, а его поля (`state`, `report`,
     // `badge_view`) переносятся прямо в `MusicApp` — вызовы хелперов не
     // изменятся.
 
@@ -1101,7 +1101,7 @@ impl MusicApp {
 
     /// Истина только для Строгого режима (ADR-04, ТЗ-52, §6.18): считается
     /// напрямую из действующих настроек `AppCore`, а не из копий фасада —
-    /// их не станет после шага 51.
+    /// их не станет после шага 53.
     #[allow(dead_code)] // мост: используется с шага 48
     pub(super) fn bit_perfect(&self) -> bool {
         legacy_audio(&self.core.settings().playback, self.core.state().active_mode()).0.bit_perfect

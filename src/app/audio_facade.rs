@@ -89,7 +89,7 @@ impl AudioFacade {
         }
     }
 
-    // мост: удаляется на шаге 51 (AM1.0-8.5) — видимость расширена с private
+    // мост: удаляется на шаге 53 (AM1.0-8.5) — видимость расширена с private
     // до `pub(super)`, чтобы `MusicApp::engine_send` (ADR-01) могла слать
     // команды движку до переноса этой логики в саму `MusicApp`.
     pub(super) fn send(&self, cmd: EngineCmd) -> bool {
@@ -97,7 +97,7 @@ impl AudioFacade {
     }
 
     /// Зеркало состояния движка в UI-потоке (ADR-02) — для `MusicApp::audio`.
-    // мост: удаляется на шаге 51 (AM1.0-8.5)
+    // мост: удаляется на шаге 53 (AM1.0-8.5)
     pub(super) fn state(&self) -> &UiAudioState {
         &self.state
     }

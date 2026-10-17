@@ -168,7 +168,7 @@ steps:
   - id: 40
     description: "Очистка моста окна: удалить bp-stream-desc/bp-source-desc/bp-reasons/bp-positives/bp-report-action, BpReason из app.slint и push_bp_report_to_ui/вызовы bp_report в mod.rs (ЧЕКПОИНТ). Проверка: cargo build + полный cargo test + clippy --all-targets"
     done: true
-  # Шаги 41–52 — декомпозиция снятия моста audio_facade.rs (решение пользователя
+  # Шаги 41–54 — декомпозиция снятия моста audio_facade.rs (решение пользователя
   # 2026-10-08). Состояние фасада: событийное (транспорт/позиция/трек/поток,
   # ended, opened, очередь резервирования, skipped) → UiAudioState; кэш отчёта
   # окна → path_view.rs; «грязность» бейджа → badge_view.rs; modes/active_mode/
@@ -201,19 +201,25 @@ steps:
     description: "visualizer_manager.rs, playlist_manager.rs: self.player.* → хелперы шага 47 (format, snapshot, AttachVizTap/SetVizTap, Stop) (ADR-02). Проверка: cargo check"
     done: true
   - id: 50
-    description: "app/mod.rs: оставшиеся self.player.* → хелперы (конструктор, трей, select_active_mode → SetActiveMode + инвалидация, колбэки громкости/mute, ApplyStep::Engine без mode_settings_applied — копия режимов больше не нужна; хелперы audio_mut() и take_badge_view() + 5 оставшихся вызовов в playback_manager.rs: poll_reservation, clear_end ×2, take_badge_view, reservation_pending (всегда false — ветка удаляется)) (ADR-02, ADR-14, §6.18). Проверка: cargo check"
+    description: "Хелперы MusicApp в app/mod.rs: audio_mut() -> &mut UiAudioState, take_badge_view(), path_report(), take_report_dirty() (пока через фасад, комментарий «мост: удаляется на шаге 53»); перевод 5 оставшихся вызовов playback_manager.rs: poll_reservation, clear_end ×2, take_badge_view, reservation_pending (всегда false — ветка удаляется) (ADR-02, И-Р13, ТЗ-79). Файлы: app/mod.rs, playback_manager.rs. Проверка: cargo check"
     done: false
   - id: 51
-    description: "Снятие моста: engine/UiAudioState/req_gen/PathWindowCache/BadgeViewState — поля MusicApp; хелперы шага 47 работают с ними; startup_commands/send_startup_policy → MusicApp + тесты startup_policy_equals_saved_policy, bit_perfect_follows_active_mode и тест диспетчеризации (Opened/Skipped/смена режима → PathWindowCache и BadgeViewState снова dirty — после шага 45 тесты кэша инвалидируют вручную); удалить audio_facade.rs и mod audio_facade (ADR-01, ADR-02, ОВС-14). Проверка: полный cargo test"
+    description: "app/mod.rs, UI-колбэки: транспорт (play/pause/stop/toggle/seek по дорожке, has_decoder, release_if_exclusive в колбэках окна и трея) → engine_send/audio(); громкость/mute колбэков (set_volume/set_muted, quick fix окна пути) → engine_send после изменения core; окно пути (path_report, take_report_dirty) → хелперы шага 50 (ADR-01, ADR-02, ADR-14, ТЗ-84). Проверка: cargo check"
     done: false
   - id: 52
-    description: "Снять #![allow(dead_code)] в engine_sink.rs и ui_audio_state.rs, удалить ставшее неиспользуемым (ADR-02). ЧЕКПОИНТ. Проверка: cargo build + полный cargo test + clippy --all-targets"
+    description: "app/mod.rs, остаток: циклы приёма событий движка (player.on_event, take_opened) → on_engine_event/audio_mut(); select_active_mode → SetActiveMode + инвалидация кэша окна и бейджа; ApplyStep::Engine без mode_settings_applied — копия режимов больше не нужна; конструктор (send_startup_policy, SetVolume/SetMuted из pb_state, SetDevice) — через фасад до шага 53, если иначе нельзя (ADR-02, ADR-14, §6.18). Проверка: cargo check + cargo test --bin music-player-rs"
     done: false
   - id: 53
+    description: "Снятие моста: engine/UiAudioState/req_gen/PathWindowCache/BadgeViewState — поля MusicApp; хелперы шагов 47 и 50 работают с ними; startup_commands/send_startup_policy → MusicApp + тесты startup_policy_equals_saved_policy, bit_perfect_follows_active_mode и тест диспетчеризации (Opened/Skipped/смена режима → PathWindowCache и BadgeViewState снова dirty — после шага 45 тесты кэша инвалидируют вручную); удалить audio_facade.rs и mod audio_facade (ADR-01, ADR-02, ОВС-14). Проверка: полный cargo test"
+    done: false
+  - id: 54
+    description: "Снять #![allow(dead_code)] в engine_sink.rs и ui_audio_state.rs, удалить ставшее неиспользуемым (ADR-02). ЧЕКПОИНТ. Проверка: cargo build + полный cargo test + clippy --all-targets"
+    done: false
+  - id: 55
     description: "Удаление легаси (§8, §7.4): StreamDesc, FallbackReason, dsd_pcm_breaks_bit_perfect (тест dsd_pcm_breaks_bit_perfect_detects_conflict уже заменён в verdict.rs; bp_report.rs и bp_report_marks_volume_issue — удалены на шаге 41); ссылки в settings.rs/state_file.rs. Проверка: полный cargo test + clippy --all-targets. Шаг дробится при декомпозиции"
     done: false
 current_step: 50
-next_action: "Шаг 50: app/mod.rs — оставшиеся self.player.* → хелперы; audio_mut/take_badge_view + 5 вызовов в playback_manager.rs. Проверка: cargo check"
+next_action: "Шаг 50: хелперы audio_mut/take_badge_view/path_report/take_report_dirty + 5 вызовов в playback_manager.rs. Проверка: cargo check"
 fail_counter: 0
 fail_counter_max: 3
 failed_attempts: []
