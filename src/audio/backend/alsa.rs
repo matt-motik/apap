@@ -4,6 +4,7 @@
 //! `configure`, `start` трейта `ExclusiveBackend`).
 #![deny(clippy::unwrap_used, clippy::expect_used, clippy::unreachable)]
 
+use std::num::NonZeroU8;
 use std::sync::Arc;
 use std::time::Duration;
 
@@ -11,7 +12,9 @@ use smallvec::SmallVec;
 
 use super::catalog::HwDeviceInfo;
 use super::exclusive::{ClaimInfo, ConfigureError, DeviceClaim, PcmHandle};
-use super::{AccessKind, BackendCaps, BackendError, DeviceCaps, HwDeviceId, OutputApi, RateSet};
+use super::{
+    AccessKind, BackendCaps, BackendError, DeviceBufferActual, DeviceCaps, DriverFormat, HwDeviceId, OutputApi, RateSet,
+};
 use crate::audio::clock::{Clock, MonotonicClock};
 use crate::audio::error::CaptureFailure;
 use crate::audio::format::{OutputSampleFormat, SampleRate, StreamFormat};
@@ -165,6 +168,38 @@ impl AlsaExclusiveBackend {
         })?;
         Ok(DeviceClaim::new(Some(PcmHandle::new(pcm)), reservation, ClaimInfo { device: dev.clone() }))
     }
+
+    /// Установка sw_params и однократное чтение фактических параметров
+    /// (§6.7 п. 2–3, ТЗ-113). `avail_min`/`start_threshold` ставятся по
+    /// периоду/буферу в кадрах из того же чтения `hw_params_current()`, что
+    /// и `DriverFormat`/`DeviceBufferActual` — второго обращения к ALSA нет.
+    /// Сравнение подтверждённых параметров с запрошенными — за бейджем
+    /// «Bit-perfect» (ТЗ-52, §2 `DriverFormat::Confirmed`): здесь хранится
+    /// то, что принял драйвер, даже если это не совпадает с `fmt`. Ошибка
+    /// чтения → `Unreadable`, но период и буфер в ответе — запрошенные
+    /// (§6.7 п. 3), не `None`.
+    pub fn configure(
+        &mut self,
+        claim: &mut DeviceClaim,
+        fmt: StreamFormat,
+        buffer: DeviceBuffer,
+    ) -> Result<(DriverFormat, Option<DeviceBufferActual>), ConfigureError> {
+        let Some(handle) = claim.pcm_mut().as_ref() else {
+            return Err(ConfigureError("configure вызван без открытого PCM (acquire не выполнен, §6.7)".to_string()));
+        };
+        let pcm = handle.pcm();
+        apply_hw_params(pcm, &fmt, buffer)?;
+
+        let read = read_hw_params_current(pcm);
+        let (requested_period_frames, requested_buffer_frames) = requested_frames(buffer, fmt.rate);
+        let (period_frames, buffer_frames) = match &read {
+            Some(r) => (r.period_frames, r.buffer_frames),
+            None => (requested_period_frames, requested_buffer_frames),
+        };
+        apply_sw_params(pcm, period_frames, buffer_frames)?;
+
+        Ok(build_driver_format(fmt, read, requested_period_frames, requested_buffer_frames))
+    }
 }
 
 /// hw_params Exclusive-потока: доступ `RW_INTERLEAVED`, формат, число
@@ -172,9 +207,7 @@ impl AlsaExclusiveBackend {
 /// «Буфер устройства» (§6.7 п. 1, ТЗ-50, ТЗ-112, ТЗ-131). Порядок вызовов
 /// обязателен: ALSA отвергает период/буфер, заданные раньше access/format/
 /// channels/rate. Фактические параметры здесь не перечитываются — это
-/// вторая часть `configure` (ТЗ-113, §2.3). Вызывающей стороны пока нет —
-/// появится вместе с реализацией `ExclusiveBackend::configure`.
-#[allow(dead_code)]
+/// вторая часть `configure` (ТЗ-113, §2.3).
 pub(crate) fn apply_hw_params(pcm: &alsa::PCM, fmt: &StreamFormat, buffer: DeviceBuffer) -> Result<(), ConfigureError> {
     let hw = alsa::pcm::HwParams::any(pcm).map_err(configure_refused)?;
     hw.set_access(alsa::pcm::Access::RWInterleaved).map_err(configure_refused)?;
@@ -219,6 +252,119 @@ fn buffer_period_us(buffer: DeviceBuffer) -> (u32, u32) {
 /// задаёт вариантов — текст ошибки хоста ALSA.
 fn configure_refused(e: alsa::Error) -> ConfigureError {
     ConfigureError(e.to_string())
+}
+
+/// Показания драйвера из одного чтения `hw_params_current` (§6.7 п. 3,
+/// ТЗ-113): питает и sw_params (период/буфер в кадрах), и
+/// `DriverFormat`/`DeviceBufferActual` — второго обращения к ALSA нет.
+struct DriverReadout {
+    rate_hz: u32,
+    sample: OutputSampleFormat,
+    channels: u8,
+    period_frames: alsa::pcm::Frames,
+    buffer_frames: alsa::pcm::Frames,
+}
+
+/// Однократное чтение `hw_params_current` (§6.7 п. 3, ТЗ-113): `None`, если
+/// ALSA не отдала параметры, либо формат вне `FORMAT_MAP`, либо число
+/// каналов не укладывается в `u8` — любой из этих случаев ведёт к
+/// `DriverFormat::Unreadable` (ОВ-14), а не к панике или `as`-касту.
+fn read_hw_params_current(pcm: &alsa::PCM) -> Option<DriverReadout> {
+    let hw = pcm.hw_params_current().ok()?;
+    let rate_hz = hw.get_rate().ok()?;
+    let alsa_fmt = hw.get_format().ok()?;
+    let sample = FORMAT_MAP.iter().find(|(f, _)| *f == alsa_fmt).map(|(_, s)| *s)?;
+    let channels = u8::try_from(hw.get_channels().ok()?).ok()?;
+    let period_frames = hw.get_period_size().ok()?;
+    let buffer_frames = hw.get_buffer_size().ok()?;
+    Some(DriverReadout { rate_hz, sample, channels, period_frames, buffer_frames })
+}
+
+/// Установка `avail_min`/`start_threshold` по кадрам периода/буфера (§6.7
+/// п. 2, ТЗ-113). Кадры приходят либо из чтения hw_params (точные значения
+/// драйвера), либо, если чтение не удалось, из `requested_frames` —
+/// sw_params должны быть установлены независимо от исхода чтения.
+fn apply_sw_params(
+    pcm: &alsa::PCM,
+    period_frames: alsa::pcm::Frames,
+    buffer_frames: alsa::pcm::Frames,
+) -> Result<(), ConfigureError> {
+    let sw = pcm.sw_params_current().map_err(configure_refused)?;
+    sw.set_avail_min(period_frames).map_err(configure_refused)?;
+    sw.set_start_threshold(buffer_frames).map_err(configure_refused)?;
+    pcm.sw_params(&sw).map_err(configure_refused)
+}
+
+/// Период/буфер в кадрах по запрошенным параметрам (§6.7 п. 2, ТЗ-113):
+/// используется для sw_params только тогда, когда чтение hw_params_current
+/// не удалось — `configure` не может оставить sw_params неустановленными
+/// из-за сбоя одного лишь подтверждающего чтения.
+fn requested_frames(buffer: DeviceBuffer, rate: SampleRate) -> (alsa::pcm::Frames, alsa::pcm::Frames) {
+    let (buffer_us, period_us) = buffer_period_us(buffer);
+    (us_to_frames(period_us, rate.hz()), us_to_frames(buffer_us, rate.hz()))
+}
+
+/// Микросекунды в кадры при частоте `rate_hz` (§6.7, ТЗ-113): запрошенные
+/// период/буфер заданы в микросекундах (`buffer_period_us`), sw_params —
+/// в кадрах. Границы `DeviceBuffer` (≤400 мс) и `STANDARD_RATES_HZ`
+/// (≤768 000 Гц) исключают переполнение `Frames` (псевдоним `i64`).
+fn us_to_frames(us: u32, rate_hz: u32) -> alsa::pcm::Frames {
+    alsa::pcm::Frames::from(us) * alsa::pcm::Frames::from(rate_hz) / 1_000_000
+}
+
+/// Формат из показаний драйвера (§6.7 п. 3, ТЗ-113): `None`, если частота
+/// или число каналов не проходят собственные инварианты `StreamFormat`
+/// (`SampleRate`/`NonZeroU8` не принимают 0) — тогда результат `configure`
+/// — `Unreadable`, а не сконструированный из невалидных данных формат.
+fn confirmed_format(read: &DriverReadout) -> Option<StreamFormat> {
+    let rate = SampleRate::new(read.rate_hz)?;
+    let channels = NonZeroU8::new(read.channels)?;
+    Some(StreamFormat { rate, sample: read.sample, channels })
+}
+
+/// `DeviceBufferActual` из кадров периода/буфера (§6.7 п. 3, ТЗ-113,
+/// ТЗ-76, ТЗ-131): `None`, если `Frames` не укладывается в `u32` —
+/// на практике ALSA не возвращает такие значения, но тип этого не
+/// гарантирует, поэтому каста `as` здесь нет. Общая для показаний драйвера
+/// (`device_buffer_actual`) и для запрошенных кадров на случай ошибки
+/// чтения (`build_driver_format`).
+fn frames_to_buffer_actual(period_frames: alsa::pcm::Frames, buffer_frames: alsa::pcm::Frames) -> Option<DeviceBufferActual> {
+    let period_frames = u32::try_from(period_frames).ok()?;
+    let buffer_frames = u32::try_from(buffer_frames).ok()?;
+    Some(DeviceBufferActual { period_frames, buffer_frames })
+}
+
+/// `DeviceBufferActual` из показаний драйвера (§6.7 п. 3, ТЗ-113).
+fn device_buffer_actual(read: &DriverReadout) -> Option<DeviceBufferActual> {
+    frames_to_buffer_actual(read.period_frames, read.buffer_frames)
+}
+
+/// Сборка результата `configure` из показаний драйвера (§6.7 п. 3, ТЗ-113,
+/// ОВ-14) — чистая логика без ALSA, вынесена отдельно для юнит-тестов.
+/// Ошибка чтения (или формат/частота не проходят инварианты `StreamFormat`)
+/// → `Unreadable{requested}`, а период и буфер — запрошенные (§6.7 п. 3):
+/// `requested_period_frames`/`requested_buffer_frames` — те же кадры, что
+/// `configure` уже посчитал для sw_params (`requested_frames`), повторного
+/// пересчёта здесь нет. `None` вместо них — только если даже запрошенные
+/// кадры не укладываются в `u32` (переполнение, см. `frames_to_buffer_actual`).
+/// Иначе — всегда `Confirmed(actual)`, даже если `actual` расходится с
+/// `requested`: сравнение подтверждённых параметров с запрошенными — задача
+/// бейджа «Bit-perfect» (ТЗ-52), а не `configure` (§2 `DriverFormat::Confirmed`
+/// в `backend/mod.rs`).
+fn build_driver_format(
+    requested: StreamFormat,
+    read: Option<DriverReadout>,
+    requested_period_frames: alsa::pcm::Frames,
+    requested_buffer_frames: alsa::pcm::Frames,
+) -> (DriverFormat, Option<DeviceBufferActual>) {
+    let requested_buffer_actual = || frames_to_buffer_actual(requested_period_frames, requested_buffer_frames);
+    let Some(read) = read else {
+        return (DriverFormat::Unreadable { requested }, requested_buffer_actual());
+    };
+    match confirmed_format(&read) {
+        Some(actual) => (DriverFormat::Confirmed(actual), device_buffer_actual(&read)),
+        None => (DriverFormat::Unreadable { requested }, requested_buffer_actual()),
+    }
 }
 
 /// Цикл OPEN (§6.6, ТЗ-48, ТЗ-49, ТЗ-122): `EBUSY` повторяется с шагом
@@ -352,6 +498,63 @@ mod tests {
         assert_eq!(buffer_period_us(DeviceBuffer::Ms40), (40_000, 10_000));
         assert_eq!(buffer_period_us(DeviceBuffer::Ms400), (400_000, 100_000));
         assert_eq!(buffer_period_us(DeviceBuffer::Ms20), (20_000, 5_000));
+    }
+
+    #[test]
+    fn build_driver_format_confirms_when_actual_matches_requested() {
+        let requested = StreamFormat {
+            rate: SampleRate::new(96_000).unwrap(),
+            sample: OutputSampleFormat::S24_3Le,
+            channels: NonZeroU8::new(2).unwrap(),
+        };
+        let read = DriverReadout {
+            rate_hz: 96_000,
+            sample: OutputSampleFormat::S24_3Le,
+            channels: 2,
+            period_frames: 1_200,
+            buffer_frames: 4_800,
+        };
+        let (driver_format, buffer_actual) = build_driver_format(requested, Some(read), 1_200, 4_800);
+        assert_eq!(driver_format, DriverFormat::Confirmed(requested));
+        assert_eq!(buffer_actual, Some(DeviceBufferActual { period_frames: 1_200, buffer_frames: 4_800 }));
+    }
+
+    #[test]
+    fn build_driver_format_confirms_actual_even_when_mismatched_with_requested() {
+        // §6.7 п. 3 / ТЗ-52: сравнение с запрошенным — задача бейджа
+        // «Bit-perfect», а не `configure`. Расхождение частоты не превращает
+        // успешное чтение в ошибку.
+        let requested = StreamFormat {
+            rate: SampleRate::new(192_000).unwrap(),
+            sample: OutputSampleFormat::S24_3Le,
+            channels: NonZeroU8::new(2).unwrap(),
+        };
+        let read = DriverReadout {
+            rate_hz: 96_000,
+            sample: OutputSampleFormat::S24_3Le,
+            channels: 2,
+            period_frames: 2_400,
+            buffer_frames: 9_600,
+        };
+        let actual = StreamFormat { rate: SampleRate::new(96_000).unwrap(), ..requested };
+        let (driver_format, buffer_actual) = build_driver_format(requested, Some(read), 2_400, 9_600);
+        assert_eq!(driver_format, DriverFormat::Confirmed(actual));
+        assert_eq!(buffer_actual, Some(DeviceBufferActual { period_frames: 2_400, buffer_frames: 9_600 }));
+    }
+
+    #[test]
+    fn build_driver_format_unreadable_returns_requested_buffer_actual_when_read_fails() {
+        // §6.7 п. 3: ошибка чтения → Unreadable, период и буфер — запрошенные
+        // (не None) — именно те кадры, что `configure` уже посчитал бы для
+        // sw_params через `requested_frames`.
+        let requested = StreamFormat {
+            rate: SampleRate::new(44_100).unwrap(),
+            sample: OutputSampleFormat::S16Le,
+            channels: NonZeroU8::new(2).unwrap(),
+        };
+        let (driver_format, buffer_actual) = build_driver_format(requested, None, 200, 800);
+        assert_eq!(driver_format, DriverFormat::Unreadable { requested });
+        assert_eq!(buffer_actual, Some(DeviceBufferActual { period_frames: 200, buffer_frames: 800 }));
     }
 
     fn noop() -> LostNotify {
