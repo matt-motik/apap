@@ -84,6 +84,40 @@ pub fn init_rt() -> Option<RtLimits> {
     apply_rttime_limit(&limits).then_some(limits)
 }
 
+/// Один блокирующий вызов `MakeThreadRealtime(tid, prio)` у `rtkit` на
+/// системной шине (§6.8 п. 3, ТЗ-99, ТЗ-76). Без повторных попыток — одна
+/// попытка на сессию. `false` — любая неудача (нет шины, нет rtkit, отказ
+/// `PolicyKit`, таймаут): поток продолжает работать на обычном приоритете.
+fn make_thread_realtime(tid: u64, prio: u32) -> bool {
+    let Ok(rt) = tokio::runtime::Builder::new_current_thread().enable_all().build() else {
+        return false;
+    };
+    let _ctx = rt.enter();
+    let Ok(builder) = connection::Builder::system() else {
+        return false;
+    };
+    let Ok(conn) = builder.method_timeout(PROBE_TIMEOUT).build() else {
+        return false;
+    };
+    conn.call_method(Some(RTKIT_NAME), RTKIT_PATH, Some(RTKIT_IFACE), "MakeThreadRealtime", &(tid, prio)).is_ok()
+}
+
+/// Запрашивает у `rtkit` RT-приоритет `prio` для потока `tid` в отдельном
+/// служебном потоке `apap-rtkit`, чтобы блокирующий D-Bus-вызов не задержал
+/// вызывающего (§6.8 п. 3, ТЗ-99, ТЗ-76). По завершении вызывает `done`
+/// ровно один раз: `Some(prio)` при успехе, `None` при любой неудаче. Без
+/// повторных попыток — одна попытка на сессию.
+pub fn request_realtime<F>(tid: u32, prio: u32, done: F) -> std::io::Result<std::thread::JoinHandle<()>>
+where
+    F: FnOnce(Option<u32>) + Send + 'static,
+{
+    let tid = u64::from(tid);
+    std::thread::Builder::new().name("apap-rtkit".to_string()).spawn(move || {
+        let ok = make_thread_realtime(tid, prio);
+        done(ok.then_some(prio));
+    })
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -103,5 +137,24 @@ mod tests {
     fn rt_choose_priority_zero_or_negative_is_none() {
         assert_eq!(choose_priority(0), None);
         assert_eq!(choose_priority(-15), None);
+    }
+
+    #[test]
+    /// TID u32::MAX не существует: rtkit (если есть) откажет, приоритет
+    /// процесса теста не меняется.
+    fn rt_request_realtime_calls_done_once() {
+        use std::sync::mpsc;
+        let (tx, rx) = mpsc::channel();
+        let spawn_result = request_realtime(u32::MAX, 1, move |result| {
+            let _ = tx.send(result);
+        });
+        let Ok(handle) = spawn_result else {
+            panic!("не удалось создать поток apap-rtkit");
+        };
+        match rx.recv_timeout(Duration::from_secs(5)) {
+            Ok(received) => assert_eq!(received, None),
+            Err(_) => panic!("done не был вызван за отведённое время"),
+        }
+        let _ = handle.join();
     }
 }
