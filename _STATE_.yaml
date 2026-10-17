@@ -227,15 +227,15 @@ steps:
     done: true
   - id: 58
     description: "Удаление легаси, ч. 3 (§2.3, ADR-05, С5-мост): в src/engine/legacy_path.rs выделить pub(crate) fn stream_format_from_desc(&StreamDesc) -> StreamFormat (те же безопасные конвертеры), opened_facts_from_desc использует его; тест stream_format_from_desc_maps_rate_format_channels. Проверка: cargo test legacy_path"
-    done: false
+    done: true
   - id: 59
     description: "Удаление легаси, ч. 4 (§8 С5, ADR-02, ADR-05): поле EngineEvent::Opened.stream: Option<StreamDesc> → stream_format: Option<StreamFormat> (src/engine/messages.rs; заполнение в run.rs из StreamDesc через stream_format_from_desc из шага 58); UiAudioState хранит его и format() берёт path.output.requested → stream_format → (44_100, 2) — регрессия шага 57: в Оптимальном/Строгом пути нет до С6, а tap визуализатора идёт после ресемплера; фикстуры Opened в тестах ui_audio_state.rs, path_view.rs, mod.rs (одно поле — разбиение без моста невозможно). Поле stream_format убирается на С6, когда путь есть во всех режимах. Слой app больше не зависит от StreamDesc. Общий тип → полный cargo test"
     done: false
   - id: 60
     description: "ЧЕКПОИНТ закрытия удаления легаси: удалить мёртвый MusicApp::current_track_is_dsd (src/app/ui_manager.rs, предупреждение dead_code с шага 41 — потребитель bp_report удалён); полный cargo build + cargo test + clippy --all-targets; ROADMAP: текст AM1.0-B8 (кэш отчёта — PathWindowCache в MusicApp, не AudioFacade) и отклонение — StreamDesc/FallbackReason внутри старого пути (audio/player.rs, audio/output.rs, engine/run.rs, engine/legacy_path.rs) живы, пока старый путь вывода не заменён, удаляются на С6 вместе с мостом legacy_path; dsd_pcm_breaks_bit_perfect и bp_report.rs уже удалены. Проверка: всё зелёное"
     done: false
-current_step: 58
-next_action: "Шаг 58: убрать поле stream из EngineEvent::Opened (messages.rs, run.rs) и фикстуры в тестах; полный cargo test"
+current_step: 59
+next_action: "Шаг 59: Opened.stream → stream_format: Option<StreamFormat>; UiAudioState::format() path → stream_format → дефолт; фикстуры; полный cargo test"
 fail_counter: 0
 fail_counter_max: 3
 failed_attempts: []

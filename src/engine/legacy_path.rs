@@ -210,6 +210,18 @@ pub(crate) fn shared_caps_from_desc(desc: &StreamDesc) -> DeviceCaps {
     }
 }
 
+/// Формат потока старого пути (§2.3, ADR-05, С5-мост) — те же безопасные
+/// конвертеры; используется и для `OpenedFacts`, и для события `Opened`
+/// движка, пока путь строится не во всех режимах; убирается вместе со
+/// `StreamDesc` на этапе С6.
+pub(crate) fn stream_format_from_desc(desc: &StreamDesc) -> StreamFormat {
+    StreamFormat {
+        rate: SampleRate::new(desc.rate).unwrap_or(FALLBACK_RATE),
+        sample: output_sample_format_from_desc(desc.format),
+        channels: NonZeroU8::new(channel_count_u8(desc.channels)).unwrap_or(NonZeroU8::MIN),
+    }
+}
+
 /// `OpenedFacts` открытого Shared-потока старого пути (ОВС-12, §2.3, §6.3,
 /// ADR-20, С5-мост): старый cpal shared-путь не читает hw_params устройства,
 /// поэтому `driver` — `DriverFormat::Unreadable` с запрошенным форматом, а
@@ -219,12 +231,7 @@ pub(crate) fn shared_caps_from_desc(desc: &StreamDesc) -> DeviceCaps {
 /// (§6.26), не из `StreamDesc`. Мост убирается вместе со `StreamDesc` на
 /// этапе С6.
 pub(crate) fn opened_facts_from_desc(desc: &StreamDesc, os: OsStage) -> OpenedFacts {
-    let rate = SampleRate::new(desc.rate).unwrap_or(FALLBACK_RATE);
-    let requested = StreamFormat {
-        rate,
-        sample: output_sample_format_from_desc(desc.format),
-        channels: NonZeroU8::new(channel_count_u8(desc.channels)).unwrap_or(NonZeroU8::MIN),
-    };
+    let requested = stream_format_from_desc(desc);
     OpenedFacts {
         access: AccessKind::Shared,
         api: shared_output_api(),
@@ -322,6 +329,23 @@ mod tests {
         desc.format = "?";
         let caps = shared_caps_from_desc(&desc);
         assert_eq!(caps.formats.as_slice(), &[OutputSampleFormat::F32]);
+    }
+
+    #[test]
+    fn stream_format_from_desc_maps_rate_format_channels() {
+        let mut desc = desc_48k_f32_stereo();
+        desc.rate = 96_000;
+        desc.format = "I24";
+        desc.channels = 1;
+        let format = stream_format_from_desc(&desc);
+        assert_eq!(format.rate, SampleRate::new(96_000).unwrap());
+        assert_eq!(format.sample, OutputSampleFormat::S24Le);
+        assert_eq!(format.channels, NonZeroU8::new(1).unwrap());
+
+        let default_format = stream_format_from_desc(&StreamDesc::default());
+        assert_eq!(default_format.rate, FALLBACK_RATE);
+        assert_eq!(default_format.sample, OutputSampleFormat::F32);
+        assert_eq!(default_format.channels, NonZeroU8::new(1).unwrap());
     }
 
     #[test]
