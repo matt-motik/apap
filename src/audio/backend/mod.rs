@@ -10,6 +10,8 @@ use crate::settings::playback::ModeKind;
 use serde::{Deserialize, Serialize};
 use smallvec::SmallVec;
 
+#[cfg(target_os = "linux")]
+pub mod alsa;
 pub mod catalog;
 pub mod exclusive;
 pub mod os_probe;

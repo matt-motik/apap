@@ -108,7 +108,7 @@ steps:
     done: true
   - id: 17
     description: "Шаг 17: Новый src/audio/backend/alsa.rs: AlsaExclusiveBackend — caps, enumerate (карты/устройства через alsa ctl → HwDeviceInfo, имя hw:CARD=<id>,DEV=<d>), device_caps по открытому PCM (§2.3, §6.6, ТЗ-42…47). Без acquire/configure/start. Проверка: cargo check"
-    done: false
+    done: true
   - id: 18
     description: "Шаг 18: Заполнение DeviceCatalog.hw при обновлении каталога (refresh_devices: перечисление ExclusiveBackend::enumerate, generation) в backend/catalog.rs (§2.3, ТЗ-42). Проверка: cargo test catalog"
     done: false
@@ -277,8 +277,8 @@ steps:
   - id: 73
     description: "Шаг 73: ФИНАЛ: cargo build/test/clippy зелёные; общие условия §8 (Совместимый играет, «Bit-perfect» только при ТЗ-52); ручные проверки в заметку плана: замок (ТЗ-1/2/48/118…122, AM1.0-8.1), B1 — возврат устройства в PipeWire после освобождения, B2 — текст «занято <владелец>» при чужом захвате"
     done: false
-current_step: 17
-next_action: "Шаг 17: Новый src/audio/backend/alsa.rs: AlsaExclusiveBackend — caps, enumerate (карты/устройства через alsa ctl → HwDeviceInfo, имя hw:CARD=<id>,DEV=<d>), device_caps по открытому PCM (§2.3, §6.6, ТЗ-42…47). Без acquire/configure/start. Проверка: cargo check. Свежий субагент code-writer sonnet."
+current_step: 18
+next_action: "Шаг 18: Заполнение DeviceCatalog.hw при обновлении каталога (refresh_devices: перечисление ExclusiveBackend::enumerate, generation) в backend/catalog.rs (§2.3, ТЗ-42). Проверка: cargo test catalog. Свежий субагент code-writer sonnet."
 fail_counter: 0
 fail_counter_max: 3
 failed_attempts: []
