@@ -171,7 +171,7 @@ steps:
     done: true
   - id: 38
     description: "Шаг 38: app (engine_sink.rs/mod.rs): EngineEvent::DeviceAutoSelected → опции режима + запись settings.toml одной записью, SetModeSettings не отправляется, устройство другого режима не меняется + тест (ADR-24, ТЗ-143, ТЗ-134). Проверка: cargo test device_auto_selected"
-    done: false
+    done: true
   - id: 39
     description: "Шаг 39: ЧЕКПОИНТ: полный cargo test + cargo clippy --all-targets"
     done: false
@@ -289,8 +289,8 @@ steps:
   - id: 77
     description: "Шаг 77: ФИНАЛ: cargo build/test/clippy зелёные; общие условия §8 (Совместимый играет, «Bit-perfect» только при ТЗ-52); ручные проверки в заметку плана: замок (ТЗ-1/2/48/118…122, AM1.0-8.1), B1 — возврат устройства в PipeWire после освобождения, B2 — текст «занято <владелец>» при чужом захвате"
     done: false
-current_step: 38
-next_action: "Шаг 38 (см. описание шага): приложение сохраняет DeviceAutoSelected в настройки режима. Свежий субагент code-writer sonnet."
+current_step: 39
+next_action: "Шаг 39 ЧЕКПОИНТ: полный cargo test + cargo clippy --all-targets (test-runner haiku)."
 fail_counter: 0
 fail_counter_max: 3
 failed_attempts: []

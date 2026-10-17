@@ -26,6 +26,7 @@ use std::path::Path;
 use std::sync::Arc;
 
 use music_player_rs::audio::backend::catalog::DeviceCatalog;
+use music_player_rs::audio::backend::HwDeviceId;
 use music_player_rs::audio::decoder::TrackInfo;
 use music_player_rs::audio::error::{OpenError, Reaction};
 use music_player_rs::audio::format::StreamFormat;
@@ -34,6 +35,7 @@ use music_player_rs::audio::path::Blocked;
 use music_player_rs::audio::player::ReservationEvent;
 use music_player_rs::audio::verdict::BadgeState;
 use music_player_rs::engine::messages::{EngineEvent, Notice, SkipReason, TransportState};
+use music_player_rs::settings::playback::ModeKind;
 
 /// Безопасное преобразование числа фреймов (`u64`) в `f64` для расчёта
 /// длительности трека (ТЗ-103). `as` на сэмплах запрещён правилами проекта;
@@ -145,6 +147,9 @@ pub enum Applied {
     /// Текущая сессия воспроизведения завершена.
     Ended,
     DeviceLost(Reaction),
+    /// Автовыбор устройства Оптимального/Строгого режима (ТЗ-143, ТЗ-134,
+    /// ADR-24) — сохраняется в настройках вызывающей стороной (шаг 38).
+    DeviceAutoSelected { mode: ModeKind, device: HwDeviceId },
     Notice(Notice),
     ShutdownComplete,
 }
@@ -298,8 +303,10 @@ impl UiAudioState {
                 Applied::None
             }
             // Автовыбор сохраняется приложением в настройках (ТЗ-143,
-            // ADR-24) — проводка приходит отдельным шагом.
-            EngineEvent::DeviceAutoSelected { .. } => Applied::None,
+            // ТЗ-134, ADR-24, шаг 38) — одним снимком `settings.toml`, без
+            // `EngineCmd::SetModeSettings` (у движка уже есть это значение,
+            // повторная отправка вызвала бы петлю повторного открытия).
+            EngineEvent::DeviceAutoSelected { mode, device } => Applied::DeviceAutoSelected { mode, device },
             EngineEvent::Notice(notice) => {
                 // Движок публикует только терминальные `Notice::Reservation`
                 // без фильтра по `req_gen` (ТЗ-56, ADR-02) — та же очередь,
@@ -554,6 +561,20 @@ mod tests {
 
         assert_eq!(state.apply(EngineEvent::Ended { session: 0 }), Applied::None);
         assert_eq!(state.apply(EngineEvent::Ended { session: 1 }), Applied::Ended);
+    }
+
+    /// Шаг 38 (ТЗ-143, ТЗ-134, ADR-24): `DeviceAutoSelected` не сводится к
+    /// полю состояния — вызывающая сторона (`MusicApp`) сохраняет его в
+    /// настройках, без фильтра по `req_gen` (устройство общее для режима,
+    /// не для одной сессии открытия).
+    #[test]
+    fn device_auto_selected_passed_through() {
+        let mut state = UiAudioState::new();
+        let device: HwDeviceId = "hw:CARD=USB,DEV=0".parse().expect("валидный HwDeviceId");
+
+        let applied = state.apply(EngineEvent::DeviceAutoSelected { mode: ModeKind::Optimal, device: device.clone() });
+
+        assert_eq!(applied, Applied::DeviceAutoSelected { mode: ModeKind::Optimal, device });
     }
 
     /// И-Р14: позиция для несуществующей сессии (до принятого `Opened`)

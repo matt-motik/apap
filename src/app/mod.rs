@@ -11,7 +11,7 @@ use slint::{ComponentHandle, Model, ModelRc, SharedString, StandardListViewItem,
 use slint::language::{SortOrder, TableColumn};
 
 use music_player_rs::audio::analyzer::TAP_CAPACITY;
-use music_player_rs::audio::backend::{BackendError, SharedDeviceId};
+use music_player_rs::audio::backend::{BackendError, HwDeviceId, SharedDeviceId};
 use music_player_rs::audio::decoder::TrackInfo;
 use music_player_rs::audio::error::{EngineFault, FileError, OpenError, Reaction};
 use music_player_rs::audio::output::{default_device_name, DeviceInfo};
@@ -563,6 +563,25 @@ fn startup_commands(modes: &ModeSettings, active: ModeKind) -> [EngineCmd; 2] {
         EngineCmd::SetModeSettings(ModeSettingsUpdate { settings: modes.clone(), diff: None }),
         EngineCmd::SetActiveMode(active),
     ]
+}
+
+/// Строит копию настроек с сохранённым автовыбором устройства режима
+/// (ТЗ-143, ТЗ-134, ADR-24, шаг 38): движок уже применил `device` к своей
+/// копии `ModeSettings` режима `mode`, здесь он переносится в настройки
+/// приложения тем же `set_device`, не трогая другой режим. `None` —
+/// Совместимый режим (автовыбора не знает, §2.3): вызывающая сторона не
+/// пишет файл.
+fn settings_with_auto_selected_device(
+    settings: &PersistSettings,
+    mode: ModeKind,
+    device: &HwDeviceId,
+) -> Option<PersistSettings> {
+    if mode == ModeKind::Compatible {
+        return None;
+    }
+    let mut settings = settings.clone();
+    settings.playback.set_device(mode, device.as_str());
+    Some(settings)
 }
 
 /// Разобрать событие движка, обновить состояние/бейдж/кэш отчёта «Путь
@@ -3144,8 +3163,27 @@ impl MusicApp {
                 self.audio_error = Some(msg.clone());
                 self.status = format!("Не удалось получить список устройств вывода: {msg}").into();
             }
+            // Автовыбор устройства Оптимального/Строгого режима (шаг 38,
+            // ТЗ-143, ТЗ-134, ADR-24) — сохраняется в настройках.
+            Applied::DeviceAutoSelected { mode, device } => self.save_auto_selected_device(mode, device),
             // Путь завершения приложения обрабатывается отдельным шагом моста.
             Applied::ShutdownComplete => {}
+        }
+    }
+
+    /// Сохраняет автовыбор устройства Оптимального/Строгого режима в
+    /// `settings.toml` одним снимком (ТЗ-143, ТЗ-134, ADR-24, шаг 38):
+    /// движок уже скопировал его в свою копию `ModeSettings`, поэтому
+    /// `EngineCmd::SetModeSettings` сюда не отправляется — повторная
+    /// отправка той же настройки движку привела бы к петле переоткрытия
+    /// устройства. Устройство другого режима не трогается. Совместимый
+    /// режим автовыбора не знает (§2.3) — событие для него игнорируется.
+    fn save_auto_selected_device(&mut self, mode: ModeKind, device: HwDeviceId) {
+        let Some(settings) = settings_with_auto_selected_device(self.core.settings(), mode, &device) else {
+            return;
+        };
+        if let Some(effect) = self.core.save_settings_now(settings) {
+            self.apply_reply_effects(vec![effect]);
         }
     }
 
@@ -3594,6 +3632,24 @@ mod tests {
                 other => panic!("ожидались SetModeSettings/SetActiveMode, получено: {other:?}"),
             }
         }
+    }
+
+    /// Шаг 38 (ТЗ-143, ТЗ-134, ADR-24): автовыбор устройства сохраняется
+    /// только в своём режиме — другой режим и его устройство не меняются;
+    /// Совместимый режим автовыбора не знает (§2.3), поэтому для него
+    /// вызывающая сторона не пишет файл.
+    #[test]
+    fn device_auto_selected_updates_only_target_mode() {
+        let settings = PersistSettings::default();
+        let device: HwDeviceId = "hw:CARD=USB,DEV=0".parse().expect("валидный HwDeviceId");
+
+        let updated = settings_with_auto_selected_device(&settings, ModeKind::Optimal, &device)
+            .expect("Оптимальный режим сохраняет автовыбор");
+        assert_eq!(updated.playback.optimal.device, Some(device.clone()));
+        assert_eq!(updated.playback.strict.device, settings.playback.strict.device);
+        assert_eq!(updated.playback.compatible.device, settings.playback.compatible.device);
+
+        assert!(settings_with_auto_selected_device(&settings, ModeKind::Compatible, &device).is_none());
     }
 
     /// ADR-02, ТЗ-79, ТЗ-83, §7.2: `Opened` обновляет зеркало состояния в
