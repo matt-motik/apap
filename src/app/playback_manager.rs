@@ -9,10 +9,12 @@ use music_player_rs::playlist::compare::CompareKeys;
 
 impl MusicApp {
     pub(super) fn sync_playback_state_to_ui(&mut self) {
-        let (playing, pos, dur) = self.player.snapshot();
-        let muted = self.player.muted();
-        let v = self.player.volume();
-        let bit_perfect = self.player.bit_perfect();
+        let playing = self.audio().is_playing();
+        let pos = self.audio().position_secs();
+        let dur = self.audio().duration();
+        let muted = self.core.state().playback().muted;
+        let v = self.core.state().playback().gain();
+        let bit_perfect = self.bit_perfect();
         let dur_f = dur.unwrap_or(0.0);
         let seek_f = if dur_f > 0.0 {
             (pos / dur_f).clamp(0.0, 1.0) as f32
@@ -171,12 +173,12 @@ impl MusicApp {
         };
         match event {
             ReservationEvent::Opened => {
-                self.stream_desc = self.player.stream_desc().cloned();
+                self.stream_desc = self.audio().stream_desc().cloned();
                 self.status = self.playing_status().into();
                 self.sync_track_info_to_ui();
             }
             ReservationEvent::Failed(msg) | ReservationEvent::Lost(msg) => {
-                self.player.stop();
+                self.engine_send(EngineCmd::Stop);
                 self.emit(AppEvent::PlaybackStopped);
                 // Явное действие (воспроизведение) не выполнено — окно Error,
                 // не строка состояния (ТЗ-52, ОВ-7; ТЗ-119, ТЗ-122).
@@ -200,11 +202,11 @@ impl MusicApp {
     }
 
     pub(super) fn handle_auto_advance(&mut self) {
-        if self.player.ended() && self.current.is_some() {
+        if self.audio().ended() && self.current.is_some() {
             match self.repeat {
                 RepeatMode::One => {
                     self.player.clear_end();
-                    self.player.play();
+                    self.engine_send(EngineCmd::Play);
                     self.emit(AppEvent::PlaybackStarted);
                 }
                 _ => {
@@ -216,7 +218,7 @@ impl MusicApp {
                             // End of playlist: free an exclusive raw-`hw:` node
                             // so the device returns to the system mixer
                             // (V5.1-B5).
-                            self.player.release_if_exclusive();
+                            self.engine_send(EngineCmd::ReleaseExclusive);
                             self.emit(AppEvent::PlaybackStopped);
                         }
                     }
@@ -311,7 +313,7 @@ impl MusicApp {
         };
         let path = track.path.clone();
         let prev_current = self.current;
-        match self.player.open(&path) {
+        match self.open_track(&path) {
             // Открытие асинхронное: успех здесь — команда отправлена
             // движку, применяется по событию Opened (ADR-01, ТЗ-103).
             Ok(()) => self.pending_open = Some((index, prev_current)),
@@ -325,13 +327,13 @@ impl MusicApp {
     /// текущего трека с сохранённой позиции делает вызывающий код
     /// (`on_select_mode`). Нет загруженного трека — нечего переоткрывать.
     pub(super) fn reopen_current_for_mode_switch(&mut self) {
-        if !self.player.has_decoder() {
+        if self.audio().track().is_none() {
             return;
         }
         // Остановленный плеер не переоткрывается (§6.18): режим применится
         // к следующему `Open`, а переоткрытие сейчас вместо «стоп» показало
         // бы в UI «пауза» (ошибочно) вместо «стоп».
-        if self.player.is_stopped() {
+        if self.audio().is_stopped() {
             return;
         }
         let Some(idx) = self.current else { return };
@@ -339,9 +341,10 @@ impl MusicApp {
             return;
         };
         let path = track.path.clone();
-        let (was_playing, pos, _dur) = self.player.snapshot();
+        let was_playing = self.audio().is_playing();
+        let pos = self.audio().position_secs();
         let prev_current = self.current;
-        match self.player.open(&path) {
+        match self.open_track(&path) {
             // Открытие асинхронное: позиция/признак воспроизведения
             // применяются в `on_track_opened` по приходу события Opened.
             Ok(()) => {
@@ -376,18 +379,17 @@ impl MusicApp {
     /// `Blocked` и `Unchanged`, чтобы ползунок не расходился с громкостью
     /// активного режима.
     pub(super) fn apply_volume_cmd(&mut self, src: VolumeSource, cmd: VolumeCmd) -> VolumeOutcome {
-        // Мост до перевода движка (С3/С5): bit-perfect поток нельзя трогать
-        // программной громкостью. Признак берётся у фасада движка, а не у
-        // ядра, поэтому команда в ядро не передаётся; исхода «отклонено
-        // движком» в `VolumeOutcome` нет — возвращается `Unchanged`.
-        let outcome = if self.player.bit_perfect() {
+        // Bit-perfect поток нельзя трогать программной громкостью: команда
+        // в ядро не передаётся; исхода «отклонено движком» в
+        // `VolumeOutcome` нет — возвращается `Unchanged`.
+        let outcome = if self.bit_perfect() {
             VolumeOutcome::Unchanged
         } else {
             self.core.volume(src, cmd)
         };
         let gain = self.core.state().playback().gain();
         if let VolumeOutcome::Changed(_) = outcome {
-            self.player.set_volume(gain);
+            self.engine_send(EngineCmd::SetVolume(gain));
             self.emit(AppEvent::VolumeChanged(gain));
         }
         if let Some(ui) = self.try_ui() {
@@ -406,8 +408,8 @@ impl MusicApp {
     /// (`SessionState::playback`), их нужно явно прокинуть в движок и UI.
     pub(super) fn apply_mode_gain(&mut self) {
         let pb_state = self.core.state().playback();
-        self.player.set_volume(pb_state.gain());
-        self.player.set_muted(pb_state.muted);
+        self.engine_send(EngineCmd::SetVolume(pb_state.gain()));
+        self.engine_send(EngineCmd::SetMuted(pb_state.muted));
         self.sync_playback_state_to_ui();
     }
 
@@ -437,7 +439,7 @@ impl MusicApp {
         track.album = info.tags.album.clone();
         track.genre = info.tags.genre.clone();
         track.year = info.tags.year.clone().unwrap_or_default();
-        self.stream_desc = self.player.stream_desc().cloned();
+        self.stream_desc = self.audio().stream_desc().cloned();
         if info.tags.track_number > 0 || track.track_number == 0 {
             track.track_number = info.tags.track_number;
         }
@@ -479,14 +481,14 @@ impl MusicApp {
         // запускает воспроизведение с нуля, как и раньше (ADR-01, ТЗ-103).
         let will_play = match self.pending_mode_reopen.take() {
             Some((pos, was_playing)) => {
-                self.player.seek(pos);
+                self.engine_send(EngineCmd::Seek { secs: pos });
                 if was_playing {
-                    self.player.play();
+                    self.engine_send(EngineCmd::Play);
                 }
                 was_playing
             }
             None => {
-                self.player.play();
+                self.engine_send(EngineCmd::Play);
                 true
             }
         };
@@ -518,7 +520,7 @@ impl MusicApp {
             .track_at(index)
             .map(|t| t.title.clone())
             .unwrap_or_default();
-        self.player.stop();
+        self.engine_send(EngineCmd::Stop);
         // Явное действие (воспроизведение трека) не выполнено — окно
         // Error, не строка состояния (ТЗ-52, ОВ-7).
         self.push_message(Message {
@@ -570,11 +572,11 @@ impl MusicApp {
     }
 
     pub(super) fn play_prev(&mut self) {
-        let (_playing, pos, _) = self.player.snapshot();
+        let pos = self.audio().position_secs();
         // If we are a few seconds into the track, "previous" restarts it.
         const RESTART_THRESHOLD_SECS: f64 = 3.0;
         if pos > RESTART_THRESHOLD_SECS {
-            self.player.seek(0.0);
+            self.engine_send(EngineCmd::Seek { secs: 0.0 });
             return;
         }
         self.play_next(-1);
@@ -588,7 +590,7 @@ impl MusicApp {
     /// shuffle-пик при включённом Shuffle (AppCore уже начал новый проход).
     /// Пустой плейлист (`first: None`) — стоп без следующего трека (ТЗ-48).
     pub(super) fn apply_play_now(&mut self, first: Option<TrackId>) {
-        self.player.stop();
+        self.engine_send(EngineCmd::Stop);
         self.pending_open = None;
         self.current = None;
         self.reset_cover();

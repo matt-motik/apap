@@ -196,12 +196,12 @@ steps:
     done: true
   - id: 48
     description: "playback_manager.rs: все self.player.* → хелперы шага 47 и EngineCmd напрямую (Play/Pause/Stop/Seek/ReleaseExclusive/SetDevice/SetVolume/SetMuted); громкость/mute читаются из core.state().playback() (ADR-01, ADR-02, ADR-14). Проверка: cargo check"
-    done: false
+    done: true
   - id: 49
     description: "visualizer_manager.rs, playlist_manager.rs: self.player.* → хелперы шага 47 (format, snapshot, AttachVizTap/SetVizTap, Stop) (ADR-02). Проверка: cargo check"
     done: false
   - id: 50
-    description: "app/mod.rs: оставшиеся self.player.* → хелперы (конструктор, трей, select_active_mode → SetActiveMode + инвалидация, колбэки громкости/mute, ApplyStep::Engine без mode_settings_applied — копия режимов больше не нужна) (ADR-02, ADR-14, §6.18). Проверка: cargo check"
+    description: "app/mod.rs: оставшиеся self.player.* → хелперы (конструктор, трей, select_active_mode → SetActiveMode + инвалидация, колбэки громкости/mute, ApplyStep::Engine без mode_settings_applied — копия режимов больше не нужна; хелперы audio_mut() и take_badge_view() + 5 оставшихся вызовов в playback_manager.rs: poll_reservation, clear_end ×2, take_badge_view, reservation_pending (всегда false — ветка удаляется)) (ADR-02, ADR-14, §6.18). Проверка: cargo check"
     done: false
   - id: 51
     description: "Снятие моста: engine/UiAudioState/req_gen/PathWindowCache/BadgeViewState — поля MusicApp; хелперы шага 47 работают с ними; startup_commands/send_startup_policy → MusicApp + тесты startup_policy_equals_saved_policy, bit_perfect_follows_active_mode и тест диспетчеризации (Opened/Skipped/смена режима → PathWindowCache и BadgeViewState снова dirty — после шага 45 тесты кэша инвалидируют вручную); удалить audio_facade.rs и mod audio_facade (ADR-01, ADR-02, ОВС-14). Проверка: полный cargo test"
@@ -212,8 +212,8 @@ steps:
   - id: 53
     description: "Удаление легаси (§8, §7.4): StreamDesc, FallbackReason, dsd_pcm_breaks_bit_perfect (тест dsd_pcm_breaks_bit_perfect_detects_conflict уже заменён в verdict.rs; bp_report.rs и bp_report_marks_volume_issue — удалены на шаге 41); ссылки в settings.rs/state_file.rs. Проверка: полный cargo test + clippy --all-targets. Шаг дробится при декомпозиции"
     done: false
-current_step: 48
-next_action: "Шаг 48: playback_manager.rs — self.player.* → хелперы шага 47 и EngineCmd; громкость/mute из core. Проверка: cargo check"
+current_step: 49
+next_action: "Шаг 49: visualizer_manager.rs, playlist_manager.rs — self.player.* → хелперы шага 47 (format, snapshot, viz tap, Stop). Проверка: cargo check"
 fail_counter: 0
 fail_counter_max: 3
 failed_attempts: []
