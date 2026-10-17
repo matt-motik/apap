@@ -70,8 +70,8 @@
 - [x] Шаг 9: Шаг 9: FakeExclusiveBackend (сценарные результаты acquire/configure/start, журнал вызовов, фиксация порядка release) в audio/testing/mod.rs + 2 теста самого фейка (§7.1, ТЗ-114). Проверка: cargo test fake_exclusive
 - [x] Шаг 10: Шаг 10: TrackRef { id: TrackId, path: Arc<Path> } в src/engine/messages.rs — только тип; сигнатуры моста С3 не меняются (§2.8, нужен ReacquirePoint §2.6). Проверка: cargo check
 - [x] Шаг 11: Шаг 11: Новый src/engine/lock.rs: типы LockState, LockInput, LockEffect, ReacquirePoint { device, track: TrackRef, frame } (§2.6). Только типы. Проверка: cargo check
-- [>] **Шаг 12: Шаг 12: Функция lock_step(state, input, mode, dev: Option<&HwDeviceId>) -> (LockState, SmallVec<[LockEffect;2]>) по таблице §6.19 в engine/lock.rs (ТЗ-118…123, 125, 126, 144). Проверка: cargo check**
-- [ ] Шаг 13: Шаг 13: Тесты lock_step ч. 1: lock_step_is_total (каждая пара состояние×вход), Compatible → NotApplicable, no_device_selected_* (Acquire без устройства → Failed(NoDeviceSelected), эффектов нет) — ≤5 (§7.2, ТЗ-144). Проверка: cargo test lock_step
+- [x] Шаг 12: Шаг 12: Функция lock_step(state, input, mode, dev: Option<&HwDeviceId>) -> (LockState, SmallVec<[LockEffect;2]>) по таблице §6.19 в engine/lock.rs (ТЗ-118…123, 125, 126, 144). Проверка: cargo check
+- [>] **Шаг 13: Шаг 13: Тесты lock_step ч. 1: lock_step_is_total (каждая пара состояние×вход), Compatible → NotApplicable, no_device_selected_* (Acquire без устройства → Failed(NoDeviceSelected), эффектов нет) — ≤5 (§7.2, ТЗ-144). Проверка: cargo test lock_step**
 - [ ] Шаг 14: Шаг 14: Тесты lock_step ч. 2: UserClose/UserOpen/CaptureAndPlay/DeviceLost/DeviceReappeared/RetryCapture — ≤5 (§7.2, ТЗ-120…126). Проверка: cargo test lock_step
 - [ ] Шаг 15: Шаг 15: Чистая функция resolve_device(opts_device, probe, catalog) -> Resolved { Selected | AutoSelected(HwDeviceId) | None } в engine/lock.rs; выбранное устройство — без опроса probe (счётчик FakeServerProbe = 0) + тесты ≤4 (ADR-24, ТЗ-143, 144). Проверка: cargo test resolve_device
 - [ ] Шаг 16: Шаг 16: ЧЕКПОИНТ: полный cargo test + cargo clippy --all-targets (фильтр по вайтлисту)
@@ -90,7 +90,7 @@
 - [ ] Шаг 29: Шаг 29: EngineDeps: поля exclusive: Box<dyn ExclusiveBackend>, server_probe (если ещё нет) в deps.rs; EngineDeps::system (AlsaExclusiveBackend) и фейковые сборки в deps.rs/engine/tests.rs (§2.7, §8 таблица EngineDeps). Общий тип → Проверка: полный cargo test
 - [ ] Шаг 30: Шаг 30: messages.rs: EngineCmd::Lock(LockInput), EngineEvent::Lock(LockState), EngineEvent::DeviceAutoSelected { mode, device } (§2.8, ADR-24); обработчики-заглушки не нужны — app игнорирует новые события через существующий `_ =>` (проверить). Общий тип → Проверка: полный cargo test
 - [ ] Шаг 31: Шаг 31: Внутренний канал движка InternalMsg { ClaimDone{attempt, result}, ReservationLost{card}, RtPriority{session, granted} } в messages.rs + приёмник в цикле run() (дренаж try_recv на каждой итерации) в run.rs (§2.8). Проверка: cargo test engine::
-- [ ] Шаг 32: Шаг 32: run.rs: EngineCmd::Lock → lock_step; эффект Acquire — захват через spawner в служебном потоке → InternalMsg::ClaimDone → lock_step; эмиссия EngineEvent::Lock (Acquiring/Held/Failed) + тесты ≤3 на FakeExclusiveBackend (§6.19, ТЗ-118, 119, 123). Проверка: cargo test engine::
+- [ ] Шаг 32: Шаг 32: run.rs: EngineCmd::Lock → lock_step; эффект Acquire — захват через spawner в служебном потоке → InternalMsg::ClaimDone → lock_step; эмиссия EngineEvent::Lock (Acquiring/Held/Failed) + тесты ≤3 на FakeExclusiveBackend (§6.19, ТЗ-118, 119, 123). Проверка: cargo test engine:: Обязательно: Acquiring.started перезаписать deps.clock.now() (lock_step чистая, ставит ClockInstant::START — ОВС-10 п. 7, ТЗ-119); DeviceReappeared(d) вызывать только при d = устройство ReacquirePoint (lock_step точку не видит, §6.20).
 - [ ] Шаг 33: Шаг 33: run.rs: разрешение устройства перед Acquire через resolve_device: AutoSelected → копия опций режима + EngineEvent::DeviceAutoSelected; None → Failed(NoDeviceSelected), ни acquire, ни SharedBackend::start + тесты ≤3 (§6.18, ADR-24, ТЗ-143, 144, 32). Проверка: cargo test engine::
 - [ ] Шаг 34: Шаг 34: run.rs: эффекты Release / StopPlayback / ForgetReacquire (UserClose, UserOpen, переход в Compatible) + тесты ≤3 (§6.19, ТЗ-120, 121). Проверка: cargo test engine::
 - [ ] Шаг 35: Шаг 35: app (engine_sink.rs/mod.rs): EngineEvent::DeviceAutoSelected → опции режима + запись settings.toml одной записью, SetModeSettings не отправляется, устройство другого режима не меняется + тест (ADR-24, ТЗ-143, ТЗ-134). Проверка: cargo test device_auto_selected
@@ -135,8 +135,8 @@
 
 Легенда: [x] сделано · [>] текущий шаг · [ ] не начато
 
-- **Текущий шаг (current_step):** Шаг 12
-- **Следующий ход:** Шаг 12: Функция lock_step(state, input, mode, dev: Option<&HwDeviceId>) -> (LockState, SmallVec<[LockEffect;2]>) по таблице §6.19 в engine/lock.rs (ТЗ-118…123, 125, 126, 144). Проверка: cargo check. Свежий субагент code-writer sonnet.
+- **Текущий шаг (current_step):** Шаг 13
+- **Следующий ход:** Шаг 13: Тесты lock_step ч. 1: lock_step_is_total (каждая пара состояние×вход), Compatible → NotApplicable, no_device_selected_* (Acquire без устройства → Failed(NoDeviceSelected), эффектов нет) — ≤5 (§7.2, ТЗ-144). Проверка: cargo test lock_step. Свежий субагент code-writer sonnet.
 - **Счетчик безуспешных компиляций:** 0/3
 - **Состояние:** in_progress
 

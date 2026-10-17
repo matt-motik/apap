@@ -93,7 +93,7 @@ steps:
     done: true
   - id: 12
     description: "Шаг 12: Функция lock_step(state, input, mode, dev: Option<&HwDeviceId>) -> (LockState, SmallVec<[LockEffect;2]>) по таблице §6.19 в engine/lock.rs (ТЗ-118…123, 125, 126, 144). Проверка: cargo check"
-    done: false
+    done: true
   - id: 13
     description: "Шаг 13: Тесты lock_step ч. 1: lock_step_is_total (каждая пара состояние×вход), Compatible → NotApplicable, no_device_selected_* (Acquire без устройства → Failed(NoDeviceSelected), эффектов нет) — ≤5 (§7.2, ТЗ-144). Проверка: cargo test lock_step"
     done: false
@@ -152,7 +152,7 @@ steps:
     description: "Шаг 31: Внутренний канал движка InternalMsg { ClaimDone{attempt, result}, ReservationLost{card}, RtPriority{session, granted} } в messages.rs + приёмник в цикле run() (дренаж try_recv на каждой итерации) в run.rs (§2.8). Проверка: cargo test engine::"
     done: false
   - id: 32
-    description: "Шаг 32: run.rs: EngineCmd::Lock → lock_step; эффект Acquire — захват через spawner в служебном потоке → InternalMsg::ClaimDone → lock_step; эмиссия EngineEvent::Lock (Acquiring/Held/Failed) + тесты ≤3 на FakeExclusiveBackend (§6.19, ТЗ-118, 119, 123). Проверка: cargo test engine::"
+    description: "Шаг 32: run.rs: EngineCmd::Lock → lock_step; эффект Acquire — захват через spawner в служебном потоке → InternalMsg::ClaimDone → lock_step; эмиссия EngineEvent::Lock (Acquiring/Held/Failed) + тесты ≤3 на FakeExclusiveBackend (§6.19, ТЗ-118, 119, 123). Проверка: cargo test engine:: Обязательно: Acquiring.started перезаписать deps.clock.now() (lock_step чистая, ставит ClockInstant::START — ОВС-10 п. 7, ТЗ-119); DeviceReappeared(d) вызывать только при d = устройство ReacquirePoint (lock_step точку не видит, §6.20)."
     done: false
   - id: 33
     description: "Шаг 33: run.rs: разрешение устройства перед Acquire через resolve_device: AutoSelected → копия опций режима + EngineEvent::DeviceAutoSelected; None → Failed(NoDeviceSelected), ни acquire, ни SharedBackend::start + тесты ≤3 (§6.18, ADR-24, ТЗ-143, 144, 32). Проверка: cargo test engine::"
@@ -277,8 +277,8 @@ steps:
   - id: 73
     description: "Шаг 73: ФИНАЛ: cargo build/test/clippy зелёные; общие условия §8 (Совместимый играет, «Bit-perfect» только при ТЗ-52); ручные проверки в заметку плана: замок (ТЗ-1/2/48/118…122, AM1.0-8.1), B1 — возврат устройства в PipeWire после освобождения, B2 — текст «занято <владелец>» при чужом захвате"
     done: false
-current_step: 12
-next_action: "Шаг 12: Функция lock_step(state, input, mode, dev: Option<&HwDeviceId>) -> (LockState, SmallVec<[LockEffect;2]>) по таблице §6.19 в engine/lock.rs (ТЗ-118…123, 125, 126, 144). Проверка: cargo check. Свежий субагент code-writer sonnet."
+current_step: 13
+next_action: "Шаг 13: Тесты lock_step ч. 1: lock_step_is_total (каждая пара состояние×вход), Compatible → NotApplicable, no_device_selected_* (Acquire без устройства → Failed(NoDeviceSelected), эффектов нет) — ≤5 (§7.2, ТЗ-144). Проверка: cargo test lock_step. Свежий субагент code-writer sonnet."
 fail_counter: 0
 fail_counter_max: 3
 failed_attempts: []
