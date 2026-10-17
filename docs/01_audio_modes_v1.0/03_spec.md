@@ -2,7 +2,7 @@
 
 **Префикс:** `AM1.0` (реестр префиксов — в шапке `ROADMAP.md`; этап СN = задача `AM1.0-8.N`).
 
-Основа: утверждённое ТЗ `docs/01_audio_modes_v1.0/02_tz.md` (ТЗ-1…ТЗ-133; решения ОВ-1…ОВ-36 и ОВС-1…ОВС-13 внесены). Справочно: `docs/01_audio_modes_v1.0/01_review.md` (находки R-1…R-29, решения пользователя 1–11, предложения ревью). Решения пользователя имеют приоритет над предложениями ревью и над требованиями промта.
+Основа: утверждённое ТЗ `docs/01_audio_modes_v1.0/02_tz.md` (ТЗ-1…ТЗ-144; решения ОВ-1…ОВ-37 и ОВС-1…ОВС-21 внесены). Справочно: `docs/01_audio_modes_v1.0/01_review.md` (находки R-1…R-29, решения пользователя 1–11, предложения ревью). Решения пользователя имеют приоритет над предложениями ревью и над требованиями промта.
 
 Статус: **заход 2 из 2**. Заход 1 — архитектурные решения (ADR), модель данных, модель пути сигнала, архитектура потоков и инварианты (§1–§5). Заход 2 — исправления первой половины по ОВ-36 и замечаниям пользователя (ADR-03, ADR-06, ADR-07, ADR-08, ADR-13, ADR-17, §2.1, §2.4, §2.9, §5) и разделы «Алгоритмы», «План тестов», «Этапы внедрения», «Открытые вопросы» (§6–§9).
 
@@ -17,6 +17,8 @@
 Обновление 2026-10-03: §6.29 — разрешение `unwrap`/`expect` в тестах задаётся через `clippy.toml` (`allow-unwrap-in-tests`, `allow-expect-in-tests`) вместо `#[cfg_attr(test, allow(...))]` в модулях тестов (решение пользователя, этап С1).
 
 Обновление 2026-10-07: С3 — сигнатуры `SourceOpener` и `ThreadSpawner` определены в §2.10 и согласованы с пользователем; в `EngineDeps` (ADR-20) `sources` и `spawner` — `Arc` (их делят поток движка, служебный поток открытия и `apap-decode`); уточнены фейки `FakeSource`, `FailingSpawner`. В С3 `Player` переезжает в поток `apap-engine` как внутренняя деталь (мост); его разбор по §6.18 — на С5–С8.
+
+Обновление 2026-10-17: решение пользователя ОВ-37 ТЗ (ТЗ-143, ТЗ-144) — ADR-24: если устройство Оптимального или Строгого режима не выбрано, движок перед захватом выбирает аппаратное устройство системного выхода PipeWire (`AudioServerProbe::default_sink_card` → `DeviceCatalog::hw_for_sink`) и сообщает выбор событием `DeviceAutoSelected`, приложение сохраняет его в `optimal.device`/`strict.device`; нет соответствия — `CaptureFailure::NoDeviceSelected` («устройство не выбрано», без захвата и без Shared). Изменены §2.2, §2.3, §2.4, §2.6, §2.8, §6.6, §6.18, §6.19, §7.2, §8 (С6: ТЗ-143, ТЗ-144 и тест ТЗ-21 «Оптимальный → Совместимый», баг AM1.0-B13).
 
 Правила документа:
 
@@ -564,6 +566,23 @@ pub trait Clock: Send {
 
 **Последствия.** И-Т1 и И-Т6 уточнены: в Строгом режиме нет громкости, а mute — ворота тишины, не усиление. `rt_bit_perfect_ignores_mute` заменяется `strict_mute_outputs_exact_bits_or_silence` (§7.4).
 
+### ADR-24. Устройство не выбрано (ОВ-37)
+
+**Выполняет:** ТЗ-143, ТЗ-144; ТЗ-21, ТЗ-32, ТЗ-42, ТЗ-46.
+
+**Контекст.** `OptimalOpts::device` и `StrictOpts::device` — `Option<HwDeviceId>`; при `None` таблица `lock_step` (§6.19) даёт `Acquire(dev)` с неопределённым `dev`. Сейчас код в этом случае выбирает устройство неявно, и захват переживает переход в Совместимый режим (AM1.0-B13). Решение пользователя ОВ-37 (Б): устройство системного выхода, выбор сохраняется; нет соответствия — «устройство не выбрано», Shared не открывается.
+
+**Варианты определения карты системного выхода:** А — `pw-dump` и разбор JSON всего графа; Б — утилита `wpctl inspect @DEFAULT_AUDIO_SINK@` и свойства узла `api.alsa.pcm.card` / `api.alsa.pcm.device` (как `pw-metadata` для уровня ОС, ОВС-9); В — клиент PipeWire в процессе (новая зависимость `pipewire-rs`).
+
+**Решение: Б.** `AudioServerProbe::default_sink_card()` запускает `wpctl inspect @DEFAULT_AUDIO_SINK@` (тайм-аут 1 с) в служебном потоке захвата и возвращает `SinkCard { card, device }`. Нет утилиты, нет сервера, у узла нет `api.alsa.pcm.card` (Bluetooth, виртуальный sink, null-sink), тайм-аут → `None`. Карта переводится в `HwDeviceId` через `DeviceCatalog::hw_for_sink` по номеру карты из текущего каталога: устройство с тем же `device`, иначе первое устройство карты; нет карты в каталоге → `None`.
+
+- Разрешение выполняет движок перед эффектом `Acquire` (§6.19): `resolve_device(opts.device, probe, catalog) -> Option<HwDeviceId>`. Выбранное в настройках устройство используется как есть, системный выход не опрашивается.
+- Автовыбор → движок записывает устройство в свою копию опций режима и шлёт `EngineEvent::DeviceAutoSelected { mode, device }`. Файлы пишет приложение (ТЗ-134, ОВС-14): обновляет опции режима и записывает `settings.toml` одной записью, как «Сохранить» диалога; `SetModeSettings` обратно не отправляет (движок уже применил, повторного `SwitchDevice` нет). Устройство другого режима не меняется.
+- Нет соответствия → `LockState::Failed(CaptureFailure::NoDeviceSelected)`: ни `acquire`, ни `SharedBackend::start`, записи настроек нет (ТЗ-32, ТЗ-144). Действия замка — «Выбрать устройство» (UI открывает выбор устройства режима в диалоге; выбор → `SetModeSettings` с `SwitchDevice` → `Lock(DeviceSelected(d))`) и «Перейти в Совместимый режим».
+- Режим, однажды получивший устройство, за системным выходом не следует (ТЗ-143).
+
+**Последствия.** `AudioServerProbe` получает метод `default_sink_card`, `FakeServerProbe` — заданный `Option<SinkCard>` и счётчик вызовов. `lock_step` получает разрешённое устройство параметром (§2.6). Тест ТЗ-21 «Оптимальный (захват) → Совместимый» закрепляет освобождение до открытия Shared (B13).
+
 ## 2. Модель данных
 
 Модули указаны целевые. Типы без `Clone` там, где копия означала бы клон тяжёлого объекта; значения-перечисления — `Copy`.
@@ -702,7 +721,7 @@ pub struct CompatibleOpts {
 /// Режим 2.
 #[derive(Clone, PartialEq, Debug)]
 pub struct OptimalOpts {
-    pub device: Option<HwDeviceId>,
+    pub device: Option<HwDeviceId>,      // None → автовыбор при захвате (ТЗ-143, ADR-24)
     pub rate_fallback: RateFallbackRule,
     pub src_filter: SrcFilter,
     pub dither: Dither,
@@ -723,7 +742,7 @@ pub struct OptimalOpts {
 /// они непредставимы (ТЗ-41, ТЗ-94). Mute Строгого режима — в PlaybackState (ОВС-18).
 #[derive(Clone, PartialEq, Debug)]
 pub struct StrictOpts {
-    pub device: Option<HwDeviceId>,
+    pub device: Option<HwDeviceId>,      // None → автовыбор при захвате (ТЗ-143, ADR-24)
     pub buffer: BufferMs,
     /// Инвариант И-Р22: buffer ≥ 2 × device_buffer.
     pub device_buffer: DeviceBuffer,
@@ -935,6 +954,15 @@ pub enum RateSet { Discrete(SmallVec<[SampleRate; 16]>), Range { min: SampleRate
 
 /// Кэш перечисления (ADR-16). Меняется только по событию или «Обновить».
 pub struct DeviceCatalog { pub shared: Vec<SharedDeviceInfo>, pub hw: Vec<HwDeviceInfo>, pub generation: u64 }
+/// HwDeviceInfo несёт id, имя и номера карты и устройства ALSA на момент перечисления.
+impl DeviceCatalog {
+    /// Устройство карты системного выхода: тот же device, иначе первое устройство карты (ADR-24).
+    pub fn hw_for_sink(&self, sink: SinkCard) -> Option<&HwDeviceId>;
+}
+
+/// Карта ALSA системного выхода аудиосервера (`api.alsa.pcm.card` / `api.alsa.pcm.device`, ADR-24).
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub struct SinkCard { pub card: u32, pub device: Option<u32> }
 
 pub trait SharedBackend: Send {
     fn enumerate(&mut self) -> Result<Vec<SharedDeviceInfo>, BackendError>;
@@ -996,7 +1024,12 @@ pub enum Reservation {
     /// ОВ-35: нет сессионной шины и нет аудиосервера — hw: без резервирования.
     UnavailableNoServer,
 }
-pub trait AudioServerProbe: Send { fn session_bus(&self) -> bool; fn server_running(&self) -> bool; }
+pub trait AudioServerProbe: Send {
+    fn session_bus(&self) -> bool;
+    fn server_running(&self) -> bool;
+    /// Карта системного выхода; None — не аппаратный sink, нет сервера или утилиты (ТЗ-143, ADR-24).
+    fn default_sink_card(&self) -> Option<SinkCard>;
+}
 pub trait DeviceWatcher: Send { fn start(&mut self, notify: Box<dyn Fn() + Send>); }
 pub trait OsLevelProbe: Send { fn probe(&mut self, dev: &SharedDeviceChoice) -> OsStage; } // ОВС-10 п. 4
 ```
@@ -1033,6 +1066,9 @@ pub enum CaptureFailure {
     /// немедленно (ADR-08, И-Р20). Текст замка: «резервирование перехвачено».
     ReservationLost,
     PlatformUnsupported,
+    /// Устройство режима не выбрано, автовыбор не нашёл аппаратного устройства системного
+    /// выхода (ТЗ-144, ADR-24). Захвата не было; текст замка: «устройство не выбрано».
+    NoDeviceSelected,
 }
 
 #[derive(Clone, PartialEq, Debug)]
@@ -1178,7 +1214,9 @@ pub enum LockInput {
 pub struct ReacquirePoint { pub device: HwDeviceId, pub track: TrackRef, pub frame: u64 }
 
 /// Чистая функция перехода: новое состояние и действия для движка.
-pub fn lock_step(state: &LockState, input: LockInput, mode: ModeKind)
+/// dev — устройство режима после разрешения (ADR-24): выбранное в настройках или
+/// найденное автовыбором; None — выбрать не удалось.
+pub fn lock_step(state: &LockState, input: LockInput, mode: ModeKind, dev: Option<&HwDeviceId>)
     -> (LockState, SmallVec<[LockEffect; 2]>);
 
 #[derive(Clone, PartialEq, Debug)]
@@ -1318,6 +1356,8 @@ pub enum EngineEvent {
     Lock(LockState),
     Test { badge: TestBadge, availability: TestAvailability },
     Devices(Arc<DeviceCatalog>),
+    /// Автовыбор устройства режима (ТЗ-143, ADR-24); приложение сохраняет его в настройках.
+    DeviceAutoSelected { mode: ModeKind, device: HwDeviceId },
     DeviceLost { reaction: Reaction },
     Md5Mismatch { track: TrackRef },
     Notice(Notice),                   // ТЗ-111, «Замок открыт» (ТЗ-125) и др.
@@ -1984,7 +2024,7 @@ loop {
 
 Выполняет: ТЗ-46, ТЗ-48, ТЗ-117…ТЗ-122; ОВ-33, ОВ-34, ОВ-35; И-Р1, И-Р18, И-Р20, И-Р21.
 
-Выполняется в служебном потоке захвата. Движок в это время показывает `LockState::Acquiring` и продолжает обслуживать команды (ADR-01). `N` — номер карты, который определяется по стабильному `HwDeviceId` (id карты ALSA) из текущего `DeviceCatalog` в момент попытки.
+Выполняется в служебном потоке захвата. Движок в это время показывает `LockState::Acquiring` и продолжает обслуживать команды (ADR-01). `N` — номер карты, который определяется по стабильному `HwDeviceId` (id карты ALSA) из текущего `DeviceCatalog` в момент попытки. `dev` уже разрешён движком до эффекта `Acquire` (§6.19, ADR-24): при `device = None` — автовыбор устройства системного выхода; не найдено — `acquire` не вызывается, замок `Failed(NoDeviceSelected)`.
 
 ```
 acquire(dev, attempt):
@@ -2387,7 +2427,7 @@ word := (m << 24) | (payload << 8)                          // 32-битное �
 `Open { req_gen, track, start_frame, autoplay }` в движке:
 
 1. Прежний снимок недействителен: `BadgeChanged(NoStream)` (ТЗ-56).
-2. Режим недоступен → `OpenFailed(ModeUnavailable)`. Режим Exclusive и замок не `Held` → `OpenFailed` с состоянием замка. UI показывает «Замок открыт» (ТЗ-125) или состояние «не удалось захватить».
+2. Режим недоступен → `OpenFailed(ModeUnavailable)`. Режим Exclusive и замок не `Held` → `OpenFailed` с состоянием замка. UI показывает «Замок открыт» (ТЗ-125), состояние «не удалось захватить» или «устройство не выбрано» (ТЗ-144).
 3. `SourceOpener::probe(path)` в служебном потоке открытия: заголовок и `SourceFormat`, без seek-индекса. Ошибка → `Skipped(File(..))`.
 4. `plan(src, caps, policy)`, где `caps` — кэш `DeviceCaps` захваченного устройства или выхода сервера. Ошибка → `Skipped(Incompatible(blocked), plan)` без открытия потока (ТЗ-38).
 5. Exclusive: если `plan.target` или «Буфер устройства» отличается от текущей конфигурации PCM → остановить текущий поток вывода, `configure` (§6.7), сверка с драйвером (§6.4).
@@ -2396,7 +2436,7 @@ word := (m << 24) | (payload << 8)                          // 32-битное �
 
 **Смена трека** той же конфигурации: остановить поток вывода, дождаться завершения старого декодера (он в служебном потоке, UI не ждёт), шаги 3–7 без `configure`. PCM и резервирование не освобождаются (ТЗ-43, И-Р12).
 
-**Смена режима** (ТЗ-20, ОВ-10): UI отправляет `SetActiveMode(mode)` (изменено ОВС-15; было: `SetModeSettings`), затем `Open` того же трека с текущей позиции. При переходе в Exclusive сначала `lock_step(ModeSelected)` → захват; `Open` ждёт итога захвата. Переход из Exclusive в Совместимый режим освобождает устройство (§6.6).
+**Смена режима** (ТЗ-20, ОВ-10): UI отправляет `SetActiveMode(mode)` (изменено ОВС-15; было: `SetModeSettings`), затем `Open` того же трека с текущей позиции. При переходе в Exclusive сначала разрешение устройства (ADR-24), затем `lock_step(ModeSelected)` → захват; `Open` ждёт итога захвата. Переход из Exclusive в Совместимый режим освобождает устройство (§6.6) до открытия Shared-выхода (ТЗ-21, B13).
 
 **Смена устройства**: освобождение → захват нового (Exclusive) или переоткрытие Shared-выхода → `Open` с текущей позиции.
 
@@ -2415,9 +2455,9 @@ word := (m << 24) | (payload << 8)                          // 32-битное �
 
 ### 6.19. Замок: функция переходов
 
-Выполняет: ТЗ-42…ТЗ-46, ТЗ-50, ТЗ-121, ТЗ-125, ТЗ-126; ADR-06; И-Т17.
+Выполняет: ТЗ-42…ТЗ-46, ТЗ-50, ТЗ-121, ТЗ-125, ТЗ-126, ТЗ-143, ТЗ-144; ADR-06, ADR-24; И-Т17.
 
-`lock_step(state, input, mode)`. В Совместимом режиме любой вход, кроме `ModeSelected(Optimal | Strict)`, даёт `NotApplicable` без эффектов (ТЗ-50).
+`lock_step(state, input, mode, dev)`. Перед вызовом движок разрешает `dev` (ADR-24): `opts.device` активного режима, если задано; иначе автовыбор по системному выходу (успех → копия опций и `DeviceAutoSelected`). Во всех строках с эффектом `Acquire(dev)` при `dev = None` вместо `Acquiring` — `Failed(NoDeviceSelected)` без эффектов (ТЗ-144). В Совместимом режиме любой вход, кроме `ModeSelected(Optimal | Strict)`, даёт `NotApplicable` без эффектов (ТЗ-50).
 
 | Из состояния | Вход | В состояние | Эффекты |
 |---|---|---|---|
@@ -2425,6 +2465,7 @@ word := (m << 24) | (payload << 8)                          // 32-битное �
 | `Held` / `Acquiring` / `Failed` | `ModeSelected(Compatible)` | `NotApplicable` | `StopPlayback`, `Release`, `ForgetReacquire` |
 | `Open` / `Failed` | `Startup`, `ModeSelected(E)`, `UserClose`, `CaptureAndPlay`, `RetryCapture` | `Acquiring` | `Acquire(dev)` |
 | `Held` | `DeviceSelected(d')` | `Acquiring` | `StopPlayback`, `Release`, `Acquire(d')` |
+| `Open` / `Failed` | `DeviceSelected(d')` | `Acquiring` | `Acquire(d')` (ТЗ-42; выход из `Failed(NoDeviceSelected)` по «Выбрать устройство») |
 | `Acquiring` | `CaptureResult(Ok(info))` | `Held { info }` | — (при `CaptureAndPlay` UI затем шлёт `Open`/`Play`) |
 | `Acquiring` | `CaptureResult(Err(f))` | `Failed(f)` | — |
 | `Held` | `UserOpen` | `Open` | `StopPlayback`, `Release`, `ForgetReacquire` (ТЗ-44) |
@@ -2435,7 +2476,7 @@ word := (m << 24) | (payload << 8)                          // 32-битное �
 
 Для прочих сочетаний состояние не меняется и эффектов нет. Входов Play, Pause, Stop и смены трека у автомата нет (И-Т17). Тест `lock_step_is_total` перебирает все пары «состояние × вход × режим» и проверяет, что функция не паникует и соблюдает эту таблицу.
 
-Подсказки: `Held` — текст ТЗ-121; `NotApplicable` — «в Совместимом режиме устройство не захватывается» (ТЗ-50); `Failed(f)` — причина из `f` и действия «Повторить захват» / «Перейти в Совместимый режим» (ТЗ-46).
+Подсказки: `Held` — текст ТЗ-121; `NotApplicable` — «в Совместимом режиме устройство не захватывается» (ТЗ-50); `Failed(f)` — причина из `f` и действия «Повторить захват» / «Перейти в Совместимый режим» (ТЗ-46); `Failed(NoDeviceSelected)` — «устройство не выбрано» и действия «Выбрать устройство» / «Перейти в Совместимый режим» (ТЗ-144).
 
 ### 6.20. Потеря устройства, повторный захват, следование за системным устройством
 
@@ -2827,15 +2868,21 @@ Windows: `OsStage::Known { server: WasapiMixer, rate, format }` из `default_ou
 | `mode_switch_reopens_same_position` | 20 | Совместимый → Строгий во время игры: захват, `Open` с позиции ± 1 с |
 | `mode_switch_to_strict_skips_incompatible` | 20 | 24/192 в Оптимальном на max 96 → Строгий: `Skipped`, начат следующий |
 | `compatible_opens_only_shared_output` | 21 | сохранено устройство `hw:`: вызывается только `SharedBackend::start` |
+| `optimal_held_to_compatible_releases_before_shared` | 21, 44 | Оптимальный, замок `Held` → `SetActiveMode(Compatible)` + `Open` с позиции: журнал «close PCM → ReleaseName → `SharedBackend::start`», замок `NotApplicable`, повторных `acquire` нет (B13) |
 | `exclusive_denied_sets_lock_failed_in_optimal` | 32, 46 | захват «занято» → `Failed(BusyOutsideProtocol)`, 0 вызовов `SharedBackend::start`, воспроизведения нет |
 | `exclusive_denied_sets_lock_failed_in_strict` | 46, 86 | то же в Строгом; трек не пропущен |
 | `preflight_opens_no_stream` | 38 | 10 несовместимых → 0 открытий потока, одна серия со счётчиком 10 |
-| `lock_step_is_total` | 42–44, 50, 125, И-Т17 | все пары «состояние × вход × режим» соответствуют таблице §6.19 |
+| `lock_step_is_total` | 42–44, 50, 125, 144, И-Т17 | все пары «состояние × вход × режим» соответствуют таблице §6.19 |
 | `lock_capture_on_six_events` | 42 | по одной попытке на каждое из шести событий; Play/пауза/стоп/смена трека — 0 |
 | `lock_holds_across_transport_100_cycles` | 43, И-Р12 | 100 циклов Play/пауза/стоп/смена трека: 0 освобождений, 0 снятий резервирования |
 | `lock_open_releases_and_stops` | 44 | «стоп», освобождение зафиксировано |
 | `shutdown_releases_pcm_then_reservation` | 45, И-Р1 | журнал: close PCM → ReleaseName; живых объектов движка 0 |
 | `capture_failure_reasons` | 46 | семь причин → свой текст; «Повторить» → одна попытка; «Перейти в Совместимый» → Shared-воспроизведение |
+| `auto_select_uses_system_sink_card` | 143 | `device = None`, `FakeServerProbe` даёт карту N, в каталоге есть устройство карты N → одна попытка `acquire` этого устройства, одно `DeviceAutoSelected { mode, device }`; то же в Строгом, устройство другого режима не меняется |
+| `auto_select_persisted_once_and_not_followed` | 143, 134 | после `DeviceAutoSelected` приложение записывает `settings.toml` один раз (`MemStore`), `SetModeSettings` не шлёт; смена системного выхода в фейке → 0 новых `acquire`, `default_sink_card` больше не вызывается |
+| `saved_device_skips_sink_probe` | 143 | `device = Some(d)` → `default_sink_card` не вызывается, `acquire(d)` |
+| `no_device_selected_lock_state` | 144, 32 | `default_sink_card = None`; затем `Some(N)` при отсутствии карты N в каталоге → `Failed(NoDeviceSelected)`, 0 `acquire`, 0 `SharedBackend::start`, 0 записей настроек, трек не пропущен |
+| `no_device_selected_actions` | 144 | `Failed(NoDeviceSelected)` + `DeviceSelected(d)` → одна попытка `acquire(d)`; «Перейти в Совместимый» → Shared-воспроизведение |
 | `reservation_before_pcm_order` | 48, И-Р1 | порядок «резервирование → PCM», «PCM → снятие»; приоритет 0, «APAP» |
 | `no_bus_no_server_opens_hw_with_warning` | 48, ОВ-35 | PCM открыт без резервирования, предупреждение на этапе «Вывод» |
 | `no_bus_with_server_fails_capture` | 48, ОВ-35 | 0 открытий PCM, `Failed(NoSessionBus)` |
@@ -3029,7 +3076,7 @@ Windows: `OsStage::Known { server: WasapiMixer, rate, format }` из `default_ou
 | **С3. Поток движка** | `apap-engine`, `EngineCmd`/`EngineEvent`, `EventSink` с пробуждением UI (ADR-02), `UiAudioState` с копиями «записано», вынос открытия файлов, перечисления и `probe_output` из UI; `CpalSharedBackend`; `DeviceCatalog` + `apap-devwatch`; классы ошибок и `reaction()`; выход через `Shutdown`, `Weak<AppWindow>` (ОВС-14, ОВС-16) `SetModeSettings(ModeSettingsUpdate)` без I/O, `SetActiveMode`; движок не пишет `settings.toml`/`state.toml`; запись при выходе не зависит от `ShutdownComplete` (зависит от писателя задачи 02).. До кода определить в §2 сигнатуры `SourceOpener` (probe заголовка без seek-индекса — §6.18 шаг 3; полное открытие в `apap-decode` — шаг 6) и `ThreadSpawner` (отказ запуска потока — ТЗ-88) и согласовать с пользователем | 103, 104, 105, 86, 87, 88, 102, 45 (движок), 91 (основа), 60 (основа), 134, 136 | UI не блокируется; ошибки треков видны; Exclusive пока через старый cpal-путь | `Player` в `MusicApp`, `Rc`-цикл (R-20), busy-wait `probe_output`; вызовы `release_engine` на пути выхода (`close_requested`, `TrayCmd::Quit` в `src/app/mod.rs`; V5.1-B6) — заменяются `EngineCmd::Shutdown` в пути выхода задачи 02 |
 | **С4. Модель режимов и настроек** | `ModeSettings`, `PARAMS`, `load_mode_settings` без миграции (§6.27), включая новые ключи ОВС (`src_filter`, `dsd_filter`, `dsd_gain_comp`, `device_buffer_ms`) и согласование буферов (И-Р22); `buffers_allowed`; переключатель трёх режимов в главном окне; диалог по `Availability`. **Временное соответствие режимов старому exclusive-пути (ОВС-12):** `BackendCaps.exclusive = true` на Linux. Внутренний адаптер `legacy_exclusive(&ModeSettings)` переводит Оптимальный режим в старый exclusive-путь без перехода в Shared (отказ → ошибка, решение 4), а Строгий — в старый strict-путь. Старые перечисления остаются только внутренними параметрами этого пути и в файле настроек не представимы. Путь по-прежнему открывает `hw:` через резервирование С1. Бейдж «Bit-perfect» до С6 недостижим: старый путь не читает `hw_params` (`DriverFormat::Unreadable`). На Windows и macOS `exclusive = false`. **Действие пользователя:** перед первым запуском сборки С4 удалить файл настроек: Linux — `~/.config/music_player/settings.toml` (или `$XDG_CONFIG_HOME/music_player/settings.toml`), Windows — `%APPDATA%\music_player\settings.toml`, macOS — `~/Library/Application Support/music_player/settings.toml` (путь из `settings::config_dir()`). Агент этапа обязан напомнить об этом (ТЗ-97) (ОВС-15, ОВС-17, ОВС-19) `ModeSettings` без `active`/`volume`/`muted`; `PlaybackState`; `volume_lock`, `ParamId::VolumeLock`, `ApplyKind` в `PARAMS`; применение разницы (§6.18) в пределах старого пути; хранение в `settings.toml`/`state.toml` — по этапам задачи 02. | 18, 19, 93, 94, 95, 96, 97, 124, 109, 110, 111; 128…131 (модель и диалог), 135, 137, 140 | три режима с новыми настройками; Совместимый — на всех ОС, Оптимальный и Строгий на Linux — через старый exclusive-путь с резервированием | `ExclusiveMode`, `FallbackPolicy`, `ResamplerMode`, `FallbackRatePolicy`, `ClockFamily`, `bit_perfect`, `DsdMode`, `TargetBitDepth`, `TargetSampleRate`, `Triangular` как пользовательские настройки; `resampler_fixed_fallback_guard`, `validate_audio_settings` |
 | **С5. Путь сигнала, бейдж, окно** | `plan()` для всех трёх режимов на фейковых `DeviceCaps` (§6.3–§6.5, §6.9), `SignalPath`, `verdict`, `recommend`, `build_report`, `Display`; Slint-свойства бейджа, «Теста» и замка по ADR-06; `OsLevelProbe` (§6.26) (ОВС-18) `ExclusiveBadge::Muted`, `SilenceGate`, `test_availability → Disabled(Muted)`. | 21, 22, 23, 25, 35, 36, 37, 38, 39, 40, 52…57, 59, 60, 70…84 (кроме зависящих от драйвера), 106 (свойства бейджа и окна), 139 | в Совместимом режиме честный бейдж «Shared: …» / «Не bit-perfect: …» и окно; логика Оптимального и Строгого покрыта тестами планировщика | `StreamDesc`, `FallbackReason`, `bp_report.rs`, три bool-бейджа, `dsd_pcm_breaks_bit_perfect` |
-| **С6. ALSA Exclusive, замок** | `AlsaExclusiveBackend` заменяет старый exclusive-путь: `acquire` на `DbusReservation` из С1 (§6.6), `configure` с «Буфером устройства» и чтением фактических периода и буфера, сверка `hw_params`, `apap-alsa-out` (§6.7) с отдельным счётчиком `xruns`, RT-приоритет и его заметка (§6.8), `lock_step` (§6.19), потеря устройства и повторный захват (§6.20). `BackendCaps.exclusive = true` на Linux уже с С4 (ОВС-17, ОВС-19) смена «Буфера устройства» — `configure` без освобождения (§6.7); `OptimalRender::PcmLocked`. | 48 (полностью), 117…123, 42…47, 49, 50, 112, 113, 125, 126, 51, 30, 32, 131 (буфер устройства), 76 (буфер, RT), 137, 140 | Оптимальный и Строгий режимы на Linux на собственном выводе с замком; «Bit-perfect» достижим (ТЗ-4 + ТЗ-113) | старый cpal-путь Exclusive, адаптер `legacy_exclusive` из С4, «shared-downgrade» (R-11); освобождение и переоткрытие exclusive-движка в простое — `release_if_exclusive`, `reopen_and_seek` и их вызовы в `stop()`, `toggle()`, `play()` (`src/audio/player.rs`), при скрытии в трей (`TrayCmd::ShowHide`, `src/app/mod.rs`) (V5.1-B5, V5.1-B6): замок удерживает устройство (ТЗ-43) |
+| **С6. ALSA Exclusive, замок** | `AlsaExclusiveBackend` заменяет старый exclusive-путь: `acquire` на `DbusReservation` из С1 (§6.6), `configure` с «Буфером устройства» и чтением фактических периода и буфера, сверка `hw_params`, `apap-alsa-out` (§6.7) с отдельным счётчиком `xruns`, RT-приоритет и его заметка (§6.8), `lock_step` (§6.19) с разрешением устройства: автовыбор по системному выходу, `DeviceAutoSelected`, `Failed(NoDeviceSelected)` (ADR-24), потеря устройства и повторный захват (§6.20). `BackendCaps.exclusive = true` на Linux уже с С4 (ОВС-17, ОВС-19) смена «Буфера устройства» — `configure` без освобождения (§6.7); `OptimalRender::PcmLocked`. | 48 (полностью), 117…123, 42…47, 49, 50, 112, 113, 125, 126, 51, 30, 32, 131 (буфер устройства), 76 (буфер, RT), 137, 140, 143, 144, 21 (тест «Оптимальный с захватом → Совместимый», AM1.0-B13) | Оптимальный и Строгий режимы на Linux на собственном выводе с замком; «Bit-perfect» достижим (ТЗ-4 + ТЗ-113) | старый cpal-путь Exclusive, адаптер `legacy_exclusive` из С4, «shared-downgrade» (R-11); освобождение и переоткрытие exclusive-движка в простое — `release_if_exclusive`, `reopen_and_seek` и их вызовы в `stop()`, `toggle()`, `play()` (`src/audio/player.rs`), при скрытии в трей (`TrayCmd::ShowHide`, `src/app/mod.rs`) (V5.1-B5, V5.1-B6): замок удерживает устройство (ТЗ-43) |
 | **С7. DSP-корректность** | Полифазный SRC (§6.11) с фильтрами «Крутой», «Медленный», «Очень медленный» (150 дБ, коэффициенты `f64`) и подсказками `SRC_FILTER_INFO`; downmix по ITU (§6.13); моно → 2 канала; `ChannelPad` (ОВС-2); float-PCM (ОВС-1); выбор формата по ОВС-3 и ОВС-4 (§6.5); DSD→PCM многоступенчатый (§6.12) с `dsd_pcm_rate(dsd, filter, caps)`, фильтром 24/30/50 кГц, компенсацией +6 дБ, счётчиком `dsd_clipped` и `DSD_FILTER_INFO`; счётчик `lossy_clipped` (ОВС-11). Пороги качества измеряются, но принимаются в С10 | 11, 12, 13, 16, 22 (ОВС-4), 28 (ОВС-3), 29 (с ITU), 31, 33, 128, 129, 130, 132, 133 | SRC без потерь кадров, downmix по раскладке, единая частота DSD→PCM, выбираемые фильтры | старый windowed-sinc, CIC, «первые N каналов» |
 | **С8. Режимы полностью и пропуск треков** | `Sequencer`, `SkipSeries`, уведомление серии (§6.21); смена режима на ходу (§6.18); Совместимый: следование за системным устройством (§6.20) (ОВС-17, ОВС-20, ОВС-21) применение параметров звука с позиции для всех режимов; правило источников громкости; видимый порядок в `Sequencer`. | 20, 24, 26, 27, 28, 34, 41, 85, 89, 90, 91, 127, 116 (матрица §7.3 полностью), 141, 142 | все три режима по матрице §5 ТЗ; серии пропусков | env-gated `open_*` |
 | **С9. «Тест», MD5, underrun и xrun** | `apap-verify`, зеркало и эталон (§6.23), `TestSlot`, хранилище `bp_tests.toml`; MD5 FLAC (§6.24), `track_marks.toml`; раздельные счётчики underrun и xrun, `IncompleteWhy::Xrun`, рекомендации §6.25 (буфер плеера, буфер устройства, «Настройки ОС» для RT, компенсация DSD) | 61…69, 58, 75 (MD5, заметки ограничений), 81 | кнопка «Тест», MD5, underrun и xrun в окне | — |
@@ -3044,7 +3091,7 @@ Windows: `OsStage::Known { server: WasapiMixer, rate, format }` из `default_ou
 | `ReservationService` (`FakeReservation`), `AudioServerProbe` (`FakeServerProbe`) | С1 |
 | `SharedBackend`, `EventSink` (`VecSink`), `SourceOpener` (`FakeSource`), `ThreadSpawner` (`FailingSpawner`), `DeviceWatcher` (`FakeDeviceWatcher`) | С3 |
 | `OsLevelProbe` (`FakeOsProbe`) | С5 |
-| `ExclusiveBackend` (`FakeExclusiveBackend`) | С6 |
+| `ExclusiveBackend` (`FakeExclusiveBackend`); метод `AudioServerProbe::default_sink_card` (ADR-24) | С6 |
 | `PersistStore` (`MemStore` из SP1.0-8.1) | С9 |
 
 **Зависимости этапов.**
