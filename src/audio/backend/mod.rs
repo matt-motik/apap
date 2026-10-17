@@ -2,13 +2,77 @@
 //! этапам (таблица «Трейт → этап» под §8); в С0 — набор частот устройства.
 #![deny(clippy::unwrap_used, clippy::expect_used, clippy::unreachable)]
 
+use std::fmt;
+use std::str::FromStr;
+
 use crate::audio::format::{OutputSampleFormat, SampleRate, StreamFormat};
 use crate::settings::playback::ModeKind;
+use serde::{Deserialize, Serialize};
 use smallvec::SmallVec;
 
 pub mod catalog;
 pub mod os_probe;
 pub mod shared;
+
+/// Стабильный идентификатор аппаратного устройства ALSA: `CARD=<id>` +
+/// номер устройства, а не номер карты, который может смениться после
+/// переподключения (§2.3, ADR-24, ТЗ-143). Форма строки — имя PCM ALSA
+/// `hw:CARD=<id>,DEV=<d>` (§6.6).
+#[derive(Clone, PartialEq, Eq, Hash, Debug, Serialize, Deserialize)]
+#[serde(try_from = "String", into = "String")]
+pub struct HwDeviceId(String);
+
+/// Строка не прошла разбор `HwDeviceId` (§2.3, ADR-24).
+#[derive(Clone, PartialEq, Eq, Debug)]
+pub struct HwDeviceIdError {
+    input: String,
+}
+
+impl fmt::Display for HwDeviceIdError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "invalid HwDeviceId: `{}`", self.input)
+    }
+}
+
+impl std::error::Error for HwDeviceIdError {}
+
+impl FromStr for HwDeviceId {
+    type Err = HwDeviceIdError;
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        let trimmed = s.trim();
+        if trimmed.is_empty() {
+            return Err(HwDeviceIdError { input: s.to_string() });
+        }
+        Ok(HwDeviceId(trimmed.to_string()))
+    }
+}
+
+impl TryFrom<String> for HwDeviceId {
+    type Error = HwDeviceIdError;
+
+    fn try_from(value: String) -> Result<Self, Self::Error> {
+        value.parse()
+    }
+}
+
+impl From<HwDeviceId> for String {
+    fn from(value: HwDeviceId) -> Self {
+        value.0
+    }
+}
+
+impl fmt::Display for HwDeviceId {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "{}", self.0)
+    }
+}
+
+impl HwDeviceId {
+    pub fn as_str(&self) -> &str {
+        &self.0
+    }
+}
 
 /// Стабильный идентификатор Shared-устройства: имя PCM/CoreAudio-узла, в
 /// отличие от `HwDeviceId` не привязан к конкретной карте ALSA (§2.3, ADR-07).
@@ -140,6 +204,31 @@ mod tests {
 
     fn r(hz: u32) -> SampleRate {
         SampleRate::new(hz).unwrap()
+    }
+
+    #[test]
+    fn hw_device_id_from_str_display_roundtrip() {
+        let id: HwDeviceId = "hw:CARD=RU3,DEV=0".parse().unwrap();
+        assert_eq!(id.as_str(), "hw:CARD=RU3,DEV=0");
+        assert_eq!(id.to_string(), "hw:CARD=RU3,DEV=0");
+    }
+
+    #[test]
+    fn hw_device_id_rejects_empty() {
+        assert!("".parse::<HwDeviceId>().is_err());
+        assert!("   ".parse::<HwDeviceId>().is_err());
+    }
+
+    #[test]
+    fn hw_device_id_serde_toml_roundtrip() {
+        #[derive(Serialize, Deserialize)]
+        struct Wrap {
+            device: HwDeviceId,
+        }
+        let w = Wrap { device: "hw:CARD=RU3,DEV=0".parse().unwrap() };
+        let s = toml::to_string(&w).unwrap();
+        let back: Wrap = toml::from_str(&s).unwrap();
+        assert_eq!(back.device.as_str(), "hw:CARD=RU3,DEV=0");
     }
 
     #[test]

@@ -62,7 +62,7 @@ steps:
     done: true
   - id: 2
     description: "Шаг 2: Newtype HwDeviceId(String) (стабильный id карты + device, не номер) с Display/serde/FromStr в src/audio/backend/mod.rs (§2.3, ADR-24). Только тип, без использования. Проверка: cargo check"
-    done: false
+    done: true
   - id: 3
     description: "Шаг 3: Замена OptimalOpts/StrictOpts.device: Option<String> → Option<HwDeviceId>. Механическая правка ~20 строк в 5 файлах (settings/playback.rs, playback_dto.rs, settings/params.rs-тесты, engine/legacy_path.rs, engine/tests.rs); accessor device(mode) сохраняет сигнатуру Option<&str>, чтобы не трогать остальных потребителей (§2.3, ТЗ-143). Общий тип → Проверка: полный cargo test"
     done: false
@@ -273,8 +273,8 @@ steps:
   - id: 72
     description: "Шаг 72: ФИНАЛ: cargo build/test/clippy зелёные; общие условия §8 (Совместимый играет, «Bit-perfect» только при ТЗ-52); ручные проверки в заметку плана: замок (ТЗ-1/2/48/118…122, AM1.0-8.1), B1 — возврат устройства в PipeWire после освобождения, B2 — текст «занято <владелец>» при чужом захвате"
     done: false
-current_step: 2
-next_action: "Шаг 2: newtype HwDeviceId(String) с Display/serde/FromStr в src/audio/backend/mod.rs (§2.3, ADR-24), только тип; cargo check. Свежий субагент code-writer sonnet."
+current_step: 3
+next_action: "Шаг 3: OptimalOpts/StrictOpts.device Option<String> → Option<HwDeviceId> (5 файлов, accessor device(mode) сохраняет Option<&str>); полный cargo test. Свежий субагент code-writer sonnet."
 fail_counter: 0
 fail_counter_max: 3
 failed_attempts: []
