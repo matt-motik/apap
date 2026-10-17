@@ -48,6 +48,7 @@ use music_player_rs::platform::notify::Notifier;
 use music_player_rs::platform::pick::{FilePicker, PickRequest, PickResult};
 use music_player_rs::playlist::{self, ScanMsg, Track};
 use music_player_rs::playlist::model::TrackId;
+use music_player_rs::settings::params::ModeSettingsUpdate;
 use music_player_rs::settings::playback::{ModeSettings, Volume};
 use music_player_rs::settings::{ColumnId, ModeKind, RepeatMode};
 use music_player_rs::theme::{
@@ -56,7 +57,6 @@ use music_player_rs::theme::{
 use music_player_rs::platform::lifecycle::TrayEvent;
 use music_player_rs::platform::tray;
 
-mod audio_facade;
 mod badge_view;
 mod path_view;
 pub(crate) mod engine_sink;
@@ -70,10 +70,11 @@ pub mod ui_manager;
 pub mod visualizer_manager;
 pub mod viz_settings_manager;
 
-use badge_view::{BadgeView, TestView};
+use badge_view::{BadgeView, BadgeViewState, TestView};
 use engine_sink::EngineEventQueue;
 use events::AppEvent;
 use fulltrack_manager::{FullCmd, FullEvt};
+use path_view::PathWindowCache;
 use ui_audio_state::{Applied, UiAudioState};
 
 /// Last values pushed to the UI by the delta playback sync. Kept so the
@@ -375,7 +376,24 @@ pub struct MusicApp {
     paths: ConfigPaths,
     /// Владелец действующих настроек и состояния сессии (ADR-19, И-Т7, §8.1 С3).
     core: AppCore,
-    player: audio_facade::AudioFacade,
+    /// `EngineHandle` для потока движка (ADR-01, ADR-02): `Drop` шлёт
+    /// `Shutdown` и join-ит поток. `None` — движок не запустился
+    /// (`engine_fault`); команды через `engine_send` становятся no-op.
+    engine: Option<EngineHandle>,
+    /// Зеркало состояния движка в UI-потоке — единственный источник правды
+    /// для транспорта/позиции/трека/потока/устройства/резервирования/
+    /// завершения сессии и плана пропуска (ADR-02, И-Р13, И-Р14).
+    audio_state: UiAudioState,
+    /// Текущее поколение задания `Open`, отфильтровывающее устаревшие
+    /// ответы движка (И-Р14, ТЗ-56).
+    req_gen: u64,
+    /// Вид бейджа тракта и кнопки «Тест» (ADR-06, ТЗ-52, ТЗ-60…ТЗ-62) —
+    /// принимает бейдж из `UiAudioState::take_badge_dirty` и смену
+    /// активного режима, снимается через `take_badge_view`.
+    badge_view: BadgeViewState,
+    /// Кэш отчёта окна «Путь сигнала» (ТЗ-79, ТЗ-83, §7.2) — пересчитывается
+    /// только через `take_report_dirty`/`path_report`, никогда по тику UI.
+    path_cache: PathWindowCache,
     /// Persistent row model for the playlist table. Mutated incrementally
     /// (push/set_row_data) instead of rebuilding the whole list on every
     /// append, so folder scans stay cheap.
@@ -485,10 +503,9 @@ pub struct MusicApp {
     caps: PlatformCaps,
     /// Системные уведомления при окне в трее (ADR-9, ТЗ-52 п. 2).
     notifier: Box<dyn Notifier>,
-    /// Причина отказа запуска движка, если `engine` — `None` (ТЗ-88, §2.10).
-    /// Сам `EngineHandle` передан в `AudioFacade` (`self.player`) при
-    /// конструировании (ADR-01, шаг 30); здесь хранится только причина
-    /// отказа — для стартового сообщения пользователю.
+    /// Причина отказа запуска движка, если `self.engine` — `None` (ТЗ-88,
+    /// §2.10); здесь хранится только причина отказа — для стартового
+    /// сообщения пользователю.
     engine_fault: Option<EngineFault>,
     /// Приёмная сторона канала событий движка (ADR-02); разбирается в
     /// `drain_engine_events` каждый тик.
@@ -522,9 +539,9 @@ pub struct MusicApp {
     /// `on_select_mode` и `sync_mode_to_ui` (§6.18).
     backend_caps: BackendCaps,
     /// Позиция и состояние воспроизведения, сохранённые перед переоткрытием
-    /// трека на смене активного режима (§6.18, ТЗ-20): `AudioFacade::open`
-    /// всегда открывает с нуля без автовоспроизведения, поэтому восстановить
-    /// их нужно явно после прихода `Opened` в `on_track_opened`.
+    /// трека на смене активного режима (§6.18, ТЗ-20): `open_track` всегда
+    /// открывает с нуля без автовоспроизведения, поэтому восстановить их
+    /// нужно явно после прихода `Opened` в `on_track_opened`.
     pending_mode_reopen: Option<(f64, bool)>,
     /// Уведомление «режим недоступен на этой платформе» уже поставлено и не
     /// закрыто (ТЗ-111, §6.2 п. 5, ADR-13): не копится повторно при старте и
@@ -535,6 +552,39 @@ pub struct MusicApp {
     /// `path-rec-action`; `push_path_view_to_ui` заполняет его заново на
     /// каждый показ отчёта.
     path_actions: Vec<path_view::RecViewAction>,
+}
+
+/// Команды, которыми при старте применяется сохранённая политика режимов
+/// (ОВС-14, §6.27, ADR-22): `SetModeSettings` с `diff: None` — движок просто
+/// копирует `settings` без пересчёта `ApplyKind`, затем `SetActiveMode`
+/// сохранённого активного режима. Чистая функция — пригодна для проверки
+/// равенства с восстановленной после перезапуска политикой (ТЗ-19, И-Р14).
+fn startup_commands(modes: &ModeSettings, active: ModeKind) -> [EngineCmd; 2] {
+    [
+        EngineCmd::SetModeSettings(ModeSettingsUpdate { settings: modes.clone(), diff: None }),
+        EngineCmd::SetActiveMode(active),
+    ]
+}
+
+/// Разобрать событие движка, обновить состояние/бейдж/кэш отчёта «Путь
+/// сигнала» (ADR-02, ТЗ-79, ТЗ-83, §7.2).
+fn apply_engine_event(
+    state: &mut UiAudioState,
+    badge_view: &mut BadgeViewState,
+    path_cache: &mut PathWindowCache,
+    ev: EngineEvent,
+) -> Applied {
+    let applied = state.apply(ev);
+    if let Some(b) = state.take_badge_dirty() {
+        badge_view.set_badge(b);
+    }
+    if state.take_path_dirty().is_some() {
+        path_cache.invalidate();
+    }
+    if matches!(&applied, Applied::Skipped { .. } | Applied::OpenFailed { .. }) {
+        path_cache.invalidate();
+    }
+    applied
 }
 
 impl MusicApp {
@@ -571,33 +621,34 @@ impl MusicApp {
             Err(fault) => (None, Some(fault)),
         };
         let pb_state = core.state().playback();
-        // Мост С3: стартовые звуковые настройки движка уходят через
-        // `AudioFacade::new` (ADR-01, ADR-04, ТЗ-134), а не поштучными
-        // сеттерами `Player`. `send_startup_policy()` сразу после
-        // конструктора шлёт `SetModeSettings`/`SetActiveMode`, из которых
-        // движок пересобирает `LegacyAudio` (`legacy_audio()` в
-        // `engine/legacy_path.rs`) раньше первого `Open`; фасад выводит те
-        // же флаги (`bit_perfect()`) тем же отображением, без отдельного
-        // кэша (§6.18, ADR-04, ТЗ-52).
+        // Стартовые звуковые настройки движка уходят отдельными командами
+        // (ADR-01, ADR-04, ТЗ-134), не поштучными сеттерами `Player`:
+        // `startup_commands` шлёт `SetModeSettings`/`SetActiveMode`, из
+        // которых движок пересобирает `LegacyAudio` (`legacy_audio()` в
+        // `engine/legacy_path.rs`) раньше первого `Open`; `bit_perfect()`
+        // выводит те же флаги тем же отображением, без отдельного кэша
+        // (§6.18, ADR-04, ТЗ-52).
         let modes = core.settings().playback.clone();
         let active_mode = core.state().active_mode();
-        let mut player = audio_facade::AudioFacade::new(engine, modes, active_mode);
+        let send_startup = |cmd: EngineCmd| -> bool { engine.as_ref().is_some_and(|e| e.send(cmd)) };
         // Стартовая политика режимов — до первого `Open` (шаг 20, ОВС-14,
         // §6.27, ADR-22): движок должен знать сохранённые `ModeSettings` и
         // активный режим раньше, чем откроется первый трек плейлиста.
-        player.send_startup_policy();
+        for cmd in startup_commands(&modes, active_mode) {
+            send_startup(cmd);
+        }
         // Громкость/mute/предпочитаемое устройство — не часть `LegacyAudio`
         // (это UI-состояние и выбор устройства, не DSP-политика движка),
-        // поэтому применяются сеттерами фасада после конструирования.
-        player.set_volume(pb_state.gain());
-        player.set_muted(pb_state.muted);
+        // поэтому отправляются отдельными командами после стартовой политики.
+        send_startup(EngineCmd::SetVolume(pb_state.gain()));
+        send_startup(EngineCmd::SetMuted(pb_state.muted));
         // Устройство читается из `ModeSettings` активного режима, а не из
-        // прежнего легаси-поля устройства (ТЗ-94, §2.4). Прямой вызов
-        // здесь остаётся нужен: `SetActiveMode` в `send_startup_policy` не
+        // прежнего легаси-поля устройства (ТЗ-94, §2.4). Прямая отправка
+        // здесь остаётся нужна: `SetActiveMode` из `startup_commands` не
         // применяет устройство, если активный режим движка на старте уже
         // совпадает с сохранённым (см. `Engine::store_active_mode`).
         if let Some(device) = core.settings().playback.device(active_mode) {
-            player.set_preferred_device(device.to_string());
+            send_startup(EngineCmd::SetDevice { id: device.to_string() });
         }
 
         let known_paths: HashSet<PathBuf> = HashSet::new();
@@ -654,7 +705,11 @@ impl MusicApp {
             ui,
             paths,
             core,
-            player,
+            engine,
+            audio_state: UiAudioState::new(),
+            req_gen: 0,
+            badge_view: BadgeViewState::new(),
+            path_cache: PathWindowCache::new(),
             playlist_rows,
             playlist_cols,
             current: None,
@@ -1070,75 +1125,66 @@ impl MusicApp {
         self.push_tray_now();
     }
 
-    // --- Мост к потоку движка через AudioFacade (ADR-01, ADR-02) -------------
+    // --- Мост к потоку движка (ADR-01, ADR-02) --------------------------------
     //
-    // Хелперы шага 47 (AM1.0-8.5): тела пока делегируют в `self.player`
-    // (`AudioFacade`), вызывающий код `playback_manager.rs`/
-    // `visualizer_manager.rs`/`playlist_manager.rs` переходит на эти хелперы
-    // шагами 48-52. На шаге 53 фасад снимается, а его поля (`state`, `report`,
-    // `badge_view`) переносятся прямо в `MusicApp` — вызовы хелперов не
-    // изменятся.
+    // `engine`/`audio_state`/`req_gen`/`badge_view`/`path_cache` — прямые
+    // поля `MusicApp` (AM1.0-8.5, шаг 53): здесь только точки входа, которыми
+    // пользуется вызывающий код `playback_manager.rs`/`visualizer_manager.rs`/
+    // `playlist_manager.rs`.
 
-    /// Отправить команду движку (ADR-01) — мост к `AudioFacade::send`.
-    #[allow(dead_code)] // мост: используется с шага 48
+    /// Отправить команду движку (ADR-01); `self.engine == None` — no-op.
     pub(super) fn engine_send(&self, cmd: EngineCmd) -> bool {
-        self.player.send(cmd)
+        self.engine.as_ref().is_some_and(|engine| engine.send(cmd))
     }
 
-    /// Текущее зеркало состояния движка в UI-потоке (ADR-02, И-Р13, И-Р14) —
-    /// мост к `AudioFacade::state`.
-    #[allow(dead_code)] // мост: используется с шага 48
+    /// Текущее зеркало состояния движка в UI-потоке (ADR-02, И-Р13, И-Р14).
     pub(super) fn audio(&self) -> &UiAudioState {
-        self.player.state()
+        &self.audio_state
     }
 
     /// Открыть трек асинхронно: команда уходит в движок немедленно, сам
     /// `TrackInfo` приходит позже событием `Opened`/`OpenFailed`/`Skipped`
-    /// через `on_engine_event` (ADR-01, ADR-02) — мост к `AudioFacade::open`.
-    #[allow(dead_code)] // мост: используется с шага 48
+    /// через `on_engine_event` (ADR-01, ADR-02, И-Р14, ТЗ-56).
     pub(super) fn open_track(&mut self, path: &Path) -> Result<(), String> {
-        self.player.open(path)
+        self.req_gen += 1;
+        let req_gen = self.req_gen;
+        self.audio_state.begin_open(req_gen);
+        let cmd = EngineCmd::Open { req_gen, path: Arc::from(path), start_secs: 0.0, autoplay: false };
+        if self.engine_send(cmd) {
+            Ok(())
+        } else {
+            Err("движок не запущен".to_string())
+        }
     }
 
-    /// Разобрать событие движка, обновить кэш фасада (транспорт/бейдж/отчёт
-    /// окна «Путь сигнала») и вернуть то, что не свелось к полю состояния —
-    /// включая реакции на типизированные ошибки открытия (ADR-02, ADR-14) —
-    /// мост к `AudioFacade::on_event`.
-    #[allow(dead_code)] // мост: используется с шага 48
+    /// Разобрать событие движка, обновить состояние/бейдж/кэш отчёта окна
+    /// «Путь сигнала» и вернуть то, что не свелось к полю состояния —
+    /// включая реакции на типизированные ошибки открытия (ADR-02, ADR-14).
     pub(super) fn on_engine_event(&mut self, ev: EngineEvent) -> Applied {
-        self.player.on_event(ev)
+        apply_engine_event(&mut self.audio_state, &mut self.badge_view, &mut self.path_cache, ev)
     }
 
     /// Истина только для Строгого режима (ADR-04, ТЗ-52, §6.18): считается
-    /// напрямую из действующих настроек `AppCore`, а не из копий фасада —
-    /// их не станет после шага 53.
-    #[allow(dead_code)] // мост: используется с шага 48
+    /// напрямую из действующих настроек `AppCore`.
     pub(super) fn bit_perfect(&self) -> bool {
         legacy_audio(&self.core.settings().playback, self.core.state().active_mode()).0.bit_perfect
     }
 
-    /// Переключить активный режим движка: кэш активного режима, вид
-    /// бейджа/«Теста» и инвалидация отчёта «Путь сигнала» обновляются и
-    /// команда `EngineCmd::SetActiveMode` уходит движку, только если режим
-    /// действительно изменился (ТЗ-20, §6.18, ADR-02) — мост к
-    /// `AudioFacade::set_active_mode` через фасад до шага 53.
+    /// Переключить активный режим движка: вид бейджа/«Теста» и инвалидация
+    /// отчёта «Путь сигнала» обновляются и команда `EngineCmd::SetActiveMode`
+    /// уходит движку (ТЗ-20, §6.18, ADR-02). Вызывается только из
+    /// `select_active_mode`, которая уже отфильтровала режим, равный
+    /// текущему (`self.core.state().active_mode()`), поэтому здесь действие
+    /// безусловно; `BadgeViewState::set_mode` дополнительно гасит свой
+    /// собственный no-op.
     pub(super) fn engine_set_active_mode(&mut self, mode: ModeKind) {
-        self.player.set_active_mode(mode);
-    }
-
-    /// Синхронизировать кэш настроек трёх режимов после «Сохранить» диалога
-    /// (ADR-11, ТЗ-28, ТЗ-29): команду `EngineCmd::SetModeSettings` движку
-    /// уже отправило `AppCore`, здесь только обновляется копия и
-    /// инвалидируется отчёт «Путь сигнала» при изменении (ТЗ-79, ТЗ-83,
-    /// §7.2) — мост к `AudioFacade::mode_settings_applied` через фасад до
-    /// шага 53.
-    pub(super) fn engine_mode_settings_applied(&mut self, settings: ModeSettings) {
-        self.player.mode_settings_applied(settings);
+        self.badge_view.set_mode(mode);
+        self.path_cache.invalidate();
+        self.engine_send(EngineCmd::SetActiveMode(mode));
     }
 
     /// Переключить воспроизведение/паузу (ADR-01, ADR-02): играет, если
-    /// транспорт был на паузе или остановлен, иначе ставит на паузу —
-    /// мост к `AudioFacade::toggle`.
+    /// транспорт был на паузе или остановлен, иначе ставит на паузу.
     pub(super) fn toggle_playback(&mut self) {
         if self.audio().is_playing() {
             self.engine_send(EngineCmd::Pause);
@@ -1147,45 +1193,39 @@ impl MusicApp {
         }
     }
 
-    /// Снять флаг завершения трека (ADR-02, И-Р13) — мост к
-    /// `AudioFacade::clear_end` через фасад до шага 53.
+    /// Снять флаг завершения трека (ADR-02, И-Р13).
     pub(super) fn clear_end(&mut self) {
-        self.player.clear_end();
+        self.audio_state.clear_end();
     }
 
     /// Снять терминальное событие резервирования устройства, если оно
-    /// пришло (ADR-02, ТЗ-119, И-Р13) — мост к `AudioFacade::poll_reservation`
-    /// через фасад до шага 53.
+    /// пришло (ADR-02, ТЗ-119, И-Р13).
     pub(super) fn poll_reservation(&mut self) -> Option<ReservationEvent> {
-        self.player.poll_reservation()
+        self.audio_state.poll_reservation()
     }
 
-    /// Снять принятый `TrackInfo` открытого трека, если движок его
-    /// доставил с прошлого чтения (ADR-02, И-Р13) — мост к
-    /// `AudioFacade::take_opened` через фасад до шага 53.
+    /// Снять принятый `TrackInfo` открытого трека, если движок его доставил
+    /// с прошлого чтения (ADR-02, И-Р13).
     pub(super) fn take_opened(&mut self) -> Option<Arc<TrackInfo>> {
-        self.player.take_opened()
+        self.audio_state.take_opened()
     }
 
     /// Снять вид бейджа тракта и кнопки «Тест», если он устарел с прошлого
-    /// чтения (ADR-02, И-Р13, ТЗ-52, ТЗ-61, ТЗ-62) — мост к
-    /// `AudioFacade::take_badge_view` через фасад до шага 53.
+    /// чтения (ADR-02, И-Р13, ТЗ-52, ТЗ-61, ТЗ-62).
     fn take_badge_view(&mut self) -> Option<(BadgeView, TestView)> {
-        self.player.take_badge_view()
+        self.badge_view.take_view()
     }
 
     /// Текущий отчёт окна «Путь сигнала», построенный при необходимости
-    /// (ADR-02, ТЗ-79, §7.2) — мост к `AudioFacade::path_report` через
-    /// фасад до шага 53.
+    /// (ADR-02, ТЗ-79, §7.2).
     pub(super) fn path_report(&mut self) -> &PathReport {
-        self.player.path_report()
+        self.path_cache.get(&self.audio_state, &self.core.settings().playback)
     }
 
     /// Снять отчёт окна «Путь сигнала», если он устарел с прошлого чтения
-    /// (ADR-02, ТЗ-79, ТЗ-83, §7.2) — мост к `AudioFacade::take_report_dirty`
-    /// через фасад до шага 53.
+    /// (ADR-02, ТЗ-79, ТЗ-83, §7.2).
     pub(super) fn take_report_dirty(&mut self) -> Option<&PathReport> {
-        self.player.take_report_dirty()
+        self.path_cache.take_dirty(&self.audio_state, &self.core.settings().playback)
     }
 
     /// Первый показ окна: разблокировать очередь `MessageCenter` (И-Р9,
@@ -2330,11 +2370,15 @@ impl MusicApp {
                         // (Т-2): остаётся пересчитать колонки таблицы.
                         ApplyStep::ResetWidths => rebuild_table = true,
                         ApplyStep::Engine(update) => {
-                            // §6.18, §6.27, ТЗ-41: команду движку ядро уже
-                            // отправило — фасад только синхронизирует копию
-                            // настроек режимов; затем пересчитываются зависимые
-                            // от режима поля UI (блокировка громкости).
-                            a.engine_mode_settings_applied(update.settings);
+                            // §6.18, §6.27, ТЗ-41, ТЗ-79, ТЗ-83, §7.2: команду
+                            // движку ядро уже отправило — здесь остаётся
+                            // пересчитать зависимые от режима поля UI
+                            // (блокировка громкости) и, если настройки
+                            // режимов реально изменились, сбросить кэш
+                            // отчёта «Путь сигнала».
+                            if update.settings != old.playback {
+                                a.path_cache.invalidate();
+                            }
                             a.sync_mode_to_ui();
                             // Устройство активного режима (ТЗ-94, §2.4):
                             // `set_output_device` обновляет только UI и трей,
@@ -3058,7 +3102,7 @@ impl MusicApp {
                     }
                 }
             }
-            // `AudioFacade` уже взвела флаг `ended`; авто-переход на
+            // `UiAudioState::apply` уже взвела флаг `ended`; авто-переход на
             // следующий трек делает `handle_auto_advance` на тике — повторная
             // обработка здесь продублировала бы переход.
             Applied::Ended => {}
@@ -3091,7 +3135,7 @@ impl MusicApp {
                 }
             },
             // Уведомление о резервировании уже поставлено в очередь
-            // `AudioFacade` и опрашивается `handle_reservation` — повторная
+            // `UiAudioState` и опрашивается `handle_reservation` — повторная
             // обработка здесь не нужна.
             Applied::Notice(Notice::Reservation(_)) => {}
             Applied::Notice(Notice::DevicesUnavailable(BackendError::Unavailable(msg))) => {
@@ -3485,4 +3529,125 @@ mod tests {
         assert_eq!(find_device_index_in(&pairs, "ghost"), None);
     }
 
+    use music_player_rs::audio::decoder::Tags;
+    use music_player_rs::audio::player::StreamDesc;
+    use music_player_rs::audio::verdict::BadgeState;
+    use music_player_rs::persist::keys::{FileRead, Parsed};
+    use music_player_rs::persist::state_file::parse_state;
+    use music_player_rs::settings::playback_dto::{load_mode_settings, playback_dto, PlaybackDto};
+
+    fn track_info() -> TrackInfo {
+        TrackInfo {
+            sample_rate: 44_100,
+            channels: 2,
+            num_frames: Some(441_000),
+            format_name: "flac".to_string(),
+            bitrate: 0,
+            bits: Some(16),
+            tags: Tags::default(),
+        }
+    }
+
+    fn opened(req_gen: u64) -> EngineEvent {
+        EngineEvent::Opened {
+            req_gen,
+            info: track_info(),
+            stream: Some(StreamDesc::default()),
+            path: None,
+            badge: BadgeState::NoStream,
+        }
+    }
+
+    /// ТЗ-19, И-Р14: после перезапуска стартовые команды (`startup_commands`),
+    /// построенные из `ModeSettings`/активного режима, прочитанных обратно из
+    /// реальных форматов персистентности (без участия движка), совпадают с
+    /// тем, что было бы отправлено из значений до перезапуска (ОВС-14,
+    /// §6.27, ADR-22).
+    #[test]
+    fn startup_policy_equals_saved_policy() {
+        let mut original = ModeSettings::default();
+        original.compatible.dsd_gain_comp = !original.compatible.dsd_gain_comp;
+        original.optimal.volume_lock = !original.optimal.volume_lock;
+
+        // Политика режимов — через тот же DTO/TOML, что и `settings.toml`.
+        let dto = playback_dto(&original);
+        let toml_text = toml::to_string(&dto).expect("сериализация PlaybackDto в toml");
+        let reloaded_dto: PlaybackDto = toml::from_str(&toml_text).expect("разбор toml в PlaybackDto");
+        let (reloaded_modes, _notes) = load_mode_settings(Some(reloaded_dto));
+        assert_eq!(reloaded_modes, original);
+
+        // Активный режим — через реальный парсер `state.toml`.
+        let state_bytes: Arc<[u8]> = Arc::from(b"playback.active = \"strict\"\n".as_slice());
+        let reloaded_active = match parse_state(FileRead::Bytes(state_bytes)) {
+            Parsed::Parsed { value, .. } => value.active_mode(),
+            _ => panic!("ожидался Parsed::Parsed"),
+        };
+        assert_eq!(reloaded_active, ModeKind::Strict);
+
+        let original_cmds = startup_commands(&original, ModeKind::Strict);
+        let reloaded_cmds = startup_commands(&reloaded_modes, reloaded_active);
+
+        for cmds in [&original_cmds, &reloaded_cmds] {
+            match (&cmds[0], &cmds[1]) {
+                (EngineCmd::SetModeSettings(update), EngineCmd::SetActiveMode(mode)) => {
+                    assert!(update.diff.is_none());
+                    assert_eq!(update.settings, original);
+                    assert_eq!(*mode, ModeKind::Strict);
+                }
+                other => panic!("ожидались SetModeSettings/SetActiveMode, получено: {other:?}"),
+            }
+        }
+    }
+
+    /// ADR-02, ТЗ-79, ТЗ-83, §7.2: `Opened` обновляет зеркало состояния в
+    /// UI-потоке и заново взводит и бейдж тракта, и кэш отчёта «Путь
+    /// сигнала» — проверяется напрямую на чистой функции `apply_engine_event`,
+    /// без конструирования `MusicApp`.
+    #[test]
+    fn apply_engine_event_opened_dirties_badge_and_report() {
+        let mut state = UiAudioState::new();
+        let mut badge_view = BadgeViewState::new();
+        let mut path_cache = PathWindowCache::new();
+        // Снять начальную «грязь» конструкторов, чтобы проверить именно
+        // эффект события, а не стартовое значение.
+        badge_view.take_view();
+        path_cache.take_dirty(&state, &ModeSettings::default());
+
+        state.begin_open(1);
+        apply_engine_event(&mut state, &mut badge_view, &mut path_cache, opened(1));
+
+        assert!(state.take_opened().is_some());
+        assert!(badge_view.take_view().is_some());
+        assert!(path_cache.take_dirty(&state, &ModeSettings::default()).is_some());
+    }
+
+    /// ADR-02, ТЗ-79, ТЗ-83, §7.2: `OpenFailed` (как и `Skipped`) не меняет
+    /// снимок пути сигнала относительно уже пустого (`None` → `None`,
+    /// `UiAudioState::take_path_dirty` не взводится), поэтому инвалидация
+    /// кэша отчёта на `Applied::OpenFailed { .. }` в `apply_engine_event`
+    /// — отдельная, явная ветка, а не следствие `take_path_dirty`.
+    #[test]
+    fn apply_engine_event_open_failed_invalidates_report_without_path_dirty() {
+        let mut state = UiAudioState::new();
+        let mut badge_view = BadgeViewState::new();
+        let mut path_cache = PathWindowCache::new();
+        // Снять начальную «грязь» конструкторов.
+        badge_view.take_view();
+        path_cache.take_dirty(&state, &ModeSettings::default());
+        // Путь уже `None` до события — `take_path_dirty` ниже должен
+        // остаться пустым, подтверждая, что инвалидация идёт не от него.
+        assert!(state.take_path_dirty().is_none());
+
+        state.begin_open(2);
+        let applied = apply_engine_event(
+            &mut state,
+            &mut badge_view,
+            &mut path_cache,
+            EngineEvent::OpenFailed { req_gen: 2, err: OpenError::DeviceLost },
+        );
+
+        assert_eq!(applied, Applied::OpenFailed { err: OpenError::DeviceLost });
+        assert!(state.take_path_dirty().is_none());
+        assert!(path_cache.take_dirty(&state, &ModeSettings::default()).is_some());
+    }
 }
