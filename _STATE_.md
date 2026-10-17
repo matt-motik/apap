@@ -95,8 +95,8 @@
 - [x] Шаг 34: Шаг 34: Захват вне движка: ExclusiveBackend::claim_job(&self, dev: HwDeviceId, device_name: String, on_lost: LostNotify) -> ClaimJob (Box<dyn FnOnce() -> Result<DeviceClaim, CaptureFailure> + Send>) — резервирование + открытие PCM в служебном потоке без доступа к бэкенду движка (exclusive.rs); AlsaExclusiveBackend: reserve → acquire (alsa.rs); FakeExclusiveBackend: журнал Acquire(dev) + заданный результат (audio/testing/mod.rs) + тест (§6.6, ADR-01, ТЗ-48). Общий тип → Проверка: полный cargo test
 - [x] Шаг 35: Шаг 35: run.rs: EngineCmd::Lock → lock_step; эффект Acquire — deps.exclusive.claim_job через spawner в служебном потоке → InternalMsg::ClaimDone → lock_step; эмиссия EngineEvent::Lock (Acquiring/Held/Failed) + тесты ≤3 на FakeExclusiveBackend (§6.19, ТЗ-118, 119, 123). Проверка: cargo test engine:: Обязательно: Acquiring.started перезаписать deps.clock.now() (lock_step чистая, ставит ClockInstant::START — ОВС-10 п. 7, ТЗ-119); DeviceReappeared(d) вызывать только при d = устройство ReacquirePoint (lock_step точку не видит, §6.20).
 - [x] Шаг 36: Шаг 36: run.rs: разрешение устройства перед Acquire через resolve_device: AutoSelected → копия опций режима + EngineEvent::DeviceAutoSelected; None → Failed(NoDeviceSelected), ни acquire, ни SharedBackend::start + тесты ≤3 (§6.18, ADR-24, ТЗ-143, 144, 32). Проверка: cargo test engine::
-- [>] **Шаг 37: Шаг 37: run.rs: эффекты Release / StopPlayback / ForgetReacquire (UserClose, UserOpen, переход в Compatible) + тесты ≤3 (§6.19, ТЗ-120, 121). Проверка: cargo test engine::**
-- [ ] Шаг 38: Шаг 38: app (engine_sink.rs/mod.rs): EngineEvent::DeviceAutoSelected → опции режима + запись settings.toml одной записью, SetModeSettings не отправляется, устройство другого режима не меняется + тест (ADR-24, ТЗ-143, ТЗ-134). Проверка: cargo test device_auto_selected
+- [x] Шаг 37: Шаг 37: run.rs: эффекты Release / StopPlayback / ForgetReacquire (UserClose, UserOpen, переход в Compatible) + тесты ≤3 (§6.19, ТЗ-120, 121). Проверка: cargo test engine::
+- [>] **Шаг 38: Шаг 38: app (engine_sink.rs/mod.rs): EngineEvent::DeviceAutoSelected → опции режима + запись settings.toml одной записью, SetModeSettings не отправляется, устройство другого режима не меняется + тест (ADR-24, ТЗ-143, ТЗ-134). Проверка: cargo test device_auto_selected**
 - [ ] Шаг 39: Шаг 39: ЧЕКПОИНТ: полный cargo test + cargo clippy --all-targets
 - [ ] Шаг 40: Шаг 40: Мост: вынести из player.rs сборку сессии (EnginePlan, EngineFeed/EngineRing, build_render, ring_capacity, prime_frames, spawn_decoder) в новый src/audio/session_build.rs без изменения поведения; player.rs импортирует их (§6.18). Перенос кода → Проверка: полный cargo test
 - [ ] Шаг 41: Шаг 41: Чистая функция плана эксклюзивного вывода: PathPlan + DeviceBufferActual → ёмкость ring, вид feed/render, OptimalRender::PcmLocked / DoP (session_build.rs) + тесты ≤4 (§6.18 п. 5–6, §8 С6, ТЗ-137, 140). Проверка: cargo test session_build
@@ -115,7 +115,7 @@
 - [ ] Шаг 54: Шаг 54: ЧЕКПОИНТ: полный cargo test + cargo clippy --all-targets
 - [ ] Шаг 55: Шаг 55: run.rs: смена режима Exclusive → Compatible — Release раньше SharedBackend::start; тест optimal_held_to_compatible_releases_before_shared — закрывает AM1.0-B13 (§6.18, ТЗ-21). Проверка: cargo test optimal_held_to_compatible
 - [ ] Шаг 56: Шаг 56: run.rs: смена устройства режима (SwitchDevice) — Release старого → Lock(DeviceSelected(d)) → Acquire нового + тест (§6.18, §6.19, ТЗ-44). Проверка: cargo test engine::
-- [ ] Шаг 57: Шаг 57: run.rs: обнаружение потери (StreamFault::DeviceUnavailable / InternalMsg::ReservationLost) → LockInput::DeviceLost, сохранение ReacquirePoint + тест (§6.20, ТЗ-125). Проверка: cargo test engine::
+- [ ] Шаг 57: Шаг 57: run.rs: обнаружение потери (StreamFault::DeviceUnavailable / InternalMsg::ReservationLost) → LockInput::DeviceLost, сохранение ReacquirePoint + тест (§6.20, ТЗ-125). Проверка: cargo test engine:: Примечание: TrackId(u64) без публичного конструктора (src/playlist/model.rs) — для теста ReacquirePoint понадобится #[cfg(test)] pub(crate) конструктор (расширение вайтлиста)
 - [ ] Шаг 58: Шаг 58: run.rs: повторный захват по DevicesChanged (DeviceReappeared) → открытие трека в сохранённой точке на паузе + тест (§6.20, ТЗ-126). Проверка: cargo test engine::
 - [ ] Шаг 59: Шаг 59: ЧЕКПОИНТ: полный cargo test + cargo clippy --all-targets
 - [ ] Шаг 60: Шаг 60: Новый src/app/lock_view.rs: LockState → lock-kind/lock-text/доступные действия; тексты отказов с владельцем (ReservationDenied{owner}) и «занято вне протокола» (BusyOutsideProtocol) вместо «устройство не найдено» — AM1.0-B2 + тесты ≤5 (ADR-06, §6.19 подсказки, ТЗ-118…123, 46, 122, 144). Проверка: cargo test lock_view
@@ -139,8 +139,8 @@
 
 Легенда: [x] сделано · [>] текущий шаг · [ ] не начато
 
-- **Текущий шаг (current_step):** Шаг 37
-- **Следующий ход:** Шаг 37: run.rs — эффекты Release / StopPlayback / ForgetReacquire в lock_input (сейчас Release = drop self.claim, StopPlayback/ForgetReacquire — no-op с комментарием) + тесты ≤3 (§6.19, ТЗ-120, 121). UserClose = захват, UserOpen = освобождение. Свежий субагент code-writer sonnet.
+- **Текущий шаг (current_step):** Шаг 38
+- **Следующий ход:** Шаг 38 (см. описание шага): приложение сохраняет DeviceAutoSelected в настройки режима. Свежий субагент code-writer sonnet.
 - **Счетчик безуспешных компиляций:** 0/3
 - **Состояние:** in_progress
 

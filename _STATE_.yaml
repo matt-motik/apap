@@ -168,7 +168,7 @@ steps:
     done: true
   - id: 37
     description: "Шаг 37: run.rs: эффекты Release / StopPlayback / ForgetReacquire (UserClose, UserOpen, переход в Compatible) + тесты ≤3 (§6.19, ТЗ-120, 121). Проверка: cargo test engine::"
-    done: false
+    done: true
   - id: 38
     description: "Шаг 38: app (engine_sink.rs/mod.rs): EngineEvent::DeviceAutoSelected → опции режима + запись settings.toml одной записью, SetModeSettings не отправляется, устройство другого режима не меняется + тест (ADR-24, ТЗ-143, ТЗ-134). Проверка: cargo test device_auto_selected"
     done: false
@@ -227,7 +227,7 @@ steps:
     description: "Шаг 56: run.rs: смена устройства режима (SwitchDevice) — Release старого → Lock(DeviceSelected(d)) → Acquire нового + тест (§6.18, §6.19, ТЗ-44). Проверка: cargo test engine::"
     done: false
   - id: 57
-    description: "Шаг 57: run.rs: обнаружение потери (StreamFault::DeviceUnavailable / InternalMsg::ReservationLost) → LockInput::DeviceLost, сохранение ReacquirePoint + тест (§6.20, ТЗ-125). Проверка: cargo test engine::"
+    description: "Шаг 57: run.rs: обнаружение потери (StreamFault::DeviceUnavailable / InternalMsg::ReservationLost) → LockInput::DeviceLost, сохранение ReacquirePoint + тест (§6.20, ТЗ-125). Проверка: cargo test engine:: Примечание: TrackId(u64) без публичного конструктора (src/playlist/model.rs) — для теста ReacquirePoint понадобится #[cfg(test)] pub(crate) конструктор (расширение вайтлиста)"
     done: false
   - id: 58
     description: "Шаг 58: run.rs: повторный захват по DevicesChanged (DeviceReappeared) → открытие трека в сохранённой точке на паузе + тест (§6.20, ТЗ-126). Проверка: cargo test engine::"
@@ -289,8 +289,8 @@ steps:
   - id: 77
     description: "Шаг 77: ФИНАЛ: cargo build/test/clippy зелёные; общие условия §8 (Совместимый играет, «Bit-perfect» только при ТЗ-52); ручные проверки в заметку плана: замок (ТЗ-1/2/48/118…122, AM1.0-8.1), B1 — возврат устройства в PipeWire после освобождения, B2 — текст «занято <владелец>» при чужом захвате"
     done: false
-current_step: 37
-next_action: "Шаг 37: run.rs — эффекты Release / StopPlayback / ForgetReacquire в lock_input (сейчас Release = drop self.claim, StopPlayback/ForgetReacquire — no-op с комментарием) + тесты ≤3 (§6.19, ТЗ-120, 121). UserClose = захват, UserOpen = освобождение. Свежий субагент code-writer sonnet."
+current_step: 38
+next_action: "Шаг 38 (см. описание шага): приложение сохраняет DeviceAutoSelected в настройки режима. Свежий субагент code-writer sonnet."
 fail_counter: 0
 fail_counter_max: 3
 failed_attempts: []

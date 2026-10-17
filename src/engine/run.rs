@@ -24,7 +24,7 @@ use crate::audio::reservation::LostNotify;
 use crate::audio::verdict::{verdict, BadgeState, GainState};
 use crate::engine::deps::EngineDeps;
 use crate::engine::legacy_path::{legacy_audio, opened_facts_from_desc, shared_caps_from_desc, stream_format_from_desc};
-use crate::engine::lock::{lock_step, resolve_device, LockEffect, LockInput, LockState, Resolved};
+use crate::engine::lock::{lock_step, resolve_device, LockEffect, LockInput, LockState, ReacquirePoint, Resolved};
 use crate::engine::messages::{EngineCmd, EngineEvent, InternalMsg, LegacyAudio, Notice, SkipReason, TransportState};
 use crate::persist::state_file::LegacyPlaybackState;
 use crate::settings::params::{ApplyKind, ModeSettingsDiff};
@@ -242,10 +242,13 @@ struct Engine {
     /// на `LockEffect::Release` снимает захват.
     claim: Option<DeviceClaim>,
     /// Поколение попытки захвата (§6.19, ТЗ-123, ADR-01): увеличивается
-    /// перед каждым запуском `start_claim`, чтобы `InternalMsg::ClaimDone` от
-    /// отменённой попытки отбрасывалось — тот же приём, что `req_gen` у
-    /// `Open`.
+    /// перед каждым запуском `start_claim` и эффектом `LockEffect::Release`,
+    /// чтобы `InternalMsg::ClaimDone` от отменённой или уже снятой попытки
+    /// отбрасывалось — тот же приём, что `req_gen` у `Open`.
     claim_attempt: u64,
+    /// Точка повторного захвата (§6.20, ТЗ-126); заполняется при потере
+    /// устройства — шаг 57.
+    reacquire: Option<ReacquirePoint>,
 }
 
 impl Engine {
@@ -277,6 +280,7 @@ impl Engine {
             lock: LockState::NotApplicable,
             claim: None,
             claim_attempt: 0,
+            reacquire: None,
         }
     }
 
@@ -456,12 +460,33 @@ impl Engine {
         for effect in effects {
             match effect {
                 LockEffect::Acquire(dev) => self.start_claim(dev),
-                LockEffect::Release => self.claim = None,
-                // Остановка активного потока вывода и повторный захват при
-                // возвращении устройства реализуются отдельным шагом (шаг 37).
-                LockEffect::StopPlayback | LockEffect::ForgetReacquire => {}
+                LockEffect::StopPlayback => self.stop_playback(),
+                LockEffect::Release => {
+                    // Попытка захвата может быть ещё не завершена (замок
+                    // открывается во время `Acquiring`): доклад `ClaimDone`
+                    // от неё должен считаться устаревшим, как при повторном
+                    // захвате (§6.19, ТЗ-123) — её `DeviceClaim`, если захват
+                    // всё же удался, дропается сам при игнорировании
+                    // (`Drop DeviceClaim`, И-Р1), а не попадает в `self.claim`.
+                    self.claim_attempt += 1;
+                    self.claim = None;
+                }
+                LockEffect::ForgetReacquire => self.reacquire = None,
             }
         }
+    }
+
+    /// Останавливает активное воспроизведение (§6.19, ТЗ-120, ТЗ-121): общий
+    /// путь для `EngineCmd::Stop` и эффекта `LockEffect::StopPlayback` замка —
+    /// поток вывода должен остановиться до освобождения PCM эффектом
+    /// `LockEffect::Release` (И-Р1), иначе звук обрывается после закрытия
+    /// устройства. Без открытой сессии (`Player` уже остановлен) —
+    /// безопасный no-op: `player.stop()`/`refresh_transport()` идемпотентны.
+    fn stop_playback(&mut self) {
+        self.player.stop();
+        self.stopped = true;
+        self.active_path = None;
+        self.refresh_transport();
     }
 
     /// Запуск захвата устройства `dev` в служебном потоке (§6.19, ТЗ-119,
@@ -638,10 +663,7 @@ impl Engine {
                 self.refresh_transport();
             }
             EngineCmd::Stop => {
-                self.player.stop();
-                self.stopped = true;
-                self.active_path = None;
-                self.refresh_transport();
+                self.stop_playback();
             }
             EngineCmd::Seek { secs } => {
                 self.player.seek(secs);
@@ -1557,5 +1579,82 @@ mod tests {
         assert!(sink.take().is_empty());
         assert!(engine.claim.is_none());
         assert!(matches!(engine.lock, LockState::Acquiring { .. }));
+    }
+
+    /// §6.19 (ТЗ-120, ТЗ-121): `UserOpen` из `Held` останавливает
+    /// воспроизведение, освобождает захват и забывает точку повторного
+    /// захвата — `Lock(Open)`, `claim` и `reacquire` пустые.
+    #[test]
+    fn lock_input_user_open_from_held_stops_and_releases() {
+        let sink = VecSink::new();
+        let deps = fake_deps(Box::new(sink.clone()), Arc::new(StdSpawner));
+        let mut engine = Engine::new(deps, BackendCaps::current());
+        let dev: HwDeviceId = "hw:CARD=RU3,DEV=0".parse().expect("hw id");
+        engine.active_mode = ModeKind::Optimal;
+        engine.mode_settings.optimal.device = Some(dev.clone());
+        engine.lock = LockState::Held { info: crate::audio::backend::exclusive::ClaimInfo { device: dev } };
+
+        engine.lock_input(LockInput::UserOpen);
+
+        assert!(matches!(engine.lock, LockState::Open));
+        assert!(engine.claim.is_none());
+        assert!(engine.reacquire.is_none());
+        let events = sink.take();
+        assert!(events.iter().any(|e| matches!(e, EngineEvent::Lock(LockState::Open))));
+    }
+
+    /// §6.19 (ТЗ-120, ТЗ-121): смена режима на Совместимый из `Held` даёт
+    /// `Lock(NotApplicable)` и освобождает захват тем же набором эффектов.
+    #[test]
+    fn lock_input_mode_selected_compatible_from_held_releases() {
+        let sink = VecSink::new();
+        let deps = fake_deps(Box::new(sink.clone()), Arc::new(StdSpawner));
+        let mut engine = Engine::new(deps, BackendCaps::current());
+        let dev: HwDeviceId = "hw:CARD=RU3,DEV=0".parse().expect("hw id");
+        engine.active_mode = ModeKind::Optimal;
+        engine.mode_settings.optimal.device = Some(dev.clone());
+        engine.lock = LockState::Held { info: crate::audio::backend::exclusive::ClaimInfo { device: dev } };
+
+        engine.lock_input(LockInput::ModeSelected(ModeKind::Compatible));
+
+        assert!(matches!(engine.lock, LockState::NotApplicable));
+        assert!(engine.claim.is_none());
+        let events = sink.take();
+        assert!(events.iter().any(|e| matches!(e, EngineEvent::Lock(LockState::NotApplicable))));
+    }
+
+    /// §6.19 (ТЗ-123): `Release` во время ещё не завершённого захвата
+    /// (`UserOpen` пришёл, пока замок `Acquiring`) бампает `claim_attempt` —
+    /// доклад `ClaimDone` от этой попытки приходит позже и должен быть
+    /// отброшен как устаревший, не оставляя захвата.
+    #[test]
+    fn release_during_in_flight_capture_drops_stale_claim_done() {
+        let sink = VecSink::new();
+        let deps = fake_deps(Box::new(sink.clone()), Arc::new(StdSpawner));
+        let mut engine = Engine::new(deps, BackendCaps::current());
+        let dev: HwDeviceId = "hw:CARD=RU3,DEV=0".parse().expect("hw id");
+        engine.catalog.hw = vec![crate::audio::backend::catalog::HwDeviceInfo { id: dev.clone(), card: 1, device: 0, name: "RU3".to_string() }];
+        engine.active_mode = ModeKind::Optimal;
+        engine.mode_settings.optimal.device = Some(dev.clone());
+        engine.lock = LockState::Open;
+
+        engine.lock_input(LockInput::Startup);
+        assert!(matches!(engine.lock, LockState::Acquiring { .. }));
+        sink.take();
+        let stale = engine.internal_rx.recv().expect("claim done");
+
+        // Пользователь открывает замок, пока захват ещё не завершился:
+        // `lock_step` не определяет переход `UserOpen` из `Acquiring`
+        // (§6.19), поэтому замок переводится прямо через `Held`-эффекты, не
+        // дожидаясь завершения попытки — моделируем это напрямую через
+        // `lock_input` после ручного перевода в `Held`.
+        engine.lock = LockState::Held { info: crate::audio::backend::exclusive::ClaimInfo { device: dev } };
+        engine.lock_input(LockInput::UserOpen);
+        sink.take();
+
+        engine.handle_internal(stale);
+
+        assert!(engine.claim.is_none());
+        assert!(matches!(engine.lock, LockState::Open));
     }
 }
