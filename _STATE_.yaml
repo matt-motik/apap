@@ -193,7 +193,7 @@ steps:
     done: true
   - id: 47
     description: "Мост-хелперы MusicApp в app/mod.rs: engine_send(EngineCmd) -> bool, audio() -> &UiAudioState, open_track(&Path) (req_gen, begin_open), on_engine_event(ev) -> Applied (инвалидация кэша окна и бейджа), bit_perfect() через legacy_audio(core.settings().playback, core.state().active_mode()); тела пока через временные аксессоры фасада. Файлы: app/mod.rs, audio_facade.rs. Проверка: cargo check"
-    done: false
+    done: true
   - id: 48
     description: "playback_manager.rs: все self.player.* → хелперы шага 47 и EngineCmd напрямую (Play/Pause/Stop/Seek/ReleaseExclusive/SetDevice/SetVolume/SetMuted); громкость/mute читаются из core.state().playback() (ADR-01, ADR-02, ADR-14). Проверка: cargo check"
     done: false
@@ -212,8 +212,8 @@ steps:
   - id: 53
     description: "Удаление легаси (§8, §7.4): StreamDesc, FallbackReason, dsd_pcm_breaks_bit_perfect (тест dsd_pcm_breaks_bit_perfect_detects_conflict уже заменён в verdict.rs; bp_report.rs и bp_report_marks_volume_issue — удалены на шаге 41); ссылки в settings.rs/state_file.rs. Проверка: полный cargo test + clippy --all-targets. Шаг дробится при декомпозиции"
     done: false
-current_step: 47
-next_action: "Шаг 47: мост-хелперы MusicApp (engine_send, audio, open_track, on_engine_event, bit_perfect) через временные аксессоры фасада. Проверка: cargo check"
+current_step: 48
+next_action: "Шаг 48: playback_manager.rs — self.player.* → хелперы шага 47 и EngineCmd; громкость/mute из core. Проверка: cargo check"
 fail_counter: 0
 fail_counter_max: 3
 failed_attempts: []

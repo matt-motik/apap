@@ -1,6 +1,6 @@
 use std::cell::RefCell;
 use std::collections::{BTreeMap, HashSet};
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::rc::Rc;
 use std::sync::mpsc::{channel, Receiver, TryRecvError};
 use std::sync::Arc;
@@ -30,7 +30,8 @@ use music_player_rs::core::load::LoadApplied;
 use music_player_rs::core::volume::{VolumeCmd, VolumeSource};
 use music_player_rs::core::AppCore;
 use music_player_rs::cover::{self, CoverDone, CoverJob};
-use music_player_rs::engine::messages::{EngineEvent, Notice, SkipReason};
+use music_player_rs::engine::legacy_path::legacy_audio;
+use music_player_rs::engine::messages::{EngineCmd, EngineEvent, Notice, SkipReason};
 use music_player_rs::engine::run::{BackendCaps, EngineHandle};
 use music_player_rs::persist::settings_file::Settings as PersistSettings;
 use music_player_rs::persist::settings_file::{ColumnsConfig, ThemeName};
@@ -70,7 +71,7 @@ pub mod viz_settings_manager;
 use engine_sink::EngineEventQueue;
 use events::AppEvent;
 use fulltrack_manager::{FullCmd, FullEvt};
-use ui_audio_state::Applied;
+use ui_audio_state::{Applied, UiAudioState};
 
 /// Last values pushed to the UI by the delta playback sync. Kept so the
 /// 100 ms tick only re-writes properties that actually changed (e.g. no
@@ -1057,6 +1058,53 @@ impl MusicApp {
         // Признак bit-perfect выводится из активного режима (ADR-04, §6.18) —
         // подсказка трея обновляется сразу, не дожидаясь событий транспорта.
         self.push_tray_now();
+    }
+
+    // --- Мост к потоку движка через AudioFacade (ADR-01, ADR-02) -------------
+    //
+    // Хелперы шага 47 (AM1.0-8.5): тела пока делегируют в `self.player`
+    // (`AudioFacade`), вызывающий код `playback_manager.rs`/
+    // `visualizer_manager.rs`/`playlist_manager.rs` переходит на эти хелперы
+    // шагами 48-50. На шаге 51 фасад снимается, а его поля (`state`, `report`,
+    // `badge_view`) переносятся прямо в `MusicApp` — вызовы хелперов не
+    // изменятся.
+
+    /// Отправить команду движку (ADR-01) — мост к `AudioFacade::send`.
+    #[allow(dead_code)] // мост: используется с шага 48
+    pub(super) fn engine_send(&self, cmd: EngineCmd) -> bool {
+        self.player.send(cmd)
+    }
+
+    /// Текущее зеркало состояния движка в UI-потоке (ADR-02, И-Р13, И-Р14) —
+    /// мост к `AudioFacade::state`.
+    #[allow(dead_code)] // мост: используется с шага 48
+    pub(super) fn audio(&self) -> &UiAudioState {
+        self.player.state()
+    }
+
+    /// Открыть трек асинхронно: команда уходит в движок немедленно, сам
+    /// `TrackInfo` приходит позже событием `Opened`/`OpenFailed`/`Skipped`
+    /// через `on_engine_event` (ADR-01, ADR-02) — мост к `AudioFacade::open`.
+    #[allow(dead_code)] // мост: используется с шага 48
+    pub(super) fn open_track(&mut self, path: &Path) -> Result<(), String> {
+        self.player.open(path)
+    }
+
+    /// Разобрать событие движка, обновить кэш фасада (транспорт/бейдж/отчёт
+    /// окна «Путь сигнала») и вернуть то, что не свелось к полю состояния —
+    /// включая реакции на типизированные ошибки открытия (ADR-02, ADR-14) —
+    /// мост к `AudioFacade::on_event`.
+    #[allow(dead_code)] // мост: используется с шага 48
+    pub(super) fn on_engine_event(&mut self, ev: EngineEvent) -> Applied {
+        self.player.on_event(ev)
+    }
+
+    /// Истина только для Строгого режима (ADR-04, ТЗ-52, §6.18): считается
+    /// напрямую из действующих настроек `AppCore`, а не из копий фасада —
+    /// их не станет после шага 51.
+    #[allow(dead_code)] // мост: используется с шага 48
+    pub(super) fn bit_perfect(&self) -> bool {
+        legacy_audio(&self.core.settings().playback, self.core.state().active_mode()).0.bit_perfect
     }
 
     /// Первый показ окна: разблокировать очередь `MessageCenter` (И-Р9,

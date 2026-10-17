@@ -95,8 +95,8 @@
 - [x] Шаг 44: AudioFacade делегирует событийное состояние в UiAudioState (шаги 42–43): удалить поля transport/position_secs/track/opened/stream/ended/reservation_queue/skipped; device_desc из поля → метод, вызов в app/mod.rs (ADR-02). Файлы: audio_facade.rs, app/mod.rs. Проверка: cargo test audio_facade
 - [x] Шаг 45: path_view.rs: PathWindowCache {report, dirty, builds под cfg(test)} — invalidate(), take_dirty(&UiAudioState, &ModeSettings) -> Option<&PathReport>, get(..) -> &PathReport; перенос тестов window_no_recompute_on_idle_ticks, report_rebuilt_after_opened_event, report_rebuilt_after_mode_change, report_subject_skipped_differs_from_no_stream на UiAudioState + кэш; фасад делегирует (ТЗ-79, ТЗ-83, §7.2). Файлы: path_view.rs, audio_facade.rs. Проверка: cargo test path_view
 - [x] Шаг 46: badge_view.rs: BadgeViewState {badge, mode, dirty (true на старте)} — set_badge, set_mode, take_view() -> Option<(BadgeView, TestView)>; перенос тестов badge_view_written_once_until_change, badge_view_redirtied_on_mode_change; фасад делегирует (И-Р13, ТЗ-52, ТЗ-61, ТЗ-62). Файлы: badge_view.rs, audio_facade.rs. Проверка: cargo test badge_view
-- [>] **Шаг 47: Мост-хелперы MusicApp в app/mod.rs: engine_send(EngineCmd) -> bool, audio() -> &UiAudioState, open_track(&Path) (req_gen, begin_open), on_engine_event(ev) -> Applied (инвалидация кэша окна и бейджа), bit_perfect() через legacy_audio(core.settings().playback, core.state().active_mode()); тела пока через временные аксессоры фасада. Файлы: app/mod.rs, audio_facade.rs. Проверка: cargo check**
-- [ ] Шаг 48: playback_manager.rs: все self.player.* → хелперы шага 47 и EngineCmd напрямую (Play/Pause/Stop/Seek/ReleaseExclusive/SetDevice/SetVolume/SetMuted); громкость/mute читаются из core.state().playback() (ADR-01, ADR-02, ADR-14). Проверка: cargo check
+- [x] Шаг 47: Мост-хелперы MusicApp в app/mod.rs: engine_send(EngineCmd) -> bool, audio() -> &UiAudioState, open_track(&Path) (req_gen, begin_open), on_engine_event(ev) -> Applied (инвалидация кэша окна и бейджа), bit_perfect() через legacy_audio(core.settings().playback, core.state().active_mode()); тела пока через временные аксессоры фасада. Файлы: app/mod.rs, audio_facade.rs. Проверка: cargo check
+- [>] **Шаг 48: playback_manager.rs: все self.player.* → хелперы шага 47 и EngineCmd напрямую (Play/Pause/Stop/Seek/ReleaseExclusive/SetDevice/SetVolume/SetMuted); громкость/mute читаются из core.state().playback() (ADR-01, ADR-02, ADR-14). Проверка: cargo check**
 - [ ] Шаг 49: visualizer_manager.rs, playlist_manager.rs: self.player.* → хелперы шага 47 (format, snapshot, AttachVizTap/SetVizTap, Stop) (ADR-02). Проверка: cargo check
 - [ ] Шаг 50: app/mod.rs: оставшиеся self.player.* → хелперы (конструктор, трей, select_active_mode → SetActiveMode + инвалидация, колбэки громкости/mute, ApplyStep::Engine без mode_settings_applied — копия режимов больше не нужна) (ADR-02, ADR-14, §6.18). Проверка: cargo check
 - [ ] Шаг 51: Снятие моста: engine/UiAudioState/req_gen/PathWindowCache/BadgeViewState — поля MusicApp; хелперы шага 47 работают с ними; startup_commands/send_startup_policy → MusicApp + тесты startup_policy_equals_saved_policy, bit_perfect_follows_active_mode и тест диспетчеризации (Opened/Skipped/смена режима → PathWindowCache и BadgeViewState снова dirty — после шага 45 тесты кэша инвалидируют вручную); удалить audio_facade.rs и mod audio_facade (ADR-01, ADR-02, ОВС-14). Проверка: полный cargo test
@@ -105,8 +105,8 @@
 
 Легенда: [x] сделано · [>] текущий шаг · [ ] не начато
 
-- **Текущий шаг (current_step):** Шаг 47
-- **Следующий ход:** Шаг 47: мост-хелперы MusicApp (engine_send, audio, open_track, on_engine_event, bit_perfect) через временные аксессоры фасада. Проверка: cargo check
+- **Текущий шаг (current_step):** Шаг 48
+- **Следующий ход:** Шаг 48: playback_manager.rs — self.player.* → хелперы шага 47 и EngineCmd; громкость/mute из core. Проверка: cargo check
 - **Счетчик безуспешных компиляций:** 0/3
 - **Состояние:** in_progress
 
