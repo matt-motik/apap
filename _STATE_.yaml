@@ -215,15 +215,15 @@ steps:
     done: true
   - id: 54
     description: "Устаревшие doc-ссылки на снятый мост AudioFacade (только комментарии): badge_view.rs, playback_manager.rs, ui_audio_state.rs, core/mod.rs (volume/toggle_mute: команду движку шлёт слой app, владелец EngineHandle) (ADR-01, ADR-02). Проверка: cargo check, grep AudioFacade|audio_facade по src/ пуст"
-    done: false
+    done: true
   - id: 55
     description: "Снять #![allow(dead_code)] в engine_sink.rs и ui_audio_state.rs, удалить ставшее неиспользуемым (ADR-02). ЧЕКПОИНТ. Проверка: cargo build + полный cargo test + clippy --all-targets"
     done: false
   - id: 56
     description: "Удаление легаси (§8, §7.4): StreamDesc, FallbackReason, dsd_pcm_breaks_bit_perfect (тест dsd_pcm_breaks_bit_perfect_detects_conflict уже заменён в verdict.rs; bp_report.rs и bp_report_marks_volume_issue — удалены на шаге 41); ссылки в settings.rs/state_file.rs. Проверка: полный cargo test + clippy --all-targets. Шаг дробится при декомпозиции"
     done: false
-current_step: 54
-next_action: "Шаг 54: убрать устаревшие doc-ссылки на AudioFacade в badge_view.rs, playback_manager.rs, ui_audio_state.rs, core/mod.rs. Проверка: cargo check"
+current_step: 55
+next_action: "Шаг 55 (ЧЕКПОИНТ): снять #![allow(dead_code)] в engine_sink.rs и ui_audio_state.rs, удалить неиспользуемое. Проверка: cargo build + полный cargo test + clippy --all-targets"
 fail_counter: 0
 fail_counter_max: 3
 failed_attempts: []

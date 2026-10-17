@@ -548,8 +548,8 @@ impl AppCore {
     /// ОТКЛОНЕНИЕ от §2.12: возвращается `VolumeOutcome`, а не `UiChanges` —
     /// такого типа в коде нет (см. `DialogSaved`).
     ///
-    /// Команду движку метод не отправляет: до снятия моста `audio_facade`
-    /// её выполняет слой `app` (ADR-14).
+    /// Команду движку метод не отправляет: её шлёт слой `app` — владелец
+    /// `EngineHandle` (ADR-01, ADR-02).
     pub fn volume(&mut self, _src: VolumeSource, cmd: VolumeCmd) -> VolumeOutcome {
         let outcome = apply_volume(self.state.playback_state(), &self.settings.playback, cmd);
         if let VolumeOutcome::Changed(v) = outcome {
@@ -565,8 +565,8 @@ impl AppCore {
     /// ОТКЛОНЕНИЕ от §2.12: возвращается новое значение mute, а не
     /// `UiChanges` — такого типа в коде нет (см. `DialogSaved`).
     ///
-    /// Команду движку метод не отправляет: до снятия моста `audio_facade`
-    /// её выполняет слой `app` (ADR-14).
+    /// Команду движку метод не отправляет: её шлёт слой `app` — владелец
+    /// `EngineHandle` (ADR-01, ADR-02).
     pub fn toggle_mute(&mut self) -> bool {
         let muted = !self.state.playback().muted;
         self.change_state(Origin::User, StateChange::Muted(muted));

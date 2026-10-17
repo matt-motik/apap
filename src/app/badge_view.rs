@@ -127,7 +127,7 @@ pub(super) fn test_view(badge: &BadgeState, mode: ModeKind, test: Option<&TestBa
 
 /// Состояние «устарел ли вид бейджа тракта» (И-Р13, ТЗ-52, ТЗ-61, ТЗ-62):
 /// хранит последний принятый бейдж и активный режим — предмет вида бейджа
-/// и кнопки «Тест» (ADR-06); вызывающая сторона (`AudioFacade`) взводит
+/// и кнопки «Тест» (ADR-06); вызывающая сторона (`MusicApp`) взводит
 /// пересчёт через `set_badge`/`set_mode`, снимает его только `take_view`.
 pub(super) struct BadgeViewState {
     badge: BadgeState,

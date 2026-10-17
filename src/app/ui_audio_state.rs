@@ -177,7 +177,7 @@ pub struct UiAudioState {
     badge: Written<BadgeState>,
     dynamics: DynamicPathState,
     /// Истина после принятого `Ended`, пока не снята `clear_end` (ТЗ-56,
-    /// ADR-02) — повторяет семантику моста С3 (`AudioFacade::ended`).
+    /// ADR-02).
     ended: bool,
     /// Вновь принятый `Opened`, ещё не забранный вызывающей стороной —
     /// снимается один раз через `take_opened` (И-Р14, ADR-02).
@@ -198,8 +198,7 @@ impl UiAudioState {
     }
 
     /// Регистрирует `req_gen` команды `Open`, отправленной UI (И-Р14), и
-    /// сбрасывает флаг завершения прошлой сессии (ТЗ-56, ADR-02) — повторяет
-    /// `AudioFacade::open`, который сбрасывает `ended` рядом с `begin_open`.
+    /// сбрасывает флаг завершения прошлой сессии (ТЗ-56, ADR-02).
     pub fn begin_open(&mut self, req_gen: u64) {
         self.latest_req_gen = req_gen;
         self.ended = false;
