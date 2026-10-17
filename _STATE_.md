@@ -93,8 +93,8 @@
 - [x] Шаг 42: UiAudioState: постоянные последние значения рядом с take_*_dirty (не меняя их семантику) — transport(), position_secs(), track(), stream_desc(), is_playing(), is_stopped() (None = остановлен), duration() (frames/rate), format() (дефолт 44100/2) + ≤4 теста (ADR-02, И-Р13, ТЗ-103). Проверка: cargo test ui_audio_state
 - [x] Шаг 43: UiAudioState: ended (взвод на Ended, сброс в begin_open, clear_end), take_opened() одноразово, очередь резервирования (Notice::Reservation → poll_reservation), skipped: Option<Blocked> (Skipped(Incompatible) → Some; прочий Skipped/OpenFailed/новый открытый путь → None) + ≤5 тестов по образцу ended_flag_set_and_cleared, take_opened_returns_once_after_opened_event, reservation_notice_queued_and_polled_once, stale_opened_event_is_ignored (ТЗ-56, ТЗ-80, И-Р14). Проверка: cargo test ui_audio_state
 - [x] Шаг 44: AudioFacade делегирует событийное состояние в UiAudioState (шаги 42–43): удалить поля transport/position_secs/track/opened/stream/ended/reservation_queue/skipped; device_desc из поля → метод, вызов в app/mod.rs (ADR-02). Файлы: audio_facade.rs, app/mod.rs. Проверка: cargo test audio_facade
-- [>] **Шаг 45: path_view.rs: PathWindowCache {report, dirty, builds под cfg(test)} — invalidate(), take_dirty(&UiAudioState, &ModeSettings) -> Option<&PathReport>, get(..) -> &PathReport; перенос тестов window_no_recompute_on_idle_ticks, report_rebuilt_after_opened_event, report_rebuilt_after_mode_change, report_subject_skipped_differs_from_no_stream на UiAudioState + кэш; фасад делегирует (ТЗ-79, ТЗ-83, §7.2). Файлы: path_view.rs, audio_facade.rs. Проверка: cargo test path_view**
-- [ ] Шаг 46: badge_view.rs: BadgeViewState {badge, mode, dirty (true на старте)} — set_badge, set_mode, take_view() -> Option<(BadgeView, TestView)>; перенос тестов badge_view_written_once_until_change, badge_view_redirtied_on_mode_change; фасад делегирует (И-Р13, ТЗ-52, ТЗ-61, ТЗ-62). Файлы: badge_view.rs, audio_facade.rs. Проверка: cargo test badge_view
+- [x] Шаг 45: path_view.rs: PathWindowCache {report, dirty, builds под cfg(test)} — invalidate(), take_dirty(&UiAudioState, &ModeSettings) -> Option<&PathReport>, get(..) -> &PathReport; перенос тестов window_no_recompute_on_idle_ticks, report_rebuilt_after_opened_event, report_rebuilt_after_mode_change, report_subject_skipped_differs_from_no_stream на UiAudioState + кэш; фасад делегирует (ТЗ-79, ТЗ-83, §7.2). Файлы: path_view.rs, audio_facade.rs. Проверка: cargo test path_view
+- [>] **Шаг 46: badge_view.rs: BadgeViewState {badge, mode, dirty (true на старте)} — set_badge, set_mode, take_view() -> Option<(BadgeView, TestView)>; перенос тестов badge_view_written_once_until_change, badge_view_redirtied_on_mode_change; фасад делегирует (И-Р13, ТЗ-52, ТЗ-61, ТЗ-62). Файлы: badge_view.rs, audio_facade.rs. Проверка: cargo test badge_view**
 - [ ] Шаг 47: Мост-хелперы MusicApp в app/mod.rs: engine_send(EngineCmd) -> bool, audio() -> &UiAudioState, open_track(&Path) (req_gen, begin_open), on_engine_event(ev) -> Applied (инвалидация кэша окна и бейджа), bit_perfect() через legacy_audio(core.settings().playback, core.state().active_mode()); тела пока через временные аксессоры фасада. Файлы: app/mod.rs, audio_facade.rs. Проверка: cargo check
 - [ ] Шаг 48: playback_manager.rs: все self.player.* → хелперы шага 47 и EngineCmd напрямую (Play/Pause/Stop/Seek/ReleaseExclusive/SetDevice/SetVolume/SetMuted); громкость/mute читаются из core.state().playback() (ADR-01, ADR-02, ADR-14). Проверка: cargo check
 - [ ] Шаг 49: visualizer_manager.rs, playlist_manager.rs: self.player.* → хелперы шага 47 (format, snapshot, AttachVizTap/SetVizTap, Stop) (ADR-02). Проверка: cargo check
@@ -105,8 +105,8 @@
 
 Легенда: [x] сделано · [>] текущий шаг · [ ] не начато
 
-- **Текущий шаг (current_step):** Шаг 45
-- **Следующий ход:** Шаг 45: path_view.rs — PathWindowCache (invalidate/take_dirty/get) + перенос 4 тестов отчёта; фасад делегирует. Проверка: cargo test path_view
+- **Текущий шаг (current_step):** Шаг 46
+- **Следующий ход:** Шаг 46: badge_view.rs — BadgeViewState (set_badge/set_mode/take_view, dirty на старте) + перенос 2 тестов; фасад делегирует. Проверка: cargo test badge_view
 - **Счетчик безуспешных компиляций:** 0/3
 - **Состояние:** in_progress
 
