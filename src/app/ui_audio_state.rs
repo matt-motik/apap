@@ -26,6 +26,15 @@ use music_player_rs::audio::player::StreamDesc;
 use music_player_rs::audio::verdict::BadgeState;
 use music_player_rs::engine::messages::{EngineEvent, Notice, SkipReason, TransportState};
 
+/// Безопасное преобразование числа фреймов (`u64`) в `f64` для расчёта
+/// длительности трека (ТЗ-103). `as` на сэмплах запрещён правилами проекта;
+/// здесь это счётчик фреймов, не сэмпл, и потеря точности `u64 -> f64`
+/// (мантисса 53 бита, ~9·10^15) недостижима для реальных треков — это
+/// намного больше, чем число фреймов трека на разумной частоте дискретизации.
+fn frames_to_f64(frames: u64) -> f64 {
+    frames as f64
+}
+
 /// Ячейка значения с копией «записано в UI» (ADR-02, И-Р13).
 ///
 /// `set` обновляет текущее значение; `take_dirty` отдаёт его, только если
@@ -58,6 +67,13 @@ impl<T: PartialEq + Clone> Written<T> {
         } else {
             None
         }
+    }
+
+    /// Последнее принятое значение без снятия «грязного» флага (ADR-02,
+    /// И-Р13) — для геттеров, читающих состояние многократно вне такта
+    /// синхронизации с UI.
+    fn get(&self) -> Option<&T> {
+        self.value.as_ref()
     }
 }
 
@@ -300,6 +316,69 @@ impl UiAudioState {
     /// на новое открытие и читается целиком.
     pub fn dynamics(&self) -> &DynamicPathState {
         &self.dynamics
+    }
+
+    /// Последнее принятое транспортное состояние без снятия «грязного»
+    /// флага (ADR-02, И-Р13) — для многократного чтения вне такта
+    /// синхронизации с UI.
+    pub fn transport(&self) -> Option<TransportState> {
+        self.transport.get().copied()
+    }
+
+    /// Последняя принятая позиция воспроизведения, `0.0` до первого
+    /// принятого `Opened` (ADR-02, И-Р13).
+    pub fn position_secs(&self) -> f64 {
+        self.position_secs.get().copied().unwrap_or(0.0)
+    }
+
+    /// Метаданные активного трека последней принятой сессии открытия
+    /// (ADR-02, И-Р13).
+    pub fn track(&self) -> Option<&Arc<TrackInfo>> {
+        self.track.get().map(|s| &s.info)
+    }
+
+    /// Описание потока вывода последней принятой сессии открытия; `None`,
+    /// если поток не открыт (ADR-02, И-Р13).
+    pub fn stream_desc(&self) -> Option<&StreamDesc> {
+        self.stream.get().and_then(|s| s.desc.as_ref().as_ref())
+    }
+
+    /// Истина, если транспорт воспроизводит (ADR-02, И-Р13).
+    pub fn is_playing(&self) -> bool {
+        self.transport() == Some(TransportState::Playing)
+    }
+
+    /// Истина, если транспорт остановлен (§6.18, ТЗ-20): отсутствие
+    /// принятого `Transport` (трек ещё не открывался) трактуется как
+    /// остановленное состояние — то же правило, что и у моста С3.
+    pub fn is_stopped(&self) -> bool {
+        matches!(self.transport(), None | Some(TransportState::Stopped))
+    }
+
+    /// Длительность активного трека в секундах, если известно число
+    /// фреймов (ТЗ-103, ADR-02).
+    pub fn duration(&self) -> Option<f64> {
+        let info = self.track()?;
+        let frames = info.num_frames?;
+        Some(frames_to_f64(frames) / f64::from(info.sample_rate))
+    }
+
+    /// `(частота, число каналов)` последнего принятого потока вывода, либо
+    /// дефолт до первого открытия (ADR-02, И-Р13).
+    pub fn format(&self) -> (u32, usize) {
+        match self.stream_desc() {
+            Some(desc) => (desc.rate, usize::from(desc.channels)),
+            None => (44_100, 2),
+        }
+    }
+
+    /// Имя устройства последнего принятого потока вывода, `"none"`, если
+    /// поток не открыт (ADR-02, И-Р13).
+    pub fn device_desc(&self) -> &str {
+        match self.stream_desc() {
+            Some(desc) => &desc.device,
+            None => "none",
+        }
     }
 }
 
@@ -581,5 +660,70 @@ mod tests {
         state.begin_open(2);
         state.apply(EngineEvent::OpenFailed { req_gen: 2, err: OpenError::DeviceLost });
         assert_eq!(state.take_path_dirty(), Some(None));
+    }
+
+    /// Геттеры читают последнее принятое значение (ADR-02, И-Р13) без
+    /// привязки к разовому чтению `take_*_dirty`.
+    #[test]
+    fn getters_hold_last_accepted_values() {
+        let mut state = UiAudioState::new();
+        assert!(state.track().is_none());
+        assert_eq!(state.format(), (44_100, 2));
+        assert_eq!(state.device_desc(), "none");
+
+        state.begin_open(1);
+        state.apply(opened(1));
+        state.apply(EngineEvent::Transport { state: TransportState::Playing });
+        state.apply(EngineEvent::Position { secs: 7.5 });
+
+        assert_eq!(state.transport(), Some(TransportState::Playing));
+        assert_eq!(state.position_secs(), 7.5);
+        assert!(state.track().is_some());
+        assert!(state.is_playing());
+        assert!(!state.is_stopped());
+        assert_eq!(state.duration(), Some(1_000.0 / 44_100.0));
+    }
+
+    /// `take_*_dirty` снимает «грязный» флаг, но не меняет значение,
+    /// отдаваемое геттерами (ADR-02, И-Р13).
+    #[test]
+    fn getters_survive_take_dirty() {
+        let mut state = UiAudioState::new();
+        state.begin_open(1);
+        state.apply(opened(1));
+        state.apply(EngineEvent::Transport { state: TransportState::Playing });
+
+        assert!(state.take_track_dirty().is_some());
+        assert!(state.take_transport_dirty().is_some());
+
+        assert!(state.track().is_some());
+        assert_eq!(state.transport(), Some(TransportState::Playing));
+    }
+
+    /// Устаревшее событие (И-Р14) не меняет значение, видимое геттерами.
+    #[test]
+    fn stale_event_does_not_change_getters() {
+        let mut state = UiAudioState::new();
+        state.begin_open(1);
+        state.apply(opened(1));
+        let track_before = state.track().cloned();
+
+        state.begin_open(2);
+        state.apply(opened(1));
+
+        let track_after = state.track().cloned();
+        assert!(Arc::ptr_eq(track_before.as_ref().expect("трек открыт"), track_after.as_ref().expect("трек открыт")));
+    }
+
+    /// Формат и имя устройства до первого открытия — дефолт, повторяющий
+    /// поведение моста С3.
+    #[test]
+    fn format_and_device_default_before_open() {
+        let state = UiAudioState::new();
+        assert_eq!(state.format(), (44_100, 2));
+        assert_eq!(state.device_desc(), "none");
+        assert!(state.stream_desc().is_none());
+        assert!(state.is_stopped());
+        assert!(!state.is_playing());
     }
 }

@@ -178,7 +178,7 @@ steps:
     done: true
   - id: 42
     description: "UiAudioState: постоянные последние значения рядом с take_*_dirty (не меняя их семантику) — transport(), position_secs(), track(), stream_desc(), is_playing(), is_stopped() (None = остановлен), duration() (frames/rate), format() (дефолт 44100/2) + ≤4 теста (ADR-02, И-Р13, ТЗ-103). Проверка: cargo test ui_audio_state"
-    done: false
+    done: true
   - id: 43
     description: "UiAudioState: ended (взвод на Ended, сброс в begin_open, clear_end), take_opened() одноразово, очередь резервирования (Notice::Reservation → poll_reservation), skipped: Option<Blocked> (Skipped(Incompatible) → Some; прочий Skipped/OpenFailed/новый открытый путь → None) + ≤5 тестов по образцу ended_flag_set_and_cleared, take_opened_returns_once_after_opened_event, reservation_notice_queued_and_polled_once, stale_opened_event_is_ignored (ТЗ-56, ТЗ-80, И-Р14). Проверка: cargo test ui_audio_state"
     done: false
@@ -212,8 +212,8 @@ steps:
   - id: 53
     description: "Удаление легаси (§8, §7.4): StreamDesc, FallbackReason, dsd_pcm_breaks_bit_perfect (тест dsd_pcm_breaks_bit_perfect_detects_conflict уже заменён в verdict.rs; bp_report.rs и bp_report_marks_volume_issue — удалены на шаге 41); ссылки в settings.rs/state_file.rs. Проверка: полный cargo test + clippy --all-targets. Шаг дробится при декомпозиции"
     done: false
-current_step: 42
-next_action: "Шаг 42: UiAudioState — постоянные последние значения transport/position/track/stream и геттеры is_playing/is_stopped/duration/format + ≤4 теста. Проверка: cargo test ui_audio_state"
+current_step: 43
+next_action: "Шаг 43: UiAudioState — ended, take_opened(), очередь резервирования, skipped: Option<Blocked> + ≤5 тестов. Проверка: cargo test ui_audio_state"
 fail_counter: 0
 fail_counter_max: 3
 failed_attempts: []
