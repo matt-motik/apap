@@ -9,6 +9,8 @@ pub mod format;
 pub mod fulltrack;
 pub mod palettes;
 pub mod path;
+#[cfg(target_os = "linux")]
+pub mod rt;
 pub mod spectrogram;
 pub mod test_run;
 pub mod testing;

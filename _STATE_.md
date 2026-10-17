@@ -86,8 +86,8 @@
 - [x] Шаг 25: Шаг 25: alsa_out.rs ч. 2: поток apap-alsa-out — gettid → канал TID, цикл wait/avail_update/writei через ExclusiveRender::render (io_bytes §6.7), счётчик xruns в сессии, stop: AtomicBool, PCM возвращается через JoinHandle; StreamHandle-реализация; AlsaExclusiveBackend::start (§6.7, ТЗ-51, 76, 112). Проверка: cargo check
 - [x] Шаг 26: Шаг 26: StreamHandle::stop(self: Box<Self>) -> Option<PcmHandle> (Exclusive — Some(PCM) для возврата в DeviceClaim вызывающим, Shared — None) в exclusive.rs; в alsa_out.rs/alsa.rs убрать PcmReturnSlot (Arc<Mutex>) — AlsaStreamHandle::stop возвращает PCM из JoinHandle, AlsaExclusiveBackend::start возвращает только Box<dyn StreamHandle>; фейк в audio/testing/mod.rs, если реализует StreamHandle (§2.3, §6.7). Общий тип → Проверка: полный cargo test
 - [x] Шаг 27: Шаг 27: Сигнатура ExclusiveBackend::start дополняется параметрами, нужными потоку (StreamFormat, period_frames из DeviceBufferActual, Arc<SessionShared>) в exclusive.rs; impl ExclusiveBackend for AlsaExclusiveBackend (делегирование inherent-методам) в alsa.rs; FakeExclusiveBackend — под новую сигнатуру (§2.3, §6.7, нужно шагу 31 EngineDeps). Общий тип → Проверка: полный cargo test
-- [>] **Шаг 28: Шаг 28: Новый src/audio/rt.rs ч. 1: при старте движка — чтение свойств rtkit MaxRealtimePriority/RTTimeUSecMax (zbus) и RLIMIT_RTTIME через rustix; чистая функция выбора приоритета min(max, 20) + тест (§6.8, ТЗ-30). Проверка: cargo test rt::**
-- [ ] Шаг 29: Шаг 29: rt.rs ч. 2: служебный поток MakeThreadRealtime(tid, prio) — ожидание TID до 100 мс, результат Option<u32> отдаётся колбэком (§6.8, ТЗ-30, 76). Проверка: cargo check
+- [x] Шаг 28: Шаг 28: Новый src/audio/rt.rs ч. 1: при старте движка — чтение свойств rtkit MaxRealtimePriority/RTTimeUSecMax (zbus) и RLIMIT_RTTIME через rustix; чистая функция выбора приоритета min(max, 20) + тест (§6.8, ТЗ-30). Проверка: cargo test rt::
+- [>] **Шаг 29: Шаг 29: rt.rs ч. 2: служебный поток MakeThreadRealtime(tid, prio) — ожидание TID до 100 мс, результат Option<u32> отдаётся колбэком (§6.8, ТЗ-30, 76). Проверка: cargo check**
 - [ ] Шаг 30: Шаг 30: ЧЕКПОИНТ: полный cargo test + cargo clippy --all-targets
 - [ ] Шаг 31: Шаг 31: EngineDeps: поля exclusive: Box<dyn ExclusiveBackend>, server_probe (если ещё нет) в deps.rs; EngineDeps::system (AlsaExclusiveBackend) и фейковые сборки в deps.rs/engine/tests.rs (§2.7, §8 таблица EngineDeps). Общий тип → Проверка: полный cargo test
 - [ ] Шаг 32: Шаг 32: messages.rs: EngineCmd::Lock(LockInput), EngineEvent::Lock(LockState), EngineEvent::DeviceAutoSelected { mode, device } (§2.8, ADR-24); обработчики-заглушки не нужны — app игнорирует новые события через существующий `_ =>` (проверить). Общий тип → Проверка: полный cargo test
@@ -137,8 +137,8 @@
 
 Легенда: [x] сделано · [>] текущий шаг · [ ] не начато
 
-- **Текущий шаг (current_step):** Шаг 28
-- **Следующий ход:** Шаг 28: Новый src/audio/rt.rs ч. 1: при старте движка — чтение свойств rtkit MaxRealtimePriority/RTTimeUSecMax (zbus) и RLIMIT_RTTIME через rustix; чистая функция выбора приоритета min(max, 20) + тест (§6.8, ТЗ-30). Проверка: cargo test rt::. Свежий субагент code-writer sonnet.
+- **Текущий шаг (current_step):** Шаг 29
+- **Следующий ход:** Шаг 29: rt.rs ч. 2: служебный поток MakeThreadRealtime(tid, prio) — ожидание TID до 100 мс, результат Option<u32> отдаётся колбэком (§6.8, ТЗ-30, 76). Проверка: cargo check. Свежий субагент code-writer sonnet.
 - **Счетчик безуспешных компиляций:** 0/3
 - **Состояние:** in_progress
 
