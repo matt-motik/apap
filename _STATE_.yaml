@@ -181,7 +181,7 @@ steps:
     done: true
   - id: 43
     description: "UiAudioState: ended (взвод на Ended, сброс в begin_open, clear_end), take_opened() одноразово, очередь резервирования (Notice::Reservation → poll_reservation), skipped: Option<Blocked> (Skipped(Incompatible) → Some; прочий Skipped/OpenFailed/новый открытый путь → None) + ≤5 тестов по образцу ended_flag_set_and_cleared, take_opened_returns_once_after_opened_event, reservation_notice_queued_and_polled_once, stale_opened_event_is_ignored (ТЗ-56, ТЗ-80, И-Р14). Проверка: cargo test ui_audio_state"
-    done: false
+    done: true
   - id: 44
     description: "AudioFacade делегирует событийное состояние в UiAudioState (шаги 42–43): удалить поля transport/position_secs/track/opened/stream/ended/reservation_queue/skipped; device_desc из поля → метод, вызов в app/mod.rs (ADR-02). Файлы: audio_facade.rs, app/mod.rs. Проверка: cargo test audio_facade"
     done: false
@@ -212,8 +212,8 @@ steps:
   - id: 53
     description: "Удаление легаси (§8, §7.4): StreamDesc, FallbackReason, dsd_pcm_breaks_bit_perfect (тест dsd_pcm_breaks_bit_perfect_detects_conflict уже заменён в verdict.rs; bp_report.rs и bp_report_marks_volume_issue — удалены на шаге 41); ссылки в settings.rs/state_file.rs. Проверка: полный cargo test + clippy --all-targets. Шаг дробится при декомпозиции"
     done: false
-current_step: 43
-next_action: "Шаг 43: UiAudioState — ended, take_opened(), очередь резервирования, skipped: Option<Blocked> + ≤5 тестов. Проверка: cargo test ui_audio_state"
+current_step: 44
+next_action: "Шаг 44: AudioFacade делегирует событийное состояние в UiAudioState; device_desc → метод. Проверка: cargo test audio_facade"
 fail_counter: 0
 fail_counter_max: 3
 failed_attempts: []

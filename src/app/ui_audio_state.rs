@@ -15,6 +15,7 @@
 //! отдельным шагом, здесь поле только сбрасывается на новое открытие.
 #![allow(dead_code)]
 
+use std::collections::VecDeque;
 use std::path::Path;
 use std::sync::Arc;
 
@@ -22,7 +23,8 @@ use music_player_rs::audio::backend::catalog::DeviceCatalog;
 use music_player_rs::audio::decoder::TrackInfo;
 use music_player_rs::audio::error::{OpenError, Reaction};
 use music_player_rs::audio::path::signal::{DynamicPathState, SignalPath};
-use music_player_rs::audio::player::StreamDesc;
+use music_player_rs::audio::path::Blocked;
+use music_player_rs::audio::player::{ReservationEvent, StreamDesc};
 use music_player_rs::audio::verdict::BadgeState;
 use music_player_rs::engine::messages::{EngineEvent, Notice, SkipReason, TransportState};
 
@@ -174,6 +176,20 @@ pub struct UiAudioState {
     path: Written<PathSnapshot>,
     badge: Written<BadgeState>,
     dynamics: DynamicPathState,
+    /// Истина после принятого `Ended`, пока не снята `clear_end` (ТЗ-56,
+    /// ADR-02) — повторяет семантику моста С3 (`AudioFacade::ended`).
+    ended: bool,
+    /// Вновь принятый `Opened`, ещё не забранный вызывающей стороной —
+    /// снимается один раз через `take_opened` (И-Р14, ADR-02).
+    opened: Option<Arc<TrackInfo>>,
+    /// Уведомления о резервировании устройства, ожидающие снятия, FIFO
+    /// (ТЗ-56, ADR-02) — терминальные `Notice::Reservation` движок шлёт без
+    /// фильтра по `req_gen`, тем же правилом, что и мост С3.
+    reservation_queue: VecDeque<ReservationEvent>,
+    /// Активный план пропуска (`SkipReason::Incompatible`, §2.4, ТЗ-80) —
+    /// предмет отчёта окна «Путь сигнала» (`PathSubject::Skipped`), пока не
+    /// снят новым успешно открытым путём или иным исходом открытия (ТЗ-79).
+    skipped: Option<Blocked>,
 }
 
 impl UiAudioState {
@@ -181,9 +197,12 @@ impl UiAudioState {
         Self::default()
     }
 
-    /// Регистрирует `req_gen` команды `Open`, отправленной UI (И-Р14).
+    /// Регистрирует `req_gen` команды `Open`, отправленной UI (И-Р14), и
+    /// сбрасывает флаг завершения прошлой сессии (ТЗ-56, ADR-02) — повторяет
+    /// `AudioFacade::open`, который сбрасывает `ended` рядом с `begin_open`.
     pub fn begin_open(&mut self, req_gen: u64) {
         self.latest_req_gen = req_gen;
+        self.ended = false;
     }
 
     /// Накладывает событие движка на состояние. Возвращает `Applied::None`
@@ -196,9 +215,17 @@ impl UiAudioState {
                     return Applied::None;
                 }
                 self.session = Some(req_gen);
-                self.track.set(TrackSnapshot { session: req_gen, info: Arc::new(info) });
+                let info = Arc::new(info);
+                self.track.set(TrackSnapshot { session: req_gen, info: info.clone() });
+                // Снимается один раз через `take_opened` (И-Р14, ADR-02).
+                self.opened = Some(info);
                 self.stream.set(StreamSnapshot { session: req_gen, desc: Arc::new(stream) });
                 self.position_secs.set(0.0);
+                // Успешно открытый путь снимает хранимый план пропуска — он
+                // относится к прошлому треку (ТЗ-79, ТЗ-80).
+                if path.is_some() {
+                    self.skipped = None;
+                }
                 self.path.set(PathSnapshot(path));
                 self.badge.set(badge);
                 self.dynamics = DynamicPathState::default();
@@ -213,6 +240,12 @@ impl UiAudioState {
                 self.path.set(PathSnapshot(None));
                 self.badge.set(BadgeState::NoStream);
                 self.dynamics = DynamicPathState::default();
+                // Только несовместимость (ТЗ-80) — предмет отчёта «Путь
+                // сигнала»; прочие причины пропуска снимают прошлый план.
+                self.skipped = match &reason {
+                    SkipReason::Incompatible(blocked) => Some(blocked.clone()),
+                    SkipReason::File(_) => None,
+                };
                 Applied::Skipped { path, reason }
             }
             EngineEvent::OpenFailed { req_gen, err } => {
@@ -224,12 +257,14 @@ impl UiAudioState {
                 self.path.set(PathSnapshot(None));
                 self.badge.set(BadgeState::NoStream);
                 self.dynamics = DynamicPathState::default();
+                self.skipped = None;
                 Applied::OpenFailed { err }
             }
             EngineEvent::Ended { session } => {
                 if self.session != Some(session) {
                     return Applied::None;
                 }
+                self.ended = true;
                 Applied::Ended
             }
             EngineEvent::Transport { state } => {
@@ -263,7 +298,15 @@ impl UiAudioState {
                 self.devices.set(DeviceSnapshot(catalog));
                 Applied::None
             }
-            EngineEvent::Notice(notice) => Applied::Notice(notice),
+            EngineEvent::Notice(notice) => {
+                // Движок публикует только терминальные `Notice::Reservation`
+                // без фильтра по `req_gen` (ТЗ-56, ADR-02) — та же очередь,
+                // что и у моста С3.
+                if let Notice::Reservation(event) = &notice {
+                    self.reservation_queue.push_back(event.clone());
+                }
+                Applied::Notice(notice)
+            }
             EngineEvent::ShutdownComplete => Applied::ShutdownComplete,
         }
     }
@@ -309,6 +352,36 @@ impl UiAudioState {
     /// такта синхронизации, например статус-строкой).
     pub fn path(&self) -> Option<&Arc<SignalPath>> {
         self.path.value.as_ref().and_then(|p| p.0.as_ref())
+    }
+
+    /// Истина после принятого `Ended`, пока не снята `clear_end` (ТЗ-56,
+    /// ADR-02).
+    pub fn ended(&self) -> bool {
+        self.ended
+    }
+
+    /// Снять флаг завершения сессии (ТЗ-56, ADR-02).
+    pub fn clear_end(&mut self) {
+        self.ended = false;
+    }
+
+    /// Снять вновь принятый `Opened`, если он есть, — одноразовое чтение для
+    /// вызывающей стороны (И-Р14, ADR-02); повторный вызов до следующего
+    /// `Opened` вернёт `None`.
+    pub fn take_opened(&mut self) -> Option<Arc<TrackInfo>> {
+        self.opened.take()
+    }
+
+    /// Снять очередное уведомление о резервировании устройства, FIFO (ТЗ-56,
+    /// ADR-02).
+    pub fn poll_reservation(&mut self) -> Option<ReservationEvent> {
+        self.reservation_queue.pop_front()
+    }
+
+    /// Активный план пропуска (`SkipReason::Incompatible`, §2.4, ТЗ-80),
+    /// если предмет отчёта окна «Путь сигнала» сейчас — пропущенный трек.
+    pub fn skipped(&self) -> Option<&Blocked> {
+        self.skipped.as_ref()
     }
 
     /// Текущая динамическая часть пути (§3.5). Событие `DynamicsChanged` и
@@ -725,5 +798,122 @@ mod tests {
         assert!(state.stream_desc().is_none());
         assert!(state.is_stopped());
         assert!(!state.is_playing());
+    }
+
+    /// Снимок `Blocked` для теста `skipped` (§2.4, ТЗ-80) — только то, что
+    /// нужно, чтобы `plan()` не вызывать: минимальный `PathPlan` со
+    /// Строгим режимом, остановленный на этапе «Выход».
+    fn test_blocked() -> Blocked {
+        use std::num::NonZeroU8;
+
+        use music_player_rs::audio::error::Incompatibility;
+        use music_player_rs::audio::format::{
+            BitDepth, ChannelLayout, Codec, Container, OutputSampleFormat, SampleRate, SourceFormat, SourceKind,
+            StreamFormat,
+        };
+        use music_player_rs::audio::path::{PathPlan, Route, StageId};
+        use music_player_rs::audio::session::RingPayload;
+        use music_player_rs::settings::playback::ModeKind;
+        use smallvec::SmallVec;
+
+        let rate = SampleRate::new(44_100).expect("44100 — валидная частота");
+        let bits = BitDepth::new(16).expect("16 бит — валидная разрядность");
+        let target = StreamFormat {
+            rate,
+            sample: OutputSampleFormat::S32Le,
+            channels: NonZeroU8::new(2).expect("2 канала — валидно"),
+        };
+        let partial = PathPlan {
+            mode: ModeKind::Strict,
+            source: SourceFormat {
+                container: Container::Flac,
+                codec: Codec::Flac,
+                lossy: false,
+                rate,
+                layout: ChannelLayout::stereo(),
+                kind: SourceKind::Pcm { bits },
+            },
+            route: Route::Pcm,
+            transforms: SmallVec::new(),
+            target,
+            ring: RingPayload::ExactI32 { valid_bits: bits },
+            dsd_chain: None,
+        };
+        Blocked { at: StageId::Output, reason: Incompatibility::FloatUnsupported, partial }
+    }
+
+    /// ТЗ-56, ADR-02: `ended` взводится принятым `Ended` для активной сессии
+    /// и снимается `clear_end` — повторяет тест моста С3
+    /// `ended_flag_set_and_cleared`.
+    #[test]
+    fn ended_flag_set_and_cleared() {
+        let mut state = UiAudioState::new();
+        state.begin_open(1);
+        state.apply(opened(1));
+        assert!(!state.ended());
+
+        let applied = state.apply(EngineEvent::Ended { session: 1 });
+        assert_eq!(applied, Applied::Ended);
+        assert!(state.ended());
+
+        state.clear_end();
+        assert!(!state.ended());
+    }
+
+    /// И-Р14, ADR-02: `take_opened` отдаёт принятый `Opened` один раз —
+    /// повторяет тест моста С3 `take_opened_returns_once_after_opened_event`.
+    #[test]
+    fn take_opened_returns_once_after_opened_event() {
+        let mut state = UiAudioState::new();
+        state.begin_open(1);
+        assert!(state.take_opened().is_none());
+
+        state.apply(opened(1));
+        assert!(state.take_opened().is_some());
+        assert!(state.take_opened().is_none());
+    }
+
+    /// ТЗ-56, ADR-02: уведомление о резервировании ставится в очередь и
+    /// снимается один раз — повторяет тест моста С3
+    /// `reservation_notice_queued_and_polled_once`.
+    #[test]
+    fn reservation_notice_queued_and_polled_once() {
+        let mut state = UiAudioState::new();
+        assert!(state.poll_reservation().is_none());
+
+        state.apply(EngineEvent::Notice(Notice::Reservation(ReservationEvent::Opened)));
+        assert_eq!(state.poll_reservation(), Some(ReservationEvent::Opened));
+        assert!(state.poll_reservation().is_none());
+    }
+
+    /// И-Р14, ADR-02: устаревшее `Opened` не взводит `take_opened` —
+    /// повторяет тест моста С3 `stale_opened_event_is_ignored`.
+    #[test]
+    fn stale_opened_event_is_ignored() {
+        let mut state = UiAudioState::new();
+        state.begin_open(1);
+        state.begin_open(2);
+
+        state.apply(opened(1));
+        assert!(state.take_opened().is_none());
+    }
+
+    /// ТЗ-79, ТЗ-80, §2.4: `skipped` взводится `Skipped(Incompatible)` и
+    /// снимается следующим принятым `Opened` с построенным путём.
+    #[test]
+    fn skipped_set_by_incompatible_and_cleared_by_opened() {
+        let mut state = UiAudioState::new();
+        state.begin_open(1);
+
+        state.apply(EngineEvent::Skipped {
+            req_gen: 1,
+            path: Arc::from(Path::new("/tmp/a.flac")),
+            reason: SkipReason::Incompatible(test_blocked()),
+        });
+        assert!(state.skipped().is_some());
+
+        state.begin_open(2);
+        state.apply(opened_with_badge(2, Some(test_signal_path(1)), BadgeState::NoStream));
+        assert!(state.skipped().is_none());
     }
 }

@@ -91,8 +91,8 @@
 - [x] Шаг 40: Очистка моста окна: удалить bp-stream-desc/bp-source-desc/bp-reasons/bp-positives/bp-report-action, BpReason из app.slint и push_bp_report_to_ui/вызовы bp_report в mod.rs (ЧЕКПОИНТ). Проверка: cargo build + полный cargo test + clippy --all-targets
 - [x] Шаг 41: Удалить мёртвый src/app/bp_report.rs (ссылок нет с шага 40) и pub mod bp_report в app/mod.rs — часть удаления легаси, перенесена вперёд: снимает 7 вызовов фасада (§8, ADR-06). Проверка: cargo build
 - [x] Шаг 42: UiAudioState: постоянные последние значения рядом с take_*_dirty (не меняя их семантику) — transport(), position_secs(), track(), stream_desc(), is_playing(), is_stopped() (None = остановлен), duration() (frames/rate), format() (дефолт 44100/2) + ≤4 теста (ADR-02, И-Р13, ТЗ-103). Проверка: cargo test ui_audio_state
-- [>] **Шаг 43: UiAudioState: ended (взвод на Ended, сброс в begin_open, clear_end), take_opened() одноразово, очередь резервирования (Notice::Reservation → poll_reservation), skipped: Option<Blocked> (Skipped(Incompatible) → Some; прочий Skipped/OpenFailed/новый открытый путь → None) + ≤5 тестов по образцу ended_flag_set_and_cleared, take_opened_returns_once_after_opened_event, reservation_notice_queued_and_polled_once, stale_opened_event_is_ignored (ТЗ-56, ТЗ-80, И-Р14). Проверка: cargo test ui_audio_state**
-- [ ] Шаг 44: AudioFacade делегирует событийное состояние в UiAudioState (шаги 42–43): удалить поля transport/position_secs/track/opened/stream/ended/reservation_queue/skipped; device_desc из поля → метод, вызов в app/mod.rs (ADR-02). Файлы: audio_facade.rs, app/mod.rs. Проверка: cargo test audio_facade
+- [x] Шаг 43: UiAudioState: ended (взвод на Ended, сброс в begin_open, clear_end), take_opened() одноразово, очередь резервирования (Notice::Reservation → poll_reservation), skipped: Option<Blocked> (Skipped(Incompatible) → Some; прочий Skipped/OpenFailed/новый открытый путь → None) + ≤5 тестов по образцу ended_flag_set_and_cleared, take_opened_returns_once_after_opened_event, reservation_notice_queued_and_polled_once, stale_opened_event_is_ignored (ТЗ-56, ТЗ-80, И-Р14). Проверка: cargo test ui_audio_state
+- [>] **Шаг 44: AudioFacade делегирует событийное состояние в UiAudioState (шаги 42–43): удалить поля transport/position_secs/track/opened/stream/ended/reservation_queue/skipped; device_desc из поля → метод, вызов в app/mod.rs (ADR-02). Файлы: audio_facade.rs, app/mod.rs. Проверка: cargo test audio_facade**
 - [ ] Шаг 45: path_view.rs: PathWindowCache {report, dirty, builds под cfg(test)} — invalidate(), take_dirty(&UiAudioState, &ModeSettings) -> Option<&PathReport>, get(..) -> &PathReport; перенос тестов window_no_recompute_on_idle_ticks, report_rebuilt_after_opened_event, report_rebuilt_after_mode_change, report_subject_skipped_differs_from_no_stream на UiAudioState + кэш; фасад делегирует (ТЗ-79, ТЗ-83, §7.2). Файлы: path_view.rs, audio_facade.rs. Проверка: cargo test path_view
 - [ ] Шаг 46: badge_view.rs: BadgeViewState {badge, mode, dirty (true на старте)} — set_badge, set_mode, take_view() -> Option<(BadgeView, TestView)>; перенос тестов badge_view_written_once_until_change, badge_view_redirtied_on_mode_change; фасад делегирует (И-Р13, ТЗ-52, ТЗ-61, ТЗ-62). Файлы: badge_view.rs, audio_facade.rs. Проверка: cargo test badge_view
 - [ ] Шаг 47: Мост-хелперы MusicApp в app/mod.rs: engine_send(EngineCmd) -> bool, audio() -> &UiAudioState, open_track(&Path) (req_gen, begin_open), on_engine_event(ev) -> Applied (инвалидация кэша окна и бейджа), bit_perfect() через legacy_audio(core.settings().playback, core.state().active_mode()); тела пока через временные аксессоры фасада. Файлы: app/mod.rs, audio_facade.rs. Проверка: cargo check
@@ -105,8 +105,8 @@
 
 Легенда: [x] сделано · [>] текущий шаг · [ ] не начато
 
-- **Текущий шаг (current_step):** Шаг 43
-- **Следующий ход:** Шаг 43: UiAudioState — ended, take_opened(), очередь резервирования, skipped: Option<Blocked> + ≤5 тестов. Проверка: cargo test ui_audio_state
+- **Текущий шаг (current_step):** Шаг 44
+- **Следующий ход:** Шаг 44: AudioFacade делегирует событийное состояние в UiAudioState; device_desc → метод. Проверка: cargo test audio_facade
 - **Счетчик безуспешных компиляций:** 0/3
 - **Состояние:** in_progress
 
