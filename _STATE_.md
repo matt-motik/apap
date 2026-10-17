@@ -73,8 +73,8 @@
 - [x] Шаг 12: Шаг 12: Функция lock_step(state, input, mode, dev: Option<&HwDeviceId>) -> (LockState, SmallVec<[LockEffect;2]>) по таблице §6.19 в engine/lock.rs (ТЗ-118…123, 125, 126, 144). Проверка: cargo check
 - [x] Шаг 13: Шаг 13: Тесты lock_step ч. 1: lock_step_is_total (каждая пара состояние×вход), Compatible → NotApplicable, no_device_selected_* (Acquire без устройства → Failed(NoDeviceSelected), эффектов нет) — ≤5 (§7.2, ТЗ-144). Проверка: cargo test lock_step
 - [x] Шаг 14: Шаг 14: Тесты lock_step ч. 2: UserClose/UserOpen/CaptureAndPlay/DeviceLost/DeviceReappeared/RetryCapture — ≤5 (§7.2, ТЗ-120…126). Проверка: cargo test lock_step
-- [>] **Шаг 15: Шаг 15: Чистая функция resolve_device(opts_device, probe, catalog) -> Resolved { Selected | AutoSelected(HwDeviceId) | None } в engine/lock.rs; выбранное устройство — без опроса probe (счётчик FakeServerProbe = 0) + тесты ≤4 (ADR-24, ТЗ-143, 144). Проверка: cargo test resolve_device**
-- [ ] Шаг 16: Шаг 16: ЧЕКПОИНТ: полный cargo test + cargo clippy --all-targets (фильтр по вайтлисту)
+- [x] Шаг 15: Шаг 15: Чистая функция resolve_device(opts_device, probe, catalog) -> Resolved { Selected | AutoSelected(HwDeviceId) | None } в engine/lock.rs; выбранное устройство — без опроса probe (счётчик FakeServerProbe = 0) + тесты ≤4 (ADR-24, ТЗ-143, 144). Проверка: cargo test resolve_device
+- [>] **Шаг 16: Шаг 16: ЧЕКПОИНТ: полный cargo test + cargo clippy --all-targets (фильтр по вайтлисту)**
 - [ ] Шаг 17: Шаг 17: Новый src/audio/backend/alsa.rs: AlsaExclusiveBackend — caps, enumerate (карты/устройства через alsa ctl → HwDeviceInfo, имя hw:CARD=<id>,DEV=<d>), device_caps по открытому PCM (§2.3, §6.6, ТЗ-42…47). Без acquire/configure/start. Проверка: cargo check
 - [ ] Шаг 18: Шаг 18: Заполнение DeviceCatalog.hw при обновлении каталога (refresh_devices: перечисление ExclusiveBackend::enumerate, generation) в backend/catalog.rs (§2.3, ТЗ-42). Проверка: cargo test catalog
 - [ ] Шаг 19: Шаг 19: AlsaExclusiveBackend::acquire ч. 1: композиция резервирования — reservation::acquire → Reservation, отображение ошибок D-Bus в CaptureFailure (ReservationDenied{owner}, OwnerNotResponding, NoSessionBus) — для AM1.0-B2 владелец сохраняется в ошибке (§6.6, ТЗ-48, 117, 46, 122). Проверка: cargo check
@@ -135,8 +135,8 @@
 
 Легенда: [x] сделано · [>] текущий шаг · [ ] не начато
 
-- **Текущий шаг (current_step):** Шаг 15
-- **Следующий ход:** Шаг 15: Чистая функция resolve_device(opts_device, probe, catalog) -> Resolved { Selected | AutoSelected(HwDeviceId) | None } в engine/lock.rs; выбранное устройство — без опроса probe (счётчик FakeServerProbe = 0) + тесты ≤4 (ADR-24, ТЗ-143, 144). Проверка: cargo test resolve_device. Свежий субагент code-writer sonnet.
+- **Текущий шаг (current_step):** Шаг 16
+- **Следующий ход:** Шаг 16: ЧЕКПОИНТ: полный cargo test + cargo clippy --all-targets (фильтр по вайтлисту). Свежий субагент code-writer sonnet.
 - **Счетчик безуспешных компиляций:** 0/3
 - **Состояние:** in_progress
 

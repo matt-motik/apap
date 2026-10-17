@@ -6,10 +6,12 @@
 
 use smallvec::{smallvec, SmallVec};
 
+use crate::audio::backend::catalog::DeviceCatalog;
 use crate::audio::backend::exclusive::ClaimInfo;
 use crate::audio::backend::HwDeviceId;
 use crate::audio::clock::ClockInstant;
 use crate::audio::error::CaptureFailure;
+use crate::audio::reservation::AudioServerProbe;
 use crate::engine::messages::TrackRef;
 use crate::settings::playback::ModeKind;
 
@@ -56,6 +58,53 @@ pub enum LockEffect {
     Release,
     StopPlayback,
     ForgetReacquire,
+}
+
+/// Результат разрешения устройства режима перед эффектом `Acquire` (ADR-24,
+/// ТЗ-143, ТЗ-144, §6.19). `Selected` — устройство взято из настроек режима
+/// как есть, без опроса системного выхода; `AutoSelected` — найдено
+/// автовыбором по текущему системному выходу (движок должен записать его в
+/// копию опций режима и послать `EngineEvent::DeviceAutoSelected`); `None` —
+/// устройство не выбрано и автовыбор не дал результата.
+#[derive(Clone, PartialEq, Debug)]
+pub enum Resolved {
+    Selected(HwDeviceId),
+    AutoSelected(HwDeviceId),
+    None,
+}
+
+impl Resolved {
+    /// Устройство для передачи в `lock_step` как `dev`, независимо от того,
+    /// выбрано оно в настройках или автовыбором (ADR-24).
+    pub fn device(&self) -> Option<&HwDeviceId> {
+        match self {
+            Resolved::Selected(d) | Resolved::AutoSelected(d) => Some(d),
+            Resolved::None => None,
+        }
+    }
+}
+
+/// Разрешение устройства режима перед эффектом `Acquire` (ADR-24, ТЗ-143,
+/// ТЗ-144, §6.19). Выбранное в настройках устройство (`opts_device = Some(d)`)
+/// используется как есть — системный выход не опрашивается. Иначе —
+/// автовыбор: `probe.default_sink_card()` и перевод карты в `HwDeviceId` через
+/// `catalog.hw_for_sink`; отсутствие утилиты, сервера, свойства
+/// `api.alsa.pcm.card` у узла или соответствия в каталоге даёт `None`.
+pub fn resolve_device(
+    opts_device: Option<&HwDeviceId>,
+    probe: &dyn AudioServerProbe,
+    catalog: &DeviceCatalog,
+) -> Resolved {
+    if let Some(d) = opts_device {
+        return Resolved::Selected(d.clone());
+    }
+    let Some(card) = probe.default_sink_card() else {
+        return Resolved::None;
+    };
+    match catalog.hw_for_sink(card) {
+        Some(id) => Resolved::AutoSelected(id.clone()),
+        None => Resolved::None,
+    }
 }
 
 /// Строка таблицы «любое (Совм.) `ModeSelected(Optimal/Strict)` → `Acquiring`,
@@ -178,6 +227,14 @@ pub fn lock_step(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    use crate::audio::backend::catalog::HwDeviceInfo;
+    use crate::audio::reservation::SinkCard;
+    use crate::audio::testing::FakeServerProbe;
+
+    fn fake_hw(id: &str, card: u32, device: u32) -> HwDeviceInfo {
+        HwDeviceInfo { id: id.parse().expect("hw id"), card, device, name: String::new() }
+    }
 
     /// Устройство режима, используемое как `dev` (разрешённое движком, ADR-24).
     fn dev_a() -> HwDeviceId {
@@ -465,5 +522,47 @@ mod tests {
             assert_eq!(new_state, LockState::Failed(CaptureFailure::OwnerNotResponding), "mode={mode:?}");
             assert!(effects.is_empty(), "mode={mode:?}");
         }
+    }
+
+    /// `resolve_device` (ADR-24, ТЗ-143): устройство задано в настройках —
+    /// `Selected(d)` без обращения к пробнику системного выхода.
+    #[test]
+    fn resolve_device_with_opts_device_selects_without_probing() {
+        let probe = FakeServerProbe::desktop();
+        let catalog = DeviceCatalog::default();
+        let got = resolve_device(Some(&dev_a()), &probe, &catalog);
+        assert_eq!(got, Resolved::Selected(dev_a()));
+        assert_eq!(probe.sink_card_calls(), 0);
+    }
+
+    /// `resolve_device` (ADR-24, ТЗ-143): без устройства в настройках, карта
+    /// системного выхода есть и найдена в каталоге — `AutoSelected`.
+    #[test]
+    fn resolve_device_without_opts_device_auto_selects_from_catalog() {
+        let probe = FakeServerProbe::desktop().with_sink_card(Some(SinkCard { card: 0, device: Some(0) }));
+        let catalog = DeviceCatalog { hw: vec![fake_hw("hw:CARD=PCH,DEV=0", 0, 0)], ..Default::default() };
+        let got = resolve_device(None, &probe, &catalog);
+        assert_eq!(got, Resolved::AutoSelected("hw:CARD=PCH,DEV=0".parse().expect("valid")));
+    }
+
+    /// `resolve_device` (ADR-24, ТЗ-143, ТЗ-144): без устройства в настройках,
+    /// пробник не нашёл карту системного выхода (нет утилиты/сервера/таймаут) —
+    /// `None`.
+    #[test]
+    fn resolve_device_without_sink_card_is_none() {
+        let probe = FakeServerProbe::desktop();
+        let catalog = DeviceCatalog::default();
+        let got = resolve_device(None, &probe, &catalog);
+        assert_eq!(got, Resolved::None);
+    }
+
+    /// `resolve_device` (ADR-24, ТЗ-143, ТЗ-144): карта системного выхода есть,
+    /// но в каталоге нет соответствующей ей `hw`-записи — `None`.
+    #[test]
+    fn resolve_device_card_not_in_catalog_is_none() {
+        let probe = FakeServerProbe::desktop().with_sink_card(Some(SinkCard { card: 5, device: None }));
+        let catalog = DeviceCatalog { hw: vec![fake_hw("hw:CARD=PCH,DEV=0", 0, 0)], ..Default::default() };
+        let got = resolve_device(None, &probe, &catalog);
+        assert_eq!(got, Resolved::None);
     }
 }
