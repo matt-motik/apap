@@ -184,7 +184,7 @@ steps:
     done: true
   - id: 44
     description: "AudioFacade делегирует событийное состояние в UiAudioState (шаги 42–43): удалить поля transport/position_secs/track/opened/stream/ended/reservation_queue/skipped; device_desc из поля → метод, вызов в app/mod.rs (ADR-02). Файлы: audio_facade.rs, app/mod.rs. Проверка: cargo test audio_facade"
-    done: false
+    done: true
   - id: 45
     description: "path_view.rs: PathWindowCache {report, dirty, builds под cfg(test)} — invalidate(), take_dirty(&UiAudioState, &ModeSettings) -> Option<&PathReport>, get(..) -> &PathReport; перенос тестов window_no_recompute_on_idle_ticks, report_rebuilt_after_opened_event, report_rebuilt_after_mode_change, report_subject_skipped_differs_from_no_stream на UiAudioState + кэш; фасад делегирует (ТЗ-79, ТЗ-83, §7.2). Файлы: path_view.rs, audio_facade.rs. Проверка: cargo test path_view"
     done: false
@@ -212,8 +212,8 @@ steps:
   - id: 53
     description: "Удаление легаси (§8, §7.4): StreamDesc, FallbackReason, dsd_pcm_breaks_bit_perfect (тест dsd_pcm_breaks_bit_perfect_detects_conflict уже заменён в verdict.rs; bp_report.rs и bp_report_marks_volume_issue — удалены на шаге 41); ссылки в settings.rs/state_file.rs. Проверка: полный cargo test + clippy --all-targets. Шаг дробится при декомпозиции"
     done: false
-current_step: 44
-next_action: "Шаг 44: AudioFacade делегирует событийное состояние в UiAudioState; device_desc → метод. Проверка: cargo test audio_facade"
+current_step: 45
+next_action: "Шаг 45: path_view.rs — PathWindowCache (invalidate/take_dirty/get) + перенос 4 тестов отчёта; фасад делегирует. Проверка: cargo test path_view"
 fail_counter: 0
 fail_counter_max: 3
 failed_attempts: []

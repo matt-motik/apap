@@ -1,50 +1,40 @@
 //! Временный мост С3 между `MusicApp` и потоком `apap-engine` (ADR-01,
 //! ADR-02, ТЗ-103).
 //!
-//! `AudioFacade` подставляется вместо `Player` (шаг 30) и повторяет имена и
-//! сигнатуры методов/поля `Player`, которые использует `src/app/*` — чтобы
-//! вызывающий код не менялся. Вся реальная работа уходит через
-//! `EngineHandle::send(EngineCmd)` в поток движка; видимое UI состояние
-//! (транспорт, позиция, трек, поток, устройство) кэшируется здесь же из
-//! входящих `EngineEvent` (`on_event`), а не читается через
-//! `UiAudioState::take_*_dirty` — у геттеров фасада нет «разового» чтения.
-//! `UiAudioState` используется внутри `on_event` только чтобы переиспользовать
-//! её фильтр устаревших событий по `req_gen` (И-Р14, ТЗ-56): принятое
-//! значение взводит `take_*_dirty`, устаревшее — нет, и кэш фасада просто
-//! копирует то, что оказалось «грязным» в момент разбора этого события.
+//! `AudioFacade` подставляется вместо `Player` на вызывающей стороне (шаг 30)
+//! и повторяет имена и сигнатуры методов/поля `Player`, которые использует
+//! `src/app/*` — чтобы вызывающий код не менялся. Вся реальная работа уходит
+//! через `EngineHandle::send(EngineCmd)` в поток движка; видимое UI состояние
+//! (транспорт, позиция, трек, поток, устройство, резервирование, завершение
+//! сессии, план пропуска) не кэшируется отдельными полями фасада — геттеры
+//! делегируют прямо в `UiAudioState` (`self.state`), которая уже реализует
+//! этот кэш и фильтр устаревших событий по `req_gen` (И-Р14, ТЗ-56). `on_event`
+//! лишь дополнительно взводит собственные флаги фасада (вид бейджа, отчёт
+//! окна «Путь сигнала»), о которых `UiAudioState` не знает.
 //!
 //! Мост снимается на этапе С5: вызовы фасада в `src/app/*` заменяются на
 //! прямую работу с `EngineHandle`/`SignalPath`/`BadgeState`; состояние
 //! фасада переносится целиком, не по файлам.
 #![allow(dead_code)] // часть API моста используется только тестами
 
-use std::collections::VecDeque;
 use std::path::Path;
 use std::sync::Arc;
 
 use music_player_rs::audio::decoder::TrackInfo;
 use music_player_rs::audio::path::recommend::PathSubject;
 use music_player_rs::audio::path::report::{build_report, PathReport};
-use music_player_rs::audio::path::Blocked;
 use music_player_rs::audio::player::{ReservationEvent, StreamDesc};
 use music_player_rs::audio::verdict::BadgeState;
 use music_player_rs::engine::legacy_path::legacy_audio;
-use music_player_rs::engine::messages::{EngineCmd, EngineEvent, Notice, SkipReason, TransportState};
+use music_player_rs::engine::messages::{EngineCmd, EngineEvent};
+#[cfg(test)]
+use music_player_rs::engine::messages::{SkipReason, TransportState};
 use music_player_rs::engine::run::EngineHandle;
 use music_player_rs::settings::params::ModeSettingsUpdate;
 use music_player_rs::settings::playback::{ModeKind, ModeSettings};
 
 use super::badge_view::{badge_view, test_view, BadgeView, TestView};
 use super::ui_audio_state::{Applied, UiAudioState};
-
-/// Безопасное преобразование числа фреймов (`u64`) в `f64` для расчёта
-/// длительности трека (ТЗ-103). `as` на сэмплах запрещён правилами проекта;
-/// здесь это счётчик фреймов, не сэмпл, и потеря точности `u64 -> f64`
-/// (мантисса 53 бита, ~9·10^15) недостижима для реальных треков — это
-/// намного больше, чем число фреймов трека на разумной частоте дискретизации.
-fn frames_to_f64(frames: u64) -> f64 {
-    frames as f64
-}
 
 /// Мост С3: заменяет `Player` на вызывающей стороне (ADR-01, ADR-02).
 ///
@@ -54,8 +44,10 @@ fn frames_to_f64(frames: u64) -> f64 {
 /// не `self.engine`, а входящие `EngineEvent`.
 pub(crate) struct AudioFacade {
     engine: Option<EngineHandle>,
-    /// Только для фильтра устаревших событий по `req_gen` внутри `on_event`
-    /// (И-Р14) — геттеры фасада его не читают напрямую.
+    /// Зеркало состояния движка в UI-потоке — единственный источник правды
+    /// для транспорта/позиции/трека/потока/устройства/резервирования/
+    /// завершения сессии и плана пропуска; геттеры фасада делегируют сюда
+    /// (ADR-02, И-Р13, И-Р14).
     state: UiAudioState,
     /// Настройки трёх режимов — копия для расчёта `ModeSettingsDiff` между
     /// последовательными `set_mode_settings` (ОВС-14, §6.18, ADR-22).
@@ -68,17 +60,6 @@ pub(crate) struct AudioFacade {
     req_gen: u64,
     volume: f32,
     muted: bool,
-    /// `true` после `Applied::Ended`, пока не вызван `clear_end` — повторяет
-    /// `Player::ended() == at_end() && !end_ack` одним флагом.
-    ended: bool,
-    reservation_queue: VecDeque<ReservationEvent>,
-    transport: Option<TransportState>,
-    position_secs: f64,
-    track: Option<Arc<TrackInfo>>,
-    /// Вновь принятый `Opened`, ещё не забранный вызывающей стороной —
-    /// снимается один раз через `take_opened` (ADR-02, И-Р13).
-    opened: Option<Arc<TrackInfo>>,
-    stream: Option<Arc<Option<StreamDesc>>>,
     /// Текущий бейдж тракта (ADR-06, ТЗ-52, ТЗ-60) — зеркало
     /// `UiAudioState::take_badge_dirty`, снимается через `take_badge_view`.
     badge: BadgeState,
@@ -86,13 +67,6 @@ pub(crate) struct AudioFacade {
     /// `take_badge_view` — вид бейджа/теста нужно пересчитать и записать в
     /// UI (И-Р13, ТЗ-61, ТЗ-62).
     badge_view_dirty: bool,
-    /// Зеркало `Player::device_desc` — публичное поле, не метод (сохраняет
-    /// синтаксис вызывающей стороны `self.player.device_desc`).
-    pub(crate) device_desc: String,
-    /// Активный план пропуска (`SkipReason::Incompatible`, §2.4, ТЗ-80) —
-    /// предмет отчёта окна «Путь сигнала» (`PathSubject::Skipped`), пока не
-    /// снят новым успешно открытым путём или иным исходом открытия (ТЗ-79).
-    skipped: Option<Blocked>,
     /// Кэш отчёта окна «Путь сигнала» (ТЗ-79, ТЗ-83, §7.2) — пересчитывается
     /// только через `take_report_dirty`/`path_report`, никогда по тику UI.
     report: Option<PathReport>,
@@ -121,20 +95,11 @@ impl AudioFacade {
             req_gen: 0,
             volume: 0.8,
             muted: false,
-            ended: false,
-            reservation_queue: VecDeque::new(),
-            transport: None,
-            position_secs: 0.0,
-            track: None,
-            opened: None,
-            stream: None,
             badge: BadgeState::NoStream,
             // `true` с самого начала: первый тик должен записать в UI
             // бейдж «Нет потока», иначе Slint-дефолт `BadgeKind.none`
             // покажет старые блоки совместимости (ТЗ-52, ТЗ-56).
             badge_view_dirty: true,
-            device_desc: "none".to_string(),
-            skipped: None,
             report: None,
             // `true` с самого начала — первое чтение (`path_report`/
             // `take_report_dirty`) должно построить отчёт «Поток не открыт»
@@ -179,52 +144,20 @@ impl AudioFacade {
     pub(crate) fn on_event(&mut self, ev: EngineEvent) -> Applied {
         let applied = self.state.apply(ev);
 
-        if let Some(info) = self.state.take_track_dirty() {
-            self.opened = Some(info.clone());
-            self.track = Some(info);
-        }
-        if let Some(stream) = self.state.take_stream_dirty() {
-            self.device_desc = stream
-                .as_ref()
-                .as_ref()
-                .map(|d| d.device.clone())
-                .unwrap_or_else(|| "none".to_string());
-            self.stream = Some(stream);
-        }
-        if let Some(transport) = self.state.take_transport_dirty() {
-            self.transport = Some(transport);
-        }
-        if let Some(pos) = self.state.take_position_dirty() {
-            self.position_secs = pos;
-        }
         if let Some(b) = self.state.take_badge_dirty() {
             self.badge = b;
             self.badge_view_dirty = true;
         }
         // Новый путь (включая переход к `None`) — предмет отчёта сменился,
-        // независимо от причины (ТЗ-79, ТЗ-83, §7.2). Успешно открытый путь
-        // снимает хранимый план пропуска — он относится к прошлому треку.
-        if let Some(path) = self.state.take_path_dirty() {
-            if path.is_some() {
-                self.skipped = None;
-            }
+        // независимо от причины (ТЗ-79, ТЗ-83, §7.2); успешно открытый путь
+        // снимает хранимый план пропуска сам по себе (`UiAudioState::apply`).
+        if self.state.take_path_dirty().is_some() {
             self.report_dirty = true;
         }
-
-        match &applied {
-            Applied::Ended => self.ended = true,
-            Applied::Notice(Notice::Reservation(event)) => {
-                self.reservation_queue.push_back(event.clone());
-            }
-            Applied::Skipped { reason: SkipReason::Incompatible(blocked), .. } => {
-                self.skipped = Some(blocked.clone());
-                self.report_dirty = true;
-            }
-            Applied::Skipped { .. } | Applied::OpenFailed { .. } => {
-                self.skipped = None;
-                self.report_dirty = true;
-            }
-            _ => {}
+        // Пропуск/неудача открытия — предмет отчёта тоже сменился, даже если
+        // новый путь при этом не строился (ТЗ-79, ТЗ-80, §7.2).
+        if matches!(&applied, Applied::Skipped { .. } | Applied::OpenFailed { .. }) {
+            self.report_dirty = true;
         }
 
         applied
@@ -234,7 +167,7 @@ impl AudioFacade {
     /// для вызывающей стороны (ADR-02, И-Р13); повторный вызов до
     /// следующего `Opened` вернёт `None`.
     pub(crate) fn take_opened(&mut self) -> Option<Arc<TrackInfo>> {
-        self.opened.take()
+        self.state.take_opened()
     }
 
     /// Снять вид бейджа тракта и кнопки «Тест», если он устарел с прошлого
@@ -255,8 +188,8 @@ impl AudioFacade {
     /// целиком, чтобы вызываться и из `rebuild_report`, и из резервного
     /// замыкания в `path_report` без конфликта заимствований с полем
     /// `report` (ТЗ-79, ТЗ-83, §7.2).
-    fn compute_report(skipped: &Option<Blocked>, state: &UiAudioState, modes: &ModeSettings) -> PathReport {
-        let subject = if let Some(blocked) = skipped {
+    fn compute_report(state: &UiAudioState, modes: &ModeSettings) -> PathReport {
+        let subject = if let Some(blocked) = state.skipped() {
             PathSubject::Skipped(blocked)
         } else if let Some(path) = state.path() {
             PathSubject::Opened(path.as_ref())
@@ -271,7 +204,7 @@ impl AudioFacade {
     /// `take_report_dirty`/`path_report`, никогда из `on_event` — поэтому
     /// окно, пока оно закрыто, не тратит на пересчёт ничего.
     fn rebuild_report(&mut self) {
-        self.report = Some(Self::compute_report(&self.skipped, &self.state, &self.modes));
+        self.report = Some(Self::compute_report(&self.state, &self.modes));
         self.report_dirty = false;
         #[cfg(test)]
         {
@@ -299,10 +232,9 @@ impl AudioFacade {
         if self.report_dirty || self.report.is_none() {
             self.rebuild_report();
         }
-        let skipped = &self.skipped;
         let state = &self.state;
         let modes = &self.modes;
-        self.report.get_or_insert_with(|| Self::compute_report(skipped, state, modes))
+        self.report.get_or_insert_with(|| Self::compute_report(state, modes))
     }
 
     /// Завершить сессию движка: отдать и уронить `EngineHandle` — его `Drop`
@@ -323,7 +255,6 @@ impl AudioFacade {
         self.req_gen += 1;
         let req_gen = self.req_gen;
         self.state.begin_open(req_gen);
-        self.ended = false;
         let cmd = EngineCmd::Open {
             req_gen,
             path: Arc::from(path),
@@ -358,7 +289,7 @@ impl AudioFacade {
     }
 
     pub(crate) fn is_playing(&self) -> bool {
-        self.transport == Some(TransportState::Playing)
+        self.state.is_playing()
     }
 
     /// Истина, если транспорт остановлен (§6.18, ТЗ-20): отсутствие
@@ -366,30 +297,24 @@ impl AudioFacade {
     /// остановленное состояние — переоткрывать и восстанавливать позицию
     /// в этом случае не нужно.
     pub(crate) fn is_stopped(&self) -> bool {
-        matches!(self.transport, None | Some(TransportState::Stopped))
+        self.state.is_stopped()
     }
 
     pub(crate) fn has_decoder(&self) -> bool {
-        self.track.is_some()
+        self.state.track().is_some()
     }
 
     pub(crate) fn ended(&self) -> bool {
-        self.ended
+        self.state.ended()
     }
 
     pub(crate) fn clear_end(&mut self) {
-        self.ended = false;
+        self.state.clear_end();
     }
 
     /// `(playing, pos_secs, duration_secs)` — повторяет `Player::snapshot`.
     pub(crate) fn snapshot(&self) -> (bool, f64, Option<f64>) {
-        (self.is_playing(), self.position_secs, self.duration())
-    }
-
-    fn duration(&self) -> Option<f64> {
-        let info = self.track.as_ref()?;
-        let frames = info.num_frames?;
-        Some(frames_to_f64(frames) / f64::from(info.sample_rate))
+        (self.state.is_playing(), self.state.position_secs(), self.state.duration())
     }
 
     // --- Резервирование устройства ------------------------------------------
@@ -403,7 +328,7 @@ impl AudioFacade {
     }
 
     pub(crate) fn poll_reservation(&mut self) -> Option<ReservationEvent> {
-        self.reservation_queue.pop_front()
+        self.state.poll_reservation()
     }
 
     /// Освобождает монопольный узел `hw:` без перемотки — конец плейлиста и
@@ -420,16 +345,21 @@ impl AudioFacade {
     }
 
     pub(crate) fn stream_desc(&self) -> Option<&StreamDesc> {
-        self.stream.as_deref()?.as_ref()
+        self.state.stream_desc()
     }
 
     /// `(sample_rate, channels)` — из последнего известного `StreamDesc`,
     /// либо дефолт до первого открытия (повторяет `Player::format`).
     pub(crate) fn format(&self) -> (u32, usize) {
-        match self.stream_desc() {
-            Some(desc) => (desc.rate, usize::from(desc.channels)),
-            None => (44_100, 2),
-        }
+        self.state.format()
+    }
+
+    /// Зеркало `Player::device_desc` — метод вместо публичного поля,
+    /// синтаксис вызывающей стороны (`self.player.device_desc()`) сохраняет
+    /// вид вызова; значение берётся из последнего принятого потока вывода,
+    /// `"none"` до первого открытия (повторяет `Player::device_desc`).
+    pub(crate) fn device_desc(&self) -> &str {
+        self.state.device_desc()
     }
 
     // --- Громкость/mute -------------------------------------------------------
@@ -608,54 +538,6 @@ mod tests {
         assert_eq!(pos, 12.5);
         assert_eq!(dur, Some(10.0));
         assert!(f.has_decoder());
-    }
-
-    #[test]
-    fn ended_flag_set_and_cleared() {
-        let mut f = facade();
-        let _ = f.open(Path::new("/tmp/a.flac"));
-        f.on_event(opened(1));
-        assert!(!f.ended());
-
-        let applied = f.on_event(EngineEvent::Ended { session: 1 });
-        assert_eq!(applied, Applied::Ended);
-        assert!(f.ended());
-
-        f.clear_end();
-        assert!(!f.ended());
-    }
-
-    #[test]
-    fn stale_opened_event_is_ignored() {
-        let mut f = facade();
-        let _ = f.open(Path::new("/tmp/a.flac")); // req_gen = 1
-        let _ = f.open(Path::new("/tmp/b.flac")); // req_gen = 2, устаревает 1
-
-        f.on_event(opened(1));
-        // Устаревшее открытие не должно взвести кэш трека/потока.
-        assert!(!f.has_decoder());
-        assert_eq!(f.snapshot().2, None);
-    }
-
-    #[test]
-    fn take_opened_returns_once_after_opened_event() {
-        let mut f = facade();
-        let _ = f.open(Path::new("/tmp/a.flac"));
-        assert!(f.take_opened().is_none());
-
-        f.on_event(opened(1));
-        assert!(f.take_opened().is_some());
-        assert!(f.take_opened().is_none());
-    }
-
-    #[test]
-    fn reservation_notice_queued_and_polled_once() {
-        let mut f = facade();
-        assert!(f.poll_reservation().is_none());
-
-        f.on_event(EngineEvent::Notice(Notice::Reservation(ReservationEvent::Opened)));
-        assert_eq!(f.poll_reservation(), Some(ReservationEvent::Opened));
-        assert!(f.poll_reservation().is_none());
     }
 
     #[test]
