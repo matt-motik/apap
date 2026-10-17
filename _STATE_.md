@@ -105,12 +105,15 @@
 - [x] Шаг 53: Снятие моста: engine/UiAudioState/req_gen/PathWindowCache/BadgeViewState — поля MusicApp; хелперы шагов 47 и 50 работают с ними; startup_commands/send_startup_policy → MusicApp + тесты startup_policy_equals_saved_policy, bit_perfect_follows_active_mode и тест диспетчеризации (Opened/Skipped/смена режима → PathWindowCache и BadgeViewState снова dirty — после шага 45 тесты кэша инвалидируют вручную); удалить audio_facade.rs и mod audio_facade (ADR-01, ADR-02, ОВС-14). Проверка: полный cargo test
 - [x] Шаг 54: Устаревшие doc-ссылки на снятый мост AudioFacade (только комментарии): badge_view.rs, playback_manager.rs, ui_audio_state.rs, core/mod.rs (volume/toggle_mute: команду движку шлёт слой app, владелец EngineHandle) (ADR-01, ADR-02). Проверка: cargo check, grep AudioFacade|audio_facade по src/ пуст
 - [x] Шаг 55: Снять #![allow(dead_code)] в engine_sink.rs и ui_audio_state.rs, удалить ставшее неиспользуемым (ADR-02). ЧЕКПОИНТ. Проверка: cargo build + полный cargo test + clippy --all-targets
-- [>] **Шаг 56: Удаление легаси (§8, §7.4): StreamDesc, FallbackReason, dsd_pcm_breaks_bit_perfect (тест dsd_pcm_breaks_bit_perfect_detects_conflict уже заменён в verdict.rs; bp_report.rs и bp_report_marks_volume_issue — удалены на шаге 41); ссылки в settings.rs/state_file.rs. Проверка: полный cargo test + clippy --all-targets. Шаг дробится при декомпозиции**
+- [>] **Шаг 56: Удаление легаси, ч. 1 (§8 С5 «удаляется»): поле MusicApp::stream_desc (никем не читается) и его присваивания в playback_manager.rs (src/app/mod.rs, src/app/playback_manager.rs). Проверка: cargo check**
+- [ ] Шаг 57: Удаление легаси, ч. 2 (§8 С5, §3.1, ADR-05): UiAudioState::format() берёт частоту/каналы из SignalPath (path().output.requested), дефолт (44_100, 2) без пути; удалить StreamSnapshot, слот stream и stream_desc(); Opened.stream игнорируется (src/app/ui_audio_state.rs). Проверка: cargo test ui_audio_state
+- [ ] Шаг 58: Удаление легаси, ч. 3 (§8 С5, ADR-02): убрать поле stream из EngineEvent::Opened (src/engine/messages.rs) и его заполнение в run.rs; механическая правка фикстур Opened в тестах ui_audio_state.rs, path_view.rs, mod.rs (одно поле одного варианта — разбиение без моста невозможно). Слой app больше не зависит от StreamDesc. Общий тип → полный cargo test
+- [ ] Шаг 59: ЧЕКПОИНТ закрытия удаления легаси: полный cargo build + cargo test + clippy --all-targets; ROADMAP: текст AM1.0-B8 (кэш отчёта — PathWindowCache в MusicApp, не AudioFacade) и отклонение — StreamDesc/FallbackReason внутри старого пути (audio/player.rs, audio/output.rs, engine/run.rs, engine/legacy_path.rs) живы, пока старый путь вывода не заменён, удаляются на С6 вместе с мостом legacy_path; dsd_pcm_breaks_bit_perfect и bp_report.rs уже удалены. Проверка: всё зелёное
 
 Легенда: [x] сделано · [>] текущий шаг · [ ] не начато
 
 - **Текущий шаг (current_step):** Шаг 56
-- **Следующий ход:** Шаг 56: разбить удаление легаси (StreamDesc, FallbackReason, dsd_pcm_breaks_bit_perfect) на подшаги по Правилу локализации, затем выполнять
+- **Следующий ход:** Шаг 56: удалить неиспользуемое поле MusicApp::stream_desc и его присваивания (mod.rs, playback_manager.rs), cargo check
 - **Счетчик безуспешных компиляций:** 0/3
 - **Состояние:** in_progress
 
