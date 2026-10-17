@@ -11,6 +11,8 @@ use std::thread::JoinHandle;
 use std::time::Duration;
 
 use crate::audio::backend::catalog::DeviceCatalog;
+use crate::audio::backend::exclusive::DeviceClaim;
+use crate::audio::backend::HwDeviceId;
 use crate::audio::clock::ClockInstant;
 use crate::audio::error::{CaptureFailure, EngineFault, FileError, OpenError};
 use crate::audio::format::{SampleRate, SourceFormat};
@@ -18,9 +20,11 @@ use crate::audio::path::plan::{plan, with_gain};
 use crate::audio::path::signal::SignalPath;
 use crate::audio::path::{Blocked, OpenedFacts, OsStage, PathPlan};
 use crate::audio::player::{Player, ReservationEvent, StreamDesc};
+use crate::audio::reservation::LostNotify;
 use crate::audio::verdict::{verdict, BadgeState, GainState};
 use crate::engine::deps::EngineDeps;
 use crate::engine::legacy_path::{legacy_audio, opened_facts_from_desc, shared_caps_from_desc, stream_format_from_desc};
+use crate::engine::lock::{lock_step, LockEffect, LockInput, LockState};
 use crate::engine::messages::{EngineCmd, EngineEvent, InternalMsg, LegacyAudio, Notice, SkipReason, TransportState};
 use crate::persist::state_file::LegacyPlaybackState;
 use crate::settings::params::{ApplyKind, ModeSettingsDiff};
@@ -228,6 +232,20 @@ struct Engine {
     /// Приёмник внутренних сообщений (§2.8, ADR-01): вычитывается без
     /// блокировки на каждой итерации цикла (`drain_internal`).
     internal_rx: Receiver<InternalMsg>,
+    /// Состояние замка устройства режима (§6.19, ТЗ-118, ADR-01): меняется
+    /// только через `lock_input`. Начальное значение соответствует
+    /// Совместимому режиму по умолчанию (`active_mode`, §2.2).
+    lock: LockState,
+    /// Удержанный захват устройства (§6.19, ТЗ-119, ADR-01): `Some`, пока
+    /// `lock` в состоянии `Held`. Порядок полей `DeviceClaim` задаёт порядок
+    /// освобождения PCM/резервирования (И-Р1) — `self.claim = None` в ответ
+    /// на `LockEffect::Release` снимает захват.
+    claim: Option<DeviceClaim>,
+    /// Поколение попытки захвата (§6.19, ТЗ-123, ADR-01): увеличивается
+    /// перед каждым запуском `start_claim`, чтобы `InternalMsg::ClaimDone` от
+    /// отменённой попытки отбрасывалось — тот же приём, что `req_gen` у
+    /// `Open`.
+    claim_attempt: u64,
 }
 
 impl Engine {
@@ -256,6 +274,9 @@ impl Engine {
             active_path: None,
             internal_tx,
             internal_rx,
+            lock: LockState::NotApplicable,
+            claim: None,
+            claim_attempt: 0,
         }
     }
 
@@ -321,17 +342,108 @@ impl Engine {
     /// Обрабатывает одно сообщение служебного потока (§2.8, ADR-01).
     fn handle_internal(&mut self, msg: InternalMsg) {
         match msg {
-            // Захват (если был получен) освобождается здесь же — `Drop`
-            // `DeviceClaim` закрывает PCM и снимает резервирование (§2.3,
-            // И-Р1), т.к. ни одна попытка `lock_step` ещё не ждёт ответа.
-            // Потребление результата замком приходит с его проводкой (§6.19,
-            // шаги 34/52/56).
-            InternalMsg::ClaimDone { .. } => {}
+            // Ответ устаревшей (отменённой повторным захватом) или уже
+            // снятой попытки отбрасывается молча (§6.19, ТЗ-123): захват
+            // внутри сам освобождается через `Drop DeviceClaim`, если он был
+            // получен (§2.3, И-Р1).
+            InternalMsg::ClaimDone { attempt, result } => {
+                if attempt != self.claim_attempt || !matches!(self.lock, LockState::Acquiring { .. }) {
+                    return;
+                }
+                match result {
+                    Ok(claim) => {
+                        let info = claim.info().clone();
+                        self.claim = Some(claim);
+                        self.lock_input(LockInput::CaptureResult(Ok(info)));
+                    }
+                    Err(e) => self.lock_input(LockInput::CaptureResult(Err(e))),
+                }
+            }
             // Потеря резервирования вне захвата замка — обработка приходит с
             // проводкой замка (§6.20).
             InternalMsg::ReservationLost { .. } => {}
             // Итог RT-приоритета не влияет на поведение движка (§6.8).
             InternalMsg::RtPriority { .. } => {}
+        }
+    }
+
+    /// Шаг состояния замка устройства режима (§6.19, ТЗ-118, ADR-01):
+    /// применяет чистую `lock_step`, подставляя реальное время начала
+    /// попытки (`lock_step` заполняет `Acquiring.started` плейсхолдером
+    /// `ClockInstant::START` — здесь он переписывается `deps.clock.now()`,
+    /// как `poll_session` берёт `now` для `Position`), затем выполняет
+    /// эффекты. Устройство режима резолвится прямо из `mode_settings`
+    /// активного режима — без автовыбора (ADR-24, `resolve_device` — другая
+    /// точка входа, шаг 36).
+    fn lock_input(&mut self, input: LockInput) {
+        let device = match self.active_mode {
+            ModeKind::Compatible => None,
+            ModeKind::Optimal => self.mode_settings.optimal.device.as_ref(),
+            ModeKind::Strict => self.mode_settings.strict.device.as_ref(),
+        };
+        let (mut state, effects) = lock_step(&self.lock, input, self.active_mode, device);
+        if let LockState::Acquiring { .. } = state {
+            state = LockState::Acquiring { started: self.deps.clock.now() };
+        }
+        let changed = state != self.lock;
+        self.lock = state;
+        if changed {
+            self.deps.events.emit(EngineEvent::Lock(self.lock.clone()));
+        }
+
+        for effect in effects {
+            match effect {
+                LockEffect::Acquire(dev) => self.start_claim(dev),
+                LockEffect::Release => self.claim = None,
+                // Остановка активного потока вывода и повторный захват при
+                // возвращении устройства реализуются отдельным шагом (шаг 37).
+                LockEffect::StopPlayback | LockEffect::ForgetReacquire => {}
+            }
+        }
+    }
+
+    /// Запуск захвата устройства `dev` в служебном потоке (§6.19, ТЗ-119,
+    /// ADR-01, §6.6). Без эксклюзивного бэкенда на платформе захват
+    /// невозможен — `CaptureFailure::PlatformUnsupported`, тот же вариант,
+    /// что показывает UI для платформ без ALSA (`player.rs`). Отказ ОС в
+    /// выделении служебного потока (`spawner.spawn` вернул `SpawnFailed`)
+    /// заводится тем же вариантом: отдельного кода для отказа планировщика
+    /// в `CaptureFailure` нет, а структурно это тоже недоступность
+    /// монопольного захвата здесь и сейчас.
+    fn start_claim(&mut self, dev: HwDeviceId) {
+        self.claim_attempt += 1;
+        let attempt = self.claim_attempt;
+
+        let Some(backend) = self.deps.exclusive.as_ref() else {
+            self.lock_input(LockInput::CaptureResult(Err(CaptureFailure::PlatformUnsupported)));
+            return;
+        };
+
+        // Устройства нет в каталоге — оно отключено; номер карты для
+        // `ReservationLost` не выдумывается (ТЗ-126, §6.19).
+        let Some(found) = self.catalog.hw.iter().find(|d| d.id == dev) else {
+            self.lock_input(LockInput::CaptureResult(Err(CaptureFailure::DeviceDisconnected)));
+            return;
+        };
+        let device_name = found.name.clone();
+        let card = found.card;
+
+        let lost_tx = self.internal_tx.clone();
+        let on_lost: LostNotify = Box::new(move || {
+            let _ = lost_tx.send(InternalMsg::ReservationLost { card });
+        });
+        let job = backend.claim_job(dev, device_name, on_lost);
+
+        let done_tx = self.internal_tx.clone();
+        let spawned = self.deps.spawner.spawn(
+            "apap-claim",
+            Box::new(move || {
+                let result = job();
+                let _ = done_tx.send(InternalMsg::ClaimDone { attempt, result });
+            }),
+        );
+        if let Err(EngineFault::SpawnFailed { .. }) = spawned {
+            self.lock_input(LockInput::CaptureResult(Err(CaptureFailure::PlatformUnsupported)));
         }
     }
 
@@ -484,8 +596,10 @@ impl Engine {
                 self.player.set_muted(m);
                 self.refresh_path_gain();
             }
-            // Обработчик приходит вместе с проводкой `lock_step` (§6.19, шаг 34).
-            EngineCmd::Lock(_input) => {}
+            // §6.19, ТЗ-118, ADR-01: ввод замка устройства режима из UI.
+            EngineCmd::Lock(input) => {
+                self.lock_input(input);
+            }
             EngineCmd::SetDevice { id } => {
                 let (req_gen, path) = match &self.current {
                     Some((gen, path)) => (*gen, Some(path.as_ref())),
@@ -1198,5 +1312,103 @@ mod tests {
         });
 
         assert!(sink.take().is_empty());
+    }
+
+    /// §6.19 (ТЗ-118, ТЗ-119, ADR-01): `Startup` в Оптимальном режиме с
+    /// выбранным устройством захватывает его через служебный поток — `Lock`
+    /// проходит `Acquiring` → `Held`, захват остаётся в `self.claim`.
+    #[test]
+    fn lock_input_startup_acquires_and_holds_device() {
+        let sink = VecSink::new();
+        let deps = fake_deps(Box::new(sink.clone()), Arc::new(StdSpawner));
+        let mut engine = Engine::new(deps, BackendCaps::current());
+        let dev: HwDeviceId = "hw:CARD=RU3,DEV=0".parse().expect("hw id");
+        engine.catalog.hw = vec![crate::audio::backend::catalog::HwDeviceInfo { id: dev.clone(), card: 1, device: 0, name: "RU3".to_string() }];
+        engine.active_mode = ModeKind::Optimal;
+        engine.mode_settings.optimal.device = Some(dev.clone());
+        engine.lock = LockState::Open;
+
+        engine.lock_input(LockInput::Startup);
+
+        let acquiring = sink.take();
+        assert!(matches!(acquiring.as_slice(), [EngineEvent::Lock(LockState::Acquiring { .. })]));
+        assert!(matches!(engine.lock, LockState::Acquiring { .. }));
+
+        let msg = engine.internal_rx.recv().expect("claim done");
+        engine.handle_internal(msg);
+
+        match &engine.lock {
+            LockState::Held { info } => assert_eq!(info.device, dev),
+            other => panic!("expected Held, got {other:?}"),
+        }
+        assert!(engine.claim.is_some());
+        let held = sink.take();
+        assert!(matches!(held.as_slice(), [EngineEvent::Lock(LockState::Held { .. })]));
+    }
+
+    /// §6.19 (ТЗ-118, ТЗ-119, ADR-01): отказ захвата, возвращённый
+    /// `ExclusiveBackend::claim_job`, переводит замок в `Failed` и не
+    /// оставляет захвата.
+    #[test]
+    fn lock_input_scripted_acquire_failure_emits_failed() {
+        let sink = VecSink::new();
+        let mem = MemStore::new();
+        let dev: HwDeviceId = "hw:CARD=RU3,DEV=0".parse().expect("hw id");
+        let deps = EngineDeps {
+            shared: Box::new(FakeSharedBackend::with_devices(Vec::new())),
+            exclusive: Some(Box::new(
+                FakeExclusiveBackend::new().with_acquire(Err(CaptureFailure::BusyOutsideProtocol)),
+            )),
+            server_probe: Box::new(FakeServerProbe::desktop()),
+            watcher: Box::new(FakeDeviceWatcher::new()),
+            sources: Arc::new(FakeSource::with_format(pcm_format())),
+            clock: Box::new(MonotonicClock::new()),
+            store: Box::new(FsPersistStore::new(Arc::new(mem.clone()), Box::new(mem.clone()), PathBuf::from("/cfg"))),
+            events: Box::new(sink.clone()),
+            spawner: Arc::new(StdSpawner),
+            caps: BackendCaps::current(),
+            os_probe: Box::new(FakeOsProbe::new(OsStage::Unknown)),
+        };
+        let mut engine = Engine::new(deps, BackendCaps::current());
+        engine.catalog.hw = vec![crate::audio::backend::catalog::HwDeviceInfo { id: dev.clone(), card: 1, device: 0, name: "RU3".to_string() }];
+        engine.active_mode = ModeKind::Strict;
+        engine.mode_settings.strict.device = Some(dev.clone());
+        engine.lock = LockState::Open;
+
+        engine.lock_input(LockInput::Startup);
+        sink.take();
+        let msg = engine.internal_rx.recv().expect("claim done");
+        engine.handle_internal(msg);
+
+        match &engine.lock {
+            LockState::Failed(CaptureFailure::BusyOutsideProtocol) => {}
+            other => panic!("expected Failed(DeviceDisconnected), got {other:?}"),
+        }
+        assert!(engine.claim.is_none());
+        let events = sink.take();
+        assert!(matches!(
+            events.as_slice(),
+            [EngineEvent::Lock(LockState::Failed(CaptureFailure::BusyOutsideProtocol))]
+        ));
+    }
+
+    /// §6.19 (ТЗ-123): `ClaimDone` от отменённой попытки (несовпадающий
+    /// `attempt`) отбрасывается, даже когда замок сейчас `Acquiring`.
+    #[test]
+    fn claim_done_stale_attempt_while_acquiring_is_ignored() {
+        let sink = VecSink::new();
+        let deps = fake_deps(Box::new(sink.clone()), Arc::new(StdSpawner));
+        let mut engine = Engine::new(deps, BackendCaps::current());
+        engine.lock = LockState::Acquiring { started: engine.deps.clock.now() };
+        engine.claim_attempt = 1;
+
+        engine.handle_internal(InternalMsg::ClaimDone {
+            attempt: 99,
+            result: Err(CaptureFailure::NoDeviceSelected),
+        });
+
+        assert!(sink.take().is_empty());
+        assert!(engine.claim.is_none());
+        assert!(matches!(engine.lock, LockState::Acquiring { .. }));
     }
 }
