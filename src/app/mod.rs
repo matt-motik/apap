@@ -12,6 +12,7 @@ use slint::language::{SortOrder, TableColumn};
 
 use music_player_rs::audio::analyzer::TAP_CAPACITY;
 use music_player_rs::audio::backend::{BackendError, SharedDeviceId};
+use music_player_rs::audio::decoder::TrackInfo;
 use music_player_rs::audio::error::{EngineFault, FileError, OpenError, Reaction};
 use music_player_rs::audio::output::{default_device_name, DeviceInfo};
 use music_player_rs::audio::path::report::PathReport;
@@ -47,7 +48,7 @@ use music_player_rs::platform::notify::Notifier;
 use music_player_rs::platform::pick::{FilePicker, PickRequest, PickResult};
 use music_player_rs::playlist::{self, ScanMsg, Track};
 use music_player_rs::playlist::model::TrackId;
-use music_player_rs::settings::playback::Volume;
+use music_player_rs::settings::playback::{ModeSettings, Volume};
 use music_player_rs::settings::{ColumnId, ModeKind, RepeatMode};
 use music_player_rs::theme::{
     ColorsData, ThemeData, ThemeEntry, ThemeError, DEFAULT_LIGHT_TOML, parse_hex,
@@ -495,6 +496,11 @@ pub struct MusicApp {
     /// Буфер разобранных событий движка, переиспользуется между тиками
     /// (ADR-02, И-Р13).
     engine_applied: Vec<Applied>,
+    /// Буфер сырых событий движка, снятых с `engine_events` за один
+    /// `drain_engine_events`, переиспользуется между тиками без аллокации
+    /// (ADR-02, И-Р13) — нужен, чтобы разбор `EngineEvent::Devices` и
+    /// обработка через `on_engine_event` не делили `self` одновременно.
+    engine_raw_events: Vec<EngineEvent>,
     /// Счётчик треков, пропущенных подряд из-за ошибки файла; мост до
     /// SkipSeries С8 (ТЗ-85, ТЗ-86) — защита от бесконечного пропуска, если
     /// повреждена вся библиотека при Repeat All.
@@ -702,6 +708,7 @@ impl MusicApp {
             engine_fault,
             engine_events,
             engine_applied: Vec::new(),
+            engine_raw_events: Vec::new(),
             skip_streak: 0,
             io_gens: IoGens::default(),
             cache_disk: CacheSizes::default(),
@@ -988,17 +995,18 @@ impl MusicApp {
         // `EngineHandle` join-ится при drop фасада — поток уже завершён.
         let requested = Instant::now();
         let events = &self.engine_events;
-        let player = &mut self.player;
+        let mut pending_events: Vec<EngineEvent> = Vec::new();
         let mut await_engine = || {
             events.wait_for(
                 ENGINE_SHUTDOWN_WAIT.saturating_sub(requested.elapsed()),
                 |ev| matches!(ev, EngineEvent::ShutdownComplete),
-                |ev| {
-                    let _ = player.on_event(ev);
-                },
+                |ev| pending_events.push(ev),
             )
         };
         let outcome = self.core.exit(reason, &mut await_engine);
+        for ev in pending_events {
+            let _ = self.on_engine_event(ev);
+        }
         if outcome == ExitOutcome::Ignored {
             eprintln!("[app] exit {reason:?}: уже выполняется, повтор проигнорирован");
             return outcome;
@@ -1053,7 +1061,7 @@ impl MusicApp {
         // UI отправляет SetActiveMode, затем переоткрывает тот же
         // трек с текущей позиции (§6.18 «Смена режима», ТЗ-20).
         self.core.change_state(Origin::User, StateChange::ActiveMode(mode));
-        self.player.set_active_mode(mode);
+        self.engine_set_active_mode(mode);
         self.reopen_current_for_mode_switch();
         self.apply_mode_gain();
         self.sync_mode_to_ui();
@@ -1109,6 +1117,25 @@ impl MusicApp {
         legacy_audio(&self.core.settings().playback, self.core.state().active_mode()).0.bit_perfect
     }
 
+    /// Переключить активный режим движка: кэш активного режима, вид
+    /// бейджа/«Теста» и инвалидация отчёта «Путь сигнала» обновляются и
+    /// команда `EngineCmd::SetActiveMode` уходит движку, только если режим
+    /// действительно изменился (ТЗ-20, §6.18, ADR-02) — мост к
+    /// `AudioFacade::set_active_mode` через фасад до шага 53.
+    pub(super) fn engine_set_active_mode(&mut self, mode: ModeKind) {
+        self.player.set_active_mode(mode);
+    }
+
+    /// Синхронизировать кэш настроек трёх режимов после «Сохранить» диалога
+    /// (ADR-11, ТЗ-28, ТЗ-29): команду `EngineCmd::SetModeSettings` движку
+    /// уже отправило `AppCore`, здесь только обновляется копия и
+    /// инвалидируется отчёт «Путь сигнала» при изменении (ТЗ-79, ТЗ-83,
+    /// §7.2) — мост к `AudioFacade::mode_settings_applied` через фасад до
+    /// шага 53.
+    pub(super) fn engine_mode_settings_applied(&mut self, settings: ModeSettings) {
+        self.player.mode_settings_applied(settings);
+    }
+
     /// Переключить воспроизведение/паузу (ADR-01, ADR-02): играет, если
     /// транспорт был на паузе или остановлен, иначе ставит на паузу —
     /// мост к `AudioFacade::toggle`.
@@ -1131,6 +1158,13 @@ impl MusicApp {
     /// через фасад до шага 53.
     pub(super) fn poll_reservation(&mut self) -> Option<ReservationEvent> {
         self.player.poll_reservation()
+    }
+
+    /// Снять принятый `TrackInfo` открытого трека, если движок его
+    /// доставил с прошлого чтения (ADR-02, И-Р13) — мост к
+    /// `AudioFacade::take_opened` через фасад до шага 53.
+    pub(super) fn take_opened(&mut self) -> Option<Arc<TrackInfo>> {
+        self.player.take_opened()
     }
 
     /// Снять вид бейджа тракта и кнопки «Тест», если он устарел с прошлого
@@ -2300,7 +2334,7 @@ impl MusicApp {
                             // отправило — фасад только синхронизирует копию
                             // настроек режимов; затем пересчитываются зависимые
                             // от режима поля UI (блокировка громкости).
-                            a.player.mode_settings_applied(update.settings);
+                            a.engine_mode_settings_applied(update.settings);
                             a.sync_mode_to_ui();
                             // Устройство активного режима (ТЗ-94, §2.4):
                             // `set_output_device` обновляет только UI и трей,
@@ -2880,16 +2914,21 @@ impl MusicApp {
         applied.clear();
 
         // Device readiness is decided here, from the raw `EngineEvent`
-        // stream, before it's handed to `player.on_event` — the catalog
-        // update itself reduces to a field inside `AudioFacade`/
-        // `UiAudioState` and never reaches `Applied` (ТЗ-104, ADR-16).
+        // stream, before it's handed to `on_engine_event` — the catalog
+        // update itself reduces to a field inside `UiAudioState` and never
+        // reaches `Applied` (ТЗ-104, ADR-16).
         // Устройство — из `ModeSettings` активного режима, не из прежнего
         // легаси-поля устройства (ТЗ-94, §2.4).
         let active_mode = self.core.state().active_mode();
         let saved_device = self.core.settings().playback.device(active_mode).unwrap_or("").to_string();
         let mut ready_device: Option<String> = None;
 
-        let player = &mut self.player;
+        // Сырые события снимаются в переиспользуемый буфер отдельным
+        // проходом: `self.engine_events.drain` берёт `&self.engine_events`
+        // на время вызова, а разбор через `self.on_engine_event` нужен весь
+        // `&mut self` — вместе эти заимствования не делятся (ADR-02).
+        let mut raw_events = std::mem::take(&mut self.engine_raw_events);
+        raw_events.clear();
         self.engine_events.drain(|ev| {
             if let EngineEvent::Devices(ref catalog) = ev {
                 let found = if saved_device.is_empty() {
@@ -2903,11 +2942,16 @@ impl MusicApp {
                     ready_device = Some(dev.name.clone());
                 }
             }
-            let a = player.on_event(ev);
+            raw_events.push(ev);
+        });
+
+        for ev in raw_events.drain(..) {
+            let a = self.on_engine_event(ev);
             if a != Applied::None {
                 applied.push(a);
             }
-        });
+        }
+        self.engine_raw_events = raw_events;
 
         if let Some(name) = ready_device {
             if !self.audio_ready {
@@ -2919,7 +2963,7 @@ impl MusicApp {
             self.active_device = name;
         }
 
-        if let Some(info) = self.player.take_opened() {
+        if let Some(info) = self.take_opened() {
             if let Some((index, prev_current)) = self.pending_open.take() {
                 if index < self.track_count() {
                     self.on_track_opened(index, prev_current, &info);
