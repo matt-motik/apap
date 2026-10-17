@@ -198,6 +198,52 @@ impl AudioServerProbe for ProbeSnapshot {
     }
 }
 
+/// Карта ALSA устройства системного выхода PipeWire (ADR-24, ТЗ-143): `card` —
+/// номер карты, обязателен; `device` — номер устройства на карте, если
+/// `wpctl` его сообщает.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub struct SinkCard {
+    pub card: u32,
+    pub device: Option<u32>,
+}
+
+/// Разбор текста `wpctl inspect @DEFAULT_AUDIO_SINK@` (ADR-24, ТЗ-143).
+/// Карта берётся из свойства `api.alsa.pcm.card`, резерв — `alsa.card`;
+/// устройство — из `api.alsa.pcm.device`, резерв — `alsa.device`. Нет ни
+/// одного свойства карты (Bluetooth, виртуальный sink, null-sink) или номер
+/// не разбирается — `None`; устройство неизвестно, но карта есть —
+/// `device: None`.
+pub fn parse_wpctl_inspect(text: &str) -> Option<SinkCard> {
+    let mut api_card = None;
+    let mut api_device = None;
+    let mut alsa_card = None;
+    let mut alsa_device = None;
+    for line in text.lines() {
+        let Some((key, value)) = parse_wpctl_property(line) else { continue };
+        match key {
+            "api.alsa.pcm.card" => api_card = value.parse::<u32>().ok(),
+            "api.alsa.pcm.device" => api_device = value.parse::<u32>().ok(),
+            "alsa.card" => alsa_card = value.parse::<u32>().ok(),
+            "alsa.device" => alsa_device = value.parse::<u32>().ok(),
+            _ => {}
+        }
+    }
+    let card = api_card.or(alsa_card)?;
+    let device = api_device.or(alsa_device);
+    Some(SinkCard { card, device })
+}
+
+/// Одна строка свойства `wpctl inspect`: произвольный отступ, необязательный
+/// маркер `* `, значение в двойных кавычках (`key = "value"`). Не
+/// распознано — `None`.
+fn parse_wpctl_property(line: &str) -> Option<(&str, &str)> {
+    let trimmed = line.trim_start();
+    let trimmed = trimmed.strip_prefix("* ").unwrap_or(trimmed);
+    let (key, value) = trimmed.split_once('=')?;
+    let value = value.trim().strip_prefix('"')?.strip_suffix('"')?;
+    Some((key.trim(), value))
+}
+
 /// Резервирование карты по §6.6 до шага OPEN (ADR-08, ТЗ-48, ОВ-33…ОВ-35).
 /// Блокирует до ответа владельца (≤ `OWNER_NAME_TIMEOUT` + `RELEASE_TIMEOUT`),
 /// поэтому вызывается только в служебном потоке.
@@ -416,5 +462,55 @@ mod tests {
         assert_eq!(reserve_name(2), "org.freedesktop.ReserveDevice1.Audio2");
         assert_eq!(reserve_path(0), "/org/freedesktop/ReserveDevice1/Audio0");
         assert_eq!(NameFlags::REPLACE_EXISTING.union(NameFlags::DO_NOT_QUEUE).bits(), 6);
+    }
+
+    #[test]
+    fn parse_wpctl_alsa_sink_with_device() {
+        // Тримминг реального вывода `wpctl inspect` для USB ЦАП: нет
+        // `api.alsa.pcm.device`, устройство берётся из `alsa.device` (резерв).
+        let text = "id 65, type PipeWire:Interface:Node\n\
+            alsa.card = \"3\"\n\
+            alsa.device = \"0\"\n\
+            api.alsa.pcm.card = \"3\"\n\
+            api.alsa.pcm.stream = \"playback\"\n\
+            device.api = \"alsa\"\n\
+          * media.class = \"Audio/Sink\"\n\
+          * node.description = \"Cayin RU3 (U2) Analog Stereo\"\n";
+        assert_eq!(parse_wpctl_inspect(text), Some(SinkCard { card: 3, device: Some(0) }));
+    }
+
+    #[test]
+    fn parse_wpctl_alsa_sink_without_device_field() {
+        let text = "id 42, type PipeWire:Interface:Node\n\
+            api.alsa.pcm.card = \"1\"\n\
+            device.api = \"alsa\"\n\
+          * media.class = \"Audio/Sink\"\n";
+        assert_eq!(parse_wpctl_inspect(text), Some(SinkCard { card: 1, device: None }));
+    }
+
+    #[test]
+    fn parse_wpctl_bluetooth_sink_returns_none() {
+        let text = "id 50, type PipeWire:Interface:Node\n\
+            api.bluez5.address = \"AA:BB:CC:DD:EE:FF\"\n\
+            api.bluez5.profile = \"a2dp-sink\"\n\
+            device.api = \"bluez5\"\n\
+          * media.class = \"Audio/Sink\"\n\
+          * node.description = \"WH-1000XM4\"\n";
+        assert_eq!(parse_wpctl_inspect(text), None);
+    }
+
+    #[test]
+    fn parse_wpctl_null_sink_returns_none() {
+        let text = "id 71, type PipeWire:Interface:Node\n\
+            factory.name = \"support.null-audio-sink\"\n\
+          * media.class = \"Audio/Sink\"\n\
+          * node.description = \"Dummy Output\"\n";
+        assert_eq!(parse_wpctl_inspect(text), None);
+    }
+
+    #[test]
+    fn parse_wpctl_garbage_returns_none() {
+        assert_eq!(parse_wpctl_inspect(""), None);
+        assert_eq!(parse_wpctl_inspect("not a valid wpctl output\njust some random text\n12345"), None);
     }
 }
