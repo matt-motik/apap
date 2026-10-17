@@ -19,6 +19,7 @@ pub mod player;
 pub mod render;
 pub mod reservation;
 pub mod session;
+pub mod session_build;
 pub mod verdict;
 pub mod visualizer;
 pub mod worker;

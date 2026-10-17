@@ -1,7 +1,6 @@
 use std::path::{Path, PathBuf};
 use std::sync::atomic::Ordering;
 use std::sync::{mpsc, Arc, Mutex};
-use std::time::Duration;
 
 #[cfg(test)]
 use std::sync::atomic::AtomicUsize;
@@ -15,18 +14,16 @@ use super::clock::{Clock, ClockInstant, MonotonicClock};
 use super::error::{CaptureFailure, EngineFault, FileError};
 use super::reservation::gate::{ExclusiveGate, GateEvent, GateStatus, OpenOutcome};
 use super::output::{
-    build_output_stream_raw, dop_render_for, pcm_render_for, select_output_for, FallbackReason,
-    OutputRequest, OutputSpec, RawRender, Resampler, StreamBuildError,
+    build_output_stream_raw, select_output_for, FallbackReason, OutputRequest, OutputSpec,
+    RawRender, Resampler, StreamBuildError,
 };
-use super::render::gain::{AtomicGain, NoGain};
-use super::render::pcm::PcmSample;
-use super::render::tpdf::Tpdf;
-use super::render::{prime_frames, RenderCore};
+use super::render::prime_frames;
 use super::session::{RingPayload, SessionShared};
-use super::worker::{
-    start_fill_frames, DecodeConfig, DecodeEvent, DecodeLoop, DecodeWorker, ExactFeed, FloatFeed,
-    VizTap,
+use super::session_build::{
+    build_render, ring_capacity, spawn_decoder, EngineFeed, EnginePlan, EngineRing, RingKind,
+    SpawnDecoderError,
 };
+use super::worker::{DecodeEvent, DecodeWorker, ExactFeed, FloatFeed, VizTap};
 use crate::engine::spawner::{StdSpawner, ThreadSpawner};
 use crate::settings::{
     clamp_ring_buffer_ms, ClockFamily, DsdMode, ExclusiveMode, FallbackPolicy,
@@ -53,26 +50,6 @@ fn track_seed(path: &Path) -> u32 {
     let mut hasher = std::collections::hash_map::DefaultHasher::new();
     path.hash(&mut hasher);
     (hasher.finish() >> (64 - 30)) as u32 | 1
-}
-
-/// Interleaved-sample capacity for the producer/consumer ring (ТЗ A2.0 §5.2).
-///
-/// Derived from the requested depth in milliseconds and the device geometry,
-/// then floored at `max(4096, 2 cpal-buffer periods)` so the ring can never be
-/// shorter than two output callbacks (which would guarantee underruns).
-fn ring_capacity(
-    out_rate: u32,
-    out_ch: usize,
-    ring_buffer_ms: u32,
-    buffer_frames: Option<u32>,
-) -> usize {
-    let ch = out_ch.max(1);
-    let ms = clamp_ring_buffer_ms(ring_buffer_ms) as u64;
-    let samples = out_rate as u64 * ch as u64 * ms / 1000;
-    let buffer_floor = buffer_frames
-        .map(|f| f as usize * ch * 2)
-        .unwrap_or(0);
-    (samples as usize).max(buffer_floor).max(4096)
 }
 
 /// True for `.dsf`/`.dff` paths (case-insensitive).
@@ -227,47 +204,6 @@ fn gated_build<P>(
     }
 }
 
-/// Ёмкость `PendingTail` в кадрах: один декодированный пакет (§6.18).
-const DECODE_TAIL_FRAMES: usize = 8192;
-
-/// Сколько ждать стартового заполнения ring до отказа открытия (§6.18).
-const START_FILL_TIMEOUT: Duration = Duration::from_secs(5);
-
-/// Тип ring сессии и вид рендера (§6.10, ADR-03).
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-enum RingKind {
-    /// DoP-слова в i32-ring, маркеры ставит `DopRender` (§6.15).
-    Dop,
-    /// Точный PCM без ресемплинга в i32-ring.
-    Exact(RingPayload),
-    /// f32 после SRC / DSD→PCM / float-источника.
-    Float,
-}
-
-/// Параметры сборки рендера, фиксируемые на время сессии (ОВС-18, ТЗ-8).
-#[derive(Debug, Clone, Copy)]
-struct EnginePlan {
-    kind: RingKind,
-    rate: u32,
-    channels: usize,
-    /// Bit-perfect: рендер без ступени громкости (`NoGain`, ОВС-18).
-    no_gain: bool,
-    /// Seed TPDF; `None` — дизеринг выключен.
-    dither_seed: Option<u32>,
-}
-
-/// Producer ring сессии, отдаваемый декодеру.
-enum EngineRing {
-    I32(rtrb::Producer<i32>),
-    F32(rtrb::Producer<f32>),
-}
-
-/// Источник для `apap-decode` по типу ring.
-enum EngineFeed {
-    Exact(ExactFeed),
-    Float(FloatFeed),
-}
-
 /// Секунды → кадр сессии (отрицательные и нечисловые — 0).
 fn secs_to_frames(secs: f64, rate: u32) -> u64 {
     let frames = (secs.max(0.0) * f64::from(rate)).round();
@@ -276,57 +212,6 @@ fn secs_to_frames(secs: f64, rate: u32) -> u64 {
     } else {
         0
     }
-}
-
-/// PCM-рендер с выбранной ступенью усиления (`NoGain` в bit-perfect, ОВС-18).
-fn pcm_render<P: PcmSample>(
-    format: SampleFormat,
-    core: RenderCore<P>,
-    payload: RingPayload,
-    tpdf: Tpdf,
-    no_gain: bool,
-) -> Option<Box<dyn RawRender>> {
-    if no_gain {
-        pcm_render_for::<P, NoGain>(format, core, payload, tpdf)
-    } else {
-        pcm_render_for::<P, AtomicGain>(format, core, payload, tpdf)
-    }
-}
-
-/// Ring ёмкостью `capacity` сэмплов и рендер над его consumer (§6.14, §6.15).
-/// Формат устройства без рендера для этого вида ring — отказ сборки.
-fn build_render(
-    plan: &EnginePlan,
-    format: SampleFormat,
-    shared: &Arc<SessionShared>,
-    capacity: usize,
-    prime: usize,
-) -> Result<(Box<dyn RawRender>, EngineRing), StreamBuildError> {
-    let tpdf = plan.dither_seed.map_or_else(Tpdf::off, Tpdf::with_seed);
-    let (render, ring) = match plan.kind {
-        RingKind::Dop => {
-            let (producer, consumer) = rtrb::RingBuffer::<i32>::new(capacity);
-            let core = RenderCore::new(consumer, shared.clone(), plan.channels, prime);
-            (dop_render_for(format, core), EngineRing::I32(producer))
-        }
-        RingKind::Exact(payload) => {
-            let (producer, consumer) = rtrb::RingBuffer::<i32>::new(capacity);
-            let core = RenderCore::new(consumer, shared.clone(), plan.channels, prime);
-            (pcm_render(format, core, payload, tpdf, plan.no_gain), EngineRing::I32(producer))
-        }
-        RingKind::Float => {
-            let (producer, consumer) = rtrb::RingBuffer::<f32>::new(capacity);
-            let core = RenderCore::new(consumer, shared.clone(), plan.channels, prime);
-            (
-                pcm_render(format, core, RingPayload::F32, tpdf, plan.no_gain),
-                EngineRing::F32(producer),
-            )
-        }
-    };
-    let render = render.ok_or_else(|| {
-        StreamBuildError::refused(format!("no renderer for {format:?} with {:?} ring", plan.kind))
-    })?;
-    Ok((render, ring))
 }
 
 /// Owns audio playback: поток `apap-decode` пишет `SampleBlock` в
@@ -765,12 +650,9 @@ impl Player {
     }
 
     /// Поток `apap-decode` над ring сессии; возврат — после `Ready` (§6.18).
-    /// Ошибка декодирования или таймаут заполнения — отказ открытия (ТЗ-87).
-    /// Отказ самого запуска потока (`ThreadSpawner`) сохраняется в
-    /// `last_fault` (ТЗ-88, §6.18 шаг 19) — движок отличает его от
-    /// классификации по файлу. Приёмник `rx` возвращается вместе с воркером:
-    /// он остаётся живым после `Ready`, чтобы мид-трековый `Failed` не терялся
-    /// ([`Player::poll_decode_failure`]).
+    /// Тонкая обёртка над [`session_build::spawn_decoder`]: отказ запуска
+    /// потока (`ThreadSpawner`) сохраняется в `last_fault` (ТЗ-88, §6.18 шаг
+    /// 19) — движок отличает его от классификации по файлу.
     fn spawn_decoder(
         &mut self,
         feed: EngineFeed,
@@ -780,39 +662,22 @@ impl Player {
         cap_frames: usize,
         start_frame: u64,
     ) -> Result<(DecodeWorker, mpsc::Receiver<DecodeEvent>), String> {
-        let (tx, rx) = mpsc::channel();
-        let cfg = DecodeConfig {
-            channels: plan.channels,
+        match spawn_decoder(
+            self.spawner.as_ref(),
+            self.viz_tap.clone(),
+            feed,
+            ring,
+            plan,
+            shared,
+            cap_frames,
             start_frame,
-            start_fill: start_fill_frames(cap_frames, plan.rate),
-            tail_samples: DECODE_TAIL_FRAMES.saturating_mul(plan.channels.max(1)),
-        };
-        let tap = Some(self.viz_tap.clone());
-        let spawner = self.spawner.as_ref();
-        let spawned = match (feed, ring) {
-            // DoP: tap отсутствует (ТЗ-108).
-            (EngineFeed::Exact(f), EngineRing::I32(p)) if plan.kind == RingKind::Dop => {
-                DecodeWorker::spawn(spawner, DecodeLoop::new(f, p, shared.clone(), cfg, tx, None))
-            }
-            (EngineFeed::Exact(f), EngineRing::I32(p)) => {
-                DecodeWorker::spawn(spawner, DecodeLoop::new(f, p, shared.clone(), cfg, tx, tap))
-            }
-            (EngineFeed::Float(f), EngineRing::F32(p)) => {
-                DecodeWorker::spawn(spawner, DecodeLoop::new(f, p, shared.clone(), cfg, tx, tap))
-            }
-            _ => return Err("internal: ring type does not match the feed".into()),
-        };
-        let worker = match spawned {
-            Ok(w) => w,
-            Err(e) => {
+        ) {
+            Ok(pair) => Ok(pair),
+            Err(SpawnDecoderError::Spawn(e)) => {
                 self.last_fault = Some(e.clone());
-                return Err(format!("cannot spawn decode thread: {e:?}"));
+                Err(format!("cannot spawn decode thread: {e:?}"))
             }
-        };
-        match rx.recv_timeout(START_FILL_TIMEOUT) {
-            Ok(DecodeEvent::Ready) => Ok((worker, rx)),
-            Ok(DecodeEvent::Failed(e)) => Err(format!("decoding failed: {e:?}")),
-            Err(_) => Err("decoder did not fill the start buffer in time".into()),
+            Err(SpawnDecoderError::Open(msg)) => Err(msg),
         }
     }
 
@@ -1438,6 +1303,11 @@ impl Player {
 mod tests {
     use super::*;
     use crate::audio::decoder::TrackInfo;
+    use crate::audio::output::pcm_render_for;
+    use crate::audio::render::gain::NoGain;
+    use crate::audio::render::tpdf::Tpdf;
+    use crate::audio::render::RenderCore;
+    use crate::audio::worker::{DecodeConfig, DecodeLoop};
 
     fn track_info(frames: usize) -> TrackInfo {
         TrackInfo {
@@ -1460,20 +1330,6 @@ mod tests {
         p.out_ch = 1;
         p.info = Some(track_info(frames));
         p
-    }
-
-    #[test]
-    fn ring_capacity_scales_with_ms_and_geometry() {
-        assert_eq!(ring_capacity(48_000, 2, 1000, None), 96_000);
-        assert_eq!(ring_capacity(44_100, 2, 1500, None), 132_300);
-        assert_eq!(ring_capacity(8_000, 1, 100, None), 4096);
-    }
-
-    #[test]
-    fn ring_capacity_respects_cpal_buffer_floor() {
-        // At 8 kHz stereo the 100 ms request is only 1600 samples, so the
-        // Fixed(2048)-frame floor (2 periods × 2 ch = 8192) wins.
-        assert_eq!(ring_capacity(8_000, 2, 100, Some(2048)), 2048 * 2 * 2);
     }
 
     /// ТЗ-144: автовыбор устройства не нашёл карты — текст замка «устройство не выбрано».

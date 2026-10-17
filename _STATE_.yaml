@@ -177,7 +177,7 @@ steps:
     done: true
   - id: 40
     description: "Шаг 40: Мост: вынести из player.rs сборку сессии (EnginePlan, EngineFeed/EngineRing, build_render, ring_capacity, prime_frames, spawn_decoder) в новый src/audio/session_build.rs без изменения поведения; player.rs импортирует их (§6.18). Перенос кода → Проверка: полный cargo test"
-    done: false
+    done: true
   - id: 41
     description: "Шаг 41: Чистая функция плана эксклюзивного вывода: PathPlan + DeviceBufferActual → ёмкость ring, вид feed/render, OptimalRender::PcmLocked / DoP (session_build.rs) + тесты ≤4 (§6.18 п. 5–6, §8 С6, ТЗ-137, 140). Проверка: cargo test session_build"
     done: false
@@ -289,8 +289,8 @@ steps:
   - id: 77
     description: "Шаг 77: ФИНАЛ: cargo build/test/clippy зелёные; общие условия §8 (Совместимый играет, «Bit-perfect» только при ТЗ-52); ручные проверки в заметку плана: замок (ТЗ-1/2/48/118…122, AM1.0-8.1), B1 — возврат устройства в PipeWire после освобождения, B2 — текст «занято <владелец>» при чужом захвате"
     done: false
-current_step: 40
-next_action: "Шаг 40: Мост: вынести из player.rs сборку сессии (EnginePlan, EngineFeed/EngineRing, build_render, ring_capacity, prime_frames, spawn_decoder) в новый src/audio/session_build.rs без изменения поведения; player.rs импортирует их (§6.18). Перенос кода → Проверка: полный cargo test Свежий субагент code-writer sonnet."
+current_step: 41
+next_action: "Шаг 41: Чистая функция плана эксклюзивного вывода: PathPlan + DeviceBufferActual → ёмкость ring, вид feed/render, OptimalRender::PcmLocked / DoP (session_build.rs) + тесты ≤4 (§6.18 п. 5–6, §8 С6, ТЗ-137, 140). Проверка: cargo test session_build. Свежий субагент code-writer sonnet."
 fail_counter: 0
 fail_counter_max: 3
 failed_attempts: []
