@@ -205,7 +205,7 @@ steps:
     done: true
   - id: 51
     description: "app/mod.rs, UI-колбэки: транспорт (play/pause/stop/toggle/seek по дорожке, has_decoder, release_if_exclusive в колбэках окна и трея) → engine_send/audio(); громкость/mute колбэков (set_volume/set_muted, quick fix окна пути) → engine_send после изменения core; окно пути (path_report, take_report_dirty) → хелперы шага 50 (ADR-01, ADR-02, ADR-14, ТЗ-84). Проверка: cargo check"
-    done: false
+    done: true
   - id: 52
     description: "app/mod.rs, остаток: циклы приёма событий движка (player.on_event, take_opened) → on_engine_event/audio_mut(); select_active_mode → SetActiveMode + инвалидация кэша окна и бейджа; ApplyStep::Engine без mode_settings_applied — копия режимов больше не нужна; конструктор (send_startup_policy, SetVolume/SetMuted из pb_state, SetDevice) — через фасад до шага 53, если иначе нельзя (ADR-02, ADR-14, §6.18). Проверка: cargo check + cargo test --bin music-player-rs"
     done: false
@@ -218,8 +218,8 @@ steps:
   - id: 55
     description: "Удаление легаси (§8, §7.4): StreamDesc, FallbackReason, dsd_pcm_breaks_bit_perfect (тест dsd_pcm_breaks_bit_perfect_detects_conflict уже заменён в verdict.rs; bp_report.rs и bp_report_marks_volume_issue — удалены на шаге 41); ссылки в settings.rs/state_file.rs. Проверка: полный cargo test + clippy --all-targets. Шаг дробится при декомпозиции"
     done: false
-current_step: 51
-next_action: "Шаг 51: app/mod.rs UI-колбэки — транспорт, громкость/mute, окно пути → engine_send/audio()/хелперы шага 50. Проверка: cargo check"
+current_step: 52
+next_action: "Шаг 52: app/mod.rs остаток — циклы событий движка (on_event, take_opened), select_active_mode → SetActiveMode + инвалидация, ApplyStep::Engine без mode_settings_applied, конструктор. Проверка: cargo check + cargo test --bin music-player-rs"
 fail_counter: 0
 fail_counter_max: 3
 failed_attempts: []

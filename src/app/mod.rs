@@ -1109,6 +1109,17 @@ impl MusicApp {
         legacy_audio(&self.core.settings().playback, self.core.state().active_mode()).0.bit_perfect
     }
 
+    /// Переключить воспроизведение/паузу (ADR-01, ADR-02): играет, если
+    /// транспорт был на паузе или остановлен, иначе ставит на паузу —
+    /// мост к `AudioFacade::toggle`.
+    pub(super) fn toggle_playback(&mut self) {
+        if self.audio().is_playing() {
+            self.engine_send(EngineCmd::Pause);
+        } else {
+            self.engine_send(EngineCmd::Play);
+        }
+    }
+
     /// Снять флаг завершения трека (ADR-02, И-Р13) — мост к
     /// `AudioFacade::clear_end` через фасад до шага 53.
     pub(super) fn clear_end(&mut self) {
@@ -1132,7 +1143,6 @@ impl MusicApp {
     /// Текущий отчёт окна «Путь сигнала», построенный при необходимости
     /// (ADR-02, ТЗ-79, §7.2) — мост к `AudioFacade::path_report` через
     /// фасад до шага 53.
-    #[allow(dead_code)] // мост: используется с шага 51
     pub(super) fn path_report(&mut self) -> &PathReport {
         self.player.path_report()
     }
@@ -1140,7 +1150,6 @@ impl MusicApp {
     /// Снять отчёт окна «Путь сигнала», если он устарел с прошлого чтения
     /// (ADR-02, ТЗ-79, ТЗ-83, §7.2) — мост к `AudioFacade::take_report_dirty`
     /// через фасад до шага 53.
-    #[allow(dead_code)] // мост: используется с шага 51
     pub(super) fn take_report_dirty(&mut self) -> Option<&PathReport> {
         self.player.take_report_dirty()
     }
@@ -1570,15 +1579,15 @@ impl MusicApp {
                 if !a.core.gate().allows(MainCmd::PlayPause) {
                     return;
                 }
-                if !a.player.has_decoder() {
+                if a.audio().track().is_none() {
                     let idx = a.current.unwrap_or(0);
                     if idx < a.track_count() {
                         a.play_track(idx);
                     }
                     return;
                 }
-                a.player.toggle();
-                if a.player.is_playing() {
+                a.toggle_playback();
+                if a.audio().is_playing() {
                     a.emit(AppEvent::PlaybackStarted);
                 } else {
                     a.emit(AppEvent::PlaybackPaused);
@@ -1595,7 +1604,7 @@ impl MusicApp {
                 if !a.core.gate().allows(MainCmd::Stop) {
                     return;
                 }
-                a.player.stop();
+                a.engine_send(EngineCmd::Stop);
                 a.emit(AppEvent::PlaybackStopped);
             });
         }
@@ -1665,8 +1674,8 @@ impl MusicApp {
                 if !app.borrow().core.gate().allows(MainCmd::Seek) {
                     return;
                 }
-                let duration = app.borrow().player.snapshot().2.unwrap_or(0.0);
-                app.borrow_mut().player.seek(fraction as f64 * duration);
+                let duration = app.borrow().audio().duration().unwrap_or(0.0);
+                app.borrow_mut().engine_send(EngineCmd::Seek { secs: fraction as f64 * duration });
             });
         }
 
@@ -1678,8 +1687,8 @@ impl MusicApp {
                 if !app.borrow().core.gate().allows(MainCmd::Seek) {
                     return;
                 }
-                let duration = app.borrow().player.snapshot().2.unwrap_or(0.0);
-                app.borrow_mut().player.seek(fraction as f64 * duration);
+                let duration = app.borrow().audio().duration().unwrap_or(0.0);
+                app.borrow_mut().engine_send(EngineCmd::Seek { secs: fraction as f64 * duration });
             });
         }
 
@@ -1741,7 +1750,7 @@ impl MusicApp {
                 // Работает и при недоступной громкости (Строгий режим;
                 // Оптимальный с фиксацией).
                 let muted = a.core.toggle_mute();
-                a.player.set_muted(muted);
+                a.engine_send(EngineCmd::SetMuted(muted));
             });
         }
 
@@ -2038,7 +2047,7 @@ impl MusicApp {
                 if let Some(ui) = a.try_ui() {
                     ui.set_bp_report_open(true);
                 }
-                let view = path_view::path_view(a.player.path_report());
+                let view = path_view::path_view(a.path_report());
                 a.push_path_view_to_ui(view);
             });
         }
@@ -2071,11 +2080,11 @@ impl MusicApp {
                 let Some(action) = a.path_actions.get(idx).copied() else { return };
                 match action {
                     path_view::RecViewAction::QuickFix(path_view::QuickFix::Volume) => {
-                        a.player.set_volume(1.0);
+                        a.engine_send(EngineCmd::SetVolume(1.0));
                         a.core.change_state(Origin::User, StateChange::Volume(100));
                     }
                     path_view::RecViewAction::QuickFix(path_view::QuickFix::Unmute) => {
-                        a.player.set_muted(false);
+                        a.engine_send(EngineCmd::SetMuted(false));
                         a.core.change_state(Origin::User, StateChange::Muted(false));
                     }
                     path_view::RecViewAction::OpenSettings(_tab) => {
@@ -2607,7 +2616,7 @@ impl MusicApp {
         // окно не читает отчёт вовсе, чтобы не гасить его устаревший флаг
         // впустую (ТЗ-79, ТЗ-83, §7.2).
         if self.try_ui().is_some_and(|ui| ui.get_bp_report_open()) {
-            if let Some(r) = self.player.take_report_dirty() {
+            if let Some(r) = self.take_report_dirty() {
                 let view = path_view::path_view(r);
                 self.push_path_view_to_ui(view);
             }
@@ -2754,15 +2763,15 @@ impl MusicApp {
             eprintln!("[tray] cmd={cmd:?}");
             match cmd {
                 TrayEvent::TogglePlay => {
-                    self.player.toggle();
-                    if self.player.is_playing() {
+                    self.toggle_playback();
+                    if self.audio().is_playing() {
                         self.emit(AppEvent::PlaybackStarted);
                     } else {
                         self.emit(AppEvent::PlaybackPaused);
                     }
                 }
                 TrayEvent::Stop => {
-                    self.player.stop();
+                    self.engine_send(EngineCmd::Stop);
                     self.emit(AppEvent::PlaybackStopped);
                 }
                 TrayEvent::Prev => self.play_prev(),
@@ -2774,7 +2783,7 @@ impl MusicApp {
                         // Window hides into the tray: free an exclusive raw-`hw:`
                         // node so the device is usable by other apps while the
                         // player waits in the background (V5.1-B6).
-                        self.player.release_if_exclusive();
+                        self.engine_send(EngineCmd::ReleaseExclusive);
                         ui.hide()
                     } else {
                         ui.show()
@@ -2950,7 +2959,7 @@ impl MusicApp {
                 if self.track_count() == 0 || self.skip_streak >= self.track_count() {
                     // Защита от бесконечного пропуска при Repeat All, если
                     // вся библиотека повреждена (мост до SkipSeries С8).
-                    self.player.stop();
+                    self.engine_send(EngineCmd::Stop);
                     self.emit(AppEvent::PlaybackStopped);
                     self.status = "Все треки пропущены".into();
                     return;
@@ -2966,7 +2975,7 @@ impl MusicApp {
                 match self.next_track_index(repeat) {
                     Some(idx) => self.play_track(idx),
                     None => {
-                        self.player.stop();
+                        self.engine_send(EngineCmd::Stop);
                         self.emit(AppEvent::PlaybackStopped);
                     }
                 }
@@ -2985,7 +2994,7 @@ impl MusicApp {
                 // `on_open_failed`, чтобы не проскочить дальше по плейлисту.
                 if matches!(err, OpenError::ModeUnavailable(_)) {
                     self.pending_open = None;
-                    self.player.stop();
+                    self.engine_send(EngineCmd::Stop);
                     self.emit(AppEvent::PlaybackStopped);
                     self.push_mode_unavailable_notice();
                     return;
@@ -2995,7 +3004,7 @@ impl MusicApp {
                 match index {
                     Some(index) => self.on_open_failed(index, &text),
                     None => {
-                        self.player.stop();
+                        self.engine_send(EngineCmd::Stop);
                         self.push_message(Message {
                             level: MessageLevel::Error,
                             title: "Не удалось воспроизвести трек".into(),
@@ -3011,7 +3020,7 @@ impl MusicApp {
             Applied::Ended => {}
             Applied::DeviceLost(reaction) => match reaction {
                 Reaction::StopWithError | Reaction::LockFailed => {
-                    self.player.stop();
+                    self.engine_send(EngineCmd::Stop);
                     self.emit(AppEvent::PlaybackStopped);
                     self.push_message(Message {
                         level: MessageLevel::Error,
@@ -3032,7 +3041,7 @@ impl MusicApp {
                     if let Some(idx) = self.next_track_index(self.repeat) {
                         self.play_track(idx);
                     } else {
-                        self.player.stop();
+                        self.engine_send(EngineCmd::Stop);
                         self.emit(AppEvent::PlaybackStopped);
                     }
                 }
@@ -3090,8 +3099,8 @@ impl MusicApp {
         };
         tray::TrayState {
             now_playing,
-            playing: self.player.is_playing(),
-            bit_perfect: self.player.bit_perfect(),
+            playing: self.audio().is_playing(),
+            bit_perfect: self.bit_perfect(),
             error: self.audio_error.clone(),
         }
     }
