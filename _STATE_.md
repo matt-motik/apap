@@ -2,10 +2,141 @@
      Source of truth: _STATE_.yaml — edit that, then run:
      python tools/state_tool.py render -->
 
-# Состояние сессии
 
-- **Текущая задача:** Нет (все шаги завершены)
-- **Состояние:** done
+# Текущая микро-сессия
+
+- **Задача из ROADMAP:** AM1.0-8.6 — С6. ALSA Exclusive, замок
+- **Вайтлист файлов в работе (Изменяемые файлы):**
+  - Cargo.toml
+  - Cargo.lock
+  - src/audio/mod.rs
+  - src/audio/backend/mod.rs
+  - src/audio/backend/catalog.rs
+  - src/audio/backend/exclusive.rs
+  - src/audio/backend/alsa.rs
+  - src/audio/backend/alsa_out.rs
+  - src/audio/rt.rs
+  - src/audio/reservation/mod.rs
+  - src/audio/reservation/dbus.rs
+  - src/audio/reservation/gate.rs
+  - src/audio/testing/mod.rs
+  - src/audio/error.rs
+  - src/audio/test_run.rs
+  - src/audio/player.rs
+  - src/audio/output.rs
+  - src/audio/path/mod.rs
+  - src/audio/path/signal.rs
+  - src/settings/playback.rs
+  - src/settings/playback_dto.rs
+  - src/settings.rs
+  - src/engine/mod.rs
+  - src/engine/lock.rs
+  - src/engine/run.rs
+  - src/engine/messages.rs
+  - src/engine/deps.rs
+  - src/engine/legacy_path.rs
+  - src/engine/tests.rs
+  - src/app/mod.rs
+  - src/app/lock_view.rs
+  - src/app/badge_view.rs
+  - src/app/ui_audio_state.rs
+  - src/app/path_view.rs
+  - src/main.rs
+  - ui/app.slint
+  - ui/top_panel.slint
+  - ui/status.slint
+  - src/audio/session_build.rs
+  - src/engine/exclusive_path.rs
+  - src/settings/params.rs
+  - src/app/engine_sink.rs
+  - src/app/playback_manager.rs
+  - src/app/mode_dialog.rs
+  - ui/settings.slint
+  - ROADMAP.md
+  - _STATE_.yaml
+  - _STATE_.md
+- **Критерий успеха (Definition of Done):** cargo build/test/clippy зелёные без новых варнингов; Оптимальный/Строгий играют через собственный ALSA-вывод (AlsaExclusiveBackend) с замком lock_step и авто-выбором hw-карты системного sink (ADR-24); тесты §7.2 строки С6 зелёные; старый cpal-Exclusive путь удалён; закрыты AM1.0-B1, B2, B8, B9, B13 и отложенный тест AM1.0-8.4 шаг 14; B10 — закрыт или остаток перерегистрирован
+
+## Итерационный трекер
+- [>] **Шаг 1: Шаг 1: Cargo.toml: зависимости alsa 0.11 (target linux, версия как транзитивная у cpal) и rustix (features process, thread) для §6.6–§6.8. Файлы: Cargo.toml, Cargo.lock. Проверка: cargo check**
+- [ ] Шаг 2: Шаг 2: Newtype HwDeviceId(String) (стабильный id карты + device, не номер) с Display/serde/FromStr в src/audio/backend/mod.rs (§2.3, ADR-24). Только тип, без использования. Проверка: cargo check
+- [ ] Шаг 3: Шаг 3: Замена OptimalOpts/StrictOpts.device: Option<String> → Option<HwDeviceId>. Механическая правка ~20 строк в 5 файлах (settings/playback.rs, playback_dto.rs, settings/params.rs-тесты, engine/legacy_path.rs, engine/tests.rs); accessor device(mode) сохраняет сигнатуру Option<&str>, чтобы не трогать остальных потребителей (§2.3, ТЗ-143). Общий тип → Проверка: полный cargo test
+- [ ] Шаг 4: Шаг 4: CaptureFailure::NoDeviceSelected в src/audio/error.rs + ветка текста в capture_message (player.rs) (ТЗ-144, ADR-24). Публичный enum → Проверка: полный cargo test
+- [ ] Шаг 5: Шаг 5: Чистая функция parse_wpctl_inspect(&str) -> Option<SinkCard> и тип SinkCard { card: u32, device: Option<u32> } в reservation/mod.rs (свойства api.alsa.pcm.card/device) + тесты ≤5: ALSA-sink, без device, Bluetooth, null-sink, мусор (ADR-24, ТЗ-143). Проверка: cargo test parse_wpctl
+- [ ] Шаг 6: Шаг 6: AudioServerProbe::default_sink_card(): системная реализация (wpctl inspect @DEFAULT_AUDIO_SINK@, тайм-аут 1 с, нет утилиты/сервера → None) в reservation/mod.rs; FakeServerProbe с заданным Option<SinkCard> и счётчиком вызовов в audio/testing/mod.rs (ADR-24). Проверка: cargo check
+- [ ] Шаг 7: Шаг 7: HwDeviceInfo + DeviceCatalog.hw + hw_for_sink(SinkCard) -> Option<&HwDeviceId> (тот же device, иначе первое устройство карты, нет карты → None) в backend/catalog.rs + тесты ≤4 (§2.3, ADR-24). Проверка: cargo test hw_for_sink
+- [ ] Шаг 8: Шаг 8: Новый src/audio/backend/exclusive.rs: трейт ExclusiveBackend (caps/enumerate/acquire/device_caps/configure/start), DeviceClaim (порядок полей = порядок освобождения: pcm до reservation, И-Р1), ClaimInfo, PcmHandle, StreamHandle::stop(self: Box<Self>), ExclusiveRender, ConfigureError, StartError (§2.3, ТЗ-117…123). Только типы. Проверка: cargo check
+- [ ] Шаг 9: Шаг 9: FakeExclusiveBackend (сценарные результаты acquire/configure/start, журнал вызовов, фиксация порядка release) в audio/testing/mod.rs + 2 теста самого фейка (§7.1, ТЗ-114). Проверка: cargo test fake_exclusive
+- [ ] Шаг 10: Шаг 10: Новый src/engine/lock.rs: типы LockState, LockInput, LockEffect, ReacquirePoint { device, track: TrackRef, frame } (§2.6). Только типы. Проверка: cargo check
+- [ ] Шаг 11: Шаг 11: Функция lock_step(state, input, mode, dev: Option<&HwDeviceId>) -> (LockState, SmallVec<[LockEffect;2]>) по таблице §6.19 в engine/lock.rs (ТЗ-118…123, 125, 126, 144). Проверка: cargo check
+- [ ] Шаг 12: Шаг 12: Тесты lock_step ч. 1: lock_step_is_total (каждая пара состояние×вход), Compatible → NotApplicable, no_device_selected_* (Acquire без устройства → Failed(NoDeviceSelected), эффектов нет) — ≤5 (§7.2, ТЗ-144). Проверка: cargo test lock_step
+- [ ] Шаг 13: Шаг 13: Тесты lock_step ч. 2: UserClose/UserOpen/CaptureAndPlay/DeviceLost/DeviceReappeared/RetryCapture — ≤5 (§7.2, ТЗ-120…126). Проверка: cargo test lock_step
+- [ ] Шаг 14: Шаг 14: Чистая функция resolve_device(opts_device, probe, catalog) -> Resolved { Selected | AutoSelected(HwDeviceId) | None } в engine/lock.rs; выбранное устройство — без опроса probe (счётчик FakeServerProbe = 0) + тесты ≤4 (ADR-24, ТЗ-143, 144). Проверка: cargo test resolve_device
+- [ ] Шаг 15: Шаг 15: ЧЕКПОИНТ: полный cargo test + cargo clippy --all-targets (фильтр по вайтлисту)
+- [ ] Шаг 16: Шаг 16: Новый src/audio/backend/alsa.rs: AlsaExclusiveBackend — caps, enumerate (карты/устройства через alsa ctl → HwDeviceInfo, имя hw:CARD=<id>,DEV=<d>), device_caps по открытому PCM (§2.3, §6.6, ТЗ-42…47). Без acquire/configure/start. Проверка: cargo check
+- [ ] Шаг 17: Шаг 17: Заполнение DeviceCatalog.hw при обновлении каталога (refresh_devices: перечисление ExclusiveBackend::enumerate, generation) в backend/catalog.rs (§2.3, ТЗ-42). Проверка: cargo test catalog
+- [ ] Шаг 18: Шаг 18: AlsaExclusiveBackend::acquire ч. 1: композиция резервирования — reservation::acquire → Reservation, отображение ошибок D-Bus в CaptureFailure (ReservationDenied{owner}, OwnerNotResponding, NoSessionBus) — для AM1.0-B2 владелец сохраняется в ошибке (§6.6, ТЗ-48, 117, 46, 122). Проверка: cargo check
+- [ ] Шаг 19: Шаг 19: AlsaExclusiveBackend::acquire ч. 2: цикл OPEN с дедлайном EBUSY 1 с и шагом 50 мс (часы и open-функция инъецируются), EBUSY после дедлайна → BusyOutsideProtocol, ENOENT/ENODEV → DeviceDisconnected, прочее → DriverRefused{errno}; освобождение по И-Р1 — AM1.0-B1 + тесты ≤3 (EBUSY→успех, EBUSY→дедлайн, порядок release) (§6.6, ТЗ-48, 49). Проверка: cargo test alsa_acquire
+- [ ] Шаг 20: Шаг 20: AlsaExclusiveBackend::configure ч. 1: hw_params — RW_INTERLEAVED, формат/каналы/частота из StreamFormat, set_rate_resample(false), period_time_near(B/4), buffer_time_near(B) (§6.7, ТЗ-50, 112, 131). Проверка: cargo check
+- [ ] Шаг 21: Шаг 21: AlsaExclusiveBackend::configure ч. 2: sw_params (avail_min = period, start_threshold = buffer), однократное чтение hw_params_current → DriverFormat::Confirmed + DeviceBufferActual; сверка с запрошенным (§6.7, ТЗ-113). Проверка: cargo check
+- [ ] Шаг 22: Шаг 22: AlsaExclusiveBackend::configure ч. 3: повторная конфигурация на удерживаемом PCM (смена частоты/«Буфера устройства»: drop → hw_free → configure без освобождения; неудача → LostOnReopen) (§6.7, §8 С6, ТЗ-131). Проверка: cargo check
+- [ ] Шаг 23: Шаг 23: Новый src/audio/backend/alsa_out.rs ч. 1: чистая классификация ошибок записи errno → действие (EPIPE → xrun + prepare; ESTRPIPE → resume; ENODEV/EBADFD/EIO/ENXIO → DeviceUnavailable; прочее → BackendError) + тесты ≤5 (§6.7, ТЗ-51, 76). Проверка: cargo test alsa_out
+- [ ] Шаг 24: Шаг 24: alsa_out.rs ч. 2: поток apap-alsa-out — gettid → канал TID, цикл wait/avail_update/writei через ExclusiveRender::io_bytes, счётчик xruns в сессии, stop: AtomicBool, PCM возвращается через JoinHandle; StreamHandle-реализация; AlsaExclusiveBackend::start (§6.7, ТЗ-51, 76, 112). Проверка: cargo check
+- [ ] Шаг 25: Шаг 25: Новый src/audio/rt.rs ч. 1: при старте движка — чтение свойств rtkit MaxRealtimePriority/RTTimeUSecMax (zbus) и RLIMIT_RTTIME через rustix; чистая функция выбора приоритета min(max, 20) + тест (§6.8, ТЗ-30). Проверка: cargo test rt::
+- [ ] Шаг 26: Шаг 26: rt.rs ч. 2: служебный поток MakeThreadRealtime(tid, prio) — ожидание TID до 100 мс, результат Option<u32> отдаётся колбэком (§6.8, ТЗ-30, 76). Проверка: cargo check
+- [ ] Шаг 27: Шаг 27: ЧЕКПОИНТ: полный cargo test + cargo clippy --all-targets
+- [ ] Шаг 28: Шаг 28: EngineDeps: поля exclusive: Box<dyn ExclusiveBackend>, server_probe (если ещё нет) в deps.rs; EngineDeps::system (AlsaExclusiveBackend) и фейковые сборки в deps.rs/engine/tests.rs (§2.7, §8 таблица EngineDeps). Общий тип → Проверка: полный cargo test
+- [ ] Шаг 29: Шаг 29: messages.rs: EngineCmd::Lock(LockInput), EngineEvent::Lock(LockState), EngineEvent::DeviceAutoSelected { mode, device } (§2.8, ADR-24); обработчики-заглушки не нужны — app игнорирует новые события через существующий `_ =>` (проверить). Общий тип → Проверка: полный cargo test
+- [ ] Шаг 30: Шаг 30: Внутренний канал движка InternalMsg { ClaimDone{attempt, result}, ReservationLost{card}, RtPriority{session, granted} } в messages.rs + приёмник в цикле run() (дренаж try_recv на каждой итерации) в run.rs (§2.8). Проверка: cargo test engine::
+- [ ] Шаг 31: Шаг 31: run.rs: EngineCmd::Lock → lock_step; эффект Acquire — захват через spawner в служебном потоке → InternalMsg::ClaimDone → lock_step; эмиссия EngineEvent::Lock (Acquiring/Held/Failed) + тесты ≤3 на FakeExclusiveBackend (§6.19, ТЗ-118, 119, 123). Проверка: cargo test engine::
+- [ ] Шаг 32: Шаг 32: run.rs: разрешение устройства перед Acquire через resolve_device: AutoSelected → копия опций режима + EngineEvent::DeviceAutoSelected; None → Failed(NoDeviceSelected), ни acquire, ни SharedBackend::start + тесты ≤3 (§6.18, ADR-24, ТЗ-143, 144, 32). Проверка: cargo test engine::
+- [ ] Шаг 33: Шаг 33: run.rs: эффекты Release / StopPlayback / ForgetReacquire (UserClose, UserOpen, переход в Compatible) + тесты ≤3 (§6.19, ТЗ-120, 121). Проверка: cargo test engine::
+- [ ] Шаг 34: Шаг 34: app (engine_sink.rs/mod.rs): EngineEvent::DeviceAutoSelected → опции режима + запись settings.toml одной записью, SetModeSettings не отправляется, устройство другого режима не меняется + тест (ADR-24, ТЗ-143, ТЗ-134). Проверка: cargo test device_auto_selected
+- [ ] Шаг 35: Шаг 35: ЧЕКПОИНТ: полный cargo test + cargo clippy --all-targets
+- [ ] Шаг 36: Шаг 36: Мост: вынести из player.rs сборку сессии (EnginePlan, EngineFeed/EngineRing, build_render, ring_capacity, prime_frames, spawn_decoder) в новый src/audio/session_build.rs без изменения поведения; player.rs импортирует их (§6.18). Перенос кода → Проверка: полный cargo test
+- [ ] Шаг 37: Шаг 37: Чистая функция плана эксклюзивного вывода: PathPlan + DeviceBufferActual → ёмкость ring, вид feed/render, OptimalRender::PcmLocked / DoP (session_build.rs) + тесты ≤4 (§6.18 п. 5–6, §8 С6, ТЗ-137, 140). Проверка: cargo test session_build
+- [ ] Шаг 38: Шаг 38: Новый src/engine/exclusive_path.rs: ExclusivePath { claim, session, handle } и open(): configure при необходимости → сессия/декодер → start → OpenedFacts (DriverFormat::Confirmed) → SignalPath::from_opened (§6.18 п. 1–7, ТЗ-48, 50, 113). Проверка: cargo check
+- [ ] Шаг 39: Шаг 39: run.rs: Open в Оптимальном/Строгом диспетчеризуется в ExclusivePath (не Held → OpenFailed), Compatible — прежний путь + тесты ≤3 на фейке (Opened с Confirmed, OpenFailed без захвата) (§6.18, ТЗ-48, 137). Проверка: cargo test engine::
+- [ ] Шаг 40: Шаг 40: exclusive_path.rs: транспорт Play/Pause/Stop (остановка StreamHandle без освобождения claim — замок удерживает устройство, ТЗ-43) + тесты ≤3 (§6.18, ТЗ-49, 43). Проверка: cargo test engine::
+- [ ] Шаг 41: Шаг 41: exclusive_path.rs: Seek — сброс ring за O(1) и повторный prime (§6.16, ТЗ-99) + тест. Проверка: cargo test engine::
+- [ ] Шаг 42: Шаг 42: exclusive_path.rs: громкость/mute на эксклюзивном пути по плану (no_gain → игнор, иначе гейн рендера) (§6.18, ТЗ-137, 140) + тест. Проверка: cargo test engine::
+- [ ] Шаг 43: Шаг 43: exclusive_path.rs + run.rs poll_session: позиция, конец трека, StreamFault, перенос xruns сессии в DynamicPathState + тесты ≤3 (§6.18, ТЗ-51, 76). Проверка: cargo test engine::
+- [ ] Шаг 44: Шаг 44: exclusive_path.rs: tap визуализатора на эксклюзивной сессии (как в Shared-пути) (§6.18). Проверка: cargo check
+- [ ] Шаг 45: Шаг 45: exclusive_path.rs: смена трека с удержанием PCM — configure только при смене формата (§6.7, §6.18) + тест. Проверка: cargo test engine::
+- [ ] Шаг 46: Шаг 46: run.rs: SetModeSettings на эксклюзивном пути — смена «Буфера устройства»/параметров тракта по таблице применения (configure без освобождения, переоткрытие с позиции) (§6.7, §6.18, ТЗ-131) + тест. Проверка: cargo test engine::
+- [ ] Шаг 47: Шаг 47: Отложенный тест AM1.0-8.4 шаг 14: audio_param_change_reopens_at_position_preserving_pause на FakeExclusiveBackend (ТЗ-131, §7.2). Проверка: cargo test audio_param_change_reopens
+- [ ] Шаг 48: Шаг 48: RT-приоритет в движке: после start передать TID в rt.rs → InternalMsg::RtPriority → DynamicPathState.rt_priority (§6.8, ТЗ-30) + тест на фейковом rt. Проверка: cargo test engine::
+- [ ] Шаг 49: Шаг 49: ЧЕКПОИНТ: полный cargo test + cargo clippy --all-targets
+- [ ] Шаг 50: Шаг 50: run.rs: смена режима Exclusive → Compatible — Release раньше SharedBackend::start; тест optimal_held_to_compatible_releases_before_shared — закрывает AM1.0-B13 (§6.18, ТЗ-21). Проверка: cargo test optimal_held_to_compatible
+- [ ] Шаг 51: Шаг 51: run.rs: смена устройства режима (SwitchDevice) — Release старого → Lock(DeviceSelected(d)) → Acquire нового + тест (§6.18, §6.19, ТЗ-44). Проверка: cargo test engine::
+- [ ] Шаг 52: Шаг 52: run.rs: обнаружение потери (StreamFault::DeviceUnavailable / InternalMsg::ReservationLost) → LockInput::DeviceLost, сохранение ReacquirePoint + тест (§6.20, ТЗ-125). Проверка: cargo test engine::
+- [ ] Шаг 53: Шаг 53: run.rs: повторный захват по DevicesChanged (DeviceReappeared) → открытие трека в сохранённой точке на паузе + тест (§6.20, ТЗ-126). Проверка: cargo test engine::
+- [ ] Шаг 54: Шаг 54: ЧЕКПОИНТ: полный cargo test + cargo clippy --all-targets
+- [ ] Шаг 55: Шаг 55: Новый src/app/lock_view.rs: LockState → lock-kind/lock-text/доступные действия; тексты отказов с владельцем (ReservationDenied{owner}) и «занято вне протокола» (BusyOutsideProtocol) вместо «устройство не найдено» — AM1.0-B2 + тесты ≤5 (ADR-06, §6.19 подсказки, ТЗ-118…123, 46, 122, 144). Проверка: cargo test lock_view
+- [ ] Шаг 56: Шаг 56: Slint: индикатор замка — свойства lock-kind/lock-text в ui/top_panel.slint, проброс в ui/app.slint (ADR-06, ТЗ-118). Проверка: cargo build
+- [ ] Шаг 57: Шаг 57: Slint: кнопки действий замка (Захватить / Открыть / Повторить / Выбрать устройство / Перейти в Совместимый) и колбэки в ui/top_panel.slint + ui/app.slint (ТЗ-120…123, 144). Проверка: cargo build
+- [ ] Шаг 58: Шаг 58: app/mod.rs: колбэки замка → EngineCmd::Lock / переключение режима; EngineEvent::Lock → свойства окна через lock_view (ТЗ-118…123). Проверка: cargo check
+- [ ] Шаг 59: Шаг 59: «Выбрать устройство»: открыть диалог режима на выборе устройства (app/mode_dialog.rs; при необходимости ui/settings.slint) (ADR-24, ТЗ-144). Проверка: cargo build
+- [ ] Шаг 60: Шаг 60: Статус «Захват устройства…» по EngineEvent::Lock(Acquiring) — флаг в UiAudioState и вывод в статус-строку (ui_audio_state.rs, playback_manager.rs) — AM1.0-B9 + тест (ТЗ-119). Проверка: cargo test ui_audio_state
+- [ ] Шаг 61: Шаг 61: Уведомление «Замок открыт» с кнопкой «Захватить и играть» → LockInput::CaptureAndPlay (ui/status.slint + app/mod.rs) (ТЗ-125). Проверка: cargo build
+- [ ] Шаг 62: Шаг 62: AM1.0-B8 ч. 1: EngineEvent::DynamicsChanged(DynamicPathState) в messages.rs и эмиссия из poll_session при изменении underruns/xruns/rt_priority в run.rs (ТЗ-68). Общий тип → Проверка: полный cargo test
+- [ ] Шаг 63: Шаг 63: AM1.0-B8 ч. 2: UiAudioState — dirty-флаг по DynamicsChanged (ui_audio_state.rs) + тест (ТЗ-68). Проверка: cargo test ui_audio_state
+- [ ] Шаг 64: Шаг 64: AM1.0-B8 ч. 3: инвалидация PathWindowCache по dirty-флагу динамики (app/path_view.rs) + тест (ТЗ-68). Проверка: cargo test path_view
+- [ ] Шаг 65: Шаг 65: ЧЕКПОИНТ: полный cargo test + cargo clippy --all-targets
+- [ ] Шаг 66: Шаг 66: Удаление в engine: адаптер legacy_exclusive, EngineCmd::ReleaseExclusive и их обработка; legacy_path — только Совместимый (§8 С6 «удаляется»). Проверка: полный cargo test
+- [ ] Шаг 67: Шаг 67: Удаление в player.rs: release_if_exclusive, reopen_and_seek и их вызовы в stop()/toggle()/play() (V5.1-B5, V5.1-B6, ТЗ-43). Проверка: полный cargo test
+- [ ] Шаг 68: Шаг 68: Удаление ExclusiveGate-пути в player.rs и файла reservation/gate.rs (замещён AlsaExclusiveBackend) (§8 С6). Проверка: полный cargo test
+- [ ] Шаг 69: Шаг 69: Удаление освобождения эксклюзива при скрытии в трей (обработка TrayCmd::ShowHide в app/mod.rs; пункт меню трея остаётся) (§8 С6, ТЗ-43). Проверка: полный cargo test
+- [ ] Шаг 70: Шаг 70: Удаление в output.rs: cpal-путь Exclusive (ExclusiveMode, проба hw: в select_output_for, EBUSY-повтор) и shared-downgrade R-11 (§8 С6). Проверка: полный cargo test
+- [ ] Шаг 71: Шаг 71: AM1.0-B10: удалить StreamDesc, FallbackReason, Opened.stream_format и мосты legacy_path. Если Совместимый всё ещё идёт через legacy Player и типы нужны ему — выполнить частично, остаток перерегистрировать в B10 с указанием этапа (§8). Проверка: полный cargo test
+- [ ] Шаг 72: Шаг 72: ФИНАЛ: cargo build/test/clippy зелёные; общие условия §8 (Совместимый играет, «Bit-perfect» только при ТЗ-52); ручные проверки в заметку плана: замок (ТЗ-1/2/48/118…122, AM1.0-8.1), B1 — возврат устройства в PipeWire после освобождения, B2 — текст «занято <владелец>» при чужом захвате
+
+Легенда: [x] сделано · [>] текущий шаг · [ ] не начато
+
+- **Текущий шаг (current_step):** Шаг 1
+- **Следующий ход:** Шаг 1: добавить в Cargo.toml alsa = "0.11" ([target.'cfg(target_os = "linux")'.dependencies], версия как транзитивная у cpal) и rustix (features process, thread); cargo check. Свежий субагент code-writer sonnet.
+- **Счетчик безуспешных компиляций:** 0/3
+- **Состояние:** in_progress
 
 ## План: Executable workflow: правила AGENTS.md → исполняемые механизмы
 _Источник: чат с пользователем (ноутбук), начат в 67686ce; перенесён в репо 2026-09-22_
@@ -14,7 +145,7 @@ _Источник: чат с пользователем (ноутбук), нач
   - Инструмент готов; ждёт прогонов пакета baseline-2026-09 на linux и windows (python tools/acceptance.py status)
 - [>] **13.** Реализация AM1.0 + SP1.0 по сквозному порядку (ROADMAP.md): docs/01_audio_modes_v1.0/ (С0…С11) и docs/02_settings_persistence_v1.0/ (С0…С12) — ТЕКУЩАЯ ОСНОВНАЯ ЗАДАЧА
   - Закрытые этапы и баги — в ROADMAP.md (✅ с хэшем); здесь только открытое.
-  - AM1.0-8.5 (С5 (01) «Путь сигнала, бейдж, окно») закрыт в 48bdad1 (2026-10-17, Linux-десктоп); СЛЕДУЮЩИЙ (п. 19 сквозного порядка): AM1.0-8.6 (С6 (01) «ALSA Exclusive, замок»). Мост AudioFacade снят, BackendCaps — в src/audio/backend/mod.rs. На С6: AM1.0-B10 (удалить StreamDesc, FallbackReason, Opened.stream_format и мосты legacy_path вместе со старым путём). Ручные проверки SP1.0-8.11, SP1.0-B17, AM1.0-8.4 подтверждены пользователем 2026-10-16 (Linux/KDE, Cayin RU3 вместо ADI-2).
+  - AM1.0-8.5 (С5 (01) «Путь сигнала, бейдж, окно») закрыт в 48bdad1 (2026-10-17, Linux-десктоп); ТЕКУЩИЙ (п. 19 сквозного порядка, 🔄): AM1.0-8.6 (С6 (01) «ALSA Exclusive, замок»). Мост AudioFacade снят, BackendCaps — в src/audio/backend/mod.rs. На С6: AM1.0-B10 (удалить StreamDesc, FallbackReason, Opened.stream_format и мосты legacy_path вместе со старым путём). Ручные проверки SP1.0-8.11, SP1.0-B17, AM1.0-8.4 подтверждены пользователем 2026-10-16 (Linux/KDE, Cayin RU3 вместо ADI-2).
   - SP1.0-B16 закрыт в 74afd65 только для Windows (реестр, значение ScrollDirection раздела PrecisionTouchPad). ОТКРЫТО (решение пользователя 2026-10-13 — по мере проверки на машинах): macOS (NSEvent.isDirectionInvertedFromDevice), GNOME (natural-scroll), KDE (naturalScroll KWin) — там знак тачпада как пришёл; ветка cfg(not(windows)) в winit.rs на Linux/macOS не компилировалась. Известное ограничение: первое целое Lines свайпа тачпада без предшествующего дробного классифицируется как колесо и поправку не получает.
   - SP1.0-8.11, открытое: при хосте трея Unknown (не KDE/GNOME) знак +1 и единица = модуль первого события — направление может отличаться от прежнего (до С11 было delta < 0 — громче), проверить на реальном хосте и при необходимости добавить строку в wheel_table.toml; отклонение от §2.12: модуль ввода — поле AppCore (set_input / input_mut), а не AppDeps, до set_input стоит FakeWheelInput; ветка «бэкенд выбран, но DefaultRuleOnly» в main.rs с WinitWheelInput недостижима (attach не проверяет, что окно winit); у D-Bus-запросов хоста трея нет таймаута; SLINT_WHEEL_CLICK_PX дублируется в matcher.rs и normalizer.rs; отладочный eprintln в on_volume_scroll и poll_tray; имена файлов фикстур gnome-2/21, kde-3/16–20 не совпадают с source в шапке.
   - Ручные проверки за пользователем: SP1.0-8.10 — (GUI на этапе не запускался) ТЗ-35/37: ползунок на 40 %, колёсико трея +3 щелчка → 46 %, ползунок показывает 46 %; колёсико над ползунком ±2 % за щелчок; после смены режима ползунок показывает громкость нового режима; ТЗ-39: в Строгом и в Оптимальном с фиксацией ползунок/колёсико/трей не меняют громкость, при наведении на ползунок через ~0,5 с появляется подсказка с текстом §2.13 (не обрезается; при доступной громкости подсказки нет и область подсказки не мешает тянуть ползунок); ТЗ-38: кнопка mute работает в Строгом и при фиксации, mute каждого режима переживает перезапуск.
@@ -32,7 +163,7 @@ _Источник: чат с пользователем (ноутбук), нач
   - Ручные проверки за пользователем: AM1.0-8.1 — сценарии ТЗ-1/2/48/118/119/120/122 — отложено до полной реализации замка (решение пользователя 2026-10-10).
   - Windows-ноутбук: полный cargo test красный на 6 lib-тестах с POSIX-путями (SP1.0-B7), воспроизводится без правок этапа; критерий шагов на Windows — нет новых падений сверх этих шести.
   - Отклонения старого пути до С6: повтор EBUSY на тике 100 мс; select_output_for может кратко пробовать hw: до резервирования.
-  - ПЕРЕД С6 (решения пользователя 2026-10-17, обсуждение выбора устройств): вариант «hw-список только в Оптимальном/Строгом, в Совместимом — системный микшер» уже принят спекой (матрица 02_tz.md §5, ТЗ-21, ТЗ-127). Пробел спеки: OptimalOpts/StrictOpts.device = None (карта ни разу не выбиралась). Решение: авто — hw-карта текущего системного sink PipeWire (api.alsa.card узла → HwDeviceId из DeviceCatalog); не сопоставляется (BT, виртуальный sink, нет PipeWire) → замок «устройство не выбрано» + кнопка «Выбрать устройство», Shared не открывается. ТЗ-32 остаётся (в Оптимальном без перехода в микшер). Авто-выбор сохраняется в optimal/strict.device как обычный выбор пользователя (решение пользователя 2026-10-17). Нужна правка docs (с явного разрешения): 02_tz.md — новое ТЗ-N + ОВ-N; 03_spec.md — ОВС/ADR-N, LockFailReason::NoDeviceSelected (§2), шаг в §6.19 lock_step / §6.18 Open, сопоставление sink→HwDeviceId в DeviceCatalog, тесты §7, в строку С6 §8 — новое ТЗ-N и тест ТЗ-21 Optimal(hw)→Compatible. Затем разметка С6. Баг AM1.0-B13 закрывается на С6.
+  - ПЕРЕД С6 — ВЫПОЛНЕНО: docs правлены в a529e7d (ТЗ-143, ТЗ-144, ОВ-37, ADR-24); С6 размечен в _STATE_.yaml (2026-10-17), реализация не начата. Исходная запись: (решения пользователя 2026-10-17, обсуждение выбора устройств): вариант «hw-список только в Оптимальном/Строгом, в Совместимом — системный микшер» уже принят спекой (матрица 02_tz.md §5, ТЗ-21, ТЗ-127). Пробел спеки: OptimalOpts/StrictOpts.device = None (карта ни разу не выбиралась). Решение: авто — hw-карта текущего системного sink PipeWire (api.alsa.card узла → HwDeviceId из DeviceCatalog); не сопоставляется (BT, виртуальный sink, нет PipeWire) → замок «устройство не выбрано» + кнопка «Выбрать устройство», Shared не открывается. ТЗ-32 остаётся (в Оптимальном без перехода в микшер). Авто-выбор сохраняется в optimal/strict.device как обычный выбор пользователя (решение пользователя 2026-10-17). Нужна правка docs (с явного разрешения): 02_tz.md — новое ТЗ-N + ОВ-N; 03_spec.md — ОВС/ADR-N, LockFailReason::NoDeviceSelected (§2), шаг в §6.19 lock_step / §6.18 Open, сопоставление sink→HwDeviceId в DeviceCatalog, тесты §7, в строку С6 §8 — новое ТЗ-N и тест ТЗ-21 Optimal(hw)→Compatible. Затем разметка С6. Баг AM1.0-B13 закрывается на С6.
   - На С6: баг AM1.0-B1 (устройство не возвращается в PipeWire после hw:, EBUSY при пересоздании узла); тест unreadable_playlist_never_written (в AppCore нет чтения плейлиста) — по §8 стартовое чтение в AppCore приходит в С8 (02), не в С6 (02).
   - На С12: perf_picker_open_30s.
   - Ручные проверки за пользователем: SP1.0-8.5 — SIGTERM/SIGINT/SIGHUP (kill) сохраняют state/settings, второй сигнал завершает сразу (выход из трея и уведомление при ошибке записи подтверждены 2026-10-10).
