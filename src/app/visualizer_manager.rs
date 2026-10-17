@@ -33,12 +33,12 @@ impl MusicApp {
         tap_cons: rtrb::Consumer<f32>,
     ) {
         let worker = LiveWorker::start(tap_cons, cfg);
-        self.player.set_viz_tap(Some(tap_prod));
+        self.engine_send(EngineCmd::AttachVizTap(Some(tap_prod)));
         self.viz = Some(worker);
         self.viz_sig = None;
         self.viz_bars = Vec::new();
         self.viz_tap_active = false;
-        let (rate, ch) = self.player.format();
+        let (rate, ch) = self.audio().format();
         if let Some(v) = &self.viz {
             v.set_format(rate, ch);
         }
@@ -49,7 +49,7 @@ impl MusicApp {
     /// на паузе/стопе полосы распадаются (§8.1 С3).
     pub(crate) fn viz_push(&mut self) {
         let Some(viz) = &self.viz else { return };
-        let (rate, ch) = self.player.format();
+        let (rate, ch) = self.audio().format();
         viz.set_format(rate, ch);
 
         let settings = self.cfg().visualization.clone();
@@ -83,7 +83,7 @@ impl MusicApp {
             let active = mode == VisualizationMode::Spectrum;
             if active != self.viz_tap_active {
                 self.viz_tap_active = active;
-                self.player.set_viz_tap_active(active);
+                self.engine_send(EngineCmd::SetVizTap(active));
             }
             if let Some(ui) = self.try_ui() {
                 ui.set_viz_mode(mode.index());
@@ -101,7 +101,7 @@ impl MusicApp {
             return;
         }
 
-        let (playing, _, _) = self.player.snapshot();
+        let playing = self.audio().is_playing();
         if playing {
             self.push_spectrum(viz.bars());
         } else if !self.viz_bars.is_empty() {

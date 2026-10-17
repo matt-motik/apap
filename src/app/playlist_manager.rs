@@ -124,7 +124,7 @@ impl MusicApp {
         }
         if let Some(cur) = self.current {
             if cur == index {
-                self.player.stop();
+                self.engine_send(EngineCmd::Stop);
                 self.current = None;
                 self.reset_cover();
             } else if cur > index {
@@ -149,7 +149,7 @@ impl MusicApp {
     }
 
     pub(super) fn clear_playlist(&mut self) {
-        self.player.stop();
+        self.engine_send(EngineCmd::Stop);
         self.current = None;
         self.reset_cover();
         // МОСТ (§6.13, ТЗ-42, ТЗ-45): очистка через модель плейлиста; флаг
