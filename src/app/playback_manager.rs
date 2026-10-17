@@ -29,6 +29,10 @@ impl MusicApp {
         // the grab (top_panel.slint); restore only after seek-commit lands.
         let ui = self.try_ui();
         let seeking = ui.as_ref().is_some_and(|u| u.get_seekbar_dragging());
+        // Снимается заранее: `take_badge_view` требует `&mut self`, а `cur`
+        // ниже держит неизменяемое заимствование `self.last_ui` до конца
+        // функции.
+        let badge_update = self.take_badge_view();
         let cur = &self.last_ui;
         if playing != cur.playing {
             if let Some(ui) = &ui {
@@ -52,7 +56,7 @@ impl MusicApp {
         }
         // ADR-06, ТЗ-52, ТЗ-60, ТЗ-61: новый бейдж тракта и индикатор «Тест» —
         // снимаем разовое чтение независимо от наличия окна (И-Р13).
-        if let Some((badge, test)) = self.player.take_badge_view() {
+        if let Some((badge, test)) = badge_update {
             if let Some(ui) = &ui {
                 ui.set_status_badge_kind(badge.kind);
                 ui.set_status_badge_text(badge.text.into());
@@ -168,7 +172,7 @@ impl MusicApp {
     /// отложенное открытие продолжено плеером; отказ захвата или перехват
     /// (`NameLost`) — стоп и сообщение, отката в Shared нет (ТЗ-119, ТЗ-122, И-Р20).
     pub(super) fn handle_reservation(&mut self) {
-        let Some(event) = self.player.poll_reservation() else {
+        let Some(event) = self.poll_reservation() else {
             return;
         };
         match event {
@@ -205,7 +209,7 @@ impl MusicApp {
         if self.audio().ended() && self.current.is_some() {
             match self.repeat {
                 RepeatMode::One => {
-                    self.player.clear_end();
+                    self.clear_end();
                     self.engine_send(EngineCmd::Play);
                     self.emit(AppEvent::PlaybackStarted);
                 }
@@ -214,7 +218,7 @@ impl MusicApp {
                     match next {
                         Some(idx) => self.play_track(idx),
                         None => {
-                            self.player.clear_end();
+                            self.clear_end();
                             // End of playlist: free an exclusive raw-`hw:` node
                             // so the device returns to the system mixer
                             // (V5.1-B5).
@@ -470,12 +474,7 @@ impl MusicApp {
         let keys = CompareKeys::from_track(&track);
         self.playlist_op(move |core| core.playlist_update_tags(id, track, keys));
         self.current = self.core.playlist().index_of(id);
-        self.status = if self.player.reservation_pending() {
-            // ТЗ-119: ожидание резервирования не блокирует UI.
-            "Захват устройства…".into()
-        } else {
-            self.playing_status().into()
-        };
+        self.status = self.playing_status().into();
         // Переоткрытие на смене режима (§6.18, ТЗ-20) восстанавливает позицию
         // и состояние воспроизведения; обычное открытие трека всегда
         // запускает воспроизведение с нуля, как и раньше (ADR-01, ТЗ-103).

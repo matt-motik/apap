@@ -14,6 +14,7 @@ use music_player_rs::audio::analyzer::TAP_CAPACITY;
 use music_player_rs::audio::backend::{BackendError, SharedDeviceId};
 use music_player_rs::audio::error::{EngineFault, FileError, OpenError, Reaction};
 use music_player_rs::audio::output::{default_device_name, DeviceInfo};
+use music_player_rs::audio::path::report::PathReport;
 use music_player_rs::audio::player::ReservationEvent;
 use music_player_rs::audio::visualizer::{
     FreqScale, LevelScale, VisualizationMode, VisualizerConfig,
@@ -68,6 +69,7 @@ pub mod ui_manager;
 pub mod visualizer_manager;
 pub mod viz_settings_manager;
 
+use badge_view::{BadgeView, TestView};
 use engine_sink::EngineEventQueue;
 use events::AppEvent;
 use fulltrack_manager::{FullCmd, FullEvt};
@@ -1105,6 +1107,42 @@ impl MusicApp {
     #[allow(dead_code)] // мост: используется с шага 48
     pub(super) fn bit_perfect(&self) -> bool {
         legacy_audio(&self.core.settings().playback, self.core.state().active_mode()).0.bit_perfect
+    }
+
+    /// Снять флаг завершения трека (ADR-02, И-Р13) — мост к
+    /// `AudioFacade::clear_end` через фасад до шага 53.
+    pub(super) fn clear_end(&mut self) {
+        self.player.clear_end();
+    }
+
+    /// Снять терминальное событие резервирования устройства, если оно
+    /// пришло (ADR-02, ТЗ-119, И-Р13) — мост к `AudioFacade::poll_reservation`
+    /// через фасад до шага 53.
+    pub(super) fn poll_reservation(&mut self) -> Option<ReservationEvent> {
+        self.player.poll_reservation()
+    }
+
+    /// Снять вид бейджа тракта и кнопки «Тест», если он устарел с прошлого
+    /// чтения (ADR-02, И-Р13, ТЗ-52, ТЗ-61, ТЗ-62) — мост к
+    /// `AudioFacade::take_badge_view` через фасад до шага 53.
+    fn take_badge_view(&mut self) -> Option<(BadgeView, TestView)> {
+        self.player.take_badge_view()
+    }
+
+    /// Текущий отчёт окна «Путь сигнала», построенный при необходимости
+    /// (ADR-02, ТЗ-79, §7.2) — мост к `AudioFacade::path_report` через
+    /// фасад до шага 53.
+    #[allow(dead_code)] // мост: используется с шага 51
+    pub(super) fn path_report(&mut self) -> &PathReport {
+        self.player.path_report()
+    }
+
+    /// Снять отчёт окна «Путь сигнала», если он устарел с прошлого чтения
+    /// (ADR-02, ТЗ-79, ТЗ-83, §7.2) — мост к `AudioFacade::take_report_dirty`
+    /// через фасад до шага 53.
+    #[allow(dead_code)] // мост: используется с шага 51
+    pub(super) fn take_report_dirty(&mut self) -> Option<&PathReport> {
+        self.player.take_report_dirty()
     }
 
     /// Первый показ окна: разблокировать очередь `MessageCenter` (И-Р9,
