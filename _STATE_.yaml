@@ -175,7 +175,7 @@ steps:
   # volume/muted не переносятся — дублируют core.settings()/core.state().
   - id: 41
     description: "Удалить мёртвый src/app/bp_report.rs (ссылок нет с шага 40) и pub mod bp_report в app/mod.rs — часть удаления легаси, перенесена вперёд: снимает 7 вызовов фасада (§8, ADR-06). Проверка: cargo build"
-    done: false
+    done: true
   - id: 42
     description: "UiAudioState: постоянные последние значения рядом с take_*_dirty (не меняя их семантику) — transport(), position_secs(), track(), stream_desc(), is_playing(), is_stopped() (None = остановлен), duration() (frames/rate), format() (дефолт 44100/2) + ≤4 теста (ADR-02, И-Р13, ТЗ-103). Проверка: cargo test ui_audio_state"
     done: false
@@ -212,8 +212,8 @@ steps:
   - id: 53
     description: "Удаление легаси (§8, §7.4): StreamDesc, FallbackReason, dsd_pcm_breaks_bit_perfect (тест dsd_pcm_breaks_bit_perfect_detects_conflict уже заменён в verdict.rs; bp_report.rs и bp_report_marks_volume_issue — удалены на шаге 41); ссылки в settings.rs/state_file.rs. Проверка: полный cargo test + clippy --all-targets. Шаг дробится при декомпозиции"
     done: false
-current_step: 41
-next_action: "Шаг 41: удалить мёртвый src/app/bp_report.rs и pub mod bp_report в app/mod.rs. Проверка: cargo build"
+current_step: 42
+next_action: "Шаг 42: UiAudioState — постоянные последние значения transport/position/track/stream и геттеры is_playing/is_stopped/duration/format + ≤4 теста. Проверка: cargo test ui_audio_state"
 fail_counter: 0
 fail_counter_max: 3
 failed_attempts: []
