@@ -10,13 +10,14 @@ use std::time::Duration;
 use smallvec::SmallVec;
 
 use super::catalog::HwDeviceInfo;
-use super::exclusive::{ClaimInfo, DeviceClaim, PcmHandle};
+use super::exclusive::{ClaimInfo, ConfigureError, DeviceClaim, PcmHandle};
 use super::{AccessKind, BackendCaps, BackendError, DeviceCaps, HwDeviceId, OutputApi, RateSet};
 use crate::audio::clock::{Clock, MonotonicClock};
 use crate::audio::error::CaptureFailure;
-use crate::audio::format::{OutputSampleFormat, SampleRate};
+use crate::audio::format::{OutputSampleFormat, SampleRate, StreamFormat};
 use crate::audio::reservation::dbus::{alsa_card_index, DbusReserveBus, SystemServerProbe};
 use crate::audio::reservation::{self, LostNotify, Reservation, ReserveBus};
+use crate::settings::playback::DeviceBuffer;
 
 /// Дедлайн ожидания `EBUSY` при открытии `hw:` от момента вызова OPEN (§6.6,
 /// ТЗ-48, ТЗ-122).
@@ -166,6 +167,60 @@ impl AlsaExclusiveBackend {
     }
 }
 
+/// hw_params Exclusive-потока: доступ `RW_INTERLEAVED`, формат, число
+/// каналов, частота без ресэмплинга драйвера, период и буфер по настройке
+/// «Буфер устройства» (§6.7 п. 1, ТЗ-50, ТЗ-112, ТЗ-131). Порядок вызовов
+/// обязателен: ALSA отвергает период/буфер, заданные раньше access/format/
+/// channels/rate. Фактические параметры здесь не перечитываются — это
+/// вторая часть `configure` (ТЗ-113, §2.3). Вызывающей стороны пока нет —
+/// появится вместе с реализацией `ExclusiveBackend::configure`.
+#[allow(dead_code)]
+pub(crate) fn apply_hw_params(pcm: &alsa::PCM, fmt: &StreamFormat, buffer: DeviceBuffer) -> Result<(), ConfigureError> {
+    let hw = alsa::pcm::HwParams::any(pcm).map_err(configure_refused)?;
+    hw.set_access(alsa::pcm::Access::RWInterleaved).map_err(configure_refused)?;
+    hw.set_format(alsa_format(fmt.sample)?).map_err(configure_refused)?;
+    hw.set_channels(u32::from(fmt.channels.get())).map_err(configure_refused)?;
+    hw.set_rate_resample(false).map_err(configure_refused)?;
+    hw.set_rate(fmt.rate.hz(), alsa::ValueOr::Nearest).map_err(configure_refused)?;
+    let (buffer_us, period_us) = buffer_period_us(buffer);
+    hw.set_period_time_near(period_us, alsa::ValueOr::Nearest).map_err(configure_refused)?;
+    hw.set_buffer_time_near(buffer_us, alsa::ValueOr::Nearest).map_err(configure_refused)?;
+    pcm.hw_params(&hw).map_err(configure_refused)
+}
+
+/// Формат ALSA из формата потока (§6.7, ТЗ-112, ОВ-32): Exclusive hw_params
+/// принимает только `S16_LE`/`S24_3_LE`/`S24_LE`/`S32_LE` — `F32` входит в
+/// `FORMAT_MAP` для возможностей устройства (`device_caps_of`), но вне
+/// объёма hw_params Exclusive, поэтому исключается явно, не доходя до
+/// обратного поиска по `FORMAT_MAP`.
+fn alsa_format(sample: OutputSampleFormat) -> Result<alsa::pcm::Format, ConfigureError> {
+    if sample == OutputSampleFormat::F32 {
+        return Err(ConfigureError(format!("формат {sample:?} не поддерживается Exclusive (ТЗ-112)")));
+    }
+    FORMAT_MAP
+        .iter()
+        .find(|(_, out)| *out == sample)
+        .map(|(alsa_fmt, _)| *alsa_fmt)
+        .ok_or_else(|| ConfigureError(format!("формат {sample:?} не найден в FORMAT_MAP")))
+}
+
+/// Период и буфер в микросекундах для `period_time_near`/`buffer_time_near`
+/// (§6.7, ОВС-13): буфер — «Буфер устройства» целиком, период — его
+/// четверть (`DeviceBuffer::period_ms`). Умножение `u16 × 1000` не
+/// переполняет `u32` при любом значении перечисления, поэтому функция
+/// возвращает значения напрямую, без `Result`.
+fn buffer_period_us(buffer: DeviceBuffer) -> (u32, u32) {
+    let buffer_us = u32::from(buffer.ms()) * 1_000;
+    let period_us = u32::from(buffer.period_ms()) * 1_000;
+    (buffer_us, period_us)
+}
+
+/// Отказ ALSA при установке hw_params (§6.7, ТЗ-113): `ConfigureError` не
+/// задаёт вариантов — текст ошибки хоста ALSA.
+fn configure_refused(e: alsa::Error) -> ConfigureError {
+    ConfigureError(e.to_string())
+}
+
 /// Цикл OPEN (§6.6, ТЗ-48, ТЗ-49, ТЗ-122): `EBUSY` повторяется с шагом
 /// `OPEN_RETRY_STEP`, пока `clock.now()` не достигнет дедлайна
 /// `OPEN_EBUSY_DEADLINE` от момента вызова, иначе — отказ
@@ -277,6 +332,26 @@ mod tests {
         assert_eq!(FORMAT_MAP.len(), 5);
         assert!(FORMAT_MAP.contains(&(alsa::pcm::Format::S16LE, OutputSampleFormat::S16Le)));
         assert!(FORMAT_MAP.contains(&(alsa::pcm::Format::FloatLE, OutputSampleFormat::F32)));
+    }
+
+    #[test]
+    fn alsa_format_maps_exclusive_sample_formats() {
+        assert_eq!(alsa_format(OutputSampleFormat::S16Le), Ok(alsa::pcm::Format::S16LE));
+        assert_eq!(alsa_format(OutputSampleFormat::S24_3Le), Ok(alsa::pcm::Format::S243LE));
+        assert_eq!(alsa_format(OutputSampleFormat::S24Le), Ok(alsa::pcm::Format::S24LE));
+        assert_eq!(alsa_format(OutputSampleFormat::S32Le), Ok(alsa::pcm::Format::S32LE));
+    }
+
+    #[test]
+    fn alsa_format_rejects_f32_outside_exclusive_scope() {
+        assert!(alsa_format(OutputSampleFormat::F32).is_err());
+    }
+
+    #[test]
+    fn buffer_period_us_is_quarter_period_in_microseconds() {
+        assert_eq!(buffer_period_us(DeviceBuffer::Ms40), (40_000, 10_000));
+        assert_eq!(buffer_period_us(DeviceBuffer::Ms400), (400_000, 100_000));
+        assert_eq!(buffer_period_us(DeviceBuffer::Ms20), (20_000, 5_000));
     }
 
     fn noop() -> LostNotify {

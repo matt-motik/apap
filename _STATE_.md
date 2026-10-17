@@ -79,8 +79,8 @@
 - [x] Шаг 18: Шаг 18: Заполнение DeviceCatalog.hw при обновлении каталога (refresh_devices: перечисление ExclusiveBackend::enumerate, generation) в backend/catalog.rs (§2.3, ТЗ-42). Проверка: cargo test catalog
 - [x] Шаг 19: Шаг 19: AlsaExclusiveBackend::acquire ч. 1: композиция резервирования — reservation::acquire → Reservation, отображение ошибок D-Bus в CaptureFailure (ReservationDenied{owner}, OwnerNotResponding, NoSessionBus) — для AM1.0-B2 владелец сохраняется в ошибке (§6.6, ТЗ-48, 117, 46, 122). Проверка: cargo check
 - [x] Шаг 20: Шаг 20: AlsaExclusiveBackend::acquire ч. 2: цикл OPEN с дедлайном EBUSY 1 с и шагом 50 мс (часы и open-функция инъецируются), EBUSY после дедлайна → BusyOutsideProtocol, ENOENT/ENODEV → DeviceDisconnected, прочее → DriverRefused{errno}; освобождение по И-Р1 — AM1.0-B1 + тесты ≤3 (EBUSY→успех, EBUSY→дедлайн, порядок release) (§6.6, ТЗ-48, 49). Проверка: cargo test alsa_acquire
-- [>] **Шаг 21: Шаг 21: AlsaExclusiveBackend::configure ч. 1: hw_params — RW_INTERLEAVED, формат/каналы/частота из StreamFormat, set_rate_resample(false), period_time_near(B/4), buffer_time_near(B) (§6.7, ТЗ-50, 112, 131). Проверка: cargo check**
-- [ ] Шаг 22: Шаг 22: AlsaExclusiveBackend::configure ч. 2: sw_params (avail_min = period, start_threshold = buffer), однократное чтение hw_params_current → DriverFormat::Confirmed + DeviceBufferActual; сверка с запрошенным (§6.7, ТЗ-113). Проверка: cargo check
+- [x] Шаг 21: Шаг 21: AlsaExclusiveBackend::configure ч. 1: hw_params — RW_INTERLEAVED, формат/каналы/частота из StreamFormat, set_rate_resample(false), period_time_near(B/4), buffer_time_near(B) (§6.7, ТЗ-50, 112, 131). Проверка: cargo check
+- [>] **Шаг 22: Шаг 22: AlsaExclusiveBackend::configure ч. 2: sw_params (avail_min = period, start_threshold = buffer), однократное чтение hw_params_current → DriverFormat::Confirmed + DeviceBufferActual; сверка с запрошенным (§6.7, ТЗ-113). Проверка: cargo check**
 - [ ] Шаг 23: Шаг 23: AlsaExclusiveBackend::configure ч. 3: повторная конфигурация на удерживаемом PCM (смена частоты/«Буфера устройства»: drop → hw_free → configure без освобождения; неудача → LostOnReopen) (§6.7, §8 С6, ТЗ-131). Проверка: cargo check
 - [ ] Шаг 24: Шаг 24: Новый src/audio/backend/alsa_out.rs ч. 1: чистая классификация ошибок записи errno → действие (EPIPE → xrun + prepare; ESTRPIPE → resume; ENODEV/EBADFD/EIO/ENXIO → DeviceUnavailable; прочее → BackendError) + тесты ≤5 (§6.7, ТЗ-51, 76). Проверка: cargo test alsa_out
 - [ ] Шаг 25: Шаг 25: alsa_out.rs ч. 2: поток apap-alsa-out — gettid → канал TID, цикл wait/avail_update/writei через ExclusiveRender::render (io_bytes §6.7), счётчик xruns в сессии, stop: AtomicBool, PCM возвращается через JoinHandle; StreamHandle-реализация; AlsaExclusiveBackend::start (§6.7, ТЗ-51, 76, 112). Проверка: cargo check
@@ -135,8 +135,8 @@
 
 Легенда: [x] сделано · [>] текущий шаг · [ ] не начато
 
-- **Текущий шаг (current_step):** Шаг 21
-- **Следующий ход:** Шаг 21: AlsaExclusiveBackend::configure ч. 1: hw_params — RW_INTERLEAVED, формат/каналы/частота из StreamFormat, set_rate_resample(false), period_time_near(B/4), buffer_time_near(B) (§6.7, ТЗ-50, 112, 131). Проверка: cargo check. Свежий субагент code-writer sonnet.
+- **Текущий шаг (current_step):** Шаг 22
+- **Следующий ход:** Шаг 22: AlsaExclusiveBackend::configure ч. 2: sw_params (avail_min = period, start_threshold = buffer), однократное чтение hw_params_current → DriverFormat::Confirmed + DeviceBufferActual; сверка с запрошенным (§6.7, ТЗ-113). Проверка: cargo check. Свежий субагент code-writer sonnet.
 - **Счетчик безуспешных компиляций:** 0/3
 - **Состояние:** in_progress
 
