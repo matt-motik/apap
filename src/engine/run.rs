@@ -20,7 +20,7 @@ use crate::audio::path::{Blocked, OpenedFacts, OsStage, PathPlan};
 use crate::audio::player::{Player, ReservationEvent, StreamDesc};
 use crate::audio::verdict::{verdict, BadgeState, GainState};
 use crate::engine::deps::EngineDeps;
-use crate::engine::legacy_path::{legacy_audio, opened_facts_from_desc, shared_caps_from_desc};
+use crate::engine::legacy_path::{legacy_audio, opened_facts_from_desc, shared_caps_from_desc, stream_format_from_desc};
 use crate::engine::messages::{EngineCmd, EngineEvent, LegacyAudio, Notice, SkipReason, TransportState};
 use crate::persist::state_file::LegacyPlaybackState;
 use crate::settings::params::{ApplyKind, ModeSettingsDiff};
@@ -368,7 +368,14 @@ impl Engine {
                         } else {
                             self.active_path = None;
                         }
-                        self.deps.events.emit(EngineEvent::Opened { req_gen, info, stream, path: path_arc, badge });
+                        let stream_format = stream.as_ref().map(stream_format_from_desc);
+                        self.deps.events.emit(EngineEvent::Opened {
+                            req_gen,
+                            info,
+                            stream_format,
+                            path: path_arc,
+                            badge,
+                        });
                         self.refresh_transport();
                     }
                     Err(msg) => {

@@ -238,7 +238,6 @@ mod tests {
     use music_player_rs::audio::format::SampleRate;
     use music_player_rs::audio::path::recommend::{HwRequirement, OsTopic, PlayerSettingRec, SwitchWhy};
     use music_player_rs::audio::path::signal::DynamicPathState;
-    use music_player_rs::audio::player::StreamDesc;
     use music_player_rs::audio::verdict::BadgeState;
     use music_player_rs::engine::messages::{EngineEvent, SkipReason};
     use music_player_rs::settings::params::ParamId;
@@ -330,7 +329,7 @@ mod tests {
         EngineEvent::Opened {
             req_gen,
             info: track_info(),
-            stream: Some(StreamDesc::default()),
+            stream_format: None,
             path: None,
             badge: BadgeState::NoStream,
         }

@@ -10,9 +10,10 @@ use crate::audio::backend::catalog::DeviceCatalog;
 use crate::audio::backend::BackendError;
 use crate::audio::decoder::TrackInfo;
 use crate::audio::error::{FileError, OpenError, Reaction};
+use crate::audio::format::StreamFormat;
 use crate::audio::path::signal::SignalPath;
 use crate::audio::path::Blocked;
-use crate::audio::player::{ReservationEvent, StreamDesc};
+use crate::audio::player::ReservationEvent;
 use crate::audio::verdict::BadgeState;
 use crate::settings::params::ModeSettingsUpdate;
 use crate::settings::playback::ModeKind;
@@ -140,12 +141,13 @@ pub enum Notice {
 pub enum EngineEvent {
     /// `path`/`badge` — новая модель (§2.3, §2.5, ADR-20): `None`/
     /// `BadgeState::NoStream`, пока движок не построил путь (например,
-    /// Оптимальный/Строгий на легаси-исполнителе). `info` и `stream` —
-    /// мост старого пути до удаления `StreamDesc`.
+    /// Оптимальный/Строгий на легаси-исполнителе). `stream_format` — формат
+    /// вывода старого пути для всех режимов (С5-мост, ADR-05, §2.3): поле
+    /// снимается на этапе С6, когда `SignalPath` строится во всех режимах.
     Opened {
         req_gen: u64,
         info: TrackInfo,
-        stream: Option<StreamDesc>,
+        stream_format: Option<StreamFormat>,
         path: Option<Arc<SignalPath>>,
         badge: BadgeState,
     },

@@ -3528,7 +3528,6 @@ mod tests {
     }
 
     use music_player_rs::audio::decoder::Tags;
-    use music_player_rs::audio::player::StreamDesc;
     use music_player_rs::audio::verdict::BadgeState;
     use music_player_rs::persist::keys::{FileRead, Parsed};
     use music_player_rs::persist::state_file::parse_state;
@@ -3550,7 +3549,7 @@ mod tests {
         EngineEvent::Opened {
             req_gen,
             info: track_info(),
-            stream: Some(StreamDesc::default()),
+            stream_format: None,
             path: None,
             badge: BadgeState::NoStream,
         }

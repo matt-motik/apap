@@ -14,10 +14,12 @@
 //! (§3.5) без обвязки `Written<T>`: событие `DynamicsChanged` появится
 //! отдельным шагом, здесь поле только сбрасывается на новое открытие.
 //!
-//! §8 С5: устаревший снимок `StreamDesc` (слот `stream`, геттер
-//! `stream_desc()`) удалён — `format()` (§3.1, ADR-05) читается из
-//! `path().output.requested`, единственного источника формата открытого
-//! потока.
+//! §8 С5: устаревший снимок старого пути (слот `stream`, геттер
+//! `stream_desc()`) удалён из состояния UI. `format()` (§3.1, ADR-05) читает
+//! `path().output.requested`, если путь построен (Совместимый режим), иначе
+//! падает на принятый `stream_format` из `Opened` — формат старого пути,
+//! единственный источник до С6, когда Оптимальный/Строгий режимы ещё не
+//! строят `SignalPath` (С5-мост, §2.3).
 
 use std::collections::VecDeque;
 use std::path::Path;
@@ -26,6 +28,7 @@ use std::sync::Arc;
 use music_player_rs::audio::backend::catalog::DeviceCatalog;
 use music_player_rs::audio::decoder::TrackInfo;
 use music_player_rs::audio::error::{OpenError, Reaction};
+use music_player_rs::audio::format::StreamFormat;
 use music_player_rs::audio::path::signal::{DynamicPathState, SignalPath};
 use music_player_rs::audio::path::Blocked;
 use music_player_rs::audio::player::ReservationEvent;
@@ -162,6 +165,10 @@ pub struct UiAudioState {
     track: Written<TrackSnapshot>,
     devices: Written<DeviceSnapshot>,
     path: Written<PathSnapshot>,
+    /// Формат вывода старого пути принятой сессии (С5-мост, §2.3, ADR-05) —
+    /// запасной источник `format()`, пока `path()` не построен (Оптимальный/
+    /// Строгий). Те же правила принятия/сброса, что и у `path`.
+    stream_format: Option<StreamFormat>,
     badge: Written<BadgeState>,
     dynamics: DynamicPathState,
     /// Истина после принятого `Ended`, пока не снята `clear_end` (ТЗ-56,
@@ -197,7 +204,7 @@ impl UiAudioState {
     /// как устаревшие) — значения читаются через `take_*_dirty`.
     pub fn apply(&mut self, ev: EngineEvent) -> Applied {
         match ev {
-            EngineEvent::Opened { req_gen, info, stream: _, path, badge } => {
+            EngineEvent::Opened { req_gen, info, stream_format, path, badge } => {
                 if req_gen < self.latest_req_gen {
                     return Applied::None;
                 }
@@ -213,6 +220,7 @@ impl UiAudioState {
                     self.skipped = None;
                 }
                 self.path.set(PathSnapshot(path));
+                self.stream_format = stream_format;
                 self.badge.set(badge);
                 self.dynamics = DynamicPathState::default();
                 Applied::None
@@ -224,6 +232,7 @@ impl UiAudioState {
                 // ТЗ-56: параметры прошлого трека не переносятся на пропуск.
                 self.session = None;
                 self.path.set(PathSnapshot(None));
+                self.stream_format = None;
                 self.badge.set(BadgeState::NoStream);
                 self.dynamics = DynamicPathState::default();
                 // Только несовместимость (ТЗ-80) — предмет отчёта «Путь
@@ -241,6 +250,7 @@ impl UiAudioState {
                 // ТЗ-56: параметры прошлого трека не переносятся на неудачу.
                 self.session = None;
                 self.path.set(PathSnapshot(None));
+                self.stream_format = None;
                 self.badge.set(BadgeState::NoStream);
                 self.dynamics = DynamicPathState::default();
                 self.skipped = None;
@@ -390,15 +400,19 @@ impl UiAudioState {
         Some(frames_to_f64(frames) / f64::from(info.sample_rate))
     }
 
-    /// `(частота, число каналов)` запрошенного формата вывода последнего
-    /// принятого открытого пути сигнала (`output.requested`, §3.1, ADR-05),
-    /// либо дефолт до первого открытия/после неудачного открытия (ADR-02,
-    /// И-Р13).
+    /// `(частота, число каналов)` формата вывода последней принятой сессии
+    /// (§3.1, ADR-05): `output.requested` построенного пути (`path()`), иначе
+    /// `stream_format` старого пути (С5-мост, §2.3 — Оптимальный/Строгий до
+    /// С6), иначе дефолт до первого открытия/после неудачного открытия
+    /// (ADR-02, И-Р13).
     pub fn format(&self) -> (u32, usize) {
-        match self.path() {
-            Some(path) => (path.output.requested.rate.hz(), usize::from(path.output.requested.channels.get())),
-            None => (44_100, 2),
+        if let Some(path) = self.path() {
+            return (path.output.requested.rate.hz(), usize::from(path.output.requested.channels.get()));
         }
+        if let Some(format) = &self.stream_format {
+            return (format.rate.hz(), usize::from(format.channels.get()));
+        }
+        (44_100, 2)
     }
 }
 
@@ -407,7 +421,6 @@ mod tests {
     use super::*;
     use music_player_rs::audio::decoder::Tags;
     use music_player_rs::audio::error::FileError;
-    use music_player_rs::audio::player::StreamDesc;
     use music_player_rs::audio::verdict::{NbpReason, NbpSummary, SharedBadge};
     use music_player_rs::engine::messages::SkipReason;
 
@@ -427,7 +440,7 @@ mod tests {
         EngineEvent::Opened {
             req_gen,
             info: track_info(),
-            stream: Some(StreamDesc::default()),
+            stream_format: None,
             path: None,
             badge: BadgeState::NoStream,
         }
@@ -484,7 +497,7 @@ mod tests {
     }
 
     fn opened_with_badge(req_gen: u64, path: Option<Arc<SignalPath>>, badge: BadgeState) -> EngineEvent {
-        EngineEvent::Opened { req_gen, info: track_info(), stream: Some(StreamDesc::default()), path, badge }
+        EngineEvent::Opened { req_gen, info: track_info(), stream_format: None, path, badge }
     }
 
     #[test]
@@ -709,6 +722,39 @@ mod tests {
         state.apply(opened_with_badge(1, Some(Arc::new(path)), BadgeState::NoStream));
 
         assert_eq!(state.format(), (96_000, 1));
+    }
+
+    /// С5-мост, §2.3, ADR-05: без построенного пути (Оптимальный/Строгий до
+    /// С6) `format()` падает на принятый `stream_format` старого пути;
+    /// следующее принятое `OpenFailed` сбрасывает его обратно на дефолт
+    /// (ТЗ-56, та же семантика, что и у `path`).
+    #[test]
+    fn format_falls_back_to_stream_format_without_path() {
+        use std::num::NonZeroU8;
+
+        use music_player_rs::audio::format::{OutputSampleFormat, SampleRate, StreamFormat};
+
+        let mut state = UiAudioState::new();
+        assert_eq!(state.format(), (44_100, 2));
+
+        let stream_format = StreamFormat {
+            rate: SampleRate::new(96_000).expect("96000 — валидная частота"),
+            sample: OutputSampleFormat::F32,
+            channels: NonZeroU8::new(1).expect("1 канал — валидно"),
+        };
+        state.begin_open(1);
+        state.apply(EngineEvent::Opened {
+            req_gen: 1,
+            info: track_info(),
+            stream_format: Some(stream_format),
+            path: None,
+            badge: BadgeState::NoStream,
+        });
+        assert_eq!(state.format(), (96_000, 1));
+
+        state.begin_open(2);
+        state.apply(EngineEvent::OpenFailed { req_gen: 2, err: OpenError::DeviceLost });
+        assert_eq!(state.format(), (44_100, 2));
     }
 
     /// Снимок `Blocked` для теста `skipped` (§2.4, ТЗ-80) — только то, что
