@@ -104,13 +104,13 @@
 - [x] Шаг 52: app/mod.rs, остаток: циклы приёма событий движка (player.on_event, take_opened) → on_engine_event/audio_mut(); select_active_mode → SetActiveMode + инвалидация кэша окна и бейджа; ApplyStep::Engine без mode_settings_applied — копия режимов больше не нужна; конструктор (send_startup_policy, SetVolume/SetMuted из pb_state, SetDevice) — через фасад до шага 53, если иначе нельзя (ADR-02, ADR-14, §6.18). Проверка: cargo check + cargo test --bin music-player-rs
 - [x] Шаг 53: Снятие моста: engine/UiAudioState/req_gen/PathWindowCache/BadgeViewState — поля MusicApp; хелперы шагов 47 и 50 работают с ними; startup_commands/send_startup_policy → MusicApp + тесты startup_policy_equals_saved_policy, bit_perfect_follows_active_mode и тест диспетчеризации (Opened/Skipped/смена режима → PathWindowCache и BadgeViewState снова dirty — после шага 45 тесты кэша инвалидируют вручную); удалить audio_facade.rs и mod audio_facade (ADR-01, ADR-02, ОВС-14). Проверка: полный cargo test
 - [x] Шаг 54: Устаревшие doc-ссылки на снятый мост AudioFacade (только комментарии): badge_view.rs, playback_manager.rs, ui_audio_state.rs, core/mod.rs (volume/toggle_mute: команду движку шлёт слой app, владелец EngineHandle) (ADR-01, ADR-02). Проверка: cargo check, grep AudioFacade|audio_facade по src/ пуст
-- [>] **Шаг 55: Снять #![allow(dead_code)] в engine_sink.rs и ui_audio_state.rs, удалить ставшее неиспользуемым (ADR-02). ЧЕКПОИНТ. Проверка: cargo build + полный cargo test + clippy --all-targets**
-- [ ] Шаг 56: Удаление легаси (§8, §7.4): StreamDesc, FallbackReason, dsd_pcm_breaks_bit_perfect (тест dsd_pcm_breaks_bit_perfect_detects_conflict уже заменён в verdict.rs; bp_report.rs и bp_report_marks_volume_issue — удалены на шаге 41); ссылки в settings.rs/state_file.rs. Проверка: полный cargo test + clippy --all-targets. Шаг дробится при декомпозиции
+- [x] Шаг 55: Снять #![allow(dead_code)] в engine_sink.rs и ui_audio_state.rs, удалить ставшее неиспользуемым (ADR-02). ЧЕКПОИНТ. Проверка: cargo build + полный cargo test + clippy --all-targets
+- [>] **Шаг 56: Удаление легаси (§8, §7.4): StreamDesc, FallbackReason, dsd_pcm_breaks_bit_perfect (тест dsd_pcm_breaks_bit_perfect_detects_conflict уже заменён в verdict.rs; bp_report.rs и bp_report_marks_volume_issue — удалены на шаге 41); ссылки в settings.rs/state_file.rs. Проверка: полный cargo test + clippy --all-targets. Шаг дробится при декомпозиции**
 
 Легенда: [x] сделано · [>] текущий шаг · [ ] не начато
 
-- **Текущий шаг (current_step):** Шаг 55
-- **Следующий ход:** Шаг 55 (ЧЕКПОИНТ): снять #![allow(dead_code)] в engine_sink.rs и ui_audio_state.rs, удалить неиспользуемое. Проверка: cargo build + полный cargo test + clippy --all-targets
+- **Текущий шаг (current_step):** Шаг 56
+- **Следующий ход:** Шаг 56: разбить удаление легаси (StreamDesc, FallbackReason, dsd_pcm_breaks_bit_perfect) на подшаги по Правилу локализации, затем выполнять
 - **Счетчик безуспешных компиляций:** 0/3
 - **Состояние:** in_progress
 

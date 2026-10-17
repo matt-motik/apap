@@ -13,7 +13,6 @@
 //! `badge: BadgeState` (через `Written<T>`, И-Р13) и `DynamicPathState`
 //! (§3.5) без обвязки `Written<T>`: событие `DynamicsChanged` появится
 //! отдельным шагом, здесь поле только сбрасывается на новое открытие.
-#![allow(dead_code)]
 
 use std::collections::VecDeque;
 use std::path::Path;
@@ -310,32 +309,6 @@ impl UiAudioState {
         }
     }
 
-    /// `Some`, только если транспортное состояние изменилось с прошлого
-    /// чтения (И-Р13).
-    pub fn take_transport_dirty(&mut self) -> Option<TransportState> {
-        self.transport.take_dirty().copied()
-    }
-
-    /// `Some`, только если позиция изменилась с прошлого чтения (И-Р13).
-    pub fn take_position_dirty(&mut self) -> Option<f64> {
-        self.position_secs.take_dirty().copied()
-    }
-
-    /// `Some`, только при новой принятой сессии открытия.
-    pub fn take_track_dirty(&mut self) -> Option<Arc<TrackInfo>> {
-        self.track.take_dirty().map(|s| s.info.clone())
-    }
-
-    /// `Some`, только при новой принятой сессии открытия.
-    pub fn take_stream_dirty(&mut self) -> Option<Arc<Option<StreamDesc>>> {
-        self.stream.take_dirty().map(|s| s.desc.clone())
-    }
-
-    /// `Some`, только если каталог устройств сменил `generation` (ADR-16).
-    pub fn take_devices_dirty(&mut self) -> Option<Arc<DeviceCatalog>> {
-        self.devices.take_dirty().map(|d| d.0.clone())
-    }
-
     /// `Some`, только если бейдж изменился с прошлого чтения (И-Р13, ADR-20).
     pub fn take_badge_dirty(&mut self) -> Option<BadgeState> {
         self.badge.take_dirty().cloned()
@@ -444,14 +417,6 @@ impl UiAudioState {
         }
     }
 
-    /// Имя устройства последнего принятого потока вывода, `"none"`, если
-    /// поток не открыт (ADR-02, И-Р13).
-    pub fn device_desc(&self) -> &str {
-        match self.stream_desc() {
-            Some(desc) => &desc.device,
-            None => "none",
-        }
-    }
 }
 
 #[cfg(test)]
@@ -539,47 +504,19 @@ mod tests {
     }
 
     #[test]
-    fn written_cell_dirty_only_on_change() {
-        let mut state = UiAudioState::new();
-        let mut writes = 0;
-
-        state.apply(EngineEvent::Transport { state: TransportState::Playing });
-        if state.take_transport_dirty().is_some() {
-            writes += 1;
-        }
-
-        // Повтор того же значения — не изменение (И-Р13).
-        state.apply(EngineEvent::Transport { state: TransportState::Playing });
-        if state.take_transport_dirty().is_some() {
-            writes += 1;
-        }
-        state.apply(EngineEvent::Transport { state: TransportState::Playing });
-        if state.take_transport_dirty().is_some() {
-            writes += 1;
-        }
-
-        assert_eq!(writes, 1);
-
-        // Настоящее изменение — снова даёт запись.
-        state.apply(EngineEvent::Transport { state: TransportState::Paused });
-        assert_eq!(state.take_transport_dirty(), Some(TransportState::Paused));
-    }
-
-    #[test]
     fn stale_opened_dropped_after_newer_begin_open() {
         let mut state = UiAudioState::new();
 
         state.begin_open(1);
         state.apply(opened(1));
-        assert!(state.take_track_dirty().is_some());
+        assert!(state.track().is_some());
 
         // UI запросило новое открытие — req_gen 1 теперь устарел.
         state.begin_open(2);
         let applied = state.apply(opened(1));
         assert_eq!(applied, Applied::None);
-        // Устаревшее событие не меняет сессию и не взводит грязный флаг.
+        // Устаревшее событие не меняет сессию.
         assert_eq!(state.session, Some(1));
-        assert!(state.take_track_dirty().is_none());
     }
 
     #[test]
@@ -616,6 +553,8 @@ mod tests {
         assert_eq!(state.apply(EngineEvent::Ended { session: 1 }), Applied::Ended);
     }
 
+    /// И-Р14: позиция для несуществующей сессии (до принятого `Opened`)
+    /// отбрасывается; `Opened` сбрасывает позицию на 0.
     #[test]
     fn opened_resets_position() {
         let mut state = UiAudioState::new();
@@ -623,30 +562,13 @@ mod tests {
 
         // До принятого Opened позиция для несуществующей сессии отбрасывается.
         state.apply(EngineEvent::Position { secs: 5.0 });
-        assert!(state.take_position_dirty().is_none());
+        assert_eq!(state.position_secs(), 0.0);
 
         state.apply(opened(1));
-        assert_eq!(state.take_position_dirty(), Some(0.0));
+        assert_eq!(state.position_secs(), 0.0);
 
         state.apply(EngineEvent::Position { secs: 42.0 });
-        assert_eq!(state.take_position_dirty(), Some(42.0));
-    }
-
-    #[test]
-    fn devices_dirty_only_when_catalog_changes() {
-        let mut state = UiAudioState::new();
-        let catalog_v1 = Arc::new(DeviceCatalog { shared: Vec::new(), generation: 1 });
-
-        state.apply(EngineEvent::Devices(catalog_v1.clone()));
-        assert!(state.take_devices_dirty().is_some());
-
-        // Тот же каталог (та же generation) — не изменение.
-        state.apply(EngineEvent::Devices(catalog_v1.clone()));
-        assert!(state.take_devices_dirty().is_none());
-
-        let catalog_v2 = Arc::new(DeviceCatalog { shared: Vec::new(), generation: 2 });
-        state.apply(EngineEvent::Devices(catalog_v2));
-        assert!(state.take_devices_dirty().is_some());
+        assert_eq!(state.position_secs(), 42.0);
     }
 
     /// ТЗ-56, И-Р14: неудачное открытие следующего трека сбрасывает бейдж и
@@ -741,7 +663,6 @@ mod tests {
         let mut state = UiAudioState::new();
         assert!(state.track().is_none());
         assert_eq!(state.format(), (44_100, 2));
-        assert_eq!(state.device_desc(), "none");
 
         state.begin_open(1);
         state.apply(opened(1));
@@ -754,22 +675,6 @@ mod tests {
         assert!(state.is_playing());
         assert!(!state.is_stopped());
         assert_eq!(state.duration(), Some(1_000.0 / 44_100.0));
-    }
-
-    /// `take_*_dirty` снимает «грязный» флаг, но не меняет значение,
-    /// отдаваемое геттерами (ADR-02, И-Р13).
-    #[test]
-    fn getters_survive_take_dirty() {
-        let mut state = UiAudioState::new();
-        state.begin_open(1);
-        state.apply(opened(1));
-        state.apply(EngineEvent::Transport { state: TransportState::Playing });
-
-        assert!(state.take_track_dirty().is_some());
-        assert!(state.take_transport_dirty().is_some());
-
-        assert!(state.track().is_some());
-        assert_eq!(state.transport(), Some(TransportState::Playing));
     }
 
     /// Устаревшее событие (И-Р14) не меняет значение, видимое геттерами.
@@ -787,13 +692,11 @@ mod tests {
         assert!(Arc::ptr_eq(track_before.as_ref().expect("трек открыт"), track_after.as_ref().expect("трек открыт")));
     }
 
-    /// Формат и имя устройства до первого открытия — дефолт, повторяющий
-    /// поведение моста С3.
+    /// Формат до первого открытия — дефолт, повторяющий поведение моста С3.
     #[test]
-    fn format_and_device_default_before_open() {
+    fn format_default_before_open() {
         let state = UiAudioState::new();
         assert_eq!(state.format(), (44_100, 2));
-        assert_eq!(state.device_desc(), "none");
         assert!(state.stream_desc().is_none());
         assert!(state.is_stopped());
         assert!(!state.is_playing());

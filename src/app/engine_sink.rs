@@ -9,11 +9,6 @@
 //! стоит одного `try_recv`. Доступа к `Rc` из чужого потока здесь нет —
 //! хук работает строго в UI-потоке.
 //!
-//! Подключение (установка хука, обновление `UiAudioState`, Slint-свойств)
-//! делается в шаге 28; этот модуль — только мост-инфраструктура, поэтому
-//! `#![allow(dead_code)]`.
-#![allow(dead_code)]
-
 use std::cell::RefCell;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::mpsc;
