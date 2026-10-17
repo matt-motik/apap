@@ -892,6 +892,7 @@ mod tests {
     use crate::audio::clock::MonotonicClock;
     use crate::engine::sink::VecSink;
     use crate::engine::source::FakeSource;
+    use crate::audio::testing::{FakeExclusiveBackend, FakeServerProbe};
     use crate::engine::spawner::{FailingSpawner, StdSpawner};
     use crate::platform::fs::{FsPersistStore, MemStore};
     use std::path::PathBuf;
@@ -920,6 +921,8 @@ mod tests {
         let mem = MemStore::new();
         EngineDeps {
             shared,
+            exclusive: Some(Box::new(FakeExclusiveBackend::new())),
+            server_probe: Box::new(FakeServerProbe::desktop()),
             watcher,
             sources: Arc::new(FakeSource::with_format(pcm_format())),
             clock: Box::new(MonotonicClock::new()),

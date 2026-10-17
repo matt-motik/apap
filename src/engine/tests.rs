@@ -20,6 +20,7 @@ use crate::audio::clock::MonotonicClock;
 use crate::audio::error::{EngineFault, OpenError};
 use crate::audio::format::{ChannelLayout, Codec, Container, SampleRate, SourceFormat, SourceKind};
 use crate::audio::path::OsStage;
+use crate::audio::testing::{FakeExclusiveBackend, FakeServerProbe};
 use crate::engine::deps::EngineDeps;
 use crate::engine::messages::{EngineCmd, EngineEvent, TransportState};
 use crate::engine::run::{effective_gain, mode_apply_action, BackendCaps, EngineHandle, ModeApplyAction};
@@ -54,6 +55,8 @@ fn build_deps(
 ) -> EngineDeps {
     EngineDeps {
         shared,
+        exclusive: Some(Box::new(FakeExclusiveBackend::new())),
+        server_probe: Box::new(FakeServerProbe::desktop()),
         watcher,
         sources,
         clock: Box::new(MonotonicClock::new()),

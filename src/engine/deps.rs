@@ -1,17 +1,24 @@
 //! Зависимости движка этапа С3 (§2.10, ADR-20, ТЗ-114, ТЗ-115, ТЗ-116):
-//! подмножество `EngineDeps` спецификации без `exclusive`, `reservation`,
-//! `server_probe` — эти три поля пока живут внутри легаси `Player` (мост С3)
-//! и добавятся на этапах С6/С7 вместе с реализующими их трейтами.
+//! подмножество `EngineDeps` спецификации без `reservation` — резервирование
+//! карты по ADR-08 вызывается внутри `AlsaExclusiveBackend::acquire`
+//! (`reservation::acquire`), отдельного поля под сервис резервирования в
+//! `EngineDeps` не заведено.
 #![deny(clippy::unwrap_used, clippy::expect_used, clippy::unreachable)]
 
 use std::path::PathBuf;
 use std::sync::Arc;
 
 use crate::audio::backend::catalog::DeviceWatcher;
+use crate::audio::backend::exclusive::ExclusiveBackend;
 use crate::audio::backend::os_probe::{OsLevelProbe, SystemOsProbe};
 use crate::audio::backend::BackendCaps;
 use crate::audio::backend::shared::{CpalSharedBackend, SharedBackend};
 use crate::audio::clock::{Clock, MonotonicClock};
+use crate::audio::reservation::AudioServerProbe;
+#[cfg(target_os = "linux")]
+use crate::audio::backend::alsa::AlsaExclusiveBackend;
+#[cfg(target_os = "linux")]
+use crate::audio::reservation::dbus::SystemServerProbe;
 use crate::engine::sink::EventSink;
 use crate::engine::source::{SourceOpener, SymphoniaSourceOpener};
 use crate::engine::spawner::{StdSpawner, ThreadSpawner};
@@ -22,6 +29,11 @@ use crate::platform::fs::{os_fs, FsPersistStore, PersistStore};
 /// подменяется фейком.
 pub struct EngineDeps {
     pub shared: Box<dyn SharedBackend>,
+    /// Эксклюзивный бэкенд: `None` на Windows/macOS, где `ExclusiveBackend`
+    /// пока не реализован (§2.10, ADR-20).
+    pub exclusive: Option<Box<dyn ExclusiveBackend>>,
+    /// Наличие сессионной шины и аудиосервера для ОВ-35 (§2.10, ADR-20).
+    pub server_probe: Box<dyn AudioServerProbe>,
     pub watcher: Box<dyn DeviceWatcher>,
     /// Открытие файлов и предпроверка (§2.10).
     pub sources: Arc<dyn SourceOpener>,
@@ -47,6 +59,14 @@ impl EngineDeps {
         let (reader, _writer, store_writer) = os_fs(journal);
         EngineDeps {
             shared: Box::new(CpalSharedBackend::default()),
+            #[cfg(target_os = "linux")]
+            exclusive: Some(Box::new(AlsaExclusiveBackend::new())),
+            #[cfg(not(target_os = "linux"))]
+            exclusive: None,
+            #[cfg(target_os = "linux")]
+            server_probe: Box::new(SystemServerProbe),
+            #[cfg(not(target_os = "linux"))]
+            server_probe: Box::new(NoServerProbe),
             watcher: crate::platform::devwatch::system_device_watcher(),
             sources: Arc::new(SymphoniaSourceOpener),
             clock: Box::new(MonotonicClock::new()),
@@ -56,6 +76,23 @@ impl EngineDeps {
             caps: BackendCaps::current(),
             os_probe: Box::new(SystemOsProbe),
         }
+    }
+}
+
+/// Нет сессионной шины ReserveDevice1 и аудиосервера на платформах без
+/// `SystemServerProbe` (§2.10, ADR-20, ОВ-35): `exclusive` там же `None`,
+/// поэтому значения `AudioServerProbe` этот бэкенд не использует.
+#[cfg(not(target_os = "linux"))]
+struct NoServerProbe;
+
+#[cfg(not(target_os = "linux"))]
+impl AudioServerProbe for NoServerProbe {
+    fn session_bus(&self) -> bool {
+        false
+    }
+
+    fn server_running(&self) -> bool {
+        false
     }
 }
 
@@ -71,6 +108,7 @@ mod tests {
     use crate::audio::backend::shared::FakeSharedBackend;
     use crate::audio::backend::catalog::FakeDeviceWatcher;
     use crate::audio::backend::os_probe::FakeOsProbe;
+    use crate::audio::testing::{FakeExclusiveBackend, FakeServerProbe};
     use crate::audio::format::{ChannelLayout, Codec, Container, SampleRate, SourceFormat, SourceKind};
     use crate::audio::path::OsStage;
     use crate::engine::sink::VecSink;
@@ -95,6 +133,8 @@ mod tests {
         let fake_source = Arc::new(FakeSource::with_format(pcm_format()));
         let mut deps = EngineDeps {
             shared: Box::new(FakeSharedBackend::with_devices(Vec::new())),
+            exclusive: Some(Box::new(FakeExclusiveBackend::new())),
+            server_probe: Box::new(FakeServerProbe::desktop()),
             watcher: Box::new(FakeDeviceWatcher::new()),
             sources: Arc::clone(&fake_source) as Arc<dyn SourceOpener>,
             clock: Box::new(MonotonicClock::new()),
