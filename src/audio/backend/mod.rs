@@ -11,6 +11,7 @@ use serde::{Deserialize, Serialize};
 use smallvec::SmallVec;
 
 pub mod catalog;
+pub mod exclusive;
 pub mod os_probe;
 pub mod shared;
 

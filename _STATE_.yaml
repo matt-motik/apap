@@ -80,8 +80,8 @@ steps:
     description: "Шаг 7: HwDeviceInfo + DeviceCatalog.hw + hw_for_sink(SinkCard) -> Option<&HwDeviceId> (тот же device, иначе первое устройство карты, нет карты → None) в backend/catalog.rs + тесты ≤4 (§2.3, ADR-24). Проверка: cargo test hw_for_sink"
     done: true
   - id: 8
-    description: "Шаг 8: Новый src/audio/backend/exclusive.rs: трейт ExclusiveBackend (caps/enumerate/acquire/device_caps/configure/start), DeviceClaim (порядок полей = порядок освобождения: pcm до reservation, И-Р1), ClaimInfo, PcmHandle, StreamHandle::stop(self: Box<Self>), ExclusiveRender, ConfigureError, StartError (§2.3, ТЗ-117…123). Только типы. Проверка: cargo check"
-    done: false
+    description: "Шаг 8: Новый src/audio/backend/exclusive.rs: трейт ExclusiveBackend (caps/enumerate/acquire/device_caps/configure/start), DeviceClaim (порядок полей = порядок освобождения: pcm до reservation, И-Р1), ClaimInfo, PcmHandle, StreamHandle::stop(self: Box<Self>), ExclusiveRender (+ ExclusivePcm<G>/DopRenderAny/OptimalRender/StrictRender — стирание типа ring/формата, §2.9), ConfigureError, StartError (§2.3, ТЗ-117…123). Только типы. Проверка: cargo check"
+    done: true
   - id: 9
     description: "Шаг 9: FakeExclusiveBackend (сценарные результаты acquire/configure/start, журнал вызовов, фиксация порядка release) в audio/testing/mod.rs + 2 теста самого фейка (§7.1, ТЗ-114). Проверка: cargo test fake_exclusive"
     done: false
@@ -128,7 +128,7 @@ steps:
     description: "Шаг 23: Новый src/audio/backend/alsa_out.rs ч. 1: чистая классификация ошибок записи errno → действие (EPIPE → xrun + prepare; ESTRPIPE → resume; ENODEV/EBADFD/EIO/ENXIO → DeviceUnavailable; прочее → BackendError) + тесты ≤5 (§6.7, ТЗ-51, 76). Проверка: cargo test alsa_out"
     done: false
   - id: 24
-    description: "Шаг 24: alsa_out.rs ч. 2: поток apap-alsa-out — gettid → канал TID, цикл wait/avail_update/writei через ExclusiveRender::io_bytes, счётчик xruns в сессии, stop: AtomicBool, PCM возвращается через JoinHandle; StreamHandle-реализация; AlsaExclusiveBackend::start (§6.7, ТЗ-51, 76, 112). Проверка: cargo check"
+    description: "Шаг 24: alsa_out.rs ч. 2: поток apap-alsa-out — gettid → канал TID, цикл wait/avail_update/writei через ExclusiveRender::render (io_bytes §6.7), счётчик xruns в сессии, stop: AtomicBool, PCM возвращается через JoinHandle; StreamHandle-реализация; AlsaExclusiveBackend::start (§6.7, ТЗ-51, 76, 112). Проверка: cargo check"
     done: false
   - id: 25
     description: "Шаг 25: Новый src/audio/rt.rs ч. 1: при старте движка — чтение свойств rtkit MaxRealtimePriority/RTTimeUSecMax (zbus) и RLIMIT_RTTIME через rustix; чистая функция выбора приоритета min(max, 20) + тест (§6.8, ТЗ-30). Проверка: cargo test rt::"
@@ -274,8 +274,8 @@ steps:
   - id: 72
     description: "Шаг 72: ФИНАЛ: cargo build/test/clippy зелёные; общие условия §8 (Совместимый играет, «Bit-perfect» только при ТЗ-52); ручные проверки в заметку плана: замок (ТЗ-1/2/48/118…122, AM1.0-8.1), B1 — возврат устройства в PipeWire после освобождения, B2 — текст «занято <владелец>» при чужом захвате"
     done: false
-current_step: 8
-next_action: "Шаг 8: новый src/audio/backend/exclusive.rs — только типы: трейт ExclusiveBackend, DeviceClaim (порядок полей = порядок освобождения, И-Р1), ClaimInfo, PcmHandle, StreamHandle, ExclusiveRender, ConfigureError, StartError (§2.3, ТЗ-117…123); cargo check. Свежий субагент code-writer sonnet."
+current_step: 9
+next_action: "Шаг 9: FakeExclusiveBackend (сценарные результаты acquire/configure/start, журнал вызовов, порядок release) в audio/testing/mod.rs + 2 теста; cargo test fake_exclusive. Свежий субагент code-writer sonnet."
 fail_counter: 0
 fail_counter_max: 3
 failed_attempts: []
