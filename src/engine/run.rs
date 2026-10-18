@@ -484,7 +484,16 @@ impl Engine {
                         // в `Held` (§6.20 п. 4, ТЗ-126).
                         self.reopen_after_reacquire(&info.device);
                     }
-                    Err(e) => self.lock_input(LockInput::CaptureResult(Err(e))),
+                    Err(e) => {
+                        // Отказ захвата снимает автоплей сохранённой точки:
+                        // дальнейшее переоткрытие (ручной `RetryCapture` или
+                        // автоматический повторный захват вернувшегося
+                        // устройства) — всегда на паузе (ТЗ-126, §6.20).
+                        if let Some(point) = self.reacquire.as_mut() {
+                            point.autoplay = false;
+                        }
+                        self.lock_input(LockInput::CaptureResult(Err(e)));
+                    }
                 }
             }
             // Потеря имени `ReserveDevice1` удержанной карты (§6.20, ADR-08,
@@ -665,6 +674,22 @@ impl Engine {
         self.refresh_transport();
     }
 
+    /// Строит точку повторного захвата для `device`/`autoplay` из текущего
+    /// трека и позиции Эксклюзивного пути (§6.20 п. 2, ТЗ-51, ТЗ-126, ТЗ-137)
+    /// — общая часть `save_reacquire_point` (потеря устройства) и
+    /// `save_switch_device_reacquire_point` (смена устройства активного
+    /// режима). Без открытого трека (`self.current`) сохранять нечего —
+    /// `None`; без открытого Эксклюзивного пути позиция/частота — `(0, 0)`
+    /// (трек открывается с начала).
+    fn build_reacquire_point(&self, device: HwDeviceId, autoplay: bool) -> Option<ReacquirePoint> {
+        let (_, path) = self.current.as_ref()?;
+        let (frame, rate) = self
+            .exclusive_path
+            .as_ref()
+            .map_or((0, 0), |p| (secs_to_frames(p.position_secs(), p.frame_rate()), p.frame_rate()));
+        Some(ReacquirePoint { device, track: TrackRef { id: None, path: Arc::clone(path) }, frame, rate, autoplay })
+    }
+
     /// Сохраняет точку повторного захвата (§6.20 п. 2, ТЗ-51, ТЗ-126) перед
     /// `lock_input(DeviceLost)`: вызывающая сторона обязана вызвать её ДО
     /// `lock_input`, иначе эффекты `StopPlayback`/`Release` перехода `Held →
@@ -674,20 +699,39 @@ impl Engine {
     /// Эксклюзивный путь открыт, захват живёт внутри него, и `self.claim`
     /// пуст (И-Р1, §6.19). Без удержанного замка или без открытого трека
     /// сохранять нечего (например, сигнал пришёл не о текущей удержанной
-    /// карте) — тихий no-op, `self.reacquire` не трогается.
+    /// карте) — тихий no-op, `self.reacquire` не трогается. `autoplay: false`
+    /// безусловно — автоплей после потери устройства запрещён (ТЗ-126),
+    /// независимо от того, играл трек в момент потери.
     fn save_reacquire_point(&mut self) {
         let LockState::Held { info } = &self.lock else { return };
-        let Some((_, path)) = self.current.as_ref() else { return };
-        let (frame, rate) = self
-            .exclusive_path
-            .as_ref()
-            .map_or((0, 0), |p| (secs_to_frames(p.position_secs(), p.frame_rate()), p.frame_rate()));
-        self.reacquire = Some(ReacquirePoint {
-            device: info.device.clone(),
-            track: TrackRef { id: None, path: Arc::clone(path) },
-            frame,
-            rate,
-        });
+        let Some(point) = self.build_reacquire_point(info.device.clone(), false) else { return };
+        self.reacquire = Some(point);
+    }
+
+    /// Сохраняет точку повторного захвата перед сменой устройства активного
+    /// Эксклюзивного режима (`LockInput::DeviceSelected(new_dev)`, §6.18,
+    /// §6.19, ТЗ-137): вызывающая сторона обязана вызвать её ДО
+    /// `lock_input`, как и `save_reacquire_point` — иначе эффект
+    /// `StopPlayback` уже закроет `self.exclusive_path` (источник позиции и
+    /// игра/пауза). В отличие от потери устройства (ТЗ-126, всегда пауза),
+    /// смена устройства продолжает воспроизведение, если оно шло (ТЗ-137,
+    /// «продолжение с той же позиции») — `autoplay = exclusive_path.
+    /// is_playing()`. Устройство точки — НОВОЕ (`new_dev`), на которое идёт
+    /// захват, а не старое удержанное: `reopen_after_reacquire` сверяет точку
+    /// с устройством из `ClaimDone`, которым будет новое. Без удержанного
+    /// замка (переход `DeviceSelected` из других состояний не закрывает
+    /// открытый трек) — тихий no-op.
+    ///
+    /// Если захват нового устройства откажет (`ClaimDone(Err)`), точка не
+    /// забирается — `reopen_after_reacquire` вызывается только из успешной
+    /// ветки `ClaimDone`. Она остаётся для последующего `RetryCapture`/
+    /// `DeviceReappeared` на то же устройство, но ветка отказа `ClaimDone`
+    /// сбрасывает её `autoplay` — после отказа переоткрытие только на паузе
+    /// (ТЗ-126).
+    fn save_switch_device_reacquire_point(&mut self, new_dev: HwDeviceId) {
+        let LockState::Held { .. } = &self.lock else { return };
+        let autoplay = self.exclusive_path.as_ref().is_some_and(ExclusivePath::is_playing);
+        self.reacquire = self.build_reacquire_point(new_dev, autoplay);
     }
 
     /// Автоматический повторный захват вернувшегося устройства (§6.20 п. 4,
@@ -722,8 +766,10 @@ impl Engine {
     /// возвращается нетронутой и ничего не открывается — иначе трек
     /// переоткрывается на сохранённой позиции (`ReacquirePoint::frame`/
     /// `rate` → секунды, `frames_to_secs`) на Эксклюзивном пути с
-    /// `autoplay: false` — пауза, автоплей запрещён (ТЗ-126), запуск
-    /// воспроизведения — явное решение пользователя.
+    /// `autoplay: point.autoplay` — всегда `false` после потери устройства
+    /// (ТЗ-126, запуск воспроизведения — явное решение пользователя) и
+    /// игра/пауза на момент смены устройства активного режима (ТЗ-137, см.
+    /// `save_switch_device_reacquire_point`).
     fn reopen_after_reacquire(&mut self, claimed: &HwDeviceId) {
         let Some(point) = self.reacquire.take() else { return };
         if point.device != *claimed {
@@ -742,7 +788,8 @@ impl Engine {
                 return;
             }
         };
-        self.open_exclusive(req_gen, path, src, start_secs, false);
+        let autoplay = point.autoplay;
+        self.open_exclusive(req_gen, path, src, start_secs, autoplay);
     }
 
     /// Запуск захвата устройства `dev` в служебном потоке (§6.19, ТЗ-119,
@@ -1204,10 +1251,15 @@ impl Engine {
                     // `LockInput::DeviceSelected` замку, который сам
                     // упорядочивает `StopPlayback, Release, Acquire(dev)` из
                     // `Held` (таблица §6.19), поглощая остальные изменения
-                    // этого `SetModeSettings` (И-Р26). Устройство не
-                    // настроено явно (возврат к автовыбору) здесь не
-                    // переоткрывается — автовыбор нового устройства для этого
-                    // входа не входит в область этого шага.
+                    // этого `SetModeSettings` (И-Р26). `save_switch_device_
+                    // reacquire_point` сохраняет позицию и игра/пауза ДО
+                    // `lock_input` (`StopPlayback` закрывает путь) — трек
+                    // переоткрывается на новом устройстве через `reopen_after_
+                    // reacquire` после успешного `ClaimDone` (§6.20 п. 4,
+                    // ТЗ-137). Устройство не настроено явно (возврат к
+                    // автовыбору) здесь не переоткрывается — автовыбор нового
+                    // устройства для этого входа не входит в область этого
+                    // шага.
                     ModeApplyAction::SwitchDevice if self.active_mode != ModeKind::Compatible => {
                         let dev = match self.active_mode {
                             ModeKind::Optimal => self.mode_settings.optimal.device.clone(),
@@ -1215,6 +1267,7 @@ impl Engine {
                             ModeKind::Compatible => None,
                         };
                         if let Some(dev) = dev {
+                            self.save_switch_device_reacquire_point(dev.clone());
                             self.lock_input(LockInput::DeviceSelected(dev));
                         }
                     }
@@ -1250,7 +1303,10 @@ impl Engine {
                     // входом `LockInput::DeviceSelected(dev)` замок
                     // освобождает старое устройство и захватывает новое —
                     // `lock_step` сам упорядочивает `StopPlayback, Release,
-                    // Acquire(dev)` из `Held` (§6.19).
+                    // Acquire(dev)` из `Held` (§6.19); `save_switch_device_
+                    // reacquire_point` перед этим входом сохраняет позицию и
+                    // игра/пауза, трек переоткрывается на новом устройстве
+                    // после `ClaimDone` (§6.20 п. 4, ТЗ-137).
                     let old_mode = self.active_mode;
                     self.lock_input(LockInput::ModeSelected(mode));
                     if old_mode != ModeKind::Compatible && mode != ModeKind::Compatible {
@@ -1266,6 +1322,7 @@ impl Engine {
                         };
                         if let (Some(o), Some(n)) = (old_dev, new_dev) {
                             if o != n {
+                                self.save_switch_device_reacquire_point(n.clone());
                                 self.lock_input(LockInput::DeviceSelected(n));
                             }
                         }
@@ -2567,7 +2624,11 @@ mod tests {
     /// Эксклюзивный путь закрывается (`ExclusiveCall::Stop` в журнале),
     /// старый захват сбрасывается, новое устройство захватывается
     /// (`ExclusiveCall::Acquire(new_dev)`) — замок уходит в `Acquiring`, а
-    /// после `ClaimDone` — в `Held` с новым устройством.
+    /// после `ClaimDone` — в `Held` с новым устройством. Шаг 65 (§6.20,
+    /// ТЗ-137): точка повторного захвата, сохранённая перед
+    /// `DeviceSelected`, переоткрывает трек на новом устройстве сразу после
+    /// `ClaimDone` — захват потребляется переоткрытым путём (`self.claim`
+    /// снова `None`), а не остаётся свободным до ручного `Open`.
     #[test]
     fn switch_device_held_releases_old_then_acquires_new() {
         let sink = VecSink::new();
@@ -2603,7 +2664,10 @@ mod tests {
             LockState::Held { info } => assert_eq!(info.device, new_dev),
             other => panic!("expected Held, got {other:?}"),
         }
-        assert!(engine.claim.is_some());
+        assert!(engine.claim.is_none());
+        let path = engine.exclusive_path.as_ref().expect("track reopened on new device");
+        assert_eq!(path.position_secs(), 0.0);
+        assert_eq!(engine.last_transport, Some(TransportState::Playing));
     }
 
     /// Шаг 62 (§6.18, §6.19, ТЗ-137): `SetActiveMode` между двумя
@@ -2612,7 +2676,15 @@ mod tests {
     /// (устройство могло бы остаться тем же), поэтому `EngineCmd::
     /// SetActiveMode` отдельно шлёт `LockInput::DeviceSelected(new_dev)`:
     /// старое устройство освобождается, новое захватывается — тот же
-    /// `Stop`/`Acquire` журнал, что при `SwitchDevice`.
+    /// `Stop`/`Acquire` журнал, что при `SwitchDevice`. Шаг 65 (§6.20,
+    /// ТЗ-137): переоткрытие на новом устройстве здесь НЕ происходит —
+    /// источник фикстуры (`FloatPcm`) не проходит `plan()` в Строгом режиме
+    /// (`FloatUnsupported`, §6.5 шаг 4), поэтому `open_exclusive` возвращает
+    /// захват обратно в `self.claim` (эмитит `Skipped`), а не потребляет
+    /// его переоткрытым путём. Это ограничение фикстуры источника, а не
+    /// поведения переоткрытия — см. тесты с Оптимальным режимом на обеих
+    /// сторонах (`switch_device_while_playing_reopens_at_position_playing` и
+    /// соседние), где источник совместим и переоткрытие происходит.
     #[test]
     fn optimal_to_strict_different_devices_reacquires() {
         let sink = VecSink::new();
@@ -2676,6 +2748,104 @@ mod tests {
         let journal_after = calls.lock().expect("calls lock");
         assert_eq!(journal_after.len(), journal_len_before);
         assert!(!sink.take().iter().any(|e| matches!(e, EngineEvent::Lock(_))));
+    }
+
+    /// Шаг 65 (§6.18, §6.19, §6.20, ТЗ-137): `SetModeSettings` со
+    /// `SwitchDevice` активного Эксклюзивного режима, трек играет — перед
+    /// `LockInput::DeviceSelected` движок сохраняет точку повторного захвата
+    /// (`save_switch_device_reacquire_point`) с текущей позицией и
+    /// `autoplay: true` (трек играл). После `ClaimDone` на новом устройстве
+    /// `reopen_after_reacquire` переоткрывает трек на сохранённой позиции
+    /// (1 секунда) и СРАЗУ ИГРАЕТ («продолжение с той же позиции», ТЗ-137) —
+    /// в отличие от потери устройства (ТЗ-126), где переоткрытие всегда на
+    /// паузе.
+    #[test]
+    fn switch_device_while_playing_reopens_at_position_playing() {
+        let sink = VecSink::new();
+        let (mut engine, _calls) = engine_with_exclusive_path_open_tracked(sink.clone(), true);
+        assert_eq!(engine.last_transport, Some(TransportState::Playing));
+        let rate = engine.exclusive_path.as_ref().expect("exclusive path open").frame_rate();
+        let shared = Arc::clone(engine.exclusive_path.as_ref().expect("exclusive path open").shared());
+        shared.pos_frames.store(u64::from(rate), Ordering::Relaxed);
+
+        let new_dev: HwDeviceId = "hw:CARD=RU5,DEV=0".parse().expect("hw id");
+        engine
+            .catalog
+            .hw
+            .push(crate::audio::backend::catalog::HwDeviceInfo { id: new_dev.clone(), card: 2, device: 0, name: "RU5".to_string() });
+        sink.take();
+
+        let mut settings = engine.mode_settings.clone();
+        settings.optimal.device = Some(new_dev.clone());
+        let diff = ModeSettingsDiff { changed: SmallVec::from_slice(&[(ModeKind::Optimal, ParamId::Device)]) };
+        engine.handle(EngineCmd::SetModeSettings(ModeSettingsUpdate { settings, diff: Some(diff) }));
+
+        match &engine.reacquire {
+            Some(point) => {
+                assert_eq!(point.device, new_dev);
+                assert!(point.autoplay);
+            }
+            None => panic!("expected reacquire point to be saved before DeviceSelected"),
+        }
+
+        let msg = engine.internal_rx.recv().expect("claim done");
+        engine.handle_internal(msg);
+
+        match &engine.lock {
+            LockState::Held { info } => assert_eq!(info.device, new_dev),
+            other => panic!("expected Held, got {other:?}"),
+        }
+        assert!(engine.reacquire.is_none());
+        let path = engine.exclusive_path.as_ref().expect("track reopened");
+        assert_eq!(path.position_secs(), 1.0);
+        assert_eq!(engine.last_transport, Some(TransportState::Playing));
+    }
+
+    /// Шаг 65 (§6.18, §6.19, §6.20, ТЗ-137): тот же переход, что
+    /// `switch_device_while_playing_reopens_at_position_playing`, но трек на
+    /// паузе в момент смены устройства — сохранённая точка несёт
+    /// `autoplay: false`, и переоткрытие на новом устройстве остаётся на
+    /// паузе (позиция всё равно переносится).
+    #[test]
+    fn switch_device_while_paused_reopens_paused() {
+        let sink = VecSink::new();
+        let (mut engine, _calls) = engine_with_exclusive_path_open_tracked(sink.clone(), false);
+        assert_eq!(engine.last_transport, Some(TransportState::Paused));
+        let rate = engine.exclusive_path.as_ref().expect("exclusive path open").frame_rate();
+        let shared = Arc::clone(engine.exclusive_path.as_ref().expect("exclusive path open").shared());
+        shared.pos_frames.store(u64::from(rate), Ordering::Relaxed);
+
+        let new_dev: HwDeviceId = "hw:CARD=RU5,DEV=0".parse().expect("hw id");
+        engine
+            .catalog
+            .hw
+            .push(crate::audio::backend::catalog::HwDeviceInfo { id: new_dev.clone(), card: 2, device: 0, name: "RU5".to_string() });
+        sink.take();
+
+        let mut settings = engine.mode_settings.clone();
+        settings.optimal.device = Some(new_dev.clone());
+        let diff = ModeSettingsDiff { changed: SmallVec::from_slice(&[(ModeKind::Optimal, ParamId::Device)]) };
+        engine.handle(EngineCmd::SetModeSettings(ModeSettingsUpdate { settings, diff: Some(diff) }));
+
+        match &engine.reacquire {
+            Some(point) => {
+                assert_eq!(point.device, new_dev);
+                assert!(!point.autoplay);
+            }
+            None => panic!("expected reacquire point to be saved before DeviceSelected"),
+        }
+
+        let msg = engine.internal_rx.recv().expect("claim done");
+        engine.handle_internal(msg);
+
+        match &engine.lock {
+            LockState::Held { info } => assert_eq!(info.device, new_dev),
+            other => panic!("expected Held, got {other:?}"),
+        }
+        assert!(engine.reacquire.is_none());
+        let path = engine.exclusive_path.as_ref().expect("track reopened");
+        assert_eq!(path.position_secs(), 1.0);
+        assert_eq!(engine.last_transport, Some(TransportState::Paused));
     }
 
     /// §6.18, ТЗ-49 (шаг 48): открытие с `autoplay: true` сразу даёт
