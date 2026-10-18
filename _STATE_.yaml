@@ -274,7 +274,7 @@ steps:
     done: true
   - id: 71
     description: "Шаг 71: «Выбрать устройство»: открыть диалог режима на выборе устройства (app/mode_dialog.rs; при необходимости ui/settings.slint) (ADR-24, ТЗ-144). Проверка: cargo build"
-    done: false
+    done: true
   - id: 72
     description: "Шаг 72: Статус «Захват устройства…» по EngineEvent::Lock(Acquiring) — флаг в UiAudioState и вывод в статус-строку (ui_audio_state.rs, playback_manager.rs) — AM1.0-B9 + тест (ТЗ-119). Проверка: cargo test ui_audio_state"
     done: false
@@ -314,8 +314,8 @@ steps:
   - id: 84
     description: "Шаг 84: ФИНАЛ: cargo build/test/clippy зелёные; общие условия §8 (Совместимый играет, «Bit-perfect» только при ТЗ-52); ручные проверки в заметку плана: замок (ТЗ-1/2/48/118…122, AM1.0-8.1), B1 — возврат устройства в PipeWire после освобождения, B2 — текст «занято <владелец>» при чужом захвате"
     done: false
-current_step: 71
-next_action: 'Шаг 71: «Выбрать устройство» — привязать on_lock_choose_device к открытию диалога режима на выборе устройства (app/mode_dialog.rs; при необходимости ui/settings.slint), гейт MainCmd::SwitchMode как у прочих колбэков замка (ADR-24, ТЗ-144). Свежий субагент code-writer sonnet.'
+current_step: 72
+next_action: 'Шаг 72: статус «Захват устройства…» по EngineEvent::Lock(Acquiring) — флаг в UiAudioState (ui_audio_state.rs, сейчас Lock → Applied::None) и вывод в статус-строку (playback_manager.rs) — AM1.0-B9 + тест (ТЗ-119). Свежий субагент code-writer sonnet.'
 fail_counter: 0
 fail_counter_max: 3
 failed_attempts: []

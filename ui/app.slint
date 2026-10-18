@@ -311,6 +311,9 @@ export component AppWindow inherits Window {
     in property <string> settings-mode-validation: "";
     in property <[ColumnSetting]> settings-cols: [];
     in-out property <int> settings-selected-col: -1;
+    // ADR-24, ТЗ-144: активная вкладка диалога настроек (замок открывает
+    // диалог сразу на «Audio», шаг 71).
+    in-out property <int> settings-tab: 0;
     in property <[CoverSetting]> settings-covers: [];
     in property <string> settings-cover-names: "";
     in property <bool> settings-cover-online: true;
@@ -868,6 +871,7 @@ export component AppWindow inherits Window {
         mode-validation: root.settings-mode-validation;
         columns-cfg: root.settings-cols;
         selected-col <=> root.settings-selected-col;
+        settings-tab <=> root.settings-tab;
         covers: root.settings-covers;
         cover-names: root.settings-cover-names;
         cover-online: root.settings-cover-online;

@@ -63,6 +63,9 @@ export component Settings inherits Rectangle {
     in property <string> mode-validation: "";
     in property <[ColumnSetting]> columns-cfg: [];
     in-out property <int> selected-col: -1;
+    // Активная вкладка диалога (ADR-24, ТЗ-144): «Выбрать устройство» из
+    // замка открывает настройки сразу на вкладке «Audio» (индекс 1).
+    in-out property <int> settings-tab: 0;
     in property <[CoverSetting]> covers: [];
     in property <string> cover-names: "";
     in property <bool> cover-online: true;
@@ -226,6 +229,7 @@ export component Settings inherits Rectangle {
                     TabWidget {
 
                         vertical-stretch: 1;
+                        current-index <=> root.settings-tab;
 
                         // ===== General =====
                         Tab {

@@ -133,8 +133,8 @@
 - [x] Шаг 68: Шаг 68: Slint: индикатор замка — свойства lock-kind/lock-text в ui/top_panel.slint, проброс в ui/app.slint (ADR-06, ТЗ-118). Проверка: cargo build
 - [x] Шаг 69: Шаг 69: Slint: кнопки действий замка (Захватить / Открыть / Повторить / Выбрать устройство / Перейти в Совместимый) и колбэки в ui/top_panel.slint + ui/app.slint (ТЗ-120…123, 144). Проверка: cargo build
 - [x] Шаг 70: Шаг 70: app/mod.rs: колбэки замка → EngineCmd::Lock / переключение режима; EngineEvent::Lock → свойства окна через lock_view (ТЗ-118…123). Проверка: cargo check
-- [>] **Шаг 71: Шаг 71: «Выбрать устройство»: открыть диалог режима на выборе устройства (app/mode_dialog.rs; при необходимости ui/settings.slint) (ADR-24, ТЗ-144). Проверка: cargo build**
-- [ ] Шаг 72: Шаг 72: Статус «Захват устройства…» по EngineEvent::Lock(Acquiring) — флаг в UiAudioState и вывод в статус-строку (ui_audio_state.rs, playback_manager.rs) — AM1.0-B9 + тест (ТЗ-119). Проверка: cargo test ui_audio_state
+- [x] Шаг 71: Шаг 71: «Выбрать устройство»: открыть диалог режима на выборе устройства (app/mode_dialog.rs; при необходимости ui/settings.slint) (ADR-24, ТЗ-144). Проверка: cargo build
+- [>] **Шаг 72: Шаг 72: Статус «Захват устройства…» по EngineEvent::Lock(Acquiring) — флаг в UiAudioState и вывод в статус-строку (ui_audio_state.rs, playback_manager.rs) — AM1.0-B9 + тест (ТЗ-119). Проверка: cargo test ui_audio_state**
 - [ ] Шаг 73: Шаг 73: Уведомление «Замок открыт» с кнопкой «Захватить и играть» → LockInput::CaptureAndPlay (ui/status.slint + app/mod.rs) (ТЗ-125). Проверка: cargo build
 - [ ] Шаг 74: Шаг 74: AM1.0-B8 ч. 1: EngineEvent::DynamicsChanged(DynamicPathState) в messages.rs и эмиссия из poll_session при изменении underruns/xruns/rt_priority в run.rs (ТЗ-68). Общий тип → Проверка: полный cargo test
 - [ ] Шаг 75: Шаг 75: AM1.0-B8 ч. 2: UiAudioState — dirty-флаг по DynamicsChanged (ui_audio_state.rs) + тест (ТЗ-68). Проверка: cargo test ui_audio_state
@@ -150,8 +150,8 @@
 
 Легенда: [x] сделано · [>] текущий шаг · [ ] не начато
 
-- **Текущий шаг (current_step):** Шаг 71
-- **Следующий ход:** Шаг 71: «Выбрать устройство» — привязать on_lock_choose_device к открытию диалога режима на выборе устройства (app/mode_dialog.rs; при необходимости ui/settings.slint), гейт MainCmd::SwitchMode как у прочих колбэков замка (ADR-24, ТЗ-144). Свежий субагент code-writer sonnet.
+- **Текущий шаг (current_step):** Шаг 72
+- **Следующий ход:** Шаг 72: статус «Захват устройства…» по EngineEvent::Lock(Acquiring) — флаг в UiAudioState (ui_audio_state.rs, сейчас Lock → Applied::None) и вывод в статус-строку (playback_manager.rs) — AM1.0-B9 + тест (ТЗ-119). Свежий субагент code-writer sonnet.
 - **Счетчик безуспешных компиляций:** 0/3
 - **Состояние:** in_progress
 

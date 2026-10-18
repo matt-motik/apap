@@ -1187,8 +1187,9 @@ impl MusicApp {
     /// Применить вид замка устройства к top_panel: `lock-kind`/`lock-text`/
     /// `lock-hint` и пять `lock-can-*`, перечисленных действием из
     /// `lock_view` (ADR-06, §6.19, ТЗ-46, ТЗ-118…ТЗ-123, ТЗ-144). Вызывается
-    /// из `drain_engine_events` на каждый `EngineEvent::Lock` — окно
-    /// «Выбрать устройство» (`lock-can-choose-device`) подключит шаг 71.
+    /// из `drain_engine_events` на каждый `EngineEvent::Lock`; кнопка
+    /// «Выбрать устройство» (`lock-can-choose-device`) открывает диалог
+    /// настроек на вкладке «Audio» (ADR-24, ТЗ-144, см. `on_lock_choose_device`).
     pub(super) fn apply_lock_view(&self, state: &LockState) {
         let Some(ui) = self.try_ui() else { return };
         let view = lock_view(state);
@@ -1481,6 +1482,36 @@ impl MusicApp {
 
         ui.set_path_footer(view.footer.into());
         ui.set_path_copy_text(view.copy_text.into());
+    }
+
+    /// Открывает диалог настроек (§6.9, ADR-11, ADR-12, ТЗ-22, ТЗ-23): общий
+    /// путь кнопки «Настройки» в top_panel и кнопки «Выбрать устройство»
+    /// замка (ADR-24, ТЗ-144). `false` — диалог не открыт (шлюз не пропустил
+    /// команду или черновик уже есть).
+    fn open_settings_dialog(&mut self) -> bool {
+        if !self.open_dialog_draft() {
+            return false;
+        }
+        // T1.0 §6.2: свежий диалог (черновик стартует с
+        // `ThemeLoad::Unchanged`) → пересборка списка/метаданных из
+        // themes/*.toml.
+        self.populate_theme_ui();
+        // Re-push every dialog field from the real settings: a reopened
+        // dialog must show current values, never a stale un-applied draft.
+        self.sync_settings_to_ui();
+        self.sync_viz_settings_to_ui();
+        self.sync_audio_devices();
+        self.sync_cover_settings_to_ui();
+        self.sync_mode_dialog_to_ui();
+        // До ответа на подсчёт размеров кэшей показываем последние
+        // известные значения (ТЗ-22, ADR-20).
+        let cache_disk = self.cache_disk;
+        self.apply_cache_sizes(&cache_disk);
+        if let Some(ui) = self.try_ui() {
+            ui.set_settings_open(true);
+        }
+        self.sync_gate_ui();
+        true
     }
 
     /// Переход из окна «Путь сигнала» в диалог настроек (ТЗ-81, ТЗ-84): как
@@ -1887,13 +1918,13 @@ impl MusicApp {
             });
         }
 
-        // 9c. lock-close/lock-open/lock-retry/lock-go-compatible: кнопки
-        // действий замка в top_panel (ADR-06, §6.19, ТЗ-46, ТЗ-118…ТЗ-123,
-        // ТЗ-144). `lock-choose-device` подключит окно выбора устройства
-        // (шаг 71). Гейт — тот же `MainCmd::SwitchMode`, что и у
-        // переключателя режимов: действия замка переводят монопольный
-        // тракт между открытым/захваченным состояниями и Совместимым
-        // режимом, отдельного варианта шлюза под них нет.
+        // 9c. lock-close/lock-open/lock-retry/lock-choose-device/
+        // lock-go-compatible: кнопки действий замка в top_panel (ADR-06,
+        // §6.19, ТЗ-46, ТЗ-118…ТЗ-123, ТЗ-144). Гейт — тот же
+        // `MainCmd::SwitchMode`, что и у переключателя режимов: действия
+        // замка переводят монопольный тракт между открытым/захваченным
+        // состояниями и Совместимым режимом, отдельного варианта шлюза под
+        // них нет.
         {
             let app = this.clone();
             ui.on_lock_close(move || {
@@ -1925,6 +1956,23 @@ impl MusicApp {
                     return;
                 }
                 a.engine_send(EngineCmd::Lock(LockInput::RetryCapture));
+            });
+        }
+        {
+            let app = this.clone();
+            ui.on_lock_choose_device(move || {
+                eprintln!("[gui] lock_choose_device");
+                let mut a = app.borrow_mut();
+                if !a.core.gate().allows(MainCmd::SwitchMode) {
+                    return;
+                }
+                // ADR-24, ТЗ-144: открыть диалог настроек сразу на вкладке
+                // «Audio» (индекс 1 в `ui/settings.slint`, после «General»).
+                if a.open_settings_dialog() {
+                    if let Some(ui) = a.try_ui() {
+                        ui.set_settings_tab(1);
+                    }
+                }
             });
         }
         {
@@ -1980,32 +2028,10 @@ impl MusicApp {
             let app = this.clone();
             ui.on_open_settings(move || {
                 eprintln!("[gui] open_settings");
-                let mut a = app.borrow_mut();
                 // Проверка шлюза, черновик, блокировка `Dialog` и один подсчёт
                 // размера дисковых кэшей потоком `apap-io` — в ядре
                 // (ТЗ-22, ТЗ-23, ADR-11, ADR-20).
-                if !a.open_dialog_draft() {
-                    return;
-                }
-                // T1.0 §6.2: свежий диалог (черновик стартует с
-                // `ThemeLoad::Unchanged`) → пересборка списка/метаданных из
-                // themes/*.toml.
-                a.populate_theme_ui();
-                // Re-push every dialog field from the real settings: a reopened
-                // dialog must show current values, never a stale un-applied draft.
-                a.sync_settings_to_ui();
-                a.sync_viz_settings_to_ui();
-                a.sync_audio_devices();
-                a.sync_cover_settings_to_ui();
-                a.sync_mode_dialog_to_ui();
-                // До ответа на подсчёт размеров кэшей показываем последние
-                // известные значения (ТЗ-22, ADR-20).
-                let cache_disk = a.cache_disk;
-                a.apply_cache_sizes(&cache_disk);
-                if let Some(ui) = a.try_ui() {
-                    ui.set_settings_open(true);
-                }
-                a.sync_gate_ui();
+                app.borrow_mut().open_settings_dialog();
             });
         }
 
