@@ -58,6 +58,7 @@
   - src/app/playback_manager.rs
   - src/app/mode_dialog.rs
   - ui/settings.slint
+  - src/app/ui_manager.rs
   - ROADMAP.md
   - _STATE_.yaml
   - _STATE_.md
@@ -145,15 +146,16 @@
 - [x] Шаг 79: Шаг 79: AM1.0-B15: SetActiveMode Совместимый→Эксклюзивный — ModeSelected и синхронный CaptureResult обрабатываются под целевым режимом (замок → Failed/Held, не NotApplicable); AM1.0-B13 (Эксклюзивный→Совместимый) не ломать; тест «старт в Строгом, отказ захвата → Failed» (engine/run.rs, §6.19, §6.2 п. 6, ТЗ-118). Проверка: полный cargo test
 - [x] Шаг 80: Шаг 80: AM1.0-B16 ч. 1: сохранённый hw:CARD=<номер>,DEV=<d> сопоставляется с каталогом по номеру карты (HwDeviceInfo.card) → канонический hw:CARD=<id>,DEV=<d>; используется в start_claim/resolve_device (catalog.rs, engine/run.rs, ADR-24, ТЗ-126) + тест. Проверка: полный cargo test
 - [>] **Шаг 81: Шаг 81: AM1.0-B16 ч. 2: источник списка устройств Оптимального/Строгого во вкладке Audio — каталог HwDeviceId (не cpal-id); если уже так — шаг закрыть без кода с пометкой (ADR-24, ТЗ-126). Проверка: cargo check + cargo test по модулю**
-- [ ] Шаг 82: Шаг 82: AM1.0-B8 ч. 3: инвалидация PathWindowCache по dirty-флагу динамики (app/path_view.rs) + тест (ТЗ-68). Проверка: cargo test path_view
-- [ ] Шаг 83: Шаг 83: ЧЕКПОИНТ: полный cargo test + cargo clippy --all-targets
-- [ ] Шаг 84: Шаг 84: Удаление в engine: адаптер legacy_exclusive, EngineCmd::ReleaseExclusive и их обработка; legacy_path — только Совместимый (§8 С6 «удаляется»). Проверка: полный cargo test
-- [ ] Шаг 85: Шаг 85: Удаление в player.rs: release_if_exclusive, reopen_and_seek и их вызовы в stop()/toggle()/play() (V5.1-B5, V5.1-B6, ТЗ-43). Проверка: полный cargo test
-- [ ] Шаг 86: Шаг 86: Удаление ExclusiveGate-пути в player.rs и файла reservation/gate.rs (замещён AlsaExclusiveBackend) (§8 С6). Проверка: полный cargo test
-- [ ] Шаг 87: Шаг 87: Удаление освобождения эксклюзива при скрытии в трей (обработка TrayCmd::ShowHide в app/mod.rs; пункт меню трея остаётся) (§8 С6, ТЗ-43). Проверка: полный cargo test
-- [ ] Шаг 88: Шаг 88: Удаление в output.rs: cpal-путь Exclusive (ExclusiveMode, проба hw: в select_output_for, EBUSY-повтор) и shared-downgrade R-11 (§8 С6). Проверка: полный cargo test
-- [ ] Шаг 89: Шаг 89: AM1.0-B10: удалить StreamDesc, FallbackReason, Opened.stream_format и мосты legacy_path. Если Совместимый всё ещё идёт через legacy Player и типы нужны ему — выполнить частично, остаток перерегистрировать в B10 с указанием этапа (§8). Проверка: полный cargo test
-- [ ] Шаг 90: Шаг 90: ФИНАЛ: cargo build/test/clippy зелёные; общие условия §8 (Совместимый играет, «Bit-perfect» только при ТЗ-52); ручные проверки в заметку плана: замок (ТЗ-1/2/48/118…122, AM1.0-8.1), B1 — возврат устройства в PipeWire после освобождения, B2 — текст «занято <владелец>» при чужом захвате
+- [ ] Шаг 82: Шаг 82: AM1.0-B16 ч. 3 (последствия шага 80): (1) миграция настроек — при совпадении через canonical_hw по номеру карты движок шлёт событие (по образцу DeviceAutoSelected), приложение перезаписывает в settings.toml device режима на канонический hw:CARD=<id>,DEV=<d>; (2) номер карты ALSA нестабилен (переподключение/перезагрузка) — числовой fallback canonical_hw оставить только как одноразовую миграцию, после неё сравнение строго по id; (3) шаг 81 (список Audio из каталога) — saved-id матчить через canonical_hw. Проверка: полный cargo test
+- [ ] Шаг 83: Шаг 83: AM1.0-B8 ч. 3: инвалидация PathWindowCache по dirty-флагу динамики (app/path_view.rs) + тест (ТЗ-68). Проверка: cargo test path_view
+- [ ] Шаг 84: Шаг 84: ЧЕКПОИНТ: полный cargo test + cargo clippy --all-targets
+- [ ] Шаг 85: Шаг 85: Удаление в engine: адаптер legacy_exclusive, EngineCmd::ReleaseExclusive и их обработка; legacy_path — только Совместимый (§8 С6 «удаляется»). Проверка: полный cargo test
+- [ ] Шаг 86: Шаг 86: Удаление в player.rs: release_if_exclusive, reopen_and_seek и их вызовы в stop()/toggle()/play() (V5.1-B5, V5.1-B6, ТЗ-43). Проверка: полный cargo test
+- [ ] Шаг 87: Шаг 87: Удаление ExclusiveGate-пути в player.rs и файла reservation/gate.rs (замещён AlsaExclusiveBackend) (§8 С6). Проверка: полный cargo test
+- [ ] Шаг 88: Шаг 88: Удаление освобождения эксклюзива при скрытии в трей (обработка TrayCmd::ShowHide в app/mod.rs; пункт меню трея остаётся) (§8 С6, ТЗ-43). Проверка: полный cargo test
+- [ ] Шаг 89: Шаг 89: Удаление в output.rs: cpal-путь Exclusive (ExclusiveMode, проба hw: в select_output_for, EBUSY-повтор) и shared-downgrade R-11 (§8 С6). Проверка: полный cargo test
+- [ ] Шаг 90: Шаг 90: AM1.0-B10: удалить StreamDesc, FallbackReason, Opened.stream_format и мосты legacy_path. Если Совместимый всё ещё идёт через legacy Player и типы нужны ему — выполнить частично, остаток перерегистрировать в B10 с указанием этапа (§8). Проверка: полный cargo test
+- [ ] Шаг 91: Шаг 91: ФИНАЛ: cargo build/test/clippy зелёные; общие условия §8 (Совместимый играет, «Bit-perfect» только при ТЗ-52); ручные проверки в заметку плана: замок (ТЗ-1/2/48/118…122, AM1.0-8.1), B1 — возврат устройства в PipeWire после освобождения, B2 — текст «занято <владелец>» при чужом захвате
 
 Легенда: [x] сделано · [>] текущий шаг · [ ] не начато
 
@@ -165,9 +167,9 @@
 ## План: Executable workflow: правила AGENTS.md → исполняемые механизмы
 _Источник: чат с пользователем (ноутбук), начат в 67686ce; перенесён в репо 2026-09-22_
 
-- [~] **9.** Кросс-ОС приёмка спеки (вместо CI): tools/acceptance.py run/status, результаты по ОС в git, прогон при закрытии спеки, не на каждой задаче
+- [~] **10.** Кросс-ОС приёмка спеки (вместо CI): tools/acceptance.py run/status, результаты по ОС в git, прогон при закрытии спеки, не на каждой задаче
   - Инструмент готов; ждёт прогонов пакета baseline-2026-09 на linux и windows (python tools/acceptance.py status)
-- [>] **15.** Реализация AM1.0 + SP1.0 по сквозному порядку (ROADMAP.md): docs/01_audio_modes_v1.0/ (С0…С11) и docs/02_settings_persistence_v1.0/ (С0…С12) — ТЕКУЩАЯ ОСНОВНАЯ ЗАДАЧА
+- [>] **16.** Реализация AM1.0 + SP1.0 по сквозному порядку (ROADMAP.md): docs/01_audio_modes_v1.0/ (С0…С11) и docs/02_settings_persistence_v1.0/ (С0…С12) — ТЕКУЩАЯ ОСНОВНАЯ ЗАДАЧА
   - Закрытые этапы и баги — в ROADMAP.md (✅ с хэшем); здесь только открытое.
   - AM1.0-8.5 (С5 (01) «Путь сигнала, бейдж, окно») закрыт в 48bdad1 (2026-10-17, Linux-десктоп); ТЕКУЩИЙ (п. 19 сквозного порядка, 🔄): AM1.0-8.6 (С6 (01) «ALSA Exclusive, замок»). Мост AudioFacade снят, BackendCaps — в src/audio/backend/mod.rs. На С6: AM1.0-B10 (удалить StreamDesc, FallbackReason, Opened.stream_format и мосты legacy_path вместе со старым путём). Ручные проверки SP1.0-8.11, SP1.0-B17, AM1.0-8.4 подтверждены пользователем 2026-10-16 (Linux/KDE, Cayin RU3 вместо ADI-2).
   - SP1.0-B16 закрыт в 74afd65 только для Windows (реестр, значение ScrollDirection раздела PrecisionTouchPad). ОТКРЫТО (решение пользователя 2026-10-13 — по мере проверки на машинах): macOS (NSEvent.isDirectionInvertedFromDevice), GNOME (natural-scroll), KDE (naturalScroll KWin) — там знак тачпада как пришёл; ветка cfg(not(windows)) в winit.rs на Linux/macOS не компилировалась. Известное ограничение: первое целое Lines свайпа тачпада без предшествующего дробного классифицируется как колесо и поправку не получает.
