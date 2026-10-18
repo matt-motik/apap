@@ -27,7 +27,9 @@ use crate::engine::deps::EngineDeps;
 use crate::engine::exclusive_path::{self, ExclusiveOpenReason, ExclusivePath};
 use crate::engine::legacy_path::{legacy_audio, opened_facts_from_desc, shared_caps_from_desc, stream_format_from_desc};
 use crate::engine::lock::{lock_step, resolve_device, LockEffect, LockInput, LockState, ReacquirePoint, Resolved};
-use crate::engine::messages::{EngineCmd, EngineEvent, InternalMsg, LegacyAudio, Notice, SkipReason, TransportState};
+use crate::engine::messages::{
+    EngineCmd, EngineEvent, InternalMsg, LegacyAudio, Notice, SkipReason, TrackRef, TransportState,
+};
 use crate::persist::state_file::LegacyPlaybackState;
 use crate::settings::params::{ApplyKind, ModeSettingsDiff};
 use crate::settings::playback::{Dither, ModeKind, ModeSettings, PathPolicy, Volume};
@@ -323,8 +325,17 @@ struct Engine {
     /// чтобы `InternalMsg::ClaimDone` от отменённой или уже снятой попытки
     /// отбрасывалось — тот же приём, что `req_gen` у `Open`.
     claim_attempt: u64,
-    /// Точка повторного захвата (§6.20, ТЗ-126); заполняется при потере
-    /// устройства — шаг 57.
+    /// Номер карты текущей попытки/удержанного захвата (§6.19, §6.20,
+    /// ТЗ-126): записывается в `start_claim` вместе с запуском захвата,
+    /// сравнивается с `InternalMsg::ReservationLost { card }`, чтобы отбросить
+    /// сигнал об отключённой карте, захват для которой уже снят или сменился
+    /// (та же причина, что у `claim_attempt`, но для номера карты — `ClaimInfo`
+    /// его не хранит). Сбрасывается в `None` эффектом `LockEffect::Release`.
+    claim_card: Option<u32>,
+    /// Точка повторного захвата (§6.20 п. 2, ТЗ-51, ТЗ-126): заполняется
+    /// движком (`save_reacquire_point`) до `lock_input(DeviceLost)`, пока
+    /// `self.claim`/`self.exclusive_path` ещё не очищены эффектами
+    /// `StopPlayback`/`Release` перехода `Held → Failed(DeviceDisconnected)`.
     reacquire: Option<ReacquirePoint>,
     /// Счётчики динамики текущего потока (§6.17, §6.20, ТЗ-51, ТЗ-76):
     /// `underruns`/`xruns` переносятся из `SessionShared` Эксклюзивного пути
@@ -374,6 +385,7 @@ impl Engine {
             lock: LockState::NotApplicable,
             claim: None,
             claim_attempt: 0,
+            claim_card: None,
             reacquire: None,
             dynamics: DynamicPathState::default(),
             rt_prio,
@@ -459,9 +471,19 @@ impl Engine {
                     Err(e) => self.lock_input(LockInput::CaptureResult(Err(e))),
                 }
             }
-            // Потеря резервирования вне захвата замка — обработка приходит с
-            // проводкой замка (§6.20).
-            InternalMsg::ReservationLost { .. } => {}
+            // Потеря имени `ReserveDevice1` удержанной карты (§6.20, ADR-08,
+            // И-Р20): карта сверяется с `self.claim_card`, чтобы сигнал от
+            // уже отпущенной/сменённой попытки захвата (гонка с `Release`)
+            // не уронил не ту сессию (ТЗ-123). Точка повторного захвата
+            // сохраняется до `lock_input`, как и для `fault` в `poll_session`.
+            InternalMsg::ReservationLost { card } => {
+                if Some(card) != self.claim_card {
+                    return;
+                }
+                self.save_reacquire_point();
+                self.lock_input(LockInput::DeviceLost);
+                self.deps.events.emit(EngineEvent::DeviceLost { reaction: Reaction::StopWithError });
+            }
             // Ответ устаревшей (закрытой/переоткрытой) сессии отбрасывается
             // молча — как и `ClaimDone` на отменённую попытку (§6.8, ТЗ-99).
             InternalMsg::RtPriority { session, granted } => {
@@ -599,6 +621,7 @@ impl Engine {
                     // (`Drop DeviceClaim`, И-Р1), а не попадает в `self.claim`.
                     self.claim_attempt += 1;
                     self.claim = None;
+                    self.claim_card = None;
                 }
                 LockEffect::ForgetReacquire => self.reacquire = None,
             }
@@ -626,6 +649,30 @@ impl Engine {
         self.refresh_transport();
     }
 
+    /// Сохраняет точку повторного захвата (§6.20 п. 2, ТЗ-51, ТЗ-126) перед
+    /// `lock_input(DeviceLost)`: вызывающая сторона обязана вызвать её ДО
+    /// `lock_input`, иначе эффекты `StopPlayback`/`Release` перехода `Held →
+    /// Failed(DeviceDisconnected)` уже закроют `self.exclusive_path` (источник
+    /// позиции) и снимут замок (источник устройства). Устройство читается из
+    /// `self.lock` (`LockState::Held`), а не из `self.claim` — пока
+    /// Эксклюзивный путь открыт, захват живёт внутри него, и `self.claim`
+    /// пуст (И-Р1, §6.19). Без удержанного замка или без открытого трека
+    /// сохранять нечего (например, сигнал пришёл не о текущей удержанной
+    /// карте) — тихий no-op, `self.reacquire` не трогается.
+    fn save_reacquire_point(&mut self) {
+        let LockState::Held { info } = &self.lock else { return };
+        let Some((_, path)) = self.current.as_ref() else { return };
+        let frame = self
+            .exclusive_path
+            .as_ref()
+            .map_or(0, |p| secs_to_frames(p.position_secs(), p.frame_rate()));
+        self.reacquire = Some(ReacquirePoint {
+            device: info.device.clone(),
+            track: TrackRef { id: None, path: Arc::clone(path) },
+            frame,
+        });
+    }
+
     /// Запуск захвата устройства `dev` в служебном потоке (§6.19, ТЗ-119,
     /// ADR-01, §6.6). Без эксклюзивного бэкенда на платформе захват
     /// невозможен — `CaptureFailure::PlatformUnsupported`, тот же вариант,
@@ -651,6 +698,7 @@ impl Engine {
         };
         let device_name = found.name.clone();
         let card = found.card;
+        self.claim_card = Some(card);
 
         let lost_tx = self.internal_tx.clone();
         let on_lost: LostNotify = Box::new(move || {
@@ -1505,7 +1553,8 @@ impl Engine {
         // Эксклюзивный путь (§6.20, ТЗ-51, ТЗ-76): счётчики динамики
         // переносятся из `SessionShared` каждый опрос; `fault` — признак
         // потери устройства (`DeviceUnavailable`/`Stalled`, поток вывода уже
-        // вышел из цикла) обрабатывается через `lock_input(DeviceLost)` —
+        // вышел из цикла) — точка повторного захвата сохраняется
+        // (`save_reacquire_point`) до `lock_input(DeviceLost)`, который
         // переиспользует переход `Held → Failed(DeviceDisconnected)`
         // (`StopPlayback`, `Release`) вместо дублирования остановки здесь.
         let exclusive_poll =
@@ -1514,6 +1563,7 @@ impl Engine {
             self.dynamics.underruns = underruns;
             self.dynamics.xruns = xruns;
             if fault != StreamFault::None {
+                self.save_reacquire_point();
                 self.lock_input(LockInput::DeviceLost);
                 self.deps.events.emit(EngineEvent::DeviceLost { reaction: Reaction::StopWithError });
             } else if ended {
@@ -2684,17 +2734,22 @@ mod tests {
         assert_eq!(pos, Some(2.0));
     }
 
-    /// §6.20, ТЗ-51, ТЗ-76 (шаг 51): `StreamFault` потока вывода на открытом
-    /// Эксклюзивном пути переносит счётчики динамики в `self.dynamics` и
-    /// переиспользует `lock_input(DeviceLost)` — переход `Held →
-    /// Failed(DeviceDisconnected)` c эффектами `StopPlayback`/`Release`
-    /// (§6.19) — и шлёт `DeviceLost { reaction: StopWithError }` в UI.
+    /// §6.20, ТЗ-51, ТЗ-76, ТЗ-126 (шаг 51, шаг 63): `StreamFault` потока
+    /// вывода на открытом Эксклюзивном пути переносит счётчики динамики в
+    /// `self.dynamics` и переиспользует `lock_input(DeviceLost)` — переход
+    /// `Held → Failed(DeviceDisconnected)` c эффектами `StopPlayback`/
+    /// `Release` (§6.19) — и шлёт `DeviceLost { reaction: StopWithError }`
+    /// в UI. До `lock_input` сохраняется точка повторного захвата (§6.20
+    /// п. 2) с устройством, треком и позицией в кадрах.
     #[test]
     fn poll_session_stream_fault_stops_playback_and_releases_lock() {
         let sink = VecSink::new();
         let mut engine = engine_with_exclusive_path_open(sink.clone(), true);
         sink.take();
+        let dev: HwDeviceId = "hw:CARD=RU3,DEV=0".parse().expect("hw id");
+        let rate = engine.exclusive_path.as_ref().expect("exclusive path open").frame_rate();
         let shared = Arc::clone(engine.exclusive_path.as_ref().expect("exclusive path open").shared());
+        shared.pos_frames.store(u64::from(rate), Ordering::Relaxed);
         shared.underruns.store(3, Ordering::Relaxed);
         shared.xruns.store(5, Ordering::Relaxed);
         shared.set_fault(StreamFault::DeviceUnavailable);
@@ -2710,6 +2765,54 @@ mod tests {
         assert!(matches!(engine.lock, LockState::Failed(CaptureFailure::DeviceDisconnected)));
         assert!(engine.exclusive_path.is_none());
         assert_eq!(engine.last_transport, Some(TransportState::Stopped));
+        let reacquire = engine.reacquire.as_ref().expect("reacquire point saved");
+        assert_eq!(reacquire.device, dev);
+        assert_eq!(reacquire.track.path.as_ref(), Path::new("/music/a.flac"));
+        assert_eq!(reacquire.frame, u64::from(rate));
+    }
+
+    /// §6.20, ADR-08, И-Р20, ТЗ-123, ТЗ-126 (шаг 63): `InternalMsg::
+    /// ReservationLost` для карты удержанного замка переиспользует тот же
+    /// переход `Held → Failed(DeviceDisconnected)`, что и `StreamFault`, и
+    /// сохраняет точку повторного захвата до `lock_input`.
+    #[test]
+    fn reservation_lost_for_held_card_fails_lock_and_saves_reacquire() {
+        let sink = VecSink::new();
+        let mut engine = engine_with_exclusive_path_open(sink.clone(), true);
+        sink.take();
+        let dev: HwDeviceId = "hw:CARD=RU3,DEV=0".parse().expect("hw id");
+        engine.claim_card = Some(7);
+
+        engine.handle_internal(InternalMsg::ReservationLost { card: 7 });
+
+        let events = sink.take();
+        assert!(events
+            .iter()
+            .any(|e| matches!(e, EngineEvent::DeviceLost { reaction: Reaction::StopWithError })));
+        assert!(matches!(engine.lock, LockState::Failed(CaptureFailure::DeviceDisconnected)));
+        assert!(engine.exclusive_path.is_none());
+        let reacquire = engine.reacquire.as_ref().expect("reacquire point saved");
+        assert_eq!(reacquire.device, dev);
+        assert_eq!(reacquire.track.path.as_ref(), Path::new("/music/a.flac"));
+    }
+
+    /// §6.20, ADR-08, И-Р20, ТЗ-123 (шаг 63): `ReservationLost` для карты, не
+    /// совпадающей с удержанной (`self.claim_card`), — сигнал устаревшей/
+    /// чужой попытки захвата (гонка) и отбрасывается без изменения замка.
+    #[test]
+    fn reservation_lost_for_other_card_is_ignored() {
+        let sink = VecSink::new();
+        let mut engine = engine_with_exclusive_path_open(sink.clone(), true);
+        sink.take();
+        engine.claim_card = Some(7);
+
+        engine.handle_internal(InternalMsg::ReservationLost { card: 9 });
+
+        let events = sink.take();
+        assert!(events.is_empty());
+        assert!(matches!(engine.lock, LockState::Held { .. }));
+        assert!(engine.exclusive_path.is_some());
+        assert!(engine.reacquire.is_none());
     }
 
     /// §6.17, ТЗ-51 (шаг 51): штатный конец трека на Эксклюзивном пути
