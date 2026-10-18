@@ -58,6 +58,7 @@ use music_player_rs::platform::lifecycle::TrayEvent;
 use music_player_rs::platform::tray;
 
 mod badge_view;
+mod lock_view;
 mod path_view;
 pub(crate) mod engine_sink;
 pub mod events;
