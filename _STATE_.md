@@ -115,8 +115,8 @@
 - [x] Шаг 52: Шаг 52: exclusive_path.rs: tap визуализатора на эксклюзивной сессии (как в Shared-пути) (§6.18). Проверка: cargo check
 - [x] Шаг 53: Шаг 53: exclusive_path.rs: смена трека с удержанием PCM — configure только при смене формата (§6.7, §6.18) + тест. Проверка: cargo test engine::
 - [x] Шаг 54: Шаг 54: run.rs: SetModeSettings на эксклюзивном пути — смена «Буфера устройства»/параметров тракта по таблице применения (configure без освобождения, переоткрытие с позиции) (§6.7, §6.18, ТЗ-131) + тест. Проверка: cargo test engine::
-- [>] **Шаг 55: Шаг 55: Отложенный тест AM1.0-8.4 шаг 14: audio_param_change_reopens_at_position_preserving_pause на FakeExclusiveBackend (ТЗ-131, §7.2). Проверка: cargo test audio_param_change_reopens**
-- [ ] Шаг 56: Шаг 56: TID потока вывода наружу: StreamHandle::rt_tid(&self) -> Option<u32> (Shared/фейк — None) в exclusive.rs; AlsaExclusiveBackend::start ждёт TID из канала не дольше 100 мс (recv_timeout, вне RT) и кладёт его в AlsaStreamHandle вместо tid_rx; таймаут → None (alsa.rs, alsa_out.rs, фейк в audio/testing/mod.rs) (§6.8 п. 2). Общий тип → Проверка: полный cargo test
+- [x] Шаг 55: Шаг 55: Отложенный тест AM1.0-8.4 шаг 14: audio_param_change_reopens_at_position_preserving_pause на FakeExclusiveBackend (ТЗ-131, §7.2). Проверка: cargo test audio_param_change_reopens
+- [>] **Шаг 56: Шаг 56: TID потока вывода наружу: StreamHandle::rt_tid(&self) -> Option<u32> (Shared/фейк — None) в exclusive.rs; AlsaExclusiveBackend::start ждёт TID из канала не дольше 100 мс (recv_timeout, вне RT) и кладёт его в AlsaStreamHandle вместо tid_rx; таймаут → None (alsa.rs, alsa_out.rs, фейк в audio/testing/mod.rs) (§6.8 п. 2). Общий тип → Проверка: полный cargo test**
 - [ ] Шаг 57: Шаг 57: RT-приоритет в движке: после start передать TID в rt.rs → InternalMsg::RtPriority → DynamicPathState.rt_priority (§6.8, ТЗ-30) + тест на фейковом rt. Проверка: cargo test engine::
 - [ ] Шаг 58: Шаг 58: ЧЕКПОИНТ: полный cargo test + cargo clippy --all-targets
 - [ ] Шаг 59: Шаг 59: run.rs: смена режима Exclusive → Compatible — Release раньше SharedBackend::start; тест optimal_held_to_compatible_releases_before_shared — закрывает AM1.0-B13 (§6.18, ТЗ-21). Проверка: cargo test optimal_held_to_compatible
@@ -145,8 +145,8 @@
 
 Легенда: [x] сделано · [>] текущий шаг · [ ] не начато
 
-- **Текущий шаг (current_step):** Шаг 55
-- **Следующий ход:** Шаг 55: отложенный тест audio_param_change_reopens_at_position_preserving_pause на FakeExclusiveBackend (ТЗ-131, §7.2). Свежий субагент code-writer sonnet.
+- **Текущий шаг (current_step):** Шаг 56
+- **Следующий ход:** Шаг 56: StreamHandle::rt_tid() -> Option<u32>; AlsaExclusiveBackend::start ждёт TID ≤100 мс (§6.8 п. 2). Общий тип → полный cargo test. Свежий субагент code-writer sonnet.
 - **Счетчик безуспешных компиляций:** 0/3
 - **Состояние:** in_progress
 
@@ -168,7 +168,6 @@ _Источник: чат с пользователем (ноутбук), нач
   - AM1.0-8.4 шаг 29: таблиц подсказок SRC_FILTER_INFO/DSD_FILTER_INFO (§6.27) в коде нет — подсказки вариантов фильтров в mode_dialog пустые; строки Device/Lock/Test и др. без каталога — RowKind::Info. Дозаполнить при подключении диалога или отдельным шагом.
   - ВОПРОС ПОЛЬЗОВАТЕЛЮ (AM1.0-8.4 шаг 10): legacy_path отображает SrcFilter на старый ResamplerAlgorithm по крутизне: Steep→SincSlow(128), Slow→SincMedium(64), VerySlow→SincFast(32) — решение шага, в спеке нет; Оптимальный → ExclusiveMode::Strict (без перехода в Shared); DsdFilter/dsd_gain_comp/volume_lock/device_buffer старый путь не параметризуют.
   - AM1.0-8.4 шаг 13: SetActiveMode в движке только сохраняет параметры (release_engine + поля), переоткрытие — последующий Open от UI (§6.18 стр. 2399, ТС-9). Пробел: при возврате на SystemDefault (legacy_audio → device None) Player.preferred_device не сбрасывается — нет API в player.rs (вне вайтлиста); закрыть на С5 или расширить вайтлист.
-  - AM1.0-8.4 шаг 14: тест audio_param_change_reopens_at_position_preserving_pause (§7.2 стр. 1834) не написан — Engine владеет настоящим Player (Decoder + cpal), фейка нет (ТЗ-114); проверено только решение mode_apply_action. Дописать, когда путь станет фейкуемым через EngineDeps (С5+).
   - ВОПРОС ПОЛЬЗОВАТЕЛЮ (AM1.0-8.4 шаг 17): OpenError::ModeUnavailable в classify() → ErrorClass::Internal (в спеке отдельного класса нет) → реакция StopWithError во всех режимах (стоп, без перехода к следующему треку). Подтвердить или задать класс.
   - AM1.0-8.4 после шага 18 (временно, до шагов 21–30): старый диалог аудио-настроек меняет только локальный кэш фасада и в движок не попадает. Не считать багом при ручном запуске.
   - AM1.0-8.4 шаг 7: имена ключей [playback] dither (tpdf/off), rate_fallback (same_family/nearest/no_downsample), volume_lock, fixed_rate (Гц), buffer (мс), device (строка) спекой поимённо не заданы — взяты по именам полей ModeSettings; подтвердить пользователю.

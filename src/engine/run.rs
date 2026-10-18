@@ -2736,6 +2736,103 @@ mod tests {
         assert!(!journal.iter().any(|c| matches!(c, crate::audio::testing::ExclusiveCall::Acquire(_))));
     }
 
+    /// §6.7, §6.18 шаг 55 (ТЗ-131, И-Р26, §7.2
+    /// `audio_param_change_reopens_at_position_preserving_pause`): одно
+    /// `SetModeSettings`, меняющее сразу два параметра звука активного
+    /// Оптимального режима с `ApplyKind::ReopenAtPosition` («Фильтр SRC» и
+    /// «Дизеринг»), даёт не более одного переоткрытия Эксклюзивного пути —
+    /// `strongest(active)` сводит разницу к одному действию независимо от
+    /// числа изменившихся параметров одного класса. Переоткрытие сохраняет
+    /// позицию (`start_frame` = прежней позиции в кадрах, записанной
+    /// синхронно в `DecodeLoop::new` до спавна потока декодера, И-Р13) и
+    /// состояние паузы (`autoplay = false`), не освобождая `DeviceClaim`
+    /// (журнал бэкенда не содержит `Acquire`).
+    #[test]
+    fn audio_param_change_reopens_at_position_preserving_pause() {
+        let sink = VecSink::new();
+        let dev: HwDeviceId = "hw:CARD=RU3,DEV=0".parse().expect("hw id");
+        let backend = FakeExclusiveBackend::new().with_configure(Ok((
+            crate::audio::backend::DriverFormat::Confirmed(crate::audio::format::StreamFormat {
+                rate: SampleRate::new(44_100).expect("rate"),
+                sample: crate::audio::format::OutputSampleFormat::S32Le,
+                channels: std::num::NonZeroU8::new(2).expect("channels"),
+            }),
+            Some(crate::audio::backend::DeviceBufferActual { period_frames: 256, buffer_frames: 1024 }),
+        )));
+        // Хэндл журнала берётся до того, как `backend` уходит в `Box<dyn
+        // ExclusiveBackend>` внутри `EngineDeps` (§7.1).
+        let calls = backend.calls_handle();
+        let float_format = SourceFormat {
+            container: Container::Wav,
+            codec: Codec::Wav,
+            lossy: false,
+            rate: SampleRate::new(44_100).expect("rate"),
+            layout: ChannelLayout::stereo(),
+            kind: SourceKind::FloatPcm { double: false },
+        };
+        let source = Arc::new(FakeSource::with_format(float_format));
+        let probes = Arc::clone(&source);
+        let mem = MemStore::new();
+        let deps = EngineDeps {
+            shared: Box::new(FakeSharedBackend::with_devices(Vec::new())),
+            exclusive: Some(Box::new(backend)),
+            server_probe: Box::new(FakeServerProbe::desktop()),
+            watcher: Box::new(FakeDeviceWatcher::new()),
+            sources: source,
+            clock: Box::new(MonotonicClock::new()),
+            store: Box::new(FsPersistStore::new(Arc::new(mem.clone()), Box::new(mem.clone()), PathBuf::from("/cfg"))),
+            events: Box::new(sink.clone()),
+            spawner: Arc::new(StdSpawner),
+            caps: BackendCaps::current(),
+            os_probe: Box::new(FakeOsProbe::new(OsStage::Unknown)),
+        };
+        let mut engine = Engine::new(deps, BackendCaps::current());
+        engine.active_mode = ModeKind::Optimal;
+        engine.mode_settings.optimal.device = Some(dev.clone());
+        engine.lock = LockState::Held { info: crate::audio::backend::exclusive::ClaimInfo { device: dev.clone() } };
+        engine.claim = Some(crate::audio::backend::exclusive::DeviceClaim::new(
+            None,
+            crate::audio::reservation::Reservation::UnavailableNoServer,
+            crate::audio::backend::exclusive::ClaimInfo { device: dev },
+        ));
+
+        // Открытие с позиции 1:00 (ТЗ-131, §7.2): `start_frame` уходит в
+        // `DecodeLoop::new`, который кладёт его в `pos_frames` синхронно, до
+        // спавна потока декодера — позиция наблюдаема сразу после `handle`,
+        // без опроса/поллинга.
+        engine.handle(EngineCmd::Open { req_gen: 1, path: Arc::from(Path::new("/music/a.flac")), start_secs: 60.0, autoplay: true });
+        engine.handle(EngineCmd::Pause);
+        assert!(!engine.exclusive_path.as_ref().expect("exclusive path open").is_playing());
+        let pos_before = engine.exclusive_path.as_ref().expect("exclusive path open").position_secs();
+        assert_eq!(pos_before, 60.0);
+
+        let mut settings = engine.mode_settings.clone();
+        settings.optimal.src_filter = crate::settings::playback::SrcFilter::VerySlow;
+        settings.optimal.dither = Dither::Off;
+        let diff = ModeSettingsDiff {
+            changed: SmallVec::from_slice(&[
+                (ModeKind::Optimal, ParamId::SrcFilter),
+                (ModeKind::Optimal, ParamId::DitherKind),
+            ]),
+        };
+        engine.handle(EngineCmd::SetModeSettings(ModeSettingsUpdate { settings, diff: Some(diff) }));
+
+        assert!(engine.exclusive_path.is_some());
+        // Пауза сохранена: переоткрытие передало прежний `is_playing()` как
+        // `autoplay = false`.
+        assert!(!engine.exclusive_path.as_ref().expect("exclusive path open").is_playing());
+        // Позиция сохранена ровно: `start_frame` переоткрытия — та же позиция
+        // в кадрах, что была до него (ТЗ-131).
+        assert_eq!(engine.exclusive_path.as_ref().expect("exclusive path open").position_secs(), pos_before);
+        // Ровно одно переоткрытие, а не два (по одному на каждый изменённый
+        // параметр одного класса `ReopenAtPosition`): один дополнительный
+        // `probe` источника на `reopen_exclusive_at_position`.
+        assert_eq!(probes.probes(), 2);
+        let journal = calls.lock().expect("calls lock");
+        assert_eq!(journal.iter().filter(|c| **c == crate::audio::testing::ExclusiveCall::Start).count(), 2);
+        assert!(!journal.iter().any(|c| matches!(c, crate::audio::testing::ExclusiveCall::Acquire(_))));
+    }
+
     /// §6.7, §6.18 шаг 54 (ТЗ-131, И-Р26): изменение параметра активного
     /// Оптимального режима без влияния на поток (`ApplyKind::Memory`, здесь —
     /// «DSD выше возможностей ЦАП») не переоткрывает Эксклюзивный путь — ни
