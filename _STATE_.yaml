@@ -306,9 +306,9 @@ steps:
     done: true
   - id: 81
     description: "Шаг 81: AM1.0-B16 ч. 2: источник списка устройств Оптимального/Строгого во вкладке Audio — каталог HwDeviceId (не cpal-id); если уже так — шаг закрыть без кода с пометкой (ADR-24, ТЗ-126). Проверка: cargo check + cargo test по модулю"
-    done: false
+    done: true
   - id: 82
-    description: 'Шаг 82: AM1.0-B16 ч. 3 (последствия шага 80): (1) миграция настроек — при совпадении через canonical_hw по номеру карты движок шлёт событие (по образцу DeviceAutoSelected), приложение перезаписывает в settings.toml device режима на канонический hw:CARD=<id>,DEV=<d>; (2) номер карты ALSA нестабилен (переподключение/перезагрузка) — числовой fallback canonical_hw оставить только как одноразовую миграцию, после неё сравнение строго по id; (3) шаг 81 (список Audio из каталога) — saved-id матчить через canonical_hw. Проверка: полный cargo test'
+    description: 'Шаг 82: AM1.0-B16 ч. 3 (последствия шага 80): (1) миграция настроек — при совпадении через canonical_hw по номеру карты движок шлёт событие (по образцу DeviceAutoSelected), приложение перезаписывает в settings.toml device режима на канонический hw:CARD=<id>,DEV=<d>; (2) номер карты ALSA нестабилен (переподключение/перезагрузка) — числовой fallback canonical_hw оставить только как одноразовую миграцию, после неё сравнение строго по id; (3) шаг 81 (список Audio из каталога) — saved-id уже матчится через canonical_hw (hw_device_pairs_and_selected); остаток: при EngineEvent::Devices и открытом диалоге в Оптимальном/Строгом перестроить список (вызов apply_audio_device_listing в drain_engine_events, app/mod.rs). Проверка: полный cargo test'
     done: false
   - id: 83
     description: "Шаг 83: AM1.0-B8 ч. 3: инвалидация PathWindowCache по dirty-флагу динамики (app/path_view.rs) + тест (ТЗ-68). Проверка: cargo test path_view"
@@ -337,8 +337,8 @@ steps:
   - id: 91
     description: "Шаг 91: ФИНАЛ: cargo build/test/clippy зелёные; общие условия §8 (Совместимый играет, «Bit-perfect» только при ТЗ-52); ручные проверки в заметку плана: замок (ТЗ-1/2/48/118…122, AM1.0-8.1), B1 — возврат устройства в PipeWire после освобождения, B2 — текст «занято <владелец>» при чужом захвате"
     done: false
-current_step: 81
-next_action: 'Шаг 81: AM1.0-B16 ч. 2 — источник списка устройств Оптимального/Строгого во вкладке Audio: каталог HwDeviceId, не cpal-id (если уже так — закрыть без кода). Свежий субагент code-writer sonnet.'
+current_step: 82
+next_action: 'Шаг 82: AM1.0-B16 ч. 3 — миграция settings.toml на канонический hw id через событие движка; числовой fallback canonical_hw только как одноразовая миграция; перестроение списка Audio по EngineEvent::Devices. Свежий субагент code-writer sonnet.'
 fail_counter: 0
 fail_counter_max: 3
 failed_attempts: []

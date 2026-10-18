@@ -405,6 +405,14 @@ impl UiAudioState {
         self.path.value.as_ref().and_then(|p| p.0.as_ref())
     }
 
+    /// Последний принятый каталог устройств движка (ADR-24, ТЗ-126), без
+    /// снятия «грязного» флага — вкладка Audio диалога настроек строит из
+    /// него список устройств Оптимального/Строгого режима (`DeviceCatalog.hw`),
+    /// а не из перечисления cpal.
+    pub fn devices(&self) -> Option<&Arc<DeviceCatalog>> {
+        self.devices.get().map(|snap| &snap.0)
+    }
+
     /// Истина после принятого `Ended`, пока не снята `clear_end` (ТЗ-56,
     /// ADR-02).
     pub fn ended(&self) -> bool {

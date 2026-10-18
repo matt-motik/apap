@@ -3,6 +3,9 @@
 
 use super::*;
 
+use std::collections::HashMap;
+
+use music_player_rs::audio::backend::catalog::DeviceCatalog;
 use music_player_rs::audio::output::DeviceCategory;
 use music_player_rs::persist::state_file::{
     effective_width_pct, Origin, PhysPos, PhysSize, SizeUnits, StateChange,
@@ -325,6 +328,29 @@ impl MusicApp {
     /// enumeration lands and on every filter toggle, so flipping a filter never
     /// needs a backend requery.
     fn apply_audio_device_listing(&mut self) {
+        // Устройство читается из `ModeSettings` показанного в диалоге режима
+        // (или активного режима воспроизведения, если диалог закрыт), а не из
+        // прежнего легаси-поля устройства (ТЗ-94, §2.4).
+        let mode = self
+            .core
+            .draft()
+            .map(|d| d.shown_mode)
+            .unwrap_or_else(|| self.core.state().active_mode());
+
+        // Оптимальный/Строгий режим — монопольный доступ к аппаратному
+        // устройству; его список строится из каталога движка (`DeviceCatalog.hw`),
+        // а не из перечисления cpal Совместимого режима, и не зависит от
+        // `active_device` (ADR-24, ТЗ-126, ТЗ-143, AM1.0-B16).
+        if mode != ModeKind::Compatible {
+            self.apply_hw_device_listing(mode);
+            return;
+        }
+        // hw-ветка перезаписывает `audio_devices_pairs` парами каталога;
+        // при возврате к Совместимому восстанавливаем пары cpal, иначе
+        // `resolve_device_label` искал бы метку в hw-списке (ADR-24, ТЗ-126).
+        self.audio_devices_pairs =
+            music_player_rs::audio::output::device_pairs_from_infos(&self.audio_device_infos);
+
         let filtered: Vec<&DeviceInfo> = self
             .audio_device_infos
             .iter()
@@ -363,14 +389,6 @@ impl MusicApp {
             })
             .collect::<Vec<_>>();
 
-        // Устройство читается из `ModeSettings` показанного в диалоге режима
-        // (или активного режима воспроизведения, если диалог закрыт), а не из
-        // прежнего легаси-поля устройства (ТЗ-94, §2.4).
-        let mode = self
-            .core
-            .draft()
-            .map(|d| d.shown_mode)
-            .unwrap_or_else(|| self.core.state().active_mode());
         let saved = self.cfg().playback.device(mode).unwrap_or("").to_string();
         let active = self.active_device.clone();
         let want = if !active.is_empty() {
@@ -407,6 +425,46 @@ impl MusicApp {
         // `current-index: root.audio-device-idx` binding. Setting the index
         // *before* the model makes `reset-current` clamp the already-correct
         // value, so the combo ends up highlighting the active device.
+        if let Some(ui) = self.try_ui() {
+            ui.set_settings_device_idx(sel);
+            ui.set_settings_devices(ModelRc::from(model.as_slice()));
+        }
+    }
+
+    /// Список и выбор устройства вкладки Audio для Оптимального/Строгого
+    /// режима: источник — каталог устройств движка (`DeviceCatalog.hw`), не
+    /// перечисление cpal. Пары `(id, label)` сохраняются в
+    /// `audio_devices_pairs`, поэтому `resolve_device_label` и
+    /// `device_display_name` одинаково работают для обоих списков
+    /// (ADR-24, ТЗ-126, ТЗ-143, AM1.0-B16).
+    fn apply_hw_device_listing(&mut self, mode: ModeKind) {
+        let saved = self.cfg().playback.device(mode).unwrap_or("").to_string();
+        let saved_ref = if saved.is_empty() { None } else { Some(saved.as_str()) };
+
+        let (pairs, selected) = match self.audio().devices() {
+            Some(catalog) => hw_device_pairs_and_selected(catalog, saved_ref),
+            None => (Vec::new(), None),
+        };
+        self.audio_devices_pairs = pairs;
+
+        let mut model: Vec<SharedString> =
+            Vec::with_capacity(self.audio_devices_pairs.len() + 1);
+        let sel: i32 = if self.audio_devices_pairs.is_empty() {
+            model.push("(no devices \u{2014} retry Refresh)".into());
+            0
+        } else {
+            let idx = selected.unwrap_or(0);
+            if selected.is_none() {
+                model.push("(select device)".into());
+            }
+            model.extend(
+                self.audio_devices_pairs
+                    .iter()
+                    .map(|(_, label)| SharedString::from(label.as_str())),
+            );
+            i32::try_from(idx).unwrap_or(0)
+        };
+
         if let Some(ui) = self.try_ui() {
             ui.set_settings_device_idx(sel);
             ui.set_settings_devices(ModelRc::from(model.as_slice()));
@@ -729,5 +787,96 @@ pub(super) fn find_device_index_in(pairs: &[(String, String)], want: &str) -> Op
                     .is_some_and(|stripped| stripped == want)
             })
         })
+}
+
+/// Пары `(id, label)` вкладки Audio для Оптимального/Строгого режима из
+/// каталога устройств движка, плюс индекс выбранного по сохранённому id
+/// (ADR-24, ТЗ-126, ТЗ-143, AM1.0-B16). `id` — строка `HwDeviceId`; `label` —
+/// имя устройства, с добавлением суффикса `(hw:…)` при совпадении имён
+/// нескольких карт. Сохранённый id ищется точным совпадением строки, а если
+/// не найден — через `DeviceCatalog::canonical_hw` (разбор легаси числового
+/// `hw:CARD=<N>,DEV=<D>`), чтобы запись настроек, сделанная до миграции на
+/// стабильный id, продолжала подсвечивать правильное устройство (AM1.0-B16).
+pub(super) fn hw_device_pairs_and_selected(
+    catalog: &DeviceCatalog,
+    saved: Option<&str>,
+) -> (Vec<(String, String)>, Option<usize>) {
+    let mut name_counts: HashMap<&str, usize> = HashMap::new();
+    for dev in &catalog.hw {
+        *name_counts.entry(dev.name.as_str()).or_insert(0) += 1;
+    }
+
+    let pairs: Vec<(String, String)> = catalog
+        .hw
+        .iter()
+        .map(|dev| {
+            let label = if name_counts.get(dev.name.as_str()).copied().unwrap_or(0) > 1 {
+                format!("{} ({})", dev.name, dev.id.as_str())
+            } else {
+                dev.name.clone()
+            };
+            (dev.id.as_str().to_string(), label)
+        })
+        .collect();
+
+    let selected = saved.and_then(|want| {
+        pairs.iter().position(|(id, _)| id == want).or_else(|| {
+            let parsed: HwDeviceId = want.parse().ok()?;
+            let canonical = catalog.canonical_hw(&parsed)?;
+            pairs.iter().position(|(id, _)| id == canonical.id.as_str())
+        })
+    });
+
+    (pairs, selected)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use music_player_rs::audio::backend::catalog::HwDeviceInfo;
+
+    fn hw(id: &str, card: u32, device: u32, name: &str) -> HwDeviceInfo {
+        HwDeviceInfo {
+            id: id.parse().expect("valid HwDeviceId in test fixture"),
+            card,
+            device,
+            name: name.to_string(),
+        }
+    }
+
+    fn catalog(devices: Vec<HwDeviceInfo>) -> DeviceCatalog {
+        DeviceCatalog { shared: Vec::new(), hw: devices, generation: 0 }
+    }
+
+    #[test]
+    fn hw_pairs_exact_id_match_selected() {
+        let cat = catalog(vec![
+            hw("hw:CARD=RU3,DEV=0", 0, 0, "RME ADI-2"),
+            hw("hw:CARD=X7,DEV=0", 1, 0, "X7 DAC"),
+        ]);
+        let (pairs, sel) = hw_device_pairs_and_selected(&cat, Some("hw:CARD=X7,DEV=0"));
+        assert_eq!(pairs.len(), 2);
+        assert_eq!(sel, Some(1));
+    }
+
+    #[test]
+    fn hw_pairs_duplicate_names_disambiguated() {
+        let cat = catalog(vec![
+            hw("hw:CARD=A,DEV=0", 0, 0, "USB Audio"),
+            hw("hw:CARD=B,DEV=0", 1, 0, "USB Audio"),
+        ]);
+        let (pairs, _sel) = hw_device_pairs_and_selected(&cat, None);
+        assert_eq!(pairs[0].1, "USB Audio (hw:CARD=A,DEV=0)");
+        assert_eq!(pairs[1].1, "USB Audio (hw:CARD=B,DEV=0)");
+    }
+
+    #[test]
+    fn hw_pairs_legacy_numeric_saved_id_resolves_via_canonical_hw() {
+        let cat = catalog(vec![hw("hw:CARD=RU3,DEV=0", 3, 0, "RME ADI-2")]);
+        let (pairs, sel) =
+            hw_device_pairs_and_selected(&cat, Some("hw:CARD=3,DEV=0"));
+        assert_eq!(pairs.len(), 1);
+        assert_eq!(sel, Some(0));
+    }
 }
 
