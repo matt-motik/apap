@@ -1088,6 +1088,30 @@ impl Engine {
             }
             EngineCmd::SetActiveMode(mode) => {
                 if mode != self.active_mode {
+                    // Замок переключается ДО смены `self.active_mode`
+                    // (AM1.0-B13, ТЗ-21, §6.18, §6.19): `lock_input`
+                    // использует текущий `self.active_mode` как «старый»
+                    // режим для `lock_step`, а устройство целевого режима
+                    // резолвит сам по `LockInput::ModeSelected(mode)`
+                    // (ADR-24). Из Эксклюзивного (Оптимальный/Строгий) в
+                    // Совместимый при удержанном/ожидающем/отказавшем замке
+                    // это даёт `NotApplicable` с эффектами `StopPlayback,
+                    // Release, ForgetReacquire` — эксклюзивный путь
+                    // закрывается и карта освобождается ДО того, как ниже
+                    // `store_active_mode` снимет легаси-поток и впустит
+                    // Совместимый путь на следующем `Open`; без этого
+                    // порядка карта оставалась занятой эксклюзивно (баг
+                    // AM1.0-B13). Для Совместимый → Эксклюзивный лок уходит
+                    // в `Acquiring`/`Acquire(dev)` ещё при старом
+                    // `self.active_mode == Compatible`, что безопасно: до
+                    // этого момента Эксклюзивный путь не открыт. Для
+                    // Эксклюзивный ↔ Эксклюзивный (Оптимальный ↔ Строгий) из
+                    // `Held`/`Acquiring` таблица §6.19 не даёт эффектов —
+                    // устройство остаётся тем же, автоматической
+                    // переаккрисации при простом выборе режима нет (нужен
+                    // отдельный `DeviceSelected`), поэтому переход не
+                    // освобождает и не трогает текущий Эксклюзивный путь.
+                    self.lock_input(LockInput::ModeSelected(mode));
                     self.active_mode = mode;
                     self.store_active_mode();
                     self.apply_gain();
@@ -2225,6 +2249,138 @@ mod tests {
         engine.handle(EngineCmd::Open { req_gen: 1, path: Arc::from(Path::new("/music/a.flac")), start_secs: 0.0, autoplay });
         assert!(engine.exclusive_path.is_some());
         engine
+    }
+
+    /// Как [`engine_with_exclusive_path_open`], но хэндл журнала фейкового
+    /// бэкенда (`FakeExclusiveBackend::calls_handle`) забирается до того,
+    /// как бэкенд уходит в `Box<dyn ExclusiveBackend>`, — нужен тестам
+    /// AM1.0-B13 (§6.18, §6.19, ТЗ-21), чтобы видеть `ExclusiveCall::Stop`
+    /// при закрытии пути эффектом `LockEffect::StopPlayback`.
+    fn engine_with_exclusive_path_open_tracked(
+        sink: VecSink,
+        autoplay: bool,
+    ) -> (Engine, Arc<std::sync::Mutex<Vec<crate::audio::testing::ExclusiveCall>>>) {
+        let dev: HwDeviceId = "hw:CARD=RU3,DEV=0".parse().expect("hw id");
+        let backend = FakeExclusiveBackend::new().with_configure(Ok((
+            crate::audio::backend::DriverFormat::Confirmed(crate::audio::format::StreamFormat {
+                rate: SampleRate::new(44_100).expect("rate"),
+                sample: crate::audio::format::OutputSampleFormat::S32Le,
+                channels: std::num::NonZeroU8::new(2).expect("channels"),
+            }),
+            Some(crate::audio::backend::DeviceBufferActual { period_frames: 256, buffer_frames: 1024 }),
+        )));
+        let calls = backend.calls_handle();
+        let float_format = SourceFormat {
+            container: Container::Wav,
+            codec: Codec::Wav,
+            lossy: false,
+            rate: SampleRate::new(44_100).expect("rate"),
+            layout: ChannelLayout::stereo(),
+            kind: SourceKind::FloatPcm { double: false },
+        };
+        let mem = MemStore::new();
+        let deps = EngineDeps {
+            shared: Box::new(FakeSharedBackend::with_devices(Vec::new())),
+            exclusive: Some(Box::new(backend)),
+            server_probe: Box::new(FakeServerProbe::desktop()),
+            watcher: Box::new(FakeDeviceWatcher::new()),
+            sources: Arc::new(FakeSource::with_format(float_format)),
+            clock: Box::new(MonotonicClock::new()),
+            store: Box::new(FsPersistStore::new(Arc::new(mem.clone()), Box::new(mem.clone()), PathBuf::from("/cfg"))),
+            events: Box::new(sink),
+            spawner: Arc::new(StdSpawner),
+            caps: BackendCaps::current(),
+            os_probe: Box::new(FakeOsProbe::new(OsStage::Unknown)),
+            rt: Arc::new(FakeRtRequester::new(None)),
+        };
+        let mut engine = Engine::new(deps, BackendCaps::current());
+        engine.active_mode = ModeKind::Optimal;
+        engine.mode_settings.optimal.device = Some(dev.clone());
+        engine.lock = LockState::Held { info: crate::audio::backend::exclusive::ClaimInfo { device: dev.clone() } };
+        engine.claim = Some(crate::audio::backend::exclusive::DeviceClaim::new(
+            None,
+            crate::audio::reservation::Reservation::UnavailableNoServer,
+            crate::audio::backend::exclusive::ClaimInfo { device: dev },
+        ));
+
+        engine.handle(EngineCmd::Open { req_gen: 1, path: Arc::from(Path::new("/music/a.flac")), start_secs: 0.0, autoplay });
+        assert!(engine.exclusive_path.is_some());
+        (engine, calls)
+    }
+
+    /// AM1.0-B13 (§6.18, §6.19, ТЗ-21): Оптимальный режим с удержанным
+    /// замком и открытым Эксклюзивным путём → `EngineCmd::SetActiveMode
+    /// (Compatible)` должен сначала освободить карту (`lock_input` до
+    /// смены `self.active_mode`), а не оставить её занятой эксклюзивно, как
+    /// было до фикса. Эксклюзивный путь закрывается (`ExclusiveCall::Stop`
+    /// в журнале бэкенда), замок уходит в `NotApplicable`, `self.claim`
+    /// пуст. Затем `Open` того же трека уже в Совместимом режиме не должен
+    /// трогать Эксклюзивный бэкенд — освобождение произошло строго раньше,
+    /// чем открылся общий путь.
+    #[test]
+    fn optimal_held_to_compatible_releases_before_shared() {
+        let sink = VecSink::new();
+        let (mut engine, calls) = engine_with_exclusive_path_open_tracked(sink.clone(), true);
+        sink.take();
+
+        engine.handle(EngineCmd::SetActiveMode(ModeKind::Compatible));
+
+        assert!(engine.exclusive_path.is_none());
+        assert!(engine.claim.is_none());
+        assert!(matches!(engine.lock, LockState::NotApplicable));
+        assert_eq!(engine.active_mode, ModeKind::Compatible);
+        let events = sink.take();
+        assert!(events.iter().any(|e| matches!(e, EngineEvent::Lock(LockState::NotApplicable))));
+        {
+            let journal = calls.lock().expect("calls lock");
+            assert_eq!(journal.last(), Some(&crate::audio::testing::ExclusiveCall::Stop));
+        }
+
+        // Совместимый `Open` того же трека не обращается к Эксклюзивному
+        // бэкенду (`Decoder::open` падает первым на несуществующем файле,
+        // ещё до вывода) — журнал не растёт после освобождения.
+        let journal_len_before = calls.lock().expect("calls lock").len();
+        engine.handle(EngineCmd::Open { req_gen: 2, path: Arc::from(Path::new("/music/a.flac")), start_secs: 0.0, autoplay: true });
+        let journal_after = calls.lock().expect("calls lock");
+        assert_eq!(journal_after.len(), journal_len_before);
+        assert!(!journal_after[journal_len_before..].iter().any(|c| matches!(
+            c,
+            crate::audio::testing::ExclusiveCall::Acquire(_)
+                | crate::audio::testing::ExclusiveCall::Configure
+                | crate::audio::testing::ExclusiveCall::Start
+        )));
+    }
+
+    /// AM1.0-B13 (§6.18, §6.19, ТЗ-21): Совместимый → Оптимальный с
+    /// выбранным устройством режима запускает захват (`Acquiring`,
+    /// `Acquire(dev)`) ещё до того, как `self.active_mode` указывает на
+    /// новый режим — зеркало `lock_input_startup_acquires_and_holds_device`
+    /// (ТЗ-118, ТЗ-119), но через `SetActiveMode` вместо `Startup`.
+    #[test]
+    fn compatible_to_optimal_starts_capture() {
+        let sink = VecSink::new();
+        let deps = fake_deps(Box::new(sink.clone()), Arc::new(StdSpawner));
+        let mut engine = Engine::new(deps, BackendCaps::current());
+        let dev: HwDeviceId = "hw:CARD=RU3,DEV=0".parse().expect("hw id");
+        engine.catalog.hw = vec![crate::audio::backend::catalog::HwDeviceInfo { id: dev.clone(), card: 1, device: 0, name: "RU3".to_string() }];
+        engine.active_mode = ModeKind::Compatible;
+        engine.lock = LockState::NotApplicable;
+        engine.mode_settings.optimal.device = Some(dev.clone());
+
+        engine.handle(EngineCmd::SetActiveMode(ModeKind::Optimal));
+
+        assert!(matches!(engine.lock, LockState::Acquiring { .. }));
+        assert_eq!(engine.active_mode, ModeKind::Optimal);
+        let events = sink.take();
+        assert!(events.iter().any(|e| matches!(e, EngineEvent::Lock(LockState::Acquiring { .. }))));
+
+        let msg = engine.internal_rx.recv().expect("claim done");
+        engine.handle_internal(msg);
+        match &engine.lock {
+            LockState::Held { info } => assert_eq!(info.device, dev),
+            other => panic!("expected Held, got {other:?}"),
+        }
+        assert!(engine.claim.is_some());
     }
 
     /// §6.18, ТЗ-49 (шаг 48): открытие с `autoplay: true` сразу даёт
