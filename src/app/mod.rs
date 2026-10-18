@@ -3096,6 +3096,13 @@ impl MusicApp {
         let mut applied = std::mem::take(&mut self.engine_applied);
         applied.clear();
 
+        // Список устройства вкладки Audio для Оптимального/Строгого режима
+        // строится из каталога движка, а не из cpal-перечисления Совместимого
+        // (ADR-24, ТЗ-126); взводится ниже при смене каталога устройств или
+        // переписывании автовыбранного устройства в настройках — чтобы
+        // открытый диалог не держал устаревший список (AM1.0-B16).
+        let mut hw_listing_dirty = false;
+
         // Device readiness is decided here, from the raw `EngineEvent`
         // stream, before it's handed to `on_engine_event` — the catalog
         // update itself reduces to a field inside `UiAudioState` and never
@@ -3124,6 +3131,9 @@ impl MusicApp {
                 if let Some(dev) = found {
                     ready_device = Some(dev.name.clone());
                 }
+                // Каталог изменился — список hw-устройств вкладки Audio
+                // устарел (ADR-24, ТЗ-126, AM1.0-B16).
+                hw_listing_dirty = true;
             }
             raw_events.push(ev);
         });
@@ -3185,9 +3195,23 @@ impl MusicApp {
         }
 
         for a in applied.drain(..) {
+            // Автовыбор переписывает устройство режима в настройках —
+            // список вкладки Audio для этого режима тоже устарел
+            // (ADR-24, ТЗ-126, AM1.0-B16).
+            if matches!(a, Applied::DeviceAutoSelected { .. }) {
+                hw_listing_dirty = true;
+            }
             self.dispatch_applied(a);
         }
         self.engine_applied = applied;
+
+        // Диалог настроек открыт не на Совместимом режиме — перестраиваем
+        // hw-список вкладки Audio, иначе он держал бы устаревший каталог до
+        // следующего переключения режима/фильтра (ADR-24, ТЗ-126, AM1.0-B16).
+        let shown_mode = self.core.draft().map(|d| d.shown_mode);
+        if needs_hw_listing_refresh(shown_mode, hw_listing_dirty) {
+            self.apply_audio_device_listing();
+        }
     }
 
     /// Раздать принятое событие движка (кроме `Opened`, обработанного в
@@ -3384,6 +3408,14 @@ fn visible_col_at_index(columns: &ColumnsConfig, visible_index: i32) -> Option<C
     columns.visible_columns().get(visible_index as usize).copied()
 }
 
+/// Нужно ли перестроить hw-список устройства вкладки Audio: диалог
+/// настроек открыт (`shown_mode` — показанный в нём режим) не на
+/// Совместимом режиме, и каталог устройств движка/автовыбранное устройство
+/// в настройках изменились (ADR-24, ТЗ-126, AM1.0-B16).
+fn needs_hw_listing_refresh(shown_mode: Option<ModeKind>, hw_listing_dirty: bool) -> bool {
+    hw_listing_dirty && shown_mode.is_some_and(|mode| mode != ModeKind::Compatible)
+}
+
 /// Короткий русский текст причины отказа открытия трека для сообщений
 /// пользователю (ADR-14, ТЗ-86). `Capture` не описывается здесь — он не
 /// доходит до этой функции, т.к. `dispatch_applied` гасит его отдельно
@@ -3481,6 +3513,22 @@ mod tests {
         assert_eq!(playlist::sort_rows_text(&t, ColumnId::Bitrate), "");
         assert_eq!(playlist::sort_rows_text(&t, ColumnId::SampleRate), "");
         assert_eq!(playlist::sort_rows_text(&t, ColumnId::Duration), "--:--");
+    }
+
+    #[test]
+    fn needs_hw_listing_refresh_only_for_non_compatible_dialog() {
+        // Диалог закрыт — список не перестраиваем, даже если каталог менялся.
+        assert!(!needs_hw_listing_refresh(None, true));
+        // Совместимый режим показан в диалоге — hw-список ему не нужен.
+        assert!(!needs_hw_listing_refresh(Some(ModeKind::Compatible), true));
+        // Оптимальный/Строгий режим показан, но каталог/автовыбор не менялись.
+        assert!(!needs_hw_listing_refresh(Some(ModeKind::Optimal), false));
+    }
+
+    #[test]
+    fn needs_hw_listing_refresh_true_for_optimal_or_strict_dialog() {
+        assert!(needs_hw_listing_refresh(Some(ModeKind::Optimal), true));
+        assert!(needs_hw_listing_refresh(Some(ModeKind::Strict), true));
     }
 
     #[test]

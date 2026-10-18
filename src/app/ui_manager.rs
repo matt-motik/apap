@@ -327,7 +327,7 @@ impl MusicApp {
     /// and validation preview (§8.1 С3). Synchronous — called when an
     /// enumeration lands and on every filter toggle, so flipping a filter never
     /// needs a backend requery.
-    fn apply_audio_device_listing(&mut self) {
+    pub(super) fn apply_audio_device_listing(&mut self) {
         // Устройство читается из `ModeSettings` показанного в диалоге режима
         // (или активного режима воспроизведения, если диалог закрыт), а не из
         // прежнего легаси-поля устройства (ТЗ-94, §2.4).
