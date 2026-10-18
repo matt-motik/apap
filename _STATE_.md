@@ -108,8 +108,8 @@
 - [x] Шаг 46: Шаг 46: run.rs: классификация ExclusiveOpenReason → OpenError (Plan(StrictFloatRing)/Feed → Incompatible или Internal, Decode(Open) → File, Decode(Spawn) → Internal, Configure/Start/BufferUnavailable → Capture/DeviceLost по §6.18/ADR-14) вместо общего DeviceLost + тест (§6.18, ТЗ-86). Проверка: cargo test engine::
 - [x] Шаг 47: Шаг 47: SourceOpener: открытие по маршруту плана (Route::Dop → DsdDecoder DecodeMode::Dop, DsdToPcm → PCM-режим DSD-декодера) в engine/source.rs и вызов из open_exclusive (run.rs) + тест на фейке (§6.18 п. 6, ТЗ-113). Проверка: cargo test engine::
 - [x] Шаг 48: Шаг 48: exclusive_path.rs: транспорт Play/Pause/Stop (остановка StreamHandle без освобождения claim — замок удерживает устройство, ТЗ-43) + тесты ≤3 (§6.18, ТЗ-49, 43). Проверка: cargo test engine::
-- [>] **Шаг 49: Шаг 49: exclusive_path.rs: Seek — сброс ring за O(1) и повторный prime (§6.16, ТЗ-99) + тест. Проверка: cargo test engine::**
-- [ ] Шаг 50: Шаг 50: exclusive_path.rs: громкость/mute на эксклюзивном пути по плану (no_gain → игнор, иначе гейн рендера) (§6.18, ТЗ-137, 140) + тест. Проверка: cargo test engine::
+- [x] Шаг 49: Шаг 49: exclusive_path.rs: Seek — сброс ring за O(1) и повторный prime (§6.16, ТЗ-99) + тест. Проверка: cargo test engine::
+- [>] **Шаг 50: Шаг 50: exclusive_path.rs: громкость/mute на эксклюзивном пути по плану (no_gain → игнор, иначе гейн рендера) (§6.18, ТЗ-137, 140) + тест. Проверка: cargo test engine::**
 - [ ] Шаг 51: Шаг 51: exclusive_path.rs + run.rs poll_session: позиция, конец трека, StreamFault, перенос xruns сессии в DynamicPathState + тесты ≤3 (§6.18, ТЗ-51, 76). Проверка: cargo test engine::
 - [ ] Шаг 52: Шаг 52: exclusive_path.rs: tap визуализатора на эксклюзивной сессии (как в Shared-пути) (§6.18). Проверка: cargo check
 - [ ] Шаг 53: Шаг 53: exclusive_path.rs: смена трека с удержанием PCM — configure только при смене формата (§6.7, §6.18) + тест. Проверка: cargo test engine::
@@ -144,8 +144,8 @@
 
 Легенда: [x] сделано · [>] текущий шаг · [ ] не начато
 
-- **Текущий шаг (current_step):** Шаг 49
-- **Следующий ход:** Шаг 49: exclusive_path.rs: Seek — сброс ring за O(1) и повторный prime (§6.16, ТЗ-99) + тест. Свежий субагент code-writer sonnet.
+- **Текущий шаг (current_step):** Шаг 50
+- **Следующий ход:** Шаг 50: exclusive_path.rs: громкость/mute на эксклюзивном пути по плану (no_gain → игнор, иначе гейн рендера) (§6.18, ТЗ-137, 140) + тест. Свежий субагент code-writer sonnet.
 - **Счетчик безуспешных компиляций:** 0/3
 - **Состояние:** in_progress
 

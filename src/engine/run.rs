@@ -901,7 +901,15 @@ impl Engine {
                 self.stop_playback();
             }
             EngineCmd::Seek { secs } => {
-                self.player.seek(secs);
+                // §6.16, ТЗ-99, ADR-13: на Эксклюзивном пути seek — 3-фазное
+                // рукопожатие (`ExclusivePath::seek` — фаза 1), поток и
+                // устройство не переоткрываются; легаси `Player::seek` —
+                // прежний путь Совместимого режима.
+                if let Some(p) = &self.exclusive_path {
+                    p.seek(secs_to_frames(secs, p.frame_rate()));
+                } else {
+                    self.player.seek(secs);
+                }
             }
             EngineCmd::SetVolume(v) => {
                 self.last_volume = v;
@@ -2078,6 +2086,41 @@ mod tests {
         assert!(!events.iter().any(|e| matches!(e, EngineEvent::OpenFailed { .. })));
         assert!(engine.exclusive_path.is_some());
         assert!(engine.claim.is_none());
+    }
+
+    /// §6.16, ТЗ-99, ADR-13 (шаг 49): `EngineCmd::Seek` на открытом
+    /// Эксклюзивном пути — фаза 1 рукопожатия (`ExclusivePath::seek`), а не
+    /// легаси `Player::seek`: целевой кадр считается по частоте ring, запрос
+    /// виден через `SessionShared`.
+    #[test]
+    fn seek_on_exclusive_path_requests_seek_by_frame() {
+        let sink = VecSink::new();
+        let mut engine = engine_with_exclusive_path_open(sink, true);
+        let shared = Arc::clone(engine.exclusive_path.as_ref().expect("exclusive path open").shared());
+
+        engine.handle(EngineCmd::Seek { secs: 1.5 });
+
+        assert_eq!(shared.seek_requested.load(std::sync::atomic::Ordering::Acquire), 1);
+        let rate = engine.exclusive_path.as_ref().expect("exclusive path open").frame_rate();
+        let expected = secs_to_frames(1.5, rate);
+        assert_eq!(shared.seek_target_frame.load(std::sync::atomic::Ordering::Relaxed), expected);
+    }
+
+    /// §6.16, ТЗ-99 (шаг 49): seek на паузе тоже запрашивает фазу 1 и не
+    /// трогает состояние транспорта — пауза остаётся паузой.
+    #[test]
+    fn seek_on_exclusive_path_while_paused_does_not_change_transport() {
+        let sink = VecSink::new();
+        let mut engine = engine_with_exclusive_path_open(sink, true);
+        engine.handle(EngineCmd::Pause);
+        assert_eq!(engine.last_transport, Some(TransportState::Paused));
+        let shared = Arc::clone(engine.exclusive_path.as_ref().expect("exclusive path open").shared());
+
+        engine.handle(EngineCmd::Seek { secs: 2.0 });
+
+        assert_eq!(shared.seek_requested.load(std::sync::atomic::Ordering::Acquire), 1);
+        assert_eq!(engine.last_transport, Some(TransportState::Paused));
+        assert!(!engine.exclusive_path.as_ref().expect("exclusive path open").is_playing());
     }
 
     /// §6.18 п. 6, ТЗ-113 (шаг 47): `open_exclusive` открывает источник через

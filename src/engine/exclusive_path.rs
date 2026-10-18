@@ -40,6 +40,9 @@ pub(crate) struct ExclusivePath {
     claim: DeviceClaim,
     session: ExclusiveSession,
     handle: Box<dyn StreamHandle>,
+    /// Частота кадров ring (= частота цели устройства, §6.16, ТЗ-99): секунды
+    /// → кадры для `seek` считает вызывающая сторона (`run.rs::secs_to_frames`).
+    frame_rate: u32,
 }
 
 impl ExclusivePath {
@@ -60,12 +63,37 @@ impl ExclusivePath {
         self.session.shared.playing.load(Ordering::Acquire)
     }
 
+    /// Запросить seek на Эксклюзивном пути (§6.16, ТЗ-99, ADR-13): фаза 1
+    /// рукопожатия — установка целевого кадра и инкремент поколения запроса
+    /// (`SessionShared::request_seek`). Фазу 2 (стоп декодера на старом
+    /// поколении) выполняет поток декодера (`DecodeWorker::poll_seek`), фазу
+    /// 3 (O(1) сброс ring, `pos_frames = target`, повторное заполнение) —
+    /// колбэк рендера (`render::begin`). Поток вывода и устройство остаются
+    /// открытыми; работает и на паузе (`SessionShared::playing` не меняется).
+    pub(crate) fn seek(&self, target_frame: u64) {
+        self.session.shared.request_seek(target_frame);
+    }
+
+    /// Частота кадров ring (= частота цели устройства, §6.16, ТЗ-99): для
+    /// перевода секунд в кадры вызывающей стороной (`run.rs::secs_to_frames`).
+    pub(crate) fn frame_rate(&self) -> u32 {
+        self.frame_rate
+    }
+
+    /// Доступ к разделяемому состоянию сессии для тестов (§6.16, ТЗ-99):
+    /// позволяет проверить фазу 1 рукопожатия seek без реального потока
+    /// вывода.
+    #[cfg(test)]
+    pub(crate) fn shared(&self) -> &Arc<SessionShared> {
+        &self.session.shared
+    }
+
     /// Закрыть путь (§6.18, ТЗ-43): сначала поток вывода — колбэк
     /// перестаёт читать ring и возвращает PCM в `claim`, затем поток
     /// декодера. Захват возвращается вызывающей стороне: замок устройства
     /// остаётся удержан (§6.19), закрыть его — отдельное решение.
     pub(crate) fn close(self) -> DeviceClaim {
-        let ExclusivePath { mut claim, mut session, handle } = self;
+        let ExclusivePath { mut claim, mut session, handle, frame_rate: _ } = self;
         *claim.pcm_mut() = handle.stop();
         session.worker.stop();
         claim
@@ -151,6 +179,7 @@ pub(crate) fn open(
     start_frame: u64,
     generation: u64,
 ) -> Result<(ExclusivePath, SignalPath), ExclusiveOpenError> {
+    let frame_rate = plan.target.rate.hz();
     let (driver, buffer_actual) = match backend.configure(&mut claim, plan.target, device_buffer) {
         Ok(ok) => ok,
         Err(e) => return Err(ExclusiveOpenError { claim, reason: ExclusiveOpenReason::Configure(e) }),
@@ -199,7 +228,7 @@ pub(crate) fn open(
     };
 
     let session = ExclusiveSession { worker, shared, decode_events };
-    let path = ExclusivePath { claim, session, handle };
+    let path = ExclusivePath { claim, session, handle, frame_rate };
     let signal = SignalPath::from_opened(plan, facts, generation);
     Ok((path, signal))
 }
