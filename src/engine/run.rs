@@ -191,6 +191,18 @@ fn secs_to_frames(secs: f64, rate: u32) -> u64 {
     }
 }
 
+/// Обратное преобразование к [`secs_to_frames`] (§6.20 п. 4, ТЗ-126):
+/// переоткрытие трека из `ReacquirePoint` принимает позицию в секундах
+/// (мост С3, `open_exclusive`), а точка хранит кадры с частотой на момент
+/// сохранения (`ReacquirePoint::rate`). Нулевая частота (точки не было или
+/// путь не был открыт) даёт безопасный `0.0`, а не деление на ноль.
+fn frames_to_secs(frame: u64, rate: u32) -> f64 {
+    if rate == 0 {
+        return 0.0;
+    }
+    frame as f64 / f64::from(rate)
+}
+
 /// Классифицирует причину отказа `exclusive_path::open` в `OpenError`
 /// (§6.18, ADR-14, ТЗ-86). `Configure`/`BufferUnavailable`/`Start` — отказ
 /// драйвера/устройства на шагах `configure`/`start` (ТЗ-113, ТЗ-131): ближе
@@ -466,7 +478,11 @@ impl Engine {
                     Ok(claim) => {
                         let info = claim.info().clone();
                         self.claim = Some(claim);
-                        self.lock_input(LockInput::CaptureResult(Ok(info)));
+                        self.lock_input(LockInput::CaptureResult(Ok(info.clone())));
+                        // Переоткрытие трека из точки повторного захвата —
+                        // только после того, как замок принял успех и перешёл
+                        // в `Held` (§6.20 п. 4, ТЗ-126).
+                        self.reopen_after_reacquire(&info.device);
                     }
                     Err(e) => self.lock_input(LockInput::CaptureResult(Err(e))),
                 }
@@ -662,15 +678,71 @@ impl Engine {
     fn save_reacquire_point(&mut self) {
         let LockState::Held { info } = &self.lock else { return };
         let Some((_, path)) = self.current.as_ref() else { return };
-        let frame = self
+        let (frame, rate) = self
             .exclusive_path
             .as_ref()
-            .map_or(0, |p| secs_to_frames(p.position_secs(), p.frame_rate()));
+            .map_or((0, 0), |p| (secs_to_frames(p.position_secs(), p.frame_rate()), p.frame_rate()));
         self.reacquire = Some(ReacquirePoint {
             device: info.device.clone(),
             track: TrackRef { id: None, path: Arc::clone(path) },
             frame,
+            rate,
         });
+    }
+
+    /// Автоматический повторный захват вернувшегося устройства (§6.20 п. 4,
+    /// ТЗ-126): вызывается после изменения каталога Exclusive-устройств
+    /// (`refresh_devices`). Замок должен всё ещё быть `Failed
+    /// (DeviceDisconnected)` — иначе пользователь уже открыл замок или
+    /// сменил режим/устройство, и `ForgetReacquire` уже забыл точку
+    /// (ТЗ-123); устройство точки должно быть среди перечисленных —
+    /// `lock_step` сам не сверяет `d` с точкой (см. доккомент
+    /// `DeviceReappeared` в `lock.rs`), эту сверку обязан сделать движок
+    /// до вызова `lock_input`. При совпадении — `DeviceReappeared(d)` даёт
+    /// эффект `Acquire(d)` (захват по §6.6); переоткрытие трека на
+    /// сохранённой позиции — в `reopen_after_reacquire`, после успешного
+    /// `ClaimDone`.
+    fn try_reacquire_reappeared_device(&mut self) {
+        let LockState::Failed(CaptureFailure::DeviceDisconnected) = &self.lock else { return };
+        let Some(point) = self.reacquire.as_ref() else { return };
+        if !self.catalog.hw.iter().any(|d| d.id == point.device) {
+            return;
+        }
+        let dev = point.device.clone();
+        self.lock_input(LockInput::DeviceReappeared(dev));
+    }
+
+    /// Переоткрытие трека после успешного повторного захвата (§6.20 п. 4,
+    /// ТЗ-126): вызывается из `handle_internal` сразу после того, как
+    /// `ClaimDone` перевело замок в `Held`. Точка повторного захвата
+    /// забирается (`Option::take`) и, если её устройство не совпадает с
+    /// только что захваченным (например, захват успел пойти на другое
+    /// устройство — ручной `RetryCapture`/`SetActiveMode` поверх старого
+    /// `Failed` без явного `ForgetReacquire`, см. таблицу §6.19), точка
+    /// возвращается нетронутой и ничего не открывается — иначе трек
+    /// переоткрывается на сохранённой позиции (`ReacquirePoint::frame`/
+    /// `rate` → секунды, `frames_to_secs`) на Эксклюзивном пути с
+    /// `autoplay: false` — пауза, автоплей запрещён (ТЗ-126), запуск
+    /// воспроизведения — явное решение пользователя.
+    fn reopen_after_reacquire(&mut self, claimed: &HwDeviceId) {
+        let Some(point) = self.reacquire.take() else { return };
+        if point.device != *claimed {
+            self.reacquire = Some(point);
+            return;
+        }
+        let req_gen = self.current.as_ref().map_or(0, |(gen, _)| *gen);
+        let path = Arc::clone(&point.track.path);
+        let start_secs = frames_to_secs(point.frame, point.rate);
+        let src = match self.deps.sources.probe(&path) {
+            Ok(src) => src,
+            Err(e) => {
+                self.deps
+                    .events
+                    .emit(EngineEvent::Skipped { req_gen, path, reason: SkipReason::File(e) });
+                return;
+            }
+        };
+        self.open_exclusive(req_gen, path, src, start_secs, false);
     }
 
     /// Запуск захвата устройства `dev` в служебном потоке (§6.19, ТЗ-119,
@@ -1438,15 +1510,32 @@ impl Engine {
     /// нужно для первого перечисления при старте движка; по `RefreshDevices`
     /// и по сигналу `DeviceWatcher` событие шлётся только при изменении.
     fn refresh_devices(&mut self, force_emit: bool) {
+        // Каталог Exclusive-устройств (`hw`) перечисляется тут же, рядом с
+        // Shared (§6.2 п. 3, ТЗ-104, ТЗ-105, ADR-16): изменение списка — не
+        // только повод переотдать `Devices` в UI, но и триггер автоматического
+        // повторного захвата вернувшегося устройства (§6.20 п. 4, ТЗ-126).
+        let hw_changed = match self.deps.exclusive.as_deref_mut() {
+            Some(backend) => match self.catalog.refresh_hw(backend) {
+                Ok(changed) => changed,
+                Err(e) => {
+                    self.deps.events.emit(EngineEvent::Notice(Notice::DevicesUnavailable(e)));
+                    false
+                }
+            },
+            None => false,
+        };
         match self.catalog.refresh(self.deps.shared.as_mut()) {
             Ok(changed) => {
-                if changed || force_emit {
+                if changed || hw_changed || force_emit {
                     self.deps.events.emit(EngineEvent::Devices(Arc::new(self.catalog.clone())));
                 }
             }
             Err(e) => {
                 self.deps.events.emit(EngineEvent::Notice(Notice::DevicesUnavailable(e)));
             }
+        }
+        if hw_changed {
+            self.try_reacquire_reappeared_device();
         }
     }
 
@@ -2813,6 +2902,186 @@ mod tests {
         assert!(matches!(engine.lock, LockState::Held { .. }));
         assert!(engine.exclusive_path.is_some());
         assert!(engine.reacquire.is_none());
+    }
+
+    /// Движок после потери устройства (`StreamFault` на открытом Эксклюзивном
+    /// пути, как в `poll_session_stream_fault_stops_playback_and_releases_lock`),
+    /// с сохранённой точкой повторного захвата — общая отправная точка тестов
+    /// шага 64 (§6.20 п. 4, ТЗ-126): `lock` = `Failed(DeviceDisconnected)`,
+    /// `reacquire` = `Some(ReacquirePoint { device: RU3, frame: rate, rate })`
+    /// (ровно 1 секунда позиции). `enumerate_result` — ответ
+    /// `FakeExclusiveBackend::enumerate` на последующий `refresh_devices`
+    /// теста (симуляция повторного перечисления карт хоста).
+    fn engine_after_device_loss_with_enumerate(
+        sink: VecSink,
+        enumerate_result: Result<Vec<crate::audio::backend::catalog::HwDeviceInfo>, BackendError>,
+    ) -> Engine {
+        let dev: HwDeviceId = "hw:CARD=RU3,DEV=0".parse().expect("hw id");
+        let backend = FakeExclusiveBackend::new()
+            .with_configure(Ok((
+                crate::audio::backend::DriverFormat::Confirmed(crate::audio::format::StreamFormat {
+                    rate: SampleRate::new(44_100).expect("rate"),
+                    sample: crate::audio::format::OutputSampleFormat::S32Le,
+                    channels: std::num::NonZeroU8::new(2).expect("channels"),
+                }),
+                Some(crate::audio::backend::DeviceBufferActual { period_frames: 256, buffer_frames: 1024 }),
+            )))
+            .with_enumerate(enumerate_result);
+        let float_format = SourceFormat {
+            container: Container::Wav,
+            codec: Codec::Wav,
+            lossy: false,
+            rate: SampleRate::new(44_100).expect("rate"),
+            layout: ChannelLayout::stereo(),
+            kind: SourceKind::FloatPcm { double: false },
+        };
+        let mem = MemStore::new();
+        let deps = EngineDeps {
+            shared: Box::new(FakeSharedBackend::with_devices(Vec::new())),
+            exclusive: Some(Box::new(backend)),
+            server_probe: Box::new(FakeServerProbe::desktop()),
+            watcher: Box::new(FakeDeviceWatcher::new()),
+            sources: Arc::new(FakeSource::with_format(float_format)),
+            clock: Box::new(MonotonicClock::new()),
+            store: Box::new(FsPersistStore::new(Arc::new(mem.clone()), Box::new(mem.clone()), PathBuf::from("/cfg"))),
+            events: Box::new(sink),
+            spawner: Arc::new(StdSpawner),
+            caps: BackendCaps::current(),
+            os_probe: Box::new(FakeOsProbe::new(OsStage::Unknown)),
+            rt: Arc::new(FakeRtRequester::new(None)),
+        };
+        let mut engine = Engine::new(deps, BackendCaps::current());
+        engine.active_mode = ModeKind::Optimal;
+        engine.mode_settings.optimal.device = Some(dev.clone());
+        engine.catalog.hw = vec![crate::audio::backend::catalog::HwDeviceInfo { id: dev.clone(), card: 1, device: 0, name: "RU3".to_string() }];
+        engine.lock = LockState::Held { info: crate::audio::backend::exclusive::ClaimInfo { device: dev.clone() } };
+        engine.claim = Some(crate::audio::backend::exclusive::DeviceClaim::new(
+            None,
+            crate::audio::reservation::Reservation::UnavailableNoServer,
+            crate::audio::backend::exclusive::ClaimInfo { device: dev },
+        ));
+        engine.handle(EngineCmd::Open { req_gen: 1, path: Arc::from(Path::new("/music/a.flac")), start_secs: 0.0, autoplay: true });
+        assert!(engine.exclusive_path.is_some());
+
+        let rate = engine.exclusive_path.as_ref().expect("exclusive path open").frame_rate();
+        let shared = Arc::clone(engine.exclusive_path.as_ref().expect("exclusive path open").shared());
+        shared.pos_frames.store(u64::from(rate), Ordering::Relaxed);
+        shared.set_fault(StreamFault::DeviceUnavailable);
+        engine.poll_session();
+        assert!(matches!(engine.lock, LockState::Failed(CaptureFailure::DeviceDisconnected)));
+        assert!(engine.reacquire.is_some());
+        engine
+    }
+
+    /// Шаг 64 (§6.20 п. 4, ТЗ-126): устройство из точки повторного захвата
+    /// снова появляется в перечислении (`refresh_devices` → `refresh_hw` →
+    /// изменение `catalog.hw`) — движок сам шлёт
+    /// `LockInput::DeviceReappeared(dev)`, захват проходит (фейковый бэкенд
+    /// по умолчанию успешен), и после `ClaimDone` трек переоткрывается на
+    /// сохранённой позиции (1 секунда) НА ПАУЗЕ (`autoplay: false`, несмотря
+    /// на то что до потери играл), а точка повторного захвата забирается.
+    #[test]
+    fn device_reappears_reacquires_and_reopens_paused_at_saved_position() {
+        let sink = VecSink::new();
+        let dev: HwDeviceId = "hw:CARD=RU3,DEV=0".parse().expect("hw id");
+        let hw_info = crate::audio::backend::catalog::HwDeviceInfo { id: dev.clone(), card: 1, device: 0, name: "RU3".to_string() };
+        let mut engine = engine_after_device_loss_with_enumerate(sink.clone(), Ok(vec![hw_info]));
+        // Карта уже пропала из каталога (предыдущий `refresh_devices` во
+        // время отключения убрал её) — текущий вызов видит её возвращение.
+        engine.catalog.hw = Vec::new();
+        sink.take();
+
+        engine.refresh_devices(false);
+
+        assert!(matches!(engine.lock, LockState::Acquiring { .. }));
+        let msg = engine.internal_rx.recv().expect("claim done");
+        engine.handle_internal(msg);
+
+        match &engine.lock {
+            LockState::Held { info } => assert_eq!(info.device, dev),
+            other => panic!("expected Held, got {other:?}"),
+        }
+        assert!(engine.reacquire.is_none());
+        let path = engine.exclusive_path.as_ref().expect("track reopened");
+        assert_eq!(path.position_secs(), 1.0);
+        assert_eq!(engine.last_transport, Some(TransportState::Paused));
+    }
+
+    /// Шаг 64 (§6.20 п. 4, ТЗ-126): перечисление изменилось, но появившееся
+    /// устройство — не то, что в точке повторного захвата (например, у
+    /// отключённой карты подключился посторонний прибор) — движок не должен
+    /// самовольно захватывать чужое устройство: `try_reacquire_reappeared_device`
+    /// находит точку, но её `device` отсутствует среди перечисленных, и
+    /// `lock_input` не вызывается — замок остаётся `Failed`, точка цела.
+    #[test]
+    fn device_reappears_does_not_reacquire_different_device() {
+        let sink = VecSink::new();
+        let other_dev =
+            crate::audio::backend::catalog::HwDeviceInfo { id: "hw:CARD=RU5,DEV=0".parse().expect("hw id"), card: 2, device: 0, name: "RU5".to_string() };
+        let mut engine = engine_after_device_loss_with_enumerate(sink.clone(), Ok(vec![other_dev]));
+        sink.take();
+
+        engine.refresh_devices(false);
+
+        assert!(matches!(engine.lock, LockState::Failed(CaptureFailure::DeviceDisconnected)));
+        assert!(engine.reacquire.is_some());
+        assert!(engine.exclusive_path.is_none());
+    }
+
+    /// Шаг 64 (§6.20 п. 4, ТЗ-126): перечисление не изменилось (тот же
+    /// пустой/прежний список устройств) — `refresh_hw` возвращает
+    /// `changed == false`, `try_reacquire_reappeared_device` не вызывается
+    /// вовсе, замок и точка повторного захвата остаются нетронутыми.
+    #[test]
+    fn refresh_devices_without_hw_change_does_not_touch_reacquire() {
+        let sink = VecSink::new();
+        let mut engine = engine_after_device_loss_with_enumerate(sink.clone(), Ok(Vec::new()));
+        // Фикстура кладёт RU3 в `catalog.hw` напрямую (нужен для успешного
+        // захвата до потери), но бэкенд перечисляет пустой список — чтобы
+        // проверить именно случай БЕЗ изменения каталога, здесь каталог
+        // приводится к тому же пустому списку, что и у бэкенда.
+        engine.catalog.hw = Vec::new();
+        sink.take();
+
+        engine.refresh_devices(false);
+
+        assert!(matches!(engine.lock, LockState::Failed(CaptureFailure::DeviceDisconnected)));
+        assert!(engine.reacquire.is_some());
+        assert!(engine.exclusive_path.is_none());
+    }
+
+    /// Шаг 64 (§6.20 п. 4, ТЗ-126): защита в `reopen_after_reacquire` от
+    /// переоткрытия на чужом захвате — `ClaimDone` сообщает устройство, не
+    /// совпадающее с `self.reacquire.device` (гонка: захват успел пойти на
+    /// другое устройство мимо `DeviceReappeared`, например ручной
+    /// `RetryCapture` поверх старого `Failed` без `ForgetReacquire`, таблица
+    /// §6.19). Точка должна остаться нетронутой, трек не переоткрывается.
+    #[test]
+    fn reopen_after_reacquire_ignores_claim_for_different_device() {
+        let sink = VecSink::new();
+        let mut engine = engine_after_device_loss_with_enumerate(sink.clone(), Ok(Vec::new()));
+        let other_dev: HwDeviceId = "hw:CARD=RU5,DEV=0".parse().expect("hw id");
+        engine.catalog.hw.push(crate::audio::backend::catalog::HwDeviceInfo { id: other_dev.clone(), card: 2, device: 0, name: "RU5".to_string() });
+        // Пользователь успел сменить настроенное устройство режима на другое
+        // — `RetryCapture` разрешится на него, а не на устройство точки
+        // повторного захвата (ещё RU3).
+        engine.mode_settings.optimal.device = Some(other_dev.clone());
+        sink.take();
+
+        // Ручной повторный запрос захвата на другое устройство, минуя
+        // `DeviceReappeared` (`RetryCapture` из `Failed` — таблица §6.19 даёт
+        // `Acquire(dev)` без `ForgetReacquire`).
+        engine.lock_input(LockInput::RetryCapture);
+        assert!(matches!(engine.lock, LockState::Acquiring { .. }));
+        let msg = engine.internal_rx.recv().expect("claim done");
+        engine.handle_internal(msg);
+
+        match &engine.lock {
+            LockState::Held { info } => assert_eq!(info.device, other_dev),
+            other => panic!("expected Held, got {other:?}"),
+        }
+        assert!(engine.reacquire.is_some(), "точка повторного захвата старого устройства не должна быть потеряна");
+        assert!(engine.exclusive_path.is_none(), "трек не должен переоткрываться на чужом захвате");
     }
 
     /// §6.17, ТЗ-51 (шаг 51): штатный конец трека на Эксклюзивном пути
