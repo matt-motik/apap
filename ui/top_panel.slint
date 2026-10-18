@@ -2,6 +2,18 @@ import { Colors } from "theme.slint";
 import { Slider, ScrollView } from "std-widgets.slint";
 import { Visualizer } from "visualizer.slint";
 
+// ADR-06, §6.19, ТЗ-50, ТЗ-55, ТЗ-61, ТЗ-118: вид индикатора замка
+// устройства по LockState (LockView, src/app/lock_view.rs). Текст и
+// подсказку строит Rust; Slint только выбирает значок и цвет по варианту —
+// различимость без цвета обеспечивается парой «значок + текст».
+export enum LockKind {
+    not-applicable,
+    open,
+    acquiring,
+    held,
+    failed,
+}
+
 component VerticalSeparator inherits Rectangle {
     in property <float> gap: 12;
     width: root.gap * 2px + 1px;
@@ -94,6 +106,79 @@ component ModeButton inherits Rectangle {
     }
 }
 
+// ADR-06, §6.19, ТЗ-50, ТЗ-55, ТЗ-61, ТЗ-118: компактный индикатор замка
+// устройства — значок + текст из LockView, видимый и в Совместимом режиме
+// (ТЗ-50: not-applicable не прячется, только притушен). Действия (ТЗ-46,
+// ТЗ-144) и коллбэки добавятся следующим шагом.
+component LockIndicator inherits Rectangle {
+    in property <LockKind> kind: LockKind.not-applicable;
+    in property <string> text: "";
+    in property <string> hint: "";
+
+    private property <bool> active: root.kind != LockKind.not-applicable;
+    // Значок по варианту, без опоры на цвет (ТЗ-55, ТЗ-61): «–» замок не
+    // нужен, «○» открыт, «◐» захват, «●» закрыт (захвачен), «✕» не удалось
+    // захватить.
+    private property <string> glyph: root.kind == LockKind.not-applicable ? "–"
+        : root.kind == LockKind.open ? "○"
+        : root.kind == LockKind.acquiring ? "◐"
+        : root.kind == LockKind.held ? "●"
+        : "✕";
+    private property <color> tint: root.kind == LockKind.held ? Colors.accent
+        : root.kind == LockKind.failed ? Colors.text-warn
+        : root.kind == LockKind.not-applicable ? Colors.text-dim
+        : Colors.text-secondary;
+
+    height: 28px;
+    border-radius: 6px;
+    border-width: 1px;
+    border-color: root.active ? Colors.border-default : Colors.border-subtle;
+    background: Colors.bg-toolbar;
+    opacity: root.active ? 1.0 : 0.6;
+
+    HorizontalLayout {
+        padding-left: 10px;
+        padding-right: 10px;
+        spacing: 6px;
+        alignment: center;
+        Text {
+            text: root.glyph;
+            color: root.tint;
+            font-size: 13px;
+            vertical-alignment: center;
+        }
+        if root.text != "": Text {
+            text: root.text;
+            color: root.tint;
+            font-size: 12px;
+            vertical-alignment: center;
+        }
+    }
+
+    // Подсказка замка (ТЗ-50 — почему недоступен в Совместимом режиме;
+    // ТЗ-121 — куда уходит звук других приложений при Held).
+    if root.hint != "": Tooltip {
+        Rectangle {
+            width: 220px;
+            height: lock-hint-text.preferred-height + 10px;
+            background: Colors.bg-elevated;
+            border-color: Colors.border-default;
+            border-width: 1px;
+            border-radius: 4px;
+
+            lock-hint-text := Text {
+                text: root.hint;
+                color: Colors.text-secondary;
+                font-size: 11px;
+                wrap: word-wrap;
+                x: 6px;
+                y: 5px;
+                width: parent.width - 12px;
+            }
+        }
+    }
+}
+
 component IconButton inherits Rectangle {
     in property <image> icon: @image-url("icons/play.svg");
     in property <bool> active: false;
@@ -156,6 +241,12 @@ export component TopPanel inherits Rectangle {
     // Bit-perfect (Direct Output): программные ползунки громкости/мьюта
     // блокируются, тракт идёт в ЦАП без пересчёта сэмплов.
     in property <bool> bit-perfect: false;
+    // ADR-06, §6.19, ТЗ-50, ТЗ-118: вид индикатора замка устройства
+    // (LockView, src/app/lock_view.rs) — значок/цвет выбирает Slint по
+    // lock-kind, текст и подсказку строит Rust.
+    in property <LockKind> lock-kind: LockKind.not-applicable;
+    in property <string> lock-text: "";
+    in property <string> lock-hint: "";
     in property <float> seek-fraction: 0.0;
     out property <bool> seekbar-dragging: false;
     in property <string> pos: "0:00";
@@ -240,6 +331,12 @@ export component TopPanel inherits Rectangle {
                 available: root.mode-available[i];
                 reason: reason;
                 clicked => { root.select-mode(i); }
+            }
+
+            LockIndicator {
+                kind: root.lock-kind;
+                text: root.lock-text;
+                hint: root.lock-hint;
             }
         }
 

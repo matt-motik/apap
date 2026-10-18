@@ -2,7 +2,8 @@ import { Colors } from "theme.slint";
 export { Colors }
 import { FluentPalette } from "builtin:/fluent/styling.slint";
 export { FluentPalette }
-import { TopPanel } from "top_panel.slint";
+import { TopPanel, LockKind } from "top_panel.slint";
+export { LockKind }
 import { Playlist } from "playlist.slint";
 import { StatusBar, BadgeKind } from "status.slint";
 export { BadgeKind }
@@ -180,6 +181,11 @@ export component AppWindow inherits Window {
     in property <[string]> mode-unavailable-reason: ["", "", ""];
     callback select-mode(int);
     in property <bool> bit-perfect: false;
+    // ADR-06, §6.19, ТЗ-50, ТЗ-118: индикатор замка устройства (LockView,
+    // src/app/lock_view.rs) — вид по lock-kind, текст/подсказка из Rust.
+    in property <LockKind> lock-kind: LockKind.not-applicable;
+    in property <string> lock-text: "";
+    in property <string> lock-hint: "";
     in property <float> seek-fraction: 0.0;
     out property <bool> seekbar-dragging: main-top.seekbar-dragging;
     in property <string> pos: "0:00";
@@ -483,6 +489,9 @@ export component AppWindow inherits Window {
                 mode-available: root.mode-available;
                 mode-unavailable-reason: root.mode-unavailable-reason;
                 bit-perfect: root.bit-perfect;
+                lock-kind: root.lock-kind;
+                lock-text: root.lock-text;
+                lock-hint: root.lock-hint;
                 seek-fraction: root.seek-fraction;
                 pos: root.pos;
                 dur: root.dur;

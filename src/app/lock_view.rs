@@ -1,7 +1,8 @@
 //! Чистый презентер замка устройства: `LockState` → вид для UI (ADR-06,
 //! §2.6, §6.19, ТЗ-46, ТЗ-50, ТЗ-118…ТЗ-123, ТЗ-144). Модуль не знает о
-//! Slint-свойствах — подключение к `ui_manager.rs` будет следующим шагом,
-//! поэтому пока не вызывается.
+//! Slint-свойствах, кроме самого перечисления `LockKind` — подключение
+//! остального (`lock-text`/`lock-hint`, действия) к `ui_manager.rs` будет
+//! следующим шагом, поэтому пока не вызывается.
 #![allow(dead_code)]
 
 use music_player_rs::audio::error::CaptureFailure;
@@ -10,17 +11,10 @@ use music_player_rs::engine::lock::LockState;
 #[cfg(test)]
 use music_player_rs::audio::backend::exclusive::ClaimInfo;
 
-/// Вид замка для UI (§2.6): открыт/захват/закрыт/недоступен в Совместимом
-/// режиме/не удалось захватить. Нет Slint-перечисления `LockKind` в
-/// `ui/*.slint` на момент этого шага — это обычный Rust-тип.
-#[derive(Clone, Copy, PartialEq, Eq, Debug)]
-pub(super) enum LockKind {
-    NotApplicable,
-    Open,
-    Acquiring,
-    Held,
-    Failed,
-}
+// Вид замка для UI (§2.6): открыт/захват/закрыт/недоступен в Совместимом
+// режиме/не удалось захватить. Перечисление сгенерировано из
+// `ui/top_panel.slint` (`export enum LockKind`), варианты в CamelCase.
+use super::LockKind;
 
 /// Действие пользователя, доступное из вида замка (ТЗ-46, ТЗ-144).
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
