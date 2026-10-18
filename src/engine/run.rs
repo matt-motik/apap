@@ -16,10 +16,10 @@ use crate::audio::backend::exclusive::DeviceClaim;
 use crate::audio::backend::catalog::DeviceCatalog;
 use crate::audio::backend::HwDeviceId;
 use crate::audio::clock::ClockInstant;
-use crate::audio::error::{CaptureFailure, EngineFault, FileError, OpenError};
+use crate::audio::error::{CaptureFailure, EngineFault, FileError, OpenError, Reaction, StreamFault};
 use crate::audio::format::{SampleRate, SourceFormat};
 use crate::audio::path::plan::{plan, with_gain};
-use crate::audio::path::signal::SignalPath;
+use crate::audio::path::signal::{DynamicPathState, SignalPath};
 use crate::audio::path::{Blocked, OpenedFacts, OsStage, PathPlan};
 use crate::audio::player::{Player, ReservationEvent, StreamDesc};
 use crate::audio::reservation::LostNotify;
@@ -324,6 +324,10 @@ struct Engine {
     /// Точка повторного захвата (§6.20, ТЗ-126); заполняется при потере
     /// устройства — шаг 57.
     reacquire: Option<ReacquirePoint>,
+    /// Счётчики динамики текущего потока (§6.17, §6.20, ТЗ-51, ТЗ-76):
+    /// `underruns`/`xruns` переносятся из `SessionShared` Эксклюзивного пути
+    /// на каждом опросе; сбрасывается на каждый успешный `Open`.
+    dynamics: DynamicPathState,
 }
 
 impl Engine {
@@ -358,6 +362,7 @@ impl Engine {
             claim: None,
             claim_attempt: 0,
             reacquire: None,
+            dynamics: DynamicPathState::default(),
         }
     }
 
@@ -754,6 +759,7 @@ impl Engine {
                 self.stopped = false;
                 self.last_pos = None;
                 self.session_failed = false;
+                self.dynamics = DynamicPathState::default();
                 self.deps.events.emit(EngineEvent::Opened { req_gen, info, stream_format, path: Some(signal), badge });
                 self.refresh_transport();
             }
@@ -821,6 +827,7 @@ impl Engine {
                         self.stopped = false;
                         self.last_pos = None;
                         self.session_failed = false;
+                        self.dynamics = DynamicPathState::default();
                         let stream = self.player.stream_desc().cloned();
                         // §6.3, §6.18 шаг 28 (ADR-20, ТЗ-52, ТЗ-57): Совместимый
                         // режим — `SignalPath` строится мостом из `StreamDesc`
@@ -1265,10 +1272,12 @@ impl Engine {
     }
 
     /// Опрос сессии на каждой итерации цикла (§6.1 п. 1–5, И-Р13, ТЗ-60,
-    /// ТЗ-102): только чтение состояния `Player`, без I/O (перечисление
-    /// устройств по сигналу `DeviceWatcher` — исключение, ТЗ-105). Порядок —
-    /// каталог устройств, резервирование, мид-трековый отказ декодера, затем
-    /// конец трека, затем транспорт, затем позиция.
+    /// ТЗ-102): только чтение состояния `Player`/`ExclusivePath`, без I/O
+    /// (перечисление устройств по сигналу `DeviceWatcher` — исключение,
+    /// ТЗ-105). Порядок — каталог устройств, резервирование, мид-трековый
+    /// отказ декодера, затем потеря устройства/конец трека Эксклюзивного
+    /// пути (StreamFault, §6.20, ТЗ-51, ТЗ-76) или конец трека Совместимого,
+    /// затем транспорт, затем позиция.
     fn poll_session(&mut self) {
         if self.devices_dirty.swap(false, Ordering::Acquire) {
             self.refresh_devices(false);
@@ -1330,7 +1339,31 @@ impl Engine {
             self.session_failed = true;
         }
 
-        if self.player.ended() {
+        // Эксклюзивный путь (§6.20, ТЗ-51, ТЗ-76): счётчики динамики
+        // переносятся из `SessionShared` каждый опрос; `fault` — признак
+        // потери устройства (`DeviceUnavailable`/`Stalled`, поток вывода уже
+        // вышел из цикла) обрабатывается через `lock_input(DeviceLost)` —
+        // переиспользует переход `Held → Failed(DeviceDisconnected)`
+        // (`StopPlayback`, `Release`) вместо дублирования остановки здесь.
+        let exclusive_poll =
+            self.exclusive_path.as_ref().map(|p| (p.fault(), p.ended(), p.underruns(), p.xruns()));
+        if let Some((fault, ended, underruns, xruns)) = exclusive_poll {
+            self.dynamics.underruns = underruns;
+            self.dynamics.xruns = xruns;
+            if fault != StreamFault::None {
+                self.lock_input(LockInput::DeviceLost);
+                self.deps.events.emit(EngineEvent::DeviceLost { reaction: Reaction::StopWithError });
+            } else if ended {
+                if !self.session_failed {
+                    if let Some((req_gen, _)) = &self.current {
+                        self.deps.events.emit(EngineEvent::Ended { session: *req_gen });
+                    }
+                }
+                self.exclusive_path = None;
+                self.exclusive_signal = None;
+                self.active_path = None;
+            }
+        } else if self.player.ended() {
             if !self.session_failed {
                 if let Some((req_gen, _)) = &self.current {
                     self.deps.events.emit(EngineEvent::Ended { session: *req_gen });
@@ -1344,7 +1377,11 @@ impl Engine {
 
         self.refresh_transport();
 
-        let (_, pos, _) = self.player.snapshot();
+        let pos = if let Some(path) = &self.exclusive_path {
+            path.position_secs()
+        } else {
+            self.player.snapshot().1
+        };
         let now = self.deps.clock.now();
         let due = self.last_pos_at.is_none_or(|at| now.saturating_since(at) >= POSITION_INTERVAL);
         if due && self.last_pos != Some(pos) {
@@ -2202,6 +2239,75 @@ mod tests {
 
         assert!(shared.muted.load(std::sync::atomic::Ordering::Relaxed));
         assert_eq!(shared.gain(), gain_before);
+    }
+
+    /// §6.17, ТЗ-51 (шаг 51): `poll_session` на открытом Эксклюзивном пути
+    /// берёт позицию из `ExclusivePath::position_secs` (кадры ring по
+    /// частоте цели устройства), а не из легаси `Player`.
+    #[test]
+    fn poll_session_reports_exclusive_path_position() {
+        let sink = VecSink::new();
+        let mut engine = engine_with_exclusive_path_open(sink.clone(), true);
+        sink.take();
+        let rate = engine.exclusive_path.as_ref().expect("exclusive path open").frame_rate();
+        let shared = Arc::clone(engine.exclusive_path.as_ref().expect("exclusive path open").shared());
+        shared.pos_frames.store(u64::from(rate) * 2, Ordering::Relaxed);
+
+        engine.poll_session();
+
+        let events = sink.take();
+        let pos = events.iter().find_map(|e| match e {
+            EngineEvent::Position { secs } => Some(*secs),
+            _ => None,
+        });
+        assert_eq!(pos, Some(2.0));
+    }
+
+    /// §6.20, ТЗ-51, ТЗ-76 (шаг 51): `StreamFault` потока вывода на открытом
+    /// Эксклюзивном пути переносит счётчики динамики в `self.dynamics` и
+    /// переиспользует `lock_input(DeviceLost)` — переход `Held →
+    /// Failed(DeviceDisconnected)` c эффектами `StopPlayback`/`Release`
+    /// (§6.19) — и шлёт `DeviceLost { reaction: StopWithError }` в UI.
+    #[test]
+    fn poll_session_stream_fault_stops_playback_and_releases_lock() {
+        let sink = VecSink::new();
+        let mut engine = engine_with_exclusive_path_open(sink.clone(), true);
+        sink.take();
+        let shared = Arc::clone(engine.exclusive_path.as_ref().expect("exclusive path open").shared());
+        shared.underruns.store(3, Ordering::Relaxed);
+        shared.xruns.store(5, Ordering::Relaxed);
+        shared.set_fault(StreamFault::DeviceUnavailable);
+
+        engine.poll_session();
+
+        assert_eq!(engine.dynamics.underruns, 3);
+        assert_eq!(engine.dynamics.xruns, 5);
+        let events = sink.take();
+        assert!(events
+            .iter()
+            .any(|e| matches!(e, EngineEvent::DeviceLost { reaction: Reaction::StopWithError })));
+        assert!(matches!(engine.lock, LockState::Failed(CaptureFailure::DeviceDisconnected)));
+        assert!(engine.exclusive_path.is_none());
+        assert_eq!(engine.last_transport, Some(TransportState::Stopped));
+    }
+
+    /// §6.17, ТЗ-51 (шаг 51): штатный конец трека на Эксклюзивном пути
+    /// (`SessionShared::ended`) шлёт `Ended` c `req_gen` текущей сессии и
+    /// закрывает путь — аналог обработки `Player::ended` в Совместимом
+    /// режиме.
+    #[test]
+    fn poll_session_exclusive_path_ended_emits_ended_and_clears_path() {
+        let sink = VecSink::new();
+        let mut engine = engine_with_exclusive_path_open(sink.clone(), true);
+        sink.take();
+        let shared = Arc::clone(engine.exclusive_path.as_ref().expect("exclusive path open").shared());
+        shared.ended.store(true, Ordering::Release);
+
+        engine.poll_session();
+
+        let events = sink.take();
+        assert!(events.iter().any(|e| matches!(e, EngineEvent::Ended { session: 1 })));
+        assert!(engine.exclusive_path.is_none());
     }
 
     /// §6.18 п. 6, ТЗ-113 (шаг 47): `open_exclusive` открывает источник через

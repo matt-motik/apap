@@ -11,6 +11,7 @@ use std::sync::Arc;
 use crate::audio::backend::exclusive::{ConfigureError, DeviceClaim, ExclusiveBackend, StartError, StreamHandle};
 use crate::audio::backend::{AccessKind, OutputApi};
 use crate::audio::decoder::AudioSource;
+use crate::audio::error::StreamFault;
 use crate::audio::path::signal::SignalPath;
 use crate::audio::path::{OpenedFacts, OsStage, PathPlan, ReservationView};
 use crate::audio::session::SessionShared;
@@ -107,6 +108,36 @@ impl ExclusivePath {
     #[cfg(test)]
     pub(crate) fn shared(&self) -> &Arc<SessionShared> {
         &self.session.shared
+    }
+
+    /// Позиция воспроизведения в секундах (§6.17, ТЗ-51): кадры ring,
+    /// пересчитанные по частоте цели устройства (аналог
+    /// `Player::resume_pos_secs`).
+    pub(crate) fn position_secs(&self) -> f64 {
+        self.session.shared.pos_frames.load(Ordering::Relaxed) as f64 / f64::from(self.frame_rate.max(1))
+    }
+
+    /// Конец трека: декодер дошёл до EOF и seek не в процессе (§6.17, ТЗ-51)
+    /// — аналог `Player::at_end`. Без флага подтверждения — приёмная сторона
+    /// (`run.rs::poll_session`) сразу закрывает путь при обнаружении.
+    pub(crate) fn ended(&self) -> bool {
+        self.session.shared.ended.load(Ordering::Acquire) && !self.session.shared.seek_pending()
+    }
+
+    /// Код отказа потока вывода (§6.20, ТЗ-51, ТЗ-76): `StreamFault::None`,
+    /// пока поток работает штатно.
+    pub(crate) fn fault(&self) -> StreamFault {
+        self.session.shared.fault()
+    }
+
+    /// Нехватка данных в ring с начала сессии (§6.17, ТЗ-76).
+    pub(crate) fn underruns(&self) -> u32 {
+        self.session.shared.underruns.load(Ordering::Relaxed)
+    }
+
+    /// EPIPE потока вывода с начала сессии (§6.20, ТЗ-76).
+    pub(crate) fn xruns(&self) -> u32 {
+        self.session.shared.xruns.load(Ordering::Relaxed)
     }
 
     /// Закрыть путь (§6.18, ТЗ-43): сначала поток вывода — колбэк

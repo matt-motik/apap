@@ -111,8 +111,8 @@
 - [x] Шаг 48: Шаг 48: exclusive_path.rs: транспорт Play/Pause/Stop (остановка StreamHandle без освобождения claim — замок удерживает устройство, ТЗ-43) + тесты ≤3 (§6.18, ТЗ-49, 43). Проверка: cargo test engine::
 - [x] Шаг 49: Шаг 49: exclusive_path.rs: Seek — сброс ring за O(1) и повторный prime (§6.16, ТЗ-99) + тест. Проверка: cargo test engine::
 - [x] Шаг 50: Шаг 50: exclusive_path.rs: громкость/mute на эксклюзивном пути по плану (no_gain → игнор, иначе гейн рендера) (§6.18, ТЗ-137, 140) + тест. Проверка: cargo test engine::
-- [>] **Шаг 51: Шаг 51: exclusive_path.rs + run.rs poll_session: позиция, конец трека, StreamFault, перенос xruns сессии в DynamicPathState + тесты ≤3 (§6.18, ТЗ-51, 76). Проверка: cargo test engine::**
-- [ ] Шаг 52: Шаг 52: exclusive_path.rs: tap визуализатора на эксклюзивной сессии (как в Shared-пути) (§6.18). Проверка: cargo check
+- [x] Шаг 51: Шаг 51: exclusive_path.rs + run.rs poll_session: позиция, конец трека, StreamFault, перенос xruns сессии в DynamicPathState + тесты ≤3 (§6.18, ТЗ-51, 76). Проверка: cargo test engine::
+- [>] **Шаг 52: Шаг 52: exclusive_path.rs: tap визуализатора на эксклюзивной сессии (как в Shared-пути) (§6.18). Проверка: cargo check**
 - [ ] Шаг 53: Шаг 53: exclusive_path.rs: смена трека с удержанием PCM — configure только при смене формата (§6.7, §6.18) + тест. Проверка: cargo test engine::
 - [ ] Шаг 54: Шаг 54: run.rs: SetModeSettings на эксклюзивном пути — смена «Буфера устройства»/параметров тракта по таблице применения (configure без освобождения, переоткрытие с позиции) (§6.7, §6.18, ТЗ-131) + тест. Проверка: cargo test engine::
 - [ ] Шаг 55: Шаг 55: Отложенный тест AM1.0-8.4 шаг 14: audio_param_change_reopens_at_position_preserving_pause на FakeExclusiveBackend (ТЗ-131, §7.2). Проверка: cargo test audio_param_change_reopens
@@ -145,8 +145,8 @@
 
 Легенда: [x] сделано · [>] текущий шаг · [ ] не начато
 
-- **Текущий шаг (current_step):** Шаг 51
-- **Следующий ход:** Шаг 51: exclusive_path.rs + run.rs poll_session: позиция, конец трека, StreamFault, перенос xruns сессии в DynamicPathState + тесты ≤3 (§6.18, ТЗ-51, 76). Свежий субагент code-writer sonnet.
+- **Текущий шаг (current_step):** Шаг 52
+- **Следующий ход:** Шаг 52: exclusive_path.rs: tap визуализатора на эксклюзивной сессии (как в Shared-пути) (§6.18). Проверка: cargo check. Свежий субагент code-writer sonnet.
 - **Счетчик безуспешных компиляций:** 0/3
 - **Состояние:** in_progress
 
