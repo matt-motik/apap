@@ -308,37 +308,40 @@ steps:
     description: "Шаг 81: AM1.0-B16 ч. 2: источник списка устройств Оптимального/Строгого во вкладке Audio — каталог HwDeviceId (не cpal-id); если уже так — шаг закрыть без кода с пометкой (ADR-24, ТЗ-126). Проверка: cargo check + cargo test по модулю"
     done: true
   - id: 82
-    description: 'Шаг 82: AM1.0-B16 ч. 3 (последствия шага 80): (1) миграция настроек — при совпадении через canonical_hw по номеру карты движок шлёт событие (по образцу DeviceAutoSelected), приложение перезаписывает в settings.toml device режима на канонический hw:CARD=<id>,DEV=<d>; (2) номер карты ALSA нестабилен (переподключение/перезагрузка) — числовой fallback canonical_hw оставить только как одноразовую миграцию, после неё сравнение строго по id; (3) шаг 81 (список Audio из каталога) — saved-id уже матчится через canonical_hw (hw_device_pairs_and_selected); остаток: при EngineEvent::Devices и открытом диалоге в Оптимальном/Строгом перестроить список (вызов apply_audio_device_listing в drain_engine_events, app/mod.rs). Проверка: полный cargo test'
-    done: false
+    description: "Шаг 82: AM1.0-B16 ч. 3: миграция устаревшего числового hw:CARD=<N>,DEV=<D> — в lock_input, если canonical_hw сопоставил устройство режима с другим (каноническим) id, движок записывает канонический id в mode_settings режима и шлёт EngineEvent::DeviceAutoSelected (приложение сохраняет в settings.toml через save_auto_selected_device); после миграции числовой fallback не используется — сравнение по стабильному id (engine/run.rs, ADR-24, ТЗ-126) + тест. Проверка: полный cargo test"
+    done: true
   - id: 83
-    description: "Шаг 83: AM1.0-B8 ч. 3: инвалидация PathWindowCache по dirty-флагу динамики (app/path_view.rs) + тест (ТЗ-68). Проверка: cargo test path_view"
+    description: "Шаг 83: AM1.0-B16 ч. 4: при EngineEvent::Devices и открытом диалоге в Оптимальном/Строгом перестроить список Audio (вызов apply_audio_device_listing в drain_engine_events, app/mod.rs, ADR-24, ТЗ-126). Проверка: cargo check + cargo test --bin"
     done: false
   - id: 84
-    description: "Шаг 84: ЧЕКПОИНТ: полный cargo test + cargo clippy --all-targets"
+    description: "Шаг 84: AM1.0-B8 ч. 3: инвалидация PathWindowCache по dirty-флагу динамики (app/path_view.rs) + тест (ТЗ-68). Проверка: cargo test path_view"
     done: false
   - id: 85
-    description: "Шаг 85: Удаление в engine: адаптер legacy_exclusive, EngineCmd::ReleaseExclusive и их обработка; legacy_path — только Совместимый (§8 С6 «удаляется»). Проверка: полный cargo test"
+    description: "Шаг 85: ЧЕКПОИНТ: полный cargo test + cargo clippy --all-targets"
     done: false
   - id: 86
-    description: "Шаг 86: Удаление в player.rs: release_if_exclusive, reopen_and_seek и их вызовы в stop()/toggle()/play() (V5.1-B5, V5.1-B6, ТЗ-43). Проверка: полный cargo test"
+    description: "Шаг 86: Удаление в engine: адаптер legacy_exclusive, EngineCmd::ReleaseExclusive и их обработка; legacy_path — только Совместимый (§8 С6 «удаляется»). Проверка: полный cargo test"
     done: false
   - id: 87
-    description: "Шаг 87: Удаление ExclusiveGate-пути в player.rs и файла reservation/gate.rs (замещён AlsaExclusiveBackend) (§8 С6). Проверка: полный cargo test"
+    description: "Шаг 87: Удаление в player.rs: release_if_exclusive, reopen_and_seek и их вызовы в stop()/toggle()/play() (V5.1-B5, V5.1-B6, ТЗ-43). Проверка: полный cargo test"
     done: false
   - id: 88
-    description: "Шаг 88: Удаление освобождения эксклюзива при скрытии в трей (обработка TrayCmd::ShowHide в app/mod.rs; пункт меню трея остаётся) (§8 С6, ТЗ-43). Проверка: полный cargo test"
+    description: "Шаг 88: Удаление ExclusiveGate-пути в player.rs и файла reservation/gate.rs (замещён AlsaExclusiveBackend) (§8 С6). Проверка: полный cargo test"
     done: false
   - id: 89
-    description: "Шаг 89: Удаление в output.rs: cpal-путь Exclusive (ExclusiveMode, проба hw: в select_output_for, EBUSY-повтор) и shared-downgrade R-11 (§8 С6). Проверка: полный cargo test"
+    description: "Шаг 89: Удаление освобождения эксклюзива при скрытии в трей (обработка TrayCmd::ShowHide в app/mod.rs; пункт меню трея остаётся) (§8 С6, ТЗ-43). Проверка: полный cargo test"
     done: false
   - id: 90
-    description: "Шаг 90: AM1.0-B10: удалить StreamDesc, FallbackReason, Opened.stream_format и мосты legacy_path. Если Совместимый всё ещё идёт через legacy Player и типы нужны ему — выполнить частично, остаток перерегистрировать в B10 с указанием этапа (§8). Проверка: полный cargo test"
+    description: "Шаг 90: Удаление в output.rs: cpal-путь Exclusive (ExclusiveMode, проба hw: в select_output_for, EBUSY-повтор) и shared-downgrade R-11 (§8 С6). Проверка: полный cargo test"
     done: false
   - id: 91
-    description: "Шаг 91: ФИНАЛ: cargo build/test/clippy зелёные; общие условия §8 (Совместимый играет, «Bit-perfect» только при ТЗ-52); ручные проверки в заметку плана: замок (ТЗ-1/2/48/118…122, AM1.0-8.1), B1 — возврат устройства в PipeWire после освобождения, B2 — текст «занято <владелец>» при чужом захвате"
+    description: "Шаг 91: AM1.0-B10: удалить StreamDesc, FallbackReason, Opened.stream_format и мосты legacy_path. Если Совместимый всё ещё идёт через legacy Player и типы нужны ему — выполнить частично, остаток перерегистрировать в B10 с указанием этапа (§8). Проверка: полный cargo test"
     done: false
-current_step: 82
-next_action: 'Шаг 82: AM1.0-B16 ч. 3 — миграция settings.toml на канонический hw id через событие движка; числовой fallback canonical_hw только как одноразовая миграция; перестроение списка Audio по EngineEvent::Devices. Свежий субагент code-writer sonnet.'
+  - id: 92
+    description: "Шаг 92: ФИНАЛ: cargo build/test/clippy зелёные; общие условия §8 (Совместимый играет, «Bit-perfect» только при ТЗ-52); ручные проверки в заметку плана: замок (ТЗ-1/2/48/118…122, AM1.0-8.1), B1 — возврат устройства в PipeWire после освобождения, B2 — текст «занято <владелец>» при чужом захвате"
+    done: false
+current_step: 83
+next_action: 'Шаг 83: перестроить список Audio по EngineEvent::Devices при открытом диалоге в Оптимальном/Строгом (app/mod.rs, drain_engine_events). Свежий субагент code-writer sonnet.'
 fail_counter: 0
 fail_counter_max: 3
 failed_attempts: []

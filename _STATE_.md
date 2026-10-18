@@ -146,21 +146,22 @@
 - [x] Шаг 79: Шаг 79: AM1.0-B15: SetActiveMode Совместимый→Эксклюзивный — ModeSelected и синхронный CaptureResult обрабатываются под целевым режимом (замок → Failed/Held, не NotApplicable); AM1.0-B13 (Эксклюзивный→Совместимый) не ломать; тест «старт в Строгом, отказ захвата → Failed» (engine/run.rs, §6.19, §6.2 п. 6, ТЗ-118). Проверка: полный cargo test
 - [x] Шаг 80: Шаг 80: AM1.0-B16 ч. 1: сохранённый hw:CARD=<номер>,DEV=<d> сопоставляется с каталогом по номеру карты (HwDeviceInfo.card) → канонический hw:CARD=<id>,DEV=<d>; используется в start_claim/resolve_device (catalog.rs, engine/run.rs, ADR-24, ТЗ-126) + тест. Проверка: полный cargo test
 - [x] Шаг 81: Шаг 81: AM1.0-B16 ч. 2: источник списка устройств Оптимального/Строгого во вкладке Audio — каталог HwDeviceId (не cpal-id); если уже так — шаг закрыть без кода с пометкой (ADR-24, ТЗ-126). Проверка: cargo check + cargo test по модулю
-- [>] **Шаг 82: Шаг 82: AM1.0-B16 ч. 3 (последствия шага 80): (1) миграция настроек — при совпадении через canonical_hw по номеру карты движок шлёт событие (по образцу DeviceAutoSelected), приложение перезаписывает в settings.toml device режима на канонический hw:CARD=<id>,DEV=<d>; (2) номер карты ALSA нестабилен (переподключение/перезагрузка) — числовой fallback canonical_hw оставить только как одноразовую миграцию, после неё сравнение строго по id; (3) шаг 81 (список Audio из каталога) — saved-id уже матчится через canonical_hw (hw_device_pairs_and_selected); остаток: при EngineEvent::Devices и открытом диалоге в Оптимальном/Строгом перестроить список (вызов apply_audio_device_listing в drain_engine_events, app/mod.rs). Проверка: полный cargo test**
-- [ ] Шаг 83: Шаг 83: AM1.0-B8 ч. 3: инвалидация PathWindowCache по dirty-флагу динамики (app/path_view.rs) + тест (ТЗ-68). Проверка: cargo test path_view
-- [ ] Шаг 84: Шаг 84: ЧЕКПОИНТ: полный cargo test + cargo clippy --all-targets
-- [ ] Шаг 85: Шаг 85: Удаление в engine: адаптер legacy_exclusive, EngineCmd::ReleaseExclusive и их обработка; legacy_path — только Совместимый (§8 С6 «удаляется»). Проверка: полный cargo test
-- [ ] Шаг 86: Шаг 86: Удаление в player.rs: release_if_exclusive, reopen_and_seek и их вызовы в stop()/toggle()/play() (V5.1-B5, V5.1-B6, ТЗ-43). Проверка: полный cargo test
-- [ ] Шаг 87: Шаг 87: Удаление ExclusiveGate-пути в player.rs и файла reservation/gate.rs (замещён AlsaExclusiveBackend) (§8 С6). Проверка: полный cargo test
-- [ ] Шаг 88: Шаг 88: Удаление освобождения эксклюзива при скрытии в трей (обработка TrayCmd::ShowHide в app/mod.rs; пункт меню трея остаётся) (§8 С6, ТЗ-43). Проверка: полный cargo test
-- [ ] Шаг 89: Шаг 89: Удаление в output.rs: cpal-путь Exclusive (ExclusiveMode, проба hw: в select_output_for, EBUSY-повтор) и shared-downgrade R-11 (§8 С6). Проверка: полный cargo test
-- [ ] Шаг 90: Шаг 90: AM1.0-B10: удалить StreamDesc, FallbackReason, Opened.stream_format и мосты legacy_path. Если Совместимый всё ещё идёт через legacy Player и типы нужны ему — выполнить частично, остаток перерегистрировать в B10 с указанием этапа (§8). Проверка: полный cargo test
-- [ ] Шаг 91: Шаг 91: ФИНАЛ: cargo build/test/clippy зелёные; общие условия §8 (Совместимый играет, «Bit-perfect» только при ТЗ-52); ручные проверки в заметку плана: замок (ТЗ-1/2/48/118…122, AM1.0-8.1), B1 — возврат устройства в PipeWire после освобождения, B2 — текст «занято <владелец>» при чужом захвате
+- [x] Шаг 82: Шаг 82: AM1.0-B16 ч. 3: миграция устаревшего числового hw:CARD=<N>,DEV=<D> — в lock_input, если canonical_hw сопоставил устройство режима с другим (каноническим) id, движок записывает канонический id в mode_settings режима и шлёт EngineEvent::DeviceAutoSelected (приложение сохраняет в settings.toml через save_auto_selected_device); после миграции числовой fallback не используется — сравнение по стабильному id (engine/run.rs, ADR-24, ТЗ-126) + тест. Проверка: полный cargo test
+- [>] **Шаг 83: Шаг 83: AM1.0-B16 ч. 4: при EngineEvent::Devices и открытом диалоге в Оптимальном/Строгом перестроить список Audio (вызов apply_audio_device_listing в drain_engine_events, app/mod.rs, ADR-24, ТЗ-126). Проверка: cargo check + cargo test --bin**
+- [ ] Шаг 84: Шаг 84: AM1.0-B8 ч. 3: инвалидация PathWindowCache по dirty-флагу динамики (app/path_view.rs) + тест (ТЗ-68). Проверка: cargo test path_view
+- [ ] Шаг 85: Шаг 85: ЧЕКПОИНТ: полный cargo test + cargo clippy --all-targets
+- [ ] Шаг 86: Шаг 86: Удаление в engine: адаптер legacy_exclusive, EngineCmd::ReleaseExclusive и их обработка; legacy_path — только Совместимый (§8 С6 «удаляется»). Проверка: полный cargo test
+- [ ] Шаг 87: Шаг 87: Удаление в player.rs: release_if_exclusive, reopen_and_seek и их вызовы в stop()/toggle()/play() (V5.1-B5, V5.1-B6, ТЗ-43). Проверка: полный cargo test
+- [ ] Шаг 88: Шаг 88: Удаление ExclusiveGate-пути в player.rs и файла reservation/gate.rs (замещён AlsaExclusiveBackend) (§8 С6). Проверка: полный cargo test
+- [ ] Шаг 89: Шаг 89: Удаление освобождения эксклюзива при скрытии в трей (обработка TrayCmd::ShowHide в app/mod.rs; пункт меню трея остаётся) (§8 С6, ТЗ-43). Проверка: полный cargo test
+- [ ] Шаг 90: Шаг 90: Удаление в output.rs: cpal-путь Exclusive (ExclusiveMode, проба hw: в select_output_for, EBUSY-повтор) и shared-downgrade R-11 (§8 С6). Проверка: полный cargo test
+- [ ] Шаг 91: Шаг 91: AM1.0-B10: удалить StreamDesc, FallbackReason, Opened.stream_format и мосты legacy_path. Если Совместимый всё ещё идёт через legacy Player и типы нужны ему — выполнить частично, остаток перерегистрировать в B10 с указанием этапа (§8). Проверка: полный cargo test
+- [ ] Шаг 92: Шаг 92: ФИНАЛ: cargo build/test/clippy зелёные; общие условия §8 (Совместимый играет, «Bit-perfect» только при ТЗ-52); ручные проверки в заметку плана: замок (ТЗ-1/2/48/118…122, AM1.0-8.1), B1 — возврат устройства в PipeWire после освобождения, B2 — текст «занято <владелец>» при чужом захвате
 
 Легенда: [x] сделано · [>] текущий шаг · [ ] не начато
 
-- **Текущий шаг (current_step):** Шаг 82
-- **Следующий ход:** Шаг 82: AM1.0-B16 ч. 3 — миграция settings.toml на канонический hw id через событие движка; числовой fallback canonical_hw только как одноразовая миграция; перестроение списка Audio по EngineEvent::Devices. Свежий субагент code-writer sonnet.
+- **Текущий шаг (current_step):** Шаг 83
+- **Следующий ход:** Шаг 83: перестроить список Audio по EngineEvent::Devices при открытом диалоге в Оптимальном/Строгом (app/mod.rs, drain_engine_events). Свежий субагент code-writer sonnet.
 - **Счетчик безуспешных компиляций:** 0/3
 - **Состояние:** in_progress
 

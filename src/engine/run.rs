@@ -629,6 +629,12 @@ impl Engine {
                 ModeKind::Strict => self.mode_settings.strict.device.clone(),
             }
         };
+        // AM1.0-B16 (ADR-24, ТЗ-126): устройство, взятое именно из настроек
+        // режима (`Resolved::Selected` либо ветка без разрешения выше), а не
+        // найденное автовыбором — используется ниже для одноразовой миграции
+        // легаси численного id на канонический. Для автовыбора (`auto_selected`
+        // уже заполнен) и для отсутствующего устройства остаётся `None`.
+        let from_settings = if auto_selected.is_none() { device.clone() } else { None };
         // AM1.0-B16 (§6.19, ADR-24, ТЗ-126): устройство из настроек режима
         // могло быть сохранено в устаревшем численном формате cpal
         // (`hw:CARD=<N>,DEV=<D>`, номер карты вместо стабильного id) —
@@ -638,6 +644,36 @@ impl Engine {
             Some(found) => found.id.clone(),
             None => d,
         });
+        // AM1.0-B16 (ADR-24, ТЗ-126): если устройство режима пришло из
+        // `settings.toml` в устаревшем численном формате, а каталог привёл
+        // его здесь к другому (каноническому) id, настройки режима мигрируют
+        // на канонический id один раз — миграция не требует эффекта `Acquire`
+        // (это переименование того же физического устройства, а не новый
+        // захват) и шлёт `DeviceAutoSelected`, чтобы приложение перезаписало
+        // `settings.toml` (та же персистентность, что и для автовыбора ниже).
+        // После миграции сохранённый id совпадает с каноническим, поэтому
+        // повторный вход с тем же устройством уже не даёт расхождения и
+        // событие не шлётся снова.
+        if let (Some(from), Some(canonical)) = (from_settings.as_ref(), device.as_ref()) {
+            if from != canonical {
+                let migrated = match device_mode {
+                    ModeKind::Optimal => {
+                        self.mode_settings.optimal.device = Some(canonical.clone());
+                        true
+                    }
+                    ModeKind::Strict => {
+                        self.mode_settings.strict.device = Some(canonical.clone());
+                        true
+                    }
+                    ModeKind::Compatible => false,
+                };
+                if migrated {
+                    self.deps
+                        .events
+                        .emit(EngineEvent::DeviceAutoSelected { mode: device_mode, device: canonical.clone() });
+                }
+            }
+        }
 
         let (mut state, effects) = lock_step(&self.lock, input, self.active_mode, device.as_ref());
         if let LockState::Acquiring { .. } = state {
@@ -2267,6 +2303,69 @@ mod tests {
             LockState::Held { info } => assert_eq!(info.device, canonical),
             other => panic!("expected Held, got {other:?}"),
         }
+    }
+
+    /// AM1.0-B16 (ADR-24, ТЗ-126): устройство Строгого режима в настройках
+    /// сохранено в устаревшем численном формате — `lock_input` мигрирует
+    /// `mode_settings.strict.device` на канонический id каталога и шлёт
+    /// `DeviceAutoSelected` ровно один раз. Повторный вход (устройство в
+    /// настройках уже канонический) не даёт расхождения — события нет.
+    #[test]
+    fn lock_input_startup_strict_migrates_legacy_device_id_once() {
+        let sink = VecSink::new();
+        let deps = fake_deps(Box::new(sink.clone()), Arc::new(StdSpawner));
+        let mut engine = Engine::new(deps, BackendCaps::current());
+        let canonical: HwDeviceId = "hw:CARD=DX,DEV=0".parse().expect("hw id");
+        let legacy: HwDeviceId = "hw:CARD=0,DEV=0".parse().expect("hw id");
+        engine.catalog.hw = vec![crate::audio::backend::catalog::HwDeviceInfo {
+            id: canonical.clone(),
+            card: 0,
+            device: 0,
+            name: "DX".to_string(),
+        }];
+        engine.active_mode = ModeKind::Strict;
+        engine.mode_settings.strict.device = Some(legacy);
+        engine.lock = LockState::Open;
+
+        engine.lock_input(LockInput::Startup);
+
+        assert_eq!(engine.mode_settings.strict.device, Some(canonical.clone()));
+        let events = sink.take();
+        assert!(events.iter().any(
+            |e| matches!(e, EngineEvent::DeviceAutoSelected { mode: ModeKind::Strict, device } if *device == canonical)
+        ));
+
+        // Настройки режима уже канонические — повторный вход не находит
+        // расхождения и события не шлёт (AM1.0-B16, ТЗ-126).
+        engine.lock_input(LockInput::Startup);
+        let events = sink.take();
+        assert!(!events.iter().any(|e| matches!(e, EngineEvent::DeviceAutoSelected { .. })));
+    }
+
+    /// AM1.0-B16 (ADR-24, ТЗ-126): устройство Строгого режима в настройках
+    /// уже хранится в каноническом виде — `canonical_hw` возвращает тот же
+    /// id, расхождения нет, `DeviceAutoSelected` не шлётся.
+    #[test]
+    fn lock_input_startup_strict_canonical_device_id_skips_migration_event() {
+        let sink = VecSink::new();
+        let deps = fake_deps(Box::new(sink.clone()), Arc::new(StdSpawner));
+        let mut engine = Engine::new(deps, BackendCaps::current());
+        let canonical: HwDeviceId = "hw:CARD=DX,DEV=0".parse().expect("hw id");
+        engine.catalog.hw = vec![crate::audio::backend::catalog::HwDeviceInfo {
+            id: canonical.clone(),
+            card: 0,
+            device: 0,
+            name: "DX".to_string(),
+        }];
+        engine.active_mode = ModeKind::Strict;
+        engine.mode_settings.strict.device = Some(canonical.clone());
+        engine.lock = LockState::Open;
+
+        engine.lock_input(LockInput::Startup);
+
+        assert_eq!(engine.mode_settings.strict.device, Some(canonical));
+        let events = sink.take();
+        assert!(!events.iter().any(|e| matches!(e, EngineEvent::DeviceAutoSelected { .. })));
     }
 
     /// §6.19 (ТЗ-118, ТЗ-119, ADR-01): отказ захвата, возвращённый
