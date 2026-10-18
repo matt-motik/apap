@@ -240,7 +240,7 @@ steps:
     done: true
   - id: 60
     description: "Шаг 60: ЧЕКПОИНТ: полный cargo test + cargo clippy --all-targets"
-    done: false
+    done: true
   - id: 61
     description: "Шаг 61: run.rs: смена режима Exclusive → Compatible — Release раньше SharedBackend::start; тест optimal_held_to_compatible_releases_before_shared — закрывает AM1.0-B13 (§6.18, ТЗ-21). Проверка: cargo test optimal_held_to_compatible"
     done: false
@@ -310,8 +310,8 @@ steps:
   - id: 83
     description: "Шаг 83: ФИНАЛ: cargo build/test/clippy зелёные; общие условия §8 (Совместимый играет, «Bit-perfect» только при ТЗ-52); ручные проверки в заметку плана: замок (ТЗ-1/2/48/118…122, AM1.0-8.1), B1 — возврат устройства в PipeWire после освобождения, B2 — текст «занято <владелец>» при чужом захвате"
     done: false
-current_step: 60
-next_action: "Шаг 60: ЧЕКПОИНТ — полный cargo test + cargo clippy --all-targets (test-runner haiku)."
+current_step: 61
+next_action: "Шаг 61: Exclusive → Compatible — Release раньше SharedBackend::start, тест optimal_held_to_compatible_releases_before_shared (B13). Свежий субагент code-writer sonnet."
 fail_counter: 0
 fail_counter_max: 3
 failed_attempts: []
