@@ -12,7 +12,7 @@ use crate::audio::backend::{BackendError, HwDeviceId};
 use crate::audio::decoder::TrackInfo;
 use crate::audio::error::{CaptureFailure, FileError, OpenError, Reaction};
 use crate::audio::format::StreamFormat;
-use crate::audio::path::signal::SignalPath;
+use crate::audio::path::signal::{DynamicPathState, SignalPath};
 use crate::audio::path::Blocked;
 use crate::audio::player::ReservationEvent;
 use crate::audio::verdict::BadgeState;
@@ -182,6 +182,12 @@ pub enum EngineEvent {
     BadgeChanged(BadgeState),
     /// Состояние замка устройства режима (§2.8, §6.19, ТЗ-118).
     Lock(LockState),
+    /// Динамическая часть пути сигнала (underruns/xruns/RT-приоритет/MD5/…),
+    /// шлётся только при изменении относительно последней отправленной копии
+    /// (ТЗ-68, §6.18 п.3, И-Р13). `session` — `req_gen` открытого трека, как
+    /// у `Ended`/`OpenFailed` (мост С3: отдельного поколения Эксклюзивного
+    /// пути в событиях пока нет).
+    DynamicsChanged { session: u64, dynamics: DynamicPathState },
     DeviceLost { reaction: Reaction },
     /// Каталог устройств после перечисления (ТЗ-104, ТЗ-105, ADR-16, §6.2 п.3):
     /// шлётся при старте движка и затем только при изменении списка.

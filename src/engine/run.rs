@@ -353,6 +353,10 @@ struct Engine {
     /// `underruns`/`xruns` переносятся из `SessionShared` Эксклюзивного пути
     /// на каждом опросе; сбрасывается на каждый успешный `Open`.
     dynamics: DynamicPathState,
+    /// Последняя отправленная в UI копия `self.dynamics` — для дедупликации
+    /// `EngineEvent::DynamicsChanged` (ТЗ-68, §6.18 п.3, И-Р13). `None` до
+    /// первой отправки.
+    last_sent_dynamics: Option<DynamicPathState>,
     /// Приоритет, который движок запрашивает у `rtkit` для потока вывода
     /// Эксклюзивного пути (§6.8 п. 1, 3, ТЗ-99, ТЗ-76): результат
     /// однократного `deps.rt.init()` при запуске движка. `None` — `rtkit`
@@ -400,6 +404,7 @@ impl Engine {
             claim_card: None,
             reacquire: None,
             dynamics: DynamicPathState::default(),
+            last_sent_dynamics: None,
             rt_prio,
         }
     }
@@ -519,6 +524,7 @@ impl Engine {
                     Some(prio) => RtPriorityState::Granted(prio),
                     None => RtPriorityState::Denied,
                 };
+                self.emit_dynamics_if_changed();
             }
         }
     }
@@ -986,6 +992,10 @@ impl Engine {
                 self.last_pos = None;
                 self.session_failed = false;
                 self.dynamics = DynamicPathState::default();
+                // Свежий поток начинает с «нулевой» динамики (ТЗ-68): без
+                // сброса последней отправленной копии первое же отличие
+                // (например, RT-приоритет ниже) не дошло бы до UI.
+                self.last_sent_dynamics = Some(DynamicPathState::default());
                 self.request_rt_priority(generation, rt_tid);
                 self.deps.events.emit(EngineEvent::Opened { req_gen, info, stream_format, path: Some(signal), badge });
                 self.refresh_transport();
@@ -1055,6 +1065,7 @@ impl Engine {
                         self.last_pos = None;
                         self.session_failed = false;
                         self.dynamics = DynamicPathState::default();
+                        self.last_sent_dynamics = Some(DynamicPathState::default());
                         let stream = self.player.stream_desc().cloned();
                         // §6.3, §6.18 шаг 28 (ADR-20, ТЗ-52, ТЗ-57): Совместимый
                         // режим — `SignalPath` строится мостом из `StreamDesc`
@@ -1628,6 +1639,27 @@ impl Engine {
         }
     }
 
+    /// Шлёт `EngineEvent::DynamicsChanged`, только если `self.dynamics`
+    /// отличается от последней отправленной копии (ТЗ-68, §6.18 п.3,
+    /// И-Р13). `session` — `req_gen` текущего открытого трека (`self.current`),
+    /// как у `Ended`/`OpenFailed`.
+    fn emit_dynamics_if_changed(&mut self) {
+        // Без открытого трека динамика не относится ни к какой сессии
+        // (§3.5) — событие не шлётся, как `Position`/`Transport` не несут
+        // позиции/транспорта вне потока.
+        let Some((session, _)) = &self.current else {
+            return;
+        };
+        let session = *session;
+        if self.last_sent_dynamics.as_ref() == Some(&self.dynamics) {
+            return;
+        }
+        self.last_sent_dynamics = Some(self.dynamics.clone());
+        self.deps
+            .events
+            .emit(EngineEvent::DynamicsChanged { session, dynamics: self.dynamics.clone() });
+    }
+
     /// Опрос сессии на каждой итерации цикла (§6.1 п. 1–5, И-Р13, ТЗ-60,
     /// ТЗ-102): только чтение состояния `Player`/`ExclusivePath`, без I/O
     /// (перечисление устройств по сигналу `DeviceWatcher` — исключение,
@@ -1748,6 +1780,8 @@ impl Engine {
             self.last_pos_at = Some(now);
             self.deps.events.emit(EngineEvent::Position { secs: pos });
         }
+
+        self.emit_dynamics_if_changed();
     }
 }
 
@@ -2991,6 +3025,48 @@ mod tests {
             _ => None,
         });
         assert_eq!(pos, Some(2.0));
+    }
+
+    /// ТЗ-68, §6.18 п.3, И-Р13: `poll_session` на открытом Эксклюзивном пути
+    /// шлёт `DynamicsChanged` с обновлённым `underruns`, когда счётчик в
+    /// `SessionShared` изменился относительно последней отправленной копии.
+    #[test]
+    fn poll_session_emits_dynamics_changed_once_when_underruns_change() {
+        let sink = VecSink::new();
+        let mut engine = engine_with_exclusive_path_open(sink.clone(), true);
+        sink.take();
+        let shared = Arc::clone(engine.exclusive_path.as_ref().expect("exclusive path open").shared());
+        shared.underruns.store(3, Ordering::Relaxed);
+
+        engine.poll_session();
+
+        let events = sink.take();
+        let dynamics = events.iter().find_map(|e| match e {
+            EngineEvent::DynamicsChanged { session, dynamics } => Some((*session, dynamics.clone())),
+            _ => None,
+        });
+        let (session, dynamics) = dynamics.expect("DynamicsChanged emitted");
+        assert_eq!(session, 1);
+        assert_eq!(dynamics.underruns, 3);
+    }
+
+    /// ТЗ-68, §6.18 п.3, И-Р13: без изменения `self.dynamics` относительно
+    /// последней отправленной копии повторный опрос не шлёт `DynamicsChanged`
+    /// заново (дедупликация, как у `Position`/`Transport`).
+    #[test]
+    fn poll_session_does_not_repeat_dynamics_changed_without_change() {
+        let sink = VecSink::new();
+        let mut engine = engine_with_exclusive_path_open(sink.clone(), true);
+        sink.take();
+        let shared = Arc::clone(engine.exclusive_path.as_ref().expect("exclusive path open").shared());
+        shared.underruns.store(3, Ordering::Relaxed);
+
+        engine.poll_session();
+        sink.take();
+        engine.poll_session();
+
+        let events = sink.take();
+        assert!(!events.iter().any(|e| matches!(e, EngineEvent::DynamicsChanged { .. })));
     }
 
     /// §6.20, ТЗ-51, ТЗ-76, ТЗ-126 (шаг 51, шаг 63): `StreamFault` потока

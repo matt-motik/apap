@@ -361,6 +361,9 @@ impl UiAudioState {
                 Applied::Notice(notice)
             }
             EngineEvent::ShutdownComplete => Applied::ShutdownComplete,
+            // Разбор в `UiAudioState.dynamics` — следующий шаг (ТЗ-68);
+            // здесь только заполнение матча.
+            EngineEvent::DynamicsChanged { .. } => Applied::None,
         }
     }
 
