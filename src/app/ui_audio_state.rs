@@ -22,8 +22,13 @@
 //! строят `SignalPath` (С5-мост, §2.3).
 //!
 //! Шаг 72 (ТЗ-119, баг AM1.0-B9): `lock_acquiring` — единственное, что от
-//! `EngineEvent::Lock` попадает в это состояние; полный вид замка остаётся
+//! `EngineEvent::Lock` попадало в это состояние; полный вид замка остаётся
 //! вне `UiAudioState` и строится отдельно в `apply_lock_view`.
+//!
+//! Шаг 74 (ТЗ-125, §6.19): UI-потоку нужен не только флаг «идёт захват»,
+//! но и сам принятый `LockState` — чтобы решить, что делает Play при
+//! открытом замке (шаг 75). Поле `lock` хранит последнее принятое
+//! состояние целиком; `lock_acquiring()` сведён к `matches!` по нему.
 
 use std::collections::VecDeque;
 use std::path::Path;
@@ -165,7 +170,6 @@ pub enum Applied {
 /// движка — и фиксирует новый `req_gen` как «последний запрошенный»: любое
 /// `Opened`/`Skipped`/`OpenFailed` с меньшим `req_gen` относится к уже
 /// переоткрытому треку и отбрасывается (И-Р14, ТЗ-56).
-#[derive(Default)]
 pub struct UiAudioState {
     latest_req_gen: u64,
     /// `req_gen` последнего принятого `Opened` (= id активной сессии).
@@ -195,11 +199,36 @@ pub struct UiAudioState {
     /// предмет отчёта окна «Путь сигнала» (`PathSubject::Skipped`), пока не
     /// снят новым успешно открытым путём или иным исходом открытия (ТЗ-79).
     skipped: Option<Blocked>,
-    /// Истина, пока замок устройства в `LockState::Acquiring` (ТЗ-119,
-    /// ADR-02, §6.19) — строка состояния показывает «Захват устройства…»
-    /// (шаг 72); полный вид замка (`lock-kind`/`lock-text`/…) строится
-    /// отдельно из сырого `EngineEvent::Lock` в `apply_lock_view`.
-    lock_acquiring: bool,
+    /// Последнее принятое состояние замка устройства (ТЗ-119, ТЗ-125,
+    /// ADR-02, §6.19), целиком — шаг 74; `NotApplicable` до первого
+    /// принятого `EngineEvent::Lock` (Совместимый режим, ТЗ-50). Полный вид
+    /// замка (`lock-kind`/`lock-text`/…) строится отдельно из сырого
+    /// `EngineEvent::Lock` в `apply_lock_view`.
+    lock: LockState,
+}
+
+impl Default for UiAudioState {
+    /// `LockState` не реализует `Default` (ADR-20) — остальные поля
+    /// повторяют значения, которые раньше давал `#[derive(Default)]`.
+    fn default() -> Self {
+        Self {
+            latest_req_gen: 0,
+            session: None,
+            transport: Written::default(),
+            position_secs: Written::default(),
+            track: Written::default(),
+            devices: Written::default(),
+            path: Written::default(),
+            stream_format: None,
+            badge: Written::default(),
+            dynamics: DynamicPathState::default(),
+            ended: false,
+            opened: None,
+            reservation_queue: VecDeque::new(),
+            skipped: None,
+            lock: LockState::NotApplicable,
+        }
+    }
 }
 
 impl UiAudioState {
@@ -305,10 +334,11 @@ impl UiAudioState {
                 Applied::None
             }
             // Полный вид замка строится отдельно из сырого `EngineEvent::Lock`
-            // в `apply_lock_view` (§2.6, §2.8, §6.19); здесь снимается только
-            // флаг «идёт захват» для строки состояния (ТЗ-119, шаг 72).
+            // в `apply_lock_view` (§2.6, §2.8, §6.19); здесь принятое
+            // состояние сохраняется целиком для `lock()`/`lock_acquiring()`
+            // (ТЗ-119, ТЗ-125, шаг 74).
             EngineEvent::Lock(state) => {
-                self.lock_acquiring = matches!(state, LockState::Acquiring { .. });
+                self.lock = state;
                 Applied::None
             }
             EngineEvent::DeviceLost { reaction } => Applied::DeviceLost(reaction),
@@ -381,11 +411,21 @@ impl UiAudioState {
         self.skipped.as_ref()
     }
 
+    /// Последнее принятое состояние замка устройства (ТЗ-119, ТЗ-125, ADR-02,
+    /// §6.19), целиком — шаг 74: решает, что делает Play при открытом замке
+    /// (шаг 75).
+    // Потребитель — шаг 75 (`playback_manager.rs`, гейтинг Play под открытым
+    // замком, ТЗ-125); до его реализации метод не вызывается из `MusicApp`.
+    #[allow(dead_code)]
+    pub(super) fn lock(&self) -> &LockState {
+        &self.lock
+    }
+
     /// Истина, пока замок устройства в `LockState::Acquiring` (ТЗ-119,
     /// ADR-02, §6.19) — строка состояния показывает «Захват устройства…»,
     /// пока не снят следующим принятым `EngineEvent::Lock` (шаг 72).
     pub(super) fn lock_acquiring(&self) -> bool {
-        self.lock_acquiring
+        matches!(self.lock, LockState::Acquiring { .. })
     }
 
     /// Текущая динамическая часть пути (§3.5). Событие `DynamicsChanged` и
@@ -958,5 +998,23 @@ mod tests {
 
         state.apply(EngineEvent::Lock(LockState::Failed(CaptureFailure::DeviceDisconnected)));
         assert!(!state.lock_acquiring());
+    }
+
+    /// ТЗ-125, §6.19 (шаг 74): до первого принятого `EngineEvent::Lock`
+    /// `lock()` — `NotApplicable` (Совместимый режим, ТЗ-50).
+    #[test]
+    fn lock_is_not_applicable_before_first_event() {
+        let state = UiAudioState::new();
+        assert_eq!(state.lock(), &LockState::NotApplicable);
+    }
+
+    /// ТЗ-125, §6.19 (шаг 74): `lock()` хранит принятое состояние целиком,
+    /// не только флаг «идёт захват».
+    #[test]
+    fn lock_holds_accepted_state() {
+        let mut state = UiAudioState::new();
+
+        state.apply(EngineEvent::Lock(LockState::Open));
+        assert_eq!(state.lock(), &LockState::Open);
     }
 }
