@@ -35,11 +35,18 @@ pub struct RtLimits {
 /// (§6.8). Неположительный `max_realtime_priority` означает, что rtkit RT не
 /// даёт вообще — запрос не делается.
 pub fn choose_priority(max_realtime_priority: i32) -> Option<u32> {
-    if max_realtime_priority <= 0 {
+    let max = u32::try_from(max_realtime_priority).ok()?;
+    choose_priority_from_limit(max)
+}
+
+/// То же, что [`choose_priority`], но принимает уже беззнаковый лимит
+/// `RtLimits::max_priority` (§6.8 п. 1, 3, ТЗ-99). Ноль означает, что rtkit
+/// RT не даёт вообще — запрос не делается.
+fn choose_priority_from_limit(max_realtime_priority: u32) -> Option<u32> {
+    if max_realtime_priority == 0 {
         return None;
     }
-    let max = u32::try_from(max_realtime_priority).ok()?;
-    Some(max.min(RT_PRIORITY_CAP))
+    Some(max_realtime_priority.min(RT_PRIORITY_CAP))
 }
 
 /// Свойство интерфейса `rtkit` через `org.freedesktop.DBus.Properties.Get`.
@@ -123,6 +130,14 @@ where
 /// `done` вызывается ровно один раз — `Some(prio)` при успехе, `None` при
 /// любой неудаче (§6.8 п. 3, ТЗ-99, ТЗ-76).
 pub trait RtPriorityRequester: Send + Sync {
+    /// Однократная инициализация при запуске движка (Linux, §6.8 п. 1, 3,
+    /// ТЗ-99): читает лимиты `rtkit` и ставит `RLIMIT_RTTIME` процесса,
+    /// возвращая приоритет, который движок будет запрашивать для потока
+    /// вывода в последующих `request`. `None` — `rtkit`/шина недоступны или
+    /// `MaxRealtimePriority` равен нулю: далее `request` не вызывается,
+    /// RT-приоритет за эту сессию движка не запрашивается вовсе.
+    fn init(&self) -> Option<u32>;
+
     fn request(&self, tid: u32, prio: u32, done: Box<dyn FnOnce(Option<u32>) + Send>);
 }
 
@@ -134,6 +149,11 @@ pub trait RtPriorityRequester: Send + Sync {
 pub struct RtKitRequester;
 
 impl RtPriorityRequester for RtKitRequester {
+    fn init(&self) -> Option<u32> {
+        let limits = init_rt()?;
+        choose_priority_from_limit(limits.max_priority)
+    }
+
     fn request(&self, tid: u32, prio: u32, done: Box<dyn FnOnce(Option<u32>) + Send>) {
         let _ = request_realtime(tid, prio, done);
     }

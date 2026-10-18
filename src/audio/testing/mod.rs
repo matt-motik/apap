@@ -15,7 +15,7 @@ use crate::audio::backend::{AccessKind, BackendCaps, BackendError, DeviceBufferA
 use crate::audio::clock::{Clock, ClockInstant};
 use crate::audio::error::CaptureFailure;
 use crate::audio::format::{OutputSampleFormat, SampleRate, StreamFormat};
-use crate::audio::rt::RtPriorityRequester;
+use crate::audio::rt::{RtPriorityRequester, RT_PRIORITY_CAP};
 use crate::audio::reservation::{
     self, AudioServerProbe, CallError, LostNotify, NameFlags, RequestNameReply, Reservation, ReserveBus, ReserveObject,
     SinkCard, OWNER_NAME_TIMEOUT, RELEASE_TIMEOUT,
@@ -313,17 +313,38 @@ impl ReserveBus for FakeReserveBus {
 /// нужно ждать служебный поток `apap-rtkit`/реальную шину D-Bus.
 pub struct FakeRtRequester {
     granted: Option<u32>,
+    /// Результат `init()` (§6.8 п. 1, ТЗ-99); по умолчанию `Some(RT_PRIORITY_CAP)`,
+    /// как если бы `rtkit` дал полный лимит — переопределяется [`FakeRtRequester::with_init`].
+    init_result: Option<u32>,
+    /// Журнал вызовов `request(tid, prio, ..)` для проверки в тестах.
+    requests: Arc<Mutex<Vec<(u32, u32)>>>,
 }
 
 impl FakeRtRequester {
     /// Результат, с которым немедленно будет вызван `done` (§6.8 п. 3).
     pub fn new(granted: Option<u32>) -> FakeRtRequester {
-        FakeRtRequester { granted }
+        FakeRtRequester { granted, init_result: Some(RT_PRIORITY_CAP), requests: Arc::new(Mutex::new(Vec::new())) }
+    }
+
+    /// Переопределяет результат `init()` (§6.8 п. 1, 3, ТЗ-99).
+    pub fn with_init(mut self, prio: Option<u32>) -> FakeRtRequester {
+        self.init_result = prio;
+        self
+    }
+
+    /// Снимок журнала вызовов `request(tid, prio, ..)` (§6.8 п. 3, ТЗ-99).
+    pub fn requests(&self) -> Vec<(u32, u32)> {
+        self.requests.lock().unwrap_or_else(|e| e.into_inner()).clone()
     }
 }
 
 impl RtPriorityRequester for FakeRtRequester {
-    fn request(&self, _tid: u32, _prio: u32, done: Box<dyn FnOnce(Option<u32>) + Send>) {
+    fn init(&self) -> Option<u32> {
+        self.init_result
+    }
+
+    fn request(&self, tid: u32, prio: u32, done: Box<dyn FnOnce(Option<u32>) + Send>) {
+        self.requests.lock().unwrap_or_else(|e| e.into_inner()).push((tid, prio));
         done(self.granted);
     }
 }

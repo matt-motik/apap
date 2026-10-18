@@ -17,6 +17,7 @@ whitelist:
   - src/audio/backend/alsa.rs
   - src/audio/backend/alsa_out.rs
   - src/audio/rt.rs
+  - src/journal.rs
   - src/audio/reservation/mod.rs
   - src/audio/reservation/dbus.rs
   - src/audio/reservation/gate.rs
@@ -232,82 +233,85 @@ steps:
     description: "Шаг 57: RT-приоритет в движке: после start передать TID в rt.rs → InternalMsg::RtPriority → DynamicPathState.rt_priority (§6.8, ТЗ-99, ТЗ-76) + тест на фейковом rt. Проверка: cargo test engine::"
     done: true
   - id: 58
-    description: "Шаг 58: Проводка rtkit-инициализации в движок (§6.8 п. 1, 3, ТЗ-99, ТЗ-76): при старте движка один раз init_rt (MaxRealtimePriority/RTTimeUSecMax, RLIMIT_RTTIME; шаг 28 написал, но не подключил); запрос MakeThreadRealtime с prio = min(MaxRealtimePriority, 20) вместо константы RT_PRIORITY_CAP; при Denied — одна запись в журнал движка на сессию (Journal уже приходит в EngineDeps::system). Общий тип (EngineDeps) → Проверка: полный cargo test"
-    done: false
+    description: "Шаг 58: rtkit-инициализация в движке (§6.8 п. 1, 3, ТЗ-99, ТЗ-76): RtPriorityRequester::init() -> Option<u32> (RtKitRequester: init_rt → prio = min(MaxRealtimePriority, 20), 0 → None; фейк — заданное значение); Engine::new вызывает init один раз и хранит prio; request_rt_priority запрашивает с этим prio вместо RT_PRIORITY_CAP, при None — сразу Denied без запроса + тесты (rt.rs, testing/mod.rs, run.rs). Проверка: полный cargo test"
+    done: true
   - id: 59
-    description: "Шаг 59: ЧЕКПОИНТ: полный cargo test + cargo clippy --all-targets"
+    description: "Шаг 59: Запись отказа RT в журнал (§6.8 п. 3, ТЗ-76): JournalRecord::RtPriorityDenied { prio } (journal.rs); RtKitRequester::new(journal) пишет одну запись при отказе MakeThreadRealtime (одна попытка = одна сессия); EngineDeps::system передаёт журнал (rt.rs, deps.rs) + тест с VecJournal. Общий тип → Проверка: полный cargo test"
     done: false
   - id: 60
-    description: "Шаг 60: run.rs: смена режима Exclusive → Compatible — Release раньше SharedBackend::start; тест optimal_held_to_compatible_releases_before_shared — закрывает AM1.0-B13 (§6.18, ТЗ-21). Проверка: cargo test optimal_held_to_compatible"
+    description: "Шаг 60: ЧЕКПОИНТ: полный cargo test + cargo clippy --all-targets"
     done: false
   - id: 61
-    description: "Шаг 61: run.rs: смена устройства режима (SwitchDevice) — Release старого → Lock(DeviceSelected(d)) → Acquire нового + тест (§6.18, §6.19, ТЗ-44). Проверка: cargo test engine::"
+    description: "Шаг 61: run.rs: смена режима Exclusive → Compatible — Release раньше SharedBackend::start; тест optimal_held_to_compatible_releases_before_shared — закрывает AM1.0-B13 (§6.18, ТЗ-21). Проверка: cargo test optimal_held_to_compatible"
     done: false
   - id: 62
-    description: "Шаг 62: run.rs: обнаружение потери (StreamFault::DeviceUnavailable / InternalMsg::ReservationLost) → LockInput::DeviceLost, сохранение ReacquirePoint + тест (§6.20, ТЗ-125). Проверка: cargo test engine:: Примечание: TrackId(u64) без публичного конструктора (src/playlist/model.rs) — для теста ReacquirePoint понадобится #[cfg(test)] pub(crate) конструктор (расширение вайтлиста)"
+    description: "Шаг 62: run.rs: смена устройства режима (SwitchDevice) — Release старого → Lock(DeviceSelected(d)) → Acquire нового + тест (§6.18, §6.19, ТЗ-44). Проверка: cargo test engine::"
     done: false
   - id: 63
-    description: "Шаг 63: run.rs: повторный захват по DevicesChanged (DeviceReappeared) → открытие трека в сохранённой точке на паузе + тест (§6.20, ТЗ-126). Проверка: cargo test engine::"
+    description: "Шаг 63: run.rs: обнаружение потери (StreamFault::DeviceUnavailable / InternalMsg::ReservationLost) → LockInput::DeviceLost, сохранение ReacquirePoint + тест (§6.20, ТЗ-125). Проверка: cargo test engine:: Примечание: TrackId(u64) без публичного конструктора (src/playlist/model.rs) — для теста ReacquirePoint понадобится #[cfg(test)] pub(crate) конструктор (расширение вайтлиста)"
     done: false
   - id: 64
-    description: "Шаг 64: ЧЕКПОИНТ: полный cargo test + cargo clippy --all-targets"
+    description: "Шаг 64: run.rs: повторный захват по DevicesChanged (DeviceReappeared) → открытие трека в сохранённой точке на паузе + тест (§6.20, ТЗ-126). Проверка: cargo test engine::"
     done: false
   - id: 65
-    description: "Шаг 65: Новый src/app/lock_view.rs: LockState → lock-kind/lock-text/доступные действия; тексты отказов с владельцем (ReservationDenied{owner}) и «занято вне протокола» (BusyOutsideProtocol) вместо «устройство не найдено» — AM1.0-B2 + тесты ≤5 (ADR-06, §6.19 подсказки, ТЗ-118…123, 46, 122, 144). Проверка: cargo test lock_view"
+    description: "Шаг 65: ЧЕКПОИНТ: полный cargo test + cargo clippy --all-targets"
     done: false
   - id: 66
-    description: "Шаг 66: Slint: индикатор замка — свойства lock-kind/lock-text в ui/top_panel.slint, проброс в ui/app.slint (ADR-06, ТЗ-118). Проверка: cargo build"
+    description: "Шаг 66: Новый src/app/lock_view.rs: LockState → lock-kind/lock-text/доступные действия; тексты отказов с владельцем (ReservationDenied{owner}) и «занято вне протокола» (BusyOutsideProtocol) вместо «устройство не найдено» — AM1.0-B2 + тесты ≤5 (ADR-06, §6.19 подсказки, ТЗ-118…123, 46, 122, 144). Проверка: cargo test lock_view"
     done: false
   - id: 67
-    description: "Шаг 67: Slint: кнопки действий замка (Захватить / Открыть / Повторить / Выбрать устройство / Перейти в Совместимый) и колбэки в ui/top_panel.slint + ui/app.slint (ТЗ-120…123, 144). Проверка: cargo build"
+    description: "Шаг 67: Slint: индикатор замка — свойства lock-kind/lock-text в ui/top_panel.slint, проброс в ui/app.slint (ADR-06, ТЗ-118). Проверка: cargo build"
     done: false
   - id: 68
-    description: "Шаг 68: app/mod.rs: колбэки замка → EngineCmd::Lock / переключение режима; EngineEvent::Lock → свойства окна через lock_view (ТЗ-118…123). Проверка: cargo check"
+    description: "Шаг 68: Slint: кнопки действий замка (Захватить / Открыть / Повторить / Выбрать устройство / Перейти в Совместимый) и колбэки в ui/top_panel.slint + ui/app.slint (ТЗ-120…123, 144). Проверка: cargo build"
     done: false
   - id: 69
-    description: "Шаг 69: «Выбрать устройство»: открыть диалог режима на выборе устройства (app/mode_dialog.rs; при необходимости ui/settings.slint) (ADR-24, ТЗ-144). Проверка: cargo build"
+    description: "Шаг 69: app/mod.rs: колбэки замка → EngineCmd::Lock / переключение режима; EngineEvent::Lock → свойства окна через lock_view (ТЗ-118…123). Проверка: cargo check"
     done: false
   - id: 70
-    description: "Шаг 70: Статус «Захват устройства…» по EngineEvent::Lock(Acquiring) — флаг в UiAudioState и вывод в статус-строку (ui_audio_state.rs, playback_manager.rs) — AM1.0-B9 + тест (ТЗ-119). Проверка: cargo test ui_audio_state"
+    description: "Шаг 70: «Выбрать устройство»: открыть диалог режима на выборе устройства (app/mode_dialog.rs; при необходимости ui/settings.slint) (ADR-24, ТЗ-144). Проверка: cargo build"
     done: false
   - id: 71
-    description: "Шаг 71: Уведомление «Замок открыт» с кнопкой «Захватить и играть» → LockInput::CaptureAndPlay (ui/status.slint + app/mod.rs) (ТЗ-125). Проверка: cargo build"
+    description: "Шаг 71: Статус «Захват устройства…» по EngineEvent::Lock(Acquiring) — флаг в UiAudioState и вывод в статус-строку (ui_audio_state.rs, playback_manager.rs) — AM1.0-B9 + тест (ТЗ-119). Проверка: cargo test ui_audio_state"
     done: false
   - id: 72
-    description: "Шаг 72: AM1.0-B8 ч. 1: EngineEvent::DynamicsChanged(DynamicPathState) в messages.rs и эмиссия из poll_session при изменении underruns/xruns/rt_priority в run.rs (ТЗ-68). Общий тип → Проверка: полный cargo test"
+    description: "Шаг 72: Уведомление «Замок открыт» с кнопкой «Захватить и играть» → LockInput::CaptureAndPlay (ui/status.slint + app/mod.rs) (ТЗ-125). Проверка: cargo build"
     done: false
   - id: 73
-    description: "Шаг 73: AM1.0-B8 ч. 2: UiAudioState — dirty-флаг по DynamicsChanged (ui_audio_state.rs) + тест (ТЗ-68). Проверка: cargo test ui_audio_state"
+    description: "Шаг 73: AM1.0-B8 ч. 1: EngineEvent::DynamicsChanged(DynamicPathState) в messages.rs и эмиссия из poll_session при изменении underruns/xruns/rt_priority в run.rs (ТЗ-68). Общий тип → Проверка: полный cargo test"
     done: false
   - id: 74
-    description: "Шаг 74: AM1.0-B8 ч. 3: инвалидация PathWindowCache по dirty-флагу динамики (app/path_view.rs) + тест (ТЗ-68). Проверка: cargo test path_view"
+    description: "Шаг 74: AM1.0-B8 ч. 2: UiAudioState — dirty-флаг по DynamicsChanged (ui_audio_state.rs) + тест (ТЗ-68). Проверка: cargo test ui_audio_state"
     done: false
   - id: 75
-    description: "Шаг 75: ЧЕКПОИНТ: полный cargo test + cargo clippy --all-targets"
+    description: "Шаг 75: AM1.0-B8 ч. 3: инвалидация PathWindowCache по dirty-флагу динамики (app/path_view.rs) + тест (ТЗ-68). Проверка: cargo test path_view"
     done: false
   - id: 76
-    description: "Шаг 76: Удаление в engine: адаптер legacy_exclusive, EngineCmd::ReleaseExclusive и их обработка; legacy_path — только Совместимый (§8 С6 «удаляется»). Проверка: полный cargo test"
+    description: "Шаг 76: ЧЕКПОИНТ: полный cargo test + cargo clippy --all-targets"
     done: false
   - id: 77
-    description: "Шаг 77: Удаление в player.rs: release_if_exclusive, reopen_and_seek и их вызовы в stop()/toggle()/play() (V5.1-B5, V5.1-B6, ТЗ-43). Проверка: полный cargo test"
+    description: "Шаг 77: Удаление в engine: адаптер legacy_exclusive, EngineCmd::ReleaseExclusive и их обработка; legacy_path — только Совместимый (§8 С6 «удаляется»). Проверка: полный cargo test"
     done: false
   - id: 78
-    description: "Шаг 78: Удаление ExclusiveGate-пути в player.rs и файла reservation/gate.rs (замещён AlsaExclusiveBackend) (§8 С6). Проверка: полный cargo test"
+    description: "Шаг 78: Удаление в player.rs: release_if_exclusive, reopen_and_seek и их вызовы в stop()/toggle()/play() (V5.1-B5, V5.1-B6, ТЗ-43). Проверка: полный cargo test"
     done: false
   - id: 79
-    description: "Шаг 79: Удаление освобождения эксклюзива при скрытии в трей (обработка TrayCmd::ShowHide в app/mod.rs; пункт меню трея остаётся) (§8 С6, ТЗ-43). Проверка: полный cargo test"
+    description: "Шаг 79: Удаление ExclusiveGate-пути в player.rs и файла reservation/gate.rs (замещён AlsaExclusiveBackend) (§8 С6). Проверка: полный cargo test"
     done: false
   - id: 80
-    description: "Шаг 80: Удаление в output.rs: cpal-путь Exclusive (ExclusiveMode, проба hw: в select_output_for, EBUSY-повтор) и shared-downgrade R-11 (§8 С6). Проверка: полный cargo test"
+    description: "Шаг 80: Удаление освобождения эксклюзива при скрытии в трей (обработка TrayCmd::ShowHide в app/mod.rs; пункт меню трея остаётся) (§8 С6, ТЗ-43). Проверка: полный cargo test"
     done: false
   - id: 81
-    description: "Шаг 81: AM1.0-B10: удалить StreamDesc, FallbackReason, Opened.stream_format и мосты legacy_path. Если Совместимый всё ещё идёт через legacy Player и типы нужны ему — выполнить частично, остаток перерегистрировать в B10 с указанием этапа (§8). Проверка: полный cargo test"
+    description: "Шаг 81: Удаление в output.rs: cpal-путь Exclusive (ExclusiveMode, проба hw: в select_output_for, EBUSY-повтор) и shared-downgrade R-11 (§8 С6). Проверка: полный cargo test"
     done: false
   - id: 82
-    description: "Шаг 82: ФИНАЛ: cargo build/test/clippy зелёные; общие условия §8 (Совместимый играет, «Bit-perfect» только при ТЗ-52); ручные проверки в заметку плана: замок (ТЗ-1/2/48/118…122, AM1.0-8.1), B1 — возврат устройства в PipeWire после освобождения, B2 — текст «занято <владелец>» при чужом захвате"
+    description: "Шаг 82: AM1.0-B10: удалить StreamDesc, FallbackReason, Opened.stream_format и мосты legacy_path. Если Совместимый всё ещё идёт через legacy Player и типы нужны ему — выполнить частично, остаток перерегистрировать в B10 с указанием этапа (§8). Проверка: полный cargo test"
     done: false
-current_step: 58
-next_action: "Шаг 58: проводка init_rt + prio = min(MaxRealtimePriority, 20) + запись в журнал при отказе (§6.8 п. 1, 3). Свежий субагент code-writer sonnet; после — Шаг 59 ЧЕКПОИНТ."
+  - id: 83
+    description: "Шаг 83: ФИНАЛ: cargo build/test/clippy зелёные; общие условия §8 (Совместимый играет, «Bit-perfect» только при ТЗ-52); ручные проверки в заметку плана: замок (ТЗ-1/2/48/118…122, AM1.0-8.1), B1 — возврат устройства в PipeWire после освобождения, B2 — текст «занято <владелец>» при чужом захвате"
+    done: false
+current_step: 59
+next_action: "Шаг 59: JournalRecord::RtPriorityDenied + RtKitRequester::new(journal) + EngineDeps::system. Свежий субагент code-writer sonnet; затем Шаг 60 ЧЕКПОИНТ."
 fail_counter: 0
 fail_counter_max: 3
 failed_attempts: []

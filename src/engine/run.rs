@@ -21,7 +21,6 @@ use crate::audio::path::signal::{DynamicPathState, RtPriorityState, SignalPath};
 use crate::audio::path::{Blocked, OpenedFacts, OsStage, PathPlan};
 use crate::audio::player::{Player, ReservationEvent, StreamDesc};
 use crate::audio::reservation::LostNotify;
-use crate::audio::rt::RT_PRIORITY_CAP;
 use crate::audio::session_build::SpawnDecoderError;
 use crate::audio::verdict::{verdict, BadgeState, GainState};
 use crate::engine::deps::EngineDeps;
@@ -331,6 +330,12 @@ struct Engine {
     /// `underruns`/`xruns` переносятся из `SessionShared` Эксклюзивного пути
     /// на каждом опросе; сбрасывается на каждый успешный `Open`.
     dynamics: DynamicPathState,
+    /// Приоритет, который движок запрашивает у `rtkit` для потока вывода
+    /// Эксклюзивного пути (§6.8 п. 1, 3, ТЗ-99, ТЗ-76): результат
+    /// однократного `deps.rt.init()` при запуске движка. `None` — `rtkit`
+    /// RT не даёт вовсе (нет шины/демона или нулевой лимит) — `request_rt_priority`
+    /// сразу отдаёт `Denied`, не обращаясь к `deps.rt.request`.
+    rt_prio: Option<u32>,
 }
 
 impl Engine {
@@ -339,6 +344,10 @@ impl Engine {
         player.set_spawner(Arc::clone(&deps.spawner));
         let player_volume = player.volume();
         let (internal_tx, internal_rx) = mpsc::channel();
+        // Однократно при запуске движка (§6.8 п. 1, 3, ТЗ-99): лимиты
+        // `rtkit`/`RLIMIT_RTTIME` читаются и ставятся один раз на сессию, а
+        // не на каждое открытие Эксклюзивного пути.
+        let rt_prio = deps.rt.init();
         Engine {
             player,
             deps,
@@ -367,6 +376,7 @@ impl Engine {
             claim_attempt: 0,
             reacquire: None,
             dynamics: DynamicPathState::default(),
+            rt_prio,
         }
     }
 
@@ -467,13 +477,15 @@ impl Engine {
     }
 
     /// Запрашивает RT-приоритет потока вывода Эксклюзивного пути у `rtkit`
-    /// (§6.8 п. 2-3, ТЗ-99, ТЗ-76): без TID потока (бэкенд его не публикует)
-    /// запрос не имеет смысла — сразу `Denied`. Иначе запрос уходит в
-    /// служебный поток через `deps.rt`, а ответ приходит позже через
+    /// (§6.8 п. 1-3, ТЗ-99, ТЗ-76): без TID потока (бэкенд его не публикует)
+    /// или без приоритета от `self.rt_prio` (однократный `deps.rt.init()` при
+    /// запуске движка не дал RT вовсе) запрос не имеет смысла — сразу
+    /// `Denied`. Иначе запрос с приоритетом `self.rt_prio` уходит в служебный
+    /// поток через `deps.rt`, а ответ приходит позже через
     /// `InternalMsg::RtPriority { session, .. }` с текущим `path_generation`
     /// как `session`, чтобы ответ устаревшей сессии был отброшен.
     fn request_rt_priority(&mut self, session: u64, tid: Option<u32>) {
-        let Some(tid) = tid else {
+        let (Some(tid), Some(prio)) = (tid, self.rt_prio) else {
             self.dynamics.rt_priority = RtPriorityState::Denied;
             return;
         };
@@ -481,7 +493,7 @@ impl Engine {
         let tx = self.internal_tx.clone();
         self.deps.rt.request(
             tid,
-            RT_PRIORITY_CAP,
+            prio,
             Box::new(move |granted| {
                 let _ = tx.send(InternalMsg::RtPriority { session, granted });
             }),
@@ -1568,6 +1580,7 @@ mod tests {
     use crate::audio::clock::MonotonicClock;
     use crate::engine::sink::VecSink;
     use crate::engine::source::FakeSource;
+    use crate::audio::rt::RtPriorityRequester;
     use crate::audio::testing::{FakeExclusiveBackend, FakeRtRequester, FakeServerProbe};
     use crate::engine::spawner::{FailingSpawner, StdSpawner};
     use crate::platform::fs::{FsPersistStore, MemStore};
@@ -2569,6 +2582,121 @@ mod tests {
         engine.handle(EngineCmd::Open { req_gen: 1, path: Arc::from(Path::new("/music/a.flac")), start_secs: 0.0, autoplay: true });
         assert!(engine.exclusive_path.is_some());
 
+        assert_eq!(engine.dynamics.rt_priority, RtPriorityState::Denied);
+    }
+
+    /// §6.8 п. 1, 3 (ТЗ-99, ТЗ-76): приоритет, выданный `deps.rt.init()` при
+    /// запуске движка, уходит в `request` как есть (не константа
+    /// `RT_PRIORITY_CAP`) — `rtkit` мог дать меньший `MaxRealtimePriority`.
+    #[test]
+    fn rt_priority_requests_init_result_not_the_cap() {
+        let sink = VecSink::new();
+        let dev: HwDeviceId = "hw:CARD=RU3,DEV=0".parse().expect("hw id");
+        let backend = FakeExclusiveBackend::new()
+            .with_configure(Ok((
+                crate::audio::backend::DriverFormat::Confirmed(crate::audio::format::StreamFormat {
+                    rate: SampleRate::new(44_100).expect("rate"),
+                    sample: crate::audio::format::OutputSampleFormat::S32Le,
+                    channels: std::num::NonZeroU8::new(2).expect("channels"),
+                }),
+                Some(crate::audio::backend::DeviceBufferActual { period_frames: 256, buffer_frames: 1024 }),
+            )))
+            .with_start_tid(Some(4242));
+        let mem = MemStore::new();
+        let rt = Arc::new(FakeRtRequester::new(Some(5)).with_init(Some(5)));
+        let deps = EngineDeps {
+            shared: Box::new(FakeSharedBackend::with_devices(Vec::new())),
+            exclusive: Some(Box::new(backend)),
+            server_probe: Box::new(FakeServerProbe::desktop()),
+            watcher: Box::new(FakeDeviceWatcher::new()),
+            sources: Arc::new(FakeSource::with_format(SourceFormat {
+                container: Container::Wav,
+                codec: Codec::Wav,
+                lossy: false,
+                rate: SampleRate::new(44_100).expect("rate"),
+                layout: ChannelLayout::stereo(),
+                kind: SourceKind::FloatPcm { double: false },
+            })),
+            clock: Box::new(MonotonicClock::new()),
+            store: Box::new(FsPersistStore::new(Arc::new(mem.clone()), Box::new(mem.clone()), PathBuf::from("/cfg"))),
+            events: Box::new(sink.clone()),
+            spawner: Arc::new(StdSpawner),
+            caps: BackendCaps::current(),
+            os_probe: Box::new(FakeOsProbe::new(OsStage::Unknown)),
+            rt: Arc::clone(&rt) as Arc<dyn RtPriorityRequester>,
+        };
+        let mut engine = Engine::new(deps, BackendCaps::current());
+        engine.active_mode = ModeKind::Optimal;
+        engine.mode_settings.optimal.device = Some(dev.clone());
+        engine.lock = LockState::Held { info: crate::audio::backend::exclusive::ClaimInfo { device: dev.clone() } };
+        engine.claim = Some(crate::audio::backend::exclusive::DeviceClaim::new(
+            None,
+            crate::audio::reservation::Reservation::UnavailableNoServer,
+            crate::audio::backend::exclusive::ClaimInfo { device: dev },
+        ));
+
+        engine.handle(EngineCmd::Open { req_gen: 1, path: Arc::from(Path::new("/music/a.flac")), start_secs: 0.0, autoplay: true });
+        assert!(engine.exclusive_path.is_some());
+        engine.drain_internal();
+
+        assert_eq!(rt.requests(), vec![(4242, 5)]);
+        assert_eq!(engine.dynamics.rt_priority, RtPriorityState::Granted(5));
+    }
+
+    /// §6.8 п. 1 (ТЗ-99): `deps.rt.init()` не дал RT вовсе (нет шины/демона
+    /// `rtkit` или нулевой лимит) — `request_rt_priority` сразу `Denied`,
+    /// даже при известном TID потока, без похода в `deps.rt.request`.
+    #[test]
+    fn rt_priority_denied_when_init_gives_no_rt() {
+        let sink = VecSink::new();
+        let dev: HwDeviceId = "hw:CARD=RU3,DEV=0".parse().expect("hw id");
+        let backend = FakeExclusiveBackend::new()
+            .with_configure(Ok((
+                crate::audio::backend::DriverFormat::Confirmed(crate::audio::format::StreamFormat {
+                    rate: SampleRate::new(44_100).expect("rate"),
+                    sample: crate::audio::format::OutputSampleFormat::S32Le,
+                    channels: std::num::NonZeroU8::new(2).expect("channels"),
+                }),
+                Some(crate::audio::backend::DeviceBufferActual { period_frames: 256, buffer_frames: 1024 }),
+            )))
+            .with_start_tid(Some(4242));
+        let mem = MemStore::new();
+        let rt = Arc::new(FakeRtRequester::new(Some(20)).with_init(None));
+        let deps = EngineDeps {
+            shared: Box::new(FakeSharedBackend::with_devices(Vec::new())),
+            exclusive: Some(Box::new(backend)),
+            server_probe: Box::new(FakeServerProbe::desktop()),
+            watcher: Box::new(FakeDeviceWatcher::new()),
+            sources: Arc::new(FakeSource::with_format(SourceFormat {
+                container: Container::Wav,
+                codec: Codec::Wav,
+                lossy: false,
+                rate: SampleRate::new(44_100).expect("rate"),
+                layout: ChannelLayout::stereo(),
+                kind: SourceKind::FloatPcm { double: false },
+            })),
+            clock: Box::new(MonotonicClock::new()),
+            store: Box::new(FsPersistStore::new(Arc::new(mem.clone()), Box::new(mem.clone()), PathBuf::from("/cfg"))),
+            events: Box::new(sink.clone()),
+            spawner: Arc::new(StdSpawner),
+            caps: BackendCaps::current(),
+            os_probe: Box::new(FakeOsProbe::new(OsStage::Unknown)),
+            rt: Arc::clone(&rt) as Arc<dyn RtPriorityRequester>,
+        };
+        let mut engine = Engine::new(deps, BackendCaps::current());
+        engine.active_mode = ModeKind::Optimal;
+        engine.mode_settings.optimal.device = Some(dev.clone());
+        engine.lock = LockState::Held { info: crate::audio::backend::exclusive::ClaimInfo { device: dev.clone() } };
+        engine.claim = Some(crate::audio::backend::exclusive::DeviceClaim::new(
+            None,
+            crate::audio::reservation::Reservation::UnavailableNoServer,
+            crate::audio::backend::exclusive::ClaimInfo { device: dev },
+        ));
+
+        engine.handle(EngineCmd::Open { req_gen: 1, path: Arc::from(Path::new("/music/a.flac")), start_secs: 0.0, autoplay: true });
+        assert!(engine.exclusive_path.is_some());
+
+        assert_eq!(rt.requests(), Vec::<(u32, u32)>::new());
         assert_eq!(engine.dynamics.rt_priority, RtPriorityState::Denied);
     }
 
