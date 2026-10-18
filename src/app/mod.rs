@@ -1228,6 +1228,12 @@ impl MusicApp {
         if self.audio().is_playing() {
             self.engine_send(EngineCmd::Pause);
         } else {
+            // Возобновление из паузы — тоже запуск воспроизведения, которому
+            // замок открытого устройства (Оптимальный/Строгий режим)
+            // запрещает начаться (ТЗ-125, §6.19).
+            if self.lock_blocks_play() {
+                return;
+            }
             self.engine_send(EngineCmd::Play);
         }
     }

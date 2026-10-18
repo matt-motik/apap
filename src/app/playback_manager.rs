@@ -318,7 +318,32 @@ impl MusicApp {
         self.emit(AppEvent::CoverChanged);
     }
 
+    /// Истина, если Play нельзя начать: в Оптимальном/Строгом режиме при
+    /// открытом замке устройство не захвачено, запуск воспроизведения
+    /// запрещён (ТЗ-125, §6.19) — вместо запуска ставится сообщение «Замок
+    /// открыт» с кнопкой «Захватить и играть» (`CloseEffect::CaptureAndPlay`,
+    /// обрабатывается в `mod.rs::on_msg_primary`, шаг 73). Pause/stop/смена
+    /// трека во время воспроизведения не входят в ввод замка (ТЗ-43) — замок
+    /// остаётся `Held`, пока плеер играет, поэтому эта проверка не трогает
+    /// авто-переход между треками (`handle_auto_advance`, обработку
+    /// `Applied::Skipped`/`Reaction::Skip`).
+    pub(super) fn lock_blocks_play(&mut self) -> bool {
+        if !matches!(self.audio().lock(), LockState::Open) {
+            return false;
+        }
+        self.push_message(Message {
+            level: MessageLevel::Warning,
+            title: "Замок открыт".into(),
+            body: "устройство не захвачено; нажмите «Захватить и играть», чтобы захватить устройство и начать воспроизведение".into(),
+            buttons: MessageButtons::CaptureAndPlayOk,
+        });
+        true
+    }
+
     pub fn play_track(&mut self, index: usize) {
+        if self.lock_blocks_play() {
+            return;
+        }
         let Some(track) = self.track_at(index) else {
             return;
         };
