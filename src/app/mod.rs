@@ -554,6 +554,13 @@ pub struct MusicApp {
     /// `path-rec-action`; `push_path_view_to_ui` заполняет его заново на
     /// каждый показ отчёта.
     path_actions: Vec<path_view::RecViewAction>,
+    /// «Захватить и играть» нажато в окне «Замок открыт» (ТЗ-125, §6.19):
+    /// `EngineCmd::Lock(CaptureAndPlay)` ушёл движку, но воспроизведение сам
+    /// захват не запускает — ждём `Held` от следующего `EngineEvent::Lock` в
+    /// `drain_engine_events`, чтобы запустить его тогда. `Acquiring` оставляет
+    /// флаг как есть; любой другой исход (`Failed`/`Open`/`NotApplicable`)
+    /// снимает его без запуска воспроизведения.
+    capture_and_play_pending: bool,
 }
 
 /// Команды, которыми при старте применяется сохранённая политика режимов
@@ -792,6 +799,7 @@ impl MusicApp {
             pending_mode_reopen: None,
             mode_notice_pending: false,
             path_actions: Vec::new(),
+            capture_and_play_pending: false,
         };
         // Стартовая загрузка плейлиста в фоне (ADR-16, ADR-23 шаг 9, §6.12,
         // ТЗ-21, ТЗ-47): поток `apap-playlist` через `AppCore`; `tick()`
@@ -897,12 +905,13 @@ impl MusicApp {
             };
             let retry = message.buttons == MessageButtons::RetryOk;
             // Доп. основная кнопка «Переключить в Совместимый режим» для
-            // окна недоступного режима (ТЗ-111, §6.2 п. 5); пустая строка —
+            // окна недоступного режима (ТЗ-111, §6.2 п. 5) и «Захватить и
+            // играть» для окна «Замок открыт» (ТЗ-125, §6.19); пустая строка —
             // без доп. кнопки (OK закрывает как обычно).
-            let primary_label: SharedString = if message.buttons == MessageButtons::SwitchCompatibleOk {
-                "Переключить в Совместимый режим".into()
-            } else {
-                SharedString::default()
+            let primary_label: SharedString = match message.buttons {
+                MessageButtons::SwitchCompatibleOk => "Переключить в Совместимый режим".into(),
+                MessageButtons::CaptureAndPlayOk => "Захватить и играть".into(),
+                _ => SharedString::default(),
             };
             if let Some(ui) = &ui {
                 ui.set_msg_level(level);
@@ -2724,8 +2733,11 @@ impl MusicApp {
                     CloseEffect::Retry(files) => a.retry_writes(files),
                     CloseEffect::SwitchToCompatible => a.select_active_mode(ModeKind::Compatible),
                     // «Захватить и играть» окна «Замок открыт»: захват как при
-                    // ручном закрытии замка (ТЗ-125, ТЗ-42, §6.19).
+                    // ручном закрытии замка (ТЗ-125, ТЗ-42, §6.19). Сам захват
+                    // воспроизведение не запускает — флаг ждёт `Held` от
+                    // следующего `EngineEvent::Lock` в `drain_engine_events`.
                     CloseEffect::CaptureAndPlay => {
+                        a.capture_and_play_pending = true;
                         a.engine_send(EngineCmd::Lock(LockInput::CaptureAndPlay));
                     }
                     CloseEffect::Closed => {}
@@ -3121,12 +3133,33 @@ impl MusicApp {
             // `on_engine_event` (который его съедает, сведя к `Applied::None`
             // в `apply_engine_event`) — иначе состояние замка не добралось
             // бы до top_panel (ADR-06, §6.19, ТЗ-118…ТЗ-123, ТЗ-144).
+            let mut resume_after_capture = false;
             if let EngineEvent::Lock(ref state) = ev {
                 self.apply_lock_view(state);
+                // «Захватить и играть» ждёт `Held`: воспроизведение
+                // запускается только после того, как `on_engine_event` ниже
+                // применит это же состояние к `self.audio_state.lock()`,
+                // иначе `lock_blocks_play` внутри ещё увидит старый замок
+                // (ТЗ-125, §6.19).
+                if self.capture_and_play_pending {
+                    match state {
+                        LockState::Held { .. } => {
+                            self.capture_and_play_pending = false;
+                            resume_after_capture = true;
+                        }
+                        LockState::Acquiring { .. } => {}
+                        LockState::NotApplicable | LockState::Open | LockState::Failed(_) => {
+                            self.capture_and_play_pending = false;
+                        }
+                    }
+                }
             }
             let a = self.on_engine_event(ev);
             if a != Applied::None {
                 applied.push(a);
+            }
+            if resume_after_capture {
+                self.resume_after_capture_and_play();
             }
         }
         self.engine_raw_events = raw_events;

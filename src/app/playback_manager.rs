@@ -340,6 +340,29 @@ impl MusicApp {
         true
     }
 
+    /// Запустить воспроизведение после того, как «Захватить и играть»
+    /// перевело замок в `Held` (ТЗ-125, §6.19): та же логика, что у кнопки
+    /// Play (`on_play_pause`) — нет открытого трека, значит играть было
+    /// нечего до захвата, открыть текущий/первый; иначе возобновить с паузы
+    /// через `toggle_playback` (замок уже `Held`, `lock_blocks_play` не
+    /// вмешается). Вызывается из `drain_engine_events` после того, как
+    /// принятый `EngineEvent::Lock(Held)` обновил `self.audio_state.lock()`.
+    pub(super) fn resume_after_capture_and_play(&mut self) {
+        if self.audio().track().is_none() {
+            let idx = self.current.unwrap_or(0);
+            if idx < self.track_count() {
+                self.play_track(idx);
+            }
+            return;
+        }
+        self.toggle_playback();
+        if self.audio().is_playing() {
+            self.emit(AppEvent::PlaybackStarted);
+        } else {
+            self.emit(AppEvent::PlaybackPaused);
+        }
+    }
+
     pub fn play_track(&mut self, index: usize) {
         if self.lock_blocks_play() {
             return;
