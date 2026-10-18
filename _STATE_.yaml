@@ -7,6 +7,7 @@ task:
   roadmap_id: "AM1.0-8.6"
   title: "С6. ALSA Exclusive, замок"
 whitelist:
+  - AGENTS.md
   - Cargo.toml
   - Cargo.lock
   - src/audio/mod.rs

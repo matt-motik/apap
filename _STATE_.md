@@ -7,6 +7,7 @@
 
 - **Задача из ROADMAP:** AM1.0-8.6 — С6. ALSA Exclusive, замок
 - **Вайтлист файлов в работе (Изменяемые файлы):**
+  - AGENTS.md
   - Cargo.toml
   - Cargo.lock
   - src/audio/mod.rs
