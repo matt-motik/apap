@@ -1074,12 +1074,29 @@ impl Engine {
                     ModeApplyAction::Store => {}
                     // Эксклюзивный путь активного режима (Оптимальный/Строгий,
                     // §6.7, §6.18, ТЗ-131): переоткрытие на текущей позиции
-                    // через `open_exclusive`, без снятия резервирования —
-                    // `SwitchDevice` ниже поглощает смену устройства, которая
-                    // требует полной процедуры «Смена устройства» (вне
-                    // области этого шага) и остаётся на мосту `apply_active_mode`.
+                    // через `open_exclusive`, без снятия резервирования.
                     ModeApplyAction::ReopenAtPosition if self.active_mode != ModeKind::Compatible => {
                         self.reopen_exclusive_at_position();
+                    }
+                    // Смена устройства активного Эксклюзивного режима (§6.18,
+                    // §6.19, ТЗ-137): «освобождение старого, захват нового,
+                    // продолжение с той же позиции» — один вход
+                    // `LockInput::DeviceSelected` замку, который сам
+                    // упорядочивает `StopPlayback, Release, Acquire(dev)` из
+                    // `Held` (таблица §6.19), поглощая остальные изменения
+                    // этого `SetModeSettings` (И-Р26). Устройство не
+                    // настроено явно (возврат к автовыбору) здесь не
+                    // переоткрывается — автовыбор нового устройства для этого
+                    // входа не входит в область этого шага.
+                    ModeApplyAction::SwitchDevice if self.active_mode != ModeKind::Compatible => {
+                        let dev = match self.active_mode {
+                            ModeKind::Optimal => self.mode_settings.optimal.device.clone(),
+                            ModeKind::Strict => self.mode_settings.strict.device.clone(),
+                            ModeKind::Compatible => None,
+                        };
+                        if let Some(dev) = dev {
+                            self.lock_input(LockInput::DeviceSelected(dev));
+                        }
                     }
                     ModeApplyAction::ReopenAtPosition | ModeApplyAction::SwitchDevice => {
                         self.apply_active_mode();
@@ -1106,12 +1123,33 @@ impl Engine {
                     // `self.active_mode == Compatible`, что безопасно: до
                     // этого момента Эксклюзивный путь не открыт. Для
                     // Эксклюзивный ↔ Эксклюзивный (Оптимальный ↔ Строгий) из
-                    // `Held`/`Acquiring` таблица §6.19 не даёт эффектов —
-                    // устройство остаётся тем же, автоматической
-                    // переаккрисации при простом выборе режима нет (нужен
-                    // отдельный `DeviceSelected`), поэтому переход не
-                    // освобождает и не трогает текущий Эксклюзивный путь.
+                    // `Held`/`Acquiring` таблица §6.19 не даёт эффектов на
+                    // `ModeSelected` — устройство само по себе остаётся тем
+                    // же. Если же настроенные устройства старого и нового
+                    // режима различаются (ТЗ-137, §6.18), ниже отдельным
+                    // входом `LockInput::DeviceSelected(dev)` замок
+                    // освобождает старое устройство и захватывает новое —
+                    // `lock_step` сам упорядочивает `StopPlayback, Release,
+                    // Acquire(dev)` из `Held` (§6.19).
+                    let old_mode = self.active_mode;
                     self.lock_input(LockInput::ModeSelected(mode));
+                    if old_mode != ModeKind::Compatible && mode != ModeKind::Compatible {
+                        let old_dev = match old_mode {
+                            ModeKind::Optimal => self.mode_settings.optimal.device.clone(),
+                            ModeKind::Strict => self.mode_settings.strict.device.clone(),
+                            ModeKind::Compatible => None,
+                        };
+                        let new_dev = match mode {
+                            ModeKind::Optimal => self.mode_settings.optimal.device.clone(),
+                            ModeKind::Strict => self.mode_settings.strict.device.clone(),
+                            ModeKind::Compatible => None,
+                        };
+                        if let (Some(o), Some(n)) = (old_dev, new_dev) {
+                            if o != n {
+                                self.lock_input(LockInput::DeviceSelected(n));
+                            }
+                        }
+                    }
                     self.active_mode = mode;
                     self.store_active_mode();
                     self.apply_gain();
@@ -2381,6 +2419,124 @@ mod tests {
             other => panic!("expected Held, got {other:?}"),
         }
         assert!(engine.claim.is_some());
+    }
+
+    /// Шаг 62 (§6.18, §6.19, ТЗ-137): `SetModeSettings` со `SwitchDevice`
+    /// активного Эксклюзивного режима (Оптимальный) — замок видит один вход
+    /// `LockInput::DeviceSelected(dev)` из `Held`, который сам упорядочивает
+    /// `StopPlayback, Release, Acquire(dev)` (таблица §6.19): открытый
+    /// Эксклюзивный путь закрывается (`ExclusiveCall::Stop` в журнале),
+    /// старый захват сбрасывается, новое устройство захватывается
+    /// (`ExclusiveCall::Acquire(new_dev)`) — замок уходит в `Acquiring`, а
+    /// после `ClaimDone` — в `Held` с новым устройством.
+    #[test]
+    fn switch_device_held_releases_old_then_acquires_new() {
+        let sink = VecSink::new();
+        let (mut engine, calls) = engine_with_exclusive_path_open_tracked(sink.clone(), true);
+        let new_dev: HwDeviceId = "hw:CARD=RU5,DEV=0".parse().expect("hw id");
+        engine
+            .catalog
+            .hw
+            .push(crate::audio::backend::catalog::HwDeviceInfo { id: new_dev.clone(), card: 2, device: 0, name: "RU5".to_string() });
+        sink.take();
+
+        let mut settings = engine.mode_settings.clone();
+        settings.optimal.device = Some(new_dev.clone());
+        let diff = ModeSettingsDiff { changed: SmallVec::from_slice(&[(ModeKind::Optimal, ParamId::Device)]) };
+        engine.handle(EngineCmd::SetModeSettings(ModeSettingsUpdate { settings, diff: Some(diff) }));
+
+        assert!(engine.exclusive_path.is_none());
+        assert!(engine.claim.is_none());
+        assert!(matches!(engine.lock, LockState::Acquiring { .. }));
+
+        // `ClaimDone` приходит из служебного потока только после того, как
+        // `claim_job` дописал `ExclusiveCall::Acquire(new_dev)` в журнал
+        // (`FakeExclusiveBackend::claim_job`) — ждём его, прежде чем читать
+        // журнал, вместо гонки с фоновым потоком.
+        let msg = engine.internal_rx.recv().expect("claim done");
+        {
+            let journal = calls.lock().expect("calls lock");
+            assert_eq!(journal.last(), Some(&crate::audio::testing::ExclusiveCall::Acquire(new_dev.clone())));
+            assert!(journal.iter().any(|c| matches!(c, crate::audio::testing::ExclusiveCall::Stop)));
+        }
+        engine.handle_internal(msg);
+        match &engine.lock {
+            LockState::Held { info } => assert_eq!(info.device, new_dev),
+            other => panic!("expected Held, got {other:?}"),
+        }
+        assert!(engine.claim.is_some());
+    }
+
+    /// Шаг 62 (§6.18, §6.19, ТЗ-137): `SetActiveMode` между двумя
+    /// Эксклюзивными режимами (Оптимальный → Строгий) с разными настроенными
+    /// устройствами — `ModeSelected` сам по себе не даёт эффектов из `Held`
+    /// (устройство могло бы остаться тем же), поэтому `EngineCmd::
+    /// SetActiveMode` отдельно шлёт `LockInput::DeviceSelected(new_dev)`:
+    /// старое устройство освобождается, новое захватывается — тот же
+    /// `Stop`/`Acquire` журнал, что при `SwitchDevice`.
+    #[test]
+    fn optimal_to_strict_different_devices_reacquires() {
+        let sink = VecSink::new();
+        let (mut engine, calls) = engine_with_exclusive_path_open_tracked(sink.clone(), true);
+        let strict_dev: HwDeviceId = "hw:CARD=RU5,DEV=0".parse().expect("hw id");
+        engine
+            .catalog
+            .hw
+            .push(crate::audio::backend::catalog::HwDeviceInfo { id: strict_dev.clone(), card: 2, device: 0, name: "RU5".to_string() });
+        engine.mode_settings.strict.device = Some(strict_dev.clone());
+        sink.take();
+
+        engine.handle(EngineCmd::SetActiveMode(ModeKind::Strict));
+
+        assert_eq!(engine.active_mode, ModeKind::Strict);
+        assert!(engine.exclusive_path.is_none());
+        assert!(engine.claim.is_none());
+        assert!(matches!(engine.lock, LockState::Acquiring { .. }));
+
+        // См. `switch_device_held_releases_old_then_acquires_new`: журнал
+        // читается после `ClaimDone`, чтобы не гнаться с фоновым потоком
+        // захвата.
+        let msg = engine.internal_rx.recv().expect("claim done");
+        {
+            let journal = calls.lock().expect("calls lock");
+            assert_eq!(journal.last(), Some(&crate::audio::testing::ExclusiveCall::Acquire(strict_dev.clone())));
+            assert!(journal.iter().any(|c| matches!(c, crate::audio::testing::ExclusiveCall::Stop)));
+        }
+        engine.handle_internal(msg);
+        match &engine.lock {
+            LockState::Held { info } => assert_eq!(info.device, strict_dev),
+            other => panic!("expected Held, got {other:?}"),
+        }
+        assert!(engine.claim.is_some());
+    }
+
+    /// Шаг 62 (§6.18, §6.19, ТЗ-137): `SetActiveMode` между двумя
+    /// Эксклюзивными режимами с ОДИНАКОВЫМ настроенным устройством — ни
+    /// `ModeSelected` (таблица §6.19 не даёт эффектов из `Held`), ни
+    /// добавленная в шаге 62 проверка диффа устройств (`old_dev == new_dev`)
+    /// не должны освобождать/захватывать карту: открытый Эксклюзивный путь
+    /// и журнал бэкенда остаются без изменений.
+    #[test]
+    fn optimal_to_strict_same_device_does_not_switch() {
+        let sink = VecSink::new();
+        let dev: HwDeviceId = "hw:CARD=RU3,DEV=0".parse().expect("hw id");
+        let (mut engine, calls) = engine_with_exclusive_path_open_tracked(sink.clone(), true);
+        engine.mode_settings.strict.device = Some(dev.clone());
+        sink.take();
+        let journal_len_before = calls.lock().expect("calls lock").len();
+
+        engine.handle(EngineCmd::SetActiveMode(ModeKind::Strict));
+
+        assert_eq!(engine.active_mode, ModeKind::Strict);
+        assert!(engine.exclusive_path.is_some());
+        assert!(engine.claim.is_none());
+        match &engine.lock {
+            LockState::Held { info } => assert_eq!(info.device, dev),
+            other => panic!("expected Held, got {other:?}"),
+        }
+        let journal_after = calls.lock().expect("calls lock");
+        assert_eq!(journal_after.len(), journal_len_before);
+        assert!(!sink.take().iter().any(|e| matches!(e, EngineEvent::Lock(_))));
     }
 
     /// §6.18, ТЗ-49 (шаг 48): открытие с `autoplay: true` сразу даёт

@@ -123,9 +123,9 @@
 - [x] Шаг 59: Шаг 59: Запись отказа RT в журнал (§6.8 п. 3, ТЗ-76): JournalRecord::RtPriorityDenied { prio } (journal.rs); RtKitRequester::new(journal) пишет одну запись при отказе MakeThreadRealtime (одна попытка = одна сессия); EngineDeps::system передаёт журнал (rt.rs, deps.rs) + тест с VecJournal. Общий тип → Проверка: полный cargo test
 - [x] Шаг 60: Шаг 60: ЧЕКПОИНТ: полный cargo test + cargo clippy --all-targets
 - [x] Шаг 61: Шаг 61: run.rs: смена режима Exclusive → Compatible — Release раньше SharedBackend::start; тест optimal_held_to_compatible_releases_before_shared — закрывает AM1.0-B13 (§6.18, ТЗ-21). Проверка: cargo test optimal_held_to_compatible
-- [>] **Шаг 62: Шаг 62: run.rs: смена устройства режима (SwitchDevice) — Release старого → Lock(DeviceSelected(d)) → Acquire нового + тест (§6.18, §6.19, ТЗ-44); учесть Optimal↔Strict с разными устройствами режимов — сейчас lock_step из Held/Acquiring не делает ничего, захват остаётся на устройстве прежнего режима (находка шага 61). Проверка: cargo test engine::**
-- [ ] Шаг 63: Шаг 63: run.rs: обнаружение потери (StreamFault::DeviceUnavailable / InternalMsg::ReservationLost) → LockInput::DeviceLost, сохранение ReacquirePoint + тест (§6.20, ТЗ-125). Проверка: cargo test engine:: Примечание: TrackId(u64) без публичного конструктора (src/playlist/model.rs) — для теста ReacquirePoint понадобится #[cfg(test)] pub(crate) конструктор (расширение вайтлиста)
-- [ ] Шаг 64: Шаг 64: run.rs: повторный захват по DevicesChanged (DeviceReappeared) → открытие трека в сохранённой точке на паузе + тест (§6.20, ТЗ-126). Проверка: cargo test engine::
+- [x] Шаг 62: Шаг 62: run.rs: смена устройства режима (SwitchDevice) — Release старого → Lock(DeviceSelected(d)) → Acquire нового + тест (§6.18, §6.19, ТЗ-44); учесть Optimal↔Strict с разными устройствами режимов — сейчас lock_step из Held/Acquiring не делает ничего, захват остаётся на устройстве прежнего режима (находка шага 61). Проверка: cargo test engine::
+- [>] **Шаг 63: Шаг 63: run.rs: обнаружение потери (StreamFault::DeviceUnavailable / InternalMsg::ReservationLost) → LockInput::DeviceLost, сохранение ReacquirePoint + тест (§6.20, ТЗ-125). Проверка: cargo test engine:: Примечание: TrackId(u64) без публичного конструктора (src/playlist/model.rs) — для теста ReacquirePoint понадобится #[cfg(test)] pub(crate) конструктор (расширение вайтлиста)**
+- [ ] Шаг 64: Шаг 64: run.rs: повторный захват по DevicesChanged (DeviceReappeared) → открытие трека в сохранённой точке на паузе + тест (§6.20, ТЗ-126). Учесть находку шага 62: после смены устройства (DeviceSelected → Acquire нового, ТЗ-137 «продолжение с той же позиции») автопереоткрытия exclusive_path по успешному ClaimDone нет — общий механизм переоткрытия по захвату. Проверка: cargo test engine::
 - [ ] Шаг 65: Шаг 65: ЧЕКПОИНТ: полный cargo test + cargo clippy --all-targets
 - [ ] Шаг 66: Шаг 66: Новый src/app/lock_view.rs: LockState → lock-kind/lock-text/доступные действия; тексты отказов с владельцем (ReservationDenied{owner}) и «занято вне протокола» (BusyOutsideProtocol) вместо «устройство не найдено» — AM1.0-B2 + тесты ≤5 (ADR-06, §6.19 подсказки, ТЗ-118…123, 46, 122, 144). Проверка: cargo test lock_view
 - [ ] Шаг 67: Шаг 67: Slint: индикатор замка — свойства lock-kind/lock-text в ui/top_panel.slint, проброс в ui/app.slint (ADR-06, ТЗ-118). Проверка: cargo build
@@ -148,8 +148,8 @@
 
 Легенда: [x] сделано · [>] текущий шаг · [ ] не начато
 
-- **Текущий шаг (current_step):** Шаг 62
-- **Следующий ход:** Шаг 62: SwitchDevice — Release старого → Lock(DeviceSelected(d)) → Acquire нового + тест; плюс Optimal↔Strict с разными устройствами. Свежий субагент code-writer sonnet.
+- **Текущий шаг (current_step):** Шаг 63
+- **Следующий ход:** Шаг 63: обнаружение потери устройства → LockInput::DeviceLost, ReacquirePoint + тест (§6.20, ТЗ-125). Свежий субагент code-writer sonnet.
 - **Счетчик безуспешных компиляций:** 0/3
 - **Состояние:** in_progress
 

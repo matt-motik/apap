@@ -246,12 +246,12 @@ steps:
     done: true
   - id: 62
     description: "Шаг 62: run.rs: смена устройства режима (SwitchDevice) — Release старого → Lock(DeviceSelected(d)) → Acquire нового + тест (§6.18, §6.19, ТЗ-44); учесть Optimal↔Strict с разными устройствами режимов — сейчас lock_step из Held/Acquiring не делает ничего, захват остаётся на устройстве прежнего режима (находка шага 61). Проверка: cargo test engine::"
-    done: false
+    done: true
   - id: 63
     description: "Шаг 63: run.rs: обнаружение потери (StreamFault::DeviceUnavailable / InternalMsg::ReservationLost) → LockInput::DeviceLost, сохранение ReacquirePoint + тест (§6.20, ТЗ-125). Проверка: cargo test engine:: Примечание: TrackId(u64) без публичного конструктора (src/playlist/model.rs) — для теста ReacquirePoint понадобится #[cfg(test)] pub(crate) конструктор (расширение вайтлиста)"
     done: false
   - id: 64
-    description: "Шаг 64: run.rs: повторный захват по DevicesChanged (DeviceReappeared) → открытие трека в сохранённой точке на паузе + тест (§6.20, ТЗ-126). Проверка: cargo test engine::"
+    description: "Шаг 64: run.rs: повторный захват по DevicesChanged (DeviceReappeared) → открытие трека в сохранённой точке на паузе + тест (§6.20, ТЗ-126). Учесть находку шага 62: после смены устройства (DeviceSelected → Acquire нового, ТЗ-137 «продолжение с той же позиции») автопереоткрытия exclusive_path по успешному ClaimDone нет — общий механизм переоткрытия по захвату. Проверка: cargo test engine::"
     done: false
   - id: 65
     description: "Шаг 65: ЧЕКПОИНТ: полный cargo test + cargo clippy --all-targets"
@@ -310,8 +310,8 @@ steps:
   - id: 83
     description: "Шаг 83: ФИНАЛ: cargo build/test/clippy зелёные; общие условия §8 (Совместимый играет, «Bit-perfect» только при ТЗ-52); ручные проверки в заметку плана: замок (ТЗ-1/2/48/118…122, AM1.0-8.1), B1 — возврат устройства в PipeWire после освобождения, B2 — текст «занято <владелец>» при чужом захвате"
     done: false
-current_step: 62
-next_action: "Шаг 62: SwitchDevice — Release старого → Lock(DeviceSelected(d)) → Acquire нового + тест; плюс Optimal↔Strict с разными устройствами. Свежий субагент code-writer sonnet."
+current_step: 63
+next_action: "Шаг 63: обнаружение потери устройства → LockInput::DeviceLost, ReacquirePoint + тест (§6.20, ТЗ-125). Свежий субагент code-writer sonnet."
 fail_counter: 0
 fail_counter_max: 3
 failed_attempts: []
