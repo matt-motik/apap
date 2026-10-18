@@ -10,8 +10,6 @@ use std::sync::Arc;
 use std::thread::JoinHandle;
 use std::time::Duration;
 
-use std::sync::Mutex;
-
 use crate::audio::backend::exclusive::DeviceClaim;
 use crate::audio::backend::catalog::DeviceCatalog;
 use crate::audio::backend::HwDeviceId;
@@ -25,7 +23,6 @@ use crate::audio::player::{Player, ReservationEvent, StreamDesc};
 use crate::audio::reservation::LostNotify;
 use crate::audio::session_build::SpawnDecoderError;
 use crate::audio::verdict::{verdict, BadgeState, GainState};
-use crate::audio::worker::VizTap;
 use crate::engine::deps::EngineDeps;
 use crate::engine::exclusive_path::{self, ExclusiveOpenReason, ExclusivePath};
 use crate::engine::legacy_path::{legacy_audio, opened_facts_from_desc, shared_caps_from_desc, stream_format_from_desc};
@@ -275,6 +272,11 @@ struct Engine {
     /// mute гасит сигнал во всех режимах, `player.set_muted` вызывается
     /// напрямую, вне правила `effective_gain`.
     last_muted: bool,
+    /// Последнее запрошенное через `SetVizTap` состояние визуализатора
+    /// (§6.18): зеркалит `self.player`, чтобы применить его к только что
+    /// открытому Эксклюзивному пути в `open_exclusive` так же, как
+    /// `Player::apply_state` делает это для Совместимого пути.
+    viz_tap_active: bool,
     /// Возможности бэкенда (§2.3, ТЗ-109): определяет доступность
     /// `active_mode` для проверки в `Open` (§6.18 п. 2). Снимок на момент
     /// запуска потока — платформа не меняется на ходу.
@@ -351,6 +353,7 @@ impl Engine {
             active_mode: ModeKind::default(),
             last_volume: player_volume,
             last_muted: false,
+            viz_tap_active: false,
             caps,
             path_generation: 0,
             active_path: None,
@@ -712,10 +715,11 @@ impl Engine {
             (opts.device_buffer, u32::from(opts.buffer.get()), opts.volume_lock, seed)
         };
 
-        // Визуализация Эксклюзивного пути не проведена в этом шаге —
-        // `AttachVizTap`/`SetVizTap` не меняют эту сессию (вне объёма шага
-        // 45); пустой tap — поток декодера не блокируется и не паникует.
-        let tap: VizTap = Arc::new(Mutex::new(None));
+        // Эксклюзивный путь делит общий `VizTap`-хэндл с `Player` (§6.18):
+        // ровно один `Producer` на всё приложение, активен у той сессии,
+        // что сейчас открыта — Совместимый и Эксклюзивный пути взаимно
+        // исключительны, поэтому общий `Arc` не требует арбитража.
+        let tap = self.player.viz_tap_handle();
         let stream_format = Some(plan_built.target);
         let start_frame = secs_to_frames(start_secs, plan_built.target.rate.hz());
         let generation = self.path_generation.saturating_add(1);
@@ -749,6 +753,11 @@ impl Engine {
                 // применяются до пуска воспроизведения — без этого автоплей
                 // стартовал бы с единичным усилением (щелчок громкости).
                 opened.set_gain(effective_gain(&self.mode_settings, self.active_mode, self.last_volume, false), self.last_muted);
+                // Публикует сохранённое состояние визуализатора в новой
+                // сессии (§6.18) — аналог `Player::apply_state` для
+                // Эксклюзивного пути: без этого спектр молчал бы до
+                // следующего `SetVizTap` от UI.
+                opened.set_viz_tap_active(self.viz_tap_active);
                 self.exclusive_signal =
                     Some(ActivePath { plan: base, facts: opened.facts().clone(), path: Arc::clone(&signal), badge: badge.clone() });
                 if autoplay {
@@ -981,7 +990,11 @@ impl Engine {
                 self.refresh_transport();
             }
             EngineCmd::SetVizTap(on) => {
+                self.viz_tap_active = on;
                 self.player.set_viz_tap_active(on);
+                if let Some(path) = &self.exclusive_path {
+                    path.set_viz_tap_active(on);
+                }
             }
             EngineCmd::AttachVizTap(producer) => {
                 self.player.set_viz_tap(producer);

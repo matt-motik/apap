@@ -102,6 +102,14 @@ impl ExclusivePath {
         self.session.shared.muted.store(muted, Ordering::Release);
     }
 
+    /// Включает/выключает публикацию кадров в общий `VizTap` (§6.18):
+    /// аналог `Player::set_viz_tap_active` для Эксклюзивного пути. Декодер
+    /// проверяет этот флаг в своём потоке (`DecodeLoop::mirror_tap`), не в
+    /// RT-колбэке вывода.
+    pub(crate) fn set_viz_tap_active(&self, active: bool) {
+        self.session.shared.viz_tap_active.store(active, Ordering::Relaxed);
+    }
+
     /// Доступ к разделяемому состоянию сессии для тестов (§6.16, ТЗ-99):
     /// позволяет проверить фазу 1 рукопожатия seek без реального потока
     /// вывода.

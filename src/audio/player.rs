@@ -1209,6 +1209,14 @@ impl Player {
         }
     }
 
+    /// Shared `VizTap` handle for the Exclusive path (§6.18): the
+    /// non-`Clone` `rtrb::Producer` lives in this one `Arc`, so both paths
+    /// reuse it instead of duplicating a tap — safe since Compatible and
+    /// Exclusive sessions are mutually exclusive.
+    pub(crate) fn viz_tap_handle(&self) -> VizTap {
+        self.viz_tap.clone()
+    }
+
     /// Toggle the tap on/off. When off, the worker skips the copy entirely
     /// (zero CPU cost), per ТЗ §13.2.
     pub fn set_viz_tap_active(&mut self, active: bool) {
