@@ -647,6 +647,10 @@ impl Engine {
             self.deps.events.emit(EngineEvent::OpenFailed { req_gen, err: OpenError::Capture(reason) });
             return;
         };
+        // §6.7, §6.18 шаг 5 (ТЗ-43, И-Р12): конфигурация PCM предыдущего
+        // пути сохраняется до его `close()` — смена трека на той же
+        // конфигурации не повторяет `configure` в `exclusive_path::open`.
+        let prev_configured = self.exclusive_path.as_ref().map(|p| p.configured());
         if let Some(p) = self.exclusive_path.take() {
             self.claim = Some(p.close());
         }
@@ -744,6 +748,7 @@ impl Engine {
             dither_seed,
             start_frame,
             generation,
+            prev_configured,
         ) {
             Ok((opened, signal)) => {
                 self.path_generation = generation;
@@ -2496,5 +2501,126 @@ mod tests {
         ));
         assert!(engine.claim.is_some());
         assert!(engine.exclusive_path.is_none());
+    }
+
+    /// §6.7, §6.18 шаг 5 (ТЗ-43, И-Р12): смена трека на той же конфигурации
+    /// PCM (`plan.target` и «Буфер устройства» не изменились) не повторяет
+    /// `ExclusiveBackend::configure` — второй `Open` переиспользует
+    /// `driver`/`buffer_actual` первого открытия. Замок остаётся удержан:
+    /// журнал бэкенда не содержит `Acquire` (claim не освобождался и не
+    /// захватывался заново).
+    #[test]
+    fn open_exclusive_same_format_track_change_skips_configure() {
+        let sink = VecSink::new();
+        let dev: HwDeviceId = "hw:CARD=RU3,DEV=0".parse().expect("hw id");
+        let backend = FakeExclusiveBackend::new().with_configure(Ok((
+            crate::audio::backend::DriverFormat::Confirmed(crate::audio::format::StreamFormat {
+                rate: SampleRate::new(44_100).expect("rate"),
+                sample: crate::audio::format::OutputSampleFormat::S32Le,
+                channels: std::num::NonZeroU8::new(2).expect("channels"),
+            }),
+            Some(crate::audio::backend::DeviceBufferActual { period_frames: 256, buffer_frames: 1024 }),
+        )));
+        // Хэндл журнала берётся до того, как `backend` уходит в `Box<dyn
+        // ExclusiveBackend>` внутри `EngineDeps` (§7.1).
+        let calls = backend.calls_handle();
+        let float_format = SourceFormat {
+            container: Container::Wav,
+            codec: Codec::Wav,
+            lossy: false,
+            rate: SampleRate::new(44_100).expect("rate"),
+            layout: ChannelLayout::stereo(),
+            kind: SourceKind::FloatPcm { double: false },
+        };
+        let mem = MemStore::new();
+        let deps = EngineDeps {
+            shared: Box::new(FakeSharedBackend::with_devices(Vec::new())),
+            exclusive: Some(Box::new(backend)),
+            server_probe: Box::new(FakeServerProbe::desktop()),
+            watcher: Box::new(FakeDeviceWatcher::new()),
+            sources: Arc::new(FakeSource::with_format(float_format)),
+            clock: Box::new(MonotonicClock::new()),
+            store: Box::new(FsPersistStore::new(Arc::new(mem.clone()), Box::new(mem.clone()), PathBuf::from("/cfg"))),
+            events: Box::new(sink.clone()),
+            spawner: Arc::new(StdSpawner),
+            caps: BackendCaps::current(),
+            os_probe: Box::new(FakeOsProbe::new(OsStage::Unknown)),
+        };
+        let mut engine = Engine::new(deps, BackendCaps::current());
+        engine.active_mode = ModeKind::Optimal;
+        engine.mode_settings.optimal.device = Some(dev.clone());
+        engine.lock = LockState::Held { info: crate::audio::backend::exclusive::ClaimInfo { device: dev.clone() } };
+        engine.claim = Some(crate::audio::backend::exclusive::DeviceClaim::new(
+            None,
+            crate::audio::reservation::Reservation::UnavailableNoServer,
+            crate::audio::backend::exclusive::ClaimInfo { device: dev },
+        ));
+
+        engine.handle(EngineCmd::Open { req_gen: 1, path: Arc::from(Path::new("/music/a.flac")), start_secs: 0.0, autoplay: true });
+        engine.handle(EngineCmd::Open { req_gen: 2, path: Arc::from(Path::new("/music/b.flac")), start_secs: 0.0, autoplay: true });
+
+        assert!(engine.exclusive_path.is_some());
+        let journal = calls.lock().expect("calls lock");
+        assert_eq!(journal.iter().filter(|c| **c == crate::audio::testing::ExclusiveCall::Configure).count(), 1);
+        assert!(!journal.iter().any(|c| matches!(c, crate::audio::testing::ExclusiveCall::Acquire(_))));
+    }
+
+    /// §6.7, §6.18 шаг 5 (ТЗ-43): смена трека с другой «Буфером устройства»
+    /// отличается от текущей конфигурации PCM — второй `Open` вызывает
+    /// `ExclusiveBackend::configure` ещё раз (hw_params переустанавливаются),
+    /// замок остаётся удержан (claim не терялся между открытиями).
+    #[test]
+    fn open_exclusive_different_device_buffer_track_change_reconfigures() {
+        let sink = VecSink::new();
+        let dev: HwDeviceId = "hw:CARD=RU3,DEV=0".parse().expect("hw id");
+        let backend = FakeExclusiveBackend::new().with_configure(Ok((
+            crate::audio::backend::DriverFormat::Confirmed(crate::audio::format::StreamFormat {
+                rate: SampleRate::new(44_100).expect("rate"),
+                sample: crate::audio::format::OutputSampleFormat::S32Le,
+                channels: std::num::NonZeroU8::new(2).expect("channels"),
+            }),
+            Some(crate::audio::backend::DeviceBufferActual { period_frames: 256, buffer_frames: 1024 }),
+        )));
+        let calls = backend.calls_handle();
+        let float_format = SourceFormat {
+            container: Container::Wav,
+            codec: Codec::Wav,
+            lossy: false,
+            rate: SampleRate::new(44_100).expect("rate"),
+            layout: ChannelLayout::stereo(),
+            kind: SourceKind::FloatPcm { double: false },
+        };
+        let mem = MemStore::new();
+        let deps = EngineDeps {
+            shared: Box::new(FakeSharedBackend::with_devices(Vec::new())),
+            exclusive: Some(Box::new(backend)),
+            server_probe: Box::new(FakeServerProbe::desktop()),
+            watcher: Box::new(FakeDeviceWatcher::new()),
+            sources: Arc::new(FakeSource::with_format(float_format)),
+            clock: Box::new(MonotonicClock::new()),
+            store: Box::new(FsPersistStore::new(Arc::new(mem.clone()), Box::new(mem.clone()), PathBuf::from("/cfg"))),
+            events: Box::new(sink.clone()),
+            spawner: Arc::new(StdSpawner),
+            caps: BackendCaps::current(),
+            os_probe: Box::new(FakeOsProbe::new(OsStage::Unknown)),
+        };
+        let mut engine = Engine::new(deps, BackendCaps::current());
+        engine.active_mode = ModeKind::Optimal;
+        engine.mode_settings.optimal.device = Some(dev.clone());
+        engine.lock = LockState::Held { info: crate::audio::backend::exclusive::ClaimInfo { device: dev.clone() } };
+        engine.claim = Some(crate::audio::backend::exclusive::DeviceClaim::new(
+            None,
+            crate::audio::reservation::Reservation::UnavailableNoServer,
+            crate::audio::backend::exclusive::ClaimInfo { device: dev },
+        ));
+
+        engine.handle(EngineCmd::Open { req_gen: 1, path: Arc::from(Path::new("/music/a.flac")), start_secs: 0.0, autoplay: true });
+        engine.mode_settings.optimal.device_buffer = crate::settings::playback::DeviceBuffer::Ms100;
+        engine.handle(EngineCmd::Open { req_gen: 2, path: Arc::from(Path::new("/music/b.flac")), start_secs: 0.0, autoplay: true });
+
+        assert!(engine.exclusive_path.is_some());
+        let journal = calls.lock().expect("calls lock");
+        assert_eq!(journal.iter().filter(|c| **c == crate::audio::testing::ExclusiveCall::Configure).count(), 2);
+        assert!(!journal.iter().any(|c| matches!(c, crate::audio::testing::ExclusiveCall::Acquire(_))));
     }
 }

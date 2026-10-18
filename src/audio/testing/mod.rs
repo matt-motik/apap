@@ -437,6 +437,13 @@ impl FakeExclusiveBackend {
         self.calls.lock().unwrap_or_else(|e| e.into_inner()).clone()
     }
 
+    /// Хэндл журнала, разделяемый с фейком: берётся до того, как бэкенд
+    /// уходит в `Box<dyn ExclusiveBackend>`, и после этого читается
+    /// отдельно от него (§7.1, ТЗ-114).
+    pub fn calls_handle(&self) -> Arc<Mutex<Vec<ExclusiveCall>>> {
+        Arc::clone(&self.calls)
+    }
+
     fn push(&self, call: ExclusiveCall) {
         self.calls.lock().unwrap_or_else(|e| e.into_inner()).push(call);
     }

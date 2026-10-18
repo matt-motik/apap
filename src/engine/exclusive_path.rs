@@ -9,9 +9,10 @@ use std::sync::mpsc;
 use std::sync::Arc;
 
 use crate::audio::backend::exclusive::{ConfigureError, DeviceClaim, ExclusiveBackend, StartError, StreamHandle};
-use crate::audio::backend::{AccessKind, OutputApi};
+use crate::audio::backend::{AccessKind, DeviceBufferActual, DriverFormat, OutputApi};
 use crate::audio::decoder::AudioSource;
 use crate::audio::error::StreamFault;
+use crate::audio::format::StreamFormat;
 use crate::audio::path::signal::SignalPath;
 use crate::audio::path::{OpenedFacts, OsStage, PathPlan, ReservationView};
 use crate::audio::session::SessionShared;
@@ -33,6 +34,18 @@ pub(crate) struct ExclusiveSession {
     decode_events: mpsc::Receiver<DecodeEvent>,
 }
 
+/// Конфигурация PCM, установленная последним `configure` (§6.7, §6.18 шаг
+/// 5): смена трека на той же конфигурации пропускает повторный `configure`
+/// (ТЗ-43, И-Р12), сохраняя значения `driver`/`buffer_actual`, с которыми
+/// уже открыт путь.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub(crate) struct ConfiguredFormat {
+    target: StreamFormat,
+    device_buffer: DeviceBuffer,
+    driver: DriverFormat,
+    buffer_actual: DeviceBufferActual,
+}
+
 /// Открытый Эксклюзивный путь: удержанный захват устройства, сессия
 /// декодера и поток вывода (§6.18, ТЗ-48). `claim` не теряется ни на одном
 /// шаге открытия — при отказе он возвращается в `ExclusiveOpenError`, чтобы
@@ -48,6 +61,10 @@ pub(crate) struct ExclusivePath {
     /// снимком `ActivePath` Эксклюзивного пути (`run.rs::open_exclusive`,
     /// `rebuild_with_gain`) без повторного обращения к устройству.
     facts: OpenedFacts,
+    /// Конфигурация PCM, с которой открыт путь (§6.7, §6.18 шаг 5):
+    /// передаётся следующему `open()` как `prev_configured`, чтобы смена
+    /// трека на той же конфигурации не повторяла `configure`.
+    configured: ConfiguredFormat,
 }
 
 impl ExclusivePath {
@@ -89,6 +106,13 @@ impl ExclusivePath {
     /// Эксклюзивного пути без повторного обращения к устройству.
     pub(crate) fn facts(&self) -> &OpenedFacts {
         &self.facts
+    }
+
+    /// Конфигурация PCM, с которой открыт путь (§6.7, §6.18 шаг 5): передаётся
+    /// следующему `open()` как `prev_configured` при смене трека без закрытия
+    /// замка устройства.
+    pub(crate) fn configured(&self) -> ConfiguredFormat {
+        self.configured
     }
 
     /// Применяет громкость/mute к разделяемому состоянию сессии (§6.18,
@@ -153,7 +177,7 @@ impl ExclusivePath {
     /// декодера. Захват возвращается вызывающей стороне: замок устройства
     /// остаётся удержан (§6.19), закрыть его — отдельное решение.
     pub(crate) fn close(self) -> DeviceClaim {
-        let ExclusivePath { mut claim, mut session, handle, frame_rate: _, facts: _ } = self;
+        let ExclusivePath { mut claim, mut session, handle, frame_rate: _, facts: _, configured: _ } = self;
         *claim.pcm_mut() = handle.stop();
         session.worker.stop();
         claim
@@ -213,8 +237,11 @@ pub(crate) struct ExclusiveOpenError {
 /// Открытие Эксклюзивного пути по уже построенному плану и уже открытому
 /// источнику (§6.18 п. 1–7, ТЗ-48, ТЗ-50, ТЗ-113):
 ///
-/// 1. `configure` — безусловно: `ClaimInfo` не хранит формат потока, поэтому
-///    пропустить этот шаг нет возможности.
+/// 1. `configure` — только если `plan.target`/`device_buffer` отличаются от
+///    `prev_configured` (§6.7, §6.18 шаг 5, ТЗ-43, И-Р12): смена трека на той
+///    же конфигурации PCM переиспользует `driver`/`buffer_actual` предыдущего
+///    открытия без повторного `hw_params`. `prev_configured` — `None` при
+///    первом открытии после `acquire` (`ClaimInfo` формат потока не хранит).
 /// 2. `exclusive_session_plan` — план ring/рендера по фактическому буферу.
 /// 3. `build_exclusive_render` + `exclusive_feed` — рендер, ring и источник
 ///    декодера под этот план.
@@ -238,14 +265,24 @@ pub(crate) fn open(
     dither_seed: Option<u32>,
     start_frame: u64,
     generation: u64,
+    prev_configured: Option<ConfiguredFormat>,
 ) -> Result<(ExclusivePath, SignalPath), ExclusiveOpenError> {
     let frame_rate = plan.target.rate.hz();
-    let (driver, buffer_actual) = match backend.configure(&mut claim, plan.target, device_buffer) {
-        Ok(ok) => ok,
-        Err(e) => return Err(ExclusiveOpenError { claim, reason: ExclusiveOpenReason::Configure(e) }),
-    };
-    let Some(buffer) = buffer_actual else {
-        return Err(ExclusiveOpenError { claim, reason: ExclusiveOpenReason::BufferUnavailable });
+    let reuse = prev_configured
+        .filter(|prev| prev.target == plan.target && prev.device_buffer == device_buffer);
+    let (driver, buffer, configured) = match reuse {
+        Some(prev) => (prev.driver, prev.buffer_actual, prev),
+        None => {
+            let (driver, buffer_actual) = match backend.configure(&mut claim, plan.target, device_buffer) {
+                Ok(ok) => ok,
+                Err(e) => return Err(ExclusiveOpenError { claim, reason: ExclusiveOpenReason::Configure(e) }),
+            };
+            let Some(buffer) = buffer_actual else {
+                return Err(ExclusiveOpenError { claim, reason: ExclusiveOpenReason::BufferUnavailable });
+            };
+            let configured = ConfiguredFormat { target: plan.target, device_buffer, driver, buffer_actual: buffer };
+            (driver, buffer, configured)
+        }
     };
 
     let session_plan = match exclusive_session_plan(&plan, buffer, ring_buffer_ms, volume_lock, dither_seed) {
@@ -288,7 +325,7 @@ pub(crate) fn open(
     };
 
     let session = ExclusiveSession { worker, shared, decode_events };
-    let path = ExclusivePath { claim, session, handle, frame_rate, facts: facts.clone() };
+    let path = ExclusivePath { claim, session, handle, frame_rate, facts: facts.clone(), configured };
     let signal = SignalPath::from_opened(plan, facts, generation);
     Ok((path, signal))
 }
