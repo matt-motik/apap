@@ -261,12 +261,15 @@ impl AlsaExclusiveBackend {
         self.configure(claim, fmt, buffer).map_err(ReconfigureError::Configure)
     }
 
-    /// Поток вывода над захваченным PCM (§2.3, §6.7, ТЗ-51, ТЗ-76, ТЗ-112):
-    /// PCM целиком переходит в поток `apap-alsa-out` (`alsa_out::spawn_output_thread`)
-    /// до вызова `StreamHandle::stop` у возвращённого хендла. `stop`
-    /// возвращает PCM значением (`Option<PcmHandle>`, трейт `exclusive.rs`);
-    /// вызывающая сторона кладёт его в `claim.pcm_mut()`. Вся проверяемая
-    /// логика (байт на сэмпл, размер периода, таймаут `wait`) выполняется до
+    /// Поток вывода над захваченным PCM (§2.3, §6.7, §6.8 п. 2, ТЗ-51, ТЗ-76,
+    /// ТЗ-99, ТЗ-112): PCM целиком переходит в поток `apap-alsa-out`
+    /// (`alsa_out::spawn_output_thread`) до вызова `StreamHandle::stop` у
+    /// возвращённого хендла. `stop` возвращает PCM значением
+    /// (`Option<PcmHandle>`, трейт `exclusive.rs`); вызывающая сторона
+    /// кладёт его в `claim.pcm_mut()`. После запуска потока `recv_tid` ждёт
+    /// его TID не дольше 100 мс вне RT — таймаут не фатален, хендл просто
+    /// отдаёт `rt_tid() == None` (§6.8 п. 2). Вся проверяемая логика (байт на
+    /// сэмпл, размер периода, таймаут `wait`) выполняется до
     /// `claim.pcm_mut().take()` — при любом отказе до запуска потока PCM
     /// остаётся в `claim`, а не теряется; отказ самого `spawn` (ОС не создала
     /// поток) — вне этого гарантии, см. `alsa_out::spawn_output_thread`.
@@ -297,7 +300,8 @@ impl AlsaExclusiveBackend {
             Err(e) => return Err(StartError(format!("не удалось создать поток apap-alsa-out: {e}"))),
         };
 
-        let handle = alsa_out::AlsaStreamHandle::new(stop, join, tid_rx);
+        let tid = alsa_out::recv_tid(tid_rx);
+        let handle = alsa_out::AlsaStreamHandle::new(stop, join, tid);
         Ok(Box::new(handle))
     }
 }

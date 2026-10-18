@@ -105,27 +105,39 @@ pub(crate) fn wait_timeout_ms(period_frames: u32, rate_hz: u32) -> Option<u32> {
     u32::try_from(timeout_ms).ok()
 }
 
-/// Получатель TID потока `apap-alsa-out` (§6.7, §6.8, ТЗ-99): этот шаг
-/// только создаёт канал и отправляет TID из потока до входа в цикл, но не
-/// потребляет его — ожидание (не дольше 100 мс, вне RT) и вызов повышения
-/// приоритета потока появятся отдельным шагом (§6.8).
+/// Получатель TID потока `apap-alsa-out` (§6.7, §6.8 п. 2, ТЗ-99): поток
+/// отправляет свой TID в соответствующий `Sender` до входа в цикл; `recv_tid`
+/// забирает его вне RT, не дольше 100 мс. Запрос RT-приоритета у rtkit по
+/// этому TID — отдельный шаг (§6.8 п. 3).
 pub(crate) type TidReceiver = mpsc::Receiver<rustix::thread::Pid>;
+
+/// Таймаут ожидания TID потока вывода вне RT (§6.8 п. 2, ТЗ-99).
+const RT_TID_RECV_TIMEOUT: std::time::Duration = std::time::Duration::from_millis(100);
+
+/// Ждёт TID потока `apap-alsa-out` не дольше 100 мс вне RT (§6.7, §6.8 п. 2,
+/// ТЗ-99). Таймаут или отказ отправителя (поток не создался или уже упал до
+/// отправки) — `None`, не паника.
+pub(crate) fn recv_tid(rx: TidReceiver) -> Option<u32> {
+    let pid = rx.recv_timeout(RT_TID_RECV_TIMEOUT).ok()?;
+    u32::try_from(pid.as_raw_pid()).ok()
+}
 
 /// Имя потока вывода ALSA (§6.7).
 const THREAD_NAME: &str = "apap-alsa-out";
 
-/// Поток вывода (§2.3, §6.7): владеет флагом останова и `JoinHandle`.
-/// `tid_rx` хранится до появления шага RT-приоритета (§6.8, см. `TidReceiver`).
+/// Поток вывода (§2.3, §6.7): владеет флагом останова, `JoinHandle` и TID
+/// потока (`rt_tid`, §6.8 п. 2, ТЗ-99), полученным через `recv_tid` до
+/// постройки хендла. Запрос RT-приоритета у rtkit по этому TID — отдельный
+/// шаг (§6.8 п. 3).
 pub(crate) struct AlsaStreamHandle {
     stop: Arc<AtomicBool>,
     join: JoinHandle<PcmHandle>,
-    #[allow(dead_code)] // потребитель — шаг RT-приоритета потока (§6.8, ТЗ-99)
-    tid_rx: TidReceiver,
+    tid: Option<u32>,
 }
 
 impl AlsaStreamHandle {
-    pub(crate) fn new(stop: Arc<AtomicBool>, join: JoinHandle<PcmHandle>, tid_rx: TidReceiver) -> AlsaStreamHandle {
-        AlsaStreamHandle { stop, join, tid_rx }
+    pub(crate) fn new(stop: Arc<AtomicBool>, join: JoinHandle<PcmHandle>, tid: Option<u32>) -> AlsaStreamHandle {
+        AlsaStreamHandle { stop, join, tid }
     }
 }
 
@@ -138,6 +150,11 @@ impl StreamHandle for AlsaStreamHandle {
     fn stop(self: Box<Self>) -> Option<PcmHandle> {
         self.stop.store(true, Ordering::Release);
         self.join.join().ok()
+    }
+
+    /// TID потока `apap-alsa-out`, полученный при `start` (§6.8 п. 2, ТЗ-99).
+    fn rt_tid(&self) -> Option<u32> {
+        self.tid
     }
 }
 
@@ -273,5 +290,12 @@ mod tests {
     #[test]
     fn wait_timeout_ms_zero_rate_is_none() {
         assert_eq!(wait_timeout_ms(1_920, 0), None);
+    }
+
+    #[test]
+    fn recv_tid_without_sender_is_none() {
+        let (tx, rx) = mpsc::channel::<rustix::thread::Pid>();
+        drop(tx);
+        assert_eq!(recv_tid(rx), None);
     }
 }

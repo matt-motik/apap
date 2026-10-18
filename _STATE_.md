@@ -116,8 +116,8 @@
 - [x] Шаг 53: Шаг 53: exclusive_path.rs: смена трека с удержанием PCM — configure только при смене формата (§6.7, §6.18) + тест. Проверка: cargo test engine::
 - [x] Шаг 54: Шаг 54: run.rs: SetModeSettings на эксклюзивном пути — смена «Буфера устройства»/параметров тракта по таблице применения (configure без освобождения, переоткрытие с позиции) (§6.7, §6.18, ТЗ-131) + тест. Проверка: cargo test engine::
 - [x] Шаг 55: Шаг 55: Отложенный тест AM1.0-8.4 шаг 14: audio_param_change_reopens_at_position_preserving_pause на FakeExclusiveBackend (ТЗ-131, §7.2). Проверка: cargo test audio_param_change_reopens
-- [>] **Шаг 56: Шаг 56: TID потока вывода наружу: StreamHandle::rt_tid(&self) -> Option<u32> (Shared/фейк — None) в exclusive.rs; AlsaExclusiveBackend::start ждёт TID из канала не дольше 100 мс (recv_timeout, вне RT) и кладёт его в AlsaStreamHandle вместо tid_rx; таймаут → None (alsa.rs, alsa_out.rs, фейк в audio/testing/mod.rs) (§6.8 п. 2). Общий тип → Проверка: полный cargo test**
-- [ ] Шаг 57: Шаг 57: RT-приоритет в движке: после start передать TID в rt.rs → InternalMsg::RtPriority → DynamicPathState.rt_priority (§6.8, ТЗ-30) + тест на фейковом rt. Проверка: cargo test engine::
+- [x] Шаг 56: Шаг 56: TID потока вывода наружу: StreamHandle::rt_tid(&self) -> Option<u32> (Shared/фейк — None) в exclusive.rs; AlsaExclusiveBackend::start ждёт TID из канала не дольше 100 мс (recv_timeout, вне RT) и кладёт его в AlsaStreamHandle вместо tid_rx; таймаут → None (alsa.rs, alsa_out.rs, фейк в audio/testing/mod.rs) (§6.8 п. 2). Общий тип → Проверка: полный cargo test
+- [>] **Шаг 57: Шаг 57: RT-приоритет в движке: после start передать TID в rt.rs → InternalMsg::RtPriority → DynamicPathState.rt_priority (§6.8, ТЗ-99, ТЗ-76) + тест на фейковом rt. Проверка: cargo test engine::**
 - [ ] Шаг 58: Шаг 58: ЧЕКПОИНТ: полный cargo test + cargo clippy --all-targets
 - [ ] Шаг 59: Шаг 59: run.rs: смена режима Exclusive → Compatible — Release раньше SharedBackend::start; тест optimal_held_to_compatible_releases_before_shared — закрывает AM1.0-B13 (§6.18, ТЗ-21). Проверка: cargo test optimal_held_to_compatible
 - [ ] Шаг 60: Шаг 60: run.rs: смена устройства режима (SwitchDevice) — Release старого → Lock(DeviceSelected(d)) → Acquire нового + тест (§6.18, §6.19, ТЗ-44). Проверка: cargo test engine::
@@ -145,8 +145,8 @@
 
 Легенда: [x] сделано · [>] текущий шаг · [ ] не начато
 
-- **Текущий шаг (current_step):** Шаг 56
-- **Следующий ход:** Шаг 56: StreamHandle::rt_tid() -> Option<u32>; AlsaExclusiveBackend::start ждёт TID ≤100 мс (§6.8 п. 2). Общий тип → полный cargo test. Свежий субагент code-writer sonnet.
+- **Текущий шаг (current_step):** Шаг 57
+- **Следующий ход:** Шаг 57: RT-приоритет в движке: после start взять StreamHandle::rt_tid() → rtkit в служебном потоке → InternalMsg::RtPriority → DynamicPathState.rt_priority (§6.8, ТЗ-99, ТЗ-76) + тест на фейке. Свежий субагент code-writer sonnet.
 - **Счетчик безуспешных компиляций:** 0/3
 - **Состояние:** in_progress
 

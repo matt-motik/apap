@@ -361,15 +361,22 @@ fn fake_driver_format() -> DriverFormat {
 }
 
 /// Фейковый поток вывода: `stop` пишет `ExclusiveCall::Stop` в журнал бэкенда,
-/// который его породил (§7.1, ТЗ-114).
+/// который его породил (§7.1, ТЗ-114). `rt_tid` отдаёт TID, заданный тестом
+/// через `FakeExclusiveBackend::with_start_tid` (§6.8 п. 2, ТЗ-99); по
+/// умолчанию `None`, как у настоящего Shared-бэкенда.
 struct FakeExclusiveStream {
     calls: Arc<Mutex<Vec<ExclusiveCall>>>,
+    rt_tid: Option<u32>,
 }
 
 impl StreamHandle for FakeExclusiveStream {
     fn stop(self: Box<Self>) -> Option<PcmHandle> {
         self.calls.lock().unwrap_or_else(|e| e.into_inner()).push(ExclusiveCall::Stop);
         None
+    }
+
+    fn rt_tid(&self) -> Option<u32> {
+        self.rt_tid
     }
 }
 
@@ -387,6 +394,7 @@ pub struct FakeExclusiveBackend {
     device_caps_result: Result<DeviceCaps, CaptureFailure>,
     configure_result: Result<(DriverFormat, Option<DeviceBufferActual>), ConfigureError>,
     start_result: Result<(), StartError>,
+    start_tid: Option<u32>,
     calls: Arc<Mutex<Vec<ExclusiveCall>>>,
 }
 
@@ -399,6 +407,7 @@ impl FakeExclusiveBackend {
             device_caps_result: Ok(fake_device_caps()),
             configure_result: Ok((fake_driver_format(), None)),
             start_result: Ok(()),
+            start_tid: None,
             calls: Arc::new(Mutex::new(Vec::new())),
         }
     }
@@ -428,6 +437,13 @@ impl FakeExclusiveBackend {
 
     pub fn with_start(mut self, result: Result<(), StartError>) -> FakeExclusiveBackend {
         self.start_result = result;
+        self
+    }
+
+    /// TID, который вернёт `StreamHandle::rt_tid` потока, созданного `start`
+    /// (§6.8 п. 2, ТЗ-99). По умолчанию `None`.
+    pub fn with_start_tid(mut self, tid: Option<u32>) -> FakeExclusiveBackend {
+        self.start_tid = tid;
         self
     }
 
@@ -508,7 +524,7 @@ impl ExclusiveBackend for FakeExclusiveBackend {
     ) -> Result<Box<dyn StreamHandle>, StartError> {
         self.push(ExclusiveCall::Start);
         self.start_result.clone()?;
-        Ok(Box::new(FakeExclusiveStream { calls: Arc::clone(&self.calls) }))
+        Ok(Box::new(FakeExclusiveStream { calls: Arc::clone(&self.calls), rt_tid: self.start_tid }))
     }
 }
 
@@ -605,6 +621,21 @@ mod tests {
 
         assert_eq!(result.err(), Some(CaptureFailure::DeviceDisconnected));
         assert_eq!(backend.calls(), vec![ExclusiveCall::Acquire(dev)]);
+    }
+
+    #[test]
+    fn fake_exclusive_stream_reports_configured_rt_tid() {
+        let mut backend = FakeExclusiveBackend::new().with_start_tid(Some(4242));
+        let dev: HwDeviceId = "hw:CARD=RU3,DEV=0".parse().expect("hw id");
+        let mut claim = backend.acquire(&dev, Reservation::UnavailableNoServer).expect("acquire ok");
+        let fmt = StreamFormat {
+            rate: SampleRate::new(48_000).expect("rate"),
+            sample: OutputSampleFormat::S32Le,
+            channels: NonZeroU8::new(2).expect("channels"),
+        };
+        let stream =
+            backend.start(&mut claim, fake_render(), fmt, 480, Arc::new(SessionShared::new())).expect("start ok");
+        assert_eq!(stream.rt_tid(), Some(4242));
     }
 
     #[test]

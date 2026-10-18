@@ -222,6 +222,13 @@ pub trait StreamHandle: Send {
     /// закрыт, вызывающая сторона кладёт его обратно в `DeviceClaim` через
     /// `pcm_mut()`; Shared возвращает `None` (§2.3).
     fn stop(self: Box<Self>) -> Option<PcmHandle>;
+
+    /// TID потока вывода для повышения RT-приоритета (§6.8 п. 2, ТЗ-99).
+    /// Shared не узнаёт TID колбэка cpal без системного вызова внутри
+    /// колбэка (§6.8 п. 4, ТЗ-98) — возвращает `None` по умолчанию.
+    fn rt_tid(&self) -> Option<u32> {
+        None
+    }
 }
 
 /// `ExclusiveBackend::configure` не смог установить hw_params (§2.3, ТЗ-113).

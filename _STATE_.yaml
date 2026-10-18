@@ -227,9 +227,9 @@ steps:
     done: true
   - id: 56
     description: "Шаг 56: TID потока вывода наружу: StreamHandle::rt_tid(&self) -> Option<u32> (Shared/фейк — None) в exclusive.rs; AlsaExclusiveBackend::start ждёт TID из канала не дольше 100 мс (recv_timeout, вне RT) и кладёт его в AlsaStreamHandle вместо tid_rx; таймаут → None (alsa.rs, alsa_out.rs, фейк в audio/testing/mod.rs) (§6.8 п. 2). Общий тип → Проверка: полный cargo test"
-    done: false
+    done: true
   - id: 57
-    description: "Шаг 57: RT-приоритет в движке: после start передать TID в rt.rs → InternalMsg::RtPriority → DynamicPathState.rt_priority (§6.8, ТЗ-30) + тест на фейковом rt. Проверка: cargo test engine::"
+    description: "Шаг 57: RT-приоритет в движке: после start передать TID в rt.rs → InternalMsg::RtPriority → DynamicPathState.rt_priority (§6.8, ТЗ-99, ТЗ-76) + тест на фейковом rt. Проверка: cargo test engine::"
     done: false
   - id: 58
     description: "Шаг 58: ЧЕКПОИНТ: полный cargo test + cargo clippy --all-targets"
@@ -303,8 +303,8 @@ steps:
   - id: 81
     description: "Шаг 81: ФИНАЛ: cargo build/test/clippy зелёные; общие условия §8 (Совместимый играет, «Bit-perfect» только при ТЗ-52); ручные проверки в заметку плана: замок (ТЗ-1/2/48/118…122, AM1.0-8.1), B1 — возврат устройства в PipeWire после освобождения, B2 — текст «занято <владелец>» при чужом захвате"
     done: false
-current_step: 56
-next_action: "Шаг 56: StreamHandle::rt_tid() -> Option<u32>; AlsaExclusiveBackend::start ждёт TID ≤100 мс (§6.8 п. 2). Общий тип → полный cargo test. Свежий субагент code-writer sonnet."
+current_step: 57
+next_action: "Шаг 57: RT-приоритет в движке: после start взять StreamHandle::rt_tid() → rtkit в служебном потоке → InternalMsg::RtPriority → DynamicPathState.rt_priority (§6.8, ТЗ-99, ТЗ-76) + тест на фейке. Свежий субагент code-writer sonnet."
 fail_counter: 0
 fail_counter_max: 3
 failed_attempts: []
