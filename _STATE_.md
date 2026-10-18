@@ -148,8 +148,8 @@
 - [x] Шаг 81: Шаг 81: AM1.0-B16 ч. 2: источник списка устройств Оптимального/Строгого во вкладке Audio — каталог HwDeviceId (не cpal-id); если уже так — шаг закрыть без кода с пометкой (ADR-24, ТЗ-126). Проверка: cargo check + cargo test по модулю
 - [x] Шаг 82: Шаг 82: AM1.0-B16 ч. 3: миграция устаревшего числового hw:CARD=<N>,DEV=<D> — в lock_input, если canonical_hw сопоставил устройство режима с другим (каноническим) id, движок записывает канонический id в mode_settings режима и шлёт EngineEvent::DeviceAutoSelected (приложение сохраняет в settings.toml через save_auto_selected_device); после миграции числовой fallback не используется — сравнение по стабильному id (engine/run.rs, ADR-24, ТЗ-126) + тест. Проверка: полный cargo test
 - [x] Шаг 83: Шаг 83: AM1.0-B16 ч. 4: при EngineEvent::Devices и открытом диалоге в Оптимальном/Строгом перестроить список Audio (вызов apply_audio_device_listing в drain_engine_events, app/mod.rs, ADR-24, ТЗ-126). Проверка: cargo check + cargo test --bin
-- [>] **Шаг 84: Шаг 84: AM1.0-B8 ч. 3: инвалидация PathWindowCache по dirty-флагу динамики (app/path_view.rs) + тест (ТЗ-68). Проверка: cargo test path_view**
-- [ ] Шаг 85: Шаг 85: ЧЕКПОИНТ: полный cargo test + cargo clippy --all-targets
+- [x] Шаг 84: Шаг 84: AM1.0-B8 ч. 3: инвалидация PathWindowCache по dirty-флагу динамики (app/path_view.rs) + тест (ТЗ-68). Проверка: cargo test path_view
+- [>] **Шаг 85: Шаг 85: ЧЕКПОИНТ: полный cargo test + cargo clippy --all-targets**
 - [ ] Шаг 86: Шаг 86: Удаление в engine: адаптер legacy_exclusive, EngineCmd::ReleaseExclusive и их обработка; legacy_path — только Совместимый (§8 С6 «удаляется»). Проверка: полный cargo test
 - [ ] Шаг 87: Шаг 87: Удаление в player.rs: release_if_exclusive, reopen_and_seek и их вызовы в stop()/toggle()/play() (V5.1-B5, V5.1-B6, ТЗ-43). Проверка: полный cargo test
 - [ ] Шаг 88: Шаг 88: Удаление ExclusiveGate-пути в player.rs и файла reservation/gate.rs (замещён AlsaExclusiveBackend) (§8 С6). Проверка: полный cargo test
@@ -160,8 +160,8 @@
 
 Легенда: [x] сделано · [>] текущий шаг · [ ] не начато
 
-- **Текущий шаг (current_step):** Шаг 84
-- **Следующий ход:** Шаг 84: AM1.0-B8 ч. 3 — инвалидация PathWindowCache по dirty-флагу динамики (app/path_view.rs) + тест. Свежий субагент code-writer sonnet.
+- **Текущий шаг (current_step):** Шаг 85
+- **Следующий ход:** Шаг 85: ЧЕКПОИНТ — полный cargo test + cargo clippy --all-targets (test-runner haiku).
 - **Счетчик безуспешных компиляций:** 0/3
 - **Состояние:** in_progress
 

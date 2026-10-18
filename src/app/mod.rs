@@ -595,7 +595,7 @@ fn settings_with_auto_selected_device(
 }
 
 /// Разобрать событие движка, обновить состояние/бейдж/кэш отчёта «Путь
-/// сигнала» (ADR-02, ТЗ-79, ТЗ-83, §7.2).
+/// сигнала» (ADR-02, ТЗ-79, ТЗ-83, ТЗ-68, §3.5, §7.2).
 fn apply_engine_event(
     state: &mut UiAudioState,
     badge_view: &mut BadgeViewState,
@@ -607,6 +607,12 @@ fn apply_engine_event(
         badge_view.set_badge(b);
     }
     if state.take_path_dirty().is_some() {
+        path_cache.invalidate();
+    }
+    // Динамическая часть пути (Underrun/Xrun/MD5/…) входит в отчёт
+    // (`compute_report` → `audio.dynamics()`), поэтому её изменение тоже
+    // инвалидирует кэш окна «Путь сигнала» (ТЗ-68, §3.5, §7.2).
+    if state.take_dynamics_dirty().is_some() {
         path_cache.invalidate();
     }
     if matches!(&applied, Applied::Skipped { .. } | Applied::OpenFailed { .. }) {
@@ -3900,5 +3906,96 @@ mod tests {
         assert_eq!(applied, Applied::OpenFailed { err: OpenError::DeviceLost });
         assert!(state.take_path_dirty().is_none());
         assert!(path_cache.take_dirty(&state, &ModeSettings::default()).is_some());
+    }
+
+    /// ТЗ-68, §3.5, §7.2: `DynamicsChanged` для активной сессии взводит кэш
+    /// отчёта «Путь сигнала», как и смена самого пути.
+    #[test]
+    fn apply_engine_event_dynamics_changed_invalidates_report() {
+        use music_player_rs::audio::path::signal::DynamicPathState;
+
+        let mut state = UiAudioState::new();
+        let mut badge_view = BadgeViewState::new();
+        let mut path_cache = PathWindowCache::new();
+
+        state.begin_open(1);
+        apply_engine_event(&mut state, &mut badge_view, &mut path_cache, opened(1));
+        // Снять начальную «грязь» открытия сессии, чтобы проверить именно
+        // эффект `DynamicsChanged`.
+        badge_view.take_view();
+        path_cache.take_dirty(&state, &ModeSettings::default());
+
+        let dynamics = DynamicPathState { underruns: 1, ..DynamicPathState::default() };
+        let applied = apply_engine_event(
+            &mut state,
+            &mut badge_view,
+            &mut path_cache,
+            EngineEvent::DynamicsChanged { session: 1, dynamics },
+        );
+
+        assert_eq!(applied, Applied::None);
+        assert!(path_cache.take_dirty(&state, &ModeSettings::default()).is_some());
+    }
+
+    /// ТЗ-68, §3.5, §7.2: повторный `DynamicsChanged` с тем же значением не
+    /// взводит кэш отчёта заново — пересчёта вхолостую нет (тот же принцип,
+    /// что и `window_no_recompute_on_idle_ticks` в `path_view.rs`).
+    #[test]
+    fn apply_engine_event_same_dynamics_no_report_rebuild() {
+        use music_player_rs::audio::path::signal::DynamicPathState;
+
+        let mut state = UiAudioState::new();
+        let mut badge_view = BadgeViewState::new();
+        let mut path_cache = PathWindowCache::new();
+
+        state.begin_open(1);
+        apply_engine_event(&mut state, &mut badge_view, &mut path_cache, opened(1));
+        badge_view.take_view();
+        path_cache.take_dirty(&state, &ModeSettings::default());
+
+        let dynamics = DynamicPathState { underruns: 1, ..DynamicPathState::default() };
+        apply_engine_event(
+            &mut state,
+            &mut badge_view,
+            &mut path_cache,
+            EngineEvent::DynamicsChanged { session: 1, dynamics: dynamics.clone() },
+        );
+        path_cache.take_dirty(&state, &ModeSettings::default());
+
+        apply_engine_event(
+            &mut state,
+            &mut badge_view,
+            &mut path_cache,
+            EngineEvent::DynamicsChanged { session: 1, dynamics },
+        );
+        assert!(path_cache.take_dirty(&state, &ModeSettings::default()).is_none());
+    }
+
+    /// ТЗ-68, §3.5, И-Р14: `DynamicsChanged` с чужой (не активной) сессией
+    /// не инвалидирует кэш отчёта — тот же фильтр по `session`, что и у
+    /// `Ended`.
+    #[test]
+    fn apply_engine_event_stale_dynamics_does_not_invalidate_report() {
+        use music_player_rs::audio::path::signal::DynamicPathState;
+
+        let mut state = UiAudioState::new();
+        let mut badge_view = BadgeViewState::new();
+        let mut path_cache = PathWindowCache::new();
+
+        state.begin_open(1);
+        apply_engine_event(&mut state, &mut badge_view, &mut path_cache, opened(1));
+        badge_view.take_view();
+        path_cache.take_dirty(&state, &ModeSettings::default());
+
+        let dynamics = DynamicPathState { underruns: 7, ..DynamicPathState::default() };
+        let applied = apply_engine_event(
+            &mut state,
+            &mut badge_view,
+            &mut path_cache,
+            EngineEvent::DynamicsChanged { session: 0, dynamics },
+        );
+
+        assert_eq!(applied, Applied::None);
+        assert!(path_cache.take_dirty(&state, &ModeSettings::default()).is_none());
     }
 }

@@ -315,7 +315,7 @@ steps:
     done: true
   - id: 84
     description: "Шаг 84: AM1.0-B8 ч. 3: инвалидация PathWindowCache по dirty-флагу динамики (app/path_view.rs) + тест (ТЗ-68). Проверка: cargo test path_view"
-    done: false
+    done: true
   - id: 85
     description: "Шаг 85: ЧЕКПОИНТ: полный cargo test + cargo clippy --all-targets"
     done: false
@@ -340,8 +340,8 @@ steps:
   - id: 92
     description: "Шаг 92: ФИНАЛ: cargo build/test/clippy зелёные; общие условия §8 (Совместимый играет, «Bit-perfect» только при ТЗ-52); ручные проверки в заметку плана: замок (ТЗ-1/2/48/118…122, AM1.0-8.1), B1 — возврат устройства в PipeWire после освобождения, B2 — текст «занято <владелец>» при чужом захвате"
     done: false
-current_step: 84
-next_action: 'Шаг 84: AM1.0-B8 ч. 3 — инвалидация PathWindowCache по dirty-флагу динамики (app/path_view.rs) + тест. Свежий субагент code-writer sonnet.'
+current_step: 85
+next_action: 'Шаг 85: ЧЕКПОИНТ — полный cargo test + cargo clippy --all-targets (test-runner haiku).'
 fail_counter: 0
 fail_counter_max: 3
 failed_attempts: []

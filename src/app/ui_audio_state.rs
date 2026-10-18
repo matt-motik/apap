@@ -194,9 +194,7 @@ pub struct UiAudioState {
     /// Копия `dynamics`, «записанная в UI» (ТЗ-68, §3.5, шаг 78) — тот же
     /// смысл, что и `written` в `Written<T>`, но без обвязки generic:
     /// `dynamics()` должен возвращать `&DynamicPathState`, а не `Option`.
-    // Читается только в `take_dynamics_dirty` — используется на шаге 79
-    // (`path_view.rs`), вне теста пока не вызывается.
-    #[allow(dead_code)]
+    // Читается только в `take_dynamics_dirty`.
     dynamics_written: Option<DynamicPathState>,
     /// Истина после принятого `Ended`, пока не снята `clear_end` (ТЗ-56,
     /// ADR-02).
@@ -465,10 +463,10 @@ impl UiAudioState {
     }
 
     /// `Some`, только если динамическая часть пути изменилась с прошлого
-    /// чтения (ТЗ-68, §3.5, И-Р13, шаг 78/79) — тот же смысл, что и
+    /// чтения (ТЗ-68, §3.5, И-Р13, шаг 78/84) — тот же смысл, что и
     /// `Written::take_dirty`, но без Option-обвязки текущего значения.
-    // Используется на шаге 79 (`path_view.rs`); вне теста пока не вызывается.
-    #[allow(dead_code)]
+    // Потребитель — `apply_engine_event` (`mod.rs`, шаг 84): инвалидирует
+    // кэш отчёта «Путь сигнала» при изменении динамики.
     pub fn take_dynamics_dirty(&mut self) -> Option<DynamicPathState> {
         if Some(&self.dynamics) != self.dynamics_written.as_ref() {
             self.dynamics_written = Some(self.dynamics.clone());
