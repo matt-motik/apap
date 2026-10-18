@@ -141,8 +141,8 @@
 - [x] Шаг 75: Шаг 75: playback_manager.rs: Play в Оптимальном/Строгом при LockState::Open не начинает воспроизведение и не захватывает — сообщение «Замок открыт» с кнопкой CaptureAndPlayOk (ТЗ-125). Проверка: cargo check
 - [x] Шаг 76: Шаг 76: app/mod.rs: подпись «Захватить и играть» для CaptureAndPlayOk; CloseEffect::CaptureAndPlay → EngineCmd::Lock(CaptureAndPlay) + флаг ожидания; Lock(Held) при флаге → Play, Lock(Failed/иное) → сброс флага (ТЗ-125, §6.19). Проверка: cargo build
 - [x] Шаг 77: Шаг 77: AM1.0-B8 ч. 1: EngineEvent::DynamicsChanged(DynamicPathState) в messages.rs и эмиссия из poll_session при изменении underruns/xruns/rt_priority в run.rs (ТЗ-68). Общий тип → Проверка: полный cargo test
-- [>] **Шаг 78: Шаг 78: AM1.0-B8 ч. 2: UiAudioState — dirty-флаг по DynamicsChanged (ui_audio_state.rs) + тест (ТЗ-68). Проверка: cargo test ui_audio_state**
-- [ ] Шаг 79: Шаг 79: AM1.0-B8 ч. 3: инвалидация PathWindowCache по dirty-флагу динамики (app/path_view.rs) + тест (ТЗ-68). Проверка: cargo test path_view
+- [x] Шаг 78: Шаг 78: AM1.0-B8 ч. 2: UiAudioState — dirty-флаг по DynamicsChanged (ui_audio_state.rs) + тест (ТЗ-68). Проверка: cargo test ui_audio_state
+- [>] **Шаг 79: Шаг 79: AM1.0-B8 ч. 3: инвалидация PathWindowCache по dirty-флагу динамики (app/path_view.rs) + тест (ТЗ-68). Проверка: cargo test path_view**
 - [ ] Шаг 80: Шаг 80: ЧЕКПОИНТ: полный cargo test + cargo clippy --all-targets
 - [ ] Шаг 81: Шаг 81: Удаление в engine: адаптер legacy_exclusive, EngineCmd::ReleaseExclusive и их обработка; legacy_path — только Совместимый (§8 С6 «удаляется»). Проверка: полный cargo test
 - [ ] Шаг 82: Шаг 82: Удаление в player.rs: release_if_exclusive, reopen_and_seek и их вызовы в stop()/toggle()/play() (V5.1-B5, V5.1-B6, ТЗ-43). Проверка: полный cargo test
@@ -154,8 +154,8 @@
 
 Легенда: [x] сделано · [>] текущий шаг · [ ] не начато
 
-- **Текущий шаг (current_step):** Шаг 78
-- **Следующий ход:** Шаг 78: AM1.0-B8 ч. 2 — UiAudioState: dirty-флаг по EngineEvent::DynamicsChanged (сейчас там заглушечный арм Applied::None), хранить DynamicPathState + тест (ТЗ-68). Проверка: cargo test ui_audio_state. Свежий субагент code-writer sonnet.
+- **Текущий шаг (current_step):** Шаг 79
+- **Следующий ход:** Шаг 79: AM1.0-B8 ч. 3 — PathWindowCache (app/path_view.rs) инвалидируется по UiAudioState::take_dynamics_dirty() (снять #[allow(dead_code)] в ui_audio_state.rs) + тест (ТЗ-68). Проверка: cargo test path_view. Свежий субагент code-writer sonnet.
 - **Счетчик безуспешных компиляций:** 0/3
 - **Состояние:** in_progress
 

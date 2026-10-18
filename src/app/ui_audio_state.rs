@@ -11,8 +11,14 @@
 //! Шаг 30: состояние хранит новую модель пути сигнала (§2.3, §2.5, ADR-20) —
 //! `path: Option<Arc<SignalPath>>` (сравнение по `generation`, ТЗ-68),
 //! `badge: BadgeState` (через `Written<T>`, И-Р13) и `DynamicPathState`
-//! (§3.5) без обвязки `Written<T>`: событие `DynamicsChanged` появится
-//! отдельным шагом, здесь поле только сбрасывается на новое открытие.
+//! (§3.5), сбрасываемое на новое открытие.
+//!
+//! Шаг 78 (ТЗ-68, §3.5, AM1.0-B8): `EngineEvent::DynamicsChanged` принимается
+//! по тому же фильтру `session`, что и `Ended` — устаревшая сессия
+//! отбрасывается (И-Р14). Грязный флаг для `dynamics` ведётся отдельной
+//! копией «записано в UI» (`dynamics_written`), а не обвязкой `Written<T>`:
+//! `dynamics()` обязан возвращать `&DynamicPathState` напрямую (читает
+//! `path_view.rs::build_report`), а `Written<T>` отдаёт только `Option<&T>`.
 //!
 //! §8 С5: устаревший снимок старого пути (слот `stream`, геттер
 //! `stream_desc()`) удалён из состояния UI. `format()` (§3.1, ADR-05) читает
@@ -185,6 +191,13 @@ pub struct UiAudioState {
     stream_format: Option<StreamFormat>,
     badge: Written<BadgeState>,
     dynamics: DynamicPathState,
+    /// Копия `dynamics`, «записанная в UI» (ТЗ-68, §3.5, шаг 78) — тот же
+    /// смысл, что и `written` в `Written<T>`, но без обвязки generic:
+    /// `dynamics()` должен возвращать `&DynamicPathState`, а не `Option`.
+    // Читается только в `take_dynamics_dirty` — используется на шаге 79
+    // (`path_view.rs`), вне теста пока не вызывается.
+    #[allow(dead_code)]
+    dynamics_written: Option<DynamicPathState>,
     /// Истина после принятого `Ended`, пока не снята `clear_end` (ТЗ-56,
     /// ADR-02).
     ended: bool,
@@ -222,6 +235,7 @@ impl Default for UiAudioState {
             stream_format: None,
             badge: Written::default(),
             dynamics: DynamicPathState::default(),
+            dynamics_written: None,
             ended: false,
             opened: None,
             reservation_queue: VecDeque::new(),
@@ -361,9 +375,16 @@ impl UiAudioState {
                 Applied::Notice(notice)
             }
             EngineEvent::ShutdownComplete => Applied::ShutdownComplete,
-            // Разбор в `UiAudioState.dynamics` — следующий шаг (ТЗ-68);
-            // здесь только заполнение матча.
-            EngineEvent::DynamicsChanged { .. } => Applied::None,
+            // Тот же фильтр по `session`, что и у `Ended` (ТЗ-68, §3.5, шаг
+            // 78): движок шлёт `DynamicsChanged` с `session` открытой сессии
+            // (бридж), устаревшая (уже закрытая/переоткрытая) отбрасывается.
+            EngineEvent::DynamicsChanged { session, dynamics } => {
+                if self.session != Some(session) {
+                    return Applied::None;
+                }
+                self.dynamics = dynamics;
+                Applied::None
+            }
         }
     }
 
@@ -429,11 +450,24 @@ impl UiAudioState {
         matches!(self.lock, LockState::Acquiring { .. })
     }
 
-    /// Текущая динамическая часть пути (§3.5). Событие `DynamicsChanged` и
-    /// грязный флаг для него — отдельный шаг; пока поле только сбрасывается
-    /// на новое открытие и читается целиком.
+    /// Текущая динамическая часть пути (§3.5) без снятия «грязного» флага —
+    /// для чтения вне такта синхронизации с UI (`path_view.rs::build_report`).
     pub fn dynamics(&self) -> &DynamicPathState {
         &self.dynamics
+    }
+
+    /// `Some`, только если динамическая часть пути изменилась с прошлого
+    /// чтения (ТЗ-68, §3.5, И-Р13, шаг 78/79) — тот же смысл, что и
+    /// `Written::take_dirty`, но без Option-обвязки текущего значения.
+    // Используется на шаге 79 (`path_view.rs`); вне теста пока не вызывается.
+    #[allow(dead_code)]
+    pub fn take_dynamics_dirty(&mut self) -> Option<DynamicPathState> {
+        if Some(&self.dynamics) != self.dynamics_written.as_ref() {
+            self.dynamics_written = Some(self.dynamics.clone());
+            Some(self.dynamics.clone())
+        } else {
+            None
+        }
     }
 
     /// Последнее принятое транспортное состояние без снятия «грязного»
@@ -740,6 +774,46 @@ mod tests {
         state.begin_open(2);
         state.apply(EngineEvent::OpenFailed { req_gen: 2, err: OpenError::DeviceLost });
         assert_eq!(state.take_path_dirty(), Some(None));
+    }
+
+    /// ТЗ-68, §3.5: `DynamicsChanged` для активной сессии взводит грязный
+    /// флаг один раз; повторный тот же `dynamics` его не взводит.
+    #[test]
+    fn dynamics_dirty_only_on_change() {
+        let mut state = UiAudioState::new();
+        state.begin_open(1);
+        state.apply(opened(1));
+        // Первый принятый Opened взводит грязный флаг переходом из
+        // «нет данных» (dynamics_written == None) к дефолту — то же
+        // поведение, что у `path`/`badge` на первом Opened.
+        assert_eq!(state.take_dynamics_dirty(), Some(DynamicPathState::default()));
+        assert!(state.take_dynamics_dirty().is_none());
+
+        let dynamics = DynamicPathState { underruns: 1, ..DynamicPathState::default() };
+        state.apply(EngineEvent::DynamicsChanged { session: 1, dynamics: dynamics.clone() });
+        assert_eq!(state.take_dynamics_dirty(), Some(dynamics.clone()));
+
+        // То же значение — не грязное.
+        assert!(state.take_dynamics_dirty().is_none());
+        state.apply(EngineEvent::DynamicsChanged { session: 1, dynamics: dynamics.clone() });
+        assert!(state.take_dynamics_dirty().is_none());
+    }
+
+    /// ТЗ-68, §3.5, И-Р14: `DynamicsChanged` с чужой (не активной) сессией
+    /// отбрасывается — тот же фильтр, что и у `Ended`.
+    #[test]
+    fn dynamics_changed_for_stale_session_ignored() {
+        let mut state = UiAudioState::new();
+        state.begin_open(1);
+        state.apply(opened(1));
+        // Снимаем грязный флаг первого Opened, чтобы изолировать проверку.
+        assert!(state.take_dynamics_dirty().is_some());
+
+        let dynamics = DynamicPathState { underruns: 7, ..DynamicPathState::default() };
+        let applied = state.apply(EngineEvent::DynamicsChanged { session: 0, dynamics });
+        assert_eq!(applied, Applied::None);
+        assert!(state.take_dynamics_dirty().is_none());
+        assert_eq!(state.dynamics(), &DynamicPathState::default());
     }
 
     /// Геттеры читают последнее принятое значение (ADR-02, И-Р13) без

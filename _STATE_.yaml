@@ -296,7 +296,7 @@ steps:
     done: true
   - id: 78
     description: "Шаг 78: AM1.0-B8 ч. 2: UiAudioState — dirty-флаг по DynamicsChanged (ui_audio_state.rs) + тест (ТЗ-68). Проверка: cargo test ui_audio_state"
-    done: false
+    done: true
   - id: 79
     description: "Шаг 79: AM1.0-B8 ч. 3: инвалидация PathWindowCache по dirty-флагу динамики (app/path_view.rs) + тест (ТЗ-68). Проверка: cargo test path_view"
     done: false
@@ -324,8 +324,8 @@ steps:
   - id: 87
     description: "Шаг 87: ФИНАЛ: cargo build/test/clippy зелёные; общие условия §8 (Совместимый играет, «Bit-perfect» только при ТЗ-52); ручные проверки в заметку плана: замок (ТЗ-1/2/48/118…122, AM1.0-8.1), B1 — возврат устройства в PipeWire после освобождения, B2 — текст «занято <владелец>» при чужом захвате"
     done: false
-current_step: 78
-next_action: 'Шаг 78: AM1.0-B8 ч. 2 — UiAudioState: dirty-флаг по EngineEvent::DynamicsChanged (сейчас там заглушечный арм Applied::None), хранить DynamicPathState + тест (ТЗ-68). Проверка: cargo test ui_audio_state. Свежий субагент code-writer sonnet.'
+current_step: 79
+next_action: 'Шаг 79: AM1.0-B8 ч. 3 — PathWindowCache (app/path_view.rs) инвалидируется по UiAudioState::take_dynamics_dirty() (снять #[allow(dead_code)] в ui_audio_state.rs) + тест (ТЗ-68). Проверка: cargo test path_view. Свежий субагент code-writer sonnet.'
 fail_counter: 0
 fail_counter_max: 3
 failed_attempts: []
