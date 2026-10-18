@@ -298,34 +298,43 @@ steps:
     description: "Шаг 78: AM1.0-B8 ч. 2: UiAudioState — dirty-флаг по DynamicsChanged (ui_audio_state.rs) + тест (ТЗ-68). Проверка: cargo test ui_audio_state"
     done: true
   - id: 79
-    description: "Шаг 79: AM1.0-B8 ч. 3: инвалидация PathWindowCache по dirty-флагу динамики (app/path_view.rs) + тест (ТЗ-68). Проверка: cargo test path_view"
+    description: "Шаг 79: AM1.0-B15: SetActiveMode Совместимый→Эксклюзивный — ModeSelected и синхронный CaptureResult обрабатываются под целевым режимом (замок → Failed/Held, не NotApplicable); AM1.0-B13 (Эксклюзивный→Совместимый) не ломать; тест «старт в Строгом, отказ захвата → Failed» (engine/run.rs, §6.19, §6.2 п. 6, ТЗ-118). Проверка: полный cargo test"
     done: false
   - id: 80
-    description: "Шаг 80: ЧЕКПОИНТ: полный cargo test + cargo clippy --all-targets"
+    description: "Шаг 80: AM1.0-B16 ч. 1: сохранённый hw:CARD=<номер>,DEV=<d> сопоставляется с каталогом по номеру карты (HwDeviceInfo.card) → канонический hw:CARD=<id>,DEV=<d>; используется в start_claim/resolve_device (catalog.rs, engine/run.rs, ADR-24, ТЗ-126) + тест. Проверка: полный cargo test"
     done: false
   - id: 81
-    description: "Шаг 81: Удаление в engine: адаптер legacy_exclusive, EngineCmd::ReleaseExclusive и их обработка; legacy_path — только Совместимый (§8 С6 «удаляется»). Проверка: полный cargo test"
+    description: "Шаг 81: AM1.0-B16 ч. 2: источник списка устройств Оптимального/Строгого во вкладке Audio — каталог HwDeviceId (не cpal-id); если уже так — шаг закрыть без кода с пометкой (ADR-24, ТЗ-126). Проверка: cargo check + cargo test по модулю"
     done: false
   - id: 82
-    description: "Шаг 82: Удаление в player.rs: release_if_exclusive, reopen_and_seek и их вызовы в stop()/toggle()/play() (V5.1-B5, V5.1-B6, ТЗ-43). Проверка: полный cargo test"
+    description: "Шаг 82: AM1.0-B8 ч. 3: инвалидация PathWindowCache по dirty-флагу динамики (app/path_view.rs) + тест (ТЗ-68). Проверка: cargo test path_view"
     done: false
   - id: 83
-    description: "Шаг 83: Удаление ExclusiveGate-пути в player.rs и файла reservation/gate.rs (замещён AlsaExclusiveBackend) (§8 С6). Проверка: полный cargo test"
+    description: "Шаг 83: ЧЕКПОИНТ: полный cargo test + cargo clippy --all-targets"
     done: false
   - id: 84
-    description: "Шаг 84: Удаление освобождения эксклюзива при скрытии в трей (обработка TrayCmd::ShowHide в app/mod.rs; пункт меню трея остаётся) (§8 С6, ТЗ-43). Проверка: полный cargo test"
+    description: "Шаг 84: Удаление в engine: адаптер legacy_exclusive, EngineCmd::ReleaseExclusive и их обработка; legacy_path — только Совместимый (§8 С6 «удаляется»). Проверка: полный cargo test"
     done: false
   - id: 85
-    description: "Шаг 85: Удаление в output.rs: cpal-путь Exclusive (ExclusiveMode, проба hw: в select_output_for, EBUSY-повтор) и shared-downgrade R-11 (§8 С6). Проверка: полный cargo test"
+    description: "Шаг 85: Удаление в player.rs: release_if_exclusive, reopen_and_seek и их вызовы в stop()/toggle()/play() (V5.1-B5, V5.1-B6, ТЗ-43). Проверка: полный cargo test"
     done: false
   - id: 86
-    description: "Шаг 86: AM1.0-B10: удалить StreamDesc, FallbackReason, Opened.stream_format и мосты legacy_path. Если Совместимый всё ещё идёт через legacy Player и типы нужны ему — выполнить частично, остаток перерегистрировать в B10 с указанием этапа (§8). Проверка: полный cargo test"
+    description: "Шаг 86: Удаление ExclusiveGate-пути в player.rs и файла reservation/gate.rs (замещён AlsaExclusiveBackend) (§8 С6). Проверка: полный cargo test"
     done: false
   - id: 87
-    description: "Шаг 87: ФИНАЛ: cargo build/test/clippy зелёные; общие условия §8 (Совместимый играет, «Bit-perfect» только при ТЗ-52); ручные проверки в заметку плана: замок (ТЗ-1/2/48/118…122, AM1.0-8.1), B1 — возврат устройства в PipeWire после освобождения, B2 — текст «занято <владелец>» при чужом захвате"
+    description: "Шаг 87: Удаление освобождения эксклюзива при скрытии в трей (обработка TrayCmd::ShowHide в app/mod.rs; пункт меню трея остаётся) (§8 С6, ТЗ-43). Проверка: полный cargo test"
+    done: false
+  - id: 88
+    description: "Шаг 88: Удаление в output.rs: cpal-путь Exclusive (ExclusiveMode, проба hw: в select_output_for, EBUSY-повтор) и shared-downgrade R-11 (§8 С6). Проверка: полный cargo test"
+    done: false
+  - id: 89
+    description: "Шаг 89: AM1.0-B10: удалить StreamDesc, FallbackReason, Opened.stream_format и мосты legacy_path. Если Совместимый всё ещё идёт через legacy Player и типы нужны ему — выполнить частично, остаток перерегистрировать в B10 с указанием этапа (§8). Проверка: полный cargo test"
+    done: false
+  - id: 90
+    description: "Шаг 90: ФИНАЛ: cargo build/test/clippy зелёные; общие условия §8 (Совместимый играет, «Bit-perfect» только при ТЗ-52); ручные проверки в заметку плана: замок (ТЗ-1/2/48/118…122, AM1.0-8.1), B1 — возврат устройства в PipeWire после освобождения, B2 — текст «занято <владелец>» при чужом захвате"
     done: false
 current_step: 79
-next_action: 'ЖДЁТ РЕШЕНИЯ ПОЛЬЗОВАТЕЛЯ: вставить ли перед шагом 79 шаги фикса AM1.0-B15 (замок → NotApplicable в Строгом, 🔴) и AM1.0-B16 (hw:CARD=0 vs hw:CARD=DX), см. ROADMAP. Иначе — Шаг 79: AM1.0-B8 ч. 3 — PathWindowCache (app/path_view.rs) инвалидируется по UiAudioState::take_dynamics_dirty() (снять #[allow(dead_code)] в ui_audio_state.rs) + тест (ТЗ-68). Проверка: cargo test path_view. Свежий субагент code-writer sonnet.'
+next_action: 'Шаг 79: AM1.0-B15 — фикс порядка режима/замка в EngineCmd::SetActiveMode (engine/run.rs) + тест; затем 80–81 AM1.0-B16. Решение пользователя 2026-10-18: исправить захват сразу после /clear. Свежий субагент code-writer sonnet.'
 fail_counter: 0
 fail_counter_max: 3
 failed_attempts: []
