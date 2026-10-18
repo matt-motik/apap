@@ -1026,6 +1026,15 @@ impl Engine {
                     // Пустой дифф или изменение с `ApplyKind::Memory` —
                     // настройки уже скопированы выше, больше ничего не нужно.
                     ModeApplyAction::Store => {}
+                    // Эксклюзивный путь активного режима (Оптимальный/Строгий,
+                    // §6.7, §6.18, ТЗ-131): переоткрытие на текущей позиции
+                    // через `open_exclusive`, без снятия резервирования —
+                    // `SwitchDevice` ниже поглощает смену устройства, которая
+                    // требует полной процедуры «Смена устройства» (вне
+                    // области этого шага) и остаётся на мосту `apply_active_mode`.
+                    ModeApplyAction::ReopenAtPosition if self.active_mode != ModeKind::Compatible => {
+                        self.reopen_exclusive_at_position();
+                    }
                     ModeApplyAction::ReopenAtPosition | ModeApplyAction::SwitchDevice => {
                         self.apply_active_mode();
                     }
@@ -1215,6 +1224,34 @@ impl Engine {
                 self.refresh_transport();
             }
         }
+    }
+
+    /// Одно переоткрытие Эксклюзивного пути на текущей позиции для
+    /// `SetModeSettings` (`ApplyKind::ReopenAtPosition` активного
+    /// Оптимального/Строгого режима, §6.7, §6.18, ТЗ-131): позиция и
+    /// играет/на паузе сохраняются, как в `reopen_with_legacy`. Повторный
+    /// вызов `open_exclusive` сам переносит `configured()` старого пути как
+    /// `prev_configured` — `configure` в `exclusive_path::open` выполняется
+    /// только при изменении целевого формата или «Буфера устройства» (§6.7),
+    /// а резервирование устройства (`self.claim`) не освобождается ни в
+    /// одном случае. Без открытой сессии (не должно случаться при
+    /// `!self.stopped`, но без паники) — ничего не делает, настройки уже
+    /// скопированы в `self.mode_settings` выше.
+    fn reopen_exclusive_at_position(&mut self) {
+        let Some(exclusive) = self.exclusive_path.as_ref() else { return };
+        let Some((req_gen, path)) = self.current.clone() else { return };
+        let was_playing = exclusive.is_playing();
+        let pos = exclusive.position_secs();
+        let src = match self.deps.sources.probe(&path) {
+            Ok(src) => src,
+            Err(e) => {
+                self.deps
+                    .events
+                    .emit(EngineEvent::Skipped { req_gen, path, reason: SkipReason::File(e) });
+                return;
+            }
+        };
+        self.open_exclusive(req_gen, path, src, pos, was_playing);
     }
 
     /// Выход (§6.28 п. 2 в рамках моста, ТЗ-45): остановка транспорта
@@ -1500,6 +1537,8 @@ mod tests {
     use crate::audio::testing::{FakeExclusiveBackend, FakeServerProbe};
     use crate::engine::spawner::{FailingSpawner, StdSpawner};
     use crate::platform::fs::{FsPersistStore, MemStore};
+    use crate::settings::params::{ModeSettingsUpdate, ParamId};
+    use smallvec::SmallVec;
     use std::path::PathBuf;
 
     fn pcm_format() -> SourceFormat {
@@ -2622,5 +2661,96 @@ mod tests {
         let journal = calls.lock().expect("calls lock");
         assert_eq!(journal.iter().filter(|c| **c == crate::audio::testing::ExclusiveCall::Configure).count(), 2);
         assert!(!journal.iter().any(|c| matches!(c, crate::audio::testing::ExclusiveCall::Acquire(_))));
+    }
+
+    /// §6.7, §6.18 шаг 54 (ТЗ-131, И-Р26): `SetModeSettings` меняет «Буфер
+    /// устройства» активного Оптимального режима — переоткрытие Эксклюзивного
+    /// пути (`ApplyKind::ReopenAtPosition`) на текущем треке без освобождения
+    /// `DeviceClaim` (журнал бэкенда не содержит `Acquire`), с повторным
+    /// `configure` (цель `ConfiguredFormat` отличается «Буфером устройства»)
+    /// и с сохранением паузы (переоткрытие передаёт прежний `is_playing()`
+    /// как `autoplay`).
+    #[test]
+    fn set_mode_settings_device_buffer_change_reopens_exclusive_path_at_position() {
+        let sink = VecSink::new();
+        let dev: HwDeviceId = "hw:CARD=RU3,DEV=0".parse().expect("hw id");
+        let backend = FakeExclusiveBackend::new().with_configure(Ok((
+            crate::audio::backend::DriverFormat::Confirmed(crate::audio::format::StreamFormat {
+                rate: SampleRate::new(44_100).expect("rate"),
+                sample: crate::audio::format::OutputSampleFormat::S32Le,
+                channels: std::num::NonZeroU8::new(2).expect("channels"),
+            }),
+            Some(crate::audio::backend::DeviceBufferActual { period_frames: 256, buffer_frames: 1024 }),
+        )));
+        // Хэндл журнала берётся до того, как `backend` уходит в `Box<dyn
+        // ExclusiveBackend>` внутри `EngineDeps` (§7.1).
+        let calls = backend.calls_handle();
+        let float_format = SourceFormat {
+            container: Container::Wav,
+            codec: Codec::Wav,
+            lossy: false,
+            rate: SampleRate::new(44_100).expect("rate"),
+            layout: ChannelLayout::stereo(),
+            kind: SourceKind::FloatPcm { double: false },
+        };
+        let source = Arc::new(FakeSource::with_format(float_format));
+        let probes = Arc::clone(&source);
+        let mem = MemStore::new();
+        let deps = EngineDeps {
+            shared: Box::new(FakeSharedBackend::with_devices(Vec::new())),
+            exclusive: Some(Box::new(backend)),
+            server_probe: Box::new(FakeServerProbe::desktop()),
+            watcher: Box::new(FakeDeviceWatcher::new()),
+            sources: source,
+            clock: Box::new(MonotonicClock::new()),
+            store: Box::new(FsPersistStore::new(Arc::new(mem.clone()), Box::new(mem.clone()), PathBuf::from("/cfg"))),
+            events: Box::new(sink.clone()),
+            spawner: Arc::new(StdSpawner),
+            caps: BackendCaps::current(),
+            os_probe: Box::new(FakeOsProbe::new(OsStage::Unknown)),
+        };
+        let mut engine = Engine::new(deps, BackendCaps::current());
+        engine.active_mode = ModeKind::Optimal;
+        engine.mode_settings.optimal.device = Some(dev.clone());
+        engine.lock = LockState::Held { info: crate::audio::backend::exclusive::ClaimInfo { device: dev.clone() } };
+        engine.claim = Some(crate::audio::backend::exclusive::DeviceClaim::new(
+            None,
+            crate::audio::reservation::Reservation::UnavailableNoServer,
+            crate::audio::backend::exclusive::ClaimInfo { device: dev },
+        ));
+
+        engine.handle(EngineCmd::Open { req_gen: 1, path: Arc::from(Path::new("/music/a.flac")), start_secs: 0.0, autoplay: true });
+        engine.handle(EngineCmd::Pause);
+        assert!(!engine.exclusive_path.as_ref().expect("exclusive path open").is_playing());
+
+        let mut settings = engine.mode_settings.clone();
+        settings.optimal.device_buffer = crate::settings::playback::DeviceBuffer::Ms100;
+        let diff = ModeSettingsDiff { changed: SmallVec::from_slice(&[(ModeKind::Optimal, ParamId::DeviceBuffer)]) };
+        engine.handle(EngineCmd::SetModeSettings(ModeSettingsUpdate { settings, diff: Some(diff) }));
+
+        assert!(engine.exclusive_path.is_some());
+        assert!(!engine.exclusive_path.as_ref().expect("exclusive path open").is_playing());
+        assert_eq!(probes.probes(), 2);
+        let journal = calls.lock().expect("calls lock");
+        assert_eq!(journal.iter().filter(|c| **c == crate::audio::testing::ExclusiveCall::Configure).count(), 2);
+        assert!(!journal.iter().any(|c| matches!(c, crate::audio::testing::ExclusiveCall::Acquire(_))));
+    }
+
+    /// §6.7, §6.18 шаг 54 (ТЗ-131, И-Р26): изменение параметра активного
+    /// Оптимального режима без влияния на поток (`ApplyKind::Memory`, здесь —
+    /// «DSD выше возможностей ЦАП») не переоткрывает Эксклюзивный путь — ни
+    /// повторного `configure`, ни повторного открытия источника.
+    #[test]
+    fn set_mode_settings_memory_change_does_not_reopen_exclusive_path() {
+        let sink = VecSink::new();
+        let mut engine = engine_with_exclusive_path_open(sink, true);
+        let configured_before = engine.exclusive_path.as_ref().expect("exclusive path open").configured();
+
+        let settings = engine.mode_settings.clone();
+        let diff = ModeSettingsDiff { changed: SmallVec::from_slice(&[(ModeKind::Optimal, ParamId::DsdAboveDac)]) };
+        engine.handle(EngineCmd::SetModeSettings(ModeSettingsUpdate { settings, diff: Some(diff) }));
+
+        assert!(engine.exclusive_path.is_some());
+        assert_eq!(engine.exclusive_path.as_ref().expect("exclusive path open").configured(), configured_before);
     }
 }
