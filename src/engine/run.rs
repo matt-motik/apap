@@ -94,11 +94,13 @@ const FALLBACK_STREAM_RATE: SampleRate = match SampleRate::new(44_100) {
     None => panic!("FALLBACK_STREAM_RATE_HZ must be non-zero"),
 };
 
-/// Собранный `SignalPath` Совместимого режима и материалы для его
-/// пересборки без повторного обращения к устройству (§6.3, §6.18 шаг 28,
-/// ADR-20, ТЗ-52): `plan` — план ДО `with_gain` (шаги 1–4), `facts` — факты
-/// открытого потока; оба нужны следующему шагу (пересборка на `SetVolume`/
-/// `SetMuted`), который эту структуру уже не строит с нуля.
+/// Собранный `SignalPath` и материалы для его пересборки без повторного
+/// обращения к устройству (§6.3, §6.18 шаг 28, 50, ADR-20, ТЗ-52, ТЗ-137):
+/// `plan` — план ДО `with_gain` (шаги 1–4), `facts` — факты открытого
+/// потока; оба нужны `rebuild_with_gain` (пересборка на `SetVolume`/
+/// `SetMuted`), который эту структуру уже не строит с нуля. Используется и
+/// для Совместимого режима (`Engine::active_path`), и для Эксклюзивного
+/// пути (`Engine::exclusive_signal`).
 struct ActivePath {
     /// План ДО `with_gain` — пересборка на `SetVolume`/`SetMuted` строит
     /// гейн-транспорт заново от него, не трогая шаги 1–4 (`rebuild_with_gain`).
@@ -141,23 +143,26 @@ fn build_compatible_path(
     Ok(ActivePath { plan: base, facts, path, badge })
 }
 
-/// Пересобирает `SignalPath` Совместимого режима на новую громкость/mute без
-/// переоткрытия устройства (§6.3, ADR-20, ТЗ-38, ТЗ-60): `with_gain` по тому
-/// же `plan` (шаги 1–4, ДО усиления) пересчитывает гейн-транспорт (шаги 5–6)
-/// для актуального `gain`; `OpenedFacts` и устройство не меняются —
-/// `from_opened` переиспользует `active.facts` целиком, без обращения к
-/// `Player`. Новое `generation` — путь меняется без переоткрытия потока, UI
-/// должен отличать пересобранный путь от предыдущего по номеру поколения
-/// (§5). Второй элемент пары — изменился ли вердикт (`BadgeState`)
-/// относительно `active.badge`; вызывающая сторона (`Engine::refresh_path_gain`)
-/// шлёт `EngineEvent::BadgeChanged` только при `true` (ТЗ-60).
+/// Пересобирает `SignalPath` на новую громкость/mute без переоткрытия
+/// устройства (§6.3, §6.18 шаг 50, ADR-20, ТЗ-38, ТЗ-60, ТЗ-137): `with_gain`
+/// по тому же `plan` (шаги 1–4, ДО усиления) пересчитывает гейн-транспорт
+/// (шаги 5–6) для актуального `gain` под политику режима `mode`; `OpenedFacts`
+/// и устройство не меняются — `from_opened` переиспользует `active.facts`
+/// целиком, без обращения к `Player`/`ExclusivePath`. Новое `generation` —
+/// путь меняется без переоткрытия потока, UI должен отличать пересобранный
+/// путь от предыдущего по номеру поколения (§5). Второй элемент пары —
+/// изменился ли вердикт (`BadgeState`) относительно `active.badge`; вызывающая
+/// сторона (`Engine::refresh_path_gain`) шлёт `EngineEvent::BadgeChanged`
+/// только при `true` (ТЗ-60). `mode` — `ModeKind::Compatible` для
+/// `Engine::active_path`, активный режим для `Engine::exclusive_signal`.
 fn rebuild_with_gain(
     active: ActivePath,
     settings: &ModeSettings,
+    mode: ModeKind,
     gain: GainState,
     generation: u64,
 ) -> (ActivePath, bool) {
-    let policy = PathPolicy::active(settings, ModeKind::Compatible);
+    let policy = PathPolicy::active(settings, mode);
     let gained = with_gain(&active.plan, gain, policy);
     let path = Arc::new(SignalPath::from_opened(gained, active.facts.clone(), generation));
     let badge = verdict(&path, gain, None);
@@ -290,6 +295,11 @@ struct Engine {
     /// открытого потока. Очищается рядом с `active_path`/`self.current` во
     /// всех точках конца/отказа сессии.
     exclusive_path: Option<ExclusivePath>,
+    /// Снимок `SignalPath` Эксклюзивного пути и материалы для его пересборки
+    /// на `SetVolume`/`SetMuted` (§6.18 шаг 50, ТЗ-137), если путь открыт:
+    /// аналог `active_path` для Оптимального/Строгого режима. Очищается
+    /// везде, где закрывается/берётся `exclusive_path`.
+    exclusive_signal: Option<ActivePath>,
     /// Отправитель внутренних сообщений служебных потоков (§2.8, ADR-01):
     /// клонируется для каждого служебного потока (резервирование §6.20,
     /// открытие PCM §6.19, RT-приоритет §6.8 — проводка следующих шагов).
@@ -341,6 +351,7 @@ impl Engine {
             path_generation: 0,
             active_path: None,
             exclusive_path: None,
+            exclusive_signal: None,
             internal_tx,
             internal_rx,
             lock: LockState::NotApplicable,
@@ -559,6 +570,7 @@ impl Engine {
         if let Some(p) = self.exclusive_path.take() {
             self.claim = Some(p.close());
         }
+        self.exclusive_signal = None;
         self.refresh_transport();
     }
 
@@ -630,6 +642,7 @@ impl Engine {
         if let Some(p) = self.exclusive_path.take() {
             self.claim = Some(p.close());
         }
+        self.exclusive_signal = None;
         // Инвариант §6.19: `Held` всегда соответствует `self.claim.is_some()`.
         // Расхождение здесь — ошибка движка, не повод для паники: явный отказ
         // вместо unreachable!()/unwrap() (deny clippy выше).
@@ -727,6 +740,12 @@ impl Engine {
                 self.path_generation = generation;
                 let badge = verdict(&signal, gain, None);
                 let signal = Arc::new(signal);
+                // §6.18 шаг 50 (ТЗ-137, ТЗ-140, ОВС-18): громкость/mute
+                // применяются до пуска воспроизведения — без этого автоплей
+                // стартовал бы с единичным усилением (щелчок громкости).
+                opened.set_gain(effective_gain(&self.mode_settings, self.active_mode, self.last_volume, false), self.last_muted);
+                self.exclusive_signal =
+                    Some(ActivePath { plan: base, facts: opened.facts().clone(), path: Arc::clone(&signal), badge: badge.clone() });
                 if autoplay {
                     opened.play();
                 }
@@ -921,6 +940,7 @@ impl Engine {
                 // `Player`, минуя `effective_gain`/`apply_gain`.
                 self.last_muted = m;
                 self.player.set_muted(m);
+                self.apply_exclusive_gain();
                 self.refresh_path_gain();
             }
             // §6.19, ТЗ-118, ADR-01: ввод замка устройства режима из UI.
@@ -1010,6 +1030,19 @@ impl Engine {
     fn apply_gain(&mut self) {
         let gain = effective_gain(&self.mode_settings, self.active_mode, self.last_volume, self.last_muted);
         self.player.set_volume(gain);
+        self.apply_exclusive_gain();
+    }
+
+    /// Применяет громкость/mute к Эксклюзивному пути, если он открыт (§6.18
+    /// шаг 50, ТЗ-137, ТЗ-140, ОВС-18, ADR-23): громкость — `effective_gain`
+    /// с `muted = false` (Строгий/зафиксированная громкость Оптимального
+    /// всегда 1.0 независимо от mute), mute — отдельным флагом
+    /// `ExclusivePath::set_gain`, который гасит рендер любого вида, в т.ч. без
+    /// ступени усиления. Вызывается из `apply_gain` и `EngineCmd::SetMuted`.
+    fn apply_exclusive_gain(&mut self) {
+        let Some(path) = &self.exclusive_path else { return };
+        let gain = effective_gain(&self.mode_settings, self.active_mode, self.last_volume, false);
+        path.set_gain(gain, self.last_muted);
     }
 
     /// `GainState` для `verdict`/`with_gain` (§6.3, §6.18 шаг 28, ADR-23) по
@@ -1040,14 +1073,27 @@ impl Engine {
     /// чтобы UI не перерисовывал неизменную плашку.
     fn refresh_path_gain(&mut self) {
         let gain = self.gain_state();
-        let Some(active) = self.active_path.take() else { return };
-        let generation = self.path_generation.saturating_add(1);
-        let (rebuilt, changed) = rebuild_with_gain(active, &self.mode_settings, gain, generation);
-        self.path_generation = generation;
-        let badge = rebuilt.badge.clone();
-        self.active_path = Some(rebuilt);
-        if changed {
-            self.deps.events.emit(EngineEvent::BadgeChanged(badge));
+        if let Some(active) = self.active_path.take() {
+            let generation = self.path_generation.saturating_add(1);
+            let (rebuilt, changed) = rebuild_with_gain(active, &self.mode_settings, ModeKind::Compatible, gain, generation);
+            self.path_generation = generation;
+            let badge = rebuilt.badge.clone();
+            self.active_path = Some(rebuilt);
+            if changed {
+                self.deps.events.emit(EngineEvent::BadgeChanged(badge));
+            }
+        }
+        // Эксклюзивный путь (§6.18 шаг 50, ТЗ-137): тот же пересчёт бейджа без
+        // переоткрытия устройства, своё поколение `path_generation`.
+        if let Some(active) = self.exclusive_signal.take() {
+            let generation = self.path_generation.saturating_add(1);
+            let (rebuilt, changed) = rebuild_with_gain(active, &self.mode_settings, self.active_mode, gain, generation);
+            self.path_generation = generation;
+            let badge = rebuilt.badge.clone();
+            self.exclusive_signal = Some(rebuilt);
+            if changed {
+                self.deps.events.emit(EngineEvent::BadgeChanged(badge));
+            }
         }
     }
 
@@ -1165,6 +1211,7 @@ impl Engine {
         if let Some(p) = self.exclusive_path.take() {
             self.claim = Some(p.close());
         }
+        self.exclusive_signal = None;
         self.deps.events.emit(EngineEvent::ShutdownComplete);
     }
 
@@ -1580,7 +1627,7 @@ mod tests {
 
         let opened_facts = active.facts.clone();
         let scaled = GainState::Scaled(Volume::new(50).expect("valid percent"));
-        let (rebuilt, changed) = rebuild_with_gain(active, &settings, scaled, 2);
+        let (rebuilt, changed) = rebuild_with_gain(active, &settings, ModeKind::Compatible, scaled, 2);
 
         assert_eq!(rebuilt.path.generation, 2);
         assert_eq!(rebuilt.facts, opened_facts);
@@ -1597,14 +1644,14 @@ mod tests {
             build_compatible_path(&src, &desc, OsStage::Unknown, &settings, GainState::Unity, 1).expect("plan ok");
 
         let scaled_50 = GainState::Scaled(Volume::new(50).expect("valid percent"));
-        let (at_50, changed_to_scaled) = rebuild_with_gain(active, &settings, scaled_50, 2);
+        let (at_50, changed_to_scaled) = rebuild_with_gain(active, &settings, ModeKind::Compatible, scaled_50, 2);
         assert!(changed_to_scaled);
 
         let scaled_40 = GainState::Scaled(Volume::new(40).expect("valid percent"));
-        let (at_40, changed_within_scaled) = rebuild_with_gain(at_50, &settings, scaled_40, 3);
+        let (at_40, changed_within_scaled) = rebuild_with_gain(at_50, &settings, ModeKind::Compatible, scaled_40, 3);
         assert!(!changed_within_scaled);
 
-        let (_at_unity, changed_back_to_unity) = rebuild_with_gain(at_40, &settings, GainState::Unity, 4);
+        let (_at_unity, changed_back_to_unity) = rebuild_with_gain(at_40, &settings, ModeKind::Compatible, GainState::Unity, 4);
         assert!(changed_back_to_unity);
     }
 
@@ -1616,11 +1663,11 @@ mod tests {
         let active =
             build_compatible_path(&src, &desc, OsStage::Unknown, &settings, GainState::Unity, 1).expect("plan ok");
 
-        let (muted, changed_to_muted) = rebuild_with_gain(active, &settings, GainState::Muted, 2);
+        let (muted, changed_to_muted) = rebuild_with_gain(active, &settings, ModeKind::Compatible, GainState::Muted, 2);
         assert!(changed_to_muted);
         assert!(matches!(muted.badge, BadgeState::Shared(crate::audio::verdict::SharedBadge::NotBitPerfect(_))));
 
-        let (unmuted, changed_back) = rebuild_with_gain(muted, &settings, GainState::Unity, 3);
+        let (unmuted, changed_back) = rebuild_with_gain(muted, &settings, ModeKind::Compatible, GainState::Unity, 3);
         assert!(changed_back);
         assert_eq!(unmuted.badge, BadgeState::Shared(crate::audio::verdict::SharedBadge::Clean));
     }
@@ -2121,6 +2168,40 @@ mod tests {
         assert_eq!(shared.seek_requested.load(std::sync::atomic::Ordering::Acquire), 1);
         assert_eq!(engine.last_transport, Some(TransportState::Paused));
         assert!(!engine.exclusive_path.as_ref().expect("exclusive path open").is_playing());
+    }
+
+    /// §6.18 шаг 50, ТЗ-137, ОВС-18 (ADR-23): `EngineCmd::SetVolume` на
+    /// открытом Эксклюзивном пути без фиксации громкости (`volume_lock`)
+    /// применяет `effective_gain` к разделяемому состоянию сессии через
+    /// `ExclusivePath::set_gain`, минуя переоткрытие устройства.
+    #[test]
+    fn set_volume_applies_gain_to_exclusive_path() {
+        let sink = VecSink::new();
+        let mut engine = engine_with_exclusive_path_open(sink, true);
+        let shared = Arc::clone(engine.exclusive_path.as_ref().expect("exclusive path open").shared());
+
+        engine.handle(EngineCmd::SetVolume(0.5));
+
+        let expected = effective_gain(&engine.mode_settings, engine.active_mode, 0.5, false);
+        assert_eq!(shared.gain(), expected);
+        assert!(!shared.muted.load(std::sync::atomic::Ordering::Relaxed));
+    }
+
+    /// §6.18 шаг 50, ТЗ-140, ОВС-18 (ADR-23): `EngineCmd::SetMuted` гасит
+    /// Эксклюзивный путь через флаг `muted`, не трогая сохранённый
+    /// коэффициент громкости (ворота тишины `NoGain`/`DopRender` читают
+    /// `muted` напрямую, независимо от вида рендера).
+    #[test]
+    fn set_muted_gates_exclusive_path_without_changing_gain() {
+        let sink = VecSink::new();
+        let mut engine = engine_with_exclusive_path_open(sink, true);
+        let shared = Arc::clone(engine.exclusive_path.as_ref().expect("exclusive path open").shared());
+        let gain_before = shared.gain();
+
+        engine.handle(EngineCmd::SetMuted(true));
+
+        assert!(shared.muted.load(std::sync::atomic::Ordering::Relaxed));
+        assert_eq!(shared.gain(), gain_before);
     }
 
     /// §6.18 п. 6, ТЗ-113 (шаг 47): `open_exclusive` открывает источник через

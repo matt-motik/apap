@@ -43,6 +43,10 @@ pub(crate) struct ExclusivePath {
     /// Частота кадров ring (= частота цели устройства, §6.16, ТЗ-99): секунды
     /// → кадры для `seek` считает вызывающая сторона (`run.rs::secs_to_frames`).
     frame_rate: u32,
+    /// Факты открытого потока (§6.18 шаг 50, ТЗ-137): переиспользуются
+    /// снимком `ActivePath` Эксклюзивного пути (`run.rs::open_exclusive`,
+    /// `rebuild_with_gain`) без повторного обращения к устройству.
+    facts: OpenedFacts,
 }
 
 impl ExclusivePath {
@@ -80,6 +84,23 @@ impl ExclusivePath {
         self.frame_rate
     }
 
+    /// Факты открытого потока (§6.18 шаг 50, ТЗ-137) для снимка `ActivePath`
+    /// Эксклюзивного пути без повторного обращения к устройству.
+    pub(crate) fn facts(&self) -> &OpenedFacts {
+        &self.facts
+    }
+
+    /// Применяет громкость/mute к разделяемому состоянию сессии (§6.18,
+    /// ТЗ-137, ТЗ-140, ОВС-18, ADR-23). Mute гасит рендер любого вида:
+    /// ворота тишины `NoGain`/`DopRender` читают `muted` напрямую, минуя
+    /// ступень усиления. Громкость читает только ступень `AtomicGain`
+    /// (только `OptimalPcm`) — виды рендера без ступени усиления (`StrictPcm`,
+    /// `OptimalPcmLocked`, `OptimalDop`, `StrictDop`) её игнорируют.
+    pub(crate) fn set_gain(&self, gain: f32, muted: bool) {
+        self.session.shared.set_gain(gain);
+        self.session.shared.muted.store(muted, Ordering::Release);
+    }
+
     /// Доступ к разделяемому состоянию сессии для тестов (§6.16, ТЗ-99):
     /// позволяет проверить фазу 1 рукопожатия seek без реального потока
     /// вывода.
@@ -93,7 +114,7 @@ impl ExclusivePath {
     /// декодера. Захват возвращается вызывающей стороне: замок устройства
     /// остаётся удержан (§6.19), закрыть его — отдельное решение.
     pub(crate) fn close(self) -> DeviceClaim {
-        let ExclusivePath { mut claim, mut session, handle, frame_rate: _ } = self;
+        let ExclusivePath { mut claim, mut session, handle, frame_rate: _, facts: _ } = self;
         *claim.pcm_mut() = handle.stop();
         session.worker.stop();
         claim
@@ -228,7 +249,7 @@ pub(crate) fn open(
     };
 
     let session = ExclusiveSession { worker, shared, decode_events };
-    let path = ExclusivePath { claim, session, handle, frame_rate };
+    let path = ExclusivePath { claim, session, handle, frame_rate, facts: facts.clone() };
     let signal = SignalPath::from_opened(plan, facts, generation);
     Ok((path, signal))
 }
