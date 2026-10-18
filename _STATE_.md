@@ -128,8 +128,8 @@
 - [x] Шаг 63: Шаг 63: run.rs: обнаружение потери (StreamFault::DeviceUnavailable / InternalMsg::ReservationLost) → LockInput::DeviceLost, сохранение ReacquirePoint + тест (§6.20, ТЗ-125). Проверка: cargo test engine:: Примечание: TrackId(u64) без публичного конструктора (src/playlist/model.rs) — для теста ReacquirePoint понадобится #[cfg(test)] pub(crate) конструктор (расширение вайтлиста)
 - [x] Шаг 64: Шаг 64: run.rs: повторный захват по DevicesChanged (DeviceReappeared) → открытие трека в сохранённой точке на паузе + тест (§6.20, ТЗ-126). Учесть находку шага 62: после смены устройства (DeviceSelected → Acquire нового, ТЗ-137 «продолжение с той же позиции») автопереоткрытия exclusive_path по успешному ClaimDone нет — общий механизм переоткрытия по захвату. Проверка: cargo test engine::
 - [x] Шаг 65: Шаг 65: Переоткрытие трека после смены устройства (находка шага 64, ТЗ-137): различитель политики в ReacquirePoint (возобновить / на паузе), сохранение точки и состояния play/pause при DeviceSelected из Held (шаг 62), reopen_after_reacquire учитывает политику; после потери (ТЗ-126) — всегда пауза + тест (lock.rs, run.rs). Проверка: cargo test engine::
-- [>] **Шаг 66: Шаг 66: ЧЕКПОИНТ: полный cargo test + cargo clippy --all-targets**
-- [ ] Шаг 67: Шаг 67: Новый src/app/lock_view.rs: LockState → lock-kind/lock-text/доступные действия; тексты отказов с владельцем (ReservationDenied{owner}) и «занято вне протокола» (BusyOutsideProtocol) вместо «устройство не найдено» — AM1.0-B2 + тесты ≤5 (ADR-06, §6.19 подсказки, ТЗ-118…123, 46, 122, 144). Проверка: cargo test lock_view
+- [x] Шаг 66: Шаг 66: ЧЕКПОИНТ: полный cargo test + cargo clippy --all-targets
+- [>] **Шаг 67: Шаг 67: Новый src/app/lock_view.rs: LockState → lock-kind/lock-text/доступные действия; тексты отказов с владельцем (ReservationDenied{owner}) и «занято вне протокола» (BusyOutsideProtocol) вместо «устройство не найдено» — AM1.0-B2 + тесты ≤5 (ADR-06, §6.19 подсказки, ТЗ-118…123, 46, 122, 144). Проверка: cargo test lock_view**
 - [ ] Шаг 68: Шаг 68: Slint: индикатор замка — свойства lock-kind/lock-text в ui/top_panel.slint, проброс в ui/app.slint (ADR-06, ТЗ-118). Проверка: cargo build
 - [ ] Шаг 69: Шаг 69: Slint: кнопки действий замка (Захватить / Открыть / Повторить / Выбрать устройство / Перейти в Совместимый) и колбэки в ui/top_panel.slint + ui/app.slint (ТЗ-120…123, 144). Проверка: cargo build
 - [ ] Шаг 70: Шаг 70: app/mod.rs: колбэки замка → EngineCmd::Lock / переключение режима; EngineEvent::Lock → свойства окна через lock_view (ТЗ-118…123). Проверка: cargo check
@@ -150,8 +150,8 @@
 
 Легенда: [x] сделано · [>] текущий шаг · [ ] не начато
 
-- **Текущий шаг (current_step):** Шаг 66
-- **Следующий ход:** Шаг 66: ЧЕКПОИНТ — полный cargo test + cargo clippy --all-targets (test-runner haiku).
+- **Текущий шаг (current_step):** Шаг 67
+- **Следующий ход:** Шаг 67: новый src/app/lock_view.rs (LockState → lock-kind/lock-text/действия, AM1.0-B2). Свежий субагент code-writer sonnet.
 - **Счетчик безуспешных компиляций:** 0/3
 - **Состояние:** in_progress
 

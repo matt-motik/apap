@@ -259,7 +259,7 @@ steps:
     done: true
   - id: 66
     description: "Шаг 66: ЧЕКПОИНТ: полный cargo test + cargo clippy --all-targets"
-    done: false
+    done: true
   - id: 67
     description: "Шаг 67: Новый src/app/lock_view.rs: LockState → lock-kind/lock-text/доступные действия; тексты отказов с владельцем (ReservationDenied{owner}) и «занято вне протокола» (BusyOutsideProtocol) вместо «устройство не найдено» — AM1.0-B2 + тесты ≤5 (ADR-06, §6.19 подсказки, ТЗ-118…123, 46, 122, 144). Проверка: cargo test lock_view"
     done: false
@@ -314,8 +314,8 @@ steps:
   - id: 84
     description: "Шаг 84: ФИНАЛ: cargo build/test/clippy зелёные; общие условия §8 (Совместимый играет, «Bit-perfect» только при ТЗ-52); ручные проверки в заметку плана: замок (ТЗ-1/2/48/118…122, AM1.0-8.1), B1 — возврат устройства в PipeWire после освобождения, B2 — текст «занято <владелец>» при чужом захвате"
     done: false
-current_step: 66
-next_action: "Шаг 66: ЧЕКПОИНТ — полный cargo test + cargo clippy --all-targets (test-runner haiku)."
+current_step: 67
+next_action: "Шаг 67: новый src/app/lock_view.rs (LockState → lock-kind/lock-text/действия, AM1.0-B2). Свежий субагент code-writer sonnet."
 fail_counter: 0
 fail_counter_max: 3
 failed_attempts: []
