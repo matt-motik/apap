@@ -179,6 +179,39 @@ component LockIndicator inherits Rectangle {
     }
 }
 
+// ADR-06, §6.19, ТЗ-46, ТЗ-120…ТЗ-123, ТЗ-144: компактная кнопка действия
+// замка (Захватить / Открыть / Повторить захват / Выбрать устройство /
+// Перейти в Совместимый режим). Доступность каждого действия решает Rust
+// (lock_view.rs) по состоянию автомата §6.19 — кнопка рисуется, только
+// когда действие применимо, без заглушек и пустых коллбэков (ТЗ-109).
+component LockActionButton inherits Rectangle {
+    in property <string> label: "";
+    callback clicked;
+
+    height: 28px;
+    border-radius: 6px;
+    border-width: 1px;
+    border-color: Colors.border-default;
+    background: touch.pressed ? Colors.surface-hover : Colors.bg-toolbar;
+
+    HorizontalLayout {
+        padding-left: 10px;
+        padding-right: 10px;
+        alignment: center;
+        Text {
+            text: root.label;
+            color: Colors.text-primary;
+            font-size: 12px;
+            vertical-alignment: center;
+        }
+    }
+
+    touch := TouchArea {
+        mouse-cursor: MouseCursor.pointer;
+        clicked => { root.clicked(); }
+    }
+}
+
 component IconButton inherits Rectangle {
     in property <image> icon: @image-url("icons/play.svg");
     in property <bool> active: false;
@@ -247,6 +280,19 @@ export component TopPanel inherits Rectangle {
     in property <LockKind> lock-kind: LockKind.not-applicable;
     in property <string> lock-text: "";
     in property <string> lock-hint: "";
+    // ADR-06, §6.19, ТЗ-46, ТЗ-120…ТЗ-123, ТЗ-144: доступность действий
+    // замка решает Rust (lock_view.rs) по состоянию автомата §6.19 —
+    // кнопка рисуется только когда флаг true, остальные скрыты полностью.
+    in property <bool> lock-can-close: false;
+    in property <bool> lock-can-open: false;
+    in property <bool> lock-can-retry: false;
+    in property <bool> lock-can-choose-device: false;
+    in property <bool> lock-can-go-compatible: false;
+    callback lock-close();
+    callback lock-open();
+    callback lock-retry();
+    callback lock-choose-device();
+    callback lock-go-compatible();
     in property <float> seek-fraction: 0.0;
     out property <bool> seekbar-dragging: false;
     in property <string> pos: "0:00";
@@ -337,6 +383,32 @@ export component TopPanel inherits Rectangle {
                 kind: root.lock-kind;
                 text: root.lock-text;
                 hint: root.lock-hint;
+            }
+
+            // Действия замка (ТЗ-42, ТЗ-44, ТЗ-46, ТЗ-144): «Захватить» —
+            // ручное закрытие (UserClose), «Открыть» — освобождение
+            // (UserOpen), «Повторить захват» (RetryCapture) и «Выбрать
+            // устройство» / «Перейти в Совместимый режим» для состояния
+            // «не удалось захватить» (§6.19). Rust-обработчики — шаг 70.
+            if root.lock-can-close: LockActionButton {
+                label: "Захватить";
+                clicked => { root.lock-close(); }
+            }
+            if root.lock-can-open: LockActionButton {
+                label: "Открыть";
+                clicked => { root.lock-open(); }
+            }
+            if root.lock-can-retry: LockActionButton {
+                label: "Повторить захват";
+                clicked => { root.lock-retry(); }
+            }
+            if root.lock-can-choose-device: LockActionButton {
+                label: "Выбрать устройство";
+                clicked => { root.lock-choose-device(); }
+            }
+            if root.lock-can-go-compatible: LockActionButton {
+                label: "Перейти в Совместимый режим";
+                clicked => { root.lock-go-compatible(); }
             }
         }
 
