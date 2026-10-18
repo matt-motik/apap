@@ -118,6 +118,27 @@ where
     })
 }
 
+/// Запрос RT-приоритета у `rtkit` как внешняя зависимость движка (§6.8,
+/// ADR-20): в тестах подменяется фейком, чтобы не трогать системную шину.
+/// `done` вызывается ровно один раз — `Some(prio)` при успехе, `None` при
+/// любой неудаче (§6.8 п. 3, ТЗ-99, ТЗ-76).
+pub trait RtPriorityRequester: Send + Sync {
+    fn request(&self, tid: u32, prio: u32, done: Box<dyn FnOnce(Option<u32>) + Send>);
+}
+
+/// Боевая реализация [`RtPriorityRequester`]: запрос `rtkit` в служебном
+/// потоке `apap-rtkit` через [`request_realtime`] (§6.8 п. 3, ТЗ-99, ТЗ-76).
+/// Отказ запустить сам служебный поток (крайне редкий исход — нехватка
+/// ресурсов ОС) оставляет `done` невызванным: приоритет остаётся `Pending`
+/// до конца сессии, как и было бы при недоступности `rtkit`/шины.
+pub struct RtKitRequester;
+
+impl RtPriorityRequester for RtKitRequester {
+    fn request(&self, tid: u32, prio: u32, done: Box<dyn FnOnce(Option<u32>) + Send>) {
+        let _ = request_realtime(tid, prio, done);
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

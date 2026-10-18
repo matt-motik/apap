@@ -15,6 +15,7 @@ use crate::audio::backend::{AccessKind, BackendCaps, BackendError, DeviceBufferA
 use crate::audio::clock::{Clock, ClockInstant};
 use crate::audio::error::CaptureFailure;
 use crate::audio::format::{OutputSampleFormat, SampleRate, StreamFormat};
+use crate::audio::rt::RtPriorityRequester;
 use crate::audio::reservation::{
     self, AudioServerProbe, CallError, LostNotify, NameFlags, RequestNameReply, Reservation, ReserveBus, ReserveObject,
     SinkCard, OWNER_NAME_TIMEOUT, RELEASE_TIMEOUT,
@@ -304,6 +305,26 @@ impl ReserveBus for FakeReserveBus {
         let mut st = self.lock();
         st.calls.push(BusCall::ReleaseName { card });
         st.owned.insert(card, false);
+    }
+}
+
+/// Фейковый запрос RT-приоритета (§6.8, ADR-20, ТЗ-99, ТЗ-76): вызывает
+/// `done` сразу на вызывающем потоке с заданным результатом — тестам не
+/// нужно ждать служебный поток `apap-rtkit`/реальную шину D-Bus.
+pub struct FakeRtRequester {
+    granted: Option<u32>,
+}
+
+impl FakeRtRequester {
+    /// Результат, с которым немедленно будет вызван `done` (§6.8 п. 3).
+    pub fn new(granted: Option<u32>) -> FakeRtRequester {
+        FakeRtRequester { granted }
+    }
+}
+
+impl RtPriorityRequester for FakeRtRequester {
+    fn request(&self, _tid: u32, _prio: u32, done: Box<dyn FnOnce(Option<u32>) + Send>) {
+        done(self.granted);
     }
 }
 

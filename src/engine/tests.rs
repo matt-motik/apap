@@ -65,6 +65,7 @@ fn build_deps(
         spawner,
         caps: BackendCaps::current(),
         os_probe: Box::new(FakeOsProbe::new(OsStage::Unknown)),
+        rt: Arc::new(crate::audio::testing::FakeRtRequester::new(None)),
     }
 }
 

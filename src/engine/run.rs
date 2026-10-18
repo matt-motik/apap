@@ -17,10 +17,11 @@ use crate::audio::clock::ClockInstant;
 use crate::audio::error::{CaptureFailure, EngineFault, FileError, OpenError, Reaction, StreamFault};
 use crate::audio::format::{SampleRate, SourceFormat};
 use crate::audio::path::plan::{plan, with_gain};
-use crate::audio::path::signal::{DynamicPathState, SignalPath};
+use crate::audio::path::signal::{DynamicPathState, RtPriorityState, SignalPath};
 use crate::audio::path::{Blocked, OpenedFacts, OsStage, PathPlan};
 use crate::audio::player::{Player, ReservationEvent, StreamDesc};
 use crate::audio::reservation::LostNotify;
+use crate::audio::rt::RT_PRIORITY_CAP;
 use crate::audio::session_build::SpawnDecoderError;
 use crate::audio::verdict::{verdict, BadgeState, GainState};
 use crate::engine::deps::EngineDeps;
@@ -451,9 +452,40 @@ impl Engine {
             // Потеря резервирования вне захвата замка — обработка приходит с
             // проводкой замка (§6.20).
             InternalMsg::ReservationLost { .. } => {}
-            // Итог RT-приоритета не влияет на поведение движка (§6.8).
-            InternalMsg::RtPriority { .. } => {}
+            // Ответ устаревшей (закрытой/переоткрытой) сессии отбрасывается
+            // молча — как и `ClaimDone` на отменённую попытку (§6.8, ТЗ-99).
+            InternalMsg::RtPriority { session, granted } => {
+                if session != self.path_generation {
+                    return;
+                }
+                self.dynamics.rt_priority = match granted {
+                    Some(prio) => RtPriorityState::Granted(prio),
+                    None => RtPriorityState::Denied,
+                };
+            }
         }
+    }
+
+    /// Запрашивает RT-приоритет потока вывода Эксклюзивного пути у `rtkit`
+    /// (§6.8 п. 2-3, ТЗ-99, ТЗ-76): без TID потока (бэкенд его не публикует)
+    /// запрос не имеет смысла — сразу `Denied`. Иначе запрос уходит в
+    /// служебный поток через `deps.rt`, а ответ приходит позже через
+    /// `InternalMsg::RtPriority { session, .. }` с текущим `path_generation`
+    /// как `session`, чтобы ответ устаревшей сессии был отброшен.
+    fn request_rt_priority(&mut self, session: u64, tid: Option<u32>) {
+        let Some(tid) = tid else {
+            self.dynamics.rt_priority = RtPriorityState::Denied;
+            return;
+        };
+        self.dynamics.rt_priority = RtPriorityState::Pending;
+        let tx = self.internal_tx.clone();
+        self.deps.rt.request(
+            tid,
+            RT_PRIORITY_CAP,
+            Box::new(move |granted| {
+                let _ = tx.send(InternalMsg::RtPriority { session, granted });
+            }),
+        );
     }
 
     /// Шаг состояния замка устройства режима (§6.19, ТЗ-118, ADR-01):
@@ -765,6 +797,7 @@ impl Engine {
                 opened.set_viz_tap_active(self.viz_tap_active);
                 self.exclusive_signal =
                     Some(ActivePath { plan: base, facts: opened.facts().clone(), path: Arc::clone(&signal), badge: badge.clone() });
+                let rt_tid = opened.rt_tid();
                 if autoplay {
                     opened.play();
                 }
@@ -774,6 +807,7 @@ impl Engine {
                 self.last_pos = None;
                 self.session_failed = false;
                 self.dynamics = DynamicPathState::default();
+                self.request_rt_priority(generation, rt_tid);
                 self.deps.events.emit(EngineEvent::Opened { req_gen, info, stream_format, path: Some(signal), badge });
                 self.refresh_transport();
             }
@@ -1534,7 +1568,7 @@ mod tests {
     use crate::audio::clock::MonotonicClock;
     use crate::engine::sink::VecSink;
     use crate::engine::source::FakeSource;
-    use crate::audio::testing::{FakeExclusiveBackend, FakeServerProbe};
+    use crate::audio::testing::{FakeExclusiveBackend, FakeRtRequester, FakeServerProbe};
     use crate::engine::spawner::{FailingSpawner, StdSpawner};
     use crate::platform::fs::{FsPersistStore, MemStore};
     use crate::settings::params::{ModeSettingsUpdate, ParamId};
@@ -1575,6 +1609,7 @@ mod tests {
             spawner,
             caps: BackendCaps::current(),
             os_probe: Box::new(FakeOsProbe::new(OsStage::Unknown)),
+            rt: Arc::new(FakeRtRequester::new(None)),
         }
     }
 
@@ -1848,6 +1883,7 @@ mod tests {
             spawner: Arc::new(StdSpawner),
             caps: BackendCaps::current(),
             os_probe: Box::new(FakeOsProbe::new(OsStage::Unknown)),
+            rt: Arc::new(FakeRtRequester::new(None)),
         };
         let mut engine = Engine::new(deps, BackendCaps::current());
         engine.catalog.hw = vec![crate::audio::backend::catalog::HwDeviceInfo { id: dev.clone(), card: 1, device: 0, name: "RU3".to_string() }];
@@ -1895,6 +1931,7 @@ mod tests {
             spawner: Arc::new(StdSpawner),
             caps: BackendCaps::current(),
             os_probe: Box::new(FakeOsProbe::new(OsStage::Unknown)),
+            rt: Arc::new(FakeRtRequester::new(None)),
         };
         let mut engine = Engine::new(deps, BackendCaps::current());
         engine.catalog.hw = vec![crate::audio::backend::catalog::HwDeviceInfo { id: dev.clone(), card: 1, device: 0, name: "RU3".to_string() }];
@@ -2099,6 +2136,7 @@ mod tests {
             spawner: Arc::new(StdSpawner),
             caps: BackendCaps::current(),
             os_probe: Box::new(FakeOsProbe::new(OsStage::Unknown)),
+            rt: Arc::new(FakeRtRequester::new(None)),
         };
         let mut engine = Engine::new(deps, BackendCaps::current());
         engine.active_mode = ModeKind::Optimal;
@@ -2159,6 +2197,7 @@ mod tests {
             spawner: Arc::new(StdSpawner),
             caps: BackendCaps::current(),
             os_probe: Box::new(FakeOsProbe::new(OsStage::Unknown)),
+            rt: Arc::new(FakeRtRequester::new(None)),
         };
         let mut engine = Engine::new(deps, BackendCaps::current());
         engine.active_mode = ModeKind::Optimal;
@@ -2405,6 +2444,7 @@ mod tests {
             spawner: Arc::new(StdSpawner),
             caps: BackendCaps::current(),
             os_probe: Box::new(FakeOsProbe::new(OsStage::Unknown)),
+            rt: Arc::new(FakeRtRequester::new(None)),
         };
         let mut engine = Engine::new(deps, BackendCaps::current());
         engine.active_mode = ModeKind::Optimal;
@@ -2420,6 +2460,132 @@ mod tests {
 
         assert_eq!(fake_source.last_route(), Some(crate::audio::path::Route::Pcm));
         assert_eq!(fake_source.opens(), 1);
+    }
+
+    /// §6.8 п. 2-3 (ТЗ-99, ТЗ-76): TID потока вывода Эксклюзивного пути уходит
+    /// в `rt`-зависимость, результат возвращается через `InternalMsg::RtPriority`
+    /// с `session == path_generation` — после `drain_internal` приоритет в
+    /// `DynamicPathState` становится `Granted`.
+    #[test]
+    fn rt_priority_granted_updates_dynamics_after_exclusive_open() {
+        let sink = VecSink::new();
+        let dev: HwDeviceId = "hw:CARD=RU3,DEV=0".parse().expect("hw id");
+        let backend = FakeExclusiveBackend::new()
+            .with_configure(Ok((
+                crate::audio::backend::DriverFormat::Confirmed(crate::audio::format::StreamFormat {
+                    rate: SampleRate::new(44_100).expect("rate"),
+                    sample: crate::audio::format::OutputSampleFormat::S32Le,
+                    channels: std::num::NonZeroU8::new(2).expect("channels"),
+                }),
+                Some(crate::audio::backend::DeviceBufferActual { period_frames: 256, buffer_frames: 1024 }),
+            )))
+            .with_start_tid(Some(4242));
+        let mem = MemStore::new();
+        let deps = EngineDeps {
+            shared: Box::new(FakeSharedBackend::with_devices(Vec::new())),
+            exclusive: Some(Box::new(backend)),
+            server_probe: Box::new(FakeServerProbe::desktop()),
+            watcher: Box::new(FakeDeviceWatcher::new()),
+            sources: Arc::new(FakeSource::with_format(SourceFormat {
+                container: Container::Wav,
+                codec: Codec::Wav,
+                lossy: false,
+                rate: SampleRate::new(44_100).expect("rate"),
+                layout: ChannelLayout::stereo(),
+                kind: SourceKind::FloatPcm { double: false },
+            })),
+            clock: Box::new(MonotonicClock::new()),
+            store: Box::new(FsPersistStore::new(Arc::new(mem.clone()), Box::new(mem.clone()), PathBuf::from("/cfg"))),
+            events: Box::new(sink.clone()),
+            spawner: Arc::new(StdSpawner),
+            caps: BackendCaps::current(),
+            os_probe: Box::new(FakeOsProbe::new(OsStage::Unknown)),
+            rt: Arc::new(FakeRtRequester::new(Some(20))),
+        };
+        let mut engine = Engine::new(deps, BackendCaps::current());
+        engine.active_mode = ModeKind::Optimal;
+        engine.mode_settings.optimal.device = Some(dev.clone());
+        engine.lock = LockState::Held { info: crate::audio::backend::exclusive::ClaimInfo { device: dev.clone() } };
+        engine.claim = Some(crate::audio::backend::exclusive::DeviceClaim::new(
+            None,
+            crate::audio::reservation::Reservation::UnavailableNoServer,
+            crate::audio::backend::exclusive::ClaimInfo { device: dev },
+        ));
+
+        engine.handle(EngineCmd::Open { req_gen: 1, path: Arc::from(Path::new("/music/a.flac")), start_secs: 0.0, autoplay: true });
+        assert!(engine.exclusive_path.is_some());
+        engine.drain_internal();
+
+        assert_eq!(engine.dynamics.rt_priority, RtPriorityState::Granted(20));
+    }
+
+    /// §6.8 п. 2 (ТЗ-99, ТЗ-76): бэкенд не публикует TID потока вывода
+    /// (`rt_tid() == None`) — запрос у `rtkit` не имеет смысла, приоритет
+    /// сразу `Denied` без похода в `rt`-зависимость.
+    #[test]
+    fn rt_priority_denied_when_backend_reports_no_tid() {
+        let sink = VecSink::new();
+        let dev: HwDeviceId = "hw:CARD=RU3,DEV=0".parse().expect("hw id");
+        let backend = FakeExclusiveBackend::new().with_configure(Ok((
+            crate::audio::backend::DriverFormat::Confirmed(crate::audio::format::StreamFormat {
+                rate: SampleRate::new(44_100).expect("rate"),
+                sample: crate::audio::format::OutputSampleFormat::S32Le,
+                channels: std::num::NonZeroU8::new(2).expect("channels"),
+            }),
+            Some(crate::audio::backend::DeviceBufferActual { period_frames: 256, buffer_frames: 1024 }),
+        )));
+        let mem = MemStore::new();
+        let deps = EngineDeps {
+            shared: Box::new(FakeSharedBackend::with_devices(Vec::new())),
+            exclusive: Some(Box::new(backend)),
+            server_probe: Box::new(FakeServerProbe::desktop()),
+            watcher: Box::new(FakeDeviceWatcher::new()),
+            sources: Arc::new(FakeSource::with_format(SourceFormat {
+                container: Container::Wav,
+                codec: Codec::Wav,
+                lossy: false,
+                rate: SampleRate::new(44_100).expect("rate"),
+                layout: ChannelLayout::stereo(),
+                kind: SourceKind::FloatPcm { double: false },
+            })),
+            clock: Box::new(MonotonicClock::new()),
+            store: Box::new(FsPersistStore::new(Arc::new(mem.clone()), Box::new(mem.clone()), PathBuf::from("/cfg"))),
+            events: Box::new(sink.clone()),
+            spawner: Arc::new(StdSpawner),
+            caps: BackendCaps::current(),
+            os_probe: Box::new(FakeOsProbe::new(OsStage::Unknown)),
+            rt: Arc::new(FakeRtRequester::new(Some(20))),
+        };
+        let mut engine = Engine::new(deps, BackendCaps::current());
+        engine.active_mode = ModeKind::Optimal;
+        engine.mode_settings.optimal.device = Some(dev.clone());
+        engine.lock = LockState::Held { info: crate::audio::backend::exclusive::ClaimInfo { device: dev.clone() } };
+        engine.claim = Some(crate::audio::backend::exclusive::DeviceClaim::new(
+            None,
+            crate::audio::reservation::Reservation::UnavailableNoServer,
+            crate::audio::backend::exclusive::ClaimInfo { device: dev },
+        ));
+
+        engine.handle(EngineCmd::Open { req_gen: 1, path: Arc::from(Path::new("/music/a.flac")), start_secs: 0.0, autoplay: true });
+        assert!(engine.exclusive_path.is_some());
+
+        assert_eq!(engine.dynamics.rt_priority, RtPriorityState::Denied);
+    }
+
+    /// §6.8 (ТЗ-99): ответ `InternalMsg::RtPriority` устаревшей сессии
+    /// (`session != path_generation`) отбрасывается молча — приоритет в
+    /// `DynamicPathState` не меняется, как и `ClaimDone` на отменённую
+    /// попытку.
+    #[test]
+    fn rt_priority_stale_session_is_ignored() {
+        let sink = VecSink::new();
+        let deps = fake_deps(Box::new(sink), Arc::new(StdSpawner));
+        let mut engine = Engine::new(deps, BackendCaps::current());
+        engine.path_generation = 5;
+
+        engine.handle_internal(InternalMsg::RtPriority { session: 1, granted: Some(10) });
+
+        assert_eq!(engine.dynamics.rt_priority, RtPriorityState::NotRequested);
     }
 
     /// §6.18 шаг 45 (ТЗ-48, ТЗ-137): `Open` в Строгом режиме без удержанного
@@ -2469,6 +2635,7 @@ mod tests {
             spawner: Arc::new(StdSpawner),
             caps: BackendCaps::current(),
             os_probe: Box::new(FakeOsProbe::new(OsStage::Unknown)),
+            rt: Arc::new(FakeRtRequester::new(None)),
         };
         let mut engine = Engine::new(deps, BackendCaps::current());
         engine.active_mode = ModeKind::Optimal;
@@ -2520,6 +2687,7 @@ mod tests {
             spawner: Arc::new(StdSpawner),
             caps: BackendCaps::current(),
             os_probe: Box::new(FakeOsProbe::new(OsStage::Unknown)),
+            rt: Arc::new(FakeRtRequester::new(None)),
         };
         let mut engine = Engine::new(deps, BackendCaps::current());
         engine.active_mode = ModeKind::Optimal;
@@ -2584,6 +2752,7 @@ mod tests {
             spawner: Arc::new(StdSpawner),
             caps: BackendCaps::current(),
             os_probe: Box::new(FakeOsProbe::new(OsStage::Unknown)),
+            rt: Arc::new(FakeRtRequester::new(None)),
         };
         let mut engine = Engine::new(deps, BackendCaps::current());
         engine.active_mode = ModeKind::Optimal;
@@ -2642,6 +2811,7 @@ mod tests {
             spawner: Arc::new(StdSpawner),
             caps: BackendCaps::current(),
             os_probe: Box::new(FakeOsProbe::new(OsStage::Unknown)),
+            rt: Arc::new(FakeRtRequester::new(None)),
         };
         let mut engine = Engine::new(deps, BackendCaps::current());
         engine.active_mode = ModeKind::Optimal;
@@ -2708,6 +2878,7 @@ mod tests {
             spawner: Arc::new(StdSpawner),
             caps: BackendCaps::current(),
             os_probe: Box::new(FakeOsProbe::new(OsStage::Unknown)),
+            rt: Arc::new(FakeRtRequester::new(None)),
         };
         let mut engine = Engine::new(deps, BackendCaps::current());
         engine.active_mode = ModeKind::Optimal;
@@ -2785,6 +2956,7 @@ mod tests {
             spawner: Arc::new(StdSpawner),
             caps: BackendCaps::current(),
             os_probe: Box::new(FakeOsProbe::new(OsStage::Unknown)),
+            rt: Arc::new(FakeRtRequester::new(None)),
         };
         let mut engine = Engine::new(deps, BackendCaps::current());
         engine.active_mode = ModeKind::Optimal;

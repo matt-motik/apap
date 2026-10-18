@@ -15,6 +15,7 @@ use crate::audio::backend::BackendCaps;
 use crate::audio::backend::shared::{CpalSharedBackend, SharedBackend};
 use crate::audio::clock::{Clock, MonotonicClock};
 use crate::audio::reservation::AudioServerProbe;
+use crate::audio::rt::RtPriorityRequester;
 #[cfg(target_os = "linux")]
 use crate::audio::backend::alsa::AlsaExclusiveBackend;
 #[cfg(target_os = "linux")]
@@ -49,6 +50,9 @@ pub struct EngineDeps {
     pub caps: BackendCaps,
     /// Уровень ОС для этапа «Уровень ОС» (§6.26, ADR-21).
     pub os_probe: Box<dyn OsLevelProbe>,
+    /// Запрос RT-приоритета потока вывода Эксклюзивного пути у `rtkit`
+    /// (§6.8, ТЗ-99, ТЗ-76); тесты подменяют фейком.
+    pub rt: Arc<dyn RtPriorityRequester>,
 }
 
 impl EngineDeps {
@@ -75,6 +79,7 @@ impl EngineDeps {
             spawner: Arc::new(StdSpawner),
             caps: BackendCaps::current(),
             os_probe: Box::new(SystemOsProbe),
+            rt: Arc::new(crate::audio::rt::RtKitRequester),
         }
     }
 }
@@ -143,6 +148,7 @@ mod tests {
             spawner: Arc::new(StdSpawner),
             caps: BackendCaps::current(),
             os_probe: Box::new(FakeOsProbe::new(OsStage::Unknown)),
+            rt: Arc::new(crate::audio::testing::FakeRtRequester::new(None)),
         };
 
         let format = deps.sources.probe(Path::new("fake.flac")).expect("probe ok");

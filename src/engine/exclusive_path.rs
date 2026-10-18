@@ -102,6 +102,12 @@ impl ExclusivePath {
         self.frame_rate
     }
 
+    /// TID потока вывода для запроса RT-приоритета у `rtkit` (§6.8 п. 2,
+    /// ТЗ-99, ТЗ-76): `None`, если бэкенд его не публикует.
+    pub(crate) fn rt_tid(&self) -> Option<u32> {
+        self.handle.rt_tid()
+    }
+
     /// Факты открытого потока (§6.18 шаг 50, ТЗ-137) для снимка `ActivePath`
     /// Эксклюзивного пути без повторного обращения к устройству.
     pub(crate) fn facts(&self) -> &OpenedFacts {
