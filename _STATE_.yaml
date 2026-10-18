@@ -196,7 +196,7 @@ steps:
     done: true
   - id: 46
     description: "Шаг 46: run.rs: классификация ExclusiveOpenReason → OpenError (Plan(StrictFloatRing)/Feed → Incompatible или Internal, Decode(Open) → File, Decode(Spawn) → Internal, Configure/Start/BufferUnavailable → Capture/DeviceLost по §6.18/ADR-14) вместо общего DeviceLost + тест (§6.18, ТЗ-86). Проверка: cargo test engine::"
-    done: false
+    done: true
   - id: 47
     description: "Шаг 47: SourceOpener: открытие по маршруту плана (Route::Dop → DsdDecoder DecodeMode::Dop, DsdToPcm → PCM-режим DSD-декодера) в engine/source.rs и вызов из open_exclusive (run.rs) + тест на фейке (§6.18 п. 6, ТЗ-113). Проверка: cargo test engine::"
     done: false
@@ -302,8 +302,8 @@ steps:
   - id: 81
     description: "Шаг 81: ФИНАЛ: cargo build/test/clippy зелёные; общие условия §8 (Совместимый играет, «Bit-perfect» только при ТЗ-52); ручные проверки в заметку плана: замок (ТЗ-1/2/48/118…122, AM1.0-8.1), B1 — возврат устройства в PipeWire после освобождения, B2 — текст «занято <владелец>» при чужом захвате"
     done: false
-current_step: 46
-next_action: "Шаг 46: классификация ExclusiveOpenReason → OpenError в open_exclusive (run.rs) вместо общего DeviceLost + тест. Свежий субагент code-writer sonnet."
+current_step: 47
+next_action: "Шаг 47: SourceOpener — открытие по маршруту плана (Route::Dop → DsdDecoder DecodeMode::Dop, DsdToPcm → PCM-режим) в engine/source.rs + вызов из open_exclusive (run.rs) + тест на фейке. Свежий субагент code-writer sonnet."
 fail_counter: 0
 fail_counter_max: 3
 failed_attempts: []

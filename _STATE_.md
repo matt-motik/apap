@@ -105,8 +105,8 @@
 - [x] Шаг 43: Шаг 43: session_build.rs: exclusive_feed(&PathPlan, Box<dyn AudioSource>, …) → (RingKind-совместимый EngineFeed) — PCM exact / SRC float / DSD→PCM / DoP по маршруту плана (§6.18 п. 4, ТЗ-48, 113). Проверка: cargo test session_build
 - [x] Шаг 44: Шаг 44: Новый src/engine/exclusive_path.rs: ExclusivePath { claim, session, handle } и open(): configure при необходимости → exclusive_session_plan → build_exclusive_render + exclusive_feed → spawn_decoder → start → OpenedFacts (DriverFormat::Confirmed) → SignalPath::from_opened (§6.18 п. 1–7, ТЗ-48, 50, 113). Проверка: cargo check
 - [x] Шаг 45: Шаг 45: run.rs: Open в Оптимальном/Строгом диспетчеризуется в ExclusivePath (не Held → OpenFailed), Compatible — прежний путь + тесты ≤3 на фейке (Opened с Confirmed, OpenFailed без захвата) (§6.18, ТЗ-48, 137). Проверка: cargo test engine::
-- [>] **Шаг 46: Шаг 46: run.rs: классификация ExclusiveOpenReason → OpenError (Plan(StrictFloatRing)/Feed → Incompatible или Internal, Decode(Open) → File, Decode(Spawn) → Internal, Configure/Start/BufferUnavailable → Capture/DeviceLost по §6.18/ADR-14) вместо общего DeviceLost + тест (§6.18, ТЗ-86). Проверка: cargo test engine::**
-- [ ] Шаг 47: Шаг 47: SourceOpener: открытие по маршруту плана (Route::Dop → DsdDecoder DecodeMode::Dop, DsdToPcm → PCM-режим DSD-декодера) в engine/source.rs и вызов из open_exclusive (run.rs) + тест на фейке (§6.18 п. 6, ТЗ-113). Проверка: cargo test engine::
+- [x] Шаг 46: Шаг 46: run.rs: классификация ExclusiveOpenReason → OpenError (Plan(StrictFloatRing)/Feed → Incompatible или Internal, Decode(Open) → File, Decode(Spawn) → Internal, Configure/Start/BufferUnavailable → Capture/DeviceLost по §6.18/ADR-14) вместо общего DeviceLost + тест (§6.18, ТЗ-86). Проверка: cargo test engine::
+- [>] **Шаг 47: Шаг 47: SourceOpener: открытие по маршруту плана (Route::Dop → DsdDecoder DecodeMode::Dop, DsdToPcm → PCM-режим DSD-декодера) в engine/source.rs и вызов из open_exclusive (run.rs) + тест на фейке (§6.18 п. 6, ТЗ-113). Проверка: cargo test engine::**
 - [ ] Шаг 48: Шаг 48: exclusive_path.rs: транспорт Play/Pause/Stop (остановка StreamHandle без освобождения claim — замок удерживает устройство, ТЗ-43) + тесты ≤3 (§6.18, ТЗ-49, 43). Проверка: cargo test engine::
 - [ ] Шаг 49: Шаг 49: exclusive_path.rs: Seek — сброс ring за O(1) и повторный prime (§6.16, ТЗ-99) + тест. Проверка: cargo test engine::
 - [ ] Шаг 50: Шаг 50: exclusive_path.rs: громкость/mute на эксклюзивном пути по плану (no_gain → игнор, иначе гейн рендера) (§6.18, ТЗ-137, 140) + тест. Проверка: cargo test engine::
@@ -144,8 +144,8 @@
 
 Легенда: [x] сделано · [>] текущий шаг · [ ] не начато
 
-- **Текущий шаг (current_step):** Шаг 46
-- **Следующий ход:** Шаг 46: классификация ExclusiveOpenReason → OpenError в open_exclusive (run.rs) вместо общего DeviceLost + тест. Свежий субагент code-writer sonnet.
+- **Текущий шаг (current_step):** Шаг 47
+- **Следующий ход:** Шаг 47: SourceOpener — открытие по маршруту плана (Route::Dop → DsdDecoder DecodeMode::Dop, DsdToPcm → PCM-режим) в engine/source.rs + вызов из open_exclusive (run.rs) + тест на фейке. Свежий субагент code-writer sonnet.
 - **Счетчик безуспешных компиляций:** 0/3
 - **Состояние:** in_progress
 

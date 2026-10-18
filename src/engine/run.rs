@@ -23,10 +23,11 @@ use crate::audio::path::signal::SignalPath;
 use crate::audio::path::{Blocked, OpenedFacts, OsStage, PathPlan};
 use crate::audio::player::{Player, ReservationEvent, StreamDesc};
 use crate::audio::reservation::LostNotify;
+use crate::audio::session_build::SpawnDecoderError;
 use crate::audio::verdict::{verdict, BadgeState, GainState};
 use crate::audio::worker::VizTap;
 use crate::engine::deps::EngineDeps;
-use crate::engine::exclusive_path::{self, ExclusivePath};
+use crate::engine::exclusive_path::{self, ExclusiveOpenReason, ExclusivePath};
 use crate::engine::legacy_path::{legacy_audio, opened_facts_from_desc, shared_caps_from_desc, stream_format_from_desc};
 use crate::engine::lock::{lock_step, resolve_device, LockEffect, LockInput, LockState, ReacquirePoint, Resolved};
 use crate::engine::messages::{EngineCmd, EngineEvent, InternalMsg, LegacyAudio, Notice, SkipReason, TransportState};
@@ -183,6 +184,39 @@ fn secs_to_frames(secs: f64, rate: u32) -> u64 {
         frames as u64
     } else {
         0
+    }
+}
+
+/// Классифицирует причину отказа `exclusive_path::open` в `OpenError`
+/// (§6.18, ADR-14, ТЗ-86). `Configure`/`BufferUnavailable`/`Start` — отказ
+/// драйвера/устройства на шагах `configure`/`start` (ТЗ-113, ТЗ-131): ближе
+/// к `OpenError` для них нет типизированного `CaptureFailure` (тот же
+/// мост-приём, что у `reopen_with_legacy` и `SetDevice` в этом файле) — им
+/// присвоена потеря устройства. `Decode(Open(msg))` — декодер не открыл
+/// источник текстом ошибки (ТЗ-86, тот же мост-приём, что у легаси-ветки
+/// `EngineCmd::Open`) — тот же вариант `File(Unsupported)`.
+/// `Decode(Spawn(fault))` — поток декодера не запущен — переносит уже
+/// типизированный `EngineFault` в `Internal` без моста. `Plan`/`Render`/
+/// `Feed` — рассогласование плана сессии с фактическим буфером устройства
+/// или источником декодера: это ошибка сборки пути внутри движка, а не
+/// отказ оборудования или пользовательского файла, поэтому классифицируется
+/// как `Internal`; `EngineFault` не содержит варианта именно под
+/// рассогласование плана — `DriverFormatUnstable` зарезервирован под другой
+/// случай (повторное расхождение `hw_params` в Оптимальном режиме, ОВС-10
+/// п. 5) и не подходит, поэтому использован ближайший по смыслу вариант
+/// `SpawnFailed`.
+fn exclusive_open_error(reason: ExclusiveOpenReason) -> OpenError {
+    match reason {
+        ExclusiveOpenReason::Configure(_) | ExclusiveOpenReason::BufferUnavailable | ExclusiveOpenReason::Start(_) => {
+            OpenError::DeviceLost
+        }
+        ExclusiveOpenReason::Plan(_) | ExclusiveOpenReason::Render(_) | ExclusiveOpenReason::Feed(_) => {
+            OpenError::Internal(EngineFault::SpawnFailed { what: "exclusive-session-assembly" })
+        }
+        ExclusiveOpenReason::Decode(SpawnDecoderError::Spawn(fault)) => OpenError::Internal(fault),
+        ExclusiveOpenReason::Decode(SpawnDecoderError::Open(msg)) => {
+            OpenError::File(FileError::Unsupported { codec: msg })
+        }
     }
 }
 
@@ -691,13 +725,13 @@ impl Engine {
             Err(err) => {
                 // §6.19: замок остаётся удержан — claim не теряется ни при
                 // одном отказе `exclusive_path::open` (возвращается в
-                // `ExclusiveOpenError`). Причина отказа не классифицирована
-                // отдельным вариантом `OpenError` в этом шаге (тот же
-                // мост-приём, что у `reopen_with_legacy`) — ближайший по
-                // смыслу вариант уже существующего `OpenError` — потеря
-                // устройства.
+                // `ExclusiveOpenError`); причина классифицируется в
+                // `OpenError` через `exclusive_open_error` (§6.18, ADR-14,
+                // ТЗ-86).
                 self.claim = Some(err.claim);
-                self.deps.events.emit(EngineEvent::OpenFailed { req_gen, err: OpenError::DeviceLost });
+                self.deps
+                    .events
+                    .emit(EngineEvent::OpenFailed { req_gen, err: exclusive_open_error(err.reason) });
             }
         }
     }
@@ -1927,5 +1961,101 @@ mod tests {
         ));
         assert!(engine.claim.is_none());
         assert!(matches!(engine.lock, LockState::Open));
+    }
+
+    /// §6.18 шаг 46 (ADR-14, ТЗ-86): отказ `configure` на Эксклюзивном пути
+    /// (`ExclusiveOpenReason::Configure`) классифицируется в
+    /// `OpenError::DeviceLost` через `exclusive_open_error`; замок остаётся
+    /// удержан — `claim` возвращается в `self.claim`, а не теряется (§6.19).
+    #[test]
+    fn open_exclusive_configure_failure_maps_to_device_lost_and_keeps_claim() {
+        let sink = VecSink::new();
+        let dev: HwDeviceId = "hw:CARD=RU3,DEV=0".parse().expect("hw id");
+        let backend = FakeExclusiveBackend::new()
+            .with_configure(Err(crate::audio::backend::exclusive::ConfigureError("hw_params busy".to_owned())));
+        let mem = MemStore::new();
+        let deps = EngineDeps {
+            shared: Box::new(FakeSharedBackend::with_devices(Vec::new())),
+            exclusive: Some(Box::new(backend)),
+            server_probe: Box::new(FakeServerProbe::desktop()),
+            watcher: Box::new(FakeDeviceWatcher::new()),
+            sources: Arc::new(FakeSource::with_format(pcm_format())),
+            clock: Box::new(MonotonicClock::new()),
+            store: Box::new(FsPersistStore::new(Arc::new(mem.clone()), Box::new(mem.clone()), PathBuf::from("/cfg"))),
+            events: Box::new(sink.clone()),
+            spawner: Arc::new(StdSpawner),
+            caps: BackendCaps::current(),
+            os_probe: Box::new(FakeOsProbe::new(OsStage::Unknown)),
+        };
+        let mut engine = Engine::new(deps, BackendCaps::current());
+        engine.active_mode = ModeKind::Optimal;
+        engine.mode_settings.optimal.device = Some(dev.clone());
+        engine.lock = LockState::Held { info: crate::audio::backend::exclusive::ClaimInfo { device: dev.clone() } };
+        engine.claim = Some(crate::audio::backend::exclusive::DeviceClaim::new(
+            None,
+            crate::audio::reservation::Reservation::UnavailableNoServer,
+            crate::audio::backend::exclusive::ClaimInfo { device: dev },
+        ));
+
+        engine.handle(EngineCmd::Open { req_gen: 1, path: Arc::from(Path::new("/music/a.flac")), start_secs: 0.0, autoplay: true });
+
+        let events = sink.take();
+        assert!(matches!(events.as_slice(), [EngineEvent::OpenFailed { err: OpenError::DeviceLost, .. }]));
+        assert!(engine.claim.is_some());
+        assert!(engine.exclusive_path.is_none());
+    }
+
+    /// §6.18 шаг 46 (ADR-14, ТЗ-86): рассогласование плана сессии с
+    /// источником декодера (`ExclusiveOpenReason::Feed`, здесь —
+    /// `PayloadMismatch`: целый ring плана против `ring_payload()` фейкового
+    /// источника, дефолт трейта — `F32`, как и у `open_in_optimal_mode_
+    /// dispatches_to_exclusive_path_confirmed`, но без переключения на
+    /// float-источник) классифицируется как внутренняя ошибка сборки пути —
+    /// `OpenError::Internal`; замок остаётся удержан (§6.19).
+    #[test]
+    fn open_exclusive_feed_mismatch_maps_to_internal_and_keeps_claim() {
+        let sink = VecSink::new();
+        let dev: HwDeviceId = "hw:CARD=RU3,DEV=0".parse().expect("hw id");
+        let backend = FakeExclusiveBackend::new().with_configure(Ok((
+            crate::audio::backend::DriverFormat::Confirmed(crate::audio::format::StreamFormat {
+                rate: SampleRate::new(44_100).expect("rate"),
+                sample: crate::audio::format::OutputSampleFormat::S32Le,
+                channels: std::num::NonZeroU8::new(2).expect("channels"),
+            }),
+            Some(crate::audio::backend::DeviceBufferActual { period_frames: 256, buffer_frames: 1024 }),
+        )));
+        let mem = MemStore::new();
+        let deps = EngineDeps {
+            shared: Box::new(FakeSharedBackend::with_devices(Vec::new())),
+            exclusive: Some(Box::new(backend)),
+            server_probe: Box::new(FakeServerProbe::desktop()),
+            watcher: Box::new(FakeDeviceWatcher::new()),
+            sources: Arc::new(FakeSource::with_format(pcm_format())),
+            clock: Box::new(MonotonicClock::new()),
+            store: Box::new(FsPersistStore::new(Arc::new(mem.clone()), Box::new(mem.clone()), PathBuf::from("/cfg"))),
+            events: Box::new(sink.clone()),
+            spawner: Arc::new(StdSpawner),
+            caps: BackendCaps::current(),
+            os_probe: Box::new(FakeOsProbe::new(OsStage::Unknown)),
+        };
+        let mut engine = Engine::new(deps, BackendCaps::current());
+        engine.active_mode = ModeKind::Optimal;
+        engine.mode_settings.optimal.device = Some(dev.clone());
+        engine.lock = LockState::Held { info: crate::audio::backend::exclusive::ClaimInfo { device: dev.clone() } };
+        engine.claim = Some(crate::audio::backend::exclusive::DeviceClaim::new(
+            None,
+            crate::audio::reservation::Reservation::UnavailableNoServer,
+            crate::audio::backend::exclusive::ClaimInfo { device: dev },
+        ));
+
+        engine.handle(EngineCmd::Open { req_gen: 1, path: Arc::from(Path::new("/music/a.flac")), start_secs: 0.0, autoplay: true });
+
+        let events = sink.take();
+        assert!(matches!(
+            events.as_slice(),
+            [EngineEvent::OpenFailed { err: OpenError::Internal(EngineFault::SpawnFailed { .. }), .. }]
+        ));
+        assert!(engine.claim.is_some());
+        assert!(engine.exclusive_path.is_none());
     }
 }
