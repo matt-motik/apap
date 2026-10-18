@@ -6,12 +6,16 @@ use std::time::Duration;
 
 use cpal::SampleFormat;
 
+use super::backend::exclusive::{DopRenderAny, ExclusivePcm, ExclusiveRender, OptimalRender, StrictRender};
 use super::backend::DeviceBufferActual;
 use super::error::EngineFault;
+use super::format::OutputSampleFormat;
 use super::output::{dop_render_for, pcm_render_for, RawRender, StreamBuildError};
 use super::path::{PathPlan, Route};
-use super::render::gain::{AtomicGain, NoGain};
-use super::render::pcm::PcmSample;
+use super::render::dop::DopRender;
+use super::render::gain::{AtomicGain, GainStage, NoGain};
+use super::render::out::{S16Le, S24Le, S24_3Le, S32Le, F32Le};
+use super::render::pcm::{PcmRender, PcmSample};
 use super::render::tpdf::Tpdf;
 use super::render::{prime_frames, RenderCore};
 use super::session::{RingPayload, SessionShared};
@@ -74,7 +78,7 @@ pub(crate) struct EnginePlan {
 
 /// Вид рендера эксклюзивного потока (§2.9, ТЗ-140).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-// используется ExclusivePath (шаг 42)
+// используется ExclusivePath (шаг 44)
 #[allow(dead_code)]
 pub(crate) enum ExclusiveRenderKind {
     /// Оптимальный, PCM, ступень `AtomicGain`.
@@ -83,14 +87,16 @@ pub(crate) enum ExclusiveRenderKind {
     OptimalPcmLocked,
     /// Строгий: PCM без ступени громкости (И-Т6).
     StrictPcm,
-    /// DoP в любом эксклюзивном режиме: громкости нет (ADR-12).
-    Dop,
+    /// DoP в Оптимальном режиме: громкости нет (ADR-12).
+    OptimalDop,
+    /// DoP в Строгом режиме: громкости нет (ADR-12, И-Т6).
+    StrictDop,
 }
 
 /// Отказ [`exclusive_session_plan`]: план не применим к эксклюзивному выводу
 /// (§6.18 п. 5–6, ТЗ-137, ТЗ-140).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-// используется ExclusivePath (шаг 42)
+// используется ExclusivePath (шаг 44)
 #[allow(dead_code)]
 pub(crate) enum ExclusivePlanError {
     /// Совместимый режим не строит эксклюзивный план (ADR-04): у Shared нет
@@ -105,10 +111,10 @@ pub(crate) enum ExclusivePlanError {
 /// План сессии эксклюзивного вывода: ring/рендер из [`PathPlan`] и
 /// фактического буфера устройства (§6.18 п. 5–6, ТЗ-137, ТЗ-140). Строится
 /// чистой функцией [`exclusive_session_plan`] без I/O и без аллокации ring —
-/// используется `ExclusivePath::open` (шаг 42) для сборки ring и
+/// используется `ExclusivePath::open` (шаг 44) для сборки ring и
 /// `ExclusiveRender`.
 #[derive(Debug, Clone, Copy)]
-// используется ExclusivePath (шаг 42)
+// используется ExclusivePath (шаг 44)
 #[allow(dead_code)]
 pub(crate) struct ExclusiveSessionPlan {
     pub(crate) engine: EnginePlan,
@@ -131,7 +137,7 @@ pub(crate) struct ExclusiveSessionPlan {
 /// `no_gain` повторяет правило `gain_stage` планировщика (§6.3, ADR-23):
 /// Строгий и DoP — всегда без ступени громкости, Оптимальный — без ступени
 /// только при `volume_lock` (ОВС-18, ОВС-19).
-// используется ExclusivePath (шаг 42)
+// используется ExclusivePath (шаг 44)
 #[allow(dead_code)]
 pub(crate) fn exclusive_session_plan(
     plan: &PathPlan,
@@ -152,7 +158,8 @@ pub(crate) fn exclusive_session_plan(
 
     let (render, no_gain) = match (plan.mode, is_dop) {
         (ModeKind::Compatible, _) => return Err(ExclusivePlanError::NotExclusive),
-        (_, true) => (ExclusiveRenderKind::Dop, true),
+        (ModeKind::Optimal, true) => (ExclusiveRenderKind::OptimalDop, true),
+        (ModeKind::Strict, true) => (ExclusiveRenderKind::StrictDop, true),
         (ModeKind::Strict, false) => {
             if kind == RingKind::Float {
                 return Err(ExclusivePlanError::StrictFloatRing);
@@ -241,6 +248,134 @@ pub(crate) fn build_render(
         StreamBuildError::refused(format!("no renderer for {format:?} with {:?} ring", plan.kind))
     })?;
     Ok((render, ring))
+}
+
+/// Отказ [`build_exclusive_render`]: формат устройства не поддержан видом
+/// рендера, либо вид ring плана не совместим с видом рендера (§2.9, §6.15,
+/// §6.18 п. 4, ТЗ-140).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+// используется ExclusivePath (шаг 44)
+#[allow(dead_code)]
+pub(crate) enum ExclusiveRenderError {
+    /// Формат устройства не несёт этот вид рендера: DoP определён только для
+    /// 24/32-битных целых контейнеров `S24_3Le`/`S24Le`/`S32Le` (§6.15) —
+    /// `S16Le` и `F32` отказ.
+    UnsupportedFormat { format: OutputSampleFormat, kind: ExclusiveRenderKind },
+    /// Вид ring плана не соответствует виду рендера (внутренняя ошибка
+    /// сборки: `exclusive_session_plan` не производит такие пары, кроме
+    /// отсечённого там же `StrictPcm` + `Float`, И-Т6).
+    RingMismatch { render: ExclusiveRenderKind, ring: RingKind },
+}
+
+impl std::fmt::Display for ExclusiveRenderError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            ExclusiveRenderError::UnsupportedFormat { format, kind } => {
+                write!(f, "формат {format:?} не поддержан рендером {kind:?}")
+            }
+            ExclusiveRenderError::RingMismatch { render, ring } => {
+                write!(f, "ring {ring:?} не совместим с рендером {render:?}")
+            }
+        }
+    }
+}
+
+/// PCM-рендер эксклюзивного вывода со ступенью усиления `G` по формату
+/// устройства (§2.9, §6.14). Исчерпывает все пять `OutputSampleFormat` —
+/// `None` недостижим, `Option` сохранён для единообразия с [`dop_any`].
+fn exclusive_pcm<P: PcmSample, G: GainStage>(
+    format: OutputSampleFormat,
+    core: RenderCore<P>,
+    payload: RingPayload,
+    tpdf: Tpdf,
+) -> Option<ExclusivePcm<G>> {
+    Some(match format {
+        OutputSampleFormat::S16Le => ExclusivePcm::new(PcmRender::<P, S16Le, G>::new(core, payload, tpdf)),
+        OutputSampleFormat::S24_3Le => {
+            ExclusivePcm::new(PcmRender::<P, S24_3Le, G>::new(core, payload, tpdf))
+        }
+        OutputSampleFormat::S24Le => ExclusivePcm::new(PcmRender::<P, S24Le, G>::new(core, payload, tpdf)),
+        OutputSampleFormat::S32Le => ExclusivePcm::new(PcmRender::<P, S32Le, G>::new(core, payload, tpdf)),
+        OutputSampleFormat::F32 => ExclusivePcm::new(PcmRender::<P, F32Le, G>::new(core, payload, tpdf)),
+    })
+}
+
+/// DoP-рендер эксклюзивного вывода по формату устройства (§2.9, §6.15):
+/// DoP-слово несут только 24/32-битные целые контейнеры `S24_3Le`/`S24Le`/
+/// `S32Le`; `S16Le` и `F32` отказ.
+fn dop_any(format: OutputSampleFormat, core: RenderCore<i32>) -> Option<DopRenderAny> {
+    match format {
+        OutputSampleFormat::S24_3Le => Some(DopRenderAny::new(DopRender::<S24_3Le>::new(core))),
+        OutputSampleFormat::S24Le => Some(DopRenderAny::new(DopRender::<S24Le>::new(core))),
+        OutputSampleFormat::S32Le => Some(DopRenderAny::new(DopRender::<S32Le>::new(core))),
+        OutputSampleFormat::S16Le | OutputSampleFormat::F32 => None,
+    }
+}
+
+/// Ring и [`ExclusiveRender`] эксклюзивного потока по плану `plan` и формату
+/// устройства `format` (§2.9, §6.15, §6.18 п. 4, ТЗ-140). Чистая функция:
+/// только аллокация ring и подбор мономорфизированного рендера, без I/O.
+// используется ExclusivePath (шаг 44)
+#[allow(dead_code)]
+pub(crate) fn build_exclusive_render(
+    plan: &ExclusiveSessionPlan,
+    format: OutputSampleFormat,
+    shared: &Arc<SessionShared>,
+) -> Result<(ExclusiveRender, EngineRing), ExclusiveRenderError> {
+    let tpdf = plan.engine.dither_seed.map_or_else(Tpdf::off, Tpdf::with_seed);
+    let unsupported =
+        |kind: ExclusiveRenderKind| ExclusiveRenderError::UnsupportedFormat { format, kind };
+
+    match (plan.render, plan.engine.kind) {
+        (ExclusiveRenderKind::OptimalDop, RingKind::Dop) => {
+            let (producer, consumer) = rtrb::RingBuffer::<i32>::new(plan.ring_capacity);
+            let core = RenderCore::new(consumer, shared.clone(), plan.engine.channels, plan.prime_frames);
+            let dop = dop_any(format, core).ok_or_else(|| unsupported(plan.render))?;
+            Ok((ExclusiveRender::Optimal(OptimalRender::Dop(dop)), EngineRing::I32(producer)))
+        }
+        (ExclusiveRenderKind::StrictDop, RingKind::Dop) => {
+            let (producer, consumer) = rtrb::RingBuffer::<i32>::new(plan.ring_capacity);
+            let core = RenderCore::new(consumer, shared.clone(), plan.engine.channels, plan.prime_frames);
+            let dop = dop_any(format, core).ok_or_else(|| unsupported(plan.render))?;
+            Ok((ExclusiveRender::Strict(StrictRender::Dop(dop)), EngineRing::I32(producer)))
+        }
+        (ExclusiveRenderKind::OptimalPcm, RingKind::Exact(payload)) => {
+            let (producer, consumer) = rtrb::RingBuffer::<i32>::new(plan.ring_capacity);
+            let core = RenderCore::new(consumer, shared.clone(), plan.engine.channels, plan.prime_frames);
+            let pcm = exclusive_pcm::<i32, AtomicGain>(format, core, payload, tpdf)
+                .ok_or_else(|| unsupported(plan.render))?;
+            Ok((ExclusiveRender::Optimal(OptimalRender::Pcm(pcm)), EngineRing::I32(producer)))
+        }
+        (ExclusiveRenderKind::OptimalPcm, RingKind::Float) => {
+            let (producer, consumer) = rtrb::RingBuffer::<f32>::new(plan.ring_capacity);
+            let core = RenderCore::new(consumer, shared.clone(), plan.engine.channels, plan.prime_frames);
+            let pcm = exclusive_pcm::<f32, AtomicGain>(format, core, RingPayload::F32, tpdf)
+                .ok_or_else(|| unsupported(plan.render))?;
+            Ok((ExclusiveRender::Optimal(OptimalRender::Pcm(pcm)), EngineRing::F32(producer)))
+        }
+        (ExclusiveRenderKind::OptimalPcmLocked, RingKind::Exact(payload)) => {
+            let (producer, consumer) = rtrb::RingBuffer::<i32>::new(plan.ring_capacity);
+            let core = RenderCore::new(consumer, shared.clone(), plan.engine.channels, plan.prime_frames);
+            let pcm = exclusive_pcm::<i32, NoGain>(format, core, payload, tpdf)
+                .ok_or_else(|| unsupported(plan.render))?;
+            Ok((ExclusiveRender::Optimal(OptimalRender::PcmLocked(pcm)), EngineRing::I32(producer)))
+        }
+        (ExclusiveRenderKind::OptimalPcmLocked, RingKind::Float) => {
+            let (producer, consumer) = rtrb::RingBuffer::<f32>::new(plan.ring_capacity);
+            let core = RenderCore::new(consumer, shared.clone(), plan.engine.channels, plan.prime_frames);
+            let pcm = exclusive_pcm::<f32, NoGain>(format, core, RingPayload::F32, tpdf)
+                .ok_or_else(|| unsupported(plan.render))?;
+            Ok((ExclusiveRender::Optimal(OptimalRender::PcmLocked(pcm)), EngineRing::F32(producer)))
+        }
+        (ExclusiveRenderKind::StrictPcm, RingKind::Exact(payload)) => {
+            let (producer, consumer) = rtrb::RingBuffer::<i32>::new(plan.ring_capacity);
+            let core = RenderCore::new(consumer, shared.clone(), plan.engine.channels, plan.prime_frames);
+            let pcm = exclusive_pcm::<i32, NoGain>(format, core, payload, tpdf)
+                .ok_or_else(|| unsupported(plan.render))?;
+            Ok((ExclusiveRender::Strict(StrictRender::Pcm(pcm)), EngineRing::I32(producer)))
+        }
+        (render, ring) => Err(ExclusiveRenderError::RingMismatch { render, ring }),
+    }
 }
 
 /// Отказ [`spawn_decoder`]: различает отказ запуска потока (`ThreadSpawner`,
@@ -439,7 +574,7 @@ mod tests {
         let plan = dop_plan(ModeKind::Optimal);
         let out = exclusive_session_plan(&plan, buf(), 200, false, Some(7))
             .unwrap_or_else(|e| panic!("{e:?}"));
-        assert_eq!(out.render, ExclusiveRenderKind::Dop);
+        assert_eq!(out.render, ExclusiveRenderKind::OptimalDop);
         assert!(out.engine.no_gain);
         assert_eq!(out.engine.dither_seed, None);
         assert_eq!(out.engine.kind, RingKind::Dop);
@@ -449,5 +584,68 @@ mod tests {
         let err = exclusive_session_plan(&compat, buf(), 200, false, None)
             .expect_err("Compatible must not build an exclusive plan");
         assert_eq!(err, ExclusivePlanError::NotExclusive);
+    }
+
+    fn exclusive_plan(engine: EnginePlan, render: ExclusiveRenderKind) -> ExclusiveSessionPlan {
+        ExclusiveSessionPlan { engine, render, ring_capacity: 4096, prime_frames: 0 }
+    }
+
+    #[test]
+    fn build_exclusive_render_strict_pcm_s24_3_exact_uses_i32_ring() {
+        let engine = EnginePlan {
+            kind: RingKind::Exact(RingPayload::ExactI32 {
+                valid_bits: BitDepth::new(24).unwrap_or_else(|| panic!("bad bits")),
+            }),
+            rate: 176_400,
+            channels: 2,
+            no_gain: true,
+            dither_seed: None,
+        };
+        let plan = exclusive_plan(engine, ExclusiveRenderKind::StrictPcm);
+        let shared = Arc::new(SessionShared::new());
+        let (render, ring) = build_exclusive_render(&plan, OutputSampleFormat::S24_3Le, &shared)
+            .unwrap_or_else(|e| panic!("{e}"));
+        assert!(matches!(render, ExclusiveRender::Strict(StrictRender::Pcm(_))));
+        assert!(matches!(ring, EngineRing::I32(_)));
+    }
+
+    #[test]
+    fn build_exclusive_render_optimal_pcm_float_ring() {
+        let engine = EnginePlan {
+            kind: RingKind::Float,
+            rate: 44_100,
+            channels: 2,
+            no_gain: false,
+            dither_seed: Some(7),
+        };
+        let plan = exclusive_plan(engine, ExclusiveRenderKind::OptimalPcm);
+        let shared = Arc::new(SessionShared::new());
+        let (render, ring) = build_exclusive_render(&plan, OutputSampleFormat::S32Le, &shared)
+            .unwrap_or_else(|e| panic!("{e}"));
+        assert!(matches!(render, ExclusiveRender::Optimal(OptimalRender::Pcm(_))));
+        assert!(matches!(ring, EngineRing::F32(_)));
+    }
+
+    #[test]
+    fn build_exclusive_render_dop_s16le_is_unsupported() {
+        let engine = EnginePlan {
+            kind: RingKind::Dop,
+            rate: 176_400,
+            channels: 2,
+            no_gain: true,
+            dither_seed: None,
+        };
+        let plan = exclusive_plan(engine, ExclusiveRenderKind::OptimalDop);
+        let shared = Arc::new(SessionShared::new());
+        let Err(err) = build_exclusive_render(&plan, OutputSampleFormat::S16Le, &shared) else {
+            panic!("S16Le must not carry DoP (§6.15)");
+        };
+        assert_eq!(
+            err,
+            ExclusiveRenderError::UnsupportedFormat {
+                format: OutputSampleFormat::S16Le,
+                kind: ExclusiveRenderKind::OptimalDop,
+            }
+        );
     }
 }
