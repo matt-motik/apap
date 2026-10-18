@@ -78,7 +78,15 @@ impl MusicApp {
                 ui.set_dur(dur_s.clone().into());
             }
         }
-        let status_s = self.status.to_string();
+        // ТЗ-119, §6.19, AM1.0-B9 (шаг 72): пока замок устройства в
+        // `Acquiring`, строка состояния показывает «Захват устройства…» без
+        // перезаписи `self.status` — обычный текст возвращается сам, как
+        // только флаг снимается следующим `EngineEvent::Lock`.
+        let status_s = if self.audio().lock_acquiring() {
+            "Захват устройства\u{2026}".to_string()
+        } else {
+            self.status.to_string()
+        };
         if status_s != cur.status {
             if let Some(ui) = &ui {
                 ui.set_status_text(self.status.clone());

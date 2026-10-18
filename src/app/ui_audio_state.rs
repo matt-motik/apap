@@ -20,6 +20,10 @@
 //! падает на принятый `stream_format` из `Opened` — формат старого пути,
 //! единственный источник до С6, когда Оптимальный/Строгий режимы ещё не
 //! строят `SignalPath` (С5-мост, §2.3).
+//!
+//! Шаг 72 (ТЗ-119, баг AM1.0-B9): `lock_acquiring` — единственное, что от
+//! `EngineEvent::Lock` попадает в это состояние; полный вид замка остаётся
+//! вне `UiAudioState` и строится отдельно в `apply_lock_view`.
 
 use std::collections::VecDeque;
 use std::path::Path;
@@ -34,6 +38,7 @@ use music_player_rs::audio::path::signal::{DynamicPathState, SignalPath};
 use music_player_rs::audio::path::Blocked;
 use music_player_rs::audio::player::ReservationEvent;
 use music_player_rs::audio::verdict::BadgeState;
+use music_player_rs::engine::lock::LockState;
 use music_player_rs::engine::messages::{EngineEvent, Notice, SkipReason, TransportState};
 use music_player_rs::settings::playback::ModeKind;
 
@@ -190,6 +195,11 @@ pub struct UiAudioState {
     /// предмет отчёта окна «Путь сигнала» (`PathSubject::Skipped`), пока не
     /// снят новым успешно открытым путём или иным исходом открытия (ТЗ-79).
     skipped: Option<Blocked>,
+    /// Истина, пока замок устройства в `LockState::Acquiring` (ТЗ-119,
+    /// ADR-02, §6.19) — строка состояния показывает «Захват устройства…»
+    /// (шаг 72); полный вид замка (`lock-kind`/`lock-text`/…) строится
+    /// отдельно из сырого `EngineEvent::Lock` в `apply_lock_view`.
+    lock_acquiring: bool,
 }
 
 impl UiAudioState {
@@ -294,9 +304,13 @@ impl UiAudioState {
                 self.badge.set(badge);
                 Applied::None
             }
-            // Состояние замка не отражается в `UiAudioState` на этом шаге —
-            // проводка приходит вместе с `lock_step` (§2.6, §2.8, §6.19).
-            EngineEvent::Lock(_state) => Applied::None,
+            // Полный вид замка строится отдельно из сырого `EngineEvent::Lock`
+            // в `apply_lock_view` (§2.6, §2.8, §6.19); здесь снимается только
+            // флаг «идёт захват» для строки состояния (ТЗ-119, шаг 72).
+            EngineEvent::Lock(state) => {
+                self.lock_acquiring = matches!(state, LockState::Acquiring { .. });
+                Applied::None
+            }
             EngineEvent::DeviceLost { reaction } => Applied::DeviceLost(reaction),
             EngineEvent::Devices(catalog) => {
                 self.devices.set(DeviceSnapshot(catalog));
@@ -365,6 +379,13 @@ impl UiAudioState {
     /// если предмет отчёта окна «Путь сигнала» сейчас — пропущенный трек.
     pub fn skipped(&self) -> Option<&Blocked> {
         self.skipped.as_ref()
+    }
+
+    /// Истина, пока замок устройства в `LockState::Acquiring` (ТЗ-119,
+    /// ADR-02, §6.19) — строка состояния показывает «Захват устройства…»,
+    /// пока не снят следующим принятым `EngineEvent::Lock` (шаг 72).
+    pub(super) fn lock_acquiring(&self) -> bool {
+        self.lock_acquiring
     }
 
     /// Текущая динамическая часть пути (§3.5). Событие `DynamicsChanged` и
@@ -899,5 +920,43 @@ mod tests {
         state.begin_open(2);
         state.apply(opened_with_badge(2, Some(test_signal_path(1)), BadgeState::NoStream));
         assert!(state.skipped().is_none());
+    }
+
+    /// ТЗ-119, §6.19, AM1.0-B9 (шаг 72): `EngineEvent::Lock(Acquiring)`
+    /// взводит `lock_acquiring` для строки состояния «Захват устройства…».
+    #[test]
+    fn lock_acquiring_set_by_acquiring_state() {
+        use music_player_rs::audio::clock::ClockInstant;
+
+        let mut state = UiAudioState::new();
+        assert!(!state.lock_acquiring());
+
+        let applied = state.apply(EngineEvent::Lock(LockState::Acquiring { started: ClockInstant::START }));
+        assert_eq!(applied, Applied::None);
+        assert!(state.lock_acquiring());
+    }
+
+    /// ТЗ-119, §6.19, AM1.0-B9 (шаг 72): `Held`/`Failed` снимают
+    /// `lock_acquiring` — строка состояния не остаётся «застрявшей» на
+    /// «Захват устройства…» после выхода из `Acquiring`.
+    #[test]
+    fn lock_acquiring_cleared_by_held_and_failed() {
+        use music_player_rs::audio::backend::exclusive::ClaimInfo;
+        use music_player_rs::audio::clock::ClockInstant;
+        use music_player_rs::audio::error::CaptureFailure;
+
+        let mut state = UiAudioState::new();
+        state.apply(EngineEvent::Lock(LockState::Acquiring { started: ClockInstant::START }));
+        assert!(state.lock_acquiring());
+
+        let device: HwDeviceId = "hw:CARD=USB,DEV=0".parse().expect("валидный HwDeviceId");
+        state.apply(EngineEvent::Lock(LockState::Held { info: ClaimInfo { device } }));
+        assert!(!state.lock_acquiring());
+
+        state.apply(EngineEvent::Lock(LockState::Acquiring { started: ClockInstant::START }));
+        assert!(state.lock_acquiring());
+
+        state.apply(EngineEvent::Lock(LockState::Failed(CaptureFailure::DeviceDisconnected)));
+        assert!(!state.lock_acquiring());
     }
 }
