@@ -281,7 +281,7 @@ steps:
     done: true
   - id: 73
     description: "Шаг 73: core/messages.rs: MessageButtons::CaptureAndPlayOk и CloseEffect::CaptureAndPlay по Primary + тест (ТЗ-125). Проверка: cargo test messages"
-    done: false
+    done: true
   - id: 74
     description: "Шаг 74: ui_audio_state.rs: хранить последний LockState из EngineEvent::Lock, accessor lock(); lock_acquiring выводится из него + тест (ТЗ-125, §6.19). Проверка: cargo test ui_audio_state"
     done: false
@@ -324,8 +324,8 @@ steps:
   - id: 87
     description: "Шаг 87: ФИНАЛ: cargo build/test/clippy зелёные; общие условия §8 (Совместимый играет, «Bit-perfect» только при ТЗ-52); ручные проверки в заметку плана: замок (ТЗ-1/2/48/118…122, AM1.0-8.1), B1 — возврат устройства в PipeWire после освобождения, B2 — текст «занято <владелец>» при чужом захвате"
     done: false
-current_step: 73
-next_action: 'Шаг 73: core/messages.rs — MessageButtons::CaptureAndPlayOk, CloseEffect::CaptureAndPlay по Primary + тест (ТЗ-125). Свежий субагент code-writer sonnet.'
+current_step: 74
+next_action: 'Шаг 74: ui_audio_state.rs — хранить последний LockState из EngineEvent::Lock (accessor lock()), lock_acquiring выводить из него + тест (ТЗ-125, §6.19). Свежий субагент code-writer sonnet.'
 fail_counter: 0
 fail_counter_max: 3
 failed_attempts: []

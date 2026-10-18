@@ -136,8 +136,8 @@
 - [x] Шаг 70: Шаг 70: app/mod.rs: колбэки замка → EngineCmd::Lock / переключение режима; EngineEvent::Lock → свойства окна через lock_view (ТЗ-118…123). Проверка: cargo check
 - [x] Шаг 71: Шаг 71: «Выбрать устройство»: открыть диалог режима на выборе устройства (app/mode_dialog.rs; при необходимости ui/settings.slint) (ADR-24, ТЗ-144). Проверка: cargo build
 - [x] Шаг 72: Шаг 72: Статус «Захват устройства…» по EngineEvent::Lock(Acquiring) — флаг в UiAudioState и вывод в статус-строку (ui_audio_state.rs, playback_manager.rs) — AM1.0-B9 + тест (ТЗ-119). Проверка: cargo test ui_audio_state
-- [>] **Шаг 73: Шаг 73: core/messages.rs: MessageButtons::CaptureAndPlayOk и CloseEffect::CaptureAndPlay по Primary + тест (ТЗ-125). Проверка: cargo test messages**
-- [ ] Шаг 74: Шаг 74: ui_audio_state.rs: хранить последний LockState из EngineEvent::Lock, accessor lock(); lock_acquiring выводится из него + тест (ТЗ-125, §6.19). Проверка: cargo test ui_audio_state
+- [x] Шаг 73: Шаг 73: core/messages.rs: MessageButtons::CaptureAndPlayOk и CloseEffect::CaptureAndPlay по Primary + тест (ТЗ-125). Проверка: cargo test messages
+- [>] **Шаг 74: Шаг 74: ui_audio_state.rs: хранить последний LockState из EngineEvent::Lock, accessor lock(); lock_acquiring выводится из него + тест (ТЗ-125, §6.19). Проверка: cargo test ui_audio_state**
 - [ ] Шаг 75: Шаг 75: playback_manager.rs: Play в Оптимальном/Строгом при LockState::Open не начинает воспроизведение и не захватывает — сообщение «Замок открыт» с кнопкой CaptureAndPlayOk (ТЗ-125). Проверка: cargo check
 - [ ] Шаг 76: Шаг 76: app/mod.rs: подпись «Захватить и играть» для CaptureAndPlayOk; CloseEffect::CaptureAndPlay → EngineCmd::Lock(CaptureAndPlay) + флаг ожидания; Lock(Held) при флаге → Play, Lock(Failed/иное) → сброс флага (ТЗ-125, §6.19). Проверка: cargo build
 - [ ] Шаг 77: Шаг 77: AM1.0-B8 ч. 1: EngineEvent::DynamicsChanged(DynamicPathState) в messages.rs и эмиссия из poll_session при изменении underruns/xruns/rt_priority в run.rs (ТЗ-68). Общий тип → Проверка: полный cargo test
@@ -154,8 +154,8 @@
 
 Легенда: [x] сделано · [>] текущий шаг · [ ] не начато
 
-- **Текущий шаг (current_step):** Шаг 73
-- **Следующий ход:** Шаг 73: core/messages.rs — MessageButtons::CaptureAndPlayOk, CloseEffect::CaptureAndPlay по Primary + тест (ТЗ-125). Свежий субагент code-writer sonnet.
+- **Текущий шаг (current_step):** Шаг 74
+- **Следующий ход:** Шаг 74: ui_audio_state.rs — хранить последний LockState из EngineEvent::Lock (accessor lock()), lock_acquiring выводить из него + тест (ТЗ-125, §6.19). Свежий субагент code-writer sonnet.
 - **Счетчик безуспешных компиляций:** 0/3
 - **Состояние:** in_progress
 

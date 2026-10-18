@@ -27,6 +27,8 @@ pub enum MessageButtons {
     RetryOk,
     /// Основная кнопка «Переключить в Совместимый режим», закрыть — «OK» (ТЗ-111).
     SwitchCompatibleOk,
+    /// Основная кнопка «Захватить и играть», закрыть — «OK» (ТЗ-125).
+    CaptureAndPlayOk,
 }
 
 /// Нажатая кнопка: `Primary` — основная (Enter), `Close` — закрыть (Esc) (§6.15).
@@ -69,6 +71,10 @@ pub enum CloseEffect {
     /// «Переключить в Совместимый режим»: вызывающий код выполняет тот же
     /// путь, что выбор Совместимого режима в переключателе (ТЗ-111, §6.2 п. 5).
     SwitchToCompatible,
+    /// «Захватить и играть»: вызывающий код выполняет захват устройства, как
+    /// при ручном закрытии замка, и при успехе начинает воспроизведение
+    /// (ТЗ-125).
+    CaptureAndPlay,
 }
 
 /// Очередь сообщений (ADR-13). Хранит до первого показа главного окна,
@@ -174,10 +180,14 @@ impl MessageCenter {
             Some(Queued::Plain(msg)) => {
                 effect.hide = true;
                 self.show_next(&mut effect);
-                if msg.buttons == MessageButtons::SwitchCompatibleOk && b == MessageButton::Primary {
-                    (CloseEffect::SwitchToCompatible, effect)
-                } else {
-                    (CloseEffect::Closed, effect)
+                match (msg.buttons, b) {
+                    (MessageButtons::SwitchCompatibleOk, MessageButton::Primary) => {
+                        (CloseEffect::SwitchToCompatible, effect)
+                    }
+                    (MessageButtons::CaptureAndPlayOk, MessageButton::Primary) => {
+                        (CloseEffect::CaptureAndPlay, effect)
+                    }
+                    _ => (CloseEffect::Closed, effect),
                 }
             }
             Some(Queued::WriteErrors) => match b {
@@ -421,6 +431,45 @@ mod tests {
                 title: "Сохранённый режим недоступен".into(),
                 body: "body".into(),
                 buttons: MessageButtons::SwitchCompatibleOk,
+            },
+            caps,
+        );
+
+        let (close, _) = mc.press(MessageButton::Close);
+        assert_eq!(close, CloseEffect::Closed);
+    }
+
+    #[test]
+    fn capture_and_play_primary_returns_capture_effect() {
+        let mut mc = MessageCenter::default();
+        mc.window_shown();
+        let caps = PlatformCaps::default();
+        mc.push(
+            Message {
+                level: MessageLevel::Warning,
+                title: "Замок открыт".into(),
+                body: "body".into(),
+                buttons: MessageButtons::CaptureAndPlayOk,
+            },
+            caps,
+        );
+
+        let (close, effect) = mc.press(MessageButton::Primary);
+        assert_eq!(close, CloseEffect::CaptureAndPlay);
+        assert!(effect.hide);
+    }
+
+    #[test]
+    fn capture_and_play_close_returns_closed() {
+        let mut mc = MessageCenter::default();
+        mc.window_shown();
+        let caps = PlatformCaps::default();
+        mc.push(
+            Message {
+                level: MessageLevel::Warning,
+                title: "Замок открыт".into(),
+                body: "body".into(),
+                buttons: MessageButtons::CaptureAndPlayOk,
             },
             caps,
         );

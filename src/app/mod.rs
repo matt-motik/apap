@@ -2717,6 +2717,11 @@ impl MusicApp {
                 match close_effect {
                     CloseEffect::Retry(files) => a.retry_writes(files),
                     CloseEffect::SwitchToCompatible => a.select_active_mode(ModeKind::Compatible),
+                    // «Захватить и играть» окна «Замок открыт»: захват как при
+                    // ручном закрытии замка (ТЗ-125, ТЗ-42, §6.19).
+                    CloseEffect::CaptureAndPlay => {
+                        a.engine_send(EngineCmd::Lock(LockInput::CaptureAndPlay));
+                    }
                     CloseEffect::Closed => {}
                 }
             });
