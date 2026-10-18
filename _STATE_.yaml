@@ -237,7 +237,7 @@ steps:
     done: true
   - id: 59
     description: "Шаг 59: Запись отказа RT в журнал (§6.8 п. 3, ТЗ-76): JournalRecord::RtPriorityDenied { prio } (journal.rs); RtKitRequester::new(journal) пишет одну запись при отказе MakeThreadRealtime (одна попытка = одна сессия); EngineDeps::system передаёт журнал (rt.rs, deps.rs) + тест с VecJournal. Общий тип → Проверка: полный cargo test"
-    done: false
+    done: true
   - id: 60
     description: "Шаг 60: ЧЕКПОИНТ: полный cargo test + cargo clippy --all-targets"
     done: false
@@ -310,8 +310,8 @@ steps:
   - id: 83
     description: "Шаг 83: ФИНАЛ: cargo build/test/clippy зелёные; общие условия §8 (Совместимый играет, «Bit-perfect» только при ТЗ-52); ручные проверки в заметку плана: замок (ТЗ-1/2/48/118…122, AM1.0-8.1), B1 — возврат устройства в PipeWire после освобождения, B2 — текст «занято <владелец>» при чужом захвате"
     done: false
-current_step: 59
-next_action: "Шаг 59: JournalRecord::RtPriorityDenied + RtKitRequester::new(journal) + EngineDeps::system. Свежий субагент code-writer sonnet; затем Шаг 60 ЧЕКПОИНТ."
+current_step: 60
+next_action: "Шаг 60: ЧЕКПОИНТ — полный cargo test + cargo clippy --all-targets (test-runner haiku)."
 fail_counter: 0
 fail_counter_max: 3
 failed_attempts: []

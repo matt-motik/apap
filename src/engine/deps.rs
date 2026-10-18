@@ -60,6 +60,7 @@ impl EngineDeps {
     /// каталог настроек и журнал, построенные только в `main` (ADR-19,
     /// И-Т1): этот модуль их не ищет сам.
     pub fn system(events: Box<dyn EventSink>, dir: PathBuf, journal: Arc<dyn Journal>) -> EngineDeps {
+        let rt_journal = Arc::clone(&journal);
         let (reader, _writer, store_writer) = os_fs(journal);
         EngineDeps {
             shared: Box::new(CpalSharedBackend::default()),
@@ -79,7 +80,7 @@ impl EngineDeps {
             spawner: Arc::new(StdSpawner),
             caps: BackendCaps::current(),
             os_probe: Box::new(SystemOsProbe),
-            rt: Arc::new(crate::audio::rt::RtKitRequester),
+            rt: Arc::new(crate::audio::rt::RtKitRequester::new(rt_journal)),
         }
     }
 }

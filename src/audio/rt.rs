@@ -11,7 +11,9 @@
 //! обычном приоритете.
 #![deny(clippy::unwrap_used, clippy::expect_used, clippy::unreachable)]
 
+use crate::journal::{Journal, JournalRecord};
 use rustix::process::{setrlimit, Resource, Rlimit};
+use std::sync::Arc;
 use std::time::Duration;
 use zbus::blocking::{connection, Connection};
 use zbus::zvariant::OwnedValue;
@@ -145,8 +147,17 @@ pub trait RtPriorityRequester: Send + Sync {
 /// потоке `apap-rtkit` через [`request_realtime`] (§6.8 п. 3, ТЗ-99, ТЗ-76).
 /// Отказ запустить сам служебный поток (крайне редкий исход — нехватка
 /// ресурсов ОС) оставляет `done` невызванным: приоритет остаётся `Pending`
-/// до конца сессии, как и было бы при недоступности `rtkit`/шины.
-pub struct RtKitRequester;
+/// до конца сессии, как и было бы при недоступности `rtkit`/шины; в этом
+/// случае запись в журнал не пишется — нет самого запроса, о котором писать.
+pub struct RtKitRequester {
+    journal: Arc<dyn Journal>,
+}
+
+impl RtKitRequester {
+    pub fn new(journal: Arc<dyn Journal>) -> RtKitRequester {
+        RtKitRequester { journal }
+    }
+}
 
 impl RtPriorityRequester for RtKitRequester {
     fn init(&self) -> Option<u32> {
@@ -155,7 +166,14 @@ impl RtPriorityRequester for RtKitRequester {
     }
 
     fn request(&self, tid: u32, prio: u32, done: Box<dyn FnOnce(Option<u32>) + Send>) {
-        let _ = request_realtime(tid, prio, done);
+        let journal = Arc::clone(&self.journal);
+        let wrapped = Box::new(move |result: Option<u32>| {
+            if result.is_none() {
+                journal.record(JournalRecord::RtPriorityDenied { tid, prio });
+            }
+            done(result);
+        });
+        let _ = request_realtime(tid, prio, wrapped);
     }
 }
 
@@ -197,5 +215,30 @@ mod tests {
             Err(_) => panic!("done не был вызван за отведённое время"),
         }
         let _ = handle.join();
+    }
+
+    #[test]
+    /// Отказ `rtkit` (TID `u32::MAX` не существует) пишет в журнал ровно
+    /// одну запись `RtPriorityDenied` — до вызова `done`, поэтому проверка
+    /// после `recv` не гонка (§6.8 п. 3, ТЗ-76).
+    fn rt_kit_requester_journals_denial_once() {
+        use crate::journal::{JournalRecord, VecJournal};
+        use std::sync::mpsc;
+
+        let journal = Arc::new(VecJournal::default());
+        let requester = RtKitRequester::new(Arc::clone(&journal) as Arc<dyn Journal>);
+        let (tx, rx) = mpsc::channel();
+        requester.request(
+            u32::MAX,
+            1,
+            Box::new(move |result| {
+                let _ = tx.send(result);
+            }),
+        );
+        match rx.recv_timeout(Duration::from_secs(5)) {
+            Ok(received) => assert_eq!(received, None),
+            Err(_) => panic!("done не был вызван за отведённое время"),
+        }
+        assert_eq!(journal.records(), vec![JournalRecord::RtPriorityDenied { tid: u32::MAX, prio: 1 }]);
     }
 }

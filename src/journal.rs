@@ -57,6 +57,10 @@ pub enum JournalRecord {
     /// Системное уведомление не доставлено (ошибка D-Bus); окно сообщения
     /// покажется при открытии плеера (ADR-9, ADR-13).
     Notify { error: Box<str> },
+    /// `rtkit` отказал в приоритете реального времени потоку вывода;
+    /// воспроизведение продолжается на обычном приоритете (§6.8 п. 3,
+    /// ТЗ-76).
+    RtPriorityDenied { tid: u32, prio: u32 },
 }
 
 /// Что записывалось (§2.9).
@@ -95,6 +99,7 @@ impl JournalRecord {
             JournalRecord::TouchpadDirection { .. } => "направление тачпада",
             JournalRecord::TrayHost { .. } => "хост трея",
             JournalRecord::Notify { .. } => "уведомление не доставлено",
+            JournalRecord::RtPriorityDenied { .. } => "приоритет реального времени не получен",
         }
     }
 
@@ -156,6 +161,9 @@ impl JournalRecord {
                 format!("{}; способ определения: {}", tray_host_text(*host), host_source_text(*via))
             }
             JournalRecord::Notify { error } => format!("D-Bus: {error}"),
+            JournalRecord::RtPriorityDenied { tid, prio } => {
+                format!("rtkit MakeThreadRealtime: поток {tid}, приоритет {prio}")
+            }
         }
     }
 }

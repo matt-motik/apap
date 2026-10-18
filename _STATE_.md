@@ -120,8 +120,8 @@
 - [x] Шаг 56: Шаг 56: TID потока вывода наружу: StreamHandle::rt_tid(&self) -> Option<u32> (Shared/фейк — None) в exclusive.rs; AlsaExclusiveBackend::start ждёт TID из канала не дольше 100 мс (recv_timeout, вне RT) и кладёт его в AlsaStreamHandle вместо tid_rx; таймаут → None (alsa.rs, alsa_out.rs, фейк в audio/testing/mod.rs) (§6.8 п. 2). Общий тип → Проверка: полный cargo test
 - [x] Шаг 57: Шаг 57: RT-приоритет в движке: после start передать TID в rt.rs → InternalMsg::RtPriority → DynamicPathState.rt_priority (§6.8, ТЗ-99, ТЗ-76) + тест на фейковом rt. Проверка: cargo test engine::
 - [x] Шаг 58: Шаг 58: rtkit-инициализация в движке (§6.8 п. 1, 3, ТЗ-99, ТЗ-76): RtPriorityRequester::init() -> Option<u32> (RtKitRequester: init_rt → prio = min(MaxRealtimePriority, 20), 0 → None; фейк — заданное значение); Engine::new вызывает init один раз и хранит prio; request_rt_priority запрашивает с этим prio вместо RT_PRIORITY_CAP, при None — сразу Denied без запроса + тесты (rt.rs, testing/mod.rs, run.rs). Проверка: полный cargo test
-- [>] **Шаг 59: Шаг 59: Запись отказа RT в журнал (§6.8 п. 3, ТЗ-76): JournalRecord::RtPriorityDenied { prio } (journal.rs); RtKitRequester::new(journal) пишет одну запись при отказе MakeThreadRealtime (одна попытка = одна сессия); EngineDeps::system передаёт журнал (rt.rs, deps.rs) + тест с VecJournal. Общий тип → Проверка: полный cargo test**
-- [ ] Шаг 60: Шаг 60: ЧЕКПОИНТ: полный cargo test + cargo clippy --all-targets
+- [x] Шаг 59: Шаг 59: Запись отказа RT в журнал (§6.8 п. 3, ТЗ-76): JournalRecord::RtPriorityDenied { prio } (journal.rs); RtKitRequester::new(journal) пишет одну запись при отказе MakeThreadRealtime (одна попытка = одна сессия); EngineDeps::system передаёт журнал (rt.rs, deps.rs) + тест с VecJournal. Общий тип → Проверка: полный cargo test
+- [>] **Шаг 60: Шаг 60: ЧЕКПОИНТ: полный cargo test + cargo clippy --all-targets**
 - [ ] Шаг 61: Шаг 61: run.rs: смена режима Exclusive → Compatible — Release раньше SharedBackend::start; тест optimal_held_to_compatible_releases_before_shared — закрывает AM1.0-B13 (§6.18, ТЗ-21). Проверка: cargo test optimal_held_to_compatible
 - [ ] Шаг 62: Шаг 62: run.rs: смена устройства режима (SwitchDevice) — Release старого → Lock(DeviceSelected(d)) → Acquire нового + тест (§6.18, §6.19, ТЗ-44). Проверка: cargo test engine::
 - [ ] Шаг 63: Шаг 63: run.rs: обнаружение потери (StreamFault::DeviceUnavailable / InternalMsg::ReservationLost) → LockInput::DeviceLost, сохранение ReacquirePoint + тест (§6.20, ТЗ-125). Проверка: cargo test engine:: Примечание: TrackId(u64) без публичного конструктора (src/playlist/model.rs) — для теста ReacquirePoint понадобится #[cfg(test)] pub(crate) конструктор (расширение вайтлиста)
@@ -148,8 +148,8 @@
 
 Легенда: [x] сделано · [>] текущий шаг · [ ] не начато
 
-- **Текущий шаг (current_step):** Шаг 59
-- **Следующий ход:** Шаг 59: JournalRecord::RtPriorityDenied + RtKitRequester::new(journal) + EngineDeps::system. Свежий субагент code-writer sonnet; затем Шаг 60 ЧЕКПОИНТ.
+- **Текущий шаг (current_step):** Шаг 60
+- **Следующий ход:** Шаг 60: ЧЕКПОИНТ — полный cargo test + cargo clippy --all-targets (test-runner haiku).
 - **Счетчик безуспешных компиляций:** 0/3
 - **Состояние:** in_progress
 
