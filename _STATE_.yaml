@@ -271,7 +271,7 @@ steps:
     done: true
   - id: 70
     description: "Шаг 70: app/mod.rs: колбэки замка → EngineCmd::Lock / переключение режима; EngineEvent::Lock → свойства окна через lock_view (ТЗ-118…123). Проверка: cargo check"
-    done: false
+    done: true
   - id: 71
     description: "Шаг 71: «Выбрать устройство»: открыть диалог режима на выборе устройства (app/mode_dialog.rs; при необходимости ui/settings.slint) (ADR-24, ТЗ-144). Проверка: cargo build"
     done: false
@@ -314,8 +314,8 @@ steps:
   - id: 84
     description: "Шаг 84: ФИНАЛ: cargo build/test/clippy зелёные; общие условия §8 (Совместимый играет, «Bit-perfect» только при ТЗ-52); ручные проверки в заметку плана: замок (ТЗ-1/2/48/118…122, AM1.0-8.1), B1 — возврат устройства в PipeWire после освобождения, B2 — текст «занято <владелец>» при чужом захвате"
     done: false
-current_step: 70
-next_action: "Шаг 70: app/mod.rs — on_lock_close/open/retry/choose_device/go_compatible → EngineCmd::Lock (UserClose/UserOpen/RetryCapture) / диалог выбора устройства / select-mode Совместимый; EngineEvent::Lock → set_lock_kind/text/hint + lock_can_* из lock_view.actions (добавить в LockAction варианты Close/Open, сверить с §6.19 UserOpen/UserClose). Свежий субагент code-writer sonnet."
+current_step: 71
+next_action: 'Шаг 71: «Выбрать устройство» — привязать on_lock_choose_device к открытию диалога режима на выборе устройства (app/mode_dialog.rs; при необходимости ui/settings.slint), гейт MainCmd::SwitchMode как у прочих колбэков замка (ADR-24, ТЗ-144). Свежий субагент code-writer sonnet.'
 fail_counter: 0
 fail_counter_max: 3
 failed_attempts: []

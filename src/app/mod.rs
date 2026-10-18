@@ -33,6 +33,7 @@ use music_player_rs::core::volume::{VolumeCmd, VolumeSource};
 use music_player_rs::core::AppCore;
 use music_player_rs::cover::{self, CoverDone, CoverJob};
 use music_player_rs::engine::legacy_path::legacy_audio;
+use music_player_rs::engine::lock::{LockInput, LockState};
 use music_player_rs::engine::messages::{EngineCmd, EngineEvent, Notice, SkipReason};
 use music_player_rs::engine::run::{BackendCaps, EngineHandle};
 use music_player_rs::persist::settings_file::Settings as PersistSettings;
@@ -75,6 +76,7 @@ use badge_view::{BadgeView, BadgeViewState, TestView};
 use engine_sink::EngineEventQueue;
 use events::AppEvent;
 use fulltrack_manager::{FullCmd, FullEvt};
+use lock_view::{lock_view, LockAction};
 use path_view::PathWindowCache;
 use ui_audio_state::{Applied, UiAudioState};
 
@@ -1182,6 +1184,24 @@ impl MusicApp {
         apply_engine_event(&mut self.audio_state, &mut self.badge_view, &mut self.path_cache, ev)
     }
 
+    /// Применить вид замка устройства к top_panel: `lock-kind`/`lock-text`/
+    /// `lock-hint` и пять `lock-can-*`, перечисленных действием из
+    /// `lock_view` (ADR-06, §6.19, ТЗ-46, ТЗ-118…ТЗ-123, ТЗ-144). Вызывается
+    /// из `drain_engine_events` на каждый `EngineEvent::Lock` — окно
+    /// «Выбрать устройство» (`lock-can-choose-device`) подключит шаг 71.
+    pub(super) fn apply_lock_view(&self, state: &LockState) {
+        let Some(ui) = self.try_ui() else { return };
+        let view = lock_view(state);
+        ui.set_lock_kind(view.kind);
+        ui.set_lock_text(view.text.into());
+        ui.set_lock_hint(view.hint.into());
+        ui.set_lock_can_close(view.actions.contains(&LockAction::Close));
+        ui.set_lock_can_open(view.actions.contains(&LockAction::Open));
+        ui.set_lock_can_retry(view.actions.contains(&LockAction::RetryCapture));
+        ui.set_lock_can_choose_device(view.actions.contains(&LockAction::ChooseDevice));
+        ui.set_lock_can_go_compatible(view.actions.contains(&LockAction::SwitchToCompatible));
+    }
+
     /// Истина только для Строгого режима (ADR-04, ТЗ-52, §6.18): считается
     /// напрямую из действующих настроек `AppCore`.
     pub(super) fn bit_perfect(&self) -> bool {
@@ -1864,6 +1884,58 @@ impl MusicApp {
                     _ => return,
                 };
                 a.select_active_mode(mode);
+            });
+        }
+
+        // 9c. lock-close/lock-open/lock-retry/lock-go-compatible: кнопки
+        // действий замка в top_panel (ADR-06, §6.19, ТЗ-46, ТЗ-118…ТЗ-123,
+        // ТЗ-144). `lock-choose-device` подключит окно выбора устройства
+        // (шаг 71). Гейт — тот же `MainCmd::SwitchMode`, что и у
+        // переключателя режимов: действия замка переводят монопольный
+        // тракт между открытым/захваченным состояниями и Совместимым
+        // режимом, отдельного варианта шлюза под них нет.
+        {
+            let app = this.clone();
+            ui.on_lock_close(move || {
+                eprintln!("[gui] lock_close");
+                let a = app.borrow_mut();
+                if !a.core.gate().allows(MainCmd::SwitchMode) {
+                    return;
+                }
+                a.engine_send(EngineCmd::Lock(LockInput::UserClose));
+            });
+        }
+        {
+            let app = this.clone();
+            ui.on_lock_open(move || {
+                eprintln!("[gui] lock_open");
+                let a = app.borrow_mut();
+                if !a.core.gate().allows(MainCmd::SwitchMode) {
+                    return;
+                }
+                a.engine_send(EngineCmd::Lock(LockInput::UserOpen));
+            });
+        }
+        {
+            let app = this.clone();
+            ui.on_lock_retry(move || {
+                eprintln!("[gui] lock_retry");
+                let a = app.borrow_mut();
+                if !a.core.gate().allows(MainCmd::SwitchMode) {
+                    return;
+                }
+                a.engine_send(EngineCmd::Lock(LockInput::RetryCapture));
+            });
+        }
+        {
+            let app = this.clone();
+            ui.on_lock_go_compatible(move || {
+                eprintln!("[gui] lock_go_compatible");
+                let mut a = app.borrow_mut();
+                if !a.core.gate().allows(MainCmd::SwitchMode) {
+                    return;
+                }
+                a.select_active_mode(ModeKind::Compatible);
             });
         }
 
@@ -3008,6 +3080,13 @@ impl MusicApp {
         });
 
         for ev in raw_events.drain(..) {
+            // Вид замка строится из сырого `EngineEvent::Lock` до разбора
+            // `on_engine_event` (который его съедает, сведя к `Applied::None`
+            // в `apply_engine_event`) — иначе состояние замка не добралось
+            // бы до top_panel (ADR-06, §6.19, ТЗ-118…ТЗ-123, ТЗ-144).
+            if let EngineEvent::Lock(ref state) = ev {
+                self.apply_lock_view(state);
+            }
             let a = self.on_engine_event(ev);
             if a != Applied::None {
                 applied.push(a);

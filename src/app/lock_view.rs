@@ -1,9 +1,8 @@
 //! Чистый презентер замка устройства: `LockState` → вид для UI (ADR-06,
 //! §2.6, §6.19, ТЗ-46, ТЗ-50, ТЗ-118…ТЗ-123, ТЗ-144). Модуль не знает о
 //! Slint-свойствах, кроме самого перечисления `LockKind` — подключение
-//! остального (`lock-text`/`lock-hint`, действия) к `ui_manager.rs` будет
-//! следующим шагом, поэтому пока не вызывается.
-#![allow(dead_code)]
+//! остального (`lock-text`/`lock-hint`, действия) к `mod.rs` выполняет
+//! `MusicApp::apply_lock_view` (AM1.0-8.6 шаг 70).
 
 use music_player_rs::audio::error::CaptureFailure;
 use music_player_rs::engine::lock::LockState;
@@ -19,6 +18,12 @@ use super::LockKind;
 /// Действие пользователя, доступное из вида замка (ТЗ-46, ТЗ-144).
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub(super) enum LockAction {
+    /// «Закрыть замок» — явный переход в закрытое ожидание захвата
+    /// (ТЗ-118, §6.19, `LockInput::UserClose`).
+    Close,
+    /// «Открыть замок» — освободить захваченное устройство (§6.19,
+    /// `LockInput::UserOpen`).
+    Open,
     /// «Повторить захват» (ТЗ-46).
     RetryCapture,
     /// «Перейти в Совместимый режим» (ТЗ-46, ТЗ-144).
@@ -27,9 +32,23 @@ pub(super) enum LockAction {
     ChooseDevice,
 }
 
+/// Действия для состояния `Open`: «Закрыть замок» (§6.19 `UserClose`
+/// разрешён из `Open`).
+const OPEN_ACTIONS: &[LockAction] = &[LockAction::Close];
+
+/// Действия для состояния `Held`: «Открыть замок» (§6.19 `UserOpen`
+/// разрешён из `Held`).
+const HELD_ACTIONS: &[LockAction] = &[LockAction::Open];
+
 /// Действия для обычного отказа захвата: «Повторить захват» и «Перейти в
 /// Совместимый режим» (ТЗ-46).
 const FAILED_ACTIONS: &[LockAction] = &[LockAction::RetryCapture, LockAction::SwitchToCompatible];
+
+/// Действия для «устройство отключено»: кроме обычного отказа — «Открыть
+/// замок» (§6.19: `UserOpen` разрешён и из `Failed(DeviceDisconnected)`,
+/// так как это ожидаемый терминал при физическом отключении устройства).
+const DEVICE_DISCONNECTED_ACTIONS: &[LockAction] =
+    &[LockAction::RetryCapture, LockAction::Open, LockAction::SwitchToCompatible];
 
 /// Действия для «устройство не выбрано»: «Выбрать устройство» и «Перейти в
 /// Совместимый режим» (ТЗ-144, порядок как в ТЗ).
@@ -95,7 +114,7 @@ pub(super) fn lock_view(state: &LockState) -> LockView {
             kind: LockKind::Open,
             text: "открыт".to_string(),
             hint: String::new(),
-            actions: NO_ACTIONS,
+            actions: OPEN_ACTIONS,
         },
         LockState::Acquiring { .. } => LockView {
             kind: LockKind::Acquiring,
@@ -107,7 +126,7 @@ pub(super) fn lock_view(state: &LockState) -> LockView {
             kind: LockKind::Held,
             text: "закрыт".to_string(),
             hint: HELD_HINT.to_string(),
-            actions: NO_ACTIONS,
+            actions: HELD_ACTIONS,
         },
         LockState::Failed(CaptureFailure::NoDeviceSelected) => LockView {
             kind: LockKind::Failed,
@@ -117,11 +136,19 @@ pub(super) fn lock_view(state: &LockState) -> LockView {
         },
         LockState::Failed(f) => {
             let reason = failure_label(f);
+            // `DeviceDisconnected` — единственный отказ, из которого §6.19
+            // дополнительно разрешает `UserOpen` (ожидаемый терминал при
+            // физическом отключении устройства, ТЗ-120).
+            let actions = if matches!(f, CaptureFailure::DeviceDisconnected) {
+                DEVICE_DISCONNECTED_ACTIONS
+            } else {
+                FAILED_ACTIONS
+            };
             LockView {
                 kind: LockKind::Failed,
                 text: format!("не удалось захватить: {reason}"),
                 hint: reason,
-                actions: FAILED_ACTIONS,
+                actions,
             }
         }
     }
@@ -178,5 +205,34 @@ mod tests {
         let device = "hw:CARD=X,DEV=0".parse().expect("валидный HwDeviceId");
         let held = lock_view(&LockState::Held { info: ClaimInfo { device } });
         assert!(held.hint.contains("перенаправляет"));
+    }
+
+    /// ТЗ-118, §6.19: из `Open` доступно только «Закрыть замок»
+    /// (`UserClose` разрешён из `Open`).
+    #[test]
+    fn open_action_is_close() {
+        let v = lock_view(&LockState::Open);
+        assert_eq!(v.actions, OPEN_ACTIONS);
+        assert_eq!(v.actions, &[LockAction::Close]);
+    }
+
+    /// §6.19: из `Held` доступно только «Открыть замок» (`UserOpen`
+    /// разрешён из `Held`).
+    #[test]
+    fn held_action_is_open() {
+        let device = "hw:CARD=X,DEV=0".parse().expect("валидный HwDeviceId");
+        let v = lock_view(&LockState::Held { info: ClaimInfo { device } });
+        assert_eq!(v.actions, HELD_ACTIONS);
+        assert_eq!(v.actions, &[LockAction::Open]);
+    }
+
+    /// ТЗ-120, §6.19: `Failed(DeviceDisconnected)` дополнительно разрешает
+    /// «Открыть замок» рядом с «Повторить захват»/«Перейти в Совместимый
+    /// режим»; текст отказа не меняется.
+    #[test]
+    fn device_disconnected_adds_open_action() {
+        let v = lock_view(&LockState::Failed(CaptureFailure::DeviceDisconnected));
+        assert_eq!(v.actions, DEVICE_DISCONNECTED_ACTIONS);
+        assert!(v.text.contains("устройство отключено"));
     }
 }
