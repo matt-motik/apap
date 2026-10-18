@@ -199,7 +199,7 @@ steps:
     done: true
   - id: 47
     description: "Шаг 47: SourceOpener: открытие по маршруту плана (Route::Dop → DsdDecoder DecodeMode::Dop, DsdToPcm → PCM-режим DSD-декодера) в engine/source.rs и вызов из open_exclusive (run.rs) + тест на фейке (§6.18 п. 6, ТЗ-113). Проверка: cargo test engine::"
-    done: false
+    done: true
   - id: 48
     description: "Шаг 48: exclusive_path.rs: транспорт Play/Pause/Stop (остановка StreamHandle без освобождения claim — замок удерживает устройство, ТЗ-43) + тесты ≤3 (§6.18, ТЗ-49, 43). Проверка: cargo test engine::"
     done: false
@@ -302,8 +302,8 @@ steps:
   - id: 81
     description: "Шаг 81: ФИНАЛ: cargo build/test/clippy зелёные; общие условия §8 (Совместимый играет, «Bit-perfect» только при ТЗ-52); ручные проверки в заметку плана: замок (ТЗ-1/2/48/118…122, AM1.0-8.1), B1 — возврат устройства в PipeWire после освобождения, B2 — текст «занято <владелец>» при чужом захвате"
     done: false
-current_step: 47
-next_action: "Шаг 47: SourceOpener — открытие по маршруту плана (Route::Dop → DsdDecoder DecodeMode::Dop, DsdToPcm → PCM-режим) в engine/source.rs + вызов из open_exclusive (run.rs) + тест на фейке. Свежий субагент code-writer sonnet."
+current_step: 48
+next_action: "Шаг 48: exclusive_path.rs — транспорт Play/Pause/Stop (остановка StreamHandle без освобождения claim, ТЗ-43) + тесты ≤3; учесть autoplay, который open_exclusive сейчас игнорирует. Свежий субагент code-writer sonnet."
 fail_counter: 0
 fail_counter_max: 3
 failed_attempts: []

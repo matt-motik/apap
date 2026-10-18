@@ -3,11 +3,13 @@
 
 use std::path::Path;
 use std::sync::atomic::{AtomicUsize, Ordering};
+use std::sync::Mutex;
 use std::time::Duration;
 
 use crate::audio::decoder::{AudioSource, Tags, TrackInfo};
 use crate::audio::error::FileError;
 use crate::audio::format::{SampleBlock, SourceFormat, SourceKind};
+use crate::audio::path::Route;
 
 /// Открытие источника вне UI-потока (ТЗ-103, ADR-20, §6.18).
 pub trait SourceOpener: Send + Sync {
@@ -17,6 +19,14 @@ pub trait SourceOpener: Send + Sync {
     /// §6.18 шаг 6: полное открытие декодера внутри `apap-decode`.
     /// Ошибка → `SessionFailed` → пропуск с сообщением (ТЗ-86).
     fn open(&self, path: &Path) -> Result<Box<dyn AudioSource>, FileError>;
+    /// §6.18 п. 6, ТЗ-113: открытие с учётом маршрута плана (`Route`) —
+    /// `Dop` требует декодер DSD в режиме `DecodeMode::Dop`, `DsdToPcm` —
+    /// тот же декодер в PCM-режиме. По умолчанию делегирует в [`Self::open`]
+    /// без учёта маршрута (достаточно для фейков и прочих реализаций).
+    fn open_for_route(&self, path: &Path, route: &Route) -> Result<Box<dyn AudioSource>, FileError> {
+        let _ = route;
+        self.open(path)
+    }
 }
 
 /// Итог фейкового открытия: либо успешный формат, либо фиксированная ошибка
@@ -34,6 +44,9 @@ pub struct FakeSource {
     probe_delay: Duration,
     probes: AtomicUsize,
     opens: AtomicUsize,
+    /// Последний маршрут, переданный в `open_for_route` (§6.18 п. 6, ТЗ-113,
+    /// тест `open_exclusive` против фейка).
+    last_route: Mutex<Option<Route>>,
 }
 
 impl FakeSource {
@@ -44,6 +57,7 @@ impl FakeSource {
             probe_delay: Duration::ZERO,
             probes: AtomicUsize::new(0),
             opens: AtomicUsize::new(0),
+            last_route: Mutex::new(None),
         }
     }
 
@@ -54,6 +68,7 @@ impl FakeSource {
             probe_delay: Duration::ZERO,
             probes: AtomicUsize::new(0),
             opens: AtomicUsize::new(0),
+            last_route: Mutex::new(None),
         }
     }
 
@@ -72,6 +87,14 @@ impl FakeSource {
     /// Сколько раз был вызван `open`.
     pub fn opens(&self) -> usize {
         self.opens.load(Ordering::Acquire)
+    }
+
+    /// Маршрут последнего вызова `open_for_route` (§6.18 п. 6, ТЗ-113).
+    pub fn last_route(&self) -> Option<Route> {
+        match self.last_route.lock() {
+            Ok(guard) => guard.clone(),
+            Err(_) => None,
+        }
     }
 }
 
@@ -93,6 +116,13 @@ impl SourceOpener for FakeSource {
             FakeOutcome::Format(format) => Ok(Box::new(SilentSource::new(format))),
             FakeOutcome::Error(err) => Err(err.clone()),
         }
+    }
+
+    fn open_for_route(&self, path: &Path, route: &Route) -> Result<Box<dyn AudioSource>, FileError> {
+        if let Ok(mut guard) = self.last_route.lock() {
+            *guard = Some(route.clone());
+        }
+        self.open(path)
     }
 }
 
@@ -193,6 +223,21 @@ impl SourceOpener for SymphoniaSourceOpener {
                 .map_err(|msg| Self::map_open_error(path, msg))
         }
     }
+
+    /// Открытие по маршруту плана (§6.18 п. 6, ТЗ-113): `Route::Dop` —
+    /// декодер DSD в режиме `DecodeMode::Dop` (сырые DSD-байты в DoP-кадрах);
+    /// `Route::DsdToPcm` — тот же декодер в штатном режиме `DecodeMode::Cic`
+    /// (ОВС-6, ОВС-6б), как и обычный [`Self::open`] для DSD-файлов — декодер
+    /// сегодня не принимает `pcm_rate`/`filter`/`stop_hz` маршрута, PCM-темп
+    /// всегда `dsd_rate / 64`. `Route::Pcm` не меняет поведение [`Self::open`].
+    fn open_for_route(&self, path: &Path, route: &Route) -> Result<Box<dyn AudioSource>, FileError> {
+        match route {
+            Route::Dop(_) => crate::audio::dsd::DsdDecoder::open_with_mode(path, crate::audio::dsd::DecodeMode::Dop)
+                .map(|d| Box::new(d) as Box<dyn AudioSource>)
+                .map_err(|msg| Self::map_open_error(path, msg)),
+            Route::Pcm | Route::DsdToPcm { .. } => self.open(path),
+        }
+    }
 }
 
 const _: fn() = || {
@@ -205,7 +250,9 @@ const _: fn() = || {
 #[allow(clippy::unwrap_used, clippy::expect_used)]
 mod tests {
     use super::*;
+    use crate::audio::backend::AccessKind;
     use crate::audio::format::{ChannelLayout, Codec, Container, SampleRate};
+    use crate::audio::path::DopRoute;
     use std::path::{Path, PathBuf};
 
     fn data_path(name: &str) -> PathBuf {
@@ -284,5 +331,47 @@ mod tests {
 
         assert_eq!(opener.probe(path), Err(FileError::Io(std::io::ErrorKind::NotFound)));
         assert_eq!(opener.open(path).err(), Some(FileError::Io(std::io::ErrorKind::NotFound)));
+    }
+
+    /// §6.18 п. 6, ТЗ-113: `Route::Dop` открывает DSD-декодер в режиме DoP
+    /// (`DecodeMode::Dop`), а не в штатном PCM-режиме `open()`.
+    #[test]
+    fn symphonia_opener_open_for_route_dop_uses_dop_decode_mode() {
+        let opener = SymphoniaSourceOpener;
+        let path = data_path("dsf_dsd64_1k.dsf");
+
+        let format = opener.probe(&path).expect("probe ok");
+        let SourceKind::Dsd { dsd } = format.kind else {
+            panic!("expected DSD format");
+        };
+        let route = Route::Dop(
+            DopRoute::new(dsd, SampleRate::new(44_100).expect("rate"), AccessKind::Exclusive).expect("dop route"),
+        );
+
+        let source = opener.open_for_route(&path, &route).expect("open ok");
+        assert!(source.info().channels > 0);
+    }
+
+    /// §6.18 п. 6, ТЗ-113: реализация по умолчанию `open_for_route`
+    /// делегирует в `open` независимо от маршрута — достаточно для фейков,
+    /// не наблюдающих маршрут.
+    #[test]
+    fn default_open_for_route_delegates_to_open() {
+        struct DefaultOnlyOpener(SourceFormat);
+
+        impl SourceOpener for DefaultOnlyOpener {
+            fn probe(&self, _path: &Path) -> Result<SourceFormat, FileError> {
+                Ok(self.0.clone())
+            }
+            fn open(&self, _path: &Path) -> Result<Box<dyn AudioSource>, FileError> {
+                Ok(Box::new(SilentSource::new(&self.0)))
+            }
+        }
+
+        let opener = DefaultOnlyOpener(pcm_format());
+        let path = Path::new("fake.flac");
+
+        let source = opener.open_for_route(path, &Route::Pcm).expect("open ok");
+        assert_eq!(source.info().sample_rate, 44_100);
     }
 }

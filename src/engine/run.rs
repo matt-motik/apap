@@ -657,7 +657,7 @@ impl Engine {
         let gain = self.gain_state();
         let plan_built = with_gain(&base, gain, policy);
 
-        let source = match self.deps.sources.open(&path) {
+        let source = match self.deps.sources.open_for_route(&path, &plan_built.route) {
             Ok(source) => source,
             Err(e) => {
                 self.claim = Some(claim);
@@ -1937,6 +1937,61 @@ mod tests {
         // успешного открытия пуст — замок держит сессию, не `claim`.
         assert!(engine.claim.is_none());
         assert!(engine.exclusive_path.is_some());
+    }
+
+    /// §6.18 п. 6, ТЗ-113 (шаг 47): `open_exclusive` открывает источник через
+    /// `open_for_route` с маршрутом из построенного плана, а не через
+    /// маршрут-агностичный `open`. Для PCM-источника без DSD план строит
+    /// `Route::Pcm` — фейк фиксирует именно его.
+    #[test]
+    fn open_exclusive_opens_source_via_plan_route() {
+        let sink = VecSink::new();
+        let dev: HwDeviceId = "hw:CARD=RU3,DEV=0".parse().expect("hw id");
+        let backend = FakeExclusiveBackend::new().with_configure(Ok((
+            crate::audio::backend::DriverFormat::Confirmed(crate::audio::format::StreamFormat {
+                rate: SampleRate::new(44_100).expect("rate"),
+                sample: crate::audio::format::OutputSampleFormat::S32Le,
+                channels: std::num::NonZeroU8::new(2).expect("channels"),
+            }),
+            Some(crate::audio::backend::DeviceBufferActual { period_frames: 256, buffer_frames: 1024 }),
+        )));
+        let float_format = SourceFormat {
+            container: Container::Wav,
+            codec: Codec::Wav,
+            lossy: false,
+            rate: SampleRate::new(44_100).expect("rate"),
+            layout: ChannelLayout::stereo(),
+            kind: SourceKind::FloatPcm { double: false },
+        };
+        let fake_source = Arc::new(FakeSource::with_format(float_format));
+        let mem = MemStore::new();
+        let deps = EngineDeps {
+            shared: Box::new(FakeSharedBackend::with_devices(Vec::new())),
+            exclusive: Some(Box::new(backend)),
+            server_probe: Box::new(FakeServerProbe::desktop()),
+            watcher: Box::new(FakeDeviceWatcher::new()),
+            sources: Arc::clone(&fake_source) as Arc<dyn crate::engine::source::SourceOpener>,
+            clock: Box::new(MonotonicClock::new()),
+            store: Box::new(FsPersistStore::new(Arc::new(mem.clone()), Box::new(mem.clone()), PathBuf::from("/cfg"))),
+            events: Box::new(sink.clone()),
+            spawner: Arc::new(StdSpawner),
+            caps: BackendCaps::current(),
+            os_probe: Box::new(FakeOsProbe::new(OsStage::Unknown)),
+        };
+        let mut engine = Engine::new(deps, BackendCaps::current());
+        engine.active_mode = ModeKind::Optimal;
+        engine.mode_settings.optimal.device = Some(dev.clone());
+        engine.lock = LockState::Held { info: crate::audio::backend::exclusive::ClaimInfo { device: dev.clone() } };
+        engine.claim = Some(crate::audio::backend::exclusive::DeviceClaim::new(
+            None,
+            crate::audio::reservation::Reservation::UnavailableNoServer,
+            crate::audio::backend::exclusive::ClaimInfo { device: dev },
+        ));
+
+        engine.handle(EngineCmd::Open { req_gen: 1, path: Arc::from(Path::new("/music/a.flac")), start_secs: 0.0, autoplay: true });
+
+        assert_eq!(fake_source.last_route(), Some(crate::audio::path::Route::Pcm));
+        assert_eq!(fake_source.opens(), 1);
     }
 
     /// §6.18 шаг 45 (ТЗ-48, ТЗ-137): `Open` в Строгом режиме без удержанного
