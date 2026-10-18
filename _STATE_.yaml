@@ -51,6 +51,7 @@ whitelist:
   - src/audio/session_build.rs
   - src/engine/exclusive_path.rs
   - src/engine/source.rs
+  - src/playlist/model.rs
   - src/settings/params.rs
   - src/app/engine_sink.rs
   - src/app/playback_manager.rs
