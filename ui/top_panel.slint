@@ -117,12 +117,13 @@ component LockIndicator inherits Rectangle {
 
     private property <bool> active: root.kind != LockKind.not-applicable;
     // Значок по варианту, без опоры на цвет (ТЗ-55, ТЗ-61): «–» замок не
-    // нужен, «○» открыт, «◐» захват, «●» закрыт (захвачен), «✕» не удалось
-    // захватить.
+    // нужен, «🔓» (U+1F513) открыт, «◐» захват, «🔒» (U+1F512) закрыт
+    // (захвачен), «✕» не удалось захватить. Эмодзи — временно, до
+    // монохромной SVG-иконки.
     private property <string> glyph: root.kind == LockKind.not-applicable ? "–"
-        : root.kind == LockKind.open ? "○"
+        : root.kind == LockKind.open ? "🔓"
         : root.kind == LockKind.acquiring ? "◐"
-        : root.kind == LockKind.held ? "●"
+        : root.kind == LockKind.held ? "🔒"
         : "✕";
     private property <color> tint: root.kind == LockKind.held ? Colors.accent
         : root.kind == LockKind.failed ? Colors.text-warn
