@@ -548,11 +548,17 @@ impl Engine {
     /// `LockEffect::Release` (И-Р1), иначе звук обрывается после закрытия
     /// устройства. Без открытой сессии (`Player` уже остановлен) —
     /// безопасный no-op: `player.stop()`/`refresh_transport()` идемпотентны.
+    /// Эксклюзивный путь закрывается, а не дропается: `ExclusivePath::close`
+    /// возвращает захват устройства обратно в `self.claim` — замок остаётся
+    /// `Held` (И-Р1, §6.19: `Held ⇔ self.claim.is_some()` без открытого пути),
+    /// `LockEffect::Release` снимает его отдельно, если решит освободить замок.
     fn stop_playback(&mut self) {
         self.player.stop();
         self.stopped = true;
         self.active_path = None;
-        self.exclusive_path = None;
+        if let Some(p) = self.exclusive_path.take() {
+            self.claim = Some(p.close());
+        }
         self.refresh_transport();
     }
 
@@ -601,14 +607,18 @@ impl Engine {
         }
     }
 
-    /// Открытие в Оптимальном/Строгом режиме (§6.18 шаг 45, ТЗ-48, ТЗ-137):
-    /// диспетчер к Эксклюзивному пути. Без удержанного замка (`self.lock` не
-    /// `Held`) — отказ без попытки захвата: замок уже должен быть удержан
-    /// `EngineCmd::Lock`/`lock_step` до `Open` (§6.19). `autoplay` здесь не
-    /// действует — `ExclusiveBackend::start` поднимает поток вывода сразу,
-    /// отдельного состояния «открыто, но на паузе» для Эксклюзивного пути в
-    /// этом шаге нет (как и у Совместимого режима до него).
-    fn open_exclusive(&mut self, req_gen: u64, path: Arc<Path>, src: SourceFormat, start_secs: f64, _autoplay: bool) {
+    /// Открытие в Оптимальном/Строгом режиме (§6.18 шаг 45, 48, ТЗ-48, ТЗ-49,
+    /// ТЗ-137): диспетчер к Эксклюзивному пути. Без удержанного замка
+    /// (`self.lock` не `Held`) — отказ без попытки захвата: замок уже должен
+    /// быть удержан `EngineCmd::Lock`/`lock_step` до `Open` (§6.19). Смена
+    /// трека при уже открытом Эксклюзивном пути (новый `Open` без
+    /// промежуточного `Stop`) закрывает старый путь первой же строкой —
+    /// иначе `self.claim` пуст (его держит старый `ExclusivePath`) и новое
+    /// открытие отказало бы `NoDeviceSelected`, хотя замок удержан. `autoplay`
+    /// — пуск воспроизведения сразу после открытия (ТЗ-49): поток вывода
+    /// `ExclusiveBackend::start` поднимается всегда, пауза регулируется
+    /// `SessionShared::playing`, а не остановкой потока.
+    fn open_exclusive(&mut self, req_gen: u64, path: Arc<Path>, src: SourceFormat, start_secs: f64, autoplay: bool) {
         let LockState::Held { .. } = &self.lock else {
             let reason = match &self.lock {
                 LockState::Failed(reason) => reason.clone(),
@@ -617,6 +627,9 @@ impl Engine {
             self.deps.events.emit(EngineEvent::OpenFailed { req_gen, err: OpenError::Capture(reason) });
             return;
         };
+        if let Some(p) = self.exclusive_path.take() {
+            self.claim = Some(p.close());
+        }
         // Инвариант §6.19: `Held` всегда соответствует `self.claim.is_some()`.
         // Расхождение здесь — ошибка движка, не повод для паники: явный отказ
         // вместо unreachable!()/unwrap() (deny clippy выше).
@@ -714,6 +727,9 @@ impl Engine {
                 self.path_generation = generation;
                 let badge = verdict(&signal, gain, None);
                 let signal = Arc::new(signal);
+                if autoplay {
+                    opened.play();
+                }
                 self.exclusive_path = Some(opened);
                 self.current = Some((req_gen, Arc::clone(&path)));
                 self.stopped = false;
@@ -858,15 +874,25 @@ impl Engine {
                 }
             }
             EngineCmd::Play => {
-                self.player.play();
+                if let Some(p) = &self.exclusive_path {
+                    p.play();
+                } else {
+                    self.player.play();
+                }
                 self.stopped = false;
                 self.refresh_transport();
             }
             EngineCmd::Pause => {
-                // `Player::toggle` переключает play/pause; команда `Pause`
-                // не должна запускать воспроизведение, если оно уже на паузе
-                // или остановлено, поэтому переключаем только из «играет».
-                if self.player.is_playing() {
+                // Пауза переключается только из «играет»: команда `Pause` не
+                // должна запускать воспроизведение, если оно уже на паузе или
+                // остановлено. Легаси `Player::toggle` переключает play/pause;
+                // Эксклюзивный путь не трогает поток вывода (§6.18, ТЗ-49) —
+                // пауза гасит `SessionShared::playing`, колбэк пишет тишину.
+                if let Some(p) = &self.exclusive_path {
+                    if p.is_playing() {
+                        p.pause();
+                    }
+                } else if self.player.is_playing() {
                     self.player.toggle();
                 }
                 self.refresh_transport();
@@ -1128,7 +1154,9 @@ impl Engine {
         self.current = None;
         self.stopped = true;
         self.active_path = None;
-        self.exclusive_path = None;
+        if let Some(p) = self.exclusive_path.take() {
+            self.claim = Some(p.close());
+        }
         self.deps.events.emit(EngineEvent::ShutdownComplete);
     }
 
@@ -1152,13 +1180,22 @@ impl Engine {
     /// `Transport` по текущему состоянию (мост С3): `self.stopped` имеет
     /// приоритет (у легаси `Player` декодер остаётся загруженным и после
     /// `stop()`, `has_decoder()` не различает «остановлено» и «на паузе»);
-    /// иначе `Playing`, если идёт воспроизведение, `Paused`, если трек
-    /// загружен, но не играет, иначе `Stopped`. Шлёт событие только при
-    /// изменении состояния (§6.1 п. 3, И-Р13) — повторный вызов с тем же
-    /// состоянием не даёт дубликата.
+    /// иначе — Эксклюзивный путь, если он открыт (§6.18, ТЗ-49): `Playing`
+    /// или `Paused` по `SessionShared::playing`, поток вывода открыт в обоих
+    /// случаях, `has_decoder()` легаси `Player` тут не при чём. Без
+    /// Эксклюзивного пути — легаси `Player`: `Playing`, если идёт
+    /// воспроизведение, `Paused`, если трек загружен, но не играет, иначе
+    /// `Stopped`. Шлёт событие только при изменении состояния (§6.1 п. 3,
+    /// И-Р13) — повторный вызов с тем же состоянием не даёт дубликата.
     fn refresh_transport(&mut self) {
         let state = if self.stopped {
             TransportState::Stopped
+        } else if let Some(p) = &self.exclusive_path {
+            if p.is_playing() {
+                TransportState::Playing
+            } else {
+                TransportState::Paused
+            }
         } else if self.player.is_playing() {
             TransportState::Playing
         } else if self.player.has_decoder() {
@@ -1937,6 +1974,110 @@ mod tests {
         // успешного открытия пуст — замок держит сессию, не `claim`.
         assert!(engine.claim.is_none());
         assert!(engine.exclusive_path.is_some());
+    }
+
+    /// Собирает движок с уже открытым Эксклюзивным путём (фейковый бэкенд,
+    /// `FloatPcm`-источник — как в `open_in_optimal_mode_dispatches_to_exclusive_path_confirmed`)
+    /// для тестов транспорта (§6.18, ТЗ-49, ТЗ-43, шаг 48).
+    fn engine_with_exclusive_path_open(sink: VecSink, autoplay: bool) -> Engine {
+        let dev: HwDeviceId = "hw:CARD=RU3,DEV=0".parse().expect("hw id");
+        let backend = FakeExclusiveBackend::new().with_configure(Ok((
+            crate::audio::backend::DriverFormat::Confirmed(crate::audio::format::StreamFormat {
+                rate: SampleRate::new(44_100).expect("rate"),
+                sample: crate::audio::format::OutputSampleFormat::S32Le,
+                channels: std::num::NonZeroU8::new(2).expect("channels"),
+            }),
+            Some(crate::audio::backend::DeviceBufferActual { period_frames: 256, buffer_frames: 1024 }),
+        )));
+        let float_format = SourceFormat {
+            container: Container::Wav,
+            codec: Codec::Wav,
+            lossy: false,
+            rate: SampleRate::new(44_100).expect("rate"),
+            layout: ChannelLayout::stereo(),
+            kind: SourceKind::FloatPcm { double: false },
+        };
+        let mem = MemStore::new();
+        let deps = EngineDeps {
+            shared: Box::new(FakeSharedBackend::with_devices(Vec::new())),
+            exclusive: Some(Box::new(backend)),
+            server_probe: Box::new(FakeServerProbe::desktop()),
+            watcher: Box::new(FakeDeviceWatcher::new()),
+            sources: Arc::new(FakeSource::with_format(float_format)),
+            clock: Box::new(MonotonicClock::new()),
+            store: Box::new(FsPersistStore::new(Arc::new(mem.clone()), Box::new(mem.clone()), PathBuf::from("/cfg"))),
+            events: Box::new(sink),
+            spawner: Arc::new(StdSpawner),
+            caps: BackendCaps::current(),
+            os_probe: Box::new(FakeOsProbe::new(OsStage::Unknown)),
+        };
+        let mut engine = Engine::new(deps, BackendCaps::current());
+        engine.active_mode = ModeKind::Optimal;
+        engine.mode_settings.optimal.device = Some(dev.clone());
+        engine.lock = LockState::Held { info: crate::audio::backend::exclusive::ClaimInfo { device: dev.clone() } };
+        engine.claim = Some(crate::audio::backend::exclusive::DeviceClaim::new(
+            None,
+            crate::audio::reservation::Reservation::UnavailableNoServer,
+            crate::audio::backend::exclusive::ClaimInfo { device: dev },
+        ));
+
+        engine.handle(EngineCmd::Open { req_gen: 1, path: Arc::from(Path::new("/music/a.flac")), start_secs: 0.0, autoplay });
+        assert!(engine.exclusive_path.is_some());
+        engine
+    }
+
+    /// §6.18, ТЗ-49 (шаг 48): открытие с `autoplay: true` сразу даёт
+    /// `Playing` через `ExclusivePath::play`; `Pause` переводит на
+    /// `SessionShared::playing = false` без остановки потока вывода
+    /// (`Paused`); `Play` снова включает вывод (`Playing`).
+    #[test]
+    fn exclusive_path_transport_play_pause_play() {
+        let sink = VecSink::new();
+        let mut engine = engine_with_exclusive_path_open(sink, true);
+
+        assert_eq!(engine.last_transport, Some(TransportState::Playing));
+
+        engine.handle(EngineCmd::Pause);
+        assert_eq!(engine.last_transport, Some(TransportState::Paused));
+
+        engine.handle(EngineCmd::Play);
+        assert_eq!(engine.last_transport, Some(TransportState::Playing));
+    }
+
+    /// §6.18, ТЗ-43, ТЗ-120, ТЗ-121 (шаг 48): `Stop` на открытом Эксклюзивном
+    /// пути закрывает его (`ExclusivePath::close`), а не дропает — захват
+    /// возвращается в `self.claim`, замок остаётся удержан (И-Р1, §6.19:
+    /// `Held ⇔ self.claim.is_some()` без открытого пути).
+    #[test]
+    fn stop_closes_exclusive_path_and_keeps_claim_held() {
+        let sink = VecSink::new();
+        let mut engine = engine_with_exclusive_path_open(sink, true);
+
+        engine.handle(EngineCmd::Stop);
+
+        assert!(engine.exclusive_path.is_none());
+        assert!(engine.claim.is_some());
+        assert_eq!(engine.last_transport, Some(TransportState::Stopped));
+    }
+
+    /// §6.18, ТЗ-48, ТЗ-113 (шаг 48): повторный `Open` (смена трека) на уже
+    /// открытом Эксклюзивном пути закрывает старый путь и возвращает захват в
+    /// `self.claim` первой строкой `open_exclusive` — иначе `self.claim` был
+    /// бы пуст (его держит старый `ExclusivePath`) и второе открытие отказало
+    /// бы `OpenFailed(Capture(NoDeviceSelected))`, хотя замок удержан.
+    #[test]
+    fn second_open_while_exclusive_path_open_succeeds() {
+        let sink = VecSink::new();
+        let mut engine = engine_with_exclusive_path_open(sink.clone(), true);
+        sink.take();
+
+        engine.handle(EngineCmd::Open { req_gen: 2, path: Arc::from(Path::new("/music/b.flac")), start_secs: 0.0, autoplay: true });
+
+        let events = sink.take();
+        assert!(events.iter().any(|e| matches!(e, EngineEvent::Opened { .. })));
+        assert!(!events.iter().any(|e| matches!(e, EngineEvent::OpenFailed { .. })));
+        assert!(engine.exclusive_path.is_some());
+        assert!(engine.claim.is_none());
     }
 
     /// §6.18 п. 6, ТЗ-113 (шаг 47): `open_exclusive` открывает источник через

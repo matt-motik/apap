@@ -4,6 +4,7 @@
 
 #![deny(clippy::unwrap_used, clippy::expect_used, clippy::unreachable)]
 
+use std::sync::atomic::Ordering;
 use std::sync::mpsc;
 use std::sync::Arc;
 
@@ -22,13 +23,12 @@ use crate::engine::spawner::ThreadSpawner;
 use crate::settings::playback::DeviceBuffer;
 
 /// Поток декодера и общее состояние сессии, открытой на Эксклюзивном пути
-/// (§6.18 п. 5–6). Приёмник `decode_events` держится, чтобы вызывающая
-/// сторона могла реагировать на `DecodeEvent::Failed` после старта.
-// поля читаются опросом/остановкой сессии — следующие шаги С6
-#[allow(dead_code)]
+/// (§6.18 п. 5–6).
 pub(crate) struct ExclusiveSession {
     worker: DecodeWorker,
     shared: Arc<SessionShared>,
+    // читается реакцией на `DecodeEvent::Failed` после старта — следующий шаг
+    #[allow(dead_code)]
     decode_events: mpsc::Receiver<DecodeEvent>,
 }
 
@@ -36,12 +36,40 @@ pub(crate) struct ExclusiveSession {
 /// декодера и поток вывода (§6.18, ТЗ-48). `claim` не теряется ни на одном
 /// шаге открытия — при отказе он возвращается в `ExclusiveOpenError`, чтобы
 /// замок устройства оставался удержан (§6.19).
-// поля читаются остановкой/переоткрытием сессии — следующие шаги С6
-#[allow(dead_code)]
 pub(crate) struct ExclusivePath {
     claim: DeviceClaim,
     session: ExclusiveSession,
     handle: Box<dyn StreamHandle>,
+}
+
+impl ExclusivePath {
+    /// Возобновить вывод: колбэк перестаёт писать тишину, поток и устройство
+    /// остаются открытыми (§6.18, ТЗ-49).
+    pub(crate) fn play(&self) {
+        self.session.shared.playing.store(true, Ordering::Release);
+    }
+
+    /// Поставить на паузу: колбэк пишет тишину вместо ring, поток вывода и
+    /// устройство не останавливаются (§6.18, ТЗ-49).
+    pub(crate) fn pause(&self) {
+        self.session.shared.playing.store(false, Ordering::Release);
+    }
+
+    /// Текущее состояние паузы для транспорта (§6.18, ТЗ-49).
+    pub(crate) fn is_playing(&self) -> bool {
+        self.session.shared.playing.load(Ordering::Acquire)
+    }
+
+    /// Закрыть путь (§6.18, ТЗ-43): сначала поток вывода — колбэк
+    /// перестаёт читать ring и возвращает PCM в `claim`, затем поток
+    /// декодера. Захват возвращается вызывающей стороне: замок устройства
+    /// остаётся удержан (§6.19), закрыть его — отдельное решение.
+    pub(crate) fn close(self) -> DeviceClaim {
+        let ExclusivePath { mut claim, mut session, handle } = self;
+        *claim.pcm_mut() = handle.stop();
+        session.worker.stop();
+        claim
+    }
 }
 
 /// Причина отказа открытия Эксклюзивного пути (§6.18). Без `Debug`/`Clone`:
