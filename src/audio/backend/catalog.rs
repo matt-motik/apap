@@ -87,6 +87,33 @@ impl DeviceCatalog {
         }
         self.hw.iter().find(|dev| dev.card == sink.card).map(|dev| &dev.id)
     }
+
+    /// Находит запись каталога по `HwDeviceId`, допуская устаревший
+    /// численный формат (AM1.0-B16, ADR-24, ТЗ-126): старый `settings.toml`
+    /// мог сохранить `hw:CARD=<N>,DEV=<D>`, где `N` — номер карты cpal на
+    /// момент сохранения, а не стабильный строковый id (`hw:CARD=<id>,
+    /// DEV=<D>`, который строит `build_hw_id`). Сначала ищется точное
+    /// совпадение id; если его нет и строка разбирается по численному
+    /// шаблону — ищется запись с тем же `card`/`device`. Иначе — `None`.
+    pub fn canonical_hw(&self, id: &HwDeviceId) -> Option<&HwDeviceInfo> {
+        if let Some(found) = self.hw.iter().find(|dev| &dev.id == id) {
+            return Some(found);
+        }
+        let (card, device) = parse_numeric_hw_id(id.as_str())?;
+        self.hw.iter().find(|dev| dev.card == card && dev.device == device)
+    }
+}
+
+/// Разбирает устаревший численный `HwDeviceId` вида `hw:CARD=<N>,DEV=<D>`
+/// (легаси-формат cpal, AM1.0-B16, ТЗ-126) в номера карты и устройства.
+/// `None`, если строка не соответствует этому шаблону — в частности, для
+/// канонической формы с нечисловым id карты (`hw:CARD=PCH,DEV=0`).
+fn parse_numeric_hw_id(id: &str) -> Option<(u32, u32)> {
+    let rest = id.strip_prefix("hw:CARD=")?;
+    let (card, device) = rest.split_once(",DEV=")?;
+    let card = card.parse::<u32>().ok()?;
+    let device = device.parse::<u32>().ok()?;
+    Some((card, device))
 }
 
 fn devices_match(a: &[SharedDeviceInfo], b: &[SharedDeviceInfo]) -> bool {
@@ -328,6 +355,38 @@ mod tests {
         assert!(catalog.refresh_hw(&mut changed_backend).expect("refresh 3 ok"));
         assert_eq!(catalog.generation, 2);
         assert_eq!(catalog.hw.len(), 1);
+    }
+
+    #[test]
+    fn canonical_hw_exact_match() {
+        let catalog = DeviceCatalog { hw: vec![fake_hw("hw:CARD=DX,DEV=0", 0, 0, "PCH 0")], ..Default::default() };
+
+        let found = catalog.canonical_hw(&"hw:CARD=DX,DEV=0".parse().expect("hw id")).expect("found");
+        assert_eq!(found.id.as_str(), "hw:CARD=DX,DEV=0");
+    }
+
+    #[test]
+    fn canonical_hw_numeric_legacy_maps_to_canonical() {
+        let catalog = DeviceCatalog { hw: vec![fake_hw("hw:CARD=DX,DEV=0", 0, 0, "PCH 0")], ..Default::default() };
+
+        let found = catalog.canonical_hw(&"hw:CARD=0,DEV=0".parse().expect("hw id")).expect("found");
+        assert_eq!(found.id.as_str(), "hw:CARD=DX,DEV=0");
+        assert_eq!(found.card, 0);
+        assert_eq!(found.device, 0);
+    }
+
+    #[test]
+    fn canonical_hw_numeric_unknown_card_is_none() {
+        let catalog = DeviceCatalog { hw: vec![fake_hw("hw:CARD=DX,DEV=0", 0, 0, "PCH 0")], ..Default::default() };
+
+        assert!(catalog.canonical_hw(&"hw:CARD=5,DEV=0".parse().expect("hw id")).is_none());
+    }
+
+    #[test]
+    fn canonical_hw_malformed_id_is_none() {
+        let catalog = DeviceCatalog { hw: vec![fake_hw("hw:CARD=DX,DEV=0", 0, 0, "PCH 0")], ..Default::default() };
+
+        assert!(catalog.canonical_hw(&"hw:CARD=PCH,DEV=0".parse().expect("hw id")).is_none());
     }
 
     #[test]

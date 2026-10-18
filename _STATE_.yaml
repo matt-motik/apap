@@ -302,7 +302,7 @@ steps:
     done: true
   - id: 80
     description: "Шаг 80: AM1.0-B16 ч. 1: сохранённый hw:CARD=<номер>,DEV=<d> сопоставляется с каталогом по номеру карты (HwDeviceInfo.card) → канонический hw:CARD=<id>,DEV=<d>; используется в start_claim/resolve_device (catalog.rs, engine/run.rs, ADR-24, ТЗ-126) + тест. Проверка: полный cargo test"
-    done: false
+    done: true
   - id: 81
     description: "Шаг 81: AM1.0-B16 ч. 2: источник списка устройств Оптимального/Строгого во вкладке Audio — каталог HwDeviceId (не cpal-id); если уже так — шаг закрыть без кода с пометкой (ADR-24, ТЗ-126). Проверка: cargo check + cargo test по модулю"
     done: false
@@ -333,8 +333,8 @@ steps:
   - id: 90
     description: "Шаг 90: ФИНАЛ: cargo build/test/clippy зелёные; общие условия §8 (Совместимый играет, «Bit-perfect» только при ТЗ-52); ручные проверки в заметку плана: замок (ТЗ-1/2/48/118…122, AM1.0-8.1), B1 — возврат устройства в PipeWire после освобождения, B2 — текст «занято <владелец>» при чужом захвате"
     done: false
-current_step: 80
-next_action: 'Шаг 80: AM1.0-B16 ч. 1 — сопоставление сохранённого hw:CARD=<номер> с каталогом по номеру карты → канонический id (catalog.rs, engine/run.rs) + тест. Свежий субагент code-writer sonnet.'
+current_step: 81
+next_action: 'Шаг 81: AM1.0-B16 ч. 2 — источник списка устройств Оптимального/Строгого во вкладке Audio: каталог HwDeviceId, не cpal-id (если уже так — закрыть без кода). Свежий субагент code-writer sonnet.'
 fail_counter: 0
 fail_counter_max: 3
 failed_attempts: []

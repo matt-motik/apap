@@ -143,8 +143,8 @@
 - [x] Шаг 77: Шаг 77: AM1.0-B8 ч. 1: EngineEvent::DynamicsChanged(DynamicPathState) в messages.rs и эмиссия из poll_session при изменении underruns/xruns/rt_priority в run.rs (ТЗ-68). Общий тип → Проверка: полный cargo test
 - [x] Шаг 78: Шаг 78: AM1.0-B8 ч. 2: UiAudioState — dirty-флаг по DynamicsChanged (ui_audio_state.rs) + тест (ТЗ-68). Проверка: cargo test ui_audio_state
 - [x] Шаг 79: Шаг 79: AM1.0-B15: SetActiveMode Совместимый→Эксклюзивный — ModeSelected и синхронный CaptureResult обрабатываются под целевым режимом (замок → Failed/Held, не NotApplicable); AM1.0-B13 (Эксклюзивный→Совместимый) не ломать; тест «старт в Строгом, отказ захвата → Failed» (engine/run.rs, §6.19, §6.2 п. 6, ТЗ-118). Проверка: полный cargo test
-- [>] **Шаг 80: Шаг 80: AM1.0-B16 ч. 1: сохранённый hw:CARD=<номер>,DEV=<d> сопоставляется с каталогом по номеру карты (HwDeviceInfo.card) → канонический hw:CARD=<id>,DEV=<d>; используется в start_claim/resolve_device (catalog.rs, engine/run.rs, ADR-24, ТЗ-126) + тест. Проверка: полный cargo test**
-- [ ] Шаг 81: Шаг 81: AM1.0-B16 ч. 2: источник списка устройств Оптимального/Строгого во вкладке Audio — каталог HwDeviceId (не cpal-id); если уже так — шаг закрыть без кода с пометкой (ADR-24, ТЗ-126). Проверка: cargo check + cargo test по модулю
+- [x] Шаг 80: Шаг 80: AM1.0-B16 ч. 1: сохранённый hw:CARD=<номер>,DEV=<d> сопоставляется с каталогом по номеру карты (HwDeviceInfo.card) → канонический hw:CARD=<id>,DEV=<d>; используется в start_claim/resolve_device (catalog.rs, engine/run.rs, ADR-24, ТЗ-126) + тест. Проверка: полный cargo test
+- [>] **Шаг 81: Шаг 81: AM1.0-B16 ч. 2: источник списка устройств Оптимального/Строгого во вкладке Audio — каталог HwDeviceId (не cpal-id); если уже так — шаг закрыть без кода с пометкой (ADR-24, ТЗ-126). Проверка: cargo check + cargo test по модулю**
 - [ ] Шаг 82: Шаг 82: AM1.0-B8 ч. 3: инвалидация PathWindowCache по dirty-флагу динамики (app/path_view.rs) + тест (ТЗ-68). Проверка: cargo test path_view
 - [ ] Шаг 83: Шаг 83: ЧЕКПОИНТ: полный cargo test + cargo clippy --all-targets
 - [ ] Шаг 84: Шаг 84: Удаление в engine: адаптер legacy_exclusive, EngineCmd::ReleaseExclusive и их обработка; legacy_path — только Совместимый (§8 С6 «удаляется»). Проверка: полный cargo test
@@ -157,8 +157,8 @@
 
 Легенда: [x] сделано · [>] текущий шаг · [ ] не начато
 
-- **Текущий шаг (current_step):** Шаг 80
-- **Следующий ход:** Шаг 80: AM1.0-B16 ч. 1 — сопоставление сохранённого hw:CARD=<номер> с каталогом по номеру карты → канонический id (catalog.rs, engine/run.rs) + тест. Свежий субагент code-writer sonnet.
+- **Текущий шаг (current_step):** Шаг 81
+- **Следующий ход:** Шаг 81: AM1.0-B16 ч. 2 — источник списка устройств Оптимального/Строгого во вкладке Audio: каталог HwDeviceId, не cpal-id (если уже так — закрыть без кода). Свежий субагент code-writer sonnet.
 - **Счетчик безуспешных компиляций:** 0/3
 - **Состояние:** in_progress
 

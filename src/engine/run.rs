@@ -629,6 +629,15 @@ impl Engine {
                 ModeKind::Strict => self.mode_settings.strict.device.clone(),
             }
         };
+        // AM1.0-B16 (§6.19, ADR-24, ТЗ-126): устройство из настроек режима
+        // могло быть сохранено в устаревшем численном формате cpal
+        // (`hw:CARD=<N>,DEV=<D>`, номер карты вместо стабильного id) —
+        // приводится к канонической форме каталога здесь же, чтобы
+        // `LockState`/события ниже несли уже канонический id.
+        let device = device.map(|d| match self.catalog.canonical_hw(&d) {
+            Some(found) => found.id.clone(),
+            None => d,
+        });
 
         let (mut state, effects) = lock_step(&self.lock, input, self.active_mode, device.as_ref());
         if let LockState::Acquiring { .. } = state {
@@ -764,7 +773,12 @@ impl Engine {
     fn save_switch_device_reacquire_point(&mut self, new_dev: HwDeviceId) {
         let LockState::Held { .. } = &self.lock else { return };
         let autoplay = self.exclusive_path.as_ref().is_some_and(ExclusivePath::is_playing);
-        self.reacquire = self.build_reacquire_point(new_dev, autoplay);
+        // AM1.0-B16 (ADR-24, ТЗ-126): `new_dev` идёт прямо из настроек
+        // режима и может быть в устаревшем численном формате — приводится к
+        // каноническому id каталога, если он найден, чтобы точка совпадала
+        // с каноническим устройством из `ClaimDone` (см. `start_claim`).
+        let canonical = self.catalog.canonical_hw(&new_dev).map_or(new_dev, |found| found.id.clone());
+        self.reacquire = self.build_reacquire_point(canonical, autoplay);
     }
 
     /// Автоматический повторный захват вернувшегося устройства (§6.20 п. 4,
@@ -782,10 +796,19 @@ impl Engine {
     fn try_reacquire_reappeared_device(&mut self) {
         let LockState::Failed(CaptureFailure::DeviceDisconnected) = &self.lock else { return };
         let Some(point) = self.reacquire.as_ref() else { return };
-        if !self.catalog.hw.iter().any(|d| d.id == point.device) {
+        // `canonical_hw` (AM1.0-B16, ADR-24, ТЗ-126) допускает устаревший
+        // численный id точки повторного захвата наравне с каноническим;
+        // сохранённая точка приводится к найденному каноническому id, чтобы
+        // `reopen_after_reacquire` ниже сравнивала её с устройством
+        // `ClaimDone` (тоже каноническим после `start_claim`) без ложного
+        // расхождения форм одного и того же устройства.
+        let Some(found) = self.catalog.canonical_hw(&point.device) else {
             return;
+        };
+        let dev = found.id.clone();
+        if let Some(stored) = self.reacquire.as_mut() {
+            stored.device = dev.clone();
         }
-        let dev = point.device.clone();
         self.lock_input(LockInput::DeviceReappeared(dev));
     }
 
@@ -843,11 +866,16 @@ impl Engine {
         };
 
         // Устройства нет в каталоге — оно отключено; номер карты для
-        // `ReservationLost` не выдумывается (ТЗ-126, §6.19).
-        let Some(found) = self.catalog.hw.iter().find(|d| d.id == dev) else {
+        // `ReservationLost` не выдумывается (ТЗ-126, §6.19). `canonical_hw`
+        // (AM1.0-B16, ADR-24) допускает устаревший численный id сохранённого
+        // устройства наравне с каноническим — захват идёт по каноническому
+        // `found.id`, чтобы `ClaimInfo::device` и дальнейшие сравнения с
+        // каталогом совпадали.
+        let Some(found) = self.catalog.canonical_hw(&dev) else {
             self.lock_input(LockInput::CaptureResult(Err(CaptureFailure::DeviceDisconnected)));
             return;
         };
+        let canonical_dev = found.id.clone();
         let device_name = found.name.clone();
         let card = found.card;
         self.claim_card = Some(card);
@@ -856,7 +884,7 @@ impl Engine {
         let on_lost: LostNotify = Box::new(move || {
             let _ = lost_tx.send(InternalMsg::ReservationLost { card });
         });
-        let job = backend.claim_job(dev, device_name, on_lost);
+        let job = backend.claim_job(canonical_dev, device_name, on_lost);
 
         let done_tx = self.internal_tx.clone();
         let spawned = self.deps.spawner.spawn(
@@ -2207,6 +2235,38 @@ mod tests {
         assert!(engine.claim.is_some());
         let held = sink.take();
         assert!(matches!(held.as_slice(), [EngineEvent::Lock(LockState::Held { .. })]));
+    }
+
+    /// AM1.0-B16 (§6.19, ADR-24, ТЗ-126): в `settings.toml` устройство
+    /// Строгого режима сохранено в устаревшем численном формате cpal
+    /// (`hw:CARD=0,DEV=0`), а каталог перечисляет его канонический id
+    /// (`hw:CARD=DX,DEV=0`, card 0, device 0) — захват всё равно проходит
+    /// (`Held`), а не падает в `Failed(DeviceDisconnected)`.
+    #[test]
+    fn lock_input_startup_strict_matches_legacy_numeric_device_id() {
+        let sink = VecSink::new();
+        let deps = fake_deps(Box::new(sink.clone()), Arc::new(StdSpawner));
+        let mut engine = Engine::new(deps, BackendCaps::current());
+        let canonical: HwDeviceId = "hw:CARD=DX,DEV=0".parse().expect("hw id");
+        let configured: HwDeviceId = "hw:CARD=0,DEV=0".parse().expect("hw id");
+        engine.catalog.hw = vec![crate::audio::backend::catalog::HwDeviceInfo {
+            id: canonical.clone(),
+            card: 0,
+            device: 0,
+            name: "DX".to_string(),
+        }];
+        engine.active_mode = ModeKind::Strict;
+        engine.mode_settings.strict.device = Some(configured);
+        engine.lock = LockState::Open;
+
+        engine.lock_input(LockInput::Startup);
+        let msg = engine.internal_rx.recv().expect("claim done");
+        engine.handle_internal(msg);
+
+        match &engine.lock {
+            LockState::Held { info } => assert_eq!(info.device, canonical),
+            other => panic!("expected Held, got {other:?}"),
+        }
     }
 
     /// §6.19 (ТЗ-118, ТЗ-119, ADR-01): отказ захвата, возвращённый
