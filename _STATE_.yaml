@@ -186,7 +186,7 @@ steps:
     done: true
   - id: 43
     description: "Шаг 43: session_build.rs: exclusive_feed(&PathPlan, Box<dyn AudioSource>, …) → (RingKind-совместимый EngineFeed) — PCM exact / SRC float / DSD→PCM / DoP по маршруту плана (§6.18 п. 4, ТЗ-48, 113). Проверка: cargo test session_build"
-    done: false
+    done: true
   - id: 44
     description: "Шаг 44: Новый src/engine/exclusive_path.rs: ExclusivePath { claim, session, handle } и open(): configure при необходимости → exclusive_session_plan → build_exclusive_render + exclusive_feed → spawn_decoder → start → OpenedFacts (DriverFormat::Confirmed) → SignalPath::from_opened (§6.18 п. 1–7, ТЗ-48, 50, 113). Проверка: cargo check"
     done: false
@@ -295,8 +295,8 @@ steps:
   - id: 79
     description: "Шаг 79: ФИНАЛ: cargo build/test/clippy зелёные; общие условия §8 (Совместимый играет, «Bit-perfect» только при ТЗ-52); ручные проверки в заметку плана: замок (ТЗ-1/2/48/118…122, AM1.0-8.1), B1 — возврат устройства в PipeWire после освобождения, B2 — текст «занято <владелец>» при чужом захвате"
     done: false
-current_step: 43
-next_action: "Шаг 43: session_build.rs: exclusive_feed(&PathPlan, Box<dyn AudioSource>, …) → EngineFeed по маршруту плана (PCM exact / SRC float / DSD→PCM / DoP), согласованный с RingKind (§6.18 п. 4, ТЗ-48, 113). Проверка: cargo test session_build. Свежий субагент code-writer sonnet."
+current_step: 44
+next_action: "Шаг 44: Новый src/engine/exclusive_path.rs: ExclusivePath { claim, session, handle } и open(): configure → exclusive_session_plan → build_exclusive_render + exclusive_feed → spawn_decoder → start → OpenedFacts (DriverFormat::Confirmed) → SignalPath::from_opened (§6.18 п. 1–7, ТЗ-48, 50, 113). Проверка: cargo check. Свежий субагент code-writer sonnet."
 fail_counter: 0
 fail_counter_max: 3
 failed_attempts: []

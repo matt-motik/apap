@@ -8,9 +8,11 @@ use cpal::SampleFormat;
 
 use super::backend::exclusive::{DopRenderAny, ExclusivePcm, ExclusiveRender, OptimalRender, StrictRender};
 use super::backend::DeviceBufferActual;
+use super::decoder::AudioSource;
 use super::error::EngineFault;
 use super::format::OutputSampleFormat;
-use super::output::{dop_render_for, pcm_render_for, RawRender, StreamBuildError};
+use super::output::{dop_render_for, pcm_render_for, RawRender, Resampler, StreamBuildError};
+use super::path::transform::TransformKind;
 use super::path::{PathPlan, Route};
 use super::render::dop::DopRender;
 use super::render::gain::{AtomicGain, GainStage, NoGain};
@@ -25,7 +27,8 @@ use super::worker::{
 };
 use crate::engine::spawner::ThreadSpawner;
 use crate::settings::clamp_ring_buffer_ms;
-use crate::settings::playback::ModeKind;
+use crate::settings::playback::{ModeKind, SrcFilter};
+use crate::settings::ResamplerAlgorithm;
 
 /// Ёмкость `PendingTail` в кадрах: один декодированный пакет (§6.18).
 const DECODE_TAIL_FRAMES: usize = 8192;
@@ -378,6 +381,125 @@ pub(crate) fn build_exclusive_render(
     }
 }
 
+/// Отказ [`exclusive_feed`]: открытый источник не соответствует плану
+/// (§6.18 п. 4, ТЗ-48, ТЗ-113).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+// используется ExclusivePath (шаг 44)
+#[allow(dead_code)]
+pub(crate) enum ExclusiveFeedError {
+    /// Частота или число каналов открытого источника не совпали с планом
+    /// (ТЗ-113): для DoP `got_rate` — это частота источника × 4 (контейнер
+    /// DoP, §6.15), для `Exact` — частота источника как есть (без SRC,
+    /// ТЗ-48).
+    SourceMismatch { expected_rate: u32, expected_channels: usize, got_rate: u32, got_channels: usize },
+    /// Ring `Exact`: `AudioSource::ring_payload()` не совпал с payload плана —
+    /// без молчаливого отказа от бит-точности (ТЗ-48).
+    PayloadMismatch,
+}
+
+impl std::fmt::Display for ExclusiveFeedError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            ExclusiveFeedError::SourceMismatch {
+                expected_rate,
+                expected_channels,
+                got_rate,
+                got_channels,
+            } => write!(
+                f,
+                "источник {got_rate} Гц × {got_channels} кан. не совпал с планом {expected_rate} Гц × {expected_channels} кан."
+            ),
+            ExclusiveFeedError::PayloadMismatch => {
+                write!(f, "payload источника не совпал с payload ring плана")
+            }
+        }
+    }
+}
+
+/// `SrcFilter` → `ResamplerAlgorithm`: больше тапов windowed-sinc ⇒ круче
+/// срез АЧХ (§2.2). Единое соответствие для эксклюзивного и Совместимого пути.
+pub(crate) fn src_filter_to_algorithm(filter: SrcFilter) -> ResamplerAlgorithm {
+    match filter {
+        SrcFilter::Steep => ResamplerAlgorithm::SincSlow,
+        SrcFilter::Slow => ResamplerAlgorithm::SincMedium,
+        SrcFilter::VerySlow => ResamplerAlgorithm::SincFast,
+    }
+}
+
+/// Алгоритм ресемплера для SRC-преобразования плана `plan` (§6.18 п. 4).
+/// Нет преобразования `Resample` в `plan.transforms` — частоты совпадают, и
+/// подходит дефолт `Resampler::new` (`ResamplerAlgorithm::Linear`).
+fn exclusive_resample_algo(plan: &PathPlan) -> ResamplerAlgorithm {
+    plan.transforms
+        .iter()
+        .find_map(|t| match &t.kind {
+            TransformKind::Resample { filter, .. } => Some(src_filter_to_algorithm(*filter)),
+            _ => None,
+        })
+        .unwrap_or(ResamplerAlgorithm::Linear)
+}
+
+/// Источник для `apap-decode` эксклюзивного вывода по плану пути `plan`,
+/// плану сессии `session` и уже открытому `src` (§6.18 п. 4, ТЗ-48, ТЗ-113).
+/// `src` открывается вызывающей стороной декодером, соответствующим
+/// `plan.route` (PCM-декодер / `DsdDecoder` в PCM-режиме / `DsdDecoder` в
+/// `DecodeMode::Dop`). Чистая функция: не открывает устройство, не аллоцирует
+/// ring, только проверяет совместимость и собирает `EngineFeed` (мирроит
+/// `Player::open_pcm`/`open_dop`).
+///
+/// `RingKind::Dop` — DoP-контейнер: частота источника × 4 должна дать частоту
+/// ring плана (§6.15, И-Т3). `RingKind::Exact` — без ресемплинга: частота,
+/// число каналов и `ring_payload()` источника должны совпасть с планом 1:1
+/// (ТЗ-48, Строгий/Оптимальный без ресемплинга бит-точны только при точном
+/// совпадении). `RingKind::Float` — SRC / DSD→PCM / float-источник: алгоритм
+/// ресемплера берётся из `Resample`-преобразования плана
+/// ([`exclusive_resample_algo`]).
+// используется ExclusivePath (шаг 44)
+#[allow(dead_code)]
+pub(crate) fn exclusive_feed(
+    plan: &PathPlan,
+    session: &ExclusiveSessionPlan,
+    src: Box<dyn AudioSource>,
+) -> Result<EngineFeed, ExclusiveFeedError> {
+    let src_rate = src.info().sample_rate;
+    let src_ch = src.info().channels;
+    let engine = &session.engine;
+
+    match engine.kind {
+        RingKind::Dop => {
+            let got_rate = src_rate.saturating_mul(4);
+            if got_rate != engine.rate || src_ch != engine.channels {
+                return Err(ExclusiveFeedError::SourceMismatch {
+                    expected_rate: engine.rate,
+                    expected_channels: engine.channels,
+                    got_rate,
+                    got_channels: src_ch,
+                });
+            }
+            Ok(EngineFeed::Exact(ExactFeed::new(src, engine.rate)))
+        }
+        RingKind::Exact(payload) => {
+            if src_rate != engine.rate || src_ch != engine.channels {
+                return Err(ExclusiveFeedError::SourceMismatch {
+                    expected_rate: engine.rate,
+                    expected_channels: engine.channels,
+                    got_rate: src_rate,
+                    got_channels: src_ch,
+                });
+            }
+            if src.ring_payload() != payload {
+                return Err(ExclusiveFeedError::PayloadMismatch);
+            }
+            Ok(EngineFeed::Exact(ExactFeed::new(src, engine.rate)))
+        }
+        RingKind::Float => {
+            let algo = exclusive_resample_algo(plan);
+            let resampler = Resampler::with_algo(src_rate, engine.rate, src_ch, engine.channels, algo);
+            Ok(EngineFeed::Float(FloatFeed::new(src, resampler, engine.rate, src_ch, engine.channels)))
+        }
+    }
+}
+
 /// Отказ [`spawn_decoder`]: различает отказ запуска потока (`ThreadSpawner`,
 /// сохраняется в `Player::last_fault`, ТЗ-88) и прочие отказы открытия
 /// (готовое сообщение для пользователя).
@@ -647,5 +769,115 @@ mod tests {
                 kind: ExclusiveRenderKind::OptimalDop,
             }
         );
+    }
+
+    /// Фейковый `AudioSource` для тестов [`exclusive_feed`]: отдаёт заданные
+    /// частоту/каналы/payload, блок данных не нужен — `exclusive_feed` читает
+    /// только `info()`/`ring_payload()` и строит `EngineFeed`, не читая кадры.
+    struct FakeSource {
+        info: crate::audio::decoder::TrackInfo,
+        payload: RingPayload,
+    }
+
+    impl FakeSource {
+        fn new(sample_rate: u32, channels: usize, payload: RingPayload) -> Self {
+            Self {
+                info: crate::audio::decoder::TrackInfo {
+                    sample_rate,
+                    channels,
+                    num_frames: Some(0),
+                    format_name: "fake".into(),
+                    bitrate: 0,
+                    bits: None,
+                    tags: Default::default(),
+                },
+                payload,
+            }
+        }
+    }
+
+    impl AudioSource for FakeSource {
+        fn next_block(
+            &mut self,
+        ) -> Result<Option<crate::audio::format::SampleBlock<'_>>, crate::audio::error::FileError>
+        {
+            Ok(None)
+        }
+
+        fn info(&self) -> &crate::audio::decoder::TrackInfo {
+            &self.info
+        }
+
+        fn eof(&self) -> bool {
+            true
+        }
+
+        fn ring_payload(&self) -> RingPayload {
+            self.payload
+        }
+    }
+
+    #[test]
+    fn exclusive_feed_exact_match_builds_exact() {
+        let plan = pcm_plan(ModeKind::Optimal);
+        let RingPayload::ExactI32 { valid_bits } = plan.ring else {
+            panic!("pcm_plan(Optimal) must carry RingPayload::ExactI32");
+        };
+        let engine = EnginePlan {
+            kind: RingKind::Exact(RingPayload::ExactI32 { valid_bits }),
+            rate: 44_100,
+            channels: 2,
+            no_gain: false,
+            dither_seed: None,
+        };
+        let session = exclusive_plan(engine, ExclusiveRenderKind::OptimalPcm);
+        let src = Box::new(FakeSource::new(44_100, 2, RingPayload::ExactI32 { valid_bits }));
+        let feed = exclusive_feed(&plan, &session, src).unwrap_or_else(|e| panic!("{e}"));
+        assert!(matches!(feed, EngineFeed::Exact(_)));
+    }
+
+    #[test]
+    fn exclusive_feed_exact_rate_mismatch_is_rejected() {
+        let plan = pcm_plan(ModeKind::Optimal);
+        let RingPayload::ExactI32 { valid_bits } = plan.ring else {
+            panic!("pcm_plan(Optimal) must carry RingPayload::ExactI32");
+        };
+        let engine = EnginePlan {
+            kind: RingKind::Exact(RingPayload::ExactI32 { valid_bits }),
+            rate: 44_100,
+            channels: 2,
+            no_gain: false,
+            dither_seed: None,
+        };
+        let session = exclusive_plan(engine, ExclusiveRenderKind::OptimalPcm);
+        let src = Box::new(FakeSource::new(48_000, 2, RingPayload::ExactI32 { valid_bits }));
+        let Err(err) = exclusive_feed(&plan, &session, src) else {
+            panic!("48 kHz source must not pass as 44.1 kHz plan (ТЗ-48)");
+        };
+        assert_eq!(
+            err,
+            ExclusiveFeedError::SourceMismatch {
+                expected_rate: 44_100,
+                expected_channels: 2,
+                got_rate: 48_000,
+                got_channels: 2,
+            }
+        );
+    }
+
+    #[test]
+    fn exclusive_feed_float_ring_builds_float() {
+        let plan = PathPlan { ring: RingPayload::F32, ..pcm_plan(ModeKind::Optimal) };
+        let engine = EnginePlan {
+            kind: RingKind::Float,
+            rate: 44_100,
+            channels: 2,
+            no_gain: false,
+            dither_seed: None,
+        };
+        let session = exclusive_plan(engine, ExclusiveRenderKind::OptimalPcm);
+        let src = Box::new(FakeSource::new(44_100, 2, RingPayload::F32));
+        let feed = exclusive_feed(&plan, &session, src).unwrap_or_else(|e| panic!("{e}"));
+        assert!(matches!(feed, EngineFeed::Float(_)));
     }
 }

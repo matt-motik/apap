@@ -13,10 +13,11 @@ use crate::audio::backend::{AccessKind, DeviceCaps, DriverFormat, OutputApi, Rat
 use crate::audio::format::{OutputSampleFormat, SampleRate, StreamFormat};
 use crate::audio::path::{OpenedFacts, OsStage, ReservationView};
 use crate::audio::player::StreamDesc;
+use crate::audio::session_build::src_filter_to_algorithm;
 use crate::engine::messages::LegacyAudio;
 use crate::settings::playback::{
     CompatibleOpts, Dither, ModeKind, ModeSettings, OptimalOpts, RateFallbackRule,
-    SharedDeviceChoice, SrcFilter, StrictOpts,
+    SharedDeviceChoice, StrictOpts,
 };
 use crate::settings::{
     clamp_ring_buffer_ms, ClockFamily, DsdMode, ExclusiveMode, FallbackPolicy, FallbackRatePolicy,
@@ -61,15 +62,6 @@ pub fn legacy_audio(settings: &ModeSettings, active: ModeKind) -> (LegacyAudio, 
         ModeKind::Compatible => compatible_legacy_audio(&settings.compatible),
         ModeKind::Optimal => optimal_legacy_audio(&settings.optimal),
         ModeKind::Strict => strict_legacy_audio(&settings.strict),
-    }
-}
-
-/// `SrcFilter` → `ResamplerAlgorithm` (см. doc-комментарий `legacy_audio`).
-fn src_filter_to_algorithm(filter: SrcFilter) -> ResamplerAlgorithm {
-    match filter {
-        SrcFilter::Steep => ResamplerAlgorithm::SincSlow,
-        SrcFilter::Slow => ResamplerAlgorithm::SincMedium,
-        SrcFilter::VerySlow => ResamplerAlgorithm::SincFast,
     }
 }
 
