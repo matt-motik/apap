@@ -563,7 +563,24 @@ impl Engine {
     /// берётся из его настроек (а не из `self.active_mode`, который на этот
     /// момент ещё не сменился), для прочих входов — из настроек текущего
     /// `self.active_mode`.
+    ///
+    /// Для `ModeSelected(m)` сам переход `lock_step` считается ещё при
+    /// старом `self.active_mode` (нужно для AM1.0-B13 — см. комментарий у
+    /// `EngineCmd::SetActiveMode`), но ПЕРЕД выполнением его эффектов поле
+    /// `self.active_mode` переставляется на `m` (AM1.0-B15, §6.19, ТЗ-118):
+    /// эффект `Acquire(dev)` (`start_claim`) может синхронно, тем же стеком
+    /// вызовов, вернуть `LockInput::CaptureResult` (бэкенд недоступен,
+    /// устройство пропало из каталога, отказ `spawner.spawn`) — этот
+    /// рекурсивный вызов `lock_input` обязан увидеть уже целевой режим,
+    /// иначе он попал бы в ветку `lock_step` для Совместимого режима
+    /// («любой вход → `NotApplicable`») и терял бы настоящий переход
+    /// `Acquiring → Failed`/`Held`.
     fn lock_input(&mut self, input: LockInput) {
+        // AM1.0-B15 (§6.19, ТЗ-118): запоминается здесь, а не после
+        // `lock_step` ниже — `input` туда уходит по значению (не `Copy`,
+        // в отличие от `ModeKind`), повторно сматчить его после вызова
+        // нельзя.
+        let mode_selected = matches!(input, LockInput::ModeSelected(_));
         // Режим, чьё устройство нужно разрешить: для `ModeSelected(m)` —
         // целевой `m` (устройство режима, в который переключаются), иначе —
         // текущий активный режим (ADR-24).
@@ -637,6 +654,16 @@ impl Engine {
                 }
                 self.deps.events.emit(EngineEvent::DeviceAutoSelected { mode: device_mode, device: d });
             }
+        }
+
+        // AM1.0-B15 (§6.19, ТЗ-118): переставляется на целевой режим ДО
+        // выполнения эффектов — см. доккомент функции выше. `EngineCmd::
+        // SetActiveMode` ниже присвоит `self.active_mode` то же значение
+        // `m` ещё раз (идемпотентно) и вызовет `store_active_mode`/
+        // `apply_gain` уже после всех входов замка этого перехода.
+        // `device_mode` здесь равно целевому `m` — см. его вычисление выше.
+        if mode_selected {
+            self.active_mode = device_mode;
         }
 
         for effect in effects {
@@ -1302,10 +1329,26 @@ impl Engine {
                     // `store_active_mode` снимет легаси-поток и впустит
                     // Совместимый путь на следующем `Open`; без этого
                     // порядка карта оставалась занятой эксклюзивно (баг
-                    // AM1.0-B13). Для Совместимый → Эксклюзивный лок уходит
-                    // в `Acquiring`/`Acquire(dev)` ещё при старом
-                    // `self.active_mode == Compatible`, что безопасно: до
-                    // этого момента Эксклюзивный путь не открыт. Для
+                    // AM1.0-B13). Для Совместимый → Эксклюзивный сам переход
+                    // `lock_step` считается ещё при старом `self.active_mode
+                    // == Compatible` (это и даёт `acquire_or_fail`, а не
+                    // ветку «любой вход → `NotApplicable`» — `lock_step`
+                    // смотрит на свой параметр `mode`, а не на итоговое
+                    // значение поля), но `lock_input` переставляет
+                    // `self.active_mode` на целевой режим ДО выполнения
+                    // эффектов этого перехода, то есть ДО `Acquire(dev)` /
+                    // `start_claim` (AM1.0-B15, §6.19, ТЗ-118 — см. доккомент
+                    // `lock_input`). Без этого переноса синхронный возврат
+                    // `start_claim` тем же стеком вызовов (нет эксклюзивного
+                    // бэкенда, устройство исчезло из каталога, отказ
+                    // `spawner.spawn`) рекурсивно дёргал бы `lock_input
+                    // (CaptureResult(..))`, который увидел бы ещё
+                    // `self.active_mode == Compatible` и свалил бы настоящий
+                    // переход `Acquiring → Failed`/`Held` в `NotApplicable`
+                    // (баг AM1.0-B15). Присвоение `self.active_mode = mode`
+                    // ниже, после обоих вызовов `lock_input`, уже
+                    // идемпотентно — поле выставлено раньше внутри
+                    // `lock_input`. Для
                     // Эксклюзивный ↔ Эксклюзивный (Оптимальный ↔ Строгий) из
                     // `Held`/`Acquiring` таблица §6.19 не даёт эффектов на
                     // `ModeSelected` — устройство само по себе остаётся тем
@@ -2649,6 +2692,45 @@ mod tests {
             other => panic!("expected Held, got {other:?}"),
         }
         assert!(engine.claim.is_some());
+    }
+
+    /// AM1.0-B15 (§6.19, ТЗ-118): отказ `spawner.spawn` возвращается
+    /// `start_claim` СИНХРОННО, тем же стеком вызовов, что и
+    /// `EngineCmd::SetActiveMode` — `start_claim` рекурсивно зовёт
+    /// `lock_input(CaptureResult(Err(..)))` прежде, чем вызов `handle`
+    /// успевает вернуться. До фикса этот рекурсивный вход застревал на
+    /// старом `self.active_mode == Compatible` (поле переставлялось только
+    /// после `lock_input` в обработчике `SetActiveMode`) и попадал в ветку
+    /// `lock_step` «любой вход в Совместимом режиме → `NotApplicable`»,
+    /// теряя настоящий переход `Acquiring → Failed`. После фикса
+    /// `lock_input` переставляет `self.active_mode` на целевой режим ДО
+    /// выполнения эффектов `ModeSelected`, поэтому рекурсивный вход видит
+    /// уже `Strict` и корректно даёт `Failed`, а не `NotApplicable`.
+    #[test]
+    fn compatible_to_strict_synchronous_spawn_failure_emits_failed() {
+        let sink = VecSink::new();
+        let deps = fake_deps(Box::new(sink.clone()), Arc::new(FailingSpawner::new(1)));
+        let mut engine = Engine::new(deps, BackendCaps::current());
+        let dev: HwDeviceId = "hw:CARD=RU3,DEV=0".parse().expect("hw id");
+        engine.catalog.hw = vec![crate::audio::backend::catalog::HwDeviceInfo { id: dev.clone(), card: 1, device: 0, name: "RU3".to_string() }];
+        engine.active_mode = ModeKind::Compatible;
+        engine.lock = LockState::NotApplicable;
+        engine.mode_settings.strict.device = Some(dev.clone());
+
+        engine.handle(EngineCmd::SetActiveMode(ModeKind::Strict));
+
+        assert_eq!(engine.active_mode, ModeKind::Strict);
+        match &engine.lock {
+            LockState::Failed(CaptureFailure::PlatformUnsupported) => {}
+            other => panic!("expected Failed(PlatformUnsupported), got {other:?}"),
+        }
+        assert!(engine.claim.is_none());
+        assert!(engine.internal_rx.try_recv().is_err());
+        let events = sink.take();
+        assert!(events.iter().any(|e| matches!(
+            e,
+            EngineEvent::Lock(LockState::Failed(CaptureFailure::PlatformUnsupported))
+        )));
     }
 
     /// Шаг 62 (§6.18, §6.19, ТЗ-137): `SetModeSettings` со `SwitchDevice`
