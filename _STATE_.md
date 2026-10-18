@@ -155,7 +155,7 @@
 Легенда: [x] сделано · [>] текущий шаг · [ ] не начато
 
 - **Текущий шаг (current_step):** Шаг 79
-- **Следующий ход:** Шаг 79: AM1.0-B8 ч. 3 — PathWindowCache (app/path_view.rs) инвалидируется по UiAudioState::take_dynamics_dirty() (снять #[allow(dead_code)] в ui_audio_state.rs) + тест (ТЗ-68). Проверка: cargo test path_view. Свежий субагент code-writer sonnet.
+- **Следующий ход:** ЖДЁТ РЕШЕНИЯ ПОЛЬЗОВАТЕЛЯ: вставить ли перед шагом 79 шаги фикса AM1.0-B15 (замок → NotApplicable в Строгом, 🔴) и AM1.0-B16 (hw:CARD=0 vs hw:CARD=DX), см. ROADMAP. Иначе — Шаг 79: AM1.0-B8 ч. 3 — PathWindowCache (app/path_view.rs) инвалидируется по UiAudioState::take_dynamics_dirty() (снять #[allow(dead_code)] в ui_audio_state.rs) + тест (ТЗ-68). Проверка: cargo test path_view. Свежий субагент code-writer sonnet.
 - **Счетчик безуспешных компиляций:** 0/3
 - **Состояние:** in_progress
 
