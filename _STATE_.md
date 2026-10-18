@@ -102,8 +102,8 @@
 - [x] Шаг 41: Шаг 41: Чистая функция плана эксклюзивного вывода: PathPlan + DeviceBufferActual → ёмкость ring, вид feed/render, OptimalRender::PcmLocked / DoP (session_build.rs) + тесты ≤4 (§6.18 п. 5–6, §8 С6, ТЗ-137, 140). Проверка: cargo test session_build
 - [x] Шаг 42: Шаг 42: session_build.rs: build_exclusive_render(&ExclusiveSessionPlan, OutputSampleFormat, &Arc<SessionShared>) → (ExclusiveRender, EngineRing) — диспетчеризация формат выхода × ExclusiveRenderKind, DoP только 24/32-бит (§2.9, §6.15, §6.18 п. 4, ТЗ-140). Проверка: cargo test session_build
 - [x] Шаг 43: Шаг 43: session_build.rs: exclusive_feed(&PathPlan, Box<dyn AudioSource>, …) → (RingKind-совместимый EngineFeed) — PCM exact / SRC float / DSD→PCM / DoP по маршруту плана (§6.18 п. 4, ТЗ-48, 113). Проверка: cargo test session_build
-- [>] **Шаг 44: Шаг 44: Новый src/engine/exclusive_path.rs: ExclusivePath { claim, session, handle } и open(): configure при необходимости → exclusive_session_plan → build_exclusive_render + exclusive_feed → spawn_decoder → start → OpenedFacts (DriverFormat::Confirmed) → SignalPath::from_opened (§6.18 п. 1–7, ТЗ-48, 50, 113). Проверка: cargo check**
-- [ ] Шаг 45: Шаг 45: run.rs: Open в Оптимальном/Строгом диспетчеризуется в ExclusivePath (не Held → OpenFailed), Compatible — прежний путь + тесты ≤3 на фейке (Opened с Confirmed, OpenFailed без захвата) (§6.18, ТЗ-48, 137). Проверка: cargo test engine::
+- [x] Шаг 44: Шаг 44: Новый src/engine/exclusive_path.rs: ExclusivePath { claim, session, handle } и open(): configure при необходимости → exclusive_session_plan → build_exclusive_render + exclusive_feed → spawn_decoder → start → OpenedFacts (DriverFormat::Confirmed) → SignalPath::from_opened (§6.18 п. 1–7, ТЗ-48, 50, 113). Проверка: cargo check
+- [>] **Шаг 45: Шаг 45: run.rs: Open в Оптимальном/Строгом диспетчеризуется в ExclusivePath (не Held → OpenFailed), Compatible — прежний путь + тесты ≤3 на фейке (Opened с Confirmed, OpenFailed без захвата) (§6.18, ТЗ-48, 137). Проверка: cargo test engine::**
 - [ ] Шаг 46: Шаг 46: exclusive_path.rs: транспорт Play/Pause/Stop (остановка StreamHandle без освобождения claim — замок удерживает устройство, ТЗ-43) + тесты ≤3 (§6.18, ТЗ-49, 43). Проверка: cargo test engine::
 - [ ] Шаг 47: Шаг 47: exclusive_path.rs: Seek — сброс ring за O(1) и повторный prime (§6.16, ТЗ-99) + тест. Проверка: cargo test engine::
 - [ ] Шаг 48: Шаг 48: exclusive_path.rs: громкость/mute на эксклюзивном пути по плану (no_gain → игнор, иначе гейн рендера) (§6.18, ТЗ-137, 140) + тест. Проверка: cargo test engine::
@@ -141,8 +141,8 @@
 
 Легенда: [x] сделано · [>] текущий шаг · [ ] не начато
 
-- **Текущий шаг (current_step):** Шаг 44
-- **Следующий ход:** Шаг 44: Новый src/engine/exclusive_path.rs: ExclusivePath { claim, session, handle } и open(): configure → exclusive_session_plan → build_exclusive_render + exclusive_feed → spawn_decoder → start → OpenedFacts (DriverFormat::Confirmed) → SignalPath::from_opened (§6.18 п. 1–7, ТЗ-48, 50, 113). Проверка: cargo check. Свежий субагент code-writer sonnet.
+- **Текущий шаг (current_step):** Шаг 45
+- **Следующий ход:** Шаг 45: run.rs: Open в Оптимальном/Строгом диспетчеризуется в ExclusivePath (не Held → OpenFailed), Compatible — прежний путь + тесты ≤3 на фейке (Opened с Confirmed, OpenFailed без захвата) (§6.18, ТЗ-48, 137). Проверка: cargo test engine:: Свежий субагент code-writer sonnet. Учесть: exclusive_path::open(backend, claim, plan, source уже открыт по route, spawner, tap, device_buffer, ring_buffer_ms, volume_lock, dither_seed, start_frame, generation) → Result<(ExclusivePath, SignalPath), ExclusiveOpenError{claim, reason}>; configure вызывается всегда (ClaimInfo не хранит формат).
 - **Счетчик безуспешных компиляций:** 0/3
 - **Состояние:** in_progress
 

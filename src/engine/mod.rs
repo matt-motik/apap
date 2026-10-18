@@ -2,6 +2,7 @@
 //! внутри движка целиком, UI общается с ним через команды/события.
 
 pub mod deps;
+pub mod exclusive_path;
 pub mod legacy_path;
 pub mod lock;
 pub mod messages;
