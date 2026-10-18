@@ -48,6 +48,7 @@
   - ui/status.slint
   - src/audio/session_build.rs
   - src/engine/exclusive_path.rs
+  - src/engine/source.rs
   - src/settings/params.rs
   - src/app/engine_sink.rs
   - src/app/playback_manager.rs
@@ -103,55 +104,57 @@
 - [x] Шаг 42: Шаг 42: session_build.rs: build_exclusive_render(&ExclusiveSessionPlan, OutputSampleFormat, &Arc<SessionShared>) → (ExclusiveRender, EngineRing) — диспетчеризация формат выхода × ExclusiveRenderKind, DoP только 24/32-бит (§2.9, §6.15, §6.18 п. 4, ТЗ-140). Проверка: cargo test session_build
 - [x] Шаг 43: Шаг 43: session_build.rs: exclusive_feed(&PathPlan, Box<dyn AudioSource>, …) → (RingKind-совместимый EngineFeed) — PCM exact / SRC float / DSD→PCM / DoP по маршруту плана (§6.18 п. 4, ТЗ-48, 113). Проверка: cargo test session_build
 - [x] Шаг 44: Шаг 44: Новый src/engine/exclusive_path.rs: ExclusivePath { claim, session, handle } и open(): configure при необходимости → exclusive_session_plan → build_exclusive_render + exclusive_feed → spawn_decoder → start → OpenedFacts (DriverFormat::Confirmed) → SignalPath::from_opened (§6.18 п. 1–7, ТЗ-48, 50, 113). Проверка: cargo check
-- [>] **Шаг 45: Шаг 45: run.rs: Open в Оптимальном/Строгом диспетчеризуется в ExclusivePath (не Held → OpenFailed), Compatible — прежний путь + тесты ≤3 на фейке (Opened с Confirmed, OpenFailed без захвата) (§6.18, ТЗ-48, 137). Проверка: cargo test engine::**
-- [ ] Шаг 46: Шаг 46: exclusive_path.rs: транспорт Play/Pause/Stop (остановка StreamHandle без освобождения claim — замок удерживает устройство, ТЗ-43) + тесты ≤3 (§6.18, ТЗ-49, 43). Проверка: cargo test engine::
-- [ ] Шаг 47: Шаг 47: exclusive_path.rs: Seek — сброс ring за O(1) и повторный prime (§6.16, ТЗ-99) + тест. Проверка: cargo test engine::
-- [ ] Шаг 48: Шаг 48: exclusive_path.rs: громкость/mute на эксклюзивном пути по плану (no_gain → игнор, иначе гейн рендера) (§6.18, ТЗ-137, 140) + тест. Проверка: cargo test engine::
-- [ ] Шаг 49: Шаг 49: exclusive_path.rs + run.rs poll_session: позиция, конец трека, StreamFault, перенос xruns сессии в DynamicPathState + тесты ≤3 (§6.18, ТЗ-51, 76). Проверка: cargo test engine::
-- [ ] Шаг 50: Шаг 50: exclusive_path.rs: tap визуализатора на эксклюзивной сессии (как в Shared-пути) (§6.18). Проверка: cargo check
-- [ ] Шаг 51: Шаг 51: exclusive_path.rs: смена трека с удержанием PCM — configure только при смене формата (§6.7, §6.18) + тест. Проверка: cargo test engine::
-- [ ] Шаг 52: Шаг 52: run.rs: SetModeSettings на эксклюзивном пути — смена «Буфера устройства»/параметров тракта по таблице применения (configure без освобождения, переоткрытие с позиции) (§6.7, §6.18, ТЗ-131) + тест. Проверка: cargo test engine::
-- [ ] Шаг 53: Шаг 53: Отложенный тест AM1.0-8.4 шаг 14: audio_param_change_reopens_at_position_preserving_pause на FakeExclusiveBackend (ТЗ-131, §7.2). Проверка: cargo test audio_param_change_reopens
-- [ ] Шаг 54: Шаг 54: TID потока вывода наружу: StreamHandle::rt_tid(&self) -> Option<u32> (Shared/фейк — None) в exclusive.rs; AlsaExclusiveBackend::start ждёт TID из канала не дольше 100 мс (recv_timeout, вне RT) и кладёт его в AlsaStreamHandle вместо tid_rx; таймаут → None (alsa.rs, alsa_out.rs, фейк в audio/testing/mod.rs) (§6.8 п. 2). Общий тип → Проверка: полный cargo test
-- [ ] Шаг 55: Шаг 55: RT-приоритет в движке: после start передать TID в rt.rs → InternalMsg::RtPriority → DynamicPathState.rt_priority (§6.8, ТЗ-30) + тест на фейковом rt. Проверка: cargo test engine::
-- [ ] Шаг 56: Шаг 56: ЧЕКПОИНТ: полный cargo test + cargo clippy --all-targets
-- [ ] Шаг 57: Шаг 57: run.rs: смена режима Exclusive → Compatible — Release раньше SharedBackend::start; тест optimal_held_to_compatible_releases_before_shared — закрывает AM1.0-B13 (§6.18, ТЗ-21). Проверка: cargo test optimal_held_to_compatible
-- [ ] Шаг 58: Шаг 58: run.rs: смена устройства режима (SwitchDevice) — Release старого → Lock(DeviceSelected(d)) → Acquire нового + тест (§6.18, §6.19, ТЗ-44). Проверка: cargo test engine::
-- [ ] Шаг 59: Шаг 59: run.rs: обнаружение потери (StreamFault::DeviceUnavailable / InternalMsg::ReservationLost) → LockInput::DeviceLost, сохранение ReacquirePoint + тест (§6.20, ТЗ-125). Проверка: cargo test engine:: Примечание: TrackId(u64) без публичного конструктора (src/playlist/model.rs) — для теста ReacquirePoint понадобится #[cfg(test)] pub(crate) конструктор (расширение вайтлиста)
-- [ ] Шаг 60: Шаг 60: run.rs: повторный захват по DevicesChanged (DeviceReappeared) → открытие трека в сохранённой точке на паузе + тест (§6.20, ТЗ-126). Проверка: cargo test engine::
-- [ ] Шаг 61: Шаг 61: ЧЕКПОИНТ: полный cargo test + cargo clippy --all-targets
-- [ ] Шаг 62: Шаг 62: Новый src/app/lock_view.rs: LockState → lock-kind/lock-text/доступные действия; тексты отказов с владельцем (ReservationDenied{owner}) и «занято вне протокола» (BusyOutsideProtocol) вместо «устройство не найдено» — AM1.0-B2 + тесты ≤5 (ADR-06, §6.19 подсказки, ТЗ-118…123, 46, 122, 144). Проверка: cargo test lock_view
-- [ ] Шаг 63: Шаг 63: Slint: индикатор замка — свойства lock-kind/lock-text в ui/top_panel.slint, проброс в ui/app.slint (ADR-06, ТЗ-118). Проверка: cargo build
-- [ ] Шаг 64: Шаг 64: Slint: кнопки действий замка (Захватить / Открыть / Повторить / Выбрать устройство / Перейти в Совместимый) и колбэки в ui/top_panel.slint + ui/app.slint (ТЗ-120…123, 144). Проверка: cargo build
-- [ ] Шаг 65: Шаг 65: app/mod.rs: колбэки замка → EngineCmd::Lock / переключение режима; EngineEvent::Lock → свойства окна через lock_view (ТЗ-118…123). Проверка: cargo check
-- [ ] Шаг 66: Шаг 66: «Выбрать устройство»: открыть диалог режима на выборе устройства (app/mode_dialog.rs; при необходимости ui/settings.slint) (ADR-24, ТЗ-144). Проверка: cargo build
-- [ ] Шаг 67: Шаг 67: Статус «Захват устройства…» по EngineEvent::Lock(Acquiring) — флаг в UiAudioState и вывод в статус-строку (ui_audio_state.rs, playback_manager.rs) — AM1.0-B9 + тест (ТЗ-119). Проверка: cargo test ui_audio_state
-- [ ] Шаг 68: Шаг 68: Уведомление «Замок открыт» с кнопкой «Захватить и играть» → LockInput::CaptureAndPlay (ui/status.slint + app/mod.rs) (ТЗ-125). Проверка: cargo build
-- [ ] Шаг 69: Шаг 69: AM1.0-B8 ч. 1: EngineEvent::DynamicsChanged(DynamicPathState) в messages.rs и эмиссия из poll_session при изменении underruns/xruns/rt_priority в run.rs (ТЗ-68). Общий тип → Проверка: полный cargo test
-- [ ] Шаг 70: Шаг 70: AM1.0-B8 ч. 2: UiAudioState — dirty-флаг по DynamicsChanged (ui_audio_state.rs) + тест (ТЗ-68). Проверка: cargo test ui_audio_state
-- [ ] Шаг 71: Шаг 71: AM1.0-B8 ч. 3: инвалидация PathWindowCache по dirty-флагу динамики (app/path_view.rs) + тест (ТЗ-68). Проверка: cargo test path_view
-- [ ] Шаг 72: Шаг 72: ЧЕКПОИНТ: полный cargo test + cargo clippy --all-targets
-- [ ] Шаг 73: Шаг 73: Удаление в engine: адаптер legacy_exclusive, EngineCmd::ReleaseExclusive и их обработка; legacy_path — только Совместимый (§8 С6 «удаляется»). Проверка: полный cargo test
-- [ ] Шаг 74: Шаг 74: Удаление в player.rs: release_if_exclusive, reopen_and_seek и их вызовы в stop()/toggle()/play() (V5.1-B5, V5.1-B6, ТЗ-43). Проверка: полный cargo test
-- [ ] Шаг 75: Шаг 75: Удаление ExclusiveGate-пути в player.rs и файла reservation/gate.rs (замещён AlsaExclusiveBackend) (§8 С6). Проверка: полный cargo test
-- [ ] Шаг 76: Шаг 76: Удаление освобождения эксклюзива при скрытии в трей (обработка TrayCmd::ShowHide в app/mod.rs; пункт меню трея остаётся) (§8 С6, ТЗ-43). Проверка: полный cargo test
-- [ ] Шаг 77: Шаг 77: Удаление в output.rs: cpal-путь Exclusive (ExclusiveMode, проба hw: в select_output_for, EBUSY-повтор) и shared-downgrade R-11 (§8 С6). Проверка: полный cargo test
-- [ ] Шаг 78: Шаг 78: AM1.0-B10: удалить StreamDesc, FallbackReason, Opened.stream_format и мосты legacy_path. Если Совместимый всё ещё идёт через legacy Player и типы нужны ему — выполнить частично, остаток перерегистрировать в B10 с указанием этапа (§8). Проверка: полный cargo test
-- [ ] Шаг 79: Шаг 79: ФИНАЛ: cargo build/test/clippy зелёные; общие условия §8 (Совместимый играет, «Bit-perfect» только при ТЗ-52); ручные проверки в заметку плана: замок (ТЗ-1/2/48/118…122, AM1.0-8.1), B1 — возврат устройства в PipeWire после освобождения, B2 — текст «занято <владелец>» при чужом захвате
+- [x] Шаг 45: Шаг 45: run.rs: Open в Оптимальном/Строгом диспетчеризуется в ExclusivePath (не Held → OpenFailed), Compatible — прежний путь + тесты ≤3 на фейке (Opened с Confirmed, OpenFailed без захвата) (§6.18, ТЗ-48, 137). Проверка: cargo test engine::
+- [>] **Шаг 46: Шаг 46: run.rs: классификация ExclusiveOpenReason → OpenError (Plan(StrictFloatRing)/Feed → Incompatible или Internal, Decode(Open) → File, Decode(Spawn) → Internal, Configure/Start/BufferUnavailable → Capture/DeviceLost по §6.18/ADR-14) вместо общего DeviceLost + тест (§6.18, ТЗ-86). Проверка: cargo test engine::**
+- [ ] Шаг 47: Шаг 47: SourceOpener: открытие по маршруту плана (Route::Dop → DsdDecoder DecodeMode::Dop, DsdToPcm → PCM-режим DSD-декодера) в engine/source.rs и вызов из open_exclusive (run.rs) + тест на фейке (§6.18 п. 6, ТЗ-113). Проверка: cargo test engine::
+- [ ] Шаг 48: Шаг 48: exclusive_path.rs: транспорт Play/Pause/Stop (остановка StreamHandle без освобождения claim — замок удерживает устройство, ТЗ-43) + тесты ≤3 (§6.18, ТЗ-49, 43). Проверка: cargo test engine::
+- [ ] Шаг 49: Шаг 49: exclusive_path.rs: Seek — сброс ring за O(1) и повторный prime (§6.16, ТЗ-99) + тест. Проверка: cargo test engine::
+- [ ] Шаг 50: Шаг 50: exclusive_path.rs: громкость/mute на эксклюзивном пути по плану (no_gain → игнор, иначе гейн рендера) (§6.18, ТЗ-137, 140) + тест. Проверка: cargo test engine::
+- [ ] Шаг 51: Шаг 51: exclusive_path.rs + run.rs poll_session: позиция, конец трека, StreamFault, перенос xruns сессии в DynamicPathState + тесты ≤3 (§6.18, ТЗ-51, 76). Проверка: cargo test engine::
+- [ ] Шаг 52: Шаг 52: exclusive_path.rs: tap визуализатора на эксклюзивной сессии (как в Shared-пути) (§6.18). Проверка: cargo check
+- [ ] Шаг 53: Шаг 53: exclusive_path.rs: смена трека с удержанием PCM — configure только при смене формата (§6.7, §6.18) + тест. Проверка: cargo test engine::
+- [ ] Шаг 54: Шаг 54: run.rs: SetModeSettings на эксклюзивном пути — смена «Буфера устройства»/параметров тракта по таблице применения (configure без освобождения, переоткрытие с позиции) (§6.7, §6.18, ТЗ-131) + тест. Проверка: cargo test engine::
+- [ ] Шаг 55: Шаг 55: Отложенный тест AM1.0-8.4 шаг 14: audio_param_change_reopens_at_position_preserving_pause на FakeExclusiveBackend (ТЗ-131, §7.2). Проверка: cargo test audio_param_change_reopens
+- [ ] Шаг 56: Шаг 56: TID потока вывода наружу: StreamHandle::rt_tid(&self) -> Option<u32> (Shared/фейк — None) в exclusive.rs; AlsaExclusiveBackend::start ждёт TID из канала не дольше 100 мс (recv_timeout, вне RT) и кладёт его в AlsaStreamHandle вместо tid_rx; таймаут → None (alsa.rs, alsa_out.rs, фейк в audio/testing/mod.rs) (§6.8 п. 2). Общий тип → Проверка: полный cargo test
+- [ ] Шаг 57: Шаг 57: RT-приоритет в движке: после start передать TID в rt.rs → InternalMsg::RtPriority → DynamicPathState.rt_priority (§6.8, ТЗ-30) + тест на фейковом rt. Проверка: cargo test engine::
+- [ ] Шаг 58: Шаг 58: ЧЕКПОИНТ: полный cargo test + cargo clippy --all-targets
+- [ ] Шаг 59: Шаг 59: run.rs: смена режима Exclusive → Compatible — Release раньше SharedBackend::start; тест optimal_held_to_compatible_releases_before_shared — закрывает AM1.0-B13 (§6.18, ТЗ-21). Проверка: cargo test optimal_held_to_compatible
+- [ ] Шаг 60: Шаг 60: run.rs: смена устройства режима (SwitchDevice) — Release старого → Lock(DeviceSelected(d)) → Acquire нового + тест (§6.18, §6.19, ТЗ-44). Проверка: cargo test engine::
+- [ ] Шаг 61: Шаг 61: run.rs: обнаружение потери (StreamFault::DeviceUnavailable / InternalMsg::ReservationLost) → LockInput::DeviceLost, сохранение ReacquirePoint + тест (§6.20, ТЗ-125). Проверка: cargo test engine:: Примечание: TrackId(u64) без публичного конструктора (src/playlist/model.rs) — для теста ReacquirePoint понадобится #[cfg(test)] pub(crate) конструктор (расширение вайтлиста)
+- [ ] Шаг 62: Шаг 62: run.rs: повторный захват по DevicesChanged (DeviceReappeared) → открытие трека в сохранённой точке на паузе + тест (§6.20, ТЗ-126). Проверка: cargo test engine::
+- [ ] Шаг 63: Шаг 63: ЧЕКПОИНТ: полный cargo test + cargo clippy --all-targets
+- [ ] Шаг 64: Шаг 64: Новый src/app/lock_view.rs: LockState → lock-kind/lock-text/доступные действия; тексты отказов с владельцем (ReservationDenied{owner}) и «занято вне протокола» (BusyOutsideProtocol) вместо «устройство не найдено» — AM1.0-B2 + тесты ≤5 (ADR-06, §6.19 подсказки, ТЗ-118…123, 46, 122, 144). Проверка: cargo test lock_view
+- [ ] Шаг 65: Шаг 65: Slint: индикатор замка — свойства lock-kind/lock-text в ui/top_panel.slint, проброс в ui/app.slint (ADR-06, ТЗ-118). Проверка: cargo build
+- [ ] Шаг 66: Шаг 66: Slint: кнопки действий замка (Захватить / Открыть / Повторить / Выбрать устройство / Перейти в Совместимый) и колбэки в ui/top_panel.slint + ui/app.slint (ТЗ-120…123, 144). Проверка: cargo build
+- [ ] Шаг 67: Шаг 67: app/mod.rs: колбэки замка → EngineCmd::Lock / переключение режима; EngineEvent::Lock → свойства окна через lock_view (ТЗ-118…123). Проверка: cargo check
+- [ ] Шаг 68: Шаг 68: «Выбрать устройство»: открыть диалог режима на выборе устройства (app/mode_dialog.rs; при необходимости ui/settings.slint) (ADR-24, ТЗ-144). Проверка: cargo build
+- [ ] Шаг 69: Шаг 69: Статус «Захват устройства…» по EngineEvent::Lock(Acquiring) — флаг в UiAudioState и вывод в статус-строку (ui_audio_state.rs, playback_manager.rs) — AM1.0-B9 + тест (ТЗ-119). Проверка: cargo test ui_audio_state
+- [ ] Шаг 70: Шаг 70: Уведомление «Замок открыт» с кнопкой «Захватить и играть» → LockInput::CaptureAndPlay (ui/status.slint + app/mod.rs) (ТЗ-125). Проверка: cargo build
+- [ ] Шаг 71: Шаг 71: AM1.0-B8 ч. 1: EngineEvent::DynamicsChanged(DynamicPathState) в messages.rs и эмиссия из poll_session при изменении underruns/xruns/rt_priority в run.rs (ТЗ-68). Общий тип → Проверка: полный cargo test
+- [ ] Шаг 72: Шаг 72: AM1.0-B8 ч. 2: UiAudioState — dirty-флаг по DynamicsChanged (ui_audio_state.rs) + тест (ТЗ-68). Проверка: cargo test ui_audio_state
+- [ ] Шаг 73: Шаг 73: AM1.0-B8 ч. 3: инвалидация PathWindowCache по dirty-флагу динамики (app/path_view.rs) + тест (ТЗ-68). Проверка: cargo test path_view
+- [ ] Шаг 74: Шаг 74: ЧЕКПОИНТ: полный cargo test + cargo clippy --all-targets
+- [ ] Шаг 75: Шаг 75: Удаление в engine: адаптер legacy_exclusive, EngineCmd::ReleaseExclusive и их обработка; legacy_path — только Совместимый (§8 С6 «удаляется»). Проверка: полный cargo test
+- [ ] Шаг 76: Шаг 76: Удаление в player.rs: release_if_exclusive, reopen_and_seek и их вызовы в stop()/toggle()/play() (V5.1-B5, V5.1-B6, ТЗ-43). Проверка: полный cargo test
+- [ ] Шаг 77: Шаг 77: Удаление ExclusiveGate-пути в player.rs и файла reservation/gate.rs (замещён AlsaExclusiveBackend) (§8 С6). Проверка: полный cargo test
+- [ ] Шаг 78: Шаг 78: Удаление освобождения эксклюзива при скрытии в трей (обработка TrayCmd::ShowHide в app/mod.rs; пункт меню трея остаётся) (§8 С6, ТЗ-43). Проверка: полный cargo test
+- [ ] Шаг 79: Шаг 79: Удаление в output.rs: cpal-путь Exclusive (ExclusiveMode, проба hw: в select_output_for, EBUSY-повтор) и shared-downgrade R-11 (§8 С6). Проверка: полный cargo test
+- [ ] Шаг 80: Шаг 80: AM1.0-B10: удалить StreamDesc, FallbackReason, Opened.stream_format и мосты legacy_path. Если Совместимый всё ещё идёт через legacy Player и типы нужны ему — выполнить частично, остаток перерегистрировать в B10 с указанием этапа (§8). Проверка: полный cargo test
+- [ ] Шаг 81: Шаг 81: ФИНАЛ: cargo build/test/clippy зелёные; общие условия §8 (Совместимый играет, «Bit-perfect» только при ТЗ-52); ручные проверки в заметку плана: замок (ТЗ-1/2/48/118…122, AM1.0-8.1), B1 — возврат устройства в PipeWire после освобождения, B2 — текст «занято <владелец>» при чужом захвате
 
 Легенда: [x] сделано · [>] текущий шаг · [ ] не начато
 
-- **Текущий шаг (current_step):** Шаг 45
-- **Следующий ход:** Шаг 45: run.rs: Open в Оптимальном/Строгом диспетчеризуется в ExclusivePath (не Held → OpenFailed), Compatible — прежний путь + тесты ≤3 на фейке (Opened с Confirmed, OpenFailed без захвата) (§6.18, ТЗ-48, 137). Проверка: cargo test engine:: Свежий субагент code-writer sonnet. Учесть: exclusive_path::open(backend, claim, plan, source уже открыт по route, spawner, tap, device_buffer, ring_buffer_ms, volume_lock, dither_seed, start_frame, generation) → Result<(ExclusivePath, SignalPath), ExclusiveOpenError{claim, reason}>; configure вызывается всегда (ClaimInfo не хранит формат).
+- **Текущий шаг (current_step):** Шаг 46
+- **Следующий ход:** Шаг 46: классификация ExclusiveOpenReason → OpenError в open_exclusive (run.rs) вместо общего DeviceLost + тест. Свежий субагент code-writer sonnet.
 - **Счетчик безуспешных компиляций:** 0/3
 - **Состояние:** in_progress
 
 ## План: Executable workflow: правила AGENTS.md → исполняемые механизмы
 _Источник: чат с пользователем (ноутбук), начат в 67686ce; перенесён в репо 2026-09-22_
 
-- [~] **7.** Кросс-ОС приёмка спеки (вместо CI): tools/acceptance.py run/status, результаты по ОС в git, прогон при закрытии спеки, не на каждой задаче
+- [~] **9.** Кросс-ОС приёмка спеки (вместо CI): tools/acceptance.py run/status, результаты по ОС в git, прогон при закрытии спеки, не на каждой задаче
   - Инструмент готов; ждёт прогонов пакета baseline-2026-09 на linux и windows (python tools/acceptance.py status)
-- [>] **13.** Реализация AM1.0 + SP1.0 по сквозному порядку (ROADMAP.md): docs/01_audio_modes_v1.0/ (С0…С11) и docs/02_settings_persistence_v1.0/ (С0…С12) — ТЕКУЩАЯ ОСНОВНАЯ ЗАДАЧА
+- [>] **15.** Реализация AM1.0 + SP1.0 по сквозному порядку (ROADMAP.md): docs/01_audio_modes_v1.0/ (С0…С11) и docs/02_settings_persistence_v1.0/ (С0…С12) — ТЕКУЩАЯ ОСНОВНАЯ ЗАДАЧА
   - Закрытые этапы и баги — в ROADMAP.md (✅ с хэшем); здесь только открытое.
   - AM1.0-8.5 (С5 (01) «Путь сигнала, бейдж, окно») закрыт в 48bdad1 (2026-10-17, Linux-десктоп); ТЕКУЩИЙ (п. 19 сквозного порядка, 🔄): AM1.0-8.6 (С6 (01) «ALSA Exclusive, замок»). Мост AudioFacade снят, BackendCaps — в src/audio/backend/mod.rs. На С6: AM1.0-B10 (удалить StreamDesc, FallbackReason, Opened.stream_format и мосты legacy_path вместе со старым путём). Ручные проверки SP1.0-8.11, SP1.0-B17, AM1.0-8.4 подтверждены пользователем 2026-10-16 (Linux/KDE, Cayin RU3 вместо ADI-2).
   - SP1.0-B16 закрыт в 74afd65 только для Windows (реестр, значение ScrollDirection раздела PrecisionTouchPad). ОТКРЫТО (решение пользователя 2026-10-13 — по мере проверки на машинах): macOS (NSEvent.isDirectionInvertedFromDevice), GNOME (natural-scroll), KDE (naturalScroll KWin) — там знак тачпада как пришёл; ветка cfg(not(windows)) в winit.rs на Linux/macOS не компилировалась. Известное ограничение: первое целое Lines свайпа тачпада без предшествующего дробного классифицируется как колесо и поправку не получает.

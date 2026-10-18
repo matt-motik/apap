@@ -23,8 +23,8 @@ use crate::settings::playback::DeviceBuffer;
 
 /// Поток декодера и общее состояние сессии, открытой на Эксклюзивном пути
 /// (§6.18 п. 5–6). Приёмник `decode_events` держится, чтобы вызывающая
-/// сторона (шаг 45) могла реагировать на `DecodeEvent::Failed` после старта.
-// используется ExclusivePath (шаг 44); подключается в run.rs (шаг 45)
+/// сторона могла реагировать на `DecodeEvent::Failed` после старта.
+// поля читаются опросом/остановкой сессии — следующие шаги С6
 #[allow(dead_code)]
 pub(crate) struct ExclusiveSession {
     worker: DecodeWorker,
@@ -36,7 +36,7 @@ pub(crate) struct ExclusiveSession {
 /// декодера и поток вывода (§6.18, ТЗ-48). `claim` не теряется ни на одном
 /// шаге открытия — при отказе он возвращается в `ExclusiveOpenError`, чтобы
 /// замок устройства оставался удержан (§6.19).
-// подключается в run.rs (шаг 45)
+// поля читаются остановкой/переоткрытием сессии — следующие шаги С6
 #[allow(dead_code)]
 pub(crate) struct ExclusivePath {
     claim: DeviceClaim,
@@ -47,8 +47,6 @@ pub(crate) struct ExclusivePath {
 /// Причина отказа открытия Эксклюзивного пути (§6.18). Без `Debug`/`Clone`:
 /// оборачивает `SpawnDecoderError`, у которого таких реализаций нет (как и у
 /// `DeviceClaim`, владеющего резервированием).
-// подключается в run.rs (шаг 45)
-#[allow(dead_code)]
 pub(crate) enum ExclusiveOpenReason {
     /// `ExclusiveBackend::configure` не смог установить hw_params (ТЗ-113).
     Configure(ConfigureError),
@@ -89,10 +87,10 @@ impl std::fmt::Display for ExclusiveOpenReason {
 /// Отказ открытия Эксклюзивного пути с возвращённым захватом (§6.19):
 /// замок устройства остаётся удержан, вызывающая сторона решает, закрыть
 /// его или повторить открытие с другим планом.
-// подключается в run.rs (шаг 45)
-#[allow(dead_code)]
 pub(crate) struct ExclusiveOpenError {
     pub(crate) claim: DeviceClaim,
+    // читается более точной классификацией `OpenError` — следующий шаг
+    #[allow(dead_code)]
     pub(crate) reason: ExclusiveOpenReason,
 }
 
@@ -111,8 +109,6 @@ pub(crate) struct ExclusiveOpenError {
 /// `driver` из `configure` переносится в `OpenedFacts` как есть:
 /// `DriverFormat::Unreadable` — легитимный исход (ОВ-14), не причина отказа.
 #[allow(clippy::too_many_arguments)]
-// подключается в run.rs (шаг 45)
-#[allow(dead_code)]
 pub(crate) fn open(
     backend: &mut dyn ExclusiveBackend,
     mut claim: DeviceClaim,

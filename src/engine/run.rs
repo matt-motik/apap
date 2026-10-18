@@ -10,8 +10,10 @@ use std::sync::Arc;
 use std::thread::JoinHandle;
 use std::time::Duration;
 
-use crate::audio::backend::catalog::DeviceCatalog;
+use std::sync::Mutex;
+
 use crate::audio::backend::exclusive::DeviceClaim;
+use crate::audio::backend::catalog::DeviceCatalog;
 use crate::audio::backend::HwDeviceId;
 use crate::audio::clock::ClockInstant;
 use crate::audio::error::{CaptureFailure, EngineFault, FileError, OpenError};
@@ -22,13 +24,15 @@ use crate::audio::path::{Blocked, OpenedFacts, OsStage, PathPlan};
 use crate::audio::player::{Player, ReservationEvent, StreamDesc};
 use crate::audio::reservation::LostNotify;
 use crate::audio::verdict::{verdict, BadgeState, GainState};
+use crate::audio::worker::VizTap;
 use crate::engine::deps::EngineDeps;
+use crate::engine::exclusive_path::{self, ExclusivePath};
 use crate::engine::legacy_path::{legacy_audio, opened_facts_from_desc, shared_caps_from_desc, stream_format_from_desc};
 use crate::engine::lock::{lock_step, resolve_device, LockEffect, LockInput, LockState, ReacquirePoint, Resolved};
 use crate::engine::messages::{EngineCmd, EngineEvent, InternalMsg, LegacyAudio, Notice, SkipReason, TransportState};
 use crate::persist::state_file::LegacyPlaybackState;
 use crate::settings::params::{ApplyKind, ModeSettingsDiff};
-use crate::settings::playback::{ModeKind, ModeSettings, PathPolicy, Volume};
+use crate::settings::playback::{Dither, ModeKind, ModeSettings, PathPolicy, Volume};
 
 /// Минимальный интервал между событиями `Position` (§6.1, И-Р13).
 const POSITION_INTERVAL: Duration = Duration::from_millis(100);
@@ -160,6 +164,28 @@ fn rebuild_with_gain(
     (ActivePath { plan: active.plan, facts: active.facts, path, badge }, changed)
 }
 
+/// Сид TPDF-дизеринга по пути трека (§6.18 шаг 45, ТЗ-8): та же формула, что
+/// у легаси `Player` (`src/audio/player.rs`), продублирована здесь — функция
+/// приватна в том модуле, а `player.rs` не входит в вайтлист этого шага.
+fn track_seed(path: &Path) -> u32 {
+    use std::hash::{Hash, Hasher};
+    let mut hasher = std::collections::hash_map::DefaultHasher::new();
+    path.hash(&mut hasher);
+    (hasher.finish() >> (64 - 30)) as u32 | 1
+}
+
+/// Секунды в кадры по частоте дискретизации цели (§6.18 шаг 45): та же
+/// формула, что у легаси `Player` (`src/audio/player.rs`), продублирована по
+/// той же причине, что `track_seed`.
+fn secs_to_frames(secs: f64, rate: u32) -> u64 {
+    let frames = (secs.max(0.0) * f64::from(rate)).round();
+    if frames.is_finite() {
+        frames as u64
+    } else {
+        0
+    }
+}
+
 /// Цикл обработки команд (мост С3): владеет `Player` целиком, пока
 /// `SignalPath`/`BadgeState`/`DeviceCatalog.hw` не появились (С4…С6).
 struct Engine {
@@ -225,6 +251,11 @@ struct Engine {
     /// исполняются старым путём, С6) и без открытого потока. Очищается во
     /// всех точках конца/отказа сессии — рядом с очисткой `self.current`.
     active_path: Option<ActivePath>,
+    /// Открытый Эксклюзивный путь Оптимального/Строгого режима (§6.18 шаг
+    /// 45, ТЗ-48, ТЗ-137), если он есть: `None` в Совместимом режиме и без
+    /// открытого потока. Очищается рядом с `active_path`/`self.current` во
+    /// всех точках конца/отказа сессии.
+    exclusive_path: Option<ExclusivePath>,
     /// Отправитель внутренних сообщений служебных потоков (§2.8, ADR-01):
     /// клонируется для каждого служебного потока (резервирование §6.20,
     /// открытие PCM §6.19, RT-приоритет §6.8 — проводка следующих шагов).
@@ -275,6 +306,7 @@ impl Engine {
             caps,
             path_generation: 0,
             active_path: None,
+            exclusive_path: None,
             internal_tx,
             internal_rx,
             lock: LockState::NotApplicable,
@@ -486,6 +518,7 @@ impl Engine {
         self.player.stop();
         self.stopped = true;
         self.active_path = None;
+        self.exclusive_path = None;
         self.refresh_transport();
     }
 
@@ -534,6 +567,141 @@ impl Engine {
         }
     }
 
+    /// Открытие в Оптимальном/Строгом режиме (§6.18 шаг 45, ТЗ-48, ТЗ-137):
+    /// диспетчер к Эксклюзивному пути. Без удержанного замка (`self.lock` не
+    /// `Held`) — отказ без попытки захвата: замок уже должен быть удержан
+    /// `EngineCmd::Lock`/`lock_step` до `Open` (§6.19). `autoplay` здесь не
+    /// действует — `ExclusiveBackend::start` поднимает поток вывода сразу,
+    /// отдельного состояния «открыто, но на паузе» для Эксклюзивного пути в
+    /// этом шаге нет (как и у Совместимого режима до него).
+    fn open_exclusive(&mut self, req_gen: u64, path: Arc<Path>, src: SourceFormat, start_secs: f64, _autoplay: bool) {
+        let LockState::Held { .. } = &self.lock else {
+            let reason = match &self.lock {
+                LockState::Failed(reason) => reason.clone(),
+                _ => CaptureFailure::NoDeviceSelected,
+            };
+            self.deps.events.emit(EngineEvent::OpenFailed { req_gen, err: OpenError::Capture(reason) });
+            return;
+        };
+        // Инвариант §6.19: `Held` всегда соответствует `self.claim.is_some()`.
+        // Расхождение здесь — ошибка движка, не повод для паники: явный отказ
+        // вместо unreachable!()/unwrap() (deny clippy выше).
+        let Some(mut claim) = self.claim.take() else {
+            self.deps
+                .events
+                .emit(EngineEvent::OpenFailed { req_gen, err: OpenError::Capture(CaptureFailure::NoDeviceSelected) });
+            return;
+        };
+        let caps = {
+            let Some(backend) = self.deps.exclusive.as_deref_mut() else {
+                self.claim = Some(claim);
+                self.deps.events.emit(EngineEvent::OpenFailed {
+                    req_gen,
+                    err: OpenError::Capture(CaptureFailure::PlatformUnsupported),
+                });
+                return;
+            };
+            match backend.device_caps(&mut claim) {
+                Ok(caps) => caps,
+                Err(e) => {
+                    self.claim = Some(claim);
+                    self.deps.events.emit(EngineEvent::OpenFailed { req_gen, err: OpenError::Capture(e) });
+                    return;
+                }
+            }
+        };
+
+        let policy = PathPolicy::active(&self.mode_settings, self.active_mode);
+        let base = match plan(&src, &caps, policy) {
+            Ok(p) => p,
+            Err(blocked) => {
+                self.claim = Some(claim);
+                self.deps.events.emit(EngineEvent::Skipped { req_gen, path, reason: SkipReason::Incompatible(blocked) });
+                return;
+            }
+        };
+        let gain = self.gain_state();
+        let plan_built = with_gain(&base, gain, policy);
+
+        let source = match self.deps.sources.open(&path) {
+            Ok(source) => source,
+            Err(e) => {
+                self.claim = Some(claim);
+                self.deps.events.emit(EngineEvent::Skipped { req_gen, path, reason: SkipReason::File(e) });
+                return;
+            }
+        };
+        let info = source.info().clone();
+
+        // Параметры сессии по активному режиму (ОВС-14, §6.18): Строгий —
+        // без фиксации громкости и без дизеринга (`StrictOpts` не несёт этих
+        // полей, ТЗ-8), Оптимальный — из `OptimalOpts` («Фиксировать громкость
+        // на 100 %», дизеринг TPDF с сидом по пути трека, как у легаси
+        // `Player`, см. `track_seed`).
+        let (device_buffer, ring_buffer_ms, volume_lock, dither_seed) = if self.active_mode == ModeKind::Strict {
+            let opts = &self.mode_settings.strict;
+            (opts.device_buffer, u32::from(opts.buffer.get()), false, None)
+        } else {
+            let opts = &self.mode_settings.optimal;
+            let seed = (opts.dither == Dither::Tpdf).then(|| track_seed(&path));
+            (opts.device_buffer, u32::from(opts.buffer.get()), opts.volume_lock, seed)
+        };
+
+        // Визуализация Эксклюзивного пути не проведена в этом шаге —
+        // `AttachVizTap`/`SetVizTap` не меняют эту сессию (вне объёма шага
+        // 45); пустой tap — поток декодера не блокируется и не паникует.
+        let tap: VizTap = Arc::new(Mutex::new(None));
+        let stream_format = Some(plan_built.target);
+        let start_frame = secs_to_frames(start_secs, plan_built.target.rate.hz());
+        let generation = self.path_generation.saturating_add(1);
+
+        let Some(backend) = self.deps.exclusive.as_deref_mut() else {
+            self.claim = Some(claim);
+            self.deps
+                .events
+                .emit(EngineEvent::OpenFailed { req_gen, err: OpenError::Capture(CaptureFailure::PlatformUnsupported) });
+            return;
+        };
+        match exclusive_path::open(
+            backend,
+            claim,
+            plan_built,
+            source,
+            self.deps.spawner.as_ref(),
+            tap,
+            device_buffer,
+            ring_buffer_ms,
+            volume_lock,
+            dither_seed,
+            start_frame,
+            generation,
+        ) {
+            Ok((opened, signal)) => {
+                self.path_generation = generation;
+                let badge = verdict(&signal, gain, None);
+                let signal = Arc::new(signal);
+                self.exclusive_path = Some(opened);
+                self.current = Some((req_gen, Arc::clone(&path)));
+                self.stopped = false;
+                self.last_pos = None;
+                self.session_failed = false;
+                self.deps.events.emit(EngineEvent::Opened { req_gen, info, stream_format, path: Some(signal), badge });
+                self.refresh_transport();
+            }
+            Err(err) => {
+                // §6.19: замок остаётся удержан — claim не теряется ни при
+                // одном отказе `exclusive_path::open` (возвращается в
+                // `ExclusiveOpenError`). Причина отказа не классифицирована
+                // отдельным вариантом `OpenError` в этом шаге (тот же
+                // мост-приём, что у `reopen_with_legacy`) — ближайший по
+                // смыслу вариант уже существующего `OpenError` — потеря
+                // устройства.
+                self.claim = Some(err.claim);
+                self.deps.events.emit(EngineEvent::OpenFailed { req_gen, err: OpenError::DeviceLost });
+            }
+        }
+    }
+
     /// Обрабатывает одну команду. Возвращает `true`, если цикл должен
     /// завершиться (`Shutdown`).
     fn handle(&mut self, cmd: EngineCmd) -> bool {
@@ -565,6 +733,13 @@ impl Engine {
                         return false;
                     }
                 };
+                // §6.18 шаг 45 (ТЗ-48, ТЗ-137): Оптимальный/Строгий режим —
+                // Эксклюзивный путь, старый `Player` не открывается. Совместимый
+                // режим не меняется (прежний путь ниже).
+                if self.active_mode != ModeKind::Compatible {
+                    self.open_exclusive(req_gen, path, src, start_secs, autoplay);
+                    return false;
+                }
                 match self.player.open(&path) {
                     Ok(info) => {
                         if start_secs > 0.0 {
@@ -919,6 +1094,7 @@ impl Engine {
         self.current = None;
         self.stopped = true;
         self.active_path = None;
+        self.exclusive_path = None;
         self.deps.events.emit(EngineEvent::ShutdownComplete);
     }
 
@@ -1654,6 +1830,101 @@ mod tests {
 
         engine.handle_internal(stale);
 
+        assert!(engine.claim.is_none());
+        assert!(matches!(engine.lock, LockState::Open));
+    }
+
+    /// §6.18 шаг 45 (ТЗ-48, ТЗ-137): `Open` в Оптимальном режиме с удержанным
+    /// замком диспетчеризуется в `ExclusivePath` — `EngineEvent::Opened` с
+    /// `path.device.accepted` из `DriverFormat::Confirmed`, старый `Player`
+    /// не используется (без него тест не открыл бы файл).
+    ///
+    /// Источник — `FloatPcm` (WAV float32): у `SilentSource` нет своего
+    /// `ring_payload()` (дефолт трейта — `F32`, §6.18 шаг 6), а `plan()` для
+    /// целого PCM-источника без ресемплинга выбирает ring `ExactI32`
+    /// (`f32_payload`, §6.3 шаг 7) — для фейкового источника это разные
+    /// нагрузки, и `exclusive_feed` отказал бы `PayloadMismatch`. Float-
+    /// источник даёт `plan()` ring `F32` при любом целом формате устройства
+    /// (`f32_payload` истинна для `!SourceKind::Pcm`) — совпадает с фейком.
+    #[test]
+    fn open_in_optimal_mode_dispatches_to_exclusive_path_confirmed() {
+        let sink = VecSink::new();
+        let dev: HwDeviceId = "hw:CARD=RU3,DEV=0".parse().expect("hw id");
+        let backend = FakeExclusiveBackend::new().with_configure(Ok((
+            crate::audio::backend::DriverFormat::Confirmed(crate::audio::format::StreamFormat {
+                rate: SampleRate::new(44_100).expect("rate"),
+                sample: crate::audio::format::OutputSampleFormat::S32Le,
+                channels: std::num::NonZeroU8::new(2).expect("channels"),
+            }),
+            Some(crate::audio::backend::DeviceBufferActual { period_frames: 256, buffer_frames: 1024 }),
+        )));
+        let float_format = SourceFormat {
+            container: Container::Wav,
+            codec: Codec::Wav,
+            lossy: false,
+            rate: SampleRate::new(44_100).expect("rate"),
+            layout: ChannelLayout::stereo(),
+            kind: SourceKind::FloatPcm { double: false },
+        };
+        let mem = MemStore::new();
+        let deps = EngineDeps {
+            shared: Box::new(FakeSharedBackend::with_devices(Vec::new())),
+            exclusive: Some(Box::new(backend)),
+            server_probe: Box::new(FakeServerProbe::desktop()),
+            watcher: Box::new(FakeDeviceWatcher::new()),
+            sources: Arc::new(FakeSource::with_format(float_format)),
+            clock: Box::new(MonotonicClock::new()),
+            store: Box::new(FsPersistStore::new(Arc::new(mem.clone()), Box::new(mem.clone()), PathBuf::from("/cfg"))),
+            events: Box::new(sink.clone()),
+            spawner: Arc::new(StdSpawner),
+            caps: BackendCaps::current(),
+            os_probe: Box::new(FakeOsProbe::new(OsStage::Unknown)),
+        };
+        let mut engine = Engine::new(deps, BackendCaps::current());
+        engine.active_mode = ModeKind::Optimal;
+        engine.mode_settings.optimal.device = Some(dev.clone());
+        engine.lock = LockState::Held { info: crate::audio::backend::exclusive::ClaimInfo { device: dev.clone() } };
+        engine.claim = Some(crate::audio::backend::exclusive::DeviceClaim::new(
+            None,
+            crate::audio::reservation::Reservation::UnavailableNoServer,
+            crate::audio::backend::exclusive::ClaimInfo { device: dev },
+        ));
+
+        engine.handle(EngineCmd::Open { req_gen: 1, path: Arc::from(Path::new("/music/a.flac")), start_secs: 0.0, autoplay: true });
+
+        let events = sink.take();
+        match events.first() {
+            Some(EngineEvent::Opened { path: Some(signal), .. }) => {
+                assert!(signal.device.accepted.is_some());
+            }
+            other => panic!("expected Opened event first, got {other:?}"),
+        }
+        // Захват переходит в `ExclusivePath` (§6.19): `self.claim` после
+        // успешного открытия пуст — замок держит сессию, не `claim`.
+        assert!(engine.claim.is_none());
+        assert!(engine.exclusive_path.is_some());
+    }
+
+    /// §6.18 шаг 45 (ТЗ-48, ТЗ-137): `Open` в Строгом режиме без удержанного
+    /// замка отказывает без попытки захвата — `OpenFailed(Capture(_))` до
+    /// обращения к `ExclusiveBackend` (гвард — первая операция
+    /// `open_exclusive`, раньше `self.deps.exclusive` не трогается): `claim`
+    /// остаётся `None`, замок не меняется.
+    #[test]
+    fn open_in_strict_mode_without_held_lock_fails_without_capture_attempt() {
+        let sink = VecSink::new();
+        let deps = fake_deps(Box::new(sink.clone()), Arc::new(StdSpawner));
+        let mut engine = Engine::new(deps, BackendCaps::current());
+        engine.active_mode = ModeKind::Strict;
+        engine.lock = LockState::Open;
+
+        engine.handle(EngineCmd::Open { req_gen: 1, path: Arc::from(Path::new("/music/a.flac")), start_secs: 0.0, autoplay: true });
+
+        let events = sink.take();
+        assert!(matches!(
+            events.as_slice(),
+            [EngineEvent::OpenFailed { err: OpenError::Capture(CaptureFailure::NoDeviceSelected), .. }]
+        ));
         assert!(engine.claim.is_none());
         assert!(matches!(engine.lock, LockState::Open));
     }
