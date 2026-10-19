@@ -51,11 +51,18 @@ const FORMAT_MAP: [(alsa::pcm::Format, OutputSampleFormat); 5] = [
     (alsa::pcm::Format::FloatLE, OutputSampleFormat::F32),
 ];
 
-/// Эксклюзивный бэкенд ALSA (§2.3, ADR-24). Перечисление и возможности
-/// устройства не хранят состояния между вызовами — поля появятся вместе с
-/// `acquire`/`configure`/`start` (ADR-08).
+/// Эксклюзивный бэкенд ALSA (§2.3, ADR-24). Резервирование и открытие PCM —
+/// в `DeviceClaim`, а не здесь (ADR-08); единственное собственное состояние
+/// бэкенда — `caps_cache`, снятый кэш `device_caps` сконфигурированного PCM
+/// (§6.6, §6.7, ТЗ-109, AM1.0-B17): `HwParams::any` на PCM после `drop()`
+/// (состояние `SETUP`, не `OPEN`) видит только зафиксированную ранее частоту,
+/// поэтому `device_caps` не переоткрывает уже сконфигурированный PCM — он
+/// переиспользуется путём вызывающей стороны (`configure` не повторяется),
+/// и переоткрытие сломало бы это переиспользование.
 #[derive(Debug, Default)]
-pub struct AlsaExclusiveBackend;
+pub struct AlsaExclusiveBackend {
+    caps_cache: Option<(HwDeviceId, DeviceCaps)>,
+}
 
 /// Ошибка `reconfigure` держимого PCM при смене частоты (ТЗ-49) или «Буфера
 /// устройства» (ОВС-17, ТЗ-131, §6.7): `Configure` — `hw_params`/`sw_params`
@@ -69,7 +76,7 @@ pub enum ReconfigureError {
 
 impl AlsaExclusiveBackend {
     pub fn new() -> AlsaExclusiveBackend {
-        AlsaExclusiveBackend
+        AlsaExclusiveBackend { caps_cache: None }
     }
 
     /// Возможности бэкенда на этой платформе (§2.3, ТЗ-109, ТЗ-110). Модуль
@@ -108,17 +115,46 @@ impl AlsaExclusiveBackend {
         Ok(out)
     }
 
-    /// Возможности захваченного устройства (§2.3, §6.6, ТЗ-109, ТЗ-110):
-    /// снимаются с PCM, которым владеет `claim`. Пока PCM у потока вывода
-    /// (между `start` и `stop`), `claim.pcm_mut()` — `None`; отдельного
-    /// варианта `CaptureFailure` для этого состояния спецификация не
-    /// задаёт, поэтому используется `DeviceDisconnected` — возможности
-    /// снять физически нельзя.
+    /// Возможности захваченного устройства (§2.3, §6.6, §6.7, ТЗ-109, ТЗ-110,
+    /// AM1.0-B17): снимаются с PCM, которым владеет `claim`. PCM в состоянии
+    /// `OPEN` (ещё не сконфигурирован `configure`) — возможности снимаются
+    /// напрямую: вся частотная область драйвера видна. PCM уже
+    /// сконфигурирован (путь переиспользования без повторного `configure`,
+    /// `AlsaExclusiveBackend::configure`/`start`) — переоткрывать его здесь
+    /// нельзя: именно для этого случая существует переиспользование, и
+    /// переоткрытие сломало бы его. Поэтому результат берётся из
+    /// `caps_cache`, снятого при последнем вызове на `OPEN` PCM того же
+    /// устройства; если кэша для этого устройства нет (первый вызов пришёл
+    /// уже на сконфигурированный PCM), PCM переоткрывается через
+    /// `reset_to_open` — иначе возможности взять не из чего — и кэшируется
+    /// по факту. Пока PCM у потока вывода (между `start` и `stop`),
+    /// `claim.pcm_mut()` — `None`; отдельного варианта `CaptureFailure` для
+    /// этого состояния спецификация не задаёт, поэтому используется
+    /// `DeviceDisconnected` — возможности снять физически нельзя.
     pub fn device_caps(&mut self, claim: &mut DeviceClaim) -> Result<DeviceCaps, CaptureFailure> {
         let Some(handle) = claim.pcm_mut().as_ref() else {
             return Err(CaptureFailure::DeviceDisconnected);
         };
-        Self::device_caps_of(handle.pcm())
+
+        if handle.pcm().state() == alsa::pcm::State::Open {
+            let caps = Self::device_caps_of(handle.pcm())?;
+            self.caps_cache = Some((claim.info().device.clone(), caps.clone()));
+            return Ok(caps);
+        }
+
+        if let Some((dev, caps)) = &self.caps_cache {
+            if *dev == claim.info().device {
+                return Ok(caps.clone());
+            }
+        }
+
+        reset_to_open(claim)?;
+        let Some(handle) = claim.pcm_mut().as_ref() else {
+            return Err(CaptureFailure::DeviceDisconnected);
+        };
+        let caps = Self::device_caps_of(handle.pcm())?;
+        self.caps_cache = Some((claim.info().device.clone(), caps.clone()));
+        Ok(caps)
     }
 
     /// Возможности открытого PCM (§2.3, §6.6, ТЗ-109, ТЗ-110): свободная от
@@ -191,12 +227,32 @@ impl AlsaExclusiveBackend {
     /// то, что принял драйвер, даже если это не совпадает с `fmt`. Ошибка
     /// чтения → `Unreadable`, но период и буфер в ответе — запрошенные
     /// (§6.7 п. 3), не `None`.
+    ///
+    /// Перед установкой hw_params PCM не в состоянии `OPEN` (уже был
+    /// сконфигурирован и `drop()`нут предыдущим использованием)
+    /// переоткрывается через `reset_to_open` (§6.6, §6.7, ТЗ-49, ТЗ-109,
+    /// AM1.0-B17): аппаратный факт, подтверждённый на Cayin RU3
+    /// (snd-usb-audio) — PCM после `drop()` остаётся в `SETUP`, и
+    /// `HwParams::any` на нём отдаёт только частоту, зафиксированную
+    /// предыдущей конфигурацией; `hw_params` на другой частоте отказывает
+    /// (`set_rate` EINVAL). Закрытие и переоткрытие PCM возвращает полную
+    /// область параметров (эквивалент `snd_pcm_hw_free`, который крейт
+    /// `alsa` 0.11 не оборачивает и не даёт для него сырого указателя).
     pub fn configure(
         &mut self,
         claim: &mut DeviceClaim,
         fmt: StreamFormat,
         buffer: DeviceBuffer,
     ) -> Result<(DriverFormat, Option<DeviceBufferActual>), ConfigureError> {
+        if claim.pcm_mut().is_none() {
+            return Err(ConfigureError("configure вызван без открытого PCM (acquire не выполнен, §6.7)".to_string()));
+        }
+        reset_to_open(claim).map_err(|e| {
+            ConfigureError(format!(
+                "не удалось переоткрыть PCM перед configure после предыдущего использования (§6.6, §6.7, ТЗ-49, ТЗ-109, AM1.0-B17): {e:?}"
+            ))
+        })?;
+
         let Some(handle) = claim.pcm_mut().as_ref() else {
             return Err(ConfigureError("configure вызван без открытого PCM (acquire не выполнен, §6.7)".to_string()));
         };
@@ -217,12 +273,18 @@ impl AlsaExclusiveBackend {
     /// Переконфигурация держимого PCM при смене частоты (ТЗ-49) или «Буфера
     /// устройства» (ОВС-17, ТЗ-131): `pcm.drop()` сбрасывает незавершённый
     /// поток, затем на том же PCM без закрытия повторяются шаги `configure`
-    /// (§6.7). Крейт `alsa` 0.11 не оборачивает `snd_pcm_hw_free`: после
-    /// `drop()` PCM переходит в `SETUP`, а не `OPEN`, но `hw_params()`
-    /// переустанавливает полный набор параметров и из `SETUP` — отдельный
-    /// вызов `hw_free()` не нужен для результата, который требует спецификация
-    /// (новые hw_params/sw_params на том же PCM). Если `hw_params` всё же
-    /// отказал без закрытия PCM — PCM закрывается (`claim.pcm_mut()` → `None`)
+    /// (§6.7). Аппаратный факт, подтверждённый на Cayin RU3 (snd-usb-audio,
+    /// AM1.0-B17): после `drop()` PCM переходит в `SETUP`, а не `OPEN`, и в
+    /// этом состоянии `HwParams::any` отдаёт не полную область параметров, а
+    /// только частоту, зафиксированную предыдущей конфигурацией —
+    /// `hw_params()` на другой частоте отказывает (`set_rate` EINVAL), то
+    /// есть именно отдельный `hw_free` здесь и нужен. Крейт `alsa` 0.11 не
+    /// оборачивает `snd_pcm_hw_free` и не даёт для него сырого указателя,
+    /// поэтому `self.configure` ниже сам переоткрывает PCM, если его
+    /// состояние не `OPEN` (`reset_to_open`, §6.6, §6.7, ТЗ-109) — это и даёт
+    /// эквивалент `hw_free` перед новыми hw_params/sw_params. Если `configure`
+    /// всё же отказал (например, переоткрытие внутри него не удалось) — PCM
+    /// закрывается (`claim.pcm_mut()` → `None`)
     /// и открывается заново под тем же резервированием через цикл OPEN (§6.6,
     /// `OPEN_EBUSY_DEADLINE`); резервирование всё это время остаётся в
     /// `claim` и этой функцией не трогается — она не извлекает и не снимает
@@ -597,18 +659,46 @@ fn open_claimed<P>(
 }
 
 /// Переоткрытие `hw:` того же устройства при `reconfigure` после отказа
-/// `hw_params` на держимом PCM (§6.7, ТЗ-49): то же ядро `open_retry`, что и
-/// у первого захвата, но без резервирования — оно всё это время остаётся в
-/// `DeviceClaim` вызывающей стороны (`reconfigure` его не трогает) и не
-/// снимается здесь при отказе (И-Р1: снимается вместе со всем `claim`, не
-/// раньше). Выполняется в служебном потоке захвата — блокирующий `PCM::new`
-/// и реальный `sleep` здесь допустимы (не аудио-колбэк).
+/// `hw_params` на держимом PCM, а также внутри `reset_to_open` (§6.7, ТЗ-49,
+/// ТЗ-109, AM1.0-B17): то же ядро `open_retry`, что и у первого захвата, но
+/// без резервирования — оно всё это время остаётся в `DeviceClaim`
+/// вызывающей стороны и не снимается здесь при отказе (И-Р1: снимается
+/// вместе со всем `claim`, не раньше). Выполняется в служебном потоке
+/// захвата — блокирующий `PCM::new` и реальный `sleep` здесь допустимы (не
+/// аудио-колбэк).
 fn reopen_pcm(dev: &HwDeviceId) -> Result<alsa::PCM, CaptureFailure> {
     let hw_name = dev.as_str().to_string();
     let clock = MonotonicClock::new();
     open_retry(&clock, std::thread::sleep, || {
         alsa::PCM::new(&hw_name, alsa::Direction::Playback, false).map_err(|e| e.errno())
     })
+}
+
+/// Возврат PCM захвата в состояние `OPEN`, если оно другое (§6.6, §6.7,
+/// ТЗ-49, ТЗ-109, AM1.0-B17): аппаратный факт, подтверждённый на Cayin RU3
+/// (snd-usb-audio) — PCM, сконфигурированный и затем `drop()`нутый,
+/// остаётся в `SETUP`, и `HwParams::any` на нём отдаёт только частоту,
+/// зафиксированную предыдущей конфигурацией (`hw_params` на другой частоте
+/// отказывает `set_rate` EINVAL). Крейт `alsa` 0.11 не оборачивает
+/// `snd_pcm_hw_free` и не даёт для него сырого указателя, поэтому полную
+/// область параметров восстанавливает закрытие и переоткрытие PCM под тем
+/// же резервированием (`reopen_pcm`, ~3 мс). PCM уже в `OPEN` — функция
+/// ничего не делает. Резервирование не трогается, как и в `reconfigure`.
+/// Вызывается из `configure` (перед `apply_hw_params`) и из `device_caps`
+/// (когда PCM сконфигурирован и кэша возможностей для устройства нет).
+fn reset_to_open(claim: &mut DeviceClaim) -> Result<(), CaptureFailure> {
+    let Some(handle) = claim.pcm_mut().as_ref() else {
+        return Err(CaptureFailure::DeviceDisconnected);
+    };
+    if handle.pcm().state() == alsa::pcm::State::Open {
+        return Ok(());
+    }
+
+    let dev = claim.info().device.clone();
+    *claim.pcm_mut() = None;
+    let pcm = reopen_pcm(&dev).map_err(|_| CaptureFailure::LostOnReopen)?;
+    *claim.pcm_mut() = Some(PcmHandle::new(pcm));
+    Ok(())
 }
 
 /// Номер карты ALSA из `HwDeviceId` (`hw:CARD=<id>,DEV=<d>`, §6.6, ТЗ-126):

@@ -18,12 +18,12 @@ steps:
     done: true
   - id: 2
     description: "AlsaExclusiveBackend::configure: PCM не в состоянии OPEN переоткрывается под тем же резервированием (reopen_pcm — аналог snd_pcm_hw_free, которого нет в alsa 0.11); device_caps для настроенного PCM отдаёт кэш возможностей, снятых в OPEN; исправить doc reconfigure (§6.6, §6.7, ТЗ-49, ТЗ-109). Проверка: cargo test audio::backend зелёный"
-    done: false
+    done: true
   - id: 3
     description: "#[ignore]-тест на реальном устройстве (APAP_HW_TEST_DEVICE): configure 44,1 кГц → поток → drop → configure 192 кГц и повтор формата с prepare (§6.7, ТЗ-49). Проверка: cargo test -- --ignored на RU3U2 зелёный; полный cargo test + clippy"
     done: false
-current_step: 2
-next_action: "Шаг 2: переоткрытие настроенного PCM в configure + кэш device_caps"
+current_step: 3
+next_action: "Шаг 3: #[ignore]-тест на реальном устройстве"
 fail_counter: 0
 fail_counter_max: 3
 failed_attempts: []
