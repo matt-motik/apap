@@ -328,7 +328,7 @@ steps:
     done: true
   - id: 88
     description: "Шаг 88: AM1.0-B21: Play из «Стоп» при загруженном треке идёт через Open (play_track(current)), а не EngineCmd::Play — в on_play_pause (app/mod.rs) и resume_after_capture_and_play (app/playback_manager.rs), одна общая проверка audio().is_stopped(); reopen_current_for_mode_switch не менять (§6.18, ТЗ-20, ТЗ-43, ТЗ-125). Позицию старта сверить с текущей семантикой Stop. Тест: стоп → смена режима → Play шлёт Open. Проверка: полный cargo test"
-    done: false
+    done: true
   - id: 89
     description: "Шаг 89: Удаление ExclusiveGate-пути в player.rs и файла reservation/gate.rs (замещён AlsaExclusiveBackend) (§8 С6). Проверка: полный cargo test"
     done: false
@@ -344,8 +344,8 @@ steps:
   - id: 93
     description: "Шаг 93: ФИНАЛ: cargo build/test/clippy зелёные; общие условия §8 (Совместимый играет, «Bit-perfect» только при ТЗ-52); ручные проверки в заметку плана: замок (ТЗ-1/2/48/118…122, AM1.0-8.1), B1 — возврат устройства в PipeWire после освобождения, B2 — текст «занято <владелец>» при чужом захвате"
     done: false
-current_step: 88
-next_action: "Шаг 88: AM1.0-B21 — Play из «Стоп» через Open (play_track) в app/mod.rs и app/playback_manager.rs. Проверка: полный cargo test."
+current_step: 89
+next_action: "Шаг 89: Удаление ExclusiveGate-пути в player.rs и файла reservation/gate.rs (замещён AlsaExclusiveBackend) (§8 С6). Проверка: полный cargo test."
 fail_counter: 0
 fail_counter_max: 3
 failed_attempts: []

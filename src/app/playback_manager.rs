@@ -339,26 +339,37 @@ impl MusicApp {
         true
     }
 
+    /// Запуск без загруженного трека или из «Стоп» — через `Open` текущего
+    /// (или первого) трека, а не `EngineCmd::Play` (AM1.0-B21, §6.18, ТЗ-20):
+    /// смена режима при остановленном треке снимает поток старого пути и
+    /// трек не переоткрывает (режим применяется к следующему `Open`), а Stop
+    /// Эксклюзивного пути закрывает его — `Play` без `Open` дал бы «играет»
+    /// без звука. Stop сбрасывает позицию в 0, поэтому открытие с начала
+    /// совпадает с прежней семантикой. Общая точка кнопки Play/Pause, трея и
+    /// «Захватить и играть». `true` — запрос исполнен здесь (или трека нет);
+    /// `false` — вызывающий переключает play/pause через `toggle_playback`.
+    pub(super) fn play_via_open_if_stopped(&mut self) -> bool {
+        let route = play_route(self.audio().track().is_some(), self.audio().is_stopped());
+        if route == PlayRoute::Toggle {
+            return false;
+        }
+        let idx = self.current.unwrap_or(0);
+        if idx < self.track_count() {
+            self.play_track(idx);
+        }
+        true
+    }
+
     /// Запустить воспроизведение после того, как «Захватить и играть»
     /// перевело замок в `Held` (ТЗ-125, §6.19): та же логика, что у кнопки
-    /// Play (`on_play_pause`) — нет открытого трека, значит играть было
-    /// нечего до захвата, открыть текущий/первый; иначе возобновить с паузы
+    /// Play (`on_play_pause`) — нет открытого трека или транспорт
+    /// остановлен — открыть текущий/первый (`play_via_open_if_stopped`);
+    /// иначе возобновить с паузы
     /// через `toggle_playback` (замок уже `Held`, `lock_blocks_play` не
     /// вмешается). Вызывается из `drain_engine_events` после того, как
     /// принятый `EngineEvent::Lock(Held)` обновил `self.audio_state.lock()`.
     pub(super) fn resume_after_capture_and_play(&mut self) {
-        if self.audio().track().is_none() {
-            let idx = self.current.unwrap_or(0);
-            if idx < self.track_count() {
-                self.play_track(idx);
-            }
-            return;
-        }
-        if self.audio().is_stopped() {
-            let idx = self.current.unwrap_or(0);
-            if idx < self.track_count() {
-                self.play_track(idx);
-            }
+        if self.play_via_open_if_stopped() {
             return;
         }
         self.toggle_playback();
@@ -687,5 +698,25 @@ impl MusicApp {
         }
         self.emit(AppEvent::DeviceChanged);
         self.push_tray_now();
+    }
+}
+
+/// Как исполнить запрос «играть» (AM1.0-B21, §6.18, ТЗ-20).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(super) enum PlayRoute {
+    /// Открыть трек (`play_track`): трека нет или транспорт остановлен.
+    Open,
+    /// Переключить play/pause загруженного трека (`toggle_playback`).
+    Toggle,
+}
+
+/// Маршрут запроса «играть» по состоянию транспорта (AM1.0-B21, §6.18):
+/// из «Стоп» поток мог быть снят (смена режима, Stop Эксклюзивного пути),
+/// поэтому только `Open` гарантирует открытый вывод.
+pub(super) fn play_route(track_loaded: bool, stopped: bool) -> PlayRoute {
+    if !track_loaded || stopped {
+        PlayRoute::Open
+    } else {
+        PlayRoute::Toggle
     }
 }

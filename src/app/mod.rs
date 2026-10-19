@@ -1744,18 +1744,7 @@ impl MusicApp {
                 if !a.core.gate().allows(MainCmd::PlayPause) {
                     return;
                 }
-                if a.audio().track().is_none() {
-                    let idx = a.current.unwrap_or(0);
-                    if idx < a.track_count() {
-                        a.play_track(idx);
-                    }
-                    return;
-                }
-                if a.audio().is_stopped() {
-                    let idx = a.current.unwrap_or(0);
-                    if idx < a.track_count() {
-                        a.play_track(idx);
-                    }
+                if a.play_via_open_if_stopped() {
                     return;
                 }
                 a.toggle_playback();
@@ -2994,6 +2983,9 @@ impl MusicApp {
             eprintln!("[tray] cmd={cmd:?}");
             match cmd {
                 TrayEvent::TogglePlay => {
+                    if self.play_via_open_if_stopped() {
+                        continue;
+                    }
                     self.toggle_playback();
                     if self.audio().is_playing() {
                         self.emit(AppEvent::PlaybackStarted);
@@ -3496,6 +3488,18 @@ mod tests {
             bit_depth: "24 bit".to_string(),
             sample_rate: 96000,
         }
+    }
+
+    /// AM1.0-B21, §6.18, ТЗ-20: из «Стоп» (в т. ч. после смены режима,
+    /// снявшей поток) и без трека Play идёт через `Open`; пауза/игра —
+    /// переключение транспорта.
+    #[test]
+    fn play_route_opens_when_stopped_or_no_track() {
+        use playback_manager::{play_route, PlayRoute};
+        assert_eq!(play_route(true, true), PlayRoute::Open);
+        assert_eq!(play_route(false, true), PlayRoute::Open);
+        assert_eq!(play_route(false, false), PlayRoute::Open);
+        assert_eq!(play_route(true, false), PlayRoute::Toggle);
     }
 
     #[test]

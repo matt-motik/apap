@@ -153,8 +153,8 @@
 - [x] Шаг 85: Шаг 85: ЧЕКПОИНТ: полный cargo test + cargo clippy --all-targets
 - [x] Шаг 86: Шаг 86: Удаление в engine: адаптер legacy_exclusive, EngineCmd::ReleaseExclusive и их обработка; legacy_path — только Совместимый (§8 С6 «удаляется»). Проверка: полный cargo test
 - [x] Шаг 87: Шаг 87: Удаление в player.rs: release_if_exclusive, reopen_and_seek и их вызовы в stop()/toggle()/play() (V5.1-B5, V5.1-B6, ТЗ-43). Проверка: полный cargo test
-- [>] **Шаг 88: Шаг 88: AM1.0-B21: Play из «Стоп» при загруженном треке идёт через Open (play_track(current)), а не EngineCmd::Play — в on_play_pause (app/mod.rs) и resume_after_capture_and_play (app/playback_manager.rs), одна общая проверка audio().is_stopped(); reopen_current_for_mode_switch не менять (§6.18, ТЗ-20, ТЗ-43, ТЗ-125). Позицию старта сверить с текущей семантикой Stop. Тест: стоп → смена режима → Play шлёт Open. Проверка: полный cargo test**
-- [ ] Шаг 89: Шаг 89: Удаление ExclusiveGate-пути в player.rs и файла reservation/gate.rs (замещён AlsaExclusiveBackend) (§8 С6). Проверка: полный cargo test
+- [x] Шаг 88: Шаг 88: AM1.0-B21: Play из «Стоп» при загруженном треке идёт через Open (play_track(current)), а не EngineCmd::Play — в on_play_pause (app/mod.rs) и resume_after_capture_and_play (app/playback_manager.rs), одна общая проверка audio().is_stopped(); reopen_current_for_mode_switch не менять (§6.18, ТЗ-20, ТЗ-43, ТЗ-125). Позицию старта сверить с текущей семантикой Stop. Тест: стоп → смена режима → Play шлёт Open. Проверка: полный cargo test
+- [>] **Шаг 89: Шаг 89: Удаление ExclusiveGate-пути в player.rs и файла reservation/gate.rs (замещён AlsaExclusiveBackend) (§8 С6). Проверка: полный cargo test**
 - [ ] Шаг 90: Шаг 90: Удаление освобождения эксклюзива при скрытии в трей (обработка TrayCmd::ShowHide в app/mod.rs; пункт меню трея остаётся; фактически снято на шаге 86 — проверить и закрыть без кода) (§8 С6, ТЗ-43). Проверка: полный cargo test
 - [ ] Шаг 91: Шаг 91: Удаление в output.rs: cpal-путь Exclusive (ExclusiveMode, проба hw: в select_output_for, EBUSY-повтор) и shared-downgrade R-11 (§8 С6). Проверка: полный cargo test
 - [ ] Шаг 92: Шаг 92: AM1.0-B10: удалить StreamDesc, FallbackReason, Opened.stream_format и мосты legacy_path. Если Совместимый всё ещё идёт через legacy Player и типы нужны ему — выполнить частично, остаток перерегистрировать в B10 с указанием этапа (§8). Проверка: полный cargo test
@@ -162,8 +162,8 @@
 
 Легенда: [x] сделано · [>] текущий шаг · [ ] не начато
 
-- **Текущий шаг (current_step):** Шаг 88
-- **Следующий ход:** Шаг 88: AM1.0-B21 — Play из «Стоп» через Open (play_track) в app/mod.rs и app/playback_manager.rs. Проверка: полный cargo test.
+- **Текущий шаг (current_step):** Шаг 89
+- **Следующий ход:** Шаг 89: Удаление ExclusiveGate-пути в player.rs и файла reservation/gate.rs (замещён AlsaExclusiveBackend) (§8 С6). Проверка: полный cargo test.
 - **Счетчик безуспешных компиляций:** 0/3
 - **Состояние:** in_progress
 
