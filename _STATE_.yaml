@@ -318,7 +318,7 @@ steps:
     done: true
   - id: 85
     description: "Шаг 85: ЧЕКПОИНТ: полный cargo test + cargo clippy --all-targets"
-    done: false
+    done: true
   - id: 86
     description: "Шаг 86: Удаление в engine: адаптер legacy_exclusive, EngineCmd::ReleaseExclusive и их обработка; legacy_path — только Совместимый (§8 С6 «удаляется»). Проверка: полный cargo test"
     done: false
@@ -340,8 +340,8 @@ steps:
   - id: 92
     description: "Шаг 92: ФИНАЛ: cargo build/test/clippy зелёные; общие условия §8 (Совместимый играет, «Bit-perfect» только при ТЗ-52); ручные проверки в заметку плана: замок (ТЗ-1/2/48/118…122, AM1.0-8.1), B1 — возврат устройства в PipeWire после освобождения, B2 — текст «занято <владелец>» при чужом захвате"
     done: false
-current_step: 85
-next_action: 'Шаг 85: ЧЕКПОИНТ — полный cargo test + cargo clippy --all-targets (test-runner haiku).'
+current_step: 86
+next_action: "Шаг 86: удаление адаптера legacy_exclusive и EngineCmd::ReleaseExclusive в engine; legacy_path — только Совместимый. Можно отдать opencode (opencode.json в корне задаёт запреты чтения/записи)."
 fail_counter: 0
 fail_counter_max: 3
 failed_attempts: []
