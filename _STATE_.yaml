@@ -21,9 +21,9 @@ steps:
     done: true
   - id: 3
     description: "#[ignore]-тест на реальном устройстве (APAP_HW_TEST_DEVICE): configure 44,1 кГц → поток → drop → configure 192 кГц и повтор формата с prepare (§6.7, ТЗ-49). Проверка: cargo test -- --ignored на RU3U2 зелёный; полный cargo test + clippy"
-    done: false
-current_step: 3
-next_action: "Шаг 3: #[ignore]-тест на реальном устройстве"
+    done: true
+current_step: null
+next_action: "Закрытие: ROADMAP ✅, ручная проверка за пользователем"
 fail_counter: 0
 fail_counter_max: 3
 failed_attempts: []

@@ -990,4 +990,75 @@ mod tests {
 
         assert!(matches!(result, Err(ReconfigureError::Configure(_))));
     }
+
+    /// Запись нескольких периодов тишины в держимый PCM — то, что делает
+    /// каждый цикл поток вывода `apap-alsa-out` (§6.7 `io_bytes`), без
+    /// реального рендера: тесту ниже нужен лишь факт записи перед `drop()`.
+    fn write_silence(claim: &mut DeviceClaim, fmt: StreamFormat, buf: DeviceBufferActual) {
+        let bytes_per_frame = bytes_per_sample(fmt.sample).expect("известный формат Exclusive");
+        let period_bytes = alsa_out::period_buffer_bytes(buf.period_frames, bytes_per_frame, fmt.channels)
+            .expect("размер периода не переполняет буфер");
+        let silence = vec![0u8; period_bytes];
+        let handle = claim.pcm_mut().as_ref().expect("PCM в claim");
+        let io = handle.pcm().io_bytes();
+        for _ in 0..2 {
+            io.writei(&silence).expect("writei тишины в сконфигурированный PCM");
+        }
+    }
+
+    /// Аппаратный тест переконфигурации держимого PCM после `drop()` (§6.7,
+    /// ТЗ-49, AM1.0-B17): воспроизводит факт, подтверждённый на Cayin RU3
+    /// (snd-usb-audio) — после `configure` + запись периодов + `drop()` PCM
+    /// остаётся в `SETUP`, а не `OPEN`. Без фикса AM1.0-B17 это ломало три
+    /// вещи: (а) `device_caps` на таком PCM видел бы только частоту
+    /// предыдущей конфигурации вместо кэша с открытого PCM; (б) `configure`
+    /// на другой частоте отказывал бы `hw_params`/`set_rate` с `EINVAL`;
+    /// (в) `writei` без явного `prepare()` после `SETUP` возвращал бы
+    /// `EIO`/`EBADFD`. Требует реальное устройство и игнорируется по
+    /// умолчанию.
+    ///
+    /// Запуск: `APAP_HW_TEST_DEVICE=hw:CARD=RU3U2,DEV=0 cargo test --lib
+    /// hw_reconfigure -- --ignored --nocapture`.
+    #[test]
+    #[ignore]
+    fn hw_reconfigure_after_drop_changes_rate_and_reuses_format() {
+        let Ok(dev_str) = std::env::var("APAP_HW_TEST_DEVICE") else { return };
+        let dev: HwDeviceId = dev_str.parse().expect("валидный HwDeviceId из APAP_HW_TEST_DEVICE");
+
+        let mut backend = AlsaExclusiveBackend::new();
+        let reservation = backend.reserve(&dev, "apap test", noop()).expect("резервирование устройства");
+        let mut claim = backend.acquire(&dev, reservation).expect("открытие hw: PCM");
+
+        let caps1 = backend.device_caps(&mut claim).expect("возможности открытого PCM");
+        let rate_192k = SampleRate::new(192_000).expect("192000 валидная частота");
+        assert!(caps1.rates.contains(rate_192k), "устройство должно поддерживать 192000 Гц");
+
+        let sample = [OutputSampleFormat::S32Le, OutputSampleFormat::S24Le, OutputSampleFormat::S24_3Le]
+            .into_iter()
+            .find(|f| caps1.formats.contains(f))
+            .expect("устройство поддерживает S32/S24/S24_3");
+        let channels = NonZeroU8::new(2).expect("2 каналы");
+
+        let fmt_44k = StreamFormat { rate: SampleRate::new(44_100).expect("44100 валидная частота"), sample, channels };
+        let (_, buf1) = backend.configure(&mut claim, fmt_44k, DeviceBuffer::Ms40).expect("configure 44100 должен пройти");
+        write_silence(&mut claim, fmt_44k, buf1.expect("буфер подтверждён"));
+        claim.pcm_mut().as_ref().expect("PCM в claim").pcm().drop().expect("drop() после записи периодов");
+
+        let caps2 = backend.device_caps(&mut claim).expect("кэшированные возможности после drop()");
+        assert_eq!(caps2, caps1, "device_caps после drop() должен вернуть кэш, а не урезанный HwParams::any");
+        assert!(caps2.rates.contains(rate_192k), "кэш всё ещё должен содержать 192000 Гц");
+
+        let fmt_192k = StreamFormat { rate: rate_192k, sample, channels };
+        let (_, buf2) = backend
+            .configure(&mut claim, fmt_192k, DeviceBuffer::Ms40)
+            .expect("configure 192000 после drop() не должен отказать EINVAL (AM1.0-B17)");
+        let buf2 = buf2.expect("буфер подтверждён");
+        write_silence(&mut claim, fmt_192k, buf2);
+        claim.pcm_mut().as_ref().expect("PCM в claim").pcm().drop().expect("drop() после второй записи периодов");
+
+        let handle = claim.pcm_mut().as_ref().expect("PCM в claim после drop()");
+        assert_eq!(handle.pcm().state(), alsa::pcm::State::Setup, "после drop() PCM должен быть в SETUP (ТЗ-49, AM1.0-B17)");
+        handle.pcm().prepare().expect("prepare() над PCM в SETUP, как делает start()");
+        write_silence(&mut claim, fmt_192k, buf2);
+    }
 }
