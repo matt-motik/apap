@@ -2564,6 +2564,129 @@ mod tests {
         assert!(matches!(engine.lock, LockState::Acquiring { .. }));
     }
 
+    /// AM1.0-B24 (ТЗ-20, §6.18 «Смена режима»): `Open`, пришедший пока замок
+    /// `Acquiring`, не отказывает немедленно `OpenFailed(NoDeviceSelected)` —
+    /// запрос откладывается в `self.deferred_open`. Пришедший затем
+    /// `ClaimDone` с отказом захвата для текущей попытки доигрывает его
+    /// явным `OpenFailed(Capture(_))` с тем же `req_gen`.
+    #[test]
+    fn open_while_acquiring_is_deferred_and_fails_with_claim_error() {
+        let sink = VecSink::new();
+        let deps = fake_deps(Box::new(sink.clone()), Arc::new(StdSpawner));
+        let mut engine = Engine::new(deps, BackendCaps::current());
+        engine.active_mode = ModeKind::Strict;
+        engine.lock = LockState::Acquiring { started: engine.deps.clock.now() };
+
+        engine.handle(EngineCmd::Open { req_gen: 7, path: Arc::from(Path::new("/music/a.flac")), start_secs: 0.0, autoplay: true });
+
+        // `Open` не отказал немедленно — ждёт итога захвата (AM1.0-B24).
+        assert!(sink.take().is_empty());
+        assert!(engine.deferred_open.is_some());
+
+        engine.handle_internal(InternalMsg::ClaimDone {
+            attempt: engine.claim_attempt,
+            result: Err(CaptureFailure::BusyOutsideProtocol),
+        });
+
+        let events = sink.take();
+        assert!(events.iter().any(|e| matches!(
+            e,
+            EngineEvent::OpenFailed { req_gen: 7, err: OpenError::Capture(CaptureFailure::BusyOutsideProtocol) }
+        )));
+        assert!(engine.deferred_open.is_none());
+    }
+
+    /// AM1.0-B24 (ТЗ-20, §6.18 «Смена режима»): `EngineCmd::Stop`, пришедший
+    /// пока отложенный `Open` ждёт итога захвата, забывает его —
+    /// `stop_playback` очищает `self.deferred_open`. Пришедший позже
+    /// `ClaimDone` с отказом захвата уже не доигрывает `OpenFailed` для
+    /// этого `req_gen`.
+    #[test]
+    fn open_while_acquiring_then_stop_drops_deferred_open_before_claim_done() {
+        let sink = VecSink::new();
+        let deps = fake_deps(Box::new(sink.clone()), Arc::new(StdSpawner));
+        let mut engine = Engine::new(deps, BackendCaps::current());
+        engine.active_mode = ModeKind::Strict;
+        engine.lock = LockState::Acquiring { started: engine.deps.clock.now() };
+
+        engine.handle(EngineCmd::Open { req_gen: 3, path: Arc::from(Path::new("/music/a.flac")), start_secs: 0.0, autoplay: true });
+        assert!(engine.deferred_open.is_some());
+
+        engine.handle(EngineCmd::Stop);
+        assert!(engine.deferred_open.is_none());
+        sink.take();
+
+        engine.handle_internal(InternalMsg::ClaimDone {
+            attempt: engine.claim_attempt,
+            result: Err(CaptureFailure::BusyOutsideProtocol),
+        });
+
+        let events = sink.take();
+        assert!(!events.iter().any(|e| matches!(e, EngineEvent::OpenFailed { req_gen: 3, .. })));
+    }
+
+    /// AM1.0-B24 (ТЗ-20, §6.18 «Смена режима»): `Open`, отложенный на
+    /// `Acquiring`, доигрывается успешным `ClaimDone(Ok(claim))` — замок
+    /// переходит в `Held`, отложенный запрос заменяет переоткрытие точки
+    /// повторного захвата и открывается тем же `req_gen` (`Opened`).
+    #[test]
+    fn open_while_acquiring_then_claim_done_ok_opens_deferred_request() {
+        let sink = VecSink::new();
+        let dev: HwDeviceId = "hw:CARD=RU3,DEV=0".parse().expect("hw id");
+        let backend = FakeExclusiveBackend::new().with_configure(Ok((
+            crate::audio::backend::DriverFormat::Confirmed(crate::audio::format::StreamFormat {
+                rate: SampleRate::new(44_100).expect("rate"),
+                sample: crate::audio::format::OutputSampleFormat::S32Le,
+                channels: std::num::NonZeroU8::new(2).expect("channels"),
+            }),
+            Some(crate::audio::backend::DeviceBufferActual { period_frames: 256, buffer_frames: 1024 }),
+        )));
+        let float_format = SourceFormat {
+            container: Container::Wav,
+            codec: Codec::Wav,
+            lossy: false,
+            rate: SampleRate::new(44_100).expect("rate"),
+            layout: ChannelLayout::stereo(),
+            kind: SourceKind::FloatPcm { double: false },
+        };
+        let mem = MemStore::new();
+        let deps = EngineDeps {
+            shared: Box::new(FakeSharedBackend::with_devices(Vec::new())),
+            exclusive: Some(Box::new(backend)),
+            server_probe: Box::new(FakeServerProbe::desktop()),
+            watcher: Box::new(FakeDeviceWatcher::new()),
+            sources: Arc::new(FakeSource::with_format(float_format)),
+            clock: Box::new(MonotonicClock::new()),
+            store: Box::new(FsPersistStore::new(Arc::new(mem.clone()), Box::new(mem.clone()), PathBuf::from("/cfg"))),
+            events: Box::new(sink.clone()),
+            spawner: Arc::new(StdSpawner),
+            caps: BackendCaps::current(),
+            os_probe: Box::new(FakeOsProbe::new(OsStage::Unknown)),
+            rt: Arc::new(FakeRtRequester::new(None)),
+        };
+        let mut engine = Engine::new(deps, BackendCaps::current());
+        engine.active_mode = ModeKind::Optimal;
+        engine.mode_settings.optimal.device = Some(dev.clone());
+        engine.lock = LockState::Acquiring { started: engine.deps.clock.now() };
+
+        engine.handle(EngineCmd::Open { req_gen: 9, path: Arc::from(Path::new("/music/a.flac")), start_secs: 0.0, autoplay: true });
+        assert!(engine.deferred_open.is_some());
+        sink.take();
+
+        engine.handle_internal(InternalMsg::ClaimDone {
+            attempt: engine.claim_attempt,
+            result: Ok(DeviceClaim::new(
+                None,
+                crate::audio::reservation::Reservation::UnavailableNoServer,
+                crate::audio::backend::exclusive::ClaimInfo { device: dev },
+            )),
+        });
+
+        let events = sink.take();
+        assert!(events.iter().any(|e| matches!(e, EngineEvent::Opened { req_gen: 9, .. })));
+        assert!(engine.deferred_open.is_none());
+    }
+
     /// §6.19 (ТЗ-120, ТЗ-121): `UserOpen` из `Held` останавливает
     /// воспроизведение, освобождает захват и забывает точку повторного
     /// захвата — `Lock(Open)`, `claim` и `reacquire` пустые.

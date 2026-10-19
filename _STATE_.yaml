@@ -16,15 +16,15 @@ steps:
     done: true
   - id: 2
     description: "Тесты отложенного Open (src/engine/run.rs, ≤3 теста): Open в Acquiring не даёт OpenFailed, после ClaimDone(Ok) — Opened с тем же req_gen; ClaimDone(Err) — OpenFailed(Capture) с req_gen отложенного; Stop в Acquiring сбрасывает отложенный Open. Проверка: cargo test engine::"
-    done: false
+    done: true
   - id: 3
     description: "Устаревший pending_mode_reopen (src/app/playback_manager.rs, ТЗ-20): play_track сбрасывает pending_mode_reopen = None — иначе после неудачного переоткрытия на смене режима следующий Open (Стоп→Play) делает Seek на старую позицию (наблюдение B24). Проверка: cargo check"
     done: false
   - id: 4
     description: "ЧЕКПОИНТ: полный cargo test + cargo clippy (0 новых предупреждений в файлах вайтлиста). Проверка: оба зелёные"
     done: false
-current_step: 2
-next_action: "Субагент code-writer: шаг 2 — тесты отложенного Open в src/engine/run.rs"
+current_step: 3
+next_action: "Шаг 3 — play_track сбрасывает pending_mode_reopen (src/app/playback_manager.rs)"
 fail_counter: 0
 fail_counter_max: 3
 failed_attempts: []
