@@ -1830,7 +1830,13 @@ impl Engine {
                         self.deps.events.emit(EngineEvent::Ended { session: *req_gen });
                     }
                 }
-                self.exclusive_path = None;
+                // Путь закрывается, а не дропается: захват возвращается в
+                // `self.claim`, замок остаётся `Held` и следующий `Open`
+                // (переход на следующий трек) находит устройство (§6.19,
+                // AM1.0-B17) — как в `stop_playback`.
+                if let Some(p) = self.exclusive_path.take() {
+                    self.claim = Some(p.close());
+                }
                 self.exclusive_signal = None;
                 self.active_path = None;
             }
@@ -3561,6 +3567,8 @@ mod tests {
         let events = sink.take();
         assert!(events.iter().any(|e| matches!(e, EngineEvent::Ended { session: 1 })));
         assert!(engine.exclusive_path.is_none());
+        // §6.19, AM1.0-B17: захват вернулся — следующий трек откроется.
+        assert!(engine.claim.is_some(), "claim must be returned after track end");
     }
 
     /// §6.18 п. 6, ТЗ-113 (шаг 47): `open_exclusive` открывает источник через

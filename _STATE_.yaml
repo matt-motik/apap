@@ -2,15 +2,22 @@
 # _STATE_.md генерируется из этого файла — не редактировать его руками.
 # Редактируйте этот файл, затем: python tools/state_tool.py render
 
-status: done
+status: in_progress
 task:
-  roadmap_id: null
-  title: null
-whitelist: []
-dod: null
-steps: []
+  roadmap_id: AM1.0-B17
+  title: "Строгий: конец трека/двойной клик — транспорт мёртв или потеря устройства"
+whitelist:
+  - src/engine/run.rs
+  - ROADMAP.md
+  - _STATE_.yaml
+  - _STATE_.md
+dod: "cargo test engine зелёный; после конца трека в Эксклюзивном пути claim возвращён (§6.19)"
+steps:
+  - id: 1
+    description: "poll_session, ветка ended: закрыть ExclusivePath через close() и вернуть claim (как stop_playback), тест poll_session_exclusive_path_ended_* проверяет claim.is_some() (§6.19, ТЗ-44). Проверка: cargo test engine зелёный"
+    done: true
 current_step: null
-next_action: null
+next_action: "Закрытие: ROADMAP ✅, ручная проверка за пользователем"
 fail_counter: 0
 fail_counter_max: 3
 failed_attempts: []
