@@ -19,12 +19,12 @@ steps:
     done: true
   - id: 3
     description: "Устаревший pending_mode_reopen (src/app/playback_manager.rs, ТЗ-20): play_track сбрасывает pending_mode_reopen = None — иначе после неудачного переоткрытия на смене режима следующий Open (Стоп→Play) делает Seek на старую позицию (наблюдение B24). Проверка: cargo check"
-    done: false
+    done: true
   - id: 4
     description: "ЧЕКПОИНТ: полный cargo test + cargo clippy (0 новых предупреждений в файлах вайтлиста). Проверка: оба зелёные"
     done: false
-current_step: 3
-next_action: "Шаг 3 — play_track сбрасывает pending_mode_reopen (src/app/playback_manager.rs)"
+current_step: 4
+next_action: "ЧЕКПОИНТ: полный cargo test + cargo clippy (test-runner)"
 fail_counter: 0
 fail_counter_max: 3
 failed_attempts: []
