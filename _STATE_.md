@@ -62,6 +62,7 @@
   - ROADMAP.md
   - _STATE_.yaml
   - _STATE_.md
+  - opencode.json
 - **Критерий успеха (Definition of Done):** cargo build/test/clippy зелёные без новых варнингов; Оптимальный/Строгий играют через собственный ALSA-вывод (AlsaExclusiveBackend) с замком lock_step и авто-выбором hw-карты системного sink (ADR-24); тесты §7.2 строки С6 зелёные; старый cpal-Exclusive путь удалён; закрыты AM1.0-B1, B2, B8, B9, B13 и отложенный тест AM1.0-8.4 шаг 14; B10 — закрыт или остаток перерегистрирован
 
 ## Итерационный трекер

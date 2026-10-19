@@ -1,0 +1,10 @@
+{
+  "$schema": "https://opencode.ai/config.json",
+  "permission": {
+    "read": { "*": "allow", "*docs/_canceled/*": "deny", "*_DRAFTS_/*": "deny" },
+    "glob": { "*": "allow", "*docs/_canceled*": "deny", "*_DRAFTS_*": "deny" },
+    "grep": { "*": "allow", "*docs/_canceled*": "deny", "*_DRAFTS_*": "deny" },
+    "list": { "*": "allow", "*docs/_canceled*": "deny", "*_DRAFTS_*": "deny" },
+    "edit": { "*": "allow", "*docs/_canceled/*": "deny", "*_DRAFTS_/*": "deny", "*examples/*": "deny" }
+  }
+}
