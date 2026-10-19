@@ -90,10 +90,6 @@ pub struct StreamDesc {
     pub rate: u32,
     pub channels: u16,
     pub format: &'static str,
-    pub exclusive: bool,
-    /// Exclusive был запрошен (политикой), но не выдан (серверный узел
-    /// или устройство отклонило поток) — см. `stream_desc.exclusive_fallback`.
-    pub exclusive_fallback: bool,
     pub resampled: bool,
     pub source_rate: u32,
     pub source_channels: usize,
@@ -297,10 +293,9 @@ impl Player {
         self.shared = None;
     }
 
-    /// Release the cpal stream and the worker while keeping the shared
-    /// transport state (position/flags) so the UI does not reset. The ALSA
-    /// `hw:*` PCM is snd_pcm_close'd on Drop → the node returns to the
-    /// PipeWire/wireplumber graph (V5.1-B5).
+    /// Release the cpal stream and the worker, keeping the shared transport
+    /// state (position/flags) so the UI does not reset. Used on mode switch
+    /// (§6.18); the legacy `Player` is shared-only.
     pub fn release_engine(&mut self) {
         self.stream = None;
         self.worker = None;
@@ -449,12 +444,12 @@ impl Player {
         build_output_stream_raw(spec, render, None)
     }
 
-    /// Собрать поток и запустить `apap-decode`. Отказ сборки Exclusive-потока
-    /// возвращается как ошибка: отката в Shared нет ни при каком
-    /// `ExclusiveMode` (ТЗ-119, ТЗ-122; DoP — ТЗ-1). Поток возвращается после
-    /// стартового заполнения ring (§6.18). Резервирование карты и повторы
-    /// `EBUSY` (ТЗ-48, ТЗ-122) ведёт `AlsaExclusiveBackend` (§8 С6) — старый
-    /// cpal-путь `hw:` резервирования не делает.
+    /// Собрать поток и запустить `apap-decode`. Старый путь — только Shared
+    /// (Совместимый режим); отката нет, так как exclusive-ветки больше нет
+    /// (§8 С6). Поток возвращается после стартового заполнения ring (§6.18).
+    /// Резервирование карты и повторы `EBUSY` (ТЗ-48, ТЗ-122) ведёт
+    /// `AlsaExclusiveBackend` в новом пути — старый cpal-путь `hw:`
+    /// резервирования не делает.
     fn start_engine(
         &mut self,
         feed: EngineFeed,
@@ -610,8 +605,6 @@ impl Player {
             rate: out_rate,
             channels: out_ch as u16,
             format: format_name(&spec.sample_format),
-            exclusive: false,
-            exclusive_fallback: false,
             resampled,
             source_rate: src_rate,
             source_channels: src_ch,
@@ -714,8 +707,6 @@ impl Player {
             rate: dop_rate,
             channels: src_ch as u16,
             format: format_name(&spec.sample_format),
-            exclusive: false,
-            exclusive_fallback: false,
             resampled: false,
             source_rate: dop_rate,
             source_channels: src_ch,

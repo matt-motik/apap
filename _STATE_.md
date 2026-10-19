@@ -158,13 +158,13 @@
 - [x] Шаг 89: Шаг 89: Удаление ExclusiveGate-пути в player.rs и файла reservation/gate.rs (замещён AlsaExclusiveBackend) (§8 С6). Проверка: полный cargo test
 - [x] Шаг 90: Шаг 90: Удаление освобождения эксклюзива при скрытии в трей (обработка TrayCmd::ShowHide в app/mod.rs; пункт меню трея остаётся; фактически снято на шаге 86 — проверить и закрыть без кода) (§8 С6, ТЗ-43). Проверка: полный cargo test
 - [x] Шаг 91: Шаг 91: Удаление в output.rs: cpal-путь Exclusive (ExclusiveMode, проба hw: в select_output_for, EBUSY-повтор) и shared-downgrade R-11 (§8 С6). Проверка: полный cargo test
-- [>] **Шаг 92: Шаг 92: AM1.0-B10: удалить StreamDesc, FallbackReason, Opened.stream_format и мосты legacy_path, а также settings::ExclusiveMode (после шага 91 не используется) и StreamDesc.exclusive/exclusive_fallback (всегда false). Если Совместимый всё ещё идёт через legacy Player и типы нужны ему — выполнить частично, остаток перерегистрировать в B10 с указанием этапа (§8). Проверка: полный cargo test**
-- [ ] Шаг 93: Шаг 93: ФИНАЛ: cargo build/test/clippy зелёные; общие условия §8 (Совместимый играет, «Bit-perfect» только при ТЗ-52); ручные проверки в заметку плана: замок (ТЗ-1/2/48/118…122, AM1.0-8.1), B1 — возврат устройства в PipeWire после освобождения, B2 — текст «занято <владелец>» при чужом захвате
+- [x] Шаг 92: Шаг 92: AM1.0-B10: удалить StreamDesc, FallbackReason, Opened.stream_format и мосты legacy_path, а также settings::ExclusiveMode (после шага 91 не используется) и StreamDesc.exclusive/exclusive_fallback (всегда false). Если Совместимый всё ещё идёт через legacy Player и типы нужны ему — выполнить частично, остаток перерегистрировать в B10 с указанием этапа (§8). Проверка: полный cargo test. ИТОГ: частично — удалены settings::ExclusiveMode, StreamDesc.exclusive/exclusive_fallback, capture_message (мёртвый после шага 89), устаревший doc release_engine; StreamDesc/FallbackReason/Opened.stream_format/legacy_path нужны легаси Player Совместимого режима — остаток B10 перенесён на С7/С11
+- [>] **Шаг 93: Шаг 93: ФИНАЛ: cargo build/test/clippy зелёные; общие условия §8 (Совместимый играет, «Bit-perfect» только при ТЗ-52); ручные проверки в заметку плана: замок (ТЗ-1/2/48/118…122, AM1.0-8.1), B1 — возврат устройства в PipeWire после освобождения, B2 — текст «занято <владелец>» при чужом захвате**
 
 Легенда: [x] сделано · [>] текущий шаг · [ ] не начато
 
-- **Текущий шаг (current_step):** Шаг 92
-- **Следующий ход:** Шаг 92: AM1.0-B10: удалить StreamDesc, FallbackReason, Opened.stream_format, мосты legacy_path и settings::ExclusiveMode (§8). Проверка: полный cargo test.
+- **Текущий шаг (current_step):** Шаг 93
+- **Следующий ход:** Шаг 93: ФИНАЛ AM1.0-8.6: cargo build/test/clippy, общие условия §8, ручные проверки в заметку плана, закрыть этап в ROADMAP.
 - **Счетчик безуспешных компиляций:** 0/3
 - **Состояние:** in_progress
 
