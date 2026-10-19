@@ -241,8 +241,8 @@ pub struct Player {
     pub last_error: Option<String>,
     /// Current track info (duration/rate), kept for `snapshot`.
     info: Option<TrackInfo>,
-    /// Path of the currently loaded track: lets `play()`/`toggle()` rebuild the
-    /// engine after an idle exclusive stream was released (V5.1-B5).
+    /// Path of the currently loaded track: lets `reopen_current` rebuild the
+    /// stream after a parameter change (bit-perfect/dither, ТЗ-8).
     current_path: Option<PathBuf>,
     preferred_device: Option<String>,
     /// Resampling algorithm used by every new stream (ТЗ 5.1 §8.3).
@@ -418,12 +418,6 @@ impl Player {
         self.shared = None;
     }
 
-    /// True when the current stream holds an exclusive raw-`hw:` ALSA node
-    /// (the only case releasing it is required to unblock the system mixer).
-    fn exclusive_held(desc: Option<&StreamDesc>) -> bool {
-        desc.map(|d| d.exclusive).unwrap_or(false)
-    }
-
     /// Release the cpal stream and the worker while keeping the shared
     /// transport state (position/flags) so the UI does not reset. The ALSA
     /// `hw:*` PCM is snd_pcm_close'd on Drop → the node returns to the
@@ -439,15 +433,6 @@ impl Player {
         match self.gate.as_mut() {
             Some(gate) => gate.release(&mut self.stream),
             None => self.stream = None,
-        }
-    }
-
-    /// Idle hook: drop the engine only when an exclusive raw node was open.
-    /// Shared (pipeline) devices are left running to avoid churning the mixer
-    /// on every stop.
-    pub fn release_if_exclusive(&mut self) {
-        if Self::exclusive_held(self.stream_desc.as_ref()) || self.pending.is_some() {
-            self.release_engine();
         }
     }
 
@@ -980,16 +965,6 @@ impl Player {
         Ok(info)
     }
 
-    /// Rebuild a released engine (idle exclusive stream, V5.1-B6): reopen the
-    /// saved current track at `secs` (0 = start) so `play()`/`toggle()` can
-    /// resume. Сессия начинается с этой позиции (§6.18 `start_frame`).
-    fn reopen_and_seek(&mut self, secs: f64) -> Result<(), String> {
-        let Some(path) = self.current_path.clone() else {
-            return Err("no track loaded".into());
-        };
-        self.open_at(&path, secs).map(|_| ())
-    }
-
     /// Переоткрыть текущий трек с текущей позиции, сохранив play/pause:
     /// режим усиления и дизеринг фиксируются при сборке рендера (ОВС-18, ТЗ-8).
     fn reopen_current(&mut self) {
@@ -998,7 +973,11 @@ impl Player {
         }
         let was_playing = self.is_playing();
         let pos = if self.at_end() { 0.0 } else { self.resume_pos_secs() };
-        if let Err(e) = self.reopen_and_seek(pos) {
+        let Some(path) = self.current_path.clone() else {
+            self.last_error = Some("no track loaded".into());
+            return;
+        };
+        if let Err(e) = self.open_at(&path, pos) {
             self.last_error = Some(e);
             return;
         }
@@ -1007,8 +986,8 @@ impl Player {
         }
     }
 
-    /// Current playback position in seconds (used to restore resume position
-    /// after an idle exclusive engine was released).
+    /// Current playback position in seconds (used to restore the resume
+    /// position when reopening the track with new parameters).
     fn resume_pos_secs(&self) -> f64 {
         self.shared
             .as_ref()
@@ -1023,25 +1002,11 @@ impl Player {
             .is_some_and(|s| s.ended.load(Ordering::Acquire) && !s.seek_pending())
     }
 
-    /// Start/resume playback. A finished track is rewound and replayed. When
-    /// the engine was released (the exclusive node is freed on stop/pause,
-    /// V5.1-B6) the current track is reopened at the saved position before
-    /// the transport flag is raised.
+    /// Start/resume playback. A finished track is rewound and replayed.
     pub fn play(&mut self) {
         if let Some(pending) = self.pending.as_mut() {
             pending.play = true;
             return;
-        }
-        if self.stream.is_none() && self.current_path.is_some() {
-            let target = if self.at_end() { 0.0 } else { self.resume_pos_secs() };
-            if let Err(e) = self.reopen_and_seek(target) {
-                self.last_error = Some(e);
-                return;
-            }
-            if let Some(pending) = self.pending.as_mut() {
-                pending.play = true;
-                return;
-            }
         }
         let at_end = self.at_end();
         let Some(shared) = self.shared.as_ref() else {
@@ -1062,11 +1027,9 @@ impl Player {
         self.shared.is_some()
     }
 
-    /// Pause/resume the current track (rewinds if it had finished). Pausing
-    /// releases an exclusive raw-`hw:` node immediately so the device returns
-    /// to the system mixer; resuming rebuilds the engine and restores the
-    /// playback position (V5.1-B6). A fresh reopen also re-broadcasts the DoP
-    /// marker preludes, which a plain pause/resume of the same stream loses.
+    /// Pause/resume the current track (rewinds if it had finished). Пауза
+    /// гасит `SessionShared::playing` (колбэк пишет тишину); поток вывода не
+    /// освобождается (ТЗ-43).
     pub fn toggle(&mut self) {
         if let Some(pending) = self.pending.as_mut() {
             pending.play = !pending.play;
@@ -1076,7 +1039,6 @@ impl Player {
             if let Some(shared) = &self.shared {
                 shared.playing.store(false, Ordering::Release);
             }
-            self.release_if_exclusive();
         } else {
             self.play();
         }
@@ -1084,10 +1046,6 @@ impl Player {
 
     /// Stop playback and rewind to the start (фаза 1 seek, §6.16).
     pub fn stop(&mut self) {
-        // Free an exclusive raw-`hw:` node: while the cpal stream is open the
-        // ALSA PCM stays exclusively locked and disappears from the
-        // PipeWire/wireplumber mixer (V5.1-B5).
-        self.release_if_exclusive();
         let Some(shared) = self.shared.as_ref() else {
             return;
         };
@@ -1465,26 +1423,6 @@ mod tests {
         Some(std::path::PathBuf::from(p))
     }
 
-    /// Доступен ли на текущем устройстве по умолчанию exclusive (raw-нода).
-    /// `Strict`-запрос успешен с `exclusive == true` только на hardware-узле.
-    fn default_exclusive_capable() -> bool {
-        let req = OutputRequest {
-            track_rate: 44_100,
-            track_channels: 2,
-            preferred_device: None,
-            exclusive: ExclusiveMode::Strict,
-            fallback: FallbackPolicy::Nearest,
-            resampler: ResamplerMode::Auto,
-            fallback_rate: FallbackRatePolicy::Nearest,
-            clock_family: ClockFamily::Auto,
-            fixed_rate: 0,
-        };
-        match select_output_for(&req) {
-            Ok(spec) => spec.exclusive,
-            Err(_) => false,
-        }
-    }
-
     /// Есть ли на текущем устройстве по умолчанию слот DoP для конкретного
     /// трека (контейнерная частота = DSD rate × 4).
     fn dop_slot_available_for(path: &std::path::Path) -> bool {
@@ -1523,97 +1461,6 @@ mod tests {
         assert!(p.open(&path).is_err());
         let remaining = p.test_hooks.build_failures.load(Ordering::Relaxed);
         assert!(999 - remaining <= 1, "Strict must not retry the build");
-    }
-
-    /// Решение «освободить движок» принимается строго по флагу exclusive
-    /// (V5.1-B5): shared-потоки и пустой descriptor не трогаем.
-    #[test]
-    fn release_decision_uses_exclusive_flag() {
-        let shared_desc = StreamDesc {
-            exclusive: false,
-            ..Default::default()
-        };
-        assert!(!Player::exclusive_held(Some(&shared_desc)));
-        let excl_desc = StreamDesc {
-            exclusive: true,
-            ..Default::default()
-        };
-        assert!(Player::exclusive_held(Some(&excl_desc)));
-        assert!(!Player::exclusive_held(None));
-    }
-
-    /// `stop()` на exclusive-узле дропает stream+worker и возвращает узел
-    /// системному микшеру, сохраняя transport-состояние; `play()`/`toggle()`
-    /// переоткрывают движок по сохранённому пути (V5.1-B5). Требует
-    /// exclusive-capable устройство по умолчанию и env `PCM_PATH`.
-    #[test]
-    fn stop_releases_exclusive_engine_and_play_reopens() {
-        let Some(path) = env_pcm_path() else {
-            return;
-        };
-        if !default_exclusive_capable() {
-            eprintln!("skipped: default device is not exclusive-capable");
-            return;
-        }
-        let mut p = Player::test_new();
-        p.set_exclusive_mode(ExclusiveMode::Strict);
-        assert!(p.open(&path).is_ok());
-        let desc = p.stream_desc().unwrap();
-        assert!(desc.exclusive, "this test needs an exclusive stream");
-        assert!(p.stream.is_some());
-        assert_eq!(p.current_path.as_deref(), Some(path.as_path()));
-
-        p.stop();
-        assert!(p.stream.is_none(), "exclusive stream must be released on stop");
-        assert!(p.worker.is_none(), "worker must be released on stop");
-        assert!(p.has_decoder(), "transport state kept for the loaded track");
-        assert_eq!(p.current_path.as_deref(), Some(path.as_path()));
-        assert!(!p.is_playing());
-
-        p.play();
-        assert!(p.stream.is_some(), "play() must rebuild the engine");
-        assert!(p.is_playing());
-
-        p.stop();
-        assert!(p.stream.is_none());
-    }
-
-    /// Пауза на exclusive-узле освобождает движок (устройство возвращается в
-    /// системный микшер немедленно); ресюм переоткрывает поток и
-    /// восстанавливает позицию воспроизведения (V5.1-B6). Требует
-    /// exclusive-capable устройство по умолчанию и env `PCM_PATH`.
-    #[test]
-    fn pause_releases_exclusive_and_resume_restores_position() {
-        let Some(path) = env_pcm_path() else {
-            return;
-        };
-        if !default_exclusive_capable() {
-            eprintln!("skipped: default device is not exclusive-capable");
-            return;
-        }
-        let mut p = Player::test_new();
-        p.set_exclusive_mode(ExclusiveMode::Strict);
-        assert!(p.open(&path).is_ok());
-        assert!(p.stream_desc().unwrap().exclusive);
-        p.play();
-        assert!(p.is_playing());
-        p.seek(10.0);
-
-        p.toggle();
-        assert!(!p.is_playing());
-        assert!(p.stream.is_none(), "pause must release the exclusive engine");
-        assert!(p.has_decoder(), "transport state kept for the loaded track");
-
-        p.toggle();
-        assert!(p.is_playing());
-        assert!(p.stream.is_some(), "resume must rebuild the engine");
-        let (_, pos, _) = p.snapshot();
-        assert!(
-            (pos - 10.0).abs() < 1.0,
-            "resume must restore the paused position, pos = {pos}"
-        );
-
-        p.stop();
     }
 
     /// ТЗ-1, И-Т3 (в объёме старого пути): DoP-поток не строится на выходе,

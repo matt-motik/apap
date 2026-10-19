@@ -325,7 +325,7 @@ steps:
     done: true
   - id: 87
     description: "Шаг 87: Удаление в player.rs: release_if_exclusive, reopen_and_seek и их вызовы в stop()/toggle()/play() (V5.1-B5, V5.1-B6, ТЗ-43). Проверка: полный cargo test"
-    done: false
+    done: true
   - id: 88
     description: "Шаг 88: Удаление ExclusiveGate-пути в player.rs и файла reservation/gate.rs (замещён AlsaExclusiveBackend) (§8 С6). Проверка: полный cargo test"
     done: false
@@ -341,8 +341,8 @@ steps:
   - id: 92
     description: "Шаг 92: ФИНАЛ: cargo build/test/clippy зелёные; общие условия §8 (Совместимый играет, «Bit-perfect» только при ТЗ-52); ручные проверки в заметку плана: замок (ТЗ-1/2/48/118…122, AM1.0-8.1), B1 — возврат устройства в PipeWire после освобождения, B2 — текст «занято <владелец>» при чужом захвате"
     done: false
-current_step: 87
-next_action: "Шаг 87: удаление в player.rs release_if_exclusive, reopen_and_seek и их вызовов в stop()/toggle()/play() (V5.1-B5, V5.1-B6, ТЗ-43). Проверка: полный cargo test."
+current_step: 88
+next_action: "Шаг 88: Удаление ExclusiveGate-пути в player.rs и файла reservation/gate.rs (замещён AlsaExclusiveBackend) (§8 С6). Проверка: полный cargo test."
 fail_counter: 0
 fail_counter_max: 3
 failed_attempts: []
