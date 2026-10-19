@@ -17,6 +17,7 @@ whitelist:
   - src/audio/backend/exclusive.rs
   - src/audio/backend/alsa.rs
   - src/audio/backend/alsa_out.rs
+  - src/audio/backend/shared.rs
   - src/audio/rt.rs
   - src/journal.rs
   - src/audio/reservation/mod.rs
@@ -337,15 +338,15 @@ steps:
     done: true
   - id: 91
     description: "Шаг 91: Удаление в output.rs: cpal-путь Exclusive (ExclusiveMode, проба hw: в select_output_for, EBUSY-повтор) и shared-downgrade R-11 (§8 С6). Проверка: полный cargo test"
-    done: false
+    done: true
   - id: 92
-    description: "Шаг 92: AM1.0-B10: удалить StreamDesc, FallbackReason, Opened.stream_format и мосты legacy_path. Если Совместимый всё ещё идёт через legacy Player и типы нужны ему — выполнить частично, остаток перерегистрировать в B10 с указанием этапа (§8). Проверка: полный cargo test"
+    description: "Шаг 92: AM1.0-B10: удалить StreamDesc, FallbackReason, Opened.stream_format и мосты legacy_path, а также settings::ExclusiveMode (после шага 91 не используется) и StreamDesc.exclusive/exclusive_fallback (всегда false). Если Совместимый всё ещё идёт через legacy Player и типы нужны ему — выполнить частично, остаток перерегистрировать в B10 с указанием этапа (§8). Проверка: полный cargo test"
     done: false
   - id: 93
     description: "Шаг 93: ФИНАЛ: cargo build/test/clippy зелёные; общие условия §8 (Совместимый играет, «Bit-perfect» только при ТЗ-52); ручные проверки в заметку плана: замок (ТЗ-1/2/48/118…122, AM1.0-8.1), B1 — возврат устройства в PipeWire после освобождения, B2 — текст «занято <владелец>» при чужом захвате"
     done: false
-current_step: 91
-next_action: "Шаг 91: Удаление в output.rs: cpal-путь Exclusive (ExclusiveMode, проба hw: в select_output_for, EBUSY-повтор) и shared-downgrade R-11 (§8 С6). Проверка: полный cargo test."
+current_step: 92
+next_action: "Шаг 92: AM1.0-B10: удалить StreamDesc, FallbackReason, Opened.stream_format, мосты legacy_path и settings::ExclusiveMode (§8). Проверка: полный cargo test."
 fail_counter: 0
 fail_counter_max: 3
 failed_attempts: []

@@ -18,7 +18,7 @@ use crate::audio::session_build::src_filter_to_algorithm;
 use crate::engine::messages::LegacyAudio;
 use crate::settings::playback::{CompatibleOpts, Dither, ModeSettings, SharedDeviceChoice};
 use crate::settings::{
-    clamp_ring_buffer_ms, ClockFamily, DsdMode, ExclusiveMode, FallbackPolicy, FallbackRatePolicy,
+    clamp_ring_buffer_ms, ClockFamily, DsdMode, FallbackPolicy, FallbackRatePolicy,
     ResamplerDither, ResamplerMode,
 };
 
@@ -27,7 +27,7 @@ use crate::settings::{
 /// `EngineCmd::SetDevice` (`None` — системный дефолт/без смены устройства).
 ///
 /// Семантика (старые перечисления — только внутренние параметры этого пути,
-/// в файле настроек не представимы): `ExclusiveMode::Off` (shared-путь); DSD
+/// в файле настроек не представимы): путь всегда shared; DSD
 /// конвертируется в PCM (`DsdMode::Pcm`, решение 6 — единственное реализуемое
 /// значение). `fixed_rate: Some(hz)` → `ResamplerMode::Fixed` с этой частотой,
 /// `None` → `ResamplerMode::Auto` (ресемплинг только если native-частота
@@ -64,7 +64,6 @@ fn compatible_legacy_audio(opts: &CompatibleOpts) -> (LegacyAudio, Option<String
         SharedDeviceChoice::Named(id) => Some(id.as_str().to_string()),
     };
     let legacy = LegacyAudio {
-        exclusive_mode: ExclusiveMode::Off,
         fallback_policy: FallbackPolicy::Nearest,
         dsd_mode: DsdMode::Pcm,
         resampler_mode,
@@ -185,7 +184,6 @@ mod tests {
         settings.compatible.device = SharedDeviceChoice::Named(SharedDeviceId::new("hw:CARD=X"));
         settings.compatible.dither = Dither::Off;
         let (legacy, device) = legacy_audio(&settings);
-        assert_eq!(legacy.exclusive_mode, ExclusiveMode::Off);
         assert_eq!(legacy.dsd_mode, DsdMode::Pcm);
         assert_eq!(legacy.resampler_mode, ResamplerMode::Fixed);
         assert_eq!(legacy.fixed_rate, 96_000);

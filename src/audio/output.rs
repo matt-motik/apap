@@ -12,7 +12,7 @@ use crate::audio::render::tpdf::Tpdf;
 use crate::audio::render::RenderCore;
 use crate::audio::session::RingPayload;
 use crate::settings::{
-    ClockFamily, ExclusiveMode, FallbackPolicy, FallbackRatePolicy, ResamplerAlgorithm, ResamplerMode,
+    ClockFamily, FallbackPolicy, FallbackRatePolicy, ResamplerAlgorithm, ResamplerMode,
 };
 
 /// Hard cap on the resampler's buffered source frames (in frames).
@@ -336,10 +336,6 @@ pub struct OutputSpec {
     /// pack DoP markers only on this path; plain PCM on an I32 node uses the
     /// normal PCM conversion instead.
     pub is_dop: bool,
-    /// Whether the stream runs with exclusive access (raw hw node, native
-    /// rate, hardware-preferred format). Filled from [`ChosenOutput::exclusive`]
-    /// by [`select_output_for`]; false for the legacy [`select_output`] path.
-    pub exclusive: bool,
     /// Whether the sample rate required resampling (source != output rate).
     pub resampled: bool,
     /// Source (track) sample rate in Hz.
@@ -367,17 +363,14 @@ pub struct DeviceInfo {
     pub sample_format: SampleFormat,
     pub buffer_size: SupportedBufferSize,
     pub supported: Vec<RateRange>,
-    /// Категория устройства (ТЗ A3.0 §3.1): фильтр «только железо» и
-    /// exclusive-политики опираются на неё.
+    /// Категория устройства (ТЗ A3.0 §3.1): фильтр «только железо» опирается
+    /// на неё.
     pub category: DeviceCategory,
     /// Плоский сортированный список семпловых частот (без дубликатов) для UI
     /// и проверок `supports_rate` / семейств клока.
     pub supported_rates: Vec<u32>,
     /// Поддерживаемые sample-форматы (порядок первого появления, без дублей).
     pub supported_formats: Vec<SampleFormat>,
-    /// Может ли устройство (теоретически) открыть монопольный raw-поток:
-    /// это raw-нода `hw:*` и она же классифицирована как Hardware.
-    pub exclusive_capable: bool,
 }
 
 /// Короткая метка sample-формата для UI («I32», «F32», …). Верхний регистр —
@@ -543,22 +536,18 @@ pub struct ChosenOutput {
     pub device_name: String,
     pub config: StreamConfig,
     pub sample_format: SampleFormat,
-    /// Режим доступа к устройству (ТЗ A3.0 §3.4, шаг 2): `true` — raw-поток
-    /// без ОС-микшера. Влияет на выбор sample-формата (шаг 6).
-    pub exclusive: bool,
     /// Выходной rate отличается от native-рейта источника.
     pub resampled: bool,
     /// Параметры источника (для bp-report / валидации §5).
     pub source_rate: u32,
     pub source_channels: usize,
-    /// Причина деградации относительно «идеала» (native + exclusive), если
+    /// Причина деградации относительно «идеала» (native rate), если
     /// какой-то из шагов §3.4 отклонился.
     pub fallback: Option<FallbackReason>,
 }
 
 /// Причина, по которой выбранный поток деградировал относительно «идеала»
-/// (native rate + exclusive) — заполняется в [`choose_output`], показывается в
-/// bp-report и валидации (ТЗ A3.0 §3.3).
+/// (native rate) — заполняется в [`choose_output`] (ТЗ A3.0 §3.3).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum FallbackReason {
     /// Запрошенный rate (или fixed_rate) недоступен — выбран другой.
@@ -570,8 +559,6 @@ pub enum FallbackReason {
     },
     /// Число каналов источника не поддерживается напрямую — downmix.
     ChannelsUnsupported { requested: usize, chosen: u16 },
-    /// Запрошен exclusive, но устройство его не даёт.
-    ExclusiveUnavailable,
     /// Ресемплинг выполнен, потому что запрошен режим Fixed.
     ResamplerForced { requested: u32 },
     /// Запрошенное семейство клока пусто на устройстве — взят дефолт.
@@ -589,8 +576,6 @@ pub struct OutputRequest {
     /// `apply_legacy_fields` заполняет из `LegacyAudio` активного режима
     /// (`legacy_audio()`, §8 С4) — либо `None`.
     pub preferred_device: Option<String>,
-    /// Режим exclusive-доступа (ТЗ A3.0 §2.2).
-    pub exclusive: ExclusiveMode,
     /// Политика фолбека по параметрам трека (ТЗ A3.0 §2.2).
     pub fallback: FallbackPolicy,
     /// Режим ресемплера (ТЗ A3.0 §2.2).
@@ -688,8 +673,6 @@ impl AudioHost for CpalHost {
                 let category = classify_device(&id, &name);
                 let rates = expand_supported_rates(&supported);
                 let formats = dedup_formats(&supported_formats);
-                let exclusive_capable =
-                    is_raw_hardware_id(&id) && category == DeviceCategory::Hardware;
                 out.push(DeviceInfo {
                     id,
                     name,
@@ -701,7 +684,6 @@ impl AudioHost for CpalHost {
                     category,
                     supported_rates: rates,
                     supported_formats: formats,
-                    exclusive_capable,
                 });
             }
         }
@@ -730,7 +712,7 @@ fn is_raw_hardware_id(id: &str) -> bool {
 }
 
 /// Категория устройства вывода (ТЗ A3.0 §3.1) — используется для фильтрации
-/// списка («только железо»), пометки capabilities и решения об exclusive.
+/// списка («только железо») и пометки capabilities.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum DeviceCategory {
     /// Реальная нода `hw:*` (raw-железо без прослойки-ресемплера).
@@ -925,9 +907,9 @@ fn nearest_rate_at_least(device: &DeviceInfo, requested: u32) -> Option<u32> {
 /// Decide which device/config to use for the given track parameters.
 ///
 /// Pure selection (ТЗ A3.0 §3.4): no audio backend is touched, so it can be
-/// tested with a mock. Follows the policy chain — exclusive, channels, sample
-/// rate (Auto/Native/Fixed + fallback policies), sample format, buffer size —
-/// and reports each degradation step in [`ChosenOutput::fallback`].
+/// tested with a mock. Follows the policy chain — channels, sample rate
+/// (Auto/Native/Fixed + fallback policies), sample format, buffer size — and
+/// reports each degradation step in [`ChosenOutput::fallback`].
 pub fn choose_output(
     devices: &[DeviceInfo],
     default_name: Option<&str>,
@@ -948,20 +930,6 @@ pub fn choose_output(
     let track_rate = req.track_rate;
     let track_channels = req.track_channels;
     let mut fallback: Option<FallbackReason> = None;
-
-    // §3.4 шаг 2: exclusive-доступ.
-    let exclusive = match req.exclusive {
-        ExclusiveMode::Off => false,
-        ExclusiveMode::Auto if !device.exclusive_capable => {
-            fallback = Some(FallbackReason::ExclusiveUnavailable);
-            false
-        }
-        ExclusiveMode::Auto => true,
-        ExclusiveMode::Strict if !device.exclusive_capable => {
-            return Err(String::from("Exclusive mode unavailable on this device"));
-        }
-        ExclusiveMode::Strict => true,
-    };
 
     // §3.4 шаг 3: каналы. Fail — строгое совпадение (устройство обязано
     // потянуть запрошенное число); иначе clamp в 1..=device.channels.
@@ -1108,14 +1076,9 @@ pub fn choose_output(
         }
     }
 
-    // §3.4 шаг 6: sample-формат. Exclusive → строгий приоритет I32→I24→I16→F32;
-    // shared → F32 (совместимо с ОС-микшером), резерв — дефолт устройства.
-    let sample_format = if exclusive {
-        [SampleFormat::I32, SampleFormat::I24, SampleFormat::I16, SampleFormat::F32]
-            .into_iter()
-            .find(|f| device.supports_format(*f))
-            .unwrap_or(device.sample_format)
-    } else if device.supports_format(SampleFormat::F32) {
+    // §3.4 шаг 6: sample-формат. Shared-путь говорит с ОС-микшером, поэтому
+    // предпочитается F32; резерв — формат устройства по умолчанию.
+    let sample_format = if device.supports_format(SampleFormat::F32) {
         SampleFormat::F32
     } else {
         device.sample_format
@@ -1123,7 +1086,7 @@ pub fn choose_output(
 
     let resampled = out_rate != track_rate;
     // Приоритет причины: специфичная rate-причина > более ранний фолбек
-    // (exclusive/каналы) > форсированный ресемплинг в режиме Fixed.
+    // (каналы) > форсированный ресемплинг в режиме Fixed.
     let fallback = if let Some(r) = rate_reason {
         Some(r)
     } else if let Some(f) = fallback {
@@ -1143,7 +1106,6 @@ pub fn choose_output(
             buffer_size: chosen_buf,
         },
         sample_format,
-        exclusive,
         resampled,
         source_rate: track_rate,
         source_channels: track_channels,
@@ -1152,8 +1114,9 @@ pub fn choose_output(
 }
 
 /// Полный выбор устройства/конфигурации по запросу политик (ТЗ A3.0 §3.4),
-/// против живого cpal-бэкенда. Используется плеером начиная с A3.4
-/// (`ExclusiveMode`, `FallbackPolicy`, `ResamplerMode` реально применяются).
+/// против живого cpal-бэкенда. Используется плеером Совместимого режима
+/// (`FallbackPolicy`, `ResamplerMode` реально применяются); монопольный вывод
+/// ведёт `AlsaExclusiveBackend` (§8 С6, ADR-24).
 pub fn select_output_for(req: &OutputRequest) -> Result<OutputSpec, String> {
     let host = CpalHost;
     let default = host.default_name();
@@ -1166,28 +1129,11 @@ pub fn select_output_for(req: &OutputRequest) -> Result<OutputSpec, String> {
         device_id: chosen.device_id,
         device_name: chosen.device_name,
         is_dop: false,
-        exclusive: chosen.exclusive,
         resampled: chosen.resampled,
         source_rate: chosen.source_rate,
         source_channels: chosen.source_channels,
         fallback: chosen.fallback,
     })
-}
-
-/// Русская строка для `stream-desc` в bp-report и статус-баре (ТЗ A3.0 §3.5).
-/// Технические термины (`Exclusive`, `Shared`, `I32`, DoP, частоты) не
-/// переводятся — это международная нотация.
-///
-/// `"48000 Гц · I32 · Exclusive"`
-/// `"48000 Гц · I32 · Shared · ресемплинг из 96000"`
-pub fn describe_stream(chosen: &ChosenOutput) -> String {
-    let fmt = sample_format_label(&chosen.sample_format);
-    let access = if chosen.exclusive { "Exclusive" } else { "Shared" };
-    let mut s = format!("{} Гц · {} · {}", chosen.config.sample_rate, fmt, access);
-    if chosen.resampled {
-        s.push_str(&format!(" · ресемплинг из {}", chosen.source_rate));
-    }
-    s
 }
 
 /// True when `name` is a software sound-server node (PipeWire/Pulse) that cpal
@@ -1503,7 +1449,6 @@ mod tests {
             track_rate,
             track_channels,
             preferred_device: preferred.map(String::from),
-            exclusive: ExclusiveMode::Off,
             fallback: FallbackPolicy::Nearest,
             resampler: ResamplerMode::Auto,
             fallback_rate: FallbackRatePolicy::Nearest,
@@ -1561,7 +1506,6 @@ mod tests {
             supported_rates: expand_supported_rates(&supported),
             supported_formats: vec![SampleFormat::F32],
             category,
-            exclusive_capable: is_raw_hardware_id(id) && category == DeviceCategory::Hardware,
             supported,
         }
     }
@@ -2280,39 +2224,12 @@ mod tests {
             track_rate,
             track_channels,
             preferred_device: None,
-            exclusive: ExclusiveMode::Off,
             fallback: FallbackPolicy::Nearest,
             resampler: ResamplerMode::Auto,
             fallback_rate: FallbackRatePolicy::Nearest,
             clock_family: ClockFamily::Auto,
             fixed_rate: 0,
         }
-    }
-
-    #[test]
-    fn choose_output_exclusive_strict_on_server_fails() {
-        // ТЗ §11.2: Strict на ноде звукового сервера (нет raw exclusive)
-        // → жёсткая ошибка, без деградации.
-        let server = mock_device_id("default", "PipeWire", 2, 48000, &[(2, 44100, 48000)]);
-        let req = OutputRequest {
-            exclusive: ExclusiveMode::Strict,
-            ..req_off(44100, 2)
-        };
-        let r = choose_output(&[server], Some("PipeWire"), &req);
-        assert_eq!(r.unwrap_err(), "Exclusive mode unavailable on this device");
-    }
-
-    #[test]
-    fn choose_output_exclusive_auto_on_server_degrades() {
-        // ТЗ §11.2: Auto на сервере → shared + явная причина ExclusiveUnavailable.
-        let server = mock_device_id("default", "PipeWire", 2, 48000, &[(2, 44100, 48000)]);
-        let req = OutputRequest {
-            exclusive: ExclusiveMode::Auto,
-            ..req_off(44100, 2)
-        };
-        let chosen = choose_output(&[server], Some("PipeWire"), &req).unwrap();
-        assert!(!chosen.exclusive);
-        assert_eq!(chosen.fallback, Some(FallbackReason::ExclusiveUnavailable));
     }
 
     #[test]
@@ -2494,38 +2411,6 @@ mod tests {
         };
         let r = choose_output(&[device], Some("DAC"), &req);
         assert!(r.unwrap_err().contains("192000"));
-    }
-
-    #[test]
-    fn describe_stream_includes_resampled_marker() {
-        fn chosen(resampled: bool, out_rate: u32, source_rate: u32) -> ChosenOutput {
-            ChosenOutput {
-                device_id: "hw:CARD=4,DEV=0".into(),
-                device_name: "ADI-2".into(),
-                config: StreamConfig {
-                    channels: 2,
-                    sample_rate: out_rate,
-                    buffer_size: BufferSize::Default,
-                },
-                sample_format: SampleFormat::I32,
-                exclusive: true,
-                resampled,
-                source_rate,
-                source_channels: 2,
-                fallback: None,
-            }
-        }
-        let s = describe_stream(&chosen(true, 48000, 96000));
-        assert!(s.contains("48000 Гц · I32 · Exclusive"));
-        assert!(s.contains("ресемплинг из 96000"));
-        let s = describe_stream(&chosen(false, 48000, 48000));
-        assert!(s.contains("48000 Гц · I32 · Exclusive"));
-        assert!(!s.contains("ресемплинг"));
-        let shared = ChosenOutput {
-            exclusive: false,
-            ..chosen(false, 48000, 48000)
-        };
-        assert!(describe_stream(&shared).contains("Shared"));
     }
 
     fn core_i32(channels: usize) -> (rtrb::Producer<i32>, RenderCore<i32>) {

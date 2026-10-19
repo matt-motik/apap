@@ -1583,7 +1583,6 @@ impl Engine {
         if let Some(name) = device {
             self.player.set_preferred_device(name);
         }
-        self.player.set_exclusive_mode(legacy.exclusive_mode);
         self.player.set_fallback_policy(legacy.fallback_policy);
         self.player.set_dsd_mode(legacy.dsd_mode);
         self.player.set_resampler_mode(legacy.resampler_mode);

@@ -102,7 +102,6 @@ pub fn fake_device(id: &str, name: &str) -> SharedDeviceInfo {
         category,
         supported_rates: vec![44_100],
         supported_formats: vec![cpal::SampleFormat::F32],
-        exclusive_capable: false,
     };
     SharedDeviceInfo { id: SharedDeviceId::new(id), name: name.to_string(), is_default: false, legacy }
 }

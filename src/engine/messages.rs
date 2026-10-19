@@ -20,7 +20,7 @@ use crate::playlist::model::TrackId;
 use crate::settings::params::ModeSettingsUpdate;
 use crate::settings::playback::ModeKind;
 use crate::settings::{
-    ClockFamily, DsdMode, ExclusiveMode, FallbackPolicy, FallbackRatePolicy, ResamplerAlgorithm,
+    ClockFamily, DsdMode, FallbackPolicy, FallbackRatePolicy, ResamplerAlgorithm,
     ResamplerDither, ResamplerMode,
 };
 
@@ -45,7 +45,6 @@ pub struct TrackRef {
 /// их вывод ведёт `AlsaExclusiveBackend` (ADR-24).
 #[derive(Clone, PartialEq, Debug)]
 pub struct LegacyAudio {
-    pub exclusive_mode: ExclusiveMode,
     pub fallback_policy: FallbackPolicy,
     pub dsd_mode: DsdMode,
     pub resampler_mode: ResamplerMode,

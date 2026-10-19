@@ -24,7 +24,7 @@ use super::session_build::{
 use super::worker::{DecodeEvent, DecodeWorker, ExactFeed, FloatFeed, VizTap};
 use crate::engine::spawner::{StdSpawner, ThreadSpawner};
 use crate::settings::{
-    clamp_ring_buffer_ms, ClockFamily, DsdMode, ExclusiveMode, FallbackPolicy,
+    clamp_ring_buffer_ms, ClockFamily, DsdMode, FallbackPolicy,
     FallbackRatePolicy, ResamplerAlgorithm, ResamplerDither, ResamplerMode, RING_BUFFER_MS_DEFAULT,
 };
 
@@ -141,9 +141,6 @@ pub struct Player {
     resampler_algo: ResamplerAlgorithm,
     /// DSD output mode (Pcm / Native / DoP, ТЗ 5.1 §8.2).
     dsd_mode: DsdMode,
-    /// Политика exclusive-доступа (ТЗ A3.0 §2.2): Off / Auto (retry shared) /
-    /// Strict (без retry).
-    exclusive_mode: ExclusiveMode,
     /// Политика фолбека при несовпадении параметров (ТЗ A3.0 §2.2); для DSD
     /// `Fail` останавливает цепочку на первом провале (§4.2).
     fallback_policy: FallbackPolicy,
@@ -208,7 +205,6 @@ impl Player {
             preferred_device: None,
             resampler_algo: ResamplerAlgorithm::SincMedium,
             dsd_mode: DsdMode::Pcm,
-            exclusive_mode: ExclusiveMode::Auto,
             fallback_policy: FallbackPolicy::Nearest,
             resampler_mode: ResamplerMode::Auto,
             fixed_rate: 0,
@@ -243,12 +239,6 @@ impl Player {
     /// the chain instead of failing outright (Native → DoP → Pcm).
     pub fn set_dsd_mode(&mut self, mode: DsdMode) {
         self.dsd_mode = mode;
-    }
-
-    /// Политика exclusive-доступа (ТЗ A3.0 §2.2): `Strict` = без retry,
-    /// `Auto` = при отказе потока один общий retry, `Off` = всегда shared.
-    pub fn set_exclusive_mode(&mut self, mode: ExclusiveMode) {
-        self.exclusive_mode = mode;
     }
 
     /// Политика фолбека (ТЗ A3.0 §2.2). `Fail` дополнительно останавливает
@@ -561,7 +551,7 @@ impl Player {
 
     /// Standard path: PCM files or DSD decoded to PCM via the CIC cascade.
     /// The device/config are negotiated through [`select_output_for`] so
-    /// `ExclusiveMode`/`FallbackPolicy`/`ResamplerMode` are applied (ТЗ A3.0
+    /// `FallbackPolicy`/`ResamplerMode` are applied (ТЗ A3.0
     /// §2–§4). Точный `ExactI32` без ресемплинга идёт в i32-ring, остальное —
     /// в f32-ring через SRC (§6.10, ADR-03). Сессия начинается с `start_secs`
     /// (фаза 1 seek при переоткрытии, §6.16).
@@ -581,7 +571,6 @@ impl Player {
             track_rate: src_rate,
             track_channels: src_ch,
             preferred_device: self.preferred_device.clone(),
-            exclusive: self.exclusive_mode,
             fallback: self.fallback_policy,
             resampler: self.resampler_mode,
             fallback_rate: self.fallback_rate,
@@ -621,8 +610,8 @@ impl Player {
             rate: out_rate,
             channels: out_ch as u16,
             format: format_name(&spec.sample_format),
-            exclusive: spec.exclusive,
-            exclusive_fallback: req.exclusive != ExclusiveMode::Off && !spec.exclusive,
+            exclusive: false,
+            exclusive_fallback: false,
             resampled,
             source_rate: src_rate,
             source_channels: src_ch,
@@ -687,7 +676,6 @@ impl Player {
             track_rate: dop_rate,
             track_channels: src_ch,
             preferred_device: self.preferred_device.clone(),
-            exclusive: self.exclusive_mode,
             fallback: self.fallback_policy,
             resampler: self.resampler_mode,
             fallback_rate: self.fallback_rate,
@@ -696,8 +684,9 @@ impl Player {
         };
         let mut spec = select_output_for(&req)?;
 
-        // DoP только в Exclusive (ТЗ-1): в Shared цепочка DSD переходит к PCM.
-        dop_requires_exclusive(spec.exclusive)?;
+        // DoP только в Exclusive (ТЗ-1); старый путь — только Совместимый
+        // (Shared, §8 С6), поэтому цепочка DSD всегда переходит к PCM.
+        dop_requires_exclusive(false)?;
         // DoP is bit-exact only when the device opens the exact container slot.
         if spec.config.sample_rate != dop_rate || spec.config.channels as usize != src_ch {
             let offered = format!("{} Hz × {} ch", spec.config.sample_rate, spec.config.channels);
@@ -725,8 +714,8 @@ impl Player {
             rate: dop_rate,
             channels: src_ch as u16,
             format: format_name(&spec.sample_format),
-            exclusive: spec.exclusive,
-            exclusive_fallback: req.exclusive != ExclusiveMode::Off && !spec.exclusive,
+            exclusive: false,
+            exclusive_fallback: false,
             resampled: false,
             source_rate: dop_rate,
             source_channels: src_ch,
@@ -1017,7 +1006,6 @@ impl Player {
             preferred_device: None,
             resampler_algo: ResamplerAlgorithm::SincMedium,
             dsd_mode: DsdMode::Pcm,
-            exclusive_mode: ExclusiveMode::Auto,
             fallback_policy: FallbackPolicy::Nearest,
             resampler_mode: ResamplerMode::Auto,
             fixed_rate: 0,
@@ -1178,13 +1166,6 @@ mod tests {
         assert!(!p.bit_perfect_resampled());
     }
 
-    /// PCM file from the environment (ставится вручную, см. §11.4); пропускает
-    /// тест, если переменная не задана.
-    fn env_pcm_path() -> Option<std::path::PathBuf> {
-        let p = std::env::var_os("MUSIC_PCM_TEST_FILE")?;
-        Some(std::path::PathBuf::from(p))
-    }
-
     /// DSD-файл (`.dsf`/`.dff`) из окружения; None → тест пропускается.
     fn env_dsd_path() -> Option<std::path::PathBuf> {
         let p = std::env::var_os("MUSIC_DSD_TEST_FILE")?;
@@ -1203,7 +1184,6 @@ mod tests {
             track_rate: dop_rate,
             track_channels: ch,
             preferred_device: None,
-            exclusive: ExclusiveMode::Off,
             fallback: FallbackPolicy::Nearest,
             resampler: ResamplerMode::Auto,
             fallback_rate: FallbackRatePolicy::Nearest,
@@ -1214,21 +1194,6 @@ mod tests {
             Ok(spec) => spec.config.sample_rate == dop_rate && spec.config.channels as usize == ch,
             Err(_) => false,
         }
-    }
-
-    /// `ExclusiveMode::Strict` никогда не делает retry: ровно одна попытка
-    /// сборки, затем Err (ТЗ A3.0 §4.3).
-    #[test]
-    fn open_with_exclusive_strict_on_server_fails() {
-        let Some(path) = env_pcm_path() else {
-            return;
-        };
-        let mut p = Player::test_new();
-        p.set_exclusive_mode(ExclusiveMode::Strict);
-        p.test_hooks.build_failures.store(999, Ordering::Relaxed);
-        assert!(p.open(&path).is_err());
-        let remaining = p.test_hooks.build_failures.load(Ordering::Relaxed);
-        assert!(999 - remaining <= 1, "Strict must not retry the build");
     }
 
     /// ТЗ-1, И-Т3 (в объёме старого пути): DoP-поток не строится на выходе,
@@ -1347,7 +1312,6 @@ mod tests {
         }
         let mut p = Player::test_new();
         p.set_dsd_mode(DsdMode::Native);
-        p.set_exclusive_mode(ExclusiveMode::Off);
         p.test_hooks.build_failures.store(1, Ordering::Relaxed);
         assert!(p.open(&path).is_ok());
         let desc = p.stream_desc().unwrap();
@@ -1368,7 +1332,6 @@ mod tests {
         }
         let mut p = Player::test_new();
         p.set_dsd_mode(DsdMode::DoP);
-        p.set_exclusive_mode(ExclusiveMode::Off);
         p.test_hooks.build_failures.store(1, Ordering::Relaxed);
         assert!(p.open(&path).is_ok());
         let desc = p.stream_desc().unwrap();
@@ -1386,7 +1349,6 @@ mod tests {
         };
         let mut p = Player::test_new();
         p.set_dsd_mode(DsdMode::Native);
-        p.set_exclusive_mode(ExclusiveMode::Off);
         p.set_fallback_policy(FallbackPolicy::Fail);
         p.test_hooks.build_failures.store(0, Ordering::Relaxed);
         let err = p.open(&path).expect_err("Fail policy must reject the chain");

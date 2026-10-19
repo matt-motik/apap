@@ -3656,7 +3656,6 @@ mod tests {
         category: DeviceCategory,
         rates: Vec<u32>,
         formats: Vec<SampleFormat>,
-        exclusive_capable: bool,
     ) -> DeviceInfo {
         let ranges = rates
             .iter()
@@ -3686,15 +3685,14 @@ mod tests {
             category,
             supported_rates: rates,
             supported_formats: dedup_fmt,
-            exclusive_capable,
         }
     }
 
     #[test]
     fn audio_filter_hardware_only_keeps_hw_drops_software() {
-        let hw = mock_device("hw:PCH,0", "Intel HDA", 2, DeviceCategory::Hardware, vec![], vec![], true);
-        let sp = mock_device("pipewire", "PipeWire", 2, DeviceCategory::ServerProxy, vec![], vec![], false);
-        let virt = mock_device("dmix", "dmix", 2, DeviceCategory::Virtual, vec![], vec![], false);
+        let hw = mock_device("hw:PCH,0", "Intel HDA", 2, DeviceCategory::Hardware, vec![], vec![]);
+        let sp = mock_device("pipewire", "PipeWire", 2, DeviceCategory::ServerProxy, vec![], vec![]);
+        let virt = mock_device("dmix", "dmix", 2, DeviceCategory::Virtual, vec![], vec![]);
         assert!(audio_filter_matches(&hw, true, false));
         assert!(!audio_filter_matches(&sp, true, false));
         assert!(!audio_filter_matches(&virt, true, false));
@@ -3705,22 +3703,22 @@ mod tests {
 
     #[test]
     fn audio_filter_stereo_only_keeps_2ch_drops_multichannel() {
-        let stereo = mock_device("hw:PCH,0", "Intel HDA", 2, DeviceCategory::Hardware, vec![], vec![], true);
-        let surround = mock_device("hw:DAC,0", "HiFi DAC", 6, DeviceCategory::Hardware, vec![], vec![], true);
+        let stereo = mock_device("hw:PCH,0", "Intel HDA", 2, DeviceCategory::Hardware, vec![], vec![]);
+        let surround = mock_device("hw:DAC,0", "HiFi DAC", 6, DeviceCategory::Hardware, vec![], vec![]);
         assert!(audio_filter_matches(&stereo, false, true));
         assert!(!audio_filter_matches(&surround, false, true));
         // Оба фильтра сразу: hw + стерео.
         assert!(audio_filter_matches(&stereo, true, true));
         assert!(!audio_filter_matches(&surround, true, true));
-        let virtual_mono = mock_device("dmix", "dmix", 1, DeviceCategory::Virtual, vec![], vec![], false);
+        let virtual_mono = mock_device("dmix", "dmix", 1, DeviceCategory::Virtual, vec![], vec![]);
         assert!(!audio_filter_matches(&virtual_mono, false, true));
         assert!(!audio_filter_matches(&virtual_mono, true, true));
     }
 
     #[test]
     fn audio_filter_no_presets_accepts_anything() {
-        let hw = mock_device("hw:PCH,0", "Intel HDA", 2, DeviceCategory::Hardware, vec![], vec![], true);
-        let sp = mock_device("pipewire", "PipeWire", 99, DeviceCategory::ServerProxy, vec![], vec![], false);
+        let hw = mock_device("hw:PCH,0", "Intel HDA", 2, DeviceCategory::Hardware, vec![], vec![]);
+        let sp = mock_device("pipewire", "PipeWire", 99, DeviceCategory::ServerProxy, vec![], vec![]);
         assert!(audio_filter_matches(&hw, false, false));
         assert!(audio_filter_matches(&sp, false, false));
     }
