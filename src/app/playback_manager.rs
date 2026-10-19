@@ -176,33 +176,6 @@ impl MusicApp {
         self.reset_cover();
     }
 
-    /// Опрос резервирования устройства на тике 100 мс (§8 С1): получено —
-    /// отложенное открытие продолжено плеером; отказ захвата или перехват
-    /// (`NameLost`) — стоп и сообщение, отката в Shared нет (ТЗ-119, ТЗ-122, И-Р20).
-    pub(super) fn handle_reservation(&mut self) {
-        let Some(event) = self.poll_reservation() else {
-            return;
-        };
-        match event {
-            ReservationEvent::Opened => {
-                self.status = self.playing_status().into();
-                self.sync_track_info_to_ui();
-            }
-            ReservationEvent::Failed(msg) | ReservationEvent::Lost(msg) => {
-                self.engine_send(EngineCmd::Stop);
-                self.emit(AppEvent::PlaybackStopped);
-                // Явное действие (воспроизведение) не выполнено — окно Error,
-                // не строка состояния (ТЗ-52, ОВ-7; ТЗ-119, ТЗ-122).
-                self.push_message(Message {
-                    level: MessageLevel::Error,
-                    title: "Монопольный режим".into(),
-                    body: format!("Не удалось получить устройство: {msg}").into(),
-                    buttons: MessageButtons::Ok,
-                });
-            }
-        }
-    }
-
     /// Строка состояния для текущего трека.
     fn playing_status(&self) -> String {
         let Some(track) = self.current.and_then(|i| self.track_at(i)) else {

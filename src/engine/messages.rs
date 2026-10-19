@@ -14,7 +14,6 @@ use crate::audio::error::{CaptureFailure, FileError, OpenError, Reaction};
 use crate::audio::format::StreamFormat;
 use crate::audio::path::signal::{DynamicPathState, SignalPath};
 use crate::audio::path::Blocked;
-use crate::audio::player::ReservationEvent;
 use crate::audio::verdict::BadgeState;
 use crate::engine::lock::{LockInput, LockState};
 use crate::playlist::model::TrackId;
@@ -143,7 +142,6 @@ pub enum SkipReason {
 /// Уведомления движка (подмножество С3, ТЗ-102).
 #[derive(Clone, PartialEq, Debug)]
 pub enum Notice {
-    Reservation(ReservationEvent),
     /// Перечисление устройств упало — хост не ответил (ТЗ-104, ТЗ-105, ADR-16, §6.2 п.3).
     DevicesUnavailable(BackendError),
 }

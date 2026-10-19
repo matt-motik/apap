@@ -36,7 +36,6 @@
 //! открытом замке (шаг 75). Поле `lock` хранит последнее принятое
 //! состояние целиком; `lock_acquiring()` сведён к `matches!` по нему.
 
-use std::collections::VecDeque;
 use std::path::Path;
 use std::sync::Arc;
 
@@ -47,7 +46,6 @@ use music_player_rs::audio::error::{OpenError, Reaction};
 use music_player_rs::audio::format::StreamFormat;
 use music_player_rs::audio::path::signal::{DynamicPathState, SignalPath};
 use music_player_rs::audio::path::Blocked;
-use music_player_rs::audio::player::ReservationEvent;
 use music_player_rs::audio::verdict::BadgeState;
 use music_player_rs::engine::lock::LockState;
 use music_player_rs::engine::messages::{EngineEvent, Notice, SkipReason, TransportState};
@@ -202,10 +200,6 @@ pub struct UiAudioState {
     /// Вновь принятый `Opened`, ещё не забранный вызывающей стороной —
     /// снимается один раз через `take_opened` (И-Р14, ADR-02).
     opened: Option<Arc<TrackInfo>>,
-    /// Уведомления о резервировании устройства, ожидающие снятия, FIFO
-    /// (ТЗ-56, ADR-02) — терминальные `Notice::Reservation` движок шлёт без
-    /// фильтра по `req_gen`, тем же правилом, что и мост С3.
-    reservation_queue: VecDeque<ReservationEvent>,
     /// Активный план пропуска (`SkipReason::Incompatible`, §2.4, ТЗ-80) —
     /// предмет отчёта окна «Путь сигнала» (`PathSubject::Skipped`), пока не
     /// снят новым успешно открытым путём или иным исходом открытия (ТЗ-79).
@@ -236,7 +230,6 @@ impl Default for UiAudioState {
             dynamics_written: None,
             ended: false,
             opened: None,
-            reservation_queue: VecDeque::new(),
             skipped: None,
             lock: LockState::NotApplicable,
         }
@@ -363,15 +356,7 @@ impl UiAudioState {
             // `EngineCmd::SetModeSettings` (у движка уже есть это значение,
             // повторная отправка вызвала бы петлю повторного открытия).
             EngineEvent::DeviceAutoSelected { mode, device } => Applied::DeviceAutoSelected { mode, device },
-            EngineEvent::Notice(notice) => {
-                // Движок публикует только терминальные `Notice::Reservation`
-                // без фильтра по `req_gen` (ТЗ-56, ADR-02) — та же очередь,
-                // что и у моста С3.
-                if let Notice::Reservation(event) = &notice {
-                    self.reservation_queue.push_back(event.clone());
-                }
-                Applied::Notice(notice)
-            }
+            EngineEvent::Notice(notice) => Applied::Notice(notice),
             EngineEvent::ShutdownComplete => Applied::ShutdownComplete,
             // Тот же фильтр по `session`, что и у `Ended` (ТЗ-68, §3.5, шаг
             // 78): движок шлёт `DynamicsChanged` с `session` открытой сессии
@@ -427,12 +412,6 @@ impl UiAudioState {
     /// `Opened` вернёт `None`.
     pub fn take_opened(&mut self) -> Option<Arc<TrackInfo>> {
         self.opened.take()
-    }
-
-    /// Снять очередное уведомление о резервировании устройства, FIFO (ТЗ-56,
-    /// ADR-02).
-    pub fn poll_reservation(&mut self) -> Option<ReservationEvent> {
-        self.reservation_queue.pop_front()
     }
 
     /// Активный план пропуска (`SkipReason::Incompatible`, §2.4, ТЗ-80),
@@ -997,19 +976,6 @@ mod tests {
         state.apply(opened(1));
         assert!(state.take_opened().is_some());
         assert!(state.take_opened().is_none());
-    }
-
-    /// ТЗ-56, ADR-02: уведомление о резервировании ставится в очередь и
-    /// снимается один раз — повторяет тест моста С3
-    /// `reservation_notice_queued_and_polled_once`.
-    #[test]
-    fn reservation_notice_queued_and_polled_once() {
-        let mut state = UiAudioState::new();
-        assert!(state.poll_reservation().is_none());
-
-        state.apply(EngineEvent::Notice(Notice::Reservation(ReservationEvent::Opened)));
-        assert_eq!(state.poll_reservation(), Some(ReservationEvent::Opened));
-        assert!(state.poll_reservation().is_none());
     }
 
     /// И-Р14, ADR-02: устаревшее `Opened` не взводит `take_opened` —

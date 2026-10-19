@@ -16,7 +16,6 @@ use music_player_rs::audio::decoder::TrackInfo;
 use music_player_rs::audio::error::{EngineFault, FileError, OpenError, Reaction};
 use music_player_rs::audio::output::{default_device_name, DeviceInfo};
 use music_player_rs::audio::path::report::PathReport;
-use music_player_rs::audio::player::ReservationEvent;
 use music_player_rs::audio::visualizer::{
     FreqScale, LevelScale, VisualizationMode, VisualizerConfig,
 };
@@ -1257,12 +1256,6 @@ impl MusicApp {
     /// Снять флаг завершения трека (ADR-02, И-Р13).
     pub(super) fn clear_end(&mut self) {
         self.audio_state.clear_end();
-    }
-
-    /// Снять терминальное событие резервирования устройства, если оно
-    /// пришло (ADR-02, ТЗ-119, И-Р13).
-    pub(super) fn poll_reservation(&mut self) -> Option<ReservationEvent> {
-        self.audio_state.poll_reservation()
     }
 
     /// Снять принятый `TrackInfo` открытого трека, если движок его доставил
@@ -2814,7 +2807,6 @@ impl MusicApp {
         self.drain_fulltrack();
         self.drain_audio_devices();
         self.drain_io();
-        self.handle_reservation();
         self.handle_auto_advance();
         self.sync_playback_state_to_ui();
         // Показание геометрии окна: `AppCore` отличает эхо программной
@@ -3265,9 +3257,9 @@ impl MusicApp {
                 }
             }
             Applied::OpenFailed { err } => {
-                // `Capture` дублирует уведомление о резервировании
-                // (`Notice::Reservation`, обрабатывается в `handle_reservation`) —
-                // второе сообщение не нужно, только снять ожидание открытия.
+                // Захват устройства (`Capture`) не удался — отдельное
+                // сообщение шлёт сам движок (`EngineEvent::Lock`), здесь
+                // только снять ожидание открытия.
                 if matches!(err, OpenError::Capture(_)) {
                     self.pending_open = None;
                     return;
@@ -3330,10 +3322,6 @@ impl MusicApp {
                     }
                 }
             },
-            // Уведомление о резервировании уже поставлено в очередь
-            // `UiAudioState` и опрашивается `handle_reservation` — повторная
-            // обработка здесь не нужна.
-            Applied::Notice(Notice::Reservation(_)) => {}
             Applied::Notice(Notice::DevicesUnavailable(BackendError::Unavailable(msg))) => {
                 // Фоновый сбой перечисления устройств (ТЗ-104, ТЗ-105, ADR-16) —
                 // строка состояния, не окно. То же сообщение, что раньше

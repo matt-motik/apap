@@ -19,7 +19,7 @@ use crate::audio::format::{SampleRate, SourceFormat};
 use crate::audio::path::plan::{plan, with_gain};
 use crate::audio::path::signal::{DynamicPathState, RtPriorityState, SignalPath};
 use crate::audio::path::{Blocked, OpenedFacts, OsStage, PathPlan};
-use crate::audio::player::{Player, ReservationEvent, StreamDesc};
+use crate::audio::player::{Player, StreamDesc};
 use crate::audio::reservation::LostNotify;
 use crate::audio::session_build::SpawnDecoderError;
 use crate::audio::verdict::{verdict, BadgeState, GainState};
@@ -1785,40 +1785,6 @@ impl Engine {
     fn poll_session(&mut self) {
         if self.devices_dirty.swap(false, Ordering::Acquire) {
             self.refresh_devices(false);
-        }
-
-        if let Some(ev) = self.player.poll_reservation() {
-            self.deps.events.emit(EngineEvent::Notice(Notice::Reservation(ev.clone())));
-            match ev {
-                ReservationEvent::Opened => {
-                    self.stopped = false;
-                    self.refresh_transport();
-                }
-                ReservationEvent::Failed(_) => {
-                    self.player.stop();
-                    self.stopped = true;
-                    self.active_path = None;
-                    let req_gen = self.current.as_ref().map_or(0, |(gen, _)| *gen);
-                    // Мост С3: легаси `Player` отдаёт только текст ошибки;
-                    // точная классификация `CaptureFailure` — следующий этап.
-                    self.deps.events.emit(EngineEvent::OpenFailed {
-                        req_gen,
-                        err: OpenError::Capture(CaptureFailure::ReservationDenied { owner: None }),
-                    });
-                    self.refresh_transport();
-                }
-                ReservationEvent::Lost(_) => {
-                    // `Player` уже освободил движок внутри себя (И-Р20).
-                    self.stopped = true;
-                    self.active_path = None;
-                    let req_gen = self.current.as_ref().map_or(0, |(gen, _)| *gen);
-                    self.deps.events.emit(EngineEvent::OpenFailed {
-                        req_gen,
-                        err: OpenError::Capture(CaptureFailure::ReservationLost),
-                    });
-                    self.refresh_transport();
-                }
-            }
         }
 
         // §6.18 шаг 19 (ТЗ-87): мид-трековый отказ декодера после `Ready` —

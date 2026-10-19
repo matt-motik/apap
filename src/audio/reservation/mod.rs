@@ -3,14 +3,13 @@
 //!
 //! Граница с D-Bus — трейт [`ReserveBus`]: низкоуровневые вызовы шины, которые
 //! реализуют `DbusReservation` (zbus) и `testing::FakeReserveBus`. Алгоритм
-//! §6.6 до шага OPEN — [`acquire`]; служба для старого пути и движка —
+//! §6.6 до шага OPEN — [`acquire`]; служба движка —
 //! [`BusReservationService`] (запрос в служебном потоке, ответ сообщением
 //! [`ReservationMsg`], ОВС-10 п. 6).
 #![deny(clippy::unwrap_used, clippy::expect_used, clippy::unreachable)]
 
 #[cfg(target_os = "linux")]
 pub mod dbus;
-pub mod gate;
 
 use crate::audio::error::CaptureFailure;
 use std::fmt;

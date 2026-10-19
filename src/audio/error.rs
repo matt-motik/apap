@@ -43,6 +43,26 @@ pub enum CaptureFailure {
     NoDeviceSelected,
 }
 
+/// Текст отказа захвата для строки состояния старого пути (§8 С1, ТЗ-119,
+/// ТЗ-122). Замок нового пути строит тексты в `app/lock_view.rs` (ТЗ-118).
+pub fn capture_message(f: &CaptureFailure) -> String {
+    match f {
+        CaptureFailure::ReservationDenied { owner: Some(app) } => {
+            format!("Устройство занято: {app} не освобождает его")
+        }
+        CaptureFailure::ReservationDenied { owner: None } => "Устройство занято другим приложением".into(),
+        CaptureFailure::OwnerNotResponding => "Владелец устройства не отвечает".into(),
+        CaptureFailure::NoSessionBus => "Нет сессионной шины D-Bus: резервирование устройства невозможно".into(),
+        CaptureFailure::BusyOutsideProtocol => "Устройство занято вне протокола резервирования".into(),
+        CaptureFailure::DriverRefused { errno } => format!("Драйвер отказал в открытии устройства (errno {errno})"),
+        CaptureFailure::LostOnReopen => "Устройство потеряно при переоткрытии".into(),
+        CaptureFailure::DeviceDisconnected => "Устройство отключено".into(),
+        CaptureFailure::ReservationLost => "Резервирование перехвачено".into(),
+        CaptureFailure::PlatformUnsupported => "Монопольный режим не поддерживается на этой платформе".into(),
+        CaptureFailure::NoDeviceSelected => "Устройство не выбрано".into(),
+    }
+}
+
 #[derive(Clone, PartialEq, Debug)]
 pub enum FileError {
     Corrupt(CorruptKind),
@@ -228,6 +248,12 @@ mod tests {
             assert_eq!(StreamFault::from_code(f.code()), f);
         }
         assert_eq!(StreamFault::from_code(200), StreamFault::BackendError);
+    }
+
+    /// ТЗ-144: автовыбор устройства не нашёл карты — текст замка «устройство не выбрано».
+    #[test]
+    fn capture_message_no_device_selected() {
+        assert_eq!(capture_message(&CaptureFailure::NoDeviceSelected), "Устройство не выбрано");
     }
 
     #[test]

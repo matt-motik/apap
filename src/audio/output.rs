@@ -11,7 +11,6 @@ use crate::audio::render::pcm::{PcmRender, PcmSample};
 use crate::audio::render::tpdf::Tpdf;
 use crate::audio::render::RenderCore;
 use crate::audio::session::RingPayload;
-use crate::audio::reservation::gate::PcmOpenError;
 use crate::settings::{
     ClockFamily, ExclusiveMode, FallbackPolicy, FallbackRatePolicy, ResamplerAlgorithm, ResamplerMode,
 };
@@ -1301,8 +1300,19 @@ pub fn default_device_id() -> Option<String> {
         .map(|d| d.id().to_string())
 }
 
-/// Отказ сборки потока: класс ошибки открытия PCM для ворот резервирования
-/// (§6.6 OPEN: `EBUSY` повторяется, прочие — без повтора; ТЗ-122) и текст.
+/// Причина отказа открытия PCM (§6.6 OPEN): `EBUSY` повторяется, прочие — без
+/// повтора (ТЗ-122).
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub enum PcmOpenError {
+    /// `EBUSY`: прежний владелец ещё закрывает PCM.
+    Busy,
+    /// `ENOENT` / `ENODEV`.
+    Disconnected,
+    Refused { errno: i32 },
+}
+
+/// Отказ сборки потока: класс ошибки открытия PCM (§6.6 OPEN: `EBUSY`
+/// повторяется, прочие — без повтора; ТЗ-122) и текст.
 #[derive(Clone, PartialEq, Eq, Debug)]
 pub struct StreamBuildError {
     pub open: PcmOpenError,
