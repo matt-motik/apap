@@ -273,6 +273,13 @@ impl AlsaExclusiveBackend {
     /// `claim.pcm_mut().take()` — при любом отказе до запуска потока PCM
     /// остаётся в `claim`, а не теряется; отказ самого `spawn` (ОС не создала
     /// поток) — вне этого гарантии, см. `alsa_out::spawn_output_thread`.
+    /// Повторное использование PCM предыдущего потока (та же конфигурация,
+    /// `configure` не вызывается повторно) оставляет PCM в состоянии `SETUP`
+    /// после `pcm.drop()` в конце предыдущего потока; без неявного
+    /// `prepare()` первый `wait`/`writei` нового потока получает
+    /// `EIO`/`EBADFD`, и устройство ошибочно считается потерянным (§6.7,
+    /// ТЗ-49, ТЗ-51, AM1.0-B17). Поэтому перед запуском потока PCM в
+    /// состоянии `SETUP` переводится в `PREPARED` явным `prepare()`.
     pub fn start(
         &mut self,
         claim: &mut DeviceClaim,
@@ -286,6 +293,17 @@ impl AlsaExclusiveBackend {
             .ok_or_else(|| StartError("размер периода переполняет буфер (§6.7, ТЗ-112)".to_string()))?;
         let wait_timeout_ms = alsa_out::wait_timeout_ms(period_frames, fmt.rate.hz())
             .ok_or_else(|| StartError("таймаут wait переполнен или частота равна нулю (§6.7)".to_string()))?;
+
+        let Some(handle) = claim.pcm_mut().as_ref() else {
+            return Err(StartError("start вызван без открытого PCM (acquire не выполнен, §6.7)".to_string()));
+        };
+        if handle.pcm().state() == alsa::pcm::State::Setup {
+            handle.pcm().prepare().map_err(|e| {
+                StartError(format!(
+                    "не удалось выполнить prepare() над PCM в состоянии SETUP после повторного использования предыдущего потока (§6.7, AM1.0-B17): {e}"
+                ))
+            })?;
+        }
 
         let Some(pcm) = claim.pcm_mut().take() else {
             return Err(StartError("start вызван без открытого PCM (acquire не выполнен, §6.7)".to_string()));

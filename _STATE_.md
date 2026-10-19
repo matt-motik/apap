@@ -2,10 +2,28 @@
      Source of truth: _STATE_.yaml — edit that, then run:
      python tools/state_tool.py render -->
 
-# Состояние сессии
 
-- **Текущая задача:** Нет (все шаги завершены)
-- **Состояние:** done
+# Текущая микро-сессия
+
+- **Задача из ROADMAP:** AM1.0-B17 — Строгий: после конца трека Open отказывает — PCM остаётся в SETUP (нет prepare / hw_free)
+- **Вайтлист файлов в работе (Изменяемые файлы):**
+  - src/audio/backend/alsa.rs
+  - ROADMAP.md
+  - _STATE_.yaml
+  - _STATE_.md
+- **Критерий успеха (Definition of Done):** cargo test зелёный, clippy без новых варнингов в alsa.rs; аппаратный тест на hw:CARD=RU3U2: смена 44,1→192→176,4 кГц и повтор того же формата после drop() проходят
+
+## Итерационный трекер
+- [x] Шаг 1: AlsaExclusiveBackend::start: PCM в состоянии SETUP (после drop() прошлого потока, переиспользованная настройка) переводится prepare() до запуска потока; отказ → StartError (§6.7, ТЗ-49, ТЗ-51). Проверка: cargo check
+- [>] **Шаг 2: AlsaExclusiveBackend::configure: PCM не в состоянии OPEN переоткрывается под тем же резервированием (reopen_pcm — аналог snd_pcm_hw_free, которого нет в alsa 0.11); device_caps для настроенного PCM отдаёт кэш возможностей, снятых в OPEN; исправить doc reconfigure (§6.6, §6.7, ТЗ-49, ТЗ-109). Проверка: cargo test audio::backend зелёный**
+- [ ] Шаг 3: #[ignore]-тест на реальном устройстве (APAP_HW_TEST_DEVICE): configure 44,1 кГц → поток → drop → configure 192 кГц и повтор формата с prepare (§6.7, ТЗ-49). Проверка: cargo test -- --ignored на RU3U2 зелёный; полный cargo test + clippy
+
+Легенда: [x] сделано · [>] текущий шаг · [ ] не начато
+
+- **Текущий шаг (current_step):** Шаг 2
+- **Следующий ход:** Шаг 2: переоткрытие настроенного PCM в configure + кэш device_caps
+- **Счетчик безуспешных компиляций:** 0/3
+- **Состояние:** in_progress
 
 ## План: Executable workflow: правила AGENTS.md → исполняемые механизмы
 _Источник: чат с пользователем (ноутбук), начат в 67686ce; перенесён в репо 2026-09-22_
