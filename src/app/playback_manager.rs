@@ -354,6 +354,13 @@ impl MusicApp {
             }
             return;
         }
+        if self.audio().is_stopped() {
+            let idx = self.current.unwrap_or(0);
+            if idx < self.track_count() {
+                self.play_track(idx);
+            }
+            return;
+        }
         self.toggle_playback();
         if self.audio().is_playing() {
             self.emit(AppEvent::PlaybackStarted);
