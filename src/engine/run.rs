@@ -112,6 +112,22 @@ struct ActivePath {
     badge: BadgeState,
 }
 
+/// Отложенный `Open`, пришедший, пока замок ещё `Acquiring` (AM1.0-B24,
+/// ТЗ-20, §6.18 «Смена режима»): запрос параметров `EngineCmd::Open`
+/// сохраняется здесь вместо немедленного отказа `OpenFailed
+/// (NoDeviceSelected)` и доигрывается в `handle_internal` по приходу
+/// `InternalMsg::ClaimDone` для текущей попытки захвата — «`Open` ждёт
+/// итога захвата». Более новый `Open` заменяет более старый без события
+/// для заменённого (UI отфильтровывает устаревший `req_gen` как и для
+/// обычного `OpenFailed`/`Opened`).
+struct DeferredOpen {
+    req_gen: u64,
+    path: Arc<Path>,
+    src: SourceFormat,
+    start_secs: f64,
+    autoplay: bool,
+}
+
 /// Строит `SignalPath` Совместимого режима из уже открытого `StreamDesc`
 /// (§6.3, §6.18 шаг 28, ADR-20, ТЗ-52, ТЗ-57): чистая функция без доступа к
 /// `Player`/`Engine` — тестируется без реального аудио-устройства (ТЗ-114).
@@ -349,6 +365,13 @@ struct Engine {
     /// `self.claim`/`self.exclusive_path` ещё не очищены эффектами
     /// `StopPlayback`/`Release` перехода `Held → Failed(DeviceDisconnected)`.
     reacquire: Option<ReacquirePoint>,
+    /// Отложенный `Open`, пришедший при захвате в процессе (`Acquiring`,
+    /// AM1.0-B24, ТЗ-20, §6.18 «Смена режима»): заполняется в
+    /// `open_exclusive`, забирается и доигрывается в `handle_internal` по
+    /// `InternalMsg::ClaimDone`. Очищается `stop_playback`/
+    /// `LockEffect::Release`, чтобы не доиграть запрос, относящийся к уже
+    /// остановленному/отпущенному замку.
+    deferred_open: Option<DeferredOpen>,
     /// Счётчики динамики текущего потока (§6.17, §6.20, ТЗ-51, ТЗ-76):
     /// `underruns`/`xruns` переносятся из `SessionShared` Эксклюзивного пути
     /// на каждом опросе; сбрасывается на каждый успешный `Open`.
@@ -403,6 +426,7 @@ impl Engine {
             claim_attempt: 0,
             claim_card: None,
             reacquire: None,
+            deferred_open: None,
             dynamics: DynamicPathState::default(),
             last_sent_dynamics: None,
             rt_prio,
@@ -484,10 +508,21 @@ impl Engine {
                         let info = claim.info().clone();
                         self.claim = Some(claim);
                         self.lock_input(LockInput::CaptureResult(Ok(info.clone())));
-                        // Переоткрытие трека из точки повторного захвата —
-                        // только после того, как замок принял успех и перешёл
-                        // в `Held` (§6.20 п. 4, ТЗ-126).
-                        self.reopen_after_reacquire(&info.device);
+                        match self.deferred_open.take() {
+                            // `Open`, пришедший во время захвата (AM1.0-B24,
+                            // ТЗ-20, §6.18 «Смена режима»), важнее точки
+                            // повторного захвата — она явно отбрасывается,
+                            // чтобы трек не открылся дважды (сначала из
+                            // `reacquire`, затем поверх него из `Open`).
+                            Some(d) if matches!(self.lock, LockState::Held { .. }) => {
+                                self.reacquire = None;
+                                self.open_exclusive(d.req_gen, d.path, d.src, d.start_secs, d.autoplay);
+                            }
+                            // Переоткрытие трека из точки повторного захвата —
+                            // только после того, как замок принял успех и перешёл
+                            // в `Held` (§6.20 п. 4, ТЗ-126).
+                            _ => self.reopen_after_reacquire(&info.device),
+                        }
                     }
                     Err(e) => {
                         // Отказ захвата снимает автоплей сохранённой точки:
@@ -497,7 +532,16 @@ impl Engine {
                         if let Some(point) = self.reacquire.as_mut() {
                             point.autoplay = false;
                         }
-                        self.lock_input(LockInput::CaptureResult(Err(e)));
+                        self.lock_input(LockInput::CaptureResult(Err(e.clone())));
+                        if let Some(d) = self.deferred_open.take() {
+                            // `Open`, ждавший итога захвата, получает отказ
+                            // явно (AM1.0-B24, ТЗ-20, §6.18 «Смена режима»):
+                            // легаси-поток уже остановлен эффектами замка —
+                            // `stop_playback` переводит транспорт в `Stopped`,
+                            // чтобы UI не остался в «играет».
+                            self.deps.events.emit(EngineEvent::OpenFailed { req_gen: d.req_gen, err: OpenError::Capture(e) });
+                            self.stop_playback();
+                        }
                     }
                 }
             }
@@ -725,6 +769,10 @@ impl Engine {
                     self.claim_attempt += 1;
                     self.claim = None;
                     self.claim_card = None;
+                    // Отложенный `Open` относился к снимаемому замку
+                    // (AM1.0-B24, ТЗ-20, §6.18 «Смена режима») — без
+                    // удержания его больше некому доиграть.
+                    self.deferred_open = None;
                 }
                 LockEffect::ForgetReacquire => self.reacquire = None,
             }
@@ -749,6 +797,10 @@ impl Engine {
             self.claim = Some(p.close());
         }
         self.exclusive_signal = None;
+        // Отложенный `Open` (AM1.0-B24, ТЗ-20, §6.18 «Смена режима») не
+        // переживает остановку воспроизведения — доигрывать его уже не для
+        // чего.
+        self.deferred_open = None;
         self.refresh_transport();
     }
 
@@ -938,15 +990,27 @@ impl Engine {
     /// Открытие в Оптимальном/Строгом режиме (§6.18 шаг 45, 48, ТЗ-48, ТЗ-49,
     /// ТЗ-137): диспетчер к Эксклюзивному пути. Без удержанного замка
     /// (`self.lock` не `Held`) — отказ без попытки захвата: замок уже должен
-    /// быть удержан `EngineCmd::Lock`/`lock_step` до `Open` (§6.19). Смена
-    /// трека при уже открытом Эксклюзивном пути (новый `Open` без
-    /// промежуточного `Stop`) закрывает старый путь первой же строкой —
-    /// иначе `self.claim` пуст (его держит старый `ExclusivePath`) и новое
-    /// открытие отказало бы `NoDeviceSelected`, хотя замок удержан. `autoplay`
-    /// — пуск воспроизведения сразу после открытия (ТЗ-49): поток вывода
+    /// быть удержан `EngineCmd::Lock`/`lock_step` до `Open` (§6.19).
+    /// Исключение — `Acquiring` (AM1.0-B24, ТЗ-20, §6.18 «Смена режима»):
+    /// захват ещё в процессе (например, только что запущен `SetActiveMode`),
+    /// и `Open` не отказывает немедленно, а ждёт итога захвата — запрос
+    /// сохраняется в `self.deferred_open` и доигрывается из
+    /// `InternalMsg::ClaimDone` в `handle_internal`. Смена трека при уже
+    /// открытом Эксклюзивном пути (новый `Open` без промежуточного `Stop`)
+    /// закрывает старый путь первой же строкой — иначе `self.claim` пуст
+    /// (его держит старый `ExclusivePath`) и новое открытие отказало бы
+    /// `NoDeviceSelected`, хотя замок удержан. `autoplay` — пуск
+    /// воспроизведения сразу после открытия (ТЗ-49): поток вывода
     /// `ExclusiveBackend::start` поднимается всегда, пауза регулируется
     /// `SessionShared::playing`, а не остановкой потока.
     fn open_exclusive(&mut self, req_gen: u64, path: Arc<Path>, src: SourceFormat, start_secs: f64, autoplay: bool) {
+        if matches!(self.lock, LockState::Acquiring { .. }) {
+            // Более новый `Open` заменяет отложенный без события для
+            // заменённого — UI отфильтровывает устаревший `req_gen`, как и
+            // для обычного `OpenFailed`/`Opened` (AM1.0-B24, ТЗ-20).
+            self.deferred_open = Some(DeferredOpen { req_gen, path, src, start_secs, autoplay });
+            return;
+        }
         let LockState::Held { .. } = &self.lock else {
             let reason = match &self.lock {
                 LockState::Failed(reason) => reason.clone(),

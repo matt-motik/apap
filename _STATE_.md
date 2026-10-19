@@ -12,15 +12,15 @@
 - **Критерий успеха (Definition of Done):** Open в Acquiring откладывается до итога захвата (§6.18 «Смена режима»: «Open ждёт итога захвата», ТЗ-20); устаревший pending_mode_reopen не применяется к обычному открытию; cargo test и cargo clippy зелёные; ручная проверка на RU3 — за пользователем
 
 ## Итерационный трекер
-- [>] **Шаг 1: Отложенный Open в Engine (src/engine/run.rs; §6.18 «Смена режима», §6.19, ТЗ-20): причина B24 — Совместимый→Эксклюзивный ставит замок в Acquiring (асинхронный захват), а Open от UI сразу приходит в open_exclusive и отказывает Capture(NoDeviceSelected); app молча гасит отказ, UI остаётся «играет». Фикс: поле deferred_open (req_gen, path, src, start_secs, autoplay); open_exclusive при LockState::Acquiring сохраняет его (новый замещает старый) вместо отказа; ClaimDone(Ok) после перехода в Held — если есть deferred_open: reacquire = None и open_exclusive(deferred), иначе reopen_after_reacquire; ClaimDone(Err) — OpenFailed(Capture(e)) по req_gen отложенного + stop_playback; сброс deferred_open в stop_playback и LockEffect::Release. Проверка: cargo check**
-- [ ] Шаг 2: Тесты отложенного Open (src/engine/run.rs, ≤3 теста): Open в Acquiring не даёт OpenFailed, после ClaimDone(Ok) — Opened с тем же req_gen; ClaimDone(Err) — OpenFailed(Capture) с req_gen отложенного; Stop в Acquiring сбрасывает отложенный Open. Проверка: cargo test engine::
+- [x] Шаг 1: Отложенный Open в Engine (src/engine/run.rs; §6.18 «Смена режима», §6.19, ТЗ-20): причина B24 — Совместимый→Эксклюзивный ставит замок в Acquiring (асинхронный захват), а Open от UI сразу приходит в open_exclusive и отказывает Capture(NoDeviceSelected); app молча гасит отказ, UI остаётся «играет». Фикс: поле deferred_open (req_gen, path, src, start_secs, autoplay); open_exclusive при LockState::Acquiring сохраняет его (новый замещает старый) вместо отказа; ClaimDone(Ok) после перехода в Held — если есть deferred_open: reacquire = None и open_exclusive(deferred), иначе reopen_after_reacquire; ClaimDone(Err) — OpenFailed(Capture(e)) по req_gen отложенного + stop_playback; сброс deferred_open в stop_playback и LockEffect::Release. Проверка: cargo check
+- [>] **Шаг 2: Тесты отложенного Open (src/engine/run.rs, ≤3 теста): Open в Acquiring не даёт OpenFailed, после ClaimDone(Ok) — Opened с тем же req_gen; ClaimDone(Err) — OpenFailed(Capture) с req_gen отложенного; Stop в Acquiring сбрасывает отложенный Open. Проверка: cargo test engine::**
 - [ ] Шаг 3: Устаревший pending_mode_reopen (src/app/playback_manager.rs, ТЗ-20): play_track сбрасывает pending_mode_reopen = None — иначе после неудачного переоткрытия на смене режима следующий Open (Стоп→Play) делает Seek на старую позицию (наблюдение B24). Проверка: cargo check
 - [ ] Шаг 4: ЧЕКПОИНТ: полный cargo test + cargo clippy (0 новых предупреждений в файлах вайтлиста). Проверка: оба зелёные
 
 Легенда: [x] сделано · [>] текущий шаг · [ ] не начато
 
-- **Текущий шаг (current_step):** Шаг 1
-- **Следующий ход:** Субагент code-writer: шаг 1 — deferred_open в src/engine/run.rs
+- **Текущий шаг (current_step):** Шаг 2
+- **Следующий ход:** Субагент code-writer: шаг 2 — тесты отложенного Open в src/engine/run.rs
 - **Счетчик безуспешных компиляций:** 0/3
 - **Состояние:** in_progress
 
