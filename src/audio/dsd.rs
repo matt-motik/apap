@@ -1009,9 +1009,11 @@ impl DsdDecoder {
             let valid_per_ch = take / ch;
             frames = valid_per_ch;
             self.dop_bytes.clear();
+            // DSF хранит биты LSB-first, DoP передаёт байт MSB-first (первый по
+            // времени бит — старший, как в DFF): разворот битов (ТЗ-1, §6.15, AM1.0-B19).
             for f in 0..frames {
                 for c in 0..ch {
-                    self.dop_bytes.push(self.raw[c * frames + f]);
+                    self.dop_bytes.push(self.raw[c * frames + f].reverse_bits());
                 }
             }
             self.bytes_remaining -= take as u64;
@@ -1409,6 +1411,25 @@ mod tests {
             }
             assert!(nonzero, "{name}: payload carries DSD data");
         }
+    }
+
+    /// AM1.0-B19: DSF (LSB-first) и DFF (MSB-first) одного сигнала дают в DoP
+    /// одинаковую нагрузку — у DSF биты каждого байта развёрнуты (ТЗ-1, §6.15).
+    #[test]
+    fn dop_payload_dsf_matches_dff_bit_order() {
+        let payload = |name: &str| -> Vec<i32> {
+            let mut dec =
+                DsdDecoder::open_with_mode(&data_path(name), DecodeMode::Dop).expect("open DoP");
+            match dec.next_block().expect("next_block") {
+                Some(SampleBlock::ExactI32 { data, .. }) => data.to_vec(),
+                other => panic!("{name}: expected ExactI32, got {other:?}"),
+            }
+        };
+        let dsf = payload("dsf_dsd64_1k.dsf");
+        let dff = payload("dff_dsd64_1k.dff");
+        let n = dsf.len().min(dff.len());
+        assert!(n > 0);
+        assert_eq!(dsf[..n], dff[..n], "DSF DoP payload must be MSB-first like DFF");
     }
 
     /// Seek restarts the frame counter at the aligned target (DoP: 2 bytes per word).
