@@ -8,9 +8,10 @@ use super::{FilePicker, PickRequest, PickResult};
 use std::future::Future;
 use std::pin::Pin;
 
-/// Расширения аудиофайлов для `AddFiles` (как в прежнем блокирующем
-/// `rfd::FileDialog` из `app/mod.rs`, ТЗ-53).
-const AUDIO_EXTENSIONS: &[&str] = &["flac", "mp3", "ogg", "wav", "aac", "m4a", "dsf", "aiff"];
+/// Расширения аудиофайлов для `AddFiles` — тот же список, что у сканирования
+/// папок, чтобы диалог не отсекал поддерживаемые форматы (`.dff` и др.;
+/// ТЗ-53, SP1.0-B18).
+const AUDIO_EXTENSIONS: &[&str] = crate::playlist::SUPPORTED_EXTENSIONS;
 /// Расширения плейлистов для `OpenPlaylist` (ТЗ-53).
 const PLAYLIST_EXTENSIONS: &[&str] = &["m3u", "m3u8"];
 /// Расширения темы для `ThemeFile` (ТЗ-53).
