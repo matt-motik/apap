@@ -1305,10 +1305,6 @@ impl Engine {
             EngineCmd::RefreshDevices => {
                 self.refresh_devices(false);
             }
-            EngineCmd::ReleaseExclusive => {
-                self.player.release_if_exclusive();
-                self.refresh_transport();
-            }
             EngineCmd::SetVizTap(on) => {
                 self.viz_tap_active = on;
                 self.player.set_viz_tap_active(on);
@@ -1331,11 +1327,15 @@ impl Engine {
                     // изменении с реальным эффектом (§6.18): нет сессии для
                     // переоткрытия — чистая запись параметров старого пути,
                     // применится на следующем `Open` (как `apply_active_mode`
-                    // при `self.stopped` сегодня).
+                    // при `self.stopped` сегодня). Старый путь обслуживает
+                    // только Совместимый режим (§8 С6): для Оптимального и
+                    // Строгого настройки уже скопированы выше и применятся
+                    // собственным выводом на следующем `Open`.
                     ModeApplyAction::Store
-                        if matches!(strongest, Some(ApplyKind::ReopenAtPosition) | Some(ApplyKind::SwitchDevice)) =>
+                        if self.active_mode == ModeKind::Compatible
+                            && matches!(strongest, Some(ApplyKind::ReopenAtPosition) | Some(ApplyKind::SwitchDevice)) =>
                     {
-                        let (legacy, device) = legacy_audio(&self.mode_settings, self.active_mode);
+                        let (legacy, device) = legacy_audio(&self.mode_settings);
                         self.apply_legacy_fields(&legacy, device);
                     }
                     // Пустой дифф или изменение с `ApplyKind::Memory` —
@@ -1534,15 +1534,18 @@ impl Engine {
         }
     }
 
-    /// Применяет `self.mode_settings`/`self.active_mode` к старому пути для
+    /// Применяет `self.mode_settings` к старому пути Совместимого режима для
     /// `EngineCmd::SetModeSettings` (ОВС-14, ОВС-17, §6.18, ADR-22): при
     /// `Stopped` — только копия полей `Player` (нет сессии, переоткрывать
     /// нечего — применится на следующем `Open`); иначе одно переоткрытие на
     /// текущей позиции с сохранением играет/на паузе через
-    /// `reopen_with_legacy`. `EngineCmd::SetActiveMode` переоткрытие здесь не
-    /// запускает — см. `store_active_mode`.
+    /// `reopen_with_legacy`. Вызывается только для Совместимого режима (§8
+    /// С6): ветки Оптимального/Строгого в `SetModeSettings` уходят в
+    /// Эксклюзивный путь (`reopen_exclusive_at_position`).
+    /// `EngineCmd::SetActiveMode` переоткрытие здесь не запускает — см.
+    /// `store_active_mode`.
     fn apply_active_mode(&mut self) {
-        let (legacy, device) = legacy_audio(&self.mode_settings, self.active_mode);
+        let (legacy, device) = legacy_audio(&self.mode_settings);
         if self.stopped {
             self.apply_legacy_fields(&legacy, device);
         } else {
@@ -1559,11 +1562,16 @@ impl Engine {
     /// поток (если он был открыт; на уже остановленном/безпотоковом движке
     /// не делает ничего), после чего `set_bit_perfect`/`set_dither` в
     /// `apply_legacy_fields` — чистая запись без собственного
-    /// переоткрытия. Применится на следующем `Open`.
+    /// переоткрытия. Применится на следующем `Open`. Поля старого пути
+    /// пишутся только при переходе В Совместимый режим (§8 С6): для
+    /// Оптимального и Строгого вывод ведёт `AlsaExclusiveBackend`, а
+    /// `release_engine` всё равно снимает легаси-поток перед переключением.
     fn store_active_mode(&mut self) {
-        let (legacy, device) = legacy_audio(&self.mode_settings, self.active_mode);
         self.player.release_engine();
-        self.apply_legacy_fields(&legacy, device);
+        if self.active_mode == ModeKind::Compatible {
+            let (legacy, device) = legacy_audio(&self.mode_settings);
+            self.apply_legacy_fields(&legacy, device);
+        }
     }
 
     /// Пишет поля `Player`, соответствующие старому пути (ТЗ-134, И-Р24).

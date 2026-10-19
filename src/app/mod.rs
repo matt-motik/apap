@@ -32,7 +32,6 @@ use music_player_rs::core::load::LoadApplied;
 use music_player_rs::core::volume::{VolumeCmd, VolumeSource};
 use music_player_rs::core::AppCore;
 use music_player_rs::cover::{self, CoverDone, CoverJob};
-use music_player_rs::engine::legacy_path::legacy_audio;
 use music_player_rs::engine::lock::{LockInput, LockState};
 use music_player_rs::engine::messages::{EngineCmd, EngineEvent, Notice, SkipReason};
 use music_player_rs::engine::run::{BackendCaps, EngineHandle};
@@ -1218,10 +1217,12 @@ impl MusicApp {
         ui.set_lock_can_go_compatible(view.actions.contains(&LockAction::SwitchToCompatible));
     }
 
-    /// Истина только для Строгого режима (ADR-04, ТЗ-52, §6.18): считается
-    /// напрямую из действующих настроек `AppCore`.
+    /// Истина только для Строгого режима (ADR-04, ТЗ-52, §6.18): Строгий
+    /// всегда bit-perfect, Совместимый и Оптимальный без фиксации громкости —
+    /// нет; считается напрямую из активного режима `AppCore` (адаптер
+    /// `legacy_path` после С6 обслуживает только Совместимый режим).
     pub(super) fn bit_perfect(&self) -> bool {
-        legacy_audio(&self.core.settings().playback, self.core.state().active_mode()).0.bit_perfect
+        self.core.state().active_mode() == ModeKind::Strict
     }
 
     /// Переключить активный режим движка: вид бейджа/«Теста» и инвалидация
@@ -3003,10 +3004,9 @@ impl MusicApp {
                     let Some(ui) = self.try_ui() else { continue };
                     let visible = ui.window().is_visible();
                     let res = if visible {
-                        // Window hides into the tray: free an exclusive raw-`hw:`
-                        // node so the device is usable by other apps while the
-                        // player waits in the background (V5.1-B6).
-                        self.engine_send(EngineCmd::ReleaseExclusive);
+                        // Замок удерживает устройство (ТЗ-43, §8 С6): уход в
+                        // трей больше не освобождает захват — освобождение
+                        // эксклюзива при скрытии удалено (V5.1-B6).
                         ui.hide()
                     } else {
                         ui.show()

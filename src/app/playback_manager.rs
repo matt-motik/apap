@@ -226,10 +226,9 @@ impl MusicApp {
                         Some(idx) => self.play_track(idx),
                         None => {
                             self.clear_end();
-                            // End of playlist: free an exclusive raw-`hw:` node
-                            // so the device returns to the system mixer
-                            // (V5.1-B5).
-                            self.engine_send(EngineCmd::ReleaseExclusive);
+                            // Конец плейлиста: замок больше не освобождает
+                            // устройство (ТЗ-43, §8 С6) — прежнее освобождение
+                            // эксклюзива (V5.1-B5) удалено.
                             self.emit(AppEvent::PlaybackStopped);
                         }
                     }

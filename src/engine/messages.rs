@@ -38,10 +38,12 @@ pub struct TrackRef {
     pub path: Arc<Path>,
 }
 
-/// Старые параметры звука, применяемые в памяти движка без I/O (ТЗ-134, И-Р24).
-/// Мост С3: больше не приходит командой от UI — строится внутри движка
-/// (`legacy_audio` в `legacy_path.rs`) из `ModeSettings` при `SetModeSettings`/
-/// `SetActiveMode` (ОВС-14, ОВС-17, §6.18, ADR-22).
+/// Старые параметры звука Совместимого режима, применяемые в памяти движка
+/// без I/O (ТЗ-134, И-Р24, §8 С6). Мост С3: больше не приходит командой от
+/// UI — строится внутри движка (`legacy_audio` в `legacy_path.rs`) из
+/// `CompatibleOpts` при `SetModeSettings`/`SetActiveMode` (ОВС-14, ОВС-17,
+/// §6.18, ADR-22). Оптимальный и Строгий режимы старый путь не используют —
+/// их вывод ведёт `AlsaExclusiveBackend` (ADR-24).
 #[derive(Clone, PartialEq, Debug)]
 pub struct LegacyAudio {
     pub exclusive_mode: ExclusiveMode,
@@ -85,10 +87,6 @@ pub enum EngineCmd {
     /// текущей позиции с параметрами нового режима (как `SwitchDevice`),
     /// т.к. устройство/эксклюзивность/bit-perfect могут отличаться.
     SetActiveMode(ModeKind),
-    /// Мост С3: освободить монопольный узел `hw:` без перемотки (конец
-    /// плейлиста, уход в трей — V5.1-B5/B6). В С6 заменяется `release`
-    /// монопольного бэкенда (ТЗ-48).
-    ReleaseExclusive,
     Shutdown,
 }
 
@@ -119,7 +117,6 @@ impl std::fmt::Debug for EngineCmd {
                 f.debug_tuple("SetModeSettings").field(update).finish()
             }
             EngineCmd::SetActiveMode(mode) => f.debug_tuple("SetActiveMode").field(mode).finish(),
-            EngineCmd::ReleaseExclusive => write!(f, "ReleaseExclusive"),
             EngineCmd::Shutdown => write!(f, "Shutdown"),
         }
     }

@@ -151,8 +151,8 @@
 - [x] Шаг 83: Шаг 83: AM1.0-B16 ч. 4: при EngineEvent::Devices и открытом диалоге в Оптимальном/Строгом перестроить список Audio (вызов apply_audio_device_listing в drain_engine_events, app/mod.rs, ADR-24, ТЗ-126). Проверка: cargo check + cargo test --bin
 - [x] Шаг 84: Шаг 84: AM1.0-B8 ч. 3: инвалидация PathWindowCache по dirty-флагу динамики (app/path_view.rs) + тест (ТЗ-68). Проверка: cargo test path_view
 - [x] Шаг 85: Шаг 85: ЧЕКПОИНТ: полный cargo test + cargo clippy --all-targets
-- [>] **Шаг 86: Шаг 86: Удаление в engine: адаптер legacy_exclusive, EngineCmd::ReleaseExclusive и их обработка; legacy_path — только Совместимый (§8 С6 «удаляется»). Проверка: полный cargo test**
-- [ ] Шаг 87: Шаг 87: Удаление в player.rs: release_if_exclusive, reopen_and_seek и их вызовы в stop()/toggle()/play() (V5.1-B5, V5.1-B6, ТЗ-43). Проверка: полный cargo test
+- [x] Шаг 86: Шаг 86: Удаление в engine: адаптер legacy_exclusive, EngineCmd::ReleaseExclusive и их обработка; legacy_path — только Совместимый (§8 С6 «удаляется»). Проверка: полный cargo test
+- [>] **Шаг 87: Шаг 87: Удаление в player.rs: release_if_exclusive, reopen_and_seek и их вызовы в stop()/toggle()/play() (V5.1-B5, V5.1-B6, ТЗ-43). Проверка: полный cargo test**
 - [ ] Шаг 88: Шаг 88: Удаление ExclusiveGate-пути в player.rs и файла reservation/gate.rs (замещён AlsaExclusiveBackend) (§8 С6). Проверка: полный cargo test
 - [ ] Шаг 89: Шаг 89: Удаление освобождения эксклюзива при скрытии в трей (обработка TrayCmd::ShowHide в app/mod.rs; пункт меню трея остаётся) (§8 С6, ТЗ-43). Проверка: полный cargo test
 - [ ] Шаг 90: Шаг 90: Удаление в output.rs: cpal-путь Exclusive (ExclusiveMode, проба hw: в select_output_for, EBUSY-повтор) и shared-downgrade R-11 (§8 С6). Проверка: полный cargo test
@@ -161,8 +161,8 @@
 
 Легенда: [x] сделано · [>] текущий шаг · [ ] не начато
 
-- **Текущий шаг (current_step):** Шаг 86
-- **Следующий ход:** Шаг 86: удаление адаптера legacy_exclusive и EngineCmd::ReleaseExclusive в engine; legacy_path — только Совместимый. Можно отдать opencode (opencode.json в корне задаёт запреты чтения/записи).
+- **Текущий шаг (current_step):** Шаг 87
+- **Следующий ход:** Шаг 87: удаление в player.rs release_if_exclusive, reopen_and_seek и их вызовов в stop()/toggle()/play() (V5.1-B5, V5.1-B6, ТЗ-43). Проверка: полный cargo test.
 - **Счетчик безуспешных компиляций:** 0/3
 - **Состояние:** in_progress
 
