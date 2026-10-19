@@ -2,29 +2,15 @@
 # _STATE_.md генерируется из этого файла — не редактировать его руками.
 # Редактируйте этот файл, затем: python tools/state_tool.py render
 
-status: in_progress
+status: done
 task:
-  roadmap_id: AM1.0-B24
-  title: "Совместимый→Строгий во время игры останавливает трек (Open не ждёт итога захвата)"
-whitelist:
-  - src/engine/run.rs
-  - src/app/playback_manager.rs
-dod: "Open в Acquiring откладывается до итога захвата (§6.18 «Смена режима»: «Open ждёт итога захвата», ТЗ-20); устаревший pending_mode_reopen не применяется к обычному открытию; cargo test и cargo clippy зелёные; ручная проверка на RU3 — за пользователем"
-steps:
-  - id: 1
-    description: "Отложенный Open в Engine (src/engine/run.rs; §6.18 «Смена режима», §6.19, ТЗ-20): причина B24 — Совместимый→Эксклюзивный ставит замок в Acquiring (асинхронный захват), а Open от UI сразу приходит в open_exclusive и отказывает Capture(NoDeviceSelected); app молча гасит отказ, UI остаётся «играет». Фикс: поле deferred_open (req_gen, path, src, start_secs, autoplay); open_exclusive при LockState::Acquiring сохраняет его (новый замещает старый) вместо отказа; ClaimDone(Ok) после перехода в Held — если есть deferred_open: reacquire = None и open_exclusive(deferred), иначе reopen_after_reacquire; ClaimDone(Err) — OpenFailed(Capture(e)) по req_gen отложенного + stop_playback; сброс deferred_open в stop_playback и LockEffect::Release. Проверка: cargo check"
-    done: true
-  - id: 2
-    description: "Тесты отложенного Open (src/engine/run.rs, ≤3 теста): Open в Acquiring не даёт OpenFailed, после ClaimDone(Ok) — Opened с тем же req_gen; ClaimDone(Err) — OpenFailed(Capture) с req_gen отложенного; Stop в Acquiring сбрасывает отложенный Open. Проверка: cargo test engine::"
-    done: true
-  - id: 3
-    description: "Устаревший pending_mode_reopen (src/app/playback_manager.rs, ТЗ-20): play_track сбрасывает pending_mode_reopen = None — иначе после неудачного переоткрытия на смене режима следующий Open (Стоп→Play) делает Seek на старую позицию (наблюдение B24). Проверка: cargo check"
-    done: true
-  - id: 4
-    description: "ЧЕКПОИНТ: полный cargo test + cargo clippy (0 новых предупреждений в файлах вайтлиста). Проверка: оба зелёные"
-    done: false
-current_step: 4
-next_action: "ЧЕКПОИНТ: полный cargo test + cargo clippy (test-runner)"
+  roadmap_id: null
+  title: null
+whitelist: []
+dod: null
+steps: []
+current_step: null
+next_action: null
 fail_counter: 0
 fail_counter_max: 3
 failed_attempts: []
@@ -45,7 +31,8 @@ plan:
       status: in_progress
       note:
         - "Закрытые этапы и баги — в ROADMAP.md (✅ с хэшем); здесь только открытое."
-        - "СЛЕДУЮЩАЯ СЕССИЯ (решение пользователя 2026-10-20): AM1.0-B24 — Совместимый→Строгий во время игры останавливает трек, Стоп→Play продолжает с места (перепроверено после фикса B17). Начать с диагностики по коду: reopen_current_for_mode_switch (src/app/playback_manager.rs), release_engine в store_active_mode (src/engine/run.rs), play_via_open_if_stopped (B21); подозрение — после смены режима трек не переоткрывается, UI остаётся в «играет». ЦАП для аппаратной проверки: hw:CARD=RU3U2 (Cayin RU3), APAP_HW_TEST_DEVICE для #[ignore]-тестов alsa.rs; карту держит PipeWire — открывать hw только с разрешения пользователя."
+        - "AM1.0-B24 закрыт в 45deb30 (2026-10-20). СЛЕДУЮЩАЯ СЕССИЯ: по сквозному порядку AM1.0-8.7 (С7 (01) «DSP-корректность»); открытые баги С6 — B22, B23, B25 (B25 — вопрос пользователю). ЦАП для аппаратной проверки: hw:CARD=RU3U2 (Cayin RU3), APAP_HW_TEST_DEVICE для #[ignore]-тестов alsa.rs; карту держит PipeWire — открывать hw только с разрешения пользователя."
+        - "Ручные проверки за пользователем: AM1.0-B24 — Совместимый→Строгий (и →Оптимальный) во время игры: трек продолжается с той же позиции в новом режиме; то же на паузе — остаётся на паузе на той же позиции; при отказе захвата (карта занята) — транспорт «Стоп», Стоп→Play начинает трек с начала."
         - "AM1.0-8.6 (С6 (01) «ALSA Exclusive, замок») закрыт в 154a2ce (2026-10-19, Linux-десктоп); СЛЕДУЮЩИЙ (п. 20 сквозного порядка): AM1.0-8.7 (С7 (01) «DSP-корректность»). Старый cpal-Exclusive путь удалён; Совместимый ещё идёт через легаси Player — остаток AM1.0-B10 (StreamDesc, FallbackReason, Opened.stream_format, legacy_path, open_dop) на С7/С11. Ручные проверки С6 выполнены 2026-10-19: подтверждены B1, B2, B13; найдены/открыты B17 (конец трека в Строгом — транспорт мёртв), B22 (не та карта при авто-выборе), B23 (текст «занято»), B24 (Совместимый→Строгий во время игры), B25 (DoP на ЦАП без DoP, вопрос пользователю)."
         - "SP1.0-B16 закрыт в 74afd65 только для Windows (реестр, значение ScrollDirection раздела PrecisionTouchPad). ОТКРЫТО (решение пользователя 2026-10-13 — по мере проверки на машинах): macOS (NSEvent.isDirectionInvertedFromDevice), GNOME (natural-scroll), KDE (naturalScroll KWin) — там знак тачпада как пришёл; ветка cfg(not(windows)) в winit.rs на Linux/macOS не компилировалась. Известное ограничение: первое целое Lines свайпа тачпада без предшествующего дробного классифицируется как колесо и поправку не получает."
         - "SP1.0-8.11, открытое: при хосте трея Unknown (не KDE/GNOME) знак +1 и единица = модуль первого события — направление может отличаться от прежнего (до С11 было delta < 0 — громче), проверить на реальном хосте и при необходимости добавить строку в wheel_table.toml; отклонение от §2.12: модуль ввода — поле AppCore (set_input / input_mut), а не AppDeps, до set_input стоит FakeWheelInput; ветка «бэкенд выбран, но DefaultRuleOnly» в main.rs с WinitWheelInput недостижима (attach не проверяет, что окно winit); у D-Bus-запросов хоста трея нет таймаута; SLINT_WHEEL_CLICK_PX дублируется в matcher.rs и normalizer.rs; отладочный eprintln в on_volume_scroll и poll_tray; имена файлов фикстур gnome-2/21, kde-3/16–20 не совпадают с source в шапке."
