@@ -23,13 +23,13 @@
 - [x] Шаг 2: Тип: BusyOwner { name: String, pid: u32 } и CaptureFailure::BusyOutsideProtocol { owner: Option<BusyOwner> } (src/audio/error.rs); механическая правка конструкторов/сопоставлений на owner: None / { .. } в alsa.rs, lock_view.rs, engine/lock.rs, engine/run.rs (ТЗ-122, ТЗ-46). Общий тип → проверка: полный cargo test зелёный
 - [x] Шаг 3: Linux-определение владельца: модуль src/audio/backend/busy_owner.rs (cfg linux) — busy_owner(card, device) читает /proc/asound/card<N>/pcm<D>p/sub*/status → owner_pid → /proc/<pid>/comm; корень /proc инжектируется для тестов; ≤5 тестов (разбор status, closed, нет comm, несколько sub). Регистрация в backend/mod.rs. Проверка: cargo test busy_owner
 - [x] Шаг 4: Проводка: при окончательном EBUSY в open_claimed/reopen_pcm (src/audio/backend/alsa.rs) заполнить owner через busy_owner (ТЗ-122, И-Р21); тест с фейковым поиском владельца. Проверка: cargo test alsa
-- [>] **Шаг 5: Вид замка (src/app/lock_view.rs): текст «устройство занято приложением <имя> (PID <n>)», подсказка «карту открыло напрямую приложение <имя>, минуя резервирование PipeWire. Закройте его и нажмите «Повторить захват»»; без владельца — прежний текст; тесты. Проверка: cargo test lock_view**
-- [ ] Шаг 6: ЧЕКПОИНТ: полный cargo test + cargo clippy (0 новых варнингов в файлах вайтлиста); ручная проверка пользователя: aplay -D hw:CARD=RU3U2,DEV=0 -f S16_LE -r 44100 -c 2 -d 60 /dev/zero в фоне → закрыть замок → причина с aplay и PID
+- [x] Шаг 5: Вид замка (src/app/lock_view.rs): текст «устройство занято приложением <имя> (PID <n>)», подсказка «карту открыло напрямую приложение <имя>, минуя резервирование PipeWire. Закройте его и нажмите «Повторить захват»»; без владельца — прежний текст; тесты. Проверка: cargo test lock_view
+- [>] **Шаг 6: ЧЕКПОИНТ: полный cargo test + cargo clippy (0 новых варнингов в файлах вайтлиста); ручная проверка пользователя: aplay -D hw:CARD=RU3U2,DEV=0 -f S16_LE -r 44100 -c 2 -d 60 /dev/zero в фоне → закрыть замок → причина с aplay и PID**
 
 Легенда: [x] сделано · [>] текущий шаг · [ ] не начато
 
-- **Текущий шаг (current_step):** Шаг 5
-- **Следующий ход:** Шаг 5: lock_view.rs — текст «устройство занято приложением <имя> (PID <n>)» и подсказка про «Повторить захват» при owner: Some; без владельца — прежний текст; тесты
+- **Текущий шаг (current_step):** Шаг 6
+- **Следующий ход:** Шаг 6 ЧЕКПОИНТ: полный cargo test + clippy; затем ручная проверка пользователя с aplay на RU3U2
 - **Счетчик безуспешных компиляций:** 0/3
 - **Состояние:** in_progress
 

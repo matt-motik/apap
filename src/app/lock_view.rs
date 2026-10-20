@@ -69,7 +69,10 @@ pub(super) fn failure_label(f: &CaptureFailure) -> String {
         CaptureFailure::ReservationDenied { owner: None } => "резервирование отклонено".to_string(),
         CaptureFailure::OwnerNotResponding => "владелец резервирования не отвечает".to_string(),
         CaptureFailure::NoSessionBus => "нет сессионной шины D-Bus".to_string(),
-        CaptureFailure::BusyOutsideProtocol { .. } => {
+        CaptureFailure::BusyOutsideProtocol { owner: Some(owner) } => {
+            format!("устройство занято приложением {} (PID {})", owner.name, owner.pid)
+        }
+        CaptureFailure::BusyOutsideProtocol { owner: None } => {
             "устройство занято приложением вне протокола резервирования".to_string()
         }
         CaptureFailure::DriverRefused { errno } => format!("отказ драйвера (errno {errno})"),
@@ -78,6 +81,20 @@ pub(super) fn failure_label(f: &CaptureFailure) -> String {
         CaptureFailure::ReservationLost => "резервирование перехвачено".to_string(),
         CaptureFailure::PlatformUnsupported => "платформа не поддерживается".to_string(),
         CaptureFailure::NoDeviceSelected => "устройство не выбрано".to_string(),
+    }
+}
+
+/// Подсказка замка для отказа захвата (ТЗ-122): по умолчанию совпадает с
+/// `failure_label`, но для «занято вне протокола» с известным владельцем
+/// заменяется на указание закрыть приложение-владельца.
+fn failure_hint(f: &CaptureFailure) -> String {
+    match f {
+        CaptureFailure::BusyOutsideProtocol { owner: Some(owner) } => format!(
+            "карту открыло напрямую приложение {}, минуя резервирование PipeWire. \
+Закройте его и нажмите «Повторить захват»",
+            owner.name
+        ),
+        _ => failure_label(f),
     }
 }
 
@@ -147,7 +164,7 @@ pub(super) fn lock_view(state: &LockState) -> LockView {
             LockView {
                 kind: LockKind::Failed,
                 text: format!("не удалось захватить: {reason}"),
-                hint: reason,
+                hint: failure_hint(f),
                 actions,
             }
         }
@@ -170,12 +187,29 @@ mod tests {
         assert!(!v.text.contains("не найдено"));
     }
 
-    /// ТЗ-122: «занято вне протокола» вместо «не найдено».
+    /// ТЗ-122: «занято вне протокола» вместо «не найдено»; владелец
+    /// неизвестен — текст и подсказка не меняются.
     #[test]
     fn busy_outside_protocol_not_not_found() {
         let v = lock_view(&LockState::Failed(CaptureFailure::BusyOutsideProtocol { owner: None }));
         assert!(v.text.contains("занято"));
         assert!(!v.text.contains("не найдено"));
+        assert_eq!(v.text, "не удалось захватить: устройство занято приложением вне протокола резервирования");
+        assert_eq!(v.hint, "устройство занято приложением вне протокола резервирования");
+    }
+
+    /// ТЗ-122: владелец известен — текст и подсказка называют процесс и PID,
+    /// подсказка советует закрыть приложение-владельца.
+    #[test]
+    fn lock_view_busy_owner_text() {
+        let owner = music_player_rs::audio::error::BusyOwner { name: "aplay".to_string(), pid: 4242 };
+        let v = lock_view(&LockState::Failed(CaptureFailure::BusyOutsideProtocol { owner: Some(owner) }));
+        assert_eq!(v.text, "не удалось захватить: устройство занято приложением aplay (PID 4242)");
+        assert_eq!(
+            v.hint,
+            "карту открыло напрямую приложение aplay, минуя резервирование PipeWire. \
+Закройте его и нажмите «Повторить захват»"
+        );
     }
 
     /// ТЗ-144: «устройство не выбрано» — отдельный текст и действия

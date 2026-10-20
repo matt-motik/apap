@@ -32,12 +32,12 @@ steps:
     done: true
   - id: 5
     description: "Вид замка (src/app/lock_view.rs): текст «устройство занято приложением <имя> (PID <n>)», подсказка «карту открыло напрямую приложение <имя>, минуя резервирование PipeWire. Закройте его и нажмите «Повторить захват»»; без владельца — прежний текст; тесты. Проверка: cargo test lock_view"
-    done: false
+    done: true
   - id: 6
     description: "ЧЕКПОИНТ: полный cargo test + cargo clippy (0 новых варнингов в файлах вайтлиста); ручная проверка пользователя: aplay -D hw:CARD=RU3U2,DEV=0 -f S16_LE -r 44100 -c 2 -d 60 /dev/zero в фоне → закрыть замок → причина с aplay и PID"
     done: false
-current_step: 5
-next_action: "Шаг 5: lock_view.rs — текст «устройство занято приложением <имя> (PID <n>)» и подсказка про «Повторить захват» при owner: Some; без владельца — прежний текст; тесты"
+current_step: 6
+next_action: "Шаг 6 ЧЕКПОИНТ: полный cargo test + clippy; затем ручная проверка пользователя с aplay на RU3U2"
 fail_counter: 0
 fail_counter_max: 3
 failed_attempts: []
