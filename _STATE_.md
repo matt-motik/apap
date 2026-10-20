@@ -21,15 +21,15 @@
 ## Итерационный трекер
 - [x] Шаг 1: Docs (разрешение пользователя 2026-10-20): ТЗ-122 в 02_tz.md — владелец карты (имя процесса, PID) в причине, если определён, иначе прежний текст; подсказка «закройте его и нажмите «Повторить захват»»; кросс-ОС: определение владельца — только ALSA (Linux, /proc/asound/…/status owner_pid → /proc/<pid>/comm); на Windows/macOS замка нет (ТЗ-110). 03_spec.md: CaptureFailure §2 (BusyOutsideProtocol { owner: Option<BusyOwner> }), псевдокод §6 (EBUSY → owner), строка теста §7. Проверка: python tools/traceability_tool.py зелёный
 - [x] Шаг 2: Тип: BusyOwner { name: String, pid: u32 } и CaptureFailure::BusyOutsideProtocol { owner: Option<BusyOwner> } (src/audio/error.rs); механическая правка конструкторов/сопоставлений на owner: None / { .. } в alsa.rs, lock_view.rs, engine/lock.rs, engine/run.rs (ТЗ-122, ТЗ-46). Общий тип → проверка: полный cargo test зелёный
-- [>] **Шаг 3: Linux-определение владельца: модуль src/audio/backend/busy_owner.rs (cfg linux) — busy_owner(card, device) читает /proc/asound/card<N>/pcm<D>p/sub*/status → owner_pid → /proc/<pid>/comm; корень /proc инжектируется для тестов; ≤5 тестов (разбор status, closed, нет comm, несколько sub). Регистрация в backend/mod.rs. Проверка: cargo test busy_owner**
-- [ ] Шаг 4: Проводка: при окончательном EBUSY в open_claimed/reopen_pcm (src/audio/backend/alsa.rs) заполнить owner через busy_owner (ТЗ-122, И-Р21); тест с фейковым поиском владельца. Проверка: cargo test alsa
+- [x] Шаг 3: Linux-определение владельца: модуль src/audio/backend/busy_owner.rs (cfg linux) — busy_owner(card, device) читает /proc/asound/card<N>/pcm<D>p/sub*/status → owner_pid → /proc/<pid>/comm; корень /proc инжектируется для тестов; ≤5 тестов (разбор status, closed, нет comm, несколько sub). Регистрация в backend/mod.rs. Проверка: cargo test busy_owner
+- [>] **Шаг 4: Проводка: при окончательном EBUSY в open_claimed/reopen_pcm (src/audio/backend/alsa.rs) заполнить owner через busy_owner (ТЗ-122, И-Р21); тест с фейковым поиском владельца. Проверка: cargo test alsa**
 - [ ] Шаг 5: Вид замка (src/app/lock_view.rs): текст «устройство занято приложением <имя> (PID <n>)», подсказка «карту открыло напрямую приложение <имя>, минуя резервирование PipeWire. Закройте его и нажмите «Повторить захват»»; без владельца — прежний текст; тесты. Проверка: cargo test lock_view
 - [ ] Шаг 6: ЧЕКПОИНТ: полный cargo test + cargo clippy (0 новых варнингов в файлах вайтлиста); ручная проверка пользователя: aplay -D hw:CARD=RU3U2,DEV=0 -f S16_LE -r 44100 -c 2 -d 60 /dev/zero в фоне → закрыть замок → причина с aplay и PID
 
 Легенда: [x] сделано · [>] текущий шаг · [ ] не начато
 
-- **Текущий шаг (current_step):** Шаг 3
-- **Следующий ход:** Шаг 3: модуль src/audio/backend/busy_owner.rs (cfg linux) — busy_owner(card, device) по /proc/asound status → /proc/<pid>/comm, подменный корень, тесты; регистрация в backend/mod.rs
+- **Текущий шаг (current_step):** Шаг 4
+- **Следующий ход:** Шаг 4: в open_retry (alsa.rs) при окончательном EBUSY заполнить owner через busy_owner(card, device); тест с фейковым поиском владельца; убрать #[allow(dead_code)] у busy_owner
 - **Счетчик безуспешных компиляций:** 0/3
 - **Состояние:** in_progress
 

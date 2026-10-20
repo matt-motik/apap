@@ -26,7 +26,7 @@ steps:
     done: true
   - id: 3
     description: "Linux-определение владельца: модуль src/audio/backend/busy_owner.rs (cfg linux) — busy_owner(card, device) читает /proc/asound/card<N>/pcm<D>p/sub*/status → owner_pid → /proc/<pid>/comm; корень /proc инжектируется для тестов; ≤5 тестов (разбор status, closed, нет comm, несколько sub). Регистрация в backend/mod.rs. Проверка: cargo test busy_owner"
-    done: false
+    done: true
   - id: 4
     description: "Проводка: при окончательном EBUSY в open_claimed/reopen_pcm (src/audio/backend/alsa.rs) заполнить owner через busy_owner (ТЗ-122, И-Р21); тест с фейковым поиском владельца. Проверка: cargo test alsa"
     done: false
@@ -36,8 +36,8 @@ steps:
   - id: 6
     description: "ЧЕКПОИНТ: полный cargo test + cargo clippy (0 новых варнингов в файлах вайтлиста); ручная проверка пользователя: aplay -D hw:CARD=RU3U2,DEV=0 -f S16_LE -r 44100 -c 2 -d 60 /dev/zero в фоне → закрыть замок → причина с aplay и PID"
     done: false
-current_step: 3
-next_action: "Шаг 3: модуль src/audio/backend/busy_owner.rs (cfg linux) — busy_owner(card, device) по /proc/asound status → /proc/<pid>/comm, подменный корень, тесты; регистрация в backend/mod.rs"
+current_step: 4
+next_action: "Шаг 4: в open_retry (alsa.rs) при окончательном EBUSY заполнить owner через busy_owner(card, device); тест с фейковым поиском владельца; убрать #[allow(dead_code)] у busy_owner"
 fail_counter: 0
 fail_counter_max: 3
 failed_attempts: []
