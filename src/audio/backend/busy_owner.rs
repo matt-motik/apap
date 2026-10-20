@@ -15,9 +15,9 @@ use std::path::Path;
 use crate::audio::error::BusyOwner;
 
 /// Определяет владельца PCM `hw:CARD=<card>,DEV=<device>` по `/proc`
-/// (ТЗ-122, §6.6). Вызывается движком из `acquire` на ветке финального
-/// `EBUSY`, caller — `src/audio/backend/alsa.rs`.
-#[allow(dead_code)]
+/// (ТЗ-122, §6.6). Вызывается из `owner_of` (`src/audio/backend/alsa.rs`),
+/// которую `open_retry` зовёт на ветке финального `EBUSY` — для первого
+/// захвата (`acquire`) и переоткрытия при `reconfigure` (`reopen_pcm`).
 pub(crate) fn busy_owner(card: u32, device: u32) -> Option<BusyOwner> {
     busy_owner_in(Path::new("/proc"), card, device)
 }

@@ -29,15 +29,15 @@ steps:
     done: true
   - id: 4
     description: "Проводка: при окончательном EBUSY в open_claimed/reopen_pcm (src/audio/backend/alsa.rs) заполнить owner через busy_owner (ТЗ-122, И-Р21); тест с фейковым поиском владельца. Проверка: cargo test alsa"
-    done: false
+    done: true
   - id: 5
     description: "Вид замка (src/app/lock_view.rs): текст «устройство занято приложением <имя> (PID <n>)», подсказка «карту открыло напрямую приложение <имя>, минуя резервирование PipeWire. Закройте его и нажмите «Повторить захват»»; без владельца — прежний текст; тесты. Проверка: cargo test lock_view"
     done: false
   - id: 6
     description: "ЧЕКПОИНТ: полный cargo test + cargo clippy (0 новых варнингов в файлах вайтлиста); ручная проверка пользователя: aplay -D hw:CARD=RU3U2,DEV=0 -f S16_LE -r 44100 -c 2 -d 60 /dev/zero в фоне → закрыть замок → причина с aplay и PID"
     done: false
-current_step: 4
-next_action: "Шаг 4: в open_retry (alsa.rs) при окончательном EBUSY заполнить owner через busy_owner(card, device); тест с фейковым поиском владельца; убрать #[allow(dead_code)] у busy_owner"
+current_step: 5
+next_action: "Шаг 5: lock_view.rs — текст «устройство занято приложением <имя> (PID <n>)» и подсказка про «Повторить захват» при owner: Some; без владельца — прежний текст; тесты"
 fail_counter: 0
 fail_counter_max: 3
 failed_attempts: []

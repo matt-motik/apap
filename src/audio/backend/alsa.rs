@@ -12,6 +12,7 @@ use std::time::Duration;
 use smallvec::SmallVec;
 
 use super::alsa_out;
+use super::busy_owner::busy_owner;
 use super::catalog::HwDeviceInfo;
 use super::exclusive::{
     ClaimInfo, ClaimJob, ConfigureError, DeviceClaim, ExclusiveBackend, ExclusiveRender, PcmHandle, StartError,
@@ -21,7 +22,7 @@ use super::{
     AccessKind, BackendCaps, BackendError, DeviceBufferActual, DeviceCaps, DriverFormat, HwDeviceId, OutputApi, RateSet,
 };
 use crate::audio::clock::{Clock, MonotonicClock};
-use crate::audio::error::CaptureFailure;
+use crate::audio::error::{BusyOwner, CaptureFailure};
 use crate::audio::format::{OutputSampleFormat, SampleRate, StreamFormat};
 use crate::audio::reservation::dbus::{alsa_card_index, DbusReserveBus, SystemServerProbe};
 use crate::audio::reservation::{self, LostNotify, Reservation, ReserveBus};
@@ -212,9 +213,13 @@ impl AlsaExclusiveBackend {
     pub(crate) fn acquire(&mut self, dev: &HwDeviceId, reservation: Reservation) -> Result<DeviceClaim, CaptureFailure> {
         let hw_name = dev.as_str().to_string();
         let clock = MonotonicClock::new();
-        let (pcm, reservation) = open_claimed(reservation, &clock, std::thread::sleep, || {
-            alsa::PCM::new(&hw_name, alsa::Direction::Playback, false).map_err(|e| e.errno())
-        })?;
+        let (pcm, reservation) = open_claimed(
+            reservation,
+            &clock,
+            std::thread::sleep,
+            || alsa::PCM::new(&hw_name, alsa::Direction::Playback, false).map_err(|e| e.errno()),
+            || owner_of(dev),
+        )?;
         Ok(DeviceClaim::new(Some(PcmHandle::new(pcm)), reservation, ClaimInfo { device: dev.clone() }))
     }
 
@@ -611,24 +616,28 @@ fn build_driver_format(
 /// Ядро цикла OPEN (§6.6, ТЗ-48, ТЗ-49, ТЗ-122): `EBUSY` повторяется с шагом
 /// `OPEN_RETRY_STEP`, пока `clock.now()` не достигнет дедлайна
 /// `OPEN_EBUSY_DEADLINE` от момента вызова, иначе — отказ
-/// `BusyOutsideProtocol`; `ENOENT`/`ENODEV` — устройство отключено,
-/// `DeviceDisconnected`; любой другой errno — `DriverRefused`. Без знания о
-/// резервировании — общее между первым захватом (`open_claimed`) и
-/// переоткрытием при `reconfigure` (`reopen_pcm`, §6.7), которые по-разному
-/// решают, что делать с резервированием при отказе. `clock`/`sleep`/`open`
-/// инжектируются (ADR-20): тест на дедлайн 1 с не ждёт реальное время. `P` —
-/// открытый хэндл (в проде `alsa::PCM`, в тестах — фейк).
+/// `BusyOutsideProtocol`, чей `owner` берётся из `owner()` (ТЗ-122, §6.6):
+/// вызывается один раз, уже после дедлайна, пока PCM ещё занят
+/// процессом-владельцем — на каждый повтор `EBUSY` до дедлайна `owner()` не
+/// трогается; `ENOENT`/`ENODEV` — устройство отключено, `DeviceDisconnected`;
+/// любой другой errno — `DriverRefused`. Без знания о резервировании —
+/// общее между первым захватом (`open_claimed`) и переоткрытием при
+/// `reconfigure` (`reopen_pcm`, §6.7), которые по-разному решают, что делать
+/// с резервированием при отказе. `clock`/`sleep`/`open`/`owner` инжектируются
+/// (ADR-20): тест на дедлайн 1 с не ждёт реальное время. `P` — открытый
+/// хэндл (в проде `alsa::PCM`, в тестах — фейк).
 fn open_retry<P>(
     clock: &dyn Clock,
     mut sleep: impl FnMut(Duration),
     mut open: impl FnMut() -> Result<P, i32>,
+    owner: impl FnOnce() -> Option<BusyOwner>,
 ) -> Result<P, CaptureFailure> {
     let deadline = clock.now().saturating_add(OPEN_EBUSY_DEADLINE);
     loop {
         match open() {
             Ok(pcm) => return Ok(pcm),
             Err(errno) if errno == libc::EBUSY && clock.now() < deadline => sleep(OPEN_RETRY_STEP),
-            Err(errno) if errno == libc::EBUSY => return Err(CaptureFailure::BusyOutsideProtocol { owner: None }),
+            Err(errno) if errno == libc::EBUSY => return Err(CaptureFailure::BusyOutsideProtocol { owner: owner() }),
             Err(errno) if errno == libc::ENOENT || errno == libc::ENODEV => return Err(CaptureFailure::DeviceDisconnected),
             Err(errno) => return Err(CaptureFailure::DriverRefused { errno }),
         }
@@ -640,16 +649,20 @@ fn open_retry<P>(
 /// отказе до возврата — bug AM1.0-B1 был вызван тем, что старый путь мог
 /// оставить резервирование удержанным без открытого PCM (устройство не
 /// возвращалось PipeWire). `reservation` либо переходит в успешный результат
-/// вместе с открытым `P`, либо снимается здесь же. Функция не строит
-/// `DeviceClaim` сама, это делает вызывающая сторона на успехе.
+/// вместе с открытым `P`, либо снимается здесь же. `owner` передаётся
+/// насквозь в `open_retry` (ТЗ-122, §6.6): резервирование уже снято при
+/// возврате отказа, но владелец читается из `/proc` раньше, внутри
+/// `open_retry`, пока PCM ещё занят им. Функция не строит `DeviceClaim`
+/// сама, это делает вызывающая сторона на успехе.
 #[allow(dead_code)]
 fn open_claimed<P>(
     reservation: Reservation,
     clock: &dyn Clock,
     sleep: impl FnMut(Duration),
     open: impl FnMut() -> Result<P, i32>,
+    owner: impl FnOnce() -> Option<BusyOwner>,
 ) -> Result<(P, Reservation), CaptureFailure> {
-    match open_retry(clock, sleep, open) {
+    match open_retry(clock, sleep, open, owner) {
         Ok(pcm) => Ok((pcm, reservation)),
         Err(e) => {
             drop(reservation);
@@ -663,15 +676,19 @@ fn open_claimed<P>(
 /// ТЗ-109, AM1.0-B17): то же ядро `open_retry`, что и у первого захвата, но
 /// без резервирования — оно всё это время остаётся в `DeviceClaim`
 /// вызывающей стороны и не снимается здесь при отказе (И-Р1: снимается
-/// вместе со всем `claim`, не раньше). Выполняется в служебном потоке
-/// захвата — блокирующий `PCM::new` и реальный `sleep` здесь допустимы (не
-/// аудио-колбэк).
+/// вместе со всем `claim`, не раньше). На финальном `EBUSY` владелец PCM
+/// определяется тем же `owner_of` (ТЗ-122, §6.6), что и в `acquire`.
+/// Выполняется в служебном потоке захвата — блокирующий `PCM::new` и
+/// реальный `sleep` здесь допустимы (не аудио-колбэк).
 fn reopen_pcm(dev: &HwDeviceId) -> Result<alsa::PCM, CaptureFailure> {
     let hw_name = dev.as_str().to_string();
     let clock = MonotonicClock::new();
-    open_retry(&clock, std::thread::sleep, || {
-        alsa::PCM::new(&hw_name, alsa::Direction::Playback, false).map_err(|e| e.errno())
-    })
+    open_retry(
+        &clock,
+        std::thread::sleep,
+        || alsa::PCM::new(&hw_name, alsa::Direction::Playback, false).map_err(|e| e.errno()),
+        || owner_of(dev),
+    )
 }
 
 /// Возврат PCM захвата в состояние `OPEN`, если оно другое (§6.6, §6.7,
@@ -708,6 +725,23 @@ fn reset_to_open(claim: &mut DeviceClaim) -> Result<(), CaptureFailure> {
 #[allow(dead_code)]
 fn card_number(dev: &HwDeviceId) -> Result<u32, CaptureFailure> {
     alsa_card_index(dev.as_str()).ok_or(CaptureFailure::DeviceDisconnected)
+}
+
+/// Номер устройства ALSA из `HwDeviceId` (`hw:CARD=<id>,DEV=<d>`, §6.6,
+/// ТЗ-122): часть после `,DEV=`, в отличие от `card_number` не нуждается в
+/// обращении к системе — чистый разбор строки.
+fn device_number(dev: &HwDeviceId) -> Option<u32> {
+    let (_, rest) = dev.as_str().split_once(",DEV=")?;
+    rest.parse().ok()
+}
+
+/// Владелец PCM, занявшего устройство в обход резервирования (ТЗ-122,
+/// §6.6): вызывается из `open_retry` на финальном `EBUSY`, пока PCM ещё
+/// занят им. `None`, если номер карты или устройства не разобрать, либо
+/// `/proc` не отвечает — `BusyOutsideProtocol` возвращается в любом случае,
+/// отсутствие владельца не останавливает отказ.
+fn owner_of(dev: &HwDeviceId) -> Option<BusyOwner> {
+    busy_owner(card_number(dev).ok()?, device_number(dev)?)
 }
 
 /// `hw:CARD=<id>,DEV=<d>` для перечисления (§6.6). `None`, если строка не
@@ -751,6 +785,8 @@ fn probe_rates(hw: &alsa::pcm::HwParams<'_>) -> Result<RateSet, CaptureFailure> 
 #[cfg(test)]
 #[allow(clippy::unwrap_used, clippy::expect_used, clippy::unreachable)]
 mod tests {
+    use std::cell::Cell;
+
     use super::*;
     use crate::audio::testing::{BusCall, FakeOwner, FakeReserveBus, FakeServerProbe, ManualClock};
 
@@ -896,14 +932,20 @@ mod tests {
         let reservation = held(&bus);
 
         let mut attempts = 0;
-        let (pcm, reservation) = open_claimed(reservation, &clock, |d| clock.advance(d), || {
-            attempts += 1;
-            if attempts < 3 {
-                Err(libc::EBUSY)
-            } else {
-                Ok(99)
-            }
-        })
+        let (pcm, reservation) = open_claimed(
+            reservation,
+            &clock,
+            |d| clock.advance(d),
+            || {
+                attempts += 1;
+                if attempts < 3 {
+                    Err(libc::EBUSY)
+                } else {
+                    Ok(99)
+                }
+            },
+            || None,
+        )
         .expect("успех после повторов EBUSY до дедлайна");
 
         assert_eq!(pcm, 99);
@@ -921,7 +963,7 @@ mod tests {
         let reservation = held(&bus);
 
         let result: Result<(i32, Reservation), CaptureFailure> =
-            open_claimed(reservation, &clock, |d| clock.advance(d), || Err(libc::EBUSY));
+            open_claimed(reservation, &clock, |d| clock.advance(d), || Err(libc::EBUSY), || None);
 
         assert_eq!(result.err(), Some(CaptureFailure::BusyOutsideProtocol { owner: None }));
         assert!(fake.calls().contains(&BusCall::ReleaseName { card: 7 }));
@@ -936,7 +978,7 @@ mod tests {
         let reservation = held(&bus);
 
         let result: Result<(i32, Reservation), CaptureFailure> =
-            open_claimed(reservation, &clock, |d| clock.advance(d), || Err(libc::ENODEV));
+            open_claimed(reservation, &clock, |d| clock.advance(d), || Err(libc::ENODEV), || None);
 
         assert_eq!(result.err(), Some(CaptureFailure::DeviceDisconnected));
         let calls = fake.calls();
@@ -950,14 +992,19 @@ mod tests {
     fn alsa_reconfigure_retry_core_retries_ebusy_then_succeeds() {
         let clock = ManualClock::new();
         let mut attempts = 0;
-        let result: Result<i32, CaptureFailure> = open_retry(&clock, |d| clock.advance(d), || {
-            attempts += 1;
-            if attempts < 3 {
-                Err(libc::EBUSY)
-            } else {
-                Ok(42)
-            }
-        });
+        let result: Result<i32, CaptureFailure> = open_retry(
+            &clock,
+            |d| clock.advance(d),
+            || {
+                attempts += 1;
+                if attempts < 3 {
+                    Err(libc::EBUSY)
+                } else {
+                    Ok(42)
+                }
+            },
+            || None,
+        );
 
         assert_eq!(result, Ok(42));
         assert_eq!(attempts, 3);
@@ -966,9 +1013,65 @@ mod tests {
     #[test]
     fn alsa_reconfigure_retry_core_ebusy_past_deadline_is_busy_outside_protocol() {
         let clock = ManualClock::new();
-        let result: Result<i32, CaptureFailure> = open_retry(&clock, |d| clock.advance(d), || Err(libc::EBUSY));
+        let result: Result<i32, CaptureFailure> = open_retry(&clock, |d| clock.advance(d), || Err(libc::EBUSY), || None);
 
         assert_eq!(result, Err(CaptureFailure::BusyOutsideProtocol { owner: None }));
+    }
+
+    #[test]
+    fn alsa_reconfigure_retry_core_ebusy_past_deadline_reports_owner() {
+        let clock = ManualClock::new();
+        let result: Result<i32, CaptureFailure> = open_retry(
+            &clock,
+            |d| clock.advance(d),
+            || Err(libc::EBUSY),
+            || Some(BusyOwner { name: "aplay".to_string(), pid: 4242 }),
+        );
+
+        assert_eq!(
+            result,
+            Err(CaptureFailure::BusyOutsideProtocol { owner: Some(BusyOwner { name: "aplay".to_string(), pid: 4242 }) })
+        );
+    }
+
+    #[test]
+    fn alsa_reconfigure_retry_core_owner_not_called_unless_final_ebusy() {
+        let clock = ManualClock::new();
+        let owner_called = Cell::new(false);
+        let mut attempts = 0;
+        let result: Result<i32, CaptureFailure> = open_retry(
+            &clock,
+            |d| clock.advance(d),
+            || {
+                attempts += 1;
+                if attempts < 3 {
+                    Err(libc::EBUSY)
+                } else {
+                    Ok(42)
+                }
+            },
+            || {
+                owner_called.set(true);
+                None
+            },
+        );
+
+        assert_eq!(result, Ok(42));
+        assert!(!owner_called.get(), "owner() не должен вызываться, если open() в итоге успешен");
+
+        let owner_called = Cell::new(false);
+        let result: Result<i32, CaptureFailure> = open_retry(
+            &clock,
+            |d| clock.advance(d),
+            || Err(libc::ENODEV),
+            || {
+                owner_called.set(true);
+                None
+            },
+        );
+
+        assert_eq!(result, Err(CaptureFailure::DeviceDisconnected));
+        assert!(!owner_called.get(), "owner() не должен вызываться на ENODEV");
     }
 
     #[test]
