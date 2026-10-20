@@ -24,13 +24,22 @@ pub enum Incompatibility {
     FloatUnsupported,
 }
 
+/// Процесс, держащий PCM в обход резервирования (ТЗ-122, §2).
+#[derive(Clone, PartialEq, Eq, Debug)]
+pub struct BusyOwner {
+    pub name: String,
+    pub pid: u32,
+}
+
 /// Отказ захвата (ТЗ-46). Каждый вариант — своя причина в замке.
 #[derive(Clone, PartialEq, Debug)]
 pub enum CaptureFailure {
     ReservationDenied { owner: Option<String> },
     OwnerNotResponding,
     NoSessionBus,
-    BusyOutsideProtocol,
+    /// PCM занят в обход резервирования (ТЗ-122); `owner` — процесс, открывший
+    /// PCM, если ОС позволила его определить (Linux: `/proc/asound/…/status`).
+    BusyOutsideProtocol { owner: Option<BusyOwner> },
     DriverRefused { errno: i32 },
     LostOnReopen,
     DeviceDisconnected,

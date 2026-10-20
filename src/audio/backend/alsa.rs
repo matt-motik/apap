@@ -628,7 +628,7 @@ fn open_retry<P>(
         match open() {
             Ok(pcm) => return Ok(pcm),
             Err(errno) if errno == libc::EBUSY && clock.now() < deadline => sleep(OPEN_RETRY_STEP),
-            Err(errno) if errno == libc::EBUSY => return Err(CaptureFailure::BusyOutsideProtocol),
+            Err(errno) if errno == libc::EBUSY => return Err(CaptureFailure::BusyOutsideProtocol { owner: None }),
             Err(errno) if errno == libc::ENOENT || errno == libc::ENODEV => return Err(CaptureFailure::DeviceDisconnected),
             Err(errno) => return Err(CaptureFailure::DriverRefused { errno }),
         }
@@ -923,7 +923,7 @@ mod tests {
         let result: Result<(i32, Reservation), CaptureFailure> =
             open_claimed(reservation, &clock, |d| clock.advance(d), || Err(libc::EBUSY));
 
-        assert_eq!(result.err(), Some(CaptureFailure::BusyOutsideProtocol));
+        assert_eq!(result.err(), Some(CaptureFailure::BusyOutsideProtocol { owner: None }));
         assert!(fake.calls().contains(&BusCall::ReleaseName { card: 7 }));
         assert!(fake.calls().contains(&BusCall::Unexport { card: 7 }));
     }
@@ -968,7 +968,7 @@ mod tests {
         let clock = ManualClock::new();
         let result: Result<i32, CaptureFailure> = open_retry(&clock, |d| clock.advance(d), || Err(libc::EBUSY));
 
-        assert_eq!(result, Err(CaptureFailure::BusyOutsideProtocol));
+        assert_eq!(result, Err(CaptureFailure::BusyOutsideProtocol { owner: None }));
     }
 
     #[test]

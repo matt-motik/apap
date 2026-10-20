@@ -2422,7 +2422,7 @@ mod tests {
         let deps = EngineDeps {
             shared: Box::new(FakeSharedBackend::with_devices(Vec::new())),
             exclusive: Some(Box::new(
-                FakeExclusiveBackend::new().with_acquire(Err(CaptureFailure::BusyOutsideProtocol)),
+                FakeExclusiveBackend::new().with_acquire(Err(CaptureFailure::BusyOutsideProtocol { owner: None })),
             )),
             server_probe: Box::new(FakeServerProbe::desktop()),
             watcher: Box::new(FakeDeviceWatcher::new()),
@@ -2447,14 +2447,14 @@ mod tests {
         engine.handle_internal(msg);
 
         match &engine.lock {
-            LockState::Failed(CaptureFailure::BusyOutsideProtocol) => {}
+            LockState::Failed(CaptureFailure::BusyOutsideProtocol { .. }) => {}
             other => panic!("expected Failed(DeviceDisconnected), got {other:?}"),
         }
         assert!(engine.claim.is_none());
         let events = sink.take();
         assert!(matches!(
             events.as_slice(),
-            [EngineEvent::Lock(LockState::Failed(CaptureFailure::BusyOutsideProtocol))]
+            [EngineEvent::Lock(LockState::Failed(CaptureFailure::BusyOutsideProtocol { .. }))]
         ));
     }
 
@@ -2585,13 +2585,13 @@ mod tests {
 
         engine.handle_internal(InternalMsg::ClaimDone {
             attempt: engine.claim_attempt,
-            result: Err(CaptureFailure::BusyOutsideProtocol),
+            result: Err(CaptureFailure::BusyOutsideProtocol { owner: None }),
         });
 
         let events = sink.take();
         assert!(events.iter().any(|e| matches!(
             e,
-            EngineEvent::OpenFailed { req_gen: 7, err: OpenError::Capture(CaptureFailure::BusyOutsideProtocol) }
+            EngineEvent::OpenFailed { req_gen: 7, err: OpenError::Capture(CaptureFailure::BusyOutsideProtocol { .. }) }
         )));
         assert!(engine.deferred_open.is_none());
     }
@@ -2618,7 +2618,7 @@ mod tests {
 
         engine.handle_internal(InternalMsg::ClaimDone {
             attempt: engine.claim_attempt,
-            result: Err(CaptureFailure::BusyOutsideProtocol),
+            result: Err(CaptureFailure::BusyOutsideProtocol { owner: None }),
         });
 
         let events = sink.take();

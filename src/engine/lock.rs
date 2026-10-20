@@ -273,7 +273,7 @@ mod tests {
             LockState::Failed(CaptureFailure::ReservationDenied { owner: None }),
             LockState::Failed(CaptureFailure::OwnerNotResponding),
             LockState::Failed(CaptureFailure::NoSessionBus),
-            LockState::Failed(CaptureFailure::BusyOutsideProtocol),
+            LockState::Failed(CaptureFailure::BusyOutsideProtocol { owner: None }),
             LockState::Failed(CaptureFailure::DriverRefused { errno: 0 }),
             LockState::Failed(CaptureFailure::LostOnReopen),
             LockState::Failed(CaptureFailure::ReservationLost),

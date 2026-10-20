@@ -69,7 +69,7 @@ pub(super) fn failure_label(f: &CaptureFailure) -> String {
         CaptureFailure::ReservationDenied { owner: None } => "резервирование отклонено".to_string(),
         CaptureFailure::OwnerNotResponding => "владелец резервирования не отвечает".to_string(),
         CaptureFailure::NoSessionBus => "нет сессионной шины D-Bus".to_string(),
-        CaptureFailure::BusyOutsideProtocol => {
+        CaptureFailure::BusyOutsideProtocol { .. } => {
             "устройство занято приложением вне протокола резервирования".to_string()
         }
         CaptureFailure::DriverRefused { errno } => format!("отказ драйвера (errno {errno})"),
@@ -173,7 +173,7 @@ mod tests {
     /// ТЗ-122: «занято вне протокола» вместо «не найдено».
     #[test]
     fn busy_outside_protocol_not_not_found() {
-        let v = lock_view(&LockState::Failed(CaptureFailure::BusyOutsideProtocol));
+        let v = lock_view(&LockState::Failed(CaptureFailure::BusyOutsideProtocol { owner: None }));
         assert!(v.text.contains("занято"));
         assert!(!v.text.contains("не найдено"));
     }
