@@ -2,10 +2,36 @@
      Source of truth: _STATE_.yaml — edit that, then run:
      python tools/state_tool.py render -->
 
-# Состояние сессии
 
-- **Текущая задача:** Нет (все шаги завершены)
-- **Состояние:** done
+# Текущая микро-сессия
+
+- **Задача из ROADMAP:** AM1.0-B23 — Причина «занято вне протокола резервирования»: показать владельца карты (имя процесса, PID) и понятную подсказку (ТЗ-122, ТЗ-46)
+- **Вайтлист файлов в работе (Изменяемые файлы):**
+  - docs/01_audio_modes_v1.0/02_tz.md
+  - docs/01_audio_modes_v1.0/03_spec.md
+  - src/audio/error.rs
+  - src/audio/backend/alsa.rs
+  - src/audio/backend/busy_owner.rs
+  - src/audio/backend/mod.rs
+  - src/app/lock_view.rs
+  - src/engine/lock.rs
+  - src/engine/run.rs
+- **Критерий успеха (Definition of Done):** Замок при EBUSY показывает «не удалось захватить: устройство занято приложением <имя> (PID <n>)» и подсказку «закройте его и нажмите «Повторить захват»»; без владельца — прежний текст; cargo test + clippy зелёные; ручная проверка с aplay -D hw:N,0
+
+## Итерационный трекер
+- [x] Шаг 1: Docs (разрешение пользователя 2026-10-20): ТЗ-122 в 02_tz.md — владелец карты (имя процесса, PID) в причине, если определён, иначе прежний текст; подсказка «закройте его и нажмите «Повторить захват»»; кросс-ОС: определение владельца — только ALSA (Linux, /proc/asound/…/status owner_pid → /proc/<pid>/comm); на Windows/macOS замка нет (ТЗ-110). 03_spec.md: CaptureFailure §2 (BusyOutsideProtocol { owner: Option<BusyOwner> }), псевдокод §6 (EBUSY → owner), строка теста §7. Проверка: python tools/traceability_tool.py зелёный
+- [>] **Шаг 2: Тип: BusyOwner { name: String, pid: u32 } и CaptureFailure::BusyOutsideProtocol { owner: Option<BusyOwner> } (src/audio/error.rs); механическая правка конструкторов/сопоставлений на owner: None / { .. } в alsa.rs, lock_view.rs, engine/lock.rs, engine/run.rs (ТЗ-122, ТЗ-46). Общий тип → проверка: полный cargo test зелёный**
+- [ ] Шаг 3: Linux-определение владельца: модуль src/audio/backend/busy_owner.rs (cfg linux) — busy_owner(card, device) читает /proc/asound/card<N>/pcm<D>p/sub*/status → owner_pid → /proc/<pid>/comm; корень /proc инжектируется для тестов; ≤5 тестов (разбор status, closed, нет comm, несколько sub). Регистрация в backend/mod.rs. Проверка: cargo test busy_owner
+- [ ] Шаг 4: Проводка: при окончательном EBUSY в open_claimed/reopen_pcm (src/audio/backend/alsa.rs) заполнить owner через busy_owner (ТЗ-122, И-Р21); тест с фейковым поиском владельца. Проверка: cargo test alsa
+- [ ] Шаг 5: Вид замка (src/app/lock_view.rs): текст «устройство занято приложением <имя> (PID <n>)», подсказка «карту открыло напрямую приложение <имя>, минуя резервирование PipeWire. Закройте его и нажмите «Повторить захват»»; без владельца — прежний текст; тесты. Проверка: cargo test lock_view
+- [ ] Шаг 6: ЧЕКПОИНТ: полный cargo test + cargo clippy (0 новых варнингов в файлах вайтлиста); ручная проверка пользователя: aplay -D hw:CARD=RU3U2,DEV=0 -f S16_LE -r 44100 -c 2 -d 60 /dev/zero в фоне → закрыть замок → причина с aplay и PID
+
+Легенда: [x] сделано · [>] текущий шаг · [ ] не начато
+
+- **Текущий шаг (current_step):** Шаг 2
+- **Следующий ход:** Шаг 2: BusyOwner и BusyOutsideProtocol { owner } в src/audio/error.rs + механическая правка мест использования; полный cargo test
+- **Счетчик безуспешных компиляций:** 0/3
+- **Состояние:** in_progress
 
 ## План: Executable workflow: правила AGENTS.md → исполняемые механизмы
 _Источник: чат с пользователем (ноутбук), начат в 67686ce; перенесён в репо 2026-09-22_

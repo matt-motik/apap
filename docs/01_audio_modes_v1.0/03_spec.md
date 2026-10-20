@@ -246,7 +246,7 @@
 2. Если имя занято: вызвать у владельца `/org/freedesktop/ReserveDevice1/AudioN` метод `RequestRelease(priority = 0)` с таймаутом 5 с. Если он вернул `true`, повторить `RequestName` с флагами `REPLACE_EXISTING | DO_NOT_QUEUE`, по-прежнему без `ALLOW_REPLACEMENT`. Точная последовательность — §6.6.
 3. Экспортировать объект с методом `RequestRelease(i32) -> bool`, который возвращает `false`, пока замок закрыт, и свойствами `ApplicationName = "APAP"`, `ApplicationDeviceName = <имя устройства>`, `Priority = 0`.
 4. **Потеря имени.** Служба подписана на сигнал `NameLost` для своего имени. Если имя всё же потеряно (перезапуск шины, внешний `ReleaseName`, ошибка брокера), служба сразу посылает движку `InternalMsg::ReservationLost`. Движок в том же проходе цикла останавливает поток вывода и **немедленно закрывает PCM**, не дожидаясь конца трека, и переводит замок в `Failed(CaptureFailure::ReservationLost)`. Держать `hw:` без резервирования — это ровно сценарий R-29 (И-Р20).
-5. **Открытие `hw:` после резервирования.** Прежний владелец (WirePlumber) может закрывать PCM асинхронно уже после ответа `true`. Поэтому `EBUSY` при открытии повторяется каждые 50 мс, но не дольше 1 с по инжектируемым часам (ADR-20); всё это время замок показывает «захват…». Если за 1 с открыть не удалось — `ReleaseName` и `CaptureFailure::BusyOutsideProtocol` (ТЗ-122). Другие коды ошибок не повторяются: `DriverRefused { errno }`.
+5. **Открытие `hw:` после резервирования.** Прежний владелец (WirePlumber) может закрывать PCM асинхронно уже после ответа `true`. Поэтому `EBUSY` при открытии повторяется каждые 50 мс, но не дольше 1 с по инжектируемым часам (ADR-20); всё это время замок показывает «захват…». Если за 1 с открыть не удалось — `ReleaseName` и `CaptureFailure::BusyOutsideProtocol { owner }` (ТЗ-122); `owner` — `busy_owner(card, device)`: `owner_pid` из `/proc/asound/card<N>/pcm<D>p/sub*/status` и имя из `/proc/<pid>/comm`, любая ошибка чтения — `None`. Другие коды ошибок не повторяются: `DriverRefused { errno }`.
 6. Освобождение: закрыть PCM, затем `ReleaseName`. Порядок обеспечен порядком полей `DeviceClaim` (PCM объявлен раньше резервирования) и явным `Drop` (§5.2, И-Р1).
 7. Аварийное завершение: соединение D-Bus закрывается вместе с процессом, шина освобождает имя (ТЗ-120; проверяется ручным сценарием ТЗ-120).
 
@@ -1052,13 +1052,22 @@ pub enum Incompatibility {
     FloatUnsupported,
 }
 
+/// Процесс, держащий PCM в обход резервирования (ТЗ-122).
+#[derive(Clone, PartialEq, Debug)]
+pub struct BusyOwner {
+    pub name: String,
+    pub pid: u32,
+}
+
 /// Отказ захвата (ТЗ-46). Каждый вариант — своя причина в замке.
 #[derive(Clone, PartialEq, Debug)]
 pub enum CaptureFailure {
     ReservationDenied { owner: Option<String> },
     OwnerNotResponding,
     NoSessionBus,
-    BusyOutsideProtocol,
+    /// PCM занят в обход резервирования (ТЗ-122); `owner` — процесс, открывший
+    /// PCM, если ОС позволила его определить (Linux: `/proc/asound/…/status`).
+    BusyOutsideProtocol { owner: Option<BusyOwner> },
     DriverRefused { errno: i32 },
     LostOnReopen,
     DeviceDisconnected,
@@ -2051,7 +2060,7 @@ OPEN:
       match PCM::new("hw:CARD=<id>,DEV=<d>", Playback, nonblock = false):
           Ok(pcm)                      => return Ok(DeviceClaim { pcm, reservation, info })
           Err(EBUSY) if now < deadline => sleep(50 мс)
-          Err(EBUSY)                   => { drop(reservation); return Err(BusyOutsideProtocol) }
+          Err(EBUSY)                   => { drop(reservation); return Err(BusyOutsideProtocol { owner: busy_owner(card, d) }) }
           Err(ENOENT | ENODEV)         => { drop(reservation); return Err(DeviceDisconnected) }
           Err(e)                       => { drop(reservation); return Err(DriverRefused { errno: e }) }
 ```
@@ -2900,6 +2909,8 @@ Windows: `OsStage::Known { server: WasapiMixer, rate, format }` из `default_ou
 | `reservation_denied_and_timeout` | 119, И-Р18 | «отказ» → `ReservationDenied(owner)`; «молчать» → `Acquiring` до 5 с ± 0.5 с, затем `OwnerNotResponding`; 0 открытий PCM |
 | `reservation_owner_replies_after_3s_succeeds` | 119 | ответ через 3 с → `Held` |
 | `ebusy_after_reservation_busy_outside_protocol` | 122, И-Р21 | `EBUSY` 1.1 с → `Failed(BusyOutsideProtocol)`, резервирование снято |
+| `busy_owner_reads_proc_status` | 122 | подменный корень `/proc`: `owner_pid` в `status` и `comm` → `BusyOwner { name, pid }`; `closed`, нет `comm` → `None` |
+| `lock_view_busy_owner_text` | 46, 122 | `BusyOutsideProtocol { owner: Some(aplay, 42) }` → текст «устройство занято приложением aplay (PID 42)», подсказка с «Повторить захват»; `owner: None` → прежний текст |
 | `ebusy_retry_within_1s_succeeds` | 122, И-Р21 | `EBUSY` 0.9 с → `Held` |
 | `request_name_never_allows_replacement` | 118, И-Р21 | журнал флагов `RequestName`: нет `ALLOW_REPLACEMENT` |
 | `name_lost_closes_pcm_immediately` | 48, И-Р20 | `NameLost` → «stop → close» до следующего события, `Failed(ReservationLost)`, 0 вызовов `SharedBackend::start` |
