@@ -11,7 +11,7 @@ use smallvec::SmallVec;
 use crate::audio::backend::{AccessKind, DeviceBufferActual, DriverFormat, OutputApi};
 use crate::audio::error::Incompatibility;
 use crate::audio::format::{Codec, OutputSampleFormat, SourceFormat, SourceKind, StreamFormat};
-use crate::settings::params::PARAMS;
+use crate::settings::params::{ParamId, PARAMS};
 use crate::settings::playback::{DsdFilter, ModeKind, ModeSettings};
 
 use super::recommend::{
@@ -20,7 +20,7 @@ use super::recommend::{
 use super::signal::{DynamicPathState, Md5Status, NotCheckedWhy, RtPriorityState, SignalPath};
 use super::transform::{dsd_name, khz, Cause, Confidence, ConfirmedBy, Transform, TransformKind};
 use super::{
-    Blocked, DecoderStage, DeviceStage, OsServer, OsStage, OutputStage, ProcessingStage, SourceStage, StageId,
+    Blocked, DecoderStage, DeviceStage, OsServer, OsStage, OutputStage, ProcessingStage, Route, SourceStage, StageId,
     StageStatus,
 };
 
@@ -117,7 +117,7 @@ fn opened_rows(path: &SignalPath, d: &DynamicPathState) -> [StageRow; 6] {
         processing_row(&path.processing, d, driver_confidence(&path.output.driver)),
         output_row(&path.output, d),
         os_row(&path.os),
-        device_row(&path.device),
+        device_row(&path.device, &path.route),
     ]
 }
 
@@ -240,13 +240,20 @@ fn os_row(stage: &OsStage) -> StageRow {
 }
 
 /// «Устройство» (ТЗ-78): всегда `Unknown`, граница гарантии — `PathReport::guarantee_boundary`.
-fn device_row(stage: &DeviceStage) -> StageRow {
+/// Для DoP-потока — подсказка про тишину на ЦАП без декодера DoP (ТЗ-145,
+/// ADR-25, §6.25): заметка статус этапа не меняет.
+fn device_row(stage: &DeviceStage, route: &Route) -> StageRow {
     let mut row = StageRow::new(StageId::Device, stage.status(), Confidence::Assumed);
     let note = match stage.accepted {
         Some(f) => format!("принят формат {}", stream_text(&f)),
         None => "принятый формат не подтверждён".to_owned(),
     };
     row.notes.push(note);
+    if matches!(route, Route::Dop(_)) {
+        row.notes.push(
+            "если ЦАП молчит — он не понимает DoP: снимите «ЦАП понимает DoP»".to_owned(),
+        );
+    }
     row
 }
 
@@ -356,6 +363,8 @@ fn transforms_confidence(transforms: &[Transform], empty: Confidence) -> Confide
 
 fn cause_text(cause: &Cause) -> String {
     match cause {
+        // ТЗ-145, ADR-25: текст точнее, чем «настройка плеера: <ярлык>».
+        Cause::PlayerSetting(ParamId::DeviceDop) => "DoP выключен для устройства".to_owned(),
         Cause::PlayerSetting(param) => {
             let label = PARAMS.iter().find(|d| d.id == *param).map_or("—", |d| d.label_key);
             format!("настройка плеера: {label}")
@@ -620,6 +629,7 @@ fn rec_action_text(a: RecAction) -> &'static str {
         RecAction::SetVolumeFull => "громкость → 100 %",
         RecAction::Unmute => "выключить mute",
         RecAction::TurnOff => "выключить",
+        RecAction::TurnOn => "включить",
         RecAction::ChooseQualityFilter => "выбрать фильтр SRC «Качество»",
         RecAction::Increase => "увеличить",
     }
@@ -662,11 +672,11 @@ mod tests {
     use smallvec::SmallVec;
 
     use super::*;
-    use crate::audio::backend::{DeviceCaps, RateSet};
-    use crate::audio::format::{BitDepth, ChannelLayout, ChannelPos, Container, SampleRate};
-    use crate::audio::path::plan::plan;
+    use crate::audio::backend::{DeviceCaps, HwDeviceId, RateSet};
+    use crate::audio::format::{BitDepth, ChannelLayout, ChannelPos, Container, DsdRate, SampleRate};
+    use crate::audio::path::plan::{plan, plan_with_device};
     use crate::audio::path::{OpenedFacts, PathPlan, ReservationView};
-    use crate::settings::playback::PathPolicy;
+    use crate::settings::playback::{DeviceOpts, PathPolicy};
 
     fn sr(hz: u32) -> SampleRate {
         SampleRate::new(hz).unwrap()
@@ -685,6 +695,24 @@ mod tests {
 
     fn mp3(rate: u32) -> SourceFormat {
         SourceFormat { container: Container::Mp3, codec: Codec::Mp3, lossy: true, ..flac(24, rate) }
+    }
+
+    fn src_dsd(d: DsdRate) -> SourceFormat {
+        SourceFormat {
+            container: Container::Dsf,
+            codec: Codec::Dsf,
+            lossy: false,
+            rate: sr(d.bit_rate_hz()),
+            layout: ChannelLayout::stereo(),
+            kind: SourceKind::Dsd { dsd: d },
+        }
+    }
+
+    fn hw_device_id() -> HwDeviceId {
+        let Ok(id) = "hw:CARD=A,DEV=0".parse::<HwDeviceId>() else {
+            panic!("valid HwDeviceId");
+        };
+        id
     }
 
     fn five_one(mut s: SourceFormat) -> SourceFormat {
@@ -985,5 +1013,43 @@ mod tests {
     fn recommendation_group_switch_mode_is_hardware() {
         let rec = Recommendation::SwitchMode { to: ModeKind::Optimal, why: SwitchWhy::Resample };
         assert_eq!(recommendation_group(&rec), RecGroup::Hardware);
+    }
+
+    /// §6.25, ТЗ-145, ADR-25: причина `DsdToPcm` в Оптимальном из-за
+    /// `dev.dop = false` — «DoP выключен для устройства», а не общий текст
+    /// «настройка плеера: <ярлык>».
+    #[test]
+    fn report_processing_cause_device_dop_off() {
+        let s = ModeSettings::default();
+        let id = hw_device_id();
+        let caps = exclusive(&[44_100, 88_200, 176_400], &[OutputSampleFormat::S24Le, OutputSampleFormat::S32Le]);
+        let p = plan_with_device(
+            &src_dsd(DsdRate::Dsd64),
+            &caps,
+            PathPolicy::Optimal(&s.optimal),
+            Some((&id, DeviceOpts { dop: false })),
+        )
+        .unwrap();
+        let path = opened(p);
+        let r = build_report(PathSubject::Opened(&path), &DynamicPathState::default(), &s);
+        let proc = row(&r, StageId::Processing);
+        assert!(has(&proc.causes, "DoP выключен для устройства"), "{:?}", proc.causes);
+    }
+
+    /// §6.25, ТЗ-145, ADR-25: заметка этапа «Устройство» про тишину на ЦАП
+    /// без декодера DoP — только для DoP-потока, не для PCM.
+    #[test]
+    fn report_device_stage_dop_note() {
+        let s = ModeSettings::default();
+        let dop_caps = exclusive(&[176_400], &[OutputSampleFormat::S24Le]);
+        let path = opened(plan(&src_dsd(DsdRate::Dsd64), &dop_caps, PathPolicy::Optimal(&s.optimal)).unwrap());
+        let r = build_report(PathSubject::Opened(&path), &DynamicPathState::default(), &s);
+        let dev = row(&r, StageId::Device);
+        assert!(has(&dev.notes, "если ЦАП молчит"), "{:?}", dev.notes);
+
+        let pcm_caps = exclusive(&[44_100], &[OutputSampleFormat::S32Le]);
+        let r = optimal_report(&flac(16, 44_100), &pcm_caps, &DynamicPathState::default());
+        let dev = row(&r, StageId::Device);
+        assert!(!has(&dev.notes, "если ЦАП молчит"), "{:?}", dev.notes);
     }
 }

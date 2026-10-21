@@ -128,7 +128,7 @@ fn player_setting_action(action: RecAction, anchor: Option<SettingsAnchor>) -> R
     match action {
         RecAction::SetVolumeFull => RecViewAction::QuickFix(QuickFix::Volume),
         RecAction::Unmute => RecViewAction::QuickFix(QuickFix::Unmute),
-        RecAction::TurnOff | RecAction::ChooseQualityFilter | RecAction::Increase => match anchor {
+        RecAction::TurnOn | RecAction::TurnOff | RecAction::ChooseQualityFilter | RecAction::Increase => match anchor {
             Some(a) => RecViewAction::OpenSettings(a.tab),
             None => RecViewAction::None,
         },

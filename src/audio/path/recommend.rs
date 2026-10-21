@@ -76,6 +76,8 @@ pub enum RecAction {
     Unmute,
     /// Выключить (фиксированная частота, компенсация +6 дБ DSD→PCM).
     TurnOff,
+    /// Включить («ЦАП понимает DoP», ТЗ-145).
+    TurnOn,
     /// Выбрать фильтр SRC «Качество».
     ChooseQualityFilter,
     /// Увеличить (буфер плеера, буфер устройства).
@@ -198,6 +200,7 @@ fn action_for(param: ParamId) -> Option<RecAction> {
         ParamId::Mute => Some(RecAction::Unmute),
         ParamId::FixedRate => Some(RecAction::TurnOff),
         ParamId::SrcFilter => Some(RecAction::ChooseQualityFilter),
+        ParamId::DeviceDop => Some(RecAction::TurnOn),
         _ => None,
     }
 }
@@ -229,7 +232,12 @@ fn transform_rules(path: &SignalPath, out: &mut Recs) {
             TransformKind::Downmix { from, .. } => {
                 out.hw_or_optimal(mode, HwRequirement::Channels(from.count().get()), SwitchWhy::Downmix);
             }
-            TransformKind::DsdToPcm { dsd, .. } if mode == ModeKind::Optimal => {
+            // DoP выключен для устройства (ТЗ-145, ADR-25) — рекомендация уже
+            // дана выше («Настройки плеера»: `DeviceDop`); «Оборудование» —
+            // только для DSD→PCM по другой причине (§6.25).
+            TransformKind::DsdToPcm { dsd, .. }
+                if mode == ModeKind::Optimal && t.cause != Cause::PlayerSetting(ParamId::DeviceDop) =>
+            {
                 out.hw(HwRequirement::DopRate(*dsd));
             }
             _ => {}
@@ -273,8 +281,13 @@ fn blocked_rules(blocked: &Blocked, out: &mut Recs) {
             out.hw(HwRequirement::DopRate(*dsd));
             out.switch(ModeKind::Optimal, SwitchWhy::DsdToPcm);
         }
-        Incompatibility::DopDisabled { .. }
-        | Incompatibility::DriverRejectedRate { .. }
+        Incompatibility::DopDisabled { .. } => {
+            // ТЗ-145, ADR-25: ЦАП не помечен как понимающий DoP — предложить
+            // включить настройку плеера и перейти в Оптимальный (DSD→PCM).
+            out.player(ParamId::DeviceDop, mode, RecAction::TurnOn);
+            out.switch(ModeKind::Optimal, SwitchWhy::DsdToPcm);
+        }
+        Incompatibility::DriverRejectedRate { .. }
         | Incompatibility::DriverRejectedFormat { .. }
         | Incompatibility::FloatUnsupported => {}
     }
@@ -325,13 +338,13 @@ mod tests {
     use smallvec::SmallVec;
 
     use super::*;
-    use crate::audio::backend::{AccessKind, DeviceCaps, DriverFormat, OutputApi, RateSet};
+    use crate::audio::backend::{AccessKind, DeviceCaps, DriverFormat, HwDeviceId, OutputApi, RateSet};
     use crate::audio::format::{ChannelLayout, Codec, Container, OutputSampleFormat, SourceFormat, SourceKind};
-    use crate::audio::path::plan::with_gain;
+    use crate::audio::path::plan::{plan_with_device, with_gain};
     use crate::audio::path::transform::Confidence;
     use crate::audio::path::{plan, OpenedFacts, PathPlan, ReservationView};
     use crate::audio::verdict::GainState;
-    use crate::settings::playback::{BufferMs, PathPolicy, Volume};
+    use crate::settings::playback::{BufferMs, DeviceOpts, PathPolicy, Volume};
 
     fn sr(hz: u32) -> SampleRate {
         SampleRate::new(hz).unwrap()
@@ -408,6 +421,24 @@ mod tests {
 
     fn has_param(recs: &[Recommendation], param: ParamId) -> bool {
         players(recs).iter().any(|(p, _)| *p == param)
+    }
+
+    fn src_dsd(d: DsdRate) -> SourceFormat {
+        SourceFormat {
+            container: Container::Dsf,
+            codec: Codec::Dsf,
+            lossy: false,
+            rate: sr(d.bit_rate_hz()),
+            layout: ChannelLayout::stereo(),
+            kind: SourceKind::Dsd { dsd: d },
+        }
+    }
+
+    fn hw_device_id() -> HwDeviceId {
+        let Ok(id) = "hw:CARD=A,DEV=0".parse::<HwDeviceId>() else {
+            panic!("valid HwDeviceId");
+        };
+        id
     }
 
     fn pipewire_48() -> OsStage {
@@ -527,6 +558,51 @@ mod tests {
         assert!(!has_param(&r, ParamId::Volume));
         let to_exclusive = Recommendation::SwitchMode { to: ModeKind::Optimal, why: SwitchWhy::Exclusive };
         assert!(r.contains(&to_exclusive), "{r:?}");
+    }
+
+    /// §6.25, ТЗ-145, ADR-25: `DsdToPcm` в Оптимальном из-за `dev.dop = false`
+    /// → «Настройки плеера»: `DeviceDop` (включить), без «Оборудование».
+    #[test]
+    fn recommendation_dsd_to_pcm_device_dop_off_optimal() {
+        let s = ModeSettings::default();
+        let id = hw_device_id();
+        let c = caps(AccessKind::Exclusive, &[44_100, 88_200, 176_400]);
+        let p = plan_with_device(
+            &src_dsd(DsdRate::Dsd64),
+            &c,
+            PathPolicy::Optimal(&s.optimal),
+            Some((&id, DeviceOpts { dop: false })),
+        )
+        .unwrap();
+        let path = opened(p, OsStage::NotInvolved);
+        let r = recommend(PathSubject::Opened(&path), &DynamicPathState::default(), &s);
+        assert!(players(&r).contains(&(ParamId::DeviceDop, RecAction::TurnOn)), "{r:?}");
+        assert!(
+            !r.iter().any(|x| matches!(x, Recommendation::Hardware { need: HwRequirement::DopRate(_) })),
+            "{r:?}"
+        );
+    }
+
+    /// §6.25, ТЗ-145, ADR-25: `Blocked(DopDisabled)` в Строгом → «Настройки
+    /// плеера»: `DeviceDop` (включить) + переход в Оптимальный (DSD→PCM).
+    #[test]
+    fn recommendation_blocked_dop_disabled() {
+        let s = ModeSettings::default();
+        let id = hw_device_id();
+        let c = caps(AccessKind::Exclusive, &[44_100, 88_200, 176_400]);
+        let blocked = plan_with_device(
+            &src_dsd(DsdRate::Dsd64),
+            &c,
+            PathPolicy::Strict(&s.strict),
+            Some((&id, DeviceOpts { dop: false })),
+        )
+        .unwrap_err();
+        let r = recommend(PathSubject::Skipped(&blocked), &DynamicPathState::default(), &s);
+        assert!(players(&r).contains(&(ParamId::DeviceDop, RecAction::TurnOn)), "{r:?}");
+        assert!(
+            r.contains(&Recommendation::SwitchMode { to: ModeKind::Optimal, why: SwitchWhy::DsdToPcm }),
+            "{r:?}"
+        );
     }
 }
 

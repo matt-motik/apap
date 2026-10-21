@@ -20,6 +20,7 @@ whitelist:
   - ui/mode_params.slint
   - src/engine/run.rs
   - src/core/dialog.rs
+  - src/app/path_view.rs
   - src/persist/settings_file.rs
   - ROADMAP.md
   - _STATE_.yaml
@@ -43,7 +44,7 @@ steps:
     done: true
   - id: 6
     description: "Рекомендации §6.25: DsdToPcm из-за !dev.dop → PlayerSetting(DeviceDop); Blocked(DopDisabled) → PlayerSetting(DeviceDop) + SwitchMode(Optimal); подсказка этапа «Устройство» для DoP-потока (ADR-25, ТЗ-145); текст причины DsdToPcm с Cause::PlayerSetting(DeviceDop) — «DoP выключен для устройства» (§6.9), сейчас cause_text даёт общее «настройка плеера: …». Файлы: src/audio/path/recommend.rs, src/audio/path/report.rs. Проверка: cargo test path::"
-    done: false
+    done: true
   - id: 7
     description: "Диалог режима: флажок «ЦАП понимает DoP» рядом с выбором устройства Оптимального и Строгого, неактивен без устройства; apply_edit пишет ModeSettings.devices (ADR-25, ТЗ-145). Файлы: src/app/mode_dialog.rs (+ ui/mode_params.slint при необходимости). Проверка: cargo check + cargo test mode_dialog"
     done: false
@@ -56,8 +57,8 @@ steps:
   - id: 10
     description: "ЧЕКПОИНТ: полный cargo test + cargo clippy (0 новых варнингов в файлах вайтлиста); закрытие этапа AM1.0-8.6.1 и бага AM1.0-B25 (Шаг 5). Проверка: всё зелёное"
     done: false
-current_step: 6
-next_action: "Шаг 6 — новый code-writer (sonnet): рекомендации §6.25 для DeviceDop/DopDisabled, текст причины, подсказка этапа «Устройство»; cargo test path::"
+current_step: 7
+next_action: "Шаг 7 — новый code-writer (sonnet): флажок «ЦАП понимает DoP» в диалоге режима (Оптимальный/Строгий), неактивен без устройства; apply_edit пишет ModeSettings.devices; cargo check + cargo test mode_dialog"
 fail_counter: 0
 fail_counter_max: 3
 failed_attempts: []
