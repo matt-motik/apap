@@ -21,7 +21,7 @@
 
 use music_player_rs::settings::params::{Availability, ParamDescriptor, ParamId, PARAMS};
 use music_player_rs::settings::playback::{
-    buffers_allowed, BufferMs, DeviceBuffer, Dither, DsdAboveDac, DsdFilter, ModeKind, ModeSettings,
+    buffers_allowed, BufferMs, DeviceBuffer, DeviceOpts, Dither, DsdAboveDac, DsdFilter, ModeKind, ModeSettings,
     RateFallbackRule, SrcFilter, ValueBlocker,
 };
 use slint::{ModelRc, SharedString};
@@ -175,6 +175,7 @@ fn build_configurable_row(id: ParamId, mode: ModeKind, settings: &ModeSettings, 
         ParamId::Buffer => row_buffer(mode, settings, label),
         ParamId::RateFallback => row_rate_fallback(mode, settings, label),
         ParamId::DsdAboveDac => row_dsd_above_dac(id, label),
+        ParamId::DeviceDop => row_device_dop(mode, settings, label),
         _ => DialogRow {
             param: id,
             label,
@@ -405,6 +406,44 @@ fn row_dsd_above_dac(id: ParamId, label: &'static str) -> DialogRow {
     DialogRow { param: id, label, kind: RowKind::List { options, selected: 0 }, enabled: true, note: String::new() }
 }
 
+/// Переключатель «ЦАП понимает DoP» — Оптимальный/Строгий режим, устройство
+/// режима берётся из `settings.optimal.device`/`settings.strict.device`
+/// (ADR-25, ТЗ-145). Без выбранного устройства переключатель неактивен —
+/// значение не к чему применить.
+fn row_device_dop(mode: ModeKind, settings: &ModeSettings, label: &'static str) -> DialogRow {
+    let device = match mode {
+        ModeKind::Optimal => &settings.optimal.device,
+        ModeKind::Strict => &settings.strict.device,
+        // `Compatible` не бывает `Configurable` для `DeviceDop` — сюда не
+        // попадает; запасная строка ничего не отображает (нет `unwrap`/`panic`).
+        ModeKind::Compatible => {
+            return DialogRow {
+                param: ParamId::DeviceDop,
+                label,
+                kind: RowKind::Toggle { on: true },
+                enabled: false,
+                note: "устройство не выбрано".to_string(),
+            };
+        }
+    };
+    match device {
+        Some(id) => DialogRow {
+            param: ParamId::DeviceDop,
+            label,
+            kind: RowKind::Toggle { on: settings.device_opts(id).dop },
+            enabled: true,
+            note: String::new(),
+        },
+        None => DialogRow {
+            param: ParamId::DeviceDop,
+            label,
+            kind: RowKind::Toggle { on: true },
+            enabled: false,
+            note: "устройство не выбрано".to_string(),
+        },
+    }
+}
+
 /// Значение, которое пользователь выставил в редактируемой строке диалога:
 /// индекс выбранного пункта `RowKind::List`, положение `RowKind::Toggle` или
 /// число `RowKind::Slider` (§6.27, ТЗ-94).
@@ -455,6 +494,7 @@ pub(super) fn apply_edit(
         ParamId::Buffer => apply_buffer(settings, mode, value),
         ParamId::RateFallback => apply_rate_fallback(settings, mode, value),
         ParamId::DsdAboveDac => apply_dsd_above_dac(settings, mode, value),
+        ParamId::DeviceDop => apply_device_dop(settings, mode, value),
         _ => Err(EditRejected::NotEditable),
     }
 }
@@ -593,6 +633,27 @@ fn apply_dsd_above_dac(settings: &mut ModeSettings, mode: ModeKind, value: EditV
         }
         ModeKind::Compatible | ModeKind::Strict => Err(EditRejected::NotEditable),
     }
+}
+
+/// Правка переключателя «ЦАП понимает DoP» — только при выбранном устройстве
+/// режима; значение-умолчание не хранится отдельной записью `settings.devices`
+/// (ADR-25, ТЗ-145).
+fn apply_device_dop(settings: &mut ModeSettings, mode: ModeKind, value: EditValue) -> Result<(), EditRejected> {
+    let EditValue::Toggle(on) = value else { return Err(EditRejected::BadValue) };
+    let device = match mode {
+        ModeKind::Optimal => settings.optimal.device.clone(),
+        ModeKind::Strict => settings.strict.device.clone(),
+        ModeKind::Compatible => return Err(EditRejected::NotEditable),
+    };
+    let id = device.ok_or(EditRejected::NotEditable)?;
+    let mut opts = settings.device_opts(&id);
+    opts.dop = on;
+    if opts == DeviceOpts::default() {
+        settings.devices.remove(&id);
+    } else {
+        settings.devices.insert(id, opts);
+    }
+    Ok(())
 }
 
 /// Русская подпись параметра (ТЗ-95, §2.2). `label_key` в `PARAMS` —
@@ -816,5 +877,85 @@ mod tests {
         assert_eq!(param_row.kind, 2);
         assert_eq!(param_row.min, 100.0);
         assert_eq!(param_row.max, 10_000.0);
+    }
+
+    /// ADR-25, ТЗ-145: с выбранным устройством и без записи в `devices`
+    /// переключатель «ЦАП понимает DoP» показывает умолчание (true) и активен.
+    #[test]
+    fn device_dop_row_reflects_default_when_no_entry() {
+        let Ok(device) = "hw:CARD=A,DEV=0".parse::<music_player_rs::audio::backend::HwDeviceId>() else {
+            panic!("valid HwDeviceId")
+        };
+        let mut settings = ModeSettings::default();
+        settings.optimal.device = Some(device);
+        let rows = build_rows(ModeKind::Optimal, &settings);
+        let row = rows.iter().find(|r| r.param == ParamId::DeviceDop).expect("DeviceDop row must exist");
+
+        assert!(row.enabled);
+        assert_eq!(row.kind, RowKind::Toggle { on: true });
+    }
+
+    /// ADR-25, ТЗ-145: запись `dop: false` для выбранного устройства
+    /// отражается в строке диалога.
+    #[test]
+    fn device_dop_row_reflects_stored_false() {
+        let Ok(device) = "hw:CARD=A,DEV=0".parse::<music_player_rs::audio::backend::HwDeviceId>() else {
+            panic!("valid HwDeviceId")
+        };
+        let mut settings = ModeSettings::default();
+        settings.strict.device = Some(device.clone());
+        settings.devices.insert(device, DeviceOpts { dop: false });
+        let rows = build_rows(ModeKind::Strict, &settings);
+        let row = rows.iter().find(|r| r.param == ParamId::DeviceDop).expect("DeviceDop row must exist");
+
+        assert!(row.enabled);
+        assert_eq!(row.kind, RowKind::Toggle { on: false });
+    }
+
+    /// ADR-25, ТЗ-145: без выбранного устройства переключатель неактивен с
+    /// пояснением.
+    #[test]
+    fn device_dop_row_disabled_without_device() {
+        let settings = ModeSettings::default();
+        let rows = build_rows(ModeKind::Optimal, &settings);
+        let row = rows.iter().find(|r| r.param == ParamId::DeviceDop).expect("DeviceDop row must exist");
+
+        assert!(!row.enabled);
+        assert_eq!(row.note, "устройство не выбрано");
+    }
+
+    /// ADR-25, ТЗ-145: правка переключателя пишет/удаляет запись
+    /// `settings.devices` для устройства режима, умолчание не хранится.
+    #[test]
+    fn device_dop_edit_writes_and_clears_default_entry() {
+        let Ok(device) = "hw:CARD=A,DEV=0".parse::<music_player_rs::audio::backend::HwDeviceId>() else {
+            panic!("valid HwDeviceId")
+        };
+        let mut settings = ModeSettings::default();
+        settings.optimal.device = Some(device.clone());
+
+        apply_edit(&mut settings, ModeKind::Optimal, ParamId::DeviceDop, EditValue::Toggle(false))
+            .expect("Toggle(false) — допустимая правка");
+        assert_eq!(settings.devices.get(&device), Some(&DeviceOpts { dop: false }));
+
+        apply_edit(&mut settings, ModeKind::Optimal, ParamId::DeviceDop, EditValue::Toggle(true))
+            .expect("Toggle(true) — допустимая правка");
+        assert!(!settings.devices.contains_key(&device));
+    }
+
+    /// ADR-25, ТЗ-145: без выбранного устройства и в Совместимом режиме
+    /// правка отклоняется, `settings` не меняется.
+    #[test]
+    fn device_dop_edit_rejected_without_device_or_in_compatible() {
+        let mut settings = ModeSettings::default();
+        let before = settings.clone();
+
+        let result = apply_edit(&mut settings, ModeKind::Optimal, ParamId::DeviceDop, EditValue::Toggle(false));
+        assert_eq!(result, Err(EditRejected::NotEditable));
+        assert_eq!(settings, before);
+
+        let result = apply_edit(&mut settings, ModeKind::Compatible, ParamId::DeviceDop, EditValue::Toggle(false));
+        assert_eq!(result, Err(EditRejected::NotEditable));
+        assert_eq!(settings, before);
     }
 }

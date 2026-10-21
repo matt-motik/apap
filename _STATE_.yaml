@@ -47,7 +47,7 @@ steps:
     done: true
   - id: 7
     description: "Диалог режима: флажок «ЦАП понимает DoP» рядом с выбором устройства Оптимального и Строгого, неактивен без устройства; apply_edit пишет ModeSettings.devices (ADR-25, ТЗ-145). Файлы: src/app/mode_dialog.rs (+ ui/mode_params.slint при необходимости). Проверка: cargo check + cargo test mode_dialog"
-    done: false
+    done: true
   - id: 8
     description: "Движок: plan_with_device с device_opts разрешённого устройства режима (ADR-24, ADR-25); вызовы plan() в run.rs переключены, обёртка-мост в plan.rs удалена, если больше не используется. Файлы: src/engine/run.rs, src/audio/path/plan.rs. Проверка: cargo check"
     done: false
@@ -57,8 +57,8 @@ steps:
   - id: 10
     description: "ЧЕКПОИНТ: полный cargo test + cargo clippy (0 новых варнингов в файлах вайтлиста); закрытие этапа AM1.0-8.6.1 и бага AM1.0-B25 (Шаг 5). Проверка: всё зелёное"
     done: false
-current_step: 7
-next_action: "Шаг 7 — новый code-writer (sonnet): флажок «ЦАП понимает DoP» в диалоге режима (Оптимальный/Строгий), неактивен без устройства; apply_edit пишет ModeSettings.devices; cargo check + cargo test mode_dialog"
+current_step: 8
+next_action: "Шаг 8 — новый code-writer (sonnet): движок вызывает plan_with_device с device_opts разрешённого устройства режима; вызовы plan() в run.rs переключены, обёртка-мост удалена, если не используется; cargo check"
 fail_counter: 0
 fail_counter_max: 3
 failed_attempts: []
