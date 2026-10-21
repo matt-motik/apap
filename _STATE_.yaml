@@ -38,12 +38,12 @@ steps:
     done: true
   - id: 5
     description: "Текст «ЦАП с поддержкой X (этот ЦАП: Y)» (§6.25 таблица AM1.0-B29, ТЗ-80): hw_requirement_text(need, have) в src/audio/path/report.rs — список частот через « / » или диапазон «8–192 кГц», «до N бит» / «до 24 бит, float», каналы через « / », «DoP до DSDm, до F кГц» / «без DoP, до F кГц»; тест hardware_recommendation_shows_dac_caps (§7.2). Файл: src/audio/path/report.rs. Проверка: cargo test path::report"
-    done: false
+    done: true
   - id: 6
     description: "ЧЕКПОИНТ: полный cargo test + cargo clippy --all-targets (0 новых варнингов); закрытие AM1.0-B29 (Шаг 5: строка в _TODO_/history/archive_bugs.md, заметка плана). Проверка: всё зелёное"
     done: false
-current_step: 5
-next_action: "Шаг 5 — новый code-writer (sonnet): hw_requirement_text(need, have) в report.rs по шаблону §6.25 (AM1.0-B29) + тест hardware_recommendation_shows_dac_caps; cargo test path::report"
+current_step: 6
+next_action: "Шаг 6 — ЧЕКПОИНТ: полный cargo test + cargo clippy --all-targets, затем закрытие AM1.0-B29 (archive_bugs.md, ROADMAP, заметка плана)"
 fail_counter: 0
 fail_counter_max: 3
 failed_attempts: []

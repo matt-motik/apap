@@ -8,7 +8,7 @@
 
 use smallvec::SmallVec;
 
-use crate::audio::backend::{AccessKind, DeviceBufferActual, DriverFormat, OutputApi};
+use crate::audio::backend::{AccessKind, DeviceBufferActual, DriverFormat, OutputApi, RateSet};
 use crate::audio::error::Incompatibility;
 use crate::audio::format::{Codec, OutputSampleFormat, SourceFormat, SourceKind, StreamFormat};
 use crate::settings::params::{param_label, ParamId};
@@ -20,8 +20,8 @@ use super::recommend::{
 use super::signal::{DynamicPathState, Md5Status, NotCheckedWhy, RtPriorityState, SignalPath};
 use super::transform::{dsd_name, khz, Cause, Confidence, ConfirmedBy, Transform, TransformKind};
 use super::{
-    Blocked, DecoderStage, DeviceStage, OsServer, OsStage, OutputStage, ProcessingStage, Route, SourceStage, StageId,
-    StageStatus,
+    Blocked, DacCaps, DecoderStage, DeviceStage, OsServer, OsStage, OutputStage, ProcessingStage, Route, SourceStage,
+    StageId, StageStatus,
 };
 
 /// Граница гарантии (ТЗ-78): показывается во всех режимах.
@@ -553,7 +553,7 @@ pub fn recommendation_text(rec: &Recommendation) -> String {
     match rec {
         Recommendation::PlayerSetting(r) => player_setting_text(r),
         Recommendation::Os { topic } => os_topic_text(*topic).to_owned(),
-        Recommendation::Hardware { need, .. } => hw_requirement_text(need),
+        Recommendation::Hardware { need, have } => hw_requirement_text(need, have.as_ref()),
         Recommendation::SwitchMode { to, why } => {
             format!("смена режима: {} ({})", mode_name(*to), switch_why_text(*why))
         }
@@ -645,16 +645,99 @@ fn os_topic_text(t: OsTopic) -> &'static str {
     }
 }
 
-/// Текст совета «Оборудование» (ТЗ-80, ТЗ-81, §6.25): «ЦАП с поддержкой …»;
-/// для DoP — с частотой PCM-контейнера.
-fn hw_requirement_text(need: &HwRequirement) -> String {
-    match need {
+/// Текст совета «Оборудование» (ТЗ-80, ТЗ-81, §6.25, AM1.0-B29): «ЦАП с
+/// поддержкой …»; для DoP — с частотой PCM-контейнера. `have` — возможности
+/// текущего ЦАП (`PathPlan::dac`/`DeviceStage::dac`): добавляет «(этот ЦАП:
+/// …)», `None` или неизвестная сводка — текст без скобки. Если конкретную
+/// часть Y сформировать нельзя (пустой список частот/каналов, `max_bits ==
+/// 0`), скобка тоже не добавляется.
+fn hw_requirement_text(need: &HwRequirement, have: Option<&DacCaps>) -> String {
+    let base = match need {
         HwRequirement::Rate(r) => format!("ЦАП с поддержкой {}", khz(r.hz())),
         HwRequirement::BitDepth(b) => format!("ЦАП с поддержкой {} бит", b.bits()),
         HwRequirement::Channels(n) => format!("ЦАП с поддержкой {n} каналов"),
         HwRequirement::DopRate(d) => {
             format!("ЦАП с поддержкой DoP {} (PCM {})", dsd_name(*d), khz(d.bit_rate_hz() / 16))
         }
+    };
+    let Some(caps) = have else {
+        return base;
+    };
+    let Some(have_text) = dac_have_text(need, caps) else {
+        return base;
+    };
+    match need {
+        // Текст уже заканчивается на «(PCM f кГц)» — «этот ЦАП» дописывается
+        // в ту же скобку через «; ».
+        HwRequirement::DopRate(_) => format!("{}; этот ЦАП: {have_text})", base.trim_end_matches(')')),
+        _ => format!("{base} (этот ЦАП: {have_text})"),
+    }
+}
+
+/// Часть «этот ЦАП: …» текста совета «Оборудование» (§6.25, AM1.0-B29):
+/// `None`, если для `need` эту часть не из чего составить.
+fn dac_have_text(need: &HwRequirement, caps: &DacCaps) -> Option<String> {
+    match need {
+        HwRequirement::Rate(_) => rates_have_text(&caps.rates),
+        HwRequirement::BitDepth(_) => bit_depth_have_text(caps),
+        HwRequirement::Channels(_) => channels_have_text(&caps.channels),
+        HwRequirement::DopRate(_) => dop_have_text(caps),
+    }
+}
+
+/// Число без «кГц», как в `khz` (§6.25, AM1.0-B29): для списка частот через « / ».
+fn khz_num(hz: u32) -> String {
+    khz(hz).trim_end_matches(" кГц").to_owned()
+}
+
+/// «44,1 / 48 / 88,2 / 96 кГц» для `Discrete`, «8–192 кГц» для `Range`.
+fn rates_have_text(rates: &RateSet) -> Option<String> {
+    match rates {
+        RateSet::Discrete(list) => {
+            if list.is_empty() {
+                return None;
+            }
+            let nums: Vec<String> = list.iter().map(|r| khz_num(r.hz())).collect();
+            Some(format!("{} кГц", nums.join(" / ")))
+        }
+        RateSet::Range { min, max } => Some(format!("{}–{}", khz_num(min.hz()), khz(max.hz()))),
+    }
+}
+
+/// «до M бит»/«до 24 бит, float».
+fn bit_depth_have_text(caps: &DacCaps) -> Option<String> {
+    if caps.float_only {
+        return Some("до 24 бит, float".to_owned());
+    }
+    if caps.max_bits == 0 {
+        return None;
+    }
+    Some(format!("до {} бит", caps.max_bits))
+}
+
+/// Список количеств каналов через « / ».
+fn channels_have_text(channels: &[u8]) -> Option<String> {
+    if channels.is_empty() {
+        return None;
+    }
+    Some(channels.iter().map(u8::to_string).collect::<Vec<_>>().join(" / "))
+}
+
+/// «DoP до DSDm, до F кГц»/«без DoP, до F кГц»; F — наибольшая частота `rates`.
+fn dop_have_text(caps: &DacCaps) -> Option<String> {
+    let f = rates_max_khz(&caps.rates)?;
+    let dop = match caps.max_dop {
+        Some(d) => format!("DoP до {}", dsd_name(d)),
+        None => "без DoP".to_owned(),
+    };
+    Some(format!("{dop}, до {f}"))
+}
+
+/// Наибольшая частота сводки `RateSet` как текст `khz` (§6.25, AM1.0-B29).
+fn rates_max_khz(rates: &RateSet) -> Option<String> {
+    match rates {
+        RateSet::Discrete(list) => list.iter().max_by_key(|r| r.hz()).map(|r| khz(r.hz())),
+        RateSet::Range { max, .. } => Some(khz(max.hz())),
     }
 }
 
@@ -1099,6 +1182,107 @@ mod tests {
         assert_eq!(
             recommendation_text(&Recommendation::Hardware { need: HwRequirement::DopRate(DsdRate::Dsd256), have: None }),
             "ЦАП с поддержкой DoP DSD256 (PCM 705,6 кГц)"
+        );
+    }
+
+    /// §7.2 `hardware_recommendation_shows_dac_caps` (ТЗ-80, AM1.0-B29):
+    /// совет «Оборудование» со сводкой текущего ЦАП («этот ЦАП: …»); `have:
+    /// None` (Совместимый режим / неизвестно) — без скобки.
+    #[test]
+    fn hardware_recommendation_shows_dac_caps() {
+        let dop_caps = |max_dop: Option<DsdRate>| DacCaps {
+            rates: RateSet::Discrete(SmallVec::from_slice(&[sr(192_000)])),
+            max_bits: 0,
+            float_only: false,
+            channels: SmallVec::new(),
+            max_dop,
+        };
+        assert_eq!(
+            recommendation_text(&Recommendation::Hardware {
+                need: HwRequirement::DopRate(DsdRate::Dsd256),
+                have: Some(dop_caps(Some(DsdRate::Dsd64)))
+            }),
+            "ЦАП с поддержкой DoP DSD256 (PCM 705,6 кГц; этот ЦАП: DoP до DSD64, до 192 кГц)"
+        );
+        assert_eq!(
+            recommendation_text(&Recommendation::Hardware {
+                need: HwRequirement::DopRate(DsdRate::Dsd256),
+                have: Some(dop_caps(None))
+            }),
+            "ЦАП с поддержкой DoP DSD256 (PCM 705,6 кГц; этот ЦАП: без DoP, до 192 кГц)"
+        );
+
+        let discrete_caps = DacCaps {
+            rates: RateSet::Discrete(SmallVec::from_slice(&[sr(44_100), sr(48_000), sr(88_200), sr(96_000)])),
+            max_bits: 0,
+            float_only: false,
+            channels: SmallVec::new(),
+            max_dop: None,
+        };
+        assert_eq!(
+            recommendation_text(&Recommendation::Hardware {
+                need: HwRequirement::Rate(sr(192_000)),
+                have: Some(discrete_caps)
+            }),
+            "ЦАП с поддержкой 192 кГц (этот ЦАП: 44,1 / 48 / 88,2 / 96 кГц)"
+        );
+
+        let range_caps = DacCaps {
+            rates: RateSet::Range { min: sr(8_000), max: sr(192_000) },
+            max_bits: 0,
+            float_only: false,
+            channels: SmallVec::new(),
+            max_dop: None,
+        };
+        assert_eq!(
+            recommendation_text(&Recommendation::Hardware {
+                need: HwRequirement::Rate(sr(192_000)),
+                have: Some(range_caps)
+            }),
+            "ЦАП с поддержкой 192 кГц (этот ЦАП: 8–192 кГц)"
+        );
+
+        let bits_caps = DacCaps {
+            rates: RateSet::Discrete(SmallVec::new()),
+            max_bits: 24,
+            float_only: false,
+            channels: SmallVec::new(),
+            max_dop: None,
+        };
+        assert_eq!(
+            recommendation_text(&Recommendation::Hardware {
+                need: HwRequirement::BitDepth(BitDepth::new(32).unwrap()),
+                have: Some(bits_caps.clone())
+            }),
+            "ЦАП с поддержкой 32 бит (этот ЦАП: до 24 бит)"
+        );
+        let float_caps = DacCaps { float_only: true, ..bits_caps };
+        assert_eq!(
+            recommendation_text(&Recommendation::Hardware {
+                need: HwRequirement::BitDepth(BitDepth::new(32).unwrap()),
+                have: Some(float_caps)
+            }),
+            "ЦАП с поддержкой 32 бит (этот ЦАП: до 24 бит, float)"
+        );
+
+        let channels_caps = DacCaps {
+            rates: RateSet::Discrete(SmallVec::new()),
+            max_bits: 0,
+            float_only: false,
+            channels: SmallVec::from_slice(&[2]),
+            max_dop: None,
+        };
+        assert_eq!(
+            recommendation_text(&Recommendation::Hardware {
+                need: HwRequirement::Channels(6),
+                have: Some(channels_caps)
+            }),
+            "ЦАП с поддержкой 6 каналов (этот ЦАП: 2)"
+        );
+
+        assert_eq!(
+            recommendation_text(&Recommendation::Hardware { need: HwRequirement::Rate(sr(192_000)), have: None }),
+            "ЦАП с поддержкой 192 кГц"
         );
     }
 }
