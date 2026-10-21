@@ -5,6 +5,7 @@
 use super::playback::{CompatibleOpts, ModeSettings, OptimalOpts, StrictOpts};
 use super::ModeKind;
 use smallvec::SmallVec;
+use std::collections::BTreeSet;
 
 /// Идентификатор параметра тракта — строка матрицы §5 (§2.2).
 #[derive(Clone, Copy, PartialEq, Eq, Hash, Debug)]
@@ -44,6 +45,8 @@ pub enum ParamId {
     Buffer,
     DeviceBuffer,
     RtPriority,
+    /// «ЦАП понимает DoP» устройства режима (ТЗ-145, ADR-25); `ReopenAtPosition`.
+    DeviceDop,
     Badge,
     Test,
     Md5,
@@ -331,6 +334,15 @@ fn availability_rt_priority(mode: ModeKind) -> Availability {
     }
 }
 
+/// «ЦАП понимает DoP» (ТЗ-145, ADR-25): недоступен в Совместимом — там
+/// устройство не `HwDeviceId` и свойство ЦАП не применяется.
+fn availability_device_dop(mode: ModeKind) -> Availability {
+    match mode {
+        ModeKind::Compatible => Availability::Unavailable { why: "hidden_with_hint" },
+        ModeKind::Optimal | ModeKind::Strict => Availability::Configurable,
+    }
+}
+
 fn availability_badge(_mode: ModeKind) -> Availability {
     Availability::FixedByMode { shown: "badge_states_by_mode" }
 }
@@ -388,6 +400,7 @@ pub static PARAMS: &[ParamDescriptor] = &[
     ParamDescriptor { id: ParamId::Buffer, label_key: "buffer", availability: availability_buffer, apply: ApplyKind::ReopenAtPosition, settings_anchor: None },
     ParamDescriptor { id: ParamId::DeviceBuffer, label_key: "device_buffer", availability: availability_device_buffer, apply: ApplyKind::ReopenAtPosition, settings_anchor: None },
     ParamDescriptor { id: ParamId::RtPriority, label_key: "rt_priority", availability: availability_rt_priority, apply: ApplyKind::Memory, settings_anchor: None },
+    ParamDescriptor { id: ParamId::DeviceDop, label_key: "device_dop", availability: availability_device_dop, apply: ApplyKind::ReopenAtPosition, settings_anchor: None },
     ParamDescriptor { id: ParamId::Badge, label_key: "badge", availability: availability_badge, apply: ApplyKind::Memory, settings_anchor: None },
     ParamDescriptor { id: ParamId::Test, label_key: "test", availability: availability_test, apply: ApplyKind::Memory, settings_anchor: None },
     ParamDescriptor { id: ParamId::Md5, label_key: "md5", availability: availability_md5, apply: ApplyKind::Memory, settings_anchor: None },
@@ -534,6 +547,22 @@ fn diff_strict(a: &StrictOpts, b: &StrictOpts, out: &mut SmallVec<[(ModeKind, Pa
     }
 }
 
+/// `ModeSettings.devices` → `ParamId::DeviceDop` (ТЗ-145, ADR-25): опции
+/// устройства общие для Оптимального и Строгого, поэтому изменение одной
+/// записи помечает `DeviceDop` в обоих режимах. Сравнение — по эффективному
+/// значению (`device_opts`), так что отсутствующая запись и запись-умолчание
+/// неразличимы и diff не дают (§2.2, ADR-25).
+fn diff_devices(a: &ModeSettings, b: &ModeSettings, out: &mut SmallVec<[(ModeKind, ParamId); 8]>) {
+    let mut ids = BTreeSet::new();
+    ids.extend(a.devices.keys());
+    ids.extend(b.devices.keys());
+    let changed = ids.into_iter().any(|id| a.device_opts(id) != b.device_opts(id));
+    if changed {
+        out.push((ModeKind::Optimal, ParamId::DeviceDop));
+        out.push((ModeKind::Strict, ParamId::DeviceDop));
+    }
+}
+
 impl ModeSettings {
     /// Разница опций трёх режимов — вход `SetModeSettings(ModeSettingsUpdate)`
     /// по «Сохранить» диалога настроек (ОВС-14, §2.2).
@@ -542,6 +571,7 @@ impl ModeSettings {
         diff_compatible(&self.compatible, &new.compatible, &mut changed);
         diff_optimal(&self.optimal, &new.optimal, &mut changed);
         diff_strict(&self.strict, &new.strict, &mut changed);
+        diff_devices(self, new, &mut changed);
         ModeSettingsDiff { changed }
     }
 }
@@ -626,6 +656,7 @@ mod tests {
         (ParamId::Buffer, Kind::Configurable, Kind::Configurable, Kind::Configurable),
         (ParamId::DeviceBuffer, Kind::Unavailable, Kind::Configurable, Kind::Configurable),
         (ParamId::RtPriority, Kind::FixedByMode, Kind::FixedByMode, Kind::FixedByMode),
+        (ParamId::DeviceDop, Kind::Unavailable, Kind::Configurable, Kind::Configurable),
         (ParamId::Badge, Kind::FixedByMode, Kind::FixedByMode, Kind::FixedByMode),
         (ParamId::Test, Kind::Unavailable, Kind::Configurable, Kind::Configurable),
         (ParamId::Md5, Kind::FixedByMode, Kind::FixedByMode, Kind::FixedByMode),
@@ -634,8 +665,8 @@ mod tests {
 
     #[test]
     fn params_table_matches_matrix() {
-        assert_eq!(PARAMS.len(), 39, "PARAMS должен содержать ровно 39 параметров матрицы §5");
-        assert_eq!(EXPECTED.len(), 39, "ожидаемая таблица должна покрывать все 39 параметров");
+        assert_eq!(PARAMS.len(), 40, "PARAMS должен содержать ровно 40 параметров матрицы §5");
+        assert_eq!(EXPECTED.len(), 40, "ожидаемая таблица должна покрывать все 40 параметров");
 
         let mut seen = HashSet::new();
         for descriptor in PARAMS {
@@ -645,7 +676,7 @@ mod tests {
                 descriptor.id
             );
         }
-        assert_eq!(seen.len(), 39, "каждый ParamId должен встречаться в PARAMS ровно один раз");
+        assert_eq!(seen.len(), 40, "каждый ParamId должен встречаться в PARAMS ровно один раз");
 
         for (id, exp_compat, exp_optimal, exp_strict) in EXPECTED {
             let Some(descriptor) = PARAMS.iter().find(|d| d.id == *id) else {
@@ -783,5 +814,32 @@ mod tests {
             changed: SmallVec::from_slice(&[(ModeKind::Compatible, ParamId::Device)]),
         };
         assert_eq!(diff.strongest(ModeKind::Optimal), None);
+    }
+
+    /// ТЗ-145, ADR-25: изменение `devices` даёт `DeviceDop` сразу для
+    /// Оптимального и Строгого (опции устройства общие), с `ReopenAtPosition`;
+    /// вставка записи-умолчания эквивалентна отсутствующей записи — diff нет.
+    #[test]
+    fn devices_change_produces_device_dop_reopen() {
+        use super::super::playback::DeviceOpts;
+
+        let base = ModeSettings::default();
+        let Ok(device) = "hw:CARD=A,DEV=0".parse::<crate::audio::backend::HwDeviceId>() else {
+            panic!("valid HwDeviceId");
+        };
+
+        let mut default_insert = base.clone();
+        default_insert.devices.insert(device.clone(), DeviceOpts::default());
+        let diff = base.diff(&default_insert);
+        assert!(diff.changed.is_empty(), "вставка записи-умолчания не должна давать diff");
+
+        let mut dop_disabled = base.clone();
+        dop_disabled.devices.insert(device, DeviceOpts { dop: false });
+        let diff = base.diff(&dop_disabled);
+        assert_eq!(
+            diff.changed.as_slice(),
+            &[(ModeKind::Optimal, ParamId::DeviceDop), (ModeKind::Strict, ParamId::DeviceDop)]
+        );
+        assert_eq!(apply_kind(ParamId::DeviceDop), ApplyKind::ReopenAtPosition);
     }
 }

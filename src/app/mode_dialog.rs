@@ -634,6 +634,7 @@ fn label(id: ParamId) -> &'static str {
         ParamId::Buffer => "Буфер декодирование → вывод",
         ParamId::DeviceBuffer => "Буфер устройства",
         ParamId::RtPriority => "Приоритет реального времени",
+        ParamId::DeviceDop => "ЦАП понимает DoP",
         ParamId::Badge => "Бейдж",
         ParamId::Test => "Тест",
         ParamId::Md5 => "Проверка MD5",
