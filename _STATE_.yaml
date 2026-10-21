@@ -23,7 +23,7 @@ dod: "AGENTS.md ≤ ~200 строк; каждое правило старого 
 steps:
   - id: 1
     description: "Сверочная таблица 01_inventory.md: каждое правило старого AGENTS.md → новое место (ядро / процедура / удалено с причиной) (WF1.0 §2). Проверка: state_tool.py check + traceability_tool.py check"
-    done: false
+    done: true
   - id: 2
     description: "task_intake.md: приём задачи из чата — два пути, регистрация B-строки, закреплённый текст в спеке (WF1.0 §2 п. 1–3). Проверка: те же checks"
     done: false
@@ -48,8 +48,8 @@ steps:
   - id: 9
     description: "ЧЕКПОИНТ: полные checks, ревью пользователем итогового AGENTS.md и процедур, закрытие WF1.0-B1. Проверка: пользователь одобрил"
     done: false
-current_step: 1
-next_action: "Составить docs/00_workflow_v1.0/01_inventory.md по старому AGENTS.md"
+current_step: 2
+next_action: "Написать docs/00_workflow_v1.0/task_intake.md по строкам intake сверки 01_inventory.md и WF1.0 §2 п. 1–3"
 fail_counter: 0
 fail_counter_max: 3
 failed_attempts: []
