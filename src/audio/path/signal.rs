@@ -54,7 +54,7 @@ impl SignalPath {
     /// `DriverFormat::Unreadable` принятый формат не подтверждён, поэтому
     /// `None` (запрошенный формат остаётся в `OutputStage::requested`, ОВ-14).
     pub fn from_opened(plan: PathPlan, facts: OpenedFacts, generation: u64) -> Self {
-        let PathPlan { mode, source, route, transforms, target, ring: _, dsd_chain } = plan;
+        let PathPlan { mode, source, route, transforms, target, ring: _, dsd_chain, dac: _ } = plan;
         let OpenedFacts { access, api, device_name, driver, reservation, os, device_buffer } = facts;
         let accepted = match driver {
             DriverFormat::Confirmed(f) => Some(f),
@@ -245,6 +245,7 @@ mod tests {
     use smallvec::SmallVec;
 
     use super::super::transform::{Cause, Confidence, TransformKind};
+    use super::super::DacCaps;
     use super::*;
     use crate::audio::backend::{AccessKind, DeviceBufferActual, OutputApi};
     use crate::audio::format::{
@@ -285,6 +286,7 @@ mod tests {
             target: fmt(44_100),
             ring: RingPayload::ExactI32 { valid_bits: BitDepth::new(16).unwrap() },
             dsd_chain: None,
+            dac: DacCaps::default(),
         }
     }
 

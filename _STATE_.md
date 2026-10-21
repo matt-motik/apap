@@ -26,16 +26,16 @@
 
 ## Итерационный трекер
 - [x] Шаг 1: DacCaps (§3.1, ТЗ-80, AM1.0-B29): тип в src/audio/path/mod.rs — rates: RateSet, max_bits: u8, float_only: bool, channels: SmallVec<[u8;4]>, max_dop: Option<DsdRate>; derive Clone, PartialEq, Debug, Default; doc-комментарии по §3.1. Файл: src/audio/path/mod.rs. Проверка: cargo check
-- [>] **Шаг 2: PathPlan::dac (§3.1, §6.9, ADR-25): поле в PathPlan (src/audio/path/mod.rs); plan_with_device (src/audio/path/plan.rs) заполняет его из DeviceCaps (max_bits = field_bits наибольшего целого формата, только F32 → 24 и float_only; max_dop = max_dop(каналы источника, caps) при dev_dop, иначе None) и тест; механически dac: DacCaps::default() в тестовых литералах PathPlan (signal.rs, test_run.rs, session_build.rs, verdict.rs, app/ui_audio_state.rs), signal.rs деструктуризация — dac: _ (решение пользователя 2026-10-22: мост для поля литерала невозможен). Проверка: полный cargo test (общий тип)**
-- [ ] Шаг 3: DeviceStage::dac (§3.1): поле в DeviceStage (src/audio/path/mod.rs), SignalPath::from_opened переносит PathPlan::dac (src/audio/path/signal.rs); тест переноса. Файлы: src/audio/path/mod.rs, src/audio/path/signal.rs. Проверка: полный cargo test (общий тип)
+- [x] Шаг 2: PathPlan::dac (§3.1, §6.9, ADR-25): поле в PathPlan (src/audio/path/mod.rs); plan_with_device (src/audio/path/plan.rs) заполняет его из DeviceCaps (max_bits = field_bits наибольшего целого формата, только F32 → 24 и float_only; max_dop = max_dop(каналы источника, caps) при dev_dop, иначе None) и тест; механически dac: DacCaps::default() в тестовых литералах PathPlan (signal.rs, test_run.rs, session_build.rs, verdict.rs, app/ui_audio_state.rs), signal.rs деструктуризация — dac: _ (решение пользователя 2026-10-22: мост для поля литерала невозможен). Проверка: полный cargo test (общий тип)
+- [>] **Шаг 3: DeviceStage::dac (§3.1): поле в DeviceStage (src/audio/path/mod.rs), SignalPath::from_opened переносит PathPlan::dac (src/audio/path/signal.rs); тест переноса. Файлы: src/audio/path/mod.rs, src/audio/path/signal.rs. Проверка: полный cargo test (общий тип)**
 - [ ] Шаг 4: Recommendation::Hardware { need, have: Option<DacCaps> } (§3.4, §6.25): recommend.rs заполняет have из path.device.dac / blocked.partial.dac, в Совместимом режиме и при пустом DacCaps — None; тест; сопоставления и литералы в report.rs (Hardware { need, .. }, have: None в тестах) и app/path_view.rs (тест). Проверка: полный cargo test (общий тип)
 - [ ] Шаг 5: Текст «ЦАП с поддержкой X (этот ЦАП: Y)» (§6.25 таблица AM1.0-B29, ТЗ-80): hw_requirement_text(need, have) в src/audio/path/report.rs — список частот через « / » или диапазон «8–192 кГц», «до N бит» / «до 24 бит, float», каналы через « / », «DoP до DSDm, до F кГц» / «без DoP, до F кГц»; тест hardware_recommendation_shows_dac_caps (§7.2). Файл: src/audio/path/report.rs. Проверка: cargo test path::report
 - [ ] Шаг 6: ЧЕКПОИНТ: полный cargo test + cargo clippy --all-targets (0 новых варнингов); закрытие AM1.0-B29 (Шаг 5: строка в _TODO_/history/archive_bugs.md, заметка плана). Проверка: всё зелёное
 
 Легенда: [x] сделано · [>] текущий шаг · [ ] не начато
 
-- **Текущий шаг (current_step):** Шаг 2
-- **Следующий ход:** Шаг 2 — новый code-writer (sonnet): поле PathPlan::dac, заполнение в plan_with_device, dac: DacCaps::default() в тестовых литералах; полный cargo test
+- **Текущий шаг (current_step):** Шаг 3
+- **Следующий ход:** Шаг 3 — новый code-writer (sonnet): DeviceStage::dac и перенос в SignalPath::from_opened; полный cargo test
 - **Счетчик безуспешных компиляций:** 0/3
 - **Состояние:** in_progress
 

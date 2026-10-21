@@ -589,7 +589,7 @@ mod tests {
         BitDepth, ChannelLayout, Codec, Container, DsdRate, OutputSampleFormat, SampleRate,
         SourceFormat, SourceKind, StreamFormat,
     };
-    use crate::audio::path::DopRoute;
+    use crate::audio::path::{DacCaps, DopRoute};
 
     fn sr(hz: u32) -> SampleRate {
         SampleRate::new(hz).unwrap_or_else(|| panic!("bad rate {hz}"))
@@ -618,6 +618,7 @@ mod tests {
                 valid_bits: BitDepth::new(16).unwrap_or_else(|| panic!("bad bits")),
             },
             dsd_chain: None,
+            dac: DacCaps::default(),
         }
     }
 
@@ -648,6 +649,7 @@ mod tests {
                 valid_bits: BitDepth::new(24).unwrap_or_else(|| panic!("bad bits")),
             },
             dsd_chain: None,
+            dac: DacCaps::default(),
         }
     }
 

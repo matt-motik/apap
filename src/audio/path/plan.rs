@@ -24,7 +24,9 @@ use crate::settings::params::ParamId;
 use crate::settings::playback::{DeviceOpts, Dither, DsdAboveDac, DsdFilter, ModeKind, PathPolicy, RateFallbackRule};
 
 use super::transform::{Cause, Confidence, Transform, TransformKind, Truncate, ZeroPad};
-use super::{Blocked, DopRoute, DsdChainStep, DsdChainView, DsdStepKind, DsdStepStatus, PathPlan, Route, StageId};
+use super::{
+    Blocked, DacCaps, DopRoute, DsdChainStep, DsdChainView, DsdStepKind, DsdStepStatus, PathPlan, Route, StageId,
+};
 
 /// Стандартный ряд частот для `RateSet::Range` (§6.4), Гц.
 const STANDARD_RATES_HZ: [u32; 10] = [
@@ -125,6 +127,7 @@ pub fn plan_with_device(
         },
         ring: RingPayload::F32,
         dsd_chain: None,
+        dac: dac_caps(caps, src.layout.count().get(), dev.is_none_or(|(_, opts)| opts.dop)),
     };
     match run_steps(&mut draft, caps, policy, dev) {
         Ok(()) => Ok(draft),
@@ -300,6 +303,27 @@ fn dop_route(dsd: DsdRate, channels: u8, caps: &DeviceCaps) -> Option<(DopRoute,
 /// `max_dop` (§6.9): наибольшая DSD-частота, для которой выполняется `dop_ok`.
 fn max_dop(channels: u8, caps: &DeviceCaps) -> Option<DsdRate> {
     DsdRate::ALL.into_iter().rev().find(|&d| dop_format(d, channels, caps).is_some())
+}
+
+/// Сводка `DacCaps` для плана (§3.1, §6.25, ТЗ-80, AM1.0-B29): частоты и
+/// каналы устройства как есть, наибольшая целая разрядность (`field_bits`
+/// наибольшего целого формата из `int_candidates`; устройство только с
+/// `F32` — 24 бита мантиссы и `float_only = true`; форматов нет — 0,
+/// `float_only = false`) и `max_dop` при `dev_dop` («ЦАП понимает DoP»,
+/// ТЗ-145), иначе `None`.
+fn dac_caps(caps: &DeviceCaps, channels: u8, dev_dop: bool) -> DacCaps {
+    let (max_bits, float_only) = match int_candidates(caps).last() {
+        Some(&largest) => (largest.field_bits(), false),
+        None if caps.formats.contains(&OutputSampleFormat::F32) => (OutputSampleFormat::F32.field_bits(), true),
+        None => (0, false),
+    };
+    DacCaps {
+        rates: caps.rates.clone(),
+        max_bits,
+        float_only,
+        channels: caps.channels.clone(),
+        max_dop: if dev_dop { max_dop(channels, caps) } else { None },
+    }
 }
 
 /// Маршрут `Dop` (§6.9, ADR-12): цель — частота контейнера и формат DoP,
@@ -1064,6 +1088,45 @@ mod tests {
         let shared = dsd_caps(AccessKind::Shared, &hz, &[S24Le]);
         assert_eq!(max_dop(2, &shared), None);
         assert!(dop_route(DsdRate::Dsd64, 2, &shared).is_none());
+    }
+
+    /// §3.1, §6.25, ТЗ-80, AM1.0-B29: `max_bits` — наибольший целый формат
+    /// из `int_candidates`; `max_dop` при `dev_dop` совпадает с `max_dop()`
+    /// для тех же `caps`.
+    #[test]
+    fn dac_caps_from_integer_formats_and_dop() {
+        use OutputSampleFormat::{S16Le, S24Le, S32Le};
+        let hz = [176_400, 352_800, 705_600];
+        let c = dsd_caps(AccessKind::Exclusive, &hz, &[S16Le, S24Le, S32Le]);
+        let dac = dac_caps(&c, 2, true);
+        assert_eq!(dac.max_bits, 32);
+        assert!(!dac.float_only);
+        assert_eq!(dac.max_dop, max_dop(2, &c));
+        assert_eq!(dac.rates, c.rates);
+        assert_eq!(dac.channels, c.channels);
+    }
+
+    /// §3.1, §6.25, ТЗ-80: только `F32` — `max_bits = 24` (мантисса),
+    /// `float_only = true`.
+    #[test]
+    fn dac_caps_float_only_device() {
+        use OutputSampleFormat::F32;
+        let c = dsd_caps(AccessKind::Shared, &[44_100, 48_000], &[F32]);
+        let dac = dac_caps(&c, 2, false);
+        assert_eq!(dac.max_bits, 24);
+        assert!(dac.float_only);
+    }
+
+    /// §3.1, §6.25, ТЗ-80, ТЗ-145: `dev_dop = false` — `max_dop` всегда
+    /// `None`, даже когда устройство иначе поддерживает DoP.
+    #[test]
+    fn dac_caps_dev_dop_off_clears_max_dop() {
+        use OutputSampleFormat::{S24Le, S32Le};
+        let hz = [176_400, 352_800, 705_600];
+        let c = dsd_caps(AccessKind::Exclusive, &hz, &[S24Le, S32Le]);
+        assert!(max_dop(2, &c).is_some(), "sanity: capable device");
+        let dac = dac_caps(&c, 2, false);
+        assert_eq!(dac.max_dop, None);
     }
 }
 

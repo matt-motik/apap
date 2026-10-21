@@ -149,7 +149,7 @@ mod tests {
     use crate::audio::backend::{AccessKind, DriverFormat, OutputApi};
     use crate::audio::format::{BitDepth, ChannelLayout, Codec, Container, SourceFormat, SourceKind, StreamFormat};
     use crate::audio::path::transform::{Cause, Confidence, Transform, TransformKind};
-    use crate::audio::path::{OpenedFacts, OsStage, PathPlan, ReservationView, Route};
+    use crate::audio::path::{DacCaps, OpenedFacts, OsStage, PathPlan, ReservationView, Route};
     use crate::audio::session::RingPayload;
     use crate::audio::verdict::{verdict, GainState, SharedBadge};
     use crate::settings::playback::Volume;
@@ -183,6 +183,7 @@ mod tests {
             target: fmt(44_100),
             ring: RingPayload::ExactI32 { valid_bits: BitDepth::new(16).unwrap() },
             dsd_chain: None,
+            dac: DacCaps::default(),
         };
         let facts = OpenedFacts {
             access,

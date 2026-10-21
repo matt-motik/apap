@@ -29,7 +29,7 @@ steps:
     done: true
   - id: 2
     description: "PathPlan::dac (§3.1, §6.9, ADR-25): поле в PathPlan (src/audio/path/mod.rs); plan_with_device (src/audio/path/plan.rs) заполняет его из DeviceCaps (max_bits = field_bits наибольшего целого формата, только F32 → 24 и float_only; max_dop = max_dop(каналы источника, caps) при dev_dop, иначе None) и тест; механически dac: DacCaps::default() в тестовых литералах PathPlan (signal.rs, test_run.rs, session_build.rs, verdict.rs, app/ui_audio_state.rs), signal.rs деструктуризация — dac: _ (решение пользователя 2026-10-22: мост для поля литерала невозможен). Проверка: полный cargo test (общий тип)"
-    done: false
+    done: true
   - id: 3
     description: "DeviceStage::dac (§3.1): поле в DeviceStage (src/audio/path/mod.rs), SignalPath::from_opened переносит PathPlan::dac (src/audio/path/signal.rs); тест переноса. Файлы: src/audio/path/mod.rs, src/audio/path/signal.rs. Проверка: полный cargo test (общий тип)"
     done: false
@@ -42,8 +42,8 @@ steps:
   - id: 6
     description: "ЧЕКПОИНТ: полный cargo test + cargo clippy --all-targets (0 новых варнингов); закрытие AM1.0-B29 (Шаг 5: строка в _TODO_/history/archive_bugs.md, заметка плана). Проверка: всё зелёное"
     done: false
-current_step: 2
-next_action: "Шаг 2 — новый code-writer (sonnet): поле PathPlan::dac, заполнение в plan_with_device, dac: DacCaps::default() в тестовых литералах; полный cargo test"
+current_step: 3
+next_action: "Шаг 3 — новый code-writer (sonnet): DeviceStage::dac и перенос в SignalPath::from_opened; полный cargo test"
 fail_counter: 0
 fail_counter_max: 3
 failed_attempts: []

@@ -550,7 +550,7 @@ mod tests {
             BitDepth, ChannelLayout, Codec, Container, OutputSampleFormat, SampleRate, SourceFormat, SourceKind,
             StreamFormat,
         };
-        use music_player_rs::audio::path::{OpenedFacts, OsStage, PathPlan, ReservationView, Route};
+        use music_player_rs::audio::path::{DacCaps, OpenedFacts, OsStage, PathPlan, ReservationView, Route};
         use music_player_rs::audio::session::RingPayload;
         use music_player_rs::settings::playback::ModeKind;
         use smallvec::SmallVec;
@@ -577,6 +577,7 @@ mod tests {
             target,
             ring: RingPayload::ExactI32 { valid_bits: bits },
             dsd_chain: None,
+            dac: DacCaps::default(),
         };
         let facts = OpenedFacts {
             access: AccessKind::Shared,
@@ -916,7 +917,7 @@ mod tests {
             BitDepth, ChannelLayout, Codec, Container, OutputSampleFormat, SampleRate, SourceFormat, SourceKind,
             StreamFormat,
         };
-        use music_player_rs::audio::path::{PathPlan, Route, StageId};
+        use music_player_rs::audio::path::{DacCaps, PathPlan, Route, StageId};
         use music_player_rs::audio::session::RingPayload;
         use music_player_rs::settings::playback::ModeKind;
         use smallvec::SmallVec;
@@ -943,6 +944,7 @@ mod tests {
             target,
             ring: RingPayload::ExactI32 { valid_bits: bits },
             dsd_chain: None,
+            dac: DacCaps::default(),
         };
         Blocked { at: StageId::Output, reason: Incompatibility::FloatUnsupported, partial }
     }

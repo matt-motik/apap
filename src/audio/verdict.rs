@@ -174,7 +174,7 @@ mod tests {
     use crate::audio::path::plan::with_gain;
     use crate::audio::path::signal::{DynamicPathState, Md5Status};
     use crate::audio::path::transform::{Cause, Confidence, Transform, Truncate, ZeroPad};
-    use crate::audio::path::{plan, OpenedFacts, OsStage, PathPlan, ReservationView, Route};
+    use crate::audio::path::{plan, DacCaps, OpenedFacts, OsStage, PathPlan, ReservationView, Route};
     use crate::audio::session::RingPayload;
     use crate::audio::test_run::ConfigKey;
     use crate::settings::playback::{Dither, DsdFilter, ModeKind, ModeSettings, PathPolicy, SrcFilter};
@@ -207,6 +207,7 @@ mod tests {
             target: fmt(44_100),
             ring: RingPayload::ExactI32 { valid_bits: BitDepth::new(16).unwrap() },
             dsd_chain: None,
+            dac: DacCaps::default(),
         }
     }
 
