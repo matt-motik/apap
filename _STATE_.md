@@ -2,10 +2,32 @@
      Source of truth: _STATE_.yaml — edit that, then run:
      python tools/state_tool.py render -->
 
-# Состояние сессии
 
-- **Текущая задача:** Нет (все шаги завершены)
-- **Состояние:** done
+# Текущая микро-сессия
+
+- **Задача из ROADMAP:** AM1.0-B27 — AM1.0-B27 + AM1.0-B28 — русские подписи параметров и понятные тексты «Оборудование» в окне «Путь сигнала» (ТЗ-80, ТЗ-81, ТЗ-95, §6.25)
+- **Вайтлист файлов в работе (Изменяемые файлы):**
+  - src/settings/params.rs
+  - src/app/mode_dialog.rs
+  - src/audio/path/report.rs
+  - ROADMAP.md
+  - _TODO_/history/archive_bugs.md
+  - _STATE_.yaml
+  - _STATE_.md
+- **Критерий успеха (Definition of Done):** Причины и советы окна «Путь сигнала» показывают русские подписи параметров вместо label_key; советы «Оборудование» — «ЦАП с поддержкой …» (DoP — с частотой PCM-контейнера); cargo test и cargo clippy --all-targets зелёные, 0 новых варнингов
+
+## Итерационный трекер
+- [>] **Шаг 1: Перенести русские подписи параметров из label() (src/app/mode_dialog.rs) в библиотеку: pub fn param_label(ParamId) -> &'static str в src/settings/params.rs; mode_dialog.rs вызывает её, локальная label() удаляется (ТЗ-95, §2.2). Файлы: src/settings/params.rs, src/app/mode_dialog.rs. Проверка: cargo check; cargo test mode_dialog**
+- [ ] Шаг 2: B27: cause_text и player_setting_text (src/audio/path/report.rs) берут param_label вместо label_key («настройка плеера: DSD выше возможностей ЦАП»); тест на текст причины и совета плеера (ТЗ-81, §6.25). Файл: src/audio/path/report.rs. Проверка: cargo test path::report
+- [ ] Шаг 3: B28: hw_requirement_text (src/audio/path/report.rs) → «ЦАП с поддержкой 192 кГц», «ЦАП с поддержкой 24 бит», «ЦАП с поддержкой 6 каналов», «ЦАП с поддержкой DoP DSD256 (PCM 705,6 кГц)»; обновить тесты, проверяющие старые тексты (ТЗ-80, ТЗ-81, §6.25). Файл: src/audio/path/report.rs. Проверка: cargo test path::report
+- [ ] Шаг 4: ЧЕКПОИНТ: полный cargo test + cargo clippy --all-targets (0 новых варнингов в файлах вайтлиста); закрытие B27 и B28 (Шаг 5: строки в _TODO_/history/archive_bugs.md). Проверка: всё зелёное
+
+Легенда: [x] сделано · [>] текущий шаг · [ ] не начато
+
+- **Текущий шаг (current_step):** Шаг 1
+- **Следующий ход:** Шаг 1 — новый code-writer (sonnet): param_label в src/settings/params.rs, mode_dialog.rs использует её; cargo check; cargo test mode_dialog
+- **Счетчик безуспешных компиляций:** 0/3
+- **Состояние:** in_progress
 
 ## План: Executable workflow: правила AGENTS.md → исполняемые механизмы
 _Источник: чат с пользователем (ноутбук), начат в 67686ce; перенесён в репо 2026-09-22_

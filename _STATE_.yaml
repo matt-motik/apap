@@ -2,15 +2,34 @@
 # _STATE_.md генерируется из этого файла — не редактировать его руками.
 # Редактируйте этот файл, затем: python tools/state_tool.py render
 
-status: done
+status: in_progress
 task:
-  roadmap_id: null
-  title: null
-whitelist: []
-dod: null
-steps: []
-current_step: null
-next_action: null
+  roadmap_id: AM1.0-B27
+  title: "AM1.0-B27 + AM1.0-B28 — русские подписи параметров и понятные тексты «Оборудование» в окне «Путь сигнала» (ТЗ-80, ТЗ-81, ТЗ-95, §6.25)"
+whitelist:
+  - src/settings/params.rs
+  - src/app/mode_dialog.rs
+  - src/audio/path/report.rs
+  - ROADMAP.md
+  - _TODO_/history/archive_bugs.md
+  - _STATE_.yaml
+  - _STATE_.md
+dod: "Причины и советы окна «Путь сигнала» показывают русские подписи параметров вместо label_key; советы «Оборудование» — «ЦАП с поддержкой …» (DoP — с частотой PCM-контейнера); cargo test и cargo clippy --all-targets зелёные, 0 новых варнингов"
+steps:
+  - id: 1
+    description: "Перенести русские подписи параметров из label() (src/app/mode_dialog.rs) в библиотеку: pub fn param_label(ParamId) -> &'static str в src/settings/params.rs; mode_dialog.rs вызывает её, локальная label() удаляется (ТЗ-95, §2.2). Файлы: src/settings/params.rs, src/app/mode_dialog.rs. Проверка: cargo check; cargo test mode_dialog"
+    done: false
+  - id: 2
+    description: "B27: cause_text и player_setting_text (src/audio/path/report.rs) берут param_label вместо label_key («настройка плеера: DSD выше возможностей ЦАП»); тест на текст причины и совета плеера (ТЗ-81, §6.25). Файл: src/audio/path/report.rs. Проверка: cargo test path::report"
+    done: false
+  - id: 3
+    description: "B28: hw_requirement_text (src/audio/path/report.rs) → «ЦАП с поддержкой 192 кГц», «ЦАП с поддержкой 24 бит», «ЦАП с поддержкой 6 каналов», «ЦАП с поддержкой DoP DSD256 (PCM 705,6 кГц)»; обновить тесты, проверяющие старые тексты (ТЗ-80, ТЗ-81, §6.25). Файл: src/audio/path/report.rs. Проверка: cargo test path::report"
+    done: false
+  - id: 4
+    description: "ЧЕКПОИНТ: полный cargo test + cargo clippy --all-targets (0 новых варнингов в файлах вайтлиста); закрытие B27 и B28 (Шаг 5: строки в _TODO_/history/archive_bugs.md). Проверка: всё зелёное"
+    done: false
+current_step: 1
+next_action: "Шаг 1 — новый code-writer (sonnet): param_label в src/settings/params.rs, mode_dialog.rs использует её; cargo check; cargo test mode_dialog"
 fail_counter: 0
 fail_counter_max: 3
 failed_attempts: []
