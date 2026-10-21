@@ -26,7 +26,7 @@ steps:
     done: true
   - id: 2
     description: "task_intake.md: приём задачи из чата — два пути, регистрация B-строки, закреплённый текст в спеке (WF1.0 §2 п. 1–3). Проверка: те же checks"
-    done: false
+    done: true
   - id: 3
     description: "planning.md: выбор этапа, чтение спеки, микро-декомпозиция, вайтлист, шаблон сессии в терминах _STATE_.yaml. Проверка: те же checks"
     done: false
@@ -48,8 +48,8 @@ steps:
   - id: 9
     description: "ЧЕКПОИНТ: полные checks, ревью пользователем итогового AGENTS.md и процедур, закрытие WF1.0-B1. Проверка: пользователь одобрил"
     done: false
-current_step: 2
-next_action: "Написать docs/00_workflow_v1.0/task_intake.md по строкам intake сверки 01_inventory.md и WF1.0 §2 п. 1–3"
+current_step: 3
+next_action: "Написать docs/00_workflow_v1.0/planning.md по строкам planning сверки 01_inventory.md"
 fail_counter: 0
 fail_counter_max: 3
 failed_attempts: []
