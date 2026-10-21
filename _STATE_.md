@@ -2,10 +2,42 @@
      Source of truth: _STATE_.yaml — edit that, then run:
      python tools/state_tool.py render -->
 
-# Состояние сессии
 
-- **Текущая задача:** Нет (все шаги завершены)
-- **Состояние:** done
+# Текущая микро-сессия
+
+- **Задача из ROADMAP:** WF1.0-B1 — AGENTS.md → лаконичное ядро правил; процедуры — в docs/00_workflow_v1.0/
+- **Вайтлист файлов в работе (Изменяемые файлы):**
+  - AGENTS.md
+  - docs/00_workflow_v1.0/README.md
+  - docs/00_workflow_v1.0/01_inventory.md
+  - docs/00_workflow_v1.0/task_intake.md
+  - docs/00_workflow_v1.0/planning.md
+  - docs/00_workflow_v1.0/execution.md
+  - docs/00_workflow_v1.0/closing.md
+  - docs/00_workflow_v1.0/architecture.md
+  - docs/README.md
+  - ROADMAP.md
+  - _STATE_.yaml
+  - _STATE_.md
+- **Критерий успеха (Definition of Done):** AGENTS.md ≤ ~200 строк; каждое правило старого AGENTS.md отражено в сверке 01_inventory.md (куда перенесено или почему удалено); противоречия из WF1.0 §2 сняты; форматы _STATE_.yaml/ROADMAP.md не менялись; state_tool.py check и traceability_tool.py check зелёные; пользователь одобрил итоговый текст
+
+## Итерационный трекер
+- [>] **Шаг 1: Сверочная таблица 01_inventory.md: каждое правило старого AGENTS.md → новое место (ядро / процедура / удалено с причиной) (WF1.0 §2). Проверка: state_tool.py check + traceability_tool.py check**
+- [ ] Шаг 2: task_intake.md: приём задачи из чата — два пути, регистрация B-строки, закреплённый текст в спеке (WF1.0 §2 п. 1–3). Проверка: те же checks
+- [ ] Шаг 3: planning.md: выбор этапа, чтение спеки, микро-декомпозиция, вайтлист, шаблон сессии в терминах _STATE_.yaml. Проверка: те же checks
+- [ ] Шаг 4: execution.md: цикл шага — вайтлист, верификация (единое правило check/test/clippy), счётчик 3/3 и откат, коммит. Проверка: те же checks
+- [ ] Шаг 5: closing.md: закрытие этапа/бага — ROADMAP ✅, ручные проверки, консервация state, архив. Проверка: те же checks
+- [ ] Шаг 6: architecture.md: актуальная карта исходников, команды, тесты (сверено с деревом src/ и tests/). Проверка: те же checks
+- [ ] Шаг 7: Переписать ядро AGENTS.md (≤ ~200 строк): старт сессии, артефакты и доступ, жёсткие правила кода с проверяющим инструментом (WF1.0 §2 п. 5–6), ссылки на процедуры. Проверка: те же checks + wc -l
+- [ ] Шаг 8: Уборка: docs/README.md (файлы 00_workflow), README WF1.0 (оглавление процедур). Проверка: те же checks
+- [ ] Шаг 9: ЧЕКПОИНТ: полные checks, ревью пользователем итогового AGENTS.md и процедур, закрытие WF1.0-B1. Проверка: пользователь одобрил
+
+Легенда: [x] сделано · [>] текущий шаг · [ ] не начато
+
+- **Текущий шаг (current_step):** Шаг 1
+- **Следующий ход:** Составить docs/00_workflow_v1.0/01_inventory.md по старому AGENTS.md
+- **Счетчик безуспешных компиляций:** 0/3
+- **Состояние:** in_progress
 
 ## План: Executable workflow: правила AGENTS.md → исполняемые механизмы
 _Источник: чат с пользователем (ноутбук), начат в 67686ce; перенесён в репо 2026-09-22_
