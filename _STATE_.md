@@ -29,8 +29,8 @@
 - [x] Шаг 1: HwDeviceId: PartialOrd, Ord; DeviceOpts { dop } (Default dop=true); ModeSettings.devices: BTreeMap<HwDeviceId, DeviceOpts>; ModeSettings::device_opts(id) (ADR-25, §2.2, §2.3, ТЗ-145) + тест device_dop_per_device. Файлы: src/audio/backend/mod.rs, src/settings/playback.rs (+ однострочные адаптации нового поля: src/core/dialog.rs деструктуризация, src/persist/settings_file.rs и src/settings/playback_dto.rs литералы). Проверка: полный cargo test (общий тип)
 - [x] Шаг 2: PlaybackDto.devices: Option<BTreeMap<String, DeviceDto>>, загрузка/сохранение по §6.27 (dop не bool → true + заметка; неизвестные ключи — заметка; записи отсутствующих устройств сохраняются; записи по умолчанию не пишутся) + тест device_dop_toml_roundtrip (ADR-25, §2.2, §6.27, ТЗ-145). Файл: src/settings/playback_dto.rs. Проверка: полный cargo test (формат файла)
 - [x] Шаг 3: ParamId::DeviceDop (ApplyKind::ReopenAtPosition), строка PARAMS, доступность Optimal/Strict, учёт devices в ModeSettingsDiff (ОВС-17, ADR-25, §2.2). Файл: src/settings/params.rs (+ src/app/mode_dialog.rs, только если исчерпывающий match требует ветку — тогда строка реализуется полностью, шаг 7 сокращается). Проверка: полный cargo test (публичный enum)
-- [>] **Шаг 4: Incompatibility::DopDisabled { device } и текст «DoP выключен для устройства <имя>» в incompatibility_text (§2.4, §6.9, ТЗ-145). Файлы: src/audio/error.rs, src/audio/path/report.rs. Проверка: cargo check**
-- [ ] Шаг 5: Планировщик: dop_ok/max_dop учитывают dev.dop; Оптимальный — DsdToPcm с причиной «DoP выключен для устройства», Строгий — Blocked(DopDisabled), при !dev.dop max_dop = None (§6.9, ТЗ-145, ТЗ-31, ТЗ-39). Мост: новая plan_with_device(src, caps, policy, dev); plan() — обёртка с DeviceOpts::default() до шага 8. Тесты device_dop_off_optimal_goes_pcm, device_dop_off_strict_blocks. Файл: src/audio/path/plan.rs. Проверка: cargo test path::plan
+- [x] Шаг 4: Incompatibility::DopDisabled { device } и текст «DoP выключен для устройства <имя>» в incompatibility_text (§2.4, §6.9, ТЗ-145). Файлы: src/audio/error.rs, src/audio/path/report.rs. Проверка: cargo check
+- [>] **Шаг 5: Планировщик: dop_ok/max_dop учитывают dev.dop; Оптимальный — DsdToPcm с причиной «DoP выключен для устройства», Строгий — Blocked(DopDisabled), при !dev.dop max_dop = None (§6.9, ТЗ-145, ТЗ-31, ТЗ-39). Мост: новая plan_with_device(src, caps, policy, dev); plan() — обёртка с DeviceOpts::default() до шага 8. Тесты device_dop_off_optimal_goes_pcm, device_dop_off_strict_blocks. Файл: src/audio/path/plan.rs. Проверка: cargo test path::plan**
 - [ ] Шаг 6: Рекомендации §6.25: DsdToPcm из-за !dev.dop → PlayerSetting(DeviceDop); Blocked(DopDisabled) → PlayerSetting(DeviceDop) + SwitchMode(Optimal); подсказка этапа «Устройство» для DoP-потока (ADR-25, ТЗ-145). Файлы: src/audio/path/recommend.rs, src/audio/path/report.rs. Проверка: cargo test path::
 - [ ] Шаг 7: Диалог режима: флажок «ЦАП понимает DoP» рядом с выбором устройства Оптимального и Строгого, неактивен без устройства; apply_edit пишет ModeSettings.devices (ADR-25, ТЗ-145). Файлы: src/app/mode_dialog.rs (+ ui/mode_params.slint при необходимости). Проверка: cargo check + cargo test mode_dialog
 - [ ] Шаг 8: Движок: plan_with_device с device_opts разрешённого устройства режима (ADR-24, ADR-25); вызовы plan() в run.rs переключены, обёртка-мост в plan.rs удалена, если больше не используется. Файлы: src/engine/run.rs, src/audio/path/plan.rs. Проверка: cargo check
@@ -39,8 +39,8 @@
 
 Легенда: [x] сделано · [>] текущий шаг · [ ] не начато
 
-- **Текущий шаг (current_step):** Шаг 4
-- **Следующий ход:** Шаг 4 — новый code-writer (sonnet): Incompatibility::DopDisabled { device } + текст в incompatibility_text; cargo check
+- **Текущий шаг (current_step):** Шаг 5
+- **Следующий ход:** Шаг 5 — новый code-writer (sonnet): планировщик plan_with_device (dev.dop в dop_ok/max_dop; Optimal → DsdToPcm с причиной, Strict → Blocked(DopDisabled)); тесты device_dop_off_*; cargo test path::plan
 - **Счетчик безуспешных компиляций:** 0/3
 - **Состояние:** in_progress
 

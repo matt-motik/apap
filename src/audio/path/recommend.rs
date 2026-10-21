@@ -273,7 +273,8 @@ fn blocked_rules(blocked: &Blocked, out: &mut Recs) {
             out.hw(HwRequirement::DopRate(*dsd));
             out.switch(ModeKind::Optimal, SwitchWhy::DsdToPcm);
         }
-        Incompatibility::DriverRejectedRate { .. }
+        Incompatibility::DopDisabled { .. }
+        | Incompatibility::DriverRejectedRate { .. }
         | Incompatibility::DriverRejectedFormat { .. }
         | Incompatibility::FloatUnsupported => {}
     }

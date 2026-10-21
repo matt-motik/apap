@@ -317,6 +317,9 @@ fn incompatibility_text(reason: &Incompatibility) -> String {
             Some(max) => format!("DoP {} не поддерживается устройством (не выше {})", dsd_name(*dsd), dsd_name(*max)),
             None => format!("DoP {} не поддерживается устройством", dsd_name(*dsd)),
         },
+        Incompatibility::DopDisabled { device } => {
+            format!("DoP выключен для устройства {}", device.as_str())
+        }
         Incompatibility::DriverRejectedRate { requested, actual } => format!(
             "драйвер принял {} вместо запрошенной {}",
             khz(actual.hz()),

@@ -36,7 +36,7 @@ steps:
     done: true
   - id: 4
     description: "Incompatibility::DopDisabled { device } и текст «DoP выключен для устройства <имя>» в incompatibility_text (§2.4, §6.9, ТЗ-145). Файлы: src/audio/error.rs, src/audio/path/report.rs. Проверка: cargo check"
-    done: false
+    done: true
   - id: 5
     description: "Планировщик: dop_ok/max_dop учитывают dev.dop; Оптимальный — DsdToPcm с причиной «DoP выключен для устройства», Строгий — Blocked(DopDisabled), при !dev.dop max_dop = None (§6.9, ТЗ-145, ТЗ-31, ТЗ-39). Мост: новая plan_with_device(src, caps, policy, dev); plan() — обёртка с DeviceOpts::default() до шага 8. Тесты device_dop_off_optimal_goes_pcm, device_dop_off_strict_blocks. Файл: src/audio/path/plan.rs. Проверка: cargo test path::plan"
     done: false
@@ -55,8 +55,8 @@ steps:
   - id: 10
     description: "ЧЕКПОИНТ: полный cargo test + cargo clippy (0 новых варнингов в файлах вайтлиста); закрытие этапа AM1.0-8.6.1 и бага AM1.0-B25 (Шаг 5). Проверка: всё зелёное"
     done: false
-current_step: 4
-next_action: "Шаг 4 — новый code-writer (sonnet): Incompatibility::DopDisabled { device } + текст в incompatibility_text; cargo check"
+current_step: 5
+next_action: "Шаг 5 — новый code-writer (sonnet): планировщик plan_with_device (dev.dop в dop_ok/max_dop; Optimal → DsdToPcm с причиной, Strict → Blocked(DopDisabled)); тесты device_dop_off_*; cargo test path::plan"
 fail_counter: 0
 fail_counter_max: 3
 failed_attempts: []

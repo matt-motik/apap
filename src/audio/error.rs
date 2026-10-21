@@ -5,7 +5,7 @@
 //! (С5, ТЗ-57, ТЗ-80) — трек несовместим с устройством в Строгом режиме.
 #![deny(clippy::unwrap_used, clippy::expect_used, clippy::unreachable)]
 
-use crate::audio::backend::RateSet;
+use crate::audio::backend::{HwDeviceId, RateSet};
 use crate::audio::format::{BitDepth, DsdRate, OutputSampleFormat, SampleRate};
 use crate::audio::path::Blocked;
 use crate::settings::ModeKind;
@@ -18,6 +18,8 @@ pub enum Incompatibility {
     TruncationForbidden { from: BitDepth, max: u8 },
     ChannelsUnsupported { src: u8, supported: SmallVec<[u8; 4]> },
     DopUnsupported { dsd: DsdRate, max_dop: Option<DsdRate> },
+    /// У устройства выключена настройка «ЦАП понимает DoP» (ТЗ-145, ADR-25, §2.4).
+    DopDisabled { device: HwDeviceId },
     DriverRejectedRate { requested: SampleRate, actual: SampleRate },
     DriverRejectedFormat { requested: OutputSampleFormat, actual: OutputSampleFormat },
     /// PCM с плавающей точкой в Строгом режиме (ОВС-1, ТЗ-132).
