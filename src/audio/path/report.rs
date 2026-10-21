@@ -645,12 +645,16 @@ fn os_topic_text(t: OsTopic) -> &'static str {
     }
 }
 
+/// Текст совета «Оборудование» (ТЗ-80, ТЗ-81, §6.25): «ЦАП с поддержкой …»;
+/// для DoP — с частотой PCM-контейнера.
 fn hw_requirement_text(need: &HwRequirement) -> String {
     match need {
-        HwRequirement::Rate(r) => format!("частота {}", khz(r.hz())),
-        HwRequirement::BitDepth(b) => format!("разрядность {} бит", b.bits()),
-        HwRequirement::Channels(n) => format!("{n} кан."),
-        HwRequirement::DopRate(d) => format!("DoP {}", dsd_name(*d)),
+        HwRequirement::Rate(r) => format!("ЦАП с поддержкой {}", khz(r.hz())),
+        HwRequirement::BitDepth(b) => format!("ЦАП с поддержкой {} бит", b.bits()),
+        HwRequirement::Channels(n) => format!("ЦАП с поддержкой {n} каналов"),
+        HwRequirement::DopRate(d) => {
+            format!("ЦАП с поддержкой DoP {} (PCM {})", dsd_name(*d), khz(d.bit_rate_hz() / 16))
+        }
     }
 }
 
@@ -1068,5 +1072,29 @@ mod tests {
         let rec = PlayerSettingRec::new(ParamId::Buffer, ModeKind::Optimal, RecAction::Increase)
             .expect("Buffer настраивается в Optimal");
         assert_eq!(recommendation_text(&Recommendation::PlayerSetting(rec)), "Буфер декодирование → вывод: увеличить");
+    }
+
+    /// AM1.0-B28 (ТЗ-80, ТЗ-81, §6.25): совет «Оборудование» — «ЦАП с
+    /// поддержкой …», для DoP — с частотой PCM-контейнера (`dsd / 16`).
+    #[test]
+    fn hardware_recommendation_text_is_dac_support() {
+        assert_eq!(
+            recommendation_text(&Recommendation::Hardware { need: HwRequirement::Rate(sr(192_000)) }),
+            "ЦАП с поддержкой 192 кГц"
+        );
+        assert_eq!(
+            recommendation_text(&Recommendation::Hardware {
+                need: HwRequirement::BitDepth(BitDepth::new(24).unwrap())
+            }),
+            "ЦАП с поддержкой 24 бит"
+        );
+        assert_eq!(
+            recommendation_text(&Recommendation::Hardware { need: HwRequirement::Channels(6) }),
+            "ЦАП с поддержкой 6 каналов"
+        );
+        assert_eq!(
+            recommendation_text(&Recommendation::Hardware { need: HwRequirement::DopRate(DsdRate::Dsd256) }),
+            "ЦАП с поддержкой DoP DSD256 (PCM 705,6 кГц)"
+        );
     }
 }

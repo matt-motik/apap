@@ -24,12 +24,12 @@ steps:
     done: true
   - id: 3
     description: "B28: hw_requirement_text (src/audio/path/report.rs) → «ЦАП с поддержкой 192 кГц», «ЦАП с поддержкой 24 бит», «ЦАП с поддержкой 6 каналов», «ЦАП с поддержкой DoP DSD256 (PCM 705,6 кГц)»; обновить тесты, проверяющие старые тексты (ТЗ-80, ТЗ-81, §6.25). Файл: src/audio/path/report.rs. Проверка: cargo test path::report"
-    done: false
+    done: true
   - id: 4
     description: "ЧЕКПОИНТ: полный cargo test + cargo clippy --all-targets (0 новых варнингов в файлах вайтлиста); закрытие B27 и B28 (Шаг 5: строки в _TODO_/history/archive_bugs.md). Проверка: всё зелёное"
     done: false
-current_step: 3
-next_action: "Шаг 3 — новый code-writer (sonnet): B28 — hw_requirement_text в src/audio/path/report.rs → «ЦАП с поддержкой …»; обновить тесты; cargo test path::report"
+current_step: 4
+next_action: "Шаг 4 — ЧЕКПОИНТ: полный cargo test + cargo clippy --all-targets (test-runner haiku); затем закрытие B27 и B28 по Шагу 5"
 fail_counter: 0
 fail_counter_max: 3
 failed_attempts: []
