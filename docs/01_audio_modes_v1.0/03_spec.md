@@ -2,7 +2,7 @@
 
 **Префикс:** `AM1.0` (реестр префиксов — в шапке `ROADMAP.md`; этап СN = задача `AM1.0-8.N`).
 
-Основа: утверждённое ТЗ `docs/01_audio_modes_v1.0/02_tz.md` (ТЗ-1…ТЗ-144; решения ОВ-1…ОВ-37 и ОВС-1…ОВС-21 внесены). Справочно: `docs/01_audio_modes_v1.0/01_review.md` (находки R-1…R-29, решения пользователя 1–11, предложения ревью). Решения пользователя имеют приоритет над предложениями ревью и над требованиями промта.
+Основа: утверждённое ТЗ `docs/01_audio_modes_v1.0/02_tz.md` (ТЗ-1…ТЗ-145; решения ОВ-1…ОВ-38 и ОВС-1…ОВС-21 внесены). Справочно: `docs/01_audio_modes_v1.0/01_review.md` (находки R-1…R-29, решения пользователя 1–11, предложения ревью). Решения пользователя имеют приоритет над предложениями ревью и над требованиями промта.
 
 Статус: **заход 2 из 2**. Заход 1 — архитектурные решения (ADR), модель данных, модель пути сигнала, архитектура потоков и инварианты (§1–§5). Заход 2 — исправления первой половины по ОВ-36 и замечаниям пользователя (ADR-03, ADR-06, ADR-07, ADR-08, ADR-13, ADR-17, §2.1, §2.4, §2.9, §5) и разделы «Алгоритмы», «План тестов», «Этапы внедрения», «Открытые вопросы» (§6–§9).
 
@@ -19,6 +19,8 @@
 Обновление 2026-10-07: С3 — сигнатуры `SourceOpener` и `ThreadSpawner` определены в §2.10 и согласованы с пользователем; в `EngineDeps` (ADR-20) `sources` и `spawner` — `Arc` (их делят поток движка, служебный поток открытия и `apap-decode`); уточнены фейки `FakeSource`, `FailingSpawner`. В С3 `Player` переезжает в поток `apap-engine` как внутренняя деталь (мост); его разбор по §6.18 — на С5–С8.
 
 Обновление 2026-10-17: решение пользователя ОВ-37 ТЗ (ТЗ-143, ТЗ-144) — ADR-24: если устройство Оптимального или Строгого режима не выбрано, движок перед захватом выбирает аппаратное устройство системного выхода PipeWire (`AudioServerProbe::default_sink_card` → `DeviceCatalog::hw_for_sink`) и сообщает выбор событием `DeviceAutoSelected`, приложение сохраняет его в `optimal.device`/`strict.device`; нет соответствия — `CaptureFailure::NoDeviceSelected` («устройство не выбрано», без захвата и без Shared). Изменены §2.2, §2.3, §2.4, §2.6, §2.8, §6.6, §6.18, §6.19, §7.2, §8 (С6: ТЗ-143, ТЗ-144 и тест ТЗ-21 «Оптимальный → Совместимый», баг AM1.0-B13).
+
+Обновление 2026-10-21: решение пользователя ОВ-38 ТЗ (ТЗ-145, находка AM1.0-B25) — ADR-25: настройка устройства «ЦАП понимает DoP» (`ModeSettings::devices`, `DeviceOpts { dop }`, по умолчанию true, ключ `[playback.devices."<id>"]`); `dop_ok` учитывает её (§6.9), в Строгом режиме — `Incompatibility::DopDisabled` (§2.4), рекомендация и подсказка окна (§6.25), загрузка (§6.27), тесты (§7.2), этап С6а (§8). `HwDeviceId` получает `PartialOrd, Ord` (ключ `BTreeMap`).
 
 Правила документа:
 
@@ -473,7 +475,7 @@
 
 | Файл | Содержимое | Ключ |
 |---|---|---|
-| `settings.toml`, раздел `[playback]` | `schema = 2`, `[playback.compatible]`, `[playback.optimal]`, `[playback.strict]` — `ModeSettings`; ключ `active` снят: ОВС-15 | — |
+| `settings.toml`, раздел `[playback]` | `schema = 2`, `[playback.compatible]`, `[playback.optimal]`, `[playback.strict]`, `[playback.devices."<id>"]` (ADR-25) — `ModeSettings`; ключ `active` снят: ОВС-15 | — |
 | `state.toml` (ОВС-15) | `PlaybackState`: активный режим, громкость и mute по режимам; остальное состояние сессии — задача 02 | — |
 | `bp_tests.toml` | список `TestRecord` | `ConfigKey` (все поля, §2.7) |
 | `track_marks.toml` | пометки «MD5 не совпал» | канонический путь файла |
@@ -582,6 +584,23 @@ pub trait Clock: Send {
 - Режим, однажды получивший устройство, за системным выходом не следует (ТЗ-143).
 
 **Последствия.** `AudioServerProbe` получает метод `default_sink_card`, `FakeServerProbe` — заданный `Option<SinkCard>` и счётчик вызовов. `lock_step` получает разрешённое устройство параметром (§2.6). Тест ТЗ-21 «Оптимальный (захват) → Совместимый» закрепляет освобождение до открытия Shared (B13).
+
+### ADR-25. Настройка устройства «ЦАП понимает DoP» (ОВ-38)
+
+**Выполняет:** ТЗ-145; ТЗ-31, ТЗ-39, ТЗ-94.
+
+**Контекст.** `dop_ok` (§6.9) опирается только на `hw_params`: частота контейнера и 24/32-битный формат. ЦАП без декодера DoP (Asus Xonar DX, AM1.0-B25) эти параметры принимает, и в Строгом режиме плеер играет DoP-поток, который ЦАП выводит как PCM, — тишина при бейдже «Bit-perfect». Программно отличить такой ЦАП нельзя: решение принимает пользователь (ОВ-38).
+
+**Варианты хранения:** А — поле `dop: bool` в `OptimalOpts` и `StrictOpts`; Б — таблица опций устройства `ModeSettings::devices: BTreeMap<HwDeviceId, DeviceOpts>`, общая для режимов; В — отдельный файл свойств устройств.
+
+**Решение: Б.** Свойство принадлежит ЦАП: при смене устройства режима значение следует за устройством, а Оптимальный и Строгий режимы на одном устройстве видят одно значение. Файл тот же (`settings.toml`, раздел `[playback.devices."<id>"]`), отдельного писателя не нужно (ОВС-14).
+
+- Нет записи для устройства → `DeviceOpts::default()` (`dop = true`). Запись пишется только для отклонений от умолчания, поэтому существующие файлы и ЦАП с DoP не меняются (ТЗ-124).
+- `dop_ok` получает `dev.dop` устройства режима после разрешения (ADR-24). При `false` Оптимальный режим даёт `DsdToPcm` с причиной «DoP выключен для устройства», Строгий — `Blocked(DopDisabled { device })`; попыток открыть DoP нет.
+- `ParamId::DeviceDop`: `Configurable` в Оптимальном и Строгом режимах, `Unavailable` в Совместимом; `ApplyKind::ReopenAtPosition` (ОВС-17) — переоткрытие нужно, только если открыт DSD-трек на этом устройстве.
+- Бейдж не меняется (ТЗ-52): DoP-поток на ЦАП, который пользователь пометил как понимающий DoP, остаётся bit-perfect по правилам §6.22. Подсказка окна (§6.25) помогает найти причину тишины.
+
+**Последствия.** `HwDeviceId` получает `PartialOrd, Ord`. `ModeSettings` и `PlaybackDto` получают поле `devices`. В диалоге флажок стоит рядом с выбором устройства режима и неактивен, пока устройство не выбрано.
 
 ## 2. Модель данных
 
@@ -701,7 +720,24 @@ pub struct ModeSettings {
     pub compatible: CompatibleOpts,
     pub optimal: OptimalOpts,
     pub strict: StrictOpts,
+    /// Опции аппаратных устройств, общие для Оптимального и Строгого режимов (ТЗ-145, ADR-25).
+    /// Нет записи → DeviceOpts::default(). Записи отсутствующих сейчас устройств сохраняются.
+    pub devices: BTreeMap<HwDeviceId, DeviceOpts>,
 }
+
+impl ModeSettings {
+    /// Опции устройства; нет записи → умолчание (ТЗ-145).
+    pub fn device_opts(&self, id: &HwDeviceId) -> DeviceOpts;
+}
+
+/// Свойства ЦАП, которые нельзя узнать у драйвера (ТЗ-145, ADR-25).
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub struct DeviceOpts {
+    /// «ЦАП понимает DoP»; по умолчанию true. false → DoP для устройства не выбирается.
+    pub dop: bool,
+}
+
+impl Default for DeviceOpts { fn default() -> Self { Self { dop: true } } }
 
 /// Режим 1. Только параметры с «Н» в матрице §5.
 #[derive(Clone, PartialEq, Debug)]
@@ -828,6 +864,8 @@ pub enum ParamId {
     Downmix, MonoToStereo, ChannelPad, FloatSource, Volume, Mute, VolumeLock, Equalizer,
     DsdNative, DsdDop, DsdToPcm, DsdAboveDac, DsdPcmParams, DsdFilter, DsdGainComp,
     OnIncompatible, OnBadFile, OnDeviceLost, Buffer, DeviceBuffer, RtPriority,
+    /// «ЦАП понимает DoP» устройства режима (ТЗ-145, ADR-25); ReopenAtPosition.
+    DeviceDop,
     Badge, Test, Md5, UnderrunXrun,
 }
 
@@ -908,6 +946,8 @@ pub struct PlaybackDto {
     pub compatible: Option<CompatibleDto>,
     pub optimal: Option<OptimalDto>,
     pub strict: Option<StrictDto>,
+    /// `[playback.devices."<id>"] dop = false` — только отклонения от умолчания (ADR-25).
+    pub devices: Option<BTreeMap<String, DeviceDto>>,
     #[serde(flatten)] pub unknown: BTreeMap<String, toml::Value>,
 }
 
@@ -923,7 +963,7 @@ pub fn load_mode_settings(dto: Option<PlaybackDto>) -> (ModeSettings, Vec<LoadNo
 ```rust
 // audio/backend/mod.rs
 
-#[derive(Clone, PartialEq, Eq, Hash, Debug)]
+#[derive(Clone, PartialEq, Eq, Hash, PartialOrd, Ord, Debug)]   // Ord — ключ ModeSettings::devices (ADR-25)
 pub struct HwDeviceId(String);      // стабильный id карты ALSA (card id + device), не номер
 #[derive(Clone, PartialEq, Eq, Hash, Debug)]
 pub struct SharedDeviceId(String);
@@ -1046,6 +1086,8 @@ pub enum Incompatibility {
     TruncationForbidden { from: BitDepth, max: u8 },
     ChannelsUnsupported { src: u8, supported: SmallVec<[u8; 4]> },
     DopUnsupported { dsd: DsdRate, max_dop: Option<DsdRate> },
+    /// У устройства выключена настройка «ЦАП понимает DoP» (ТЗ-145, ADR-25).
+    DopDisabled { device: HwDeviceId },
     DriverRejectedRate { requested: SampleRate, actual: SampleRate },
     DriverRejectedFormat { requested: OutputSampleFormat, actual: OutputSampleFormat },
     /// PCM с плавающей точкой в Строгом режиме (ОВС-1, ТЗ-132).
@@ -2154,10 +2196,11 @@ return pcm                                       // JoinHandle<PCM>; stop() кл
 
 ### 6.9. DSD-цепочка и частота DSD→PCM
 
-Выполняет: ТЗ-1, ТЗ-16, ТЗ-23, ТЗ-31, ТЗ-33, ТЗ-39, ТЗ-40, ТЗ-128; ОВ-9, ОВС-6; И-Р11.
+Выполняет: ТЗ-1, ТЗ-16, ТЗ-23, ТЗ-31, ТЗ-33, ТЗ-39, ТЗ-40, ТЗ-128, ТЗ-145; ОВ-9, ОВ-38, ОВС-6; ADR-25; И-Р11.
 
 ```
-dop_ok(dsd, caps, claim) = claim.is_some()                 // только Exclusive (И-Т3)
+dop_ok(dsd, caps, claim, dev) = claim.is_some()            // только Exclusive (И-Т3)
+    && dev.dop                                             // «ЦАП понимает DoP» (ТЗ-145, ADR-25)
     && supports(caps, dsd.rate_hz / 16)                    // DSD64 → 176.4 кГц, …, DSD512 → 1411.2 кГц
     && caps.channels ∋ src.channels
     && caps.formats ∩ {S24_3Le, S24Le, S32Le} ≠ ∅
@@ -2166,10 +2209,10 @@ dop_ok(dsd, caps, claim) = claim.is_some()                 // только Exclu
 | Режим | Шаги цепочки (ТЗ-40: Native всегда виден, не пробуется) | Итог |
 |---|---|---|
 | Совместимый | Native — «отключено режимом»; DoP — «отключено режимом»; PCM | `DsdToPcm` |
-| Оптимальный | Native — «пока не реализовано»; DoP; PCM | `Dop`, если `dop_ok`; иначе `DsdToPcm` с причиной: DSD выше возможностей устройства → «DSDxxx выше возможностей устройства (max DSDyyy)» (ТЗ-33, `DsdAboveDac::ConvertToPcm`), иначе «устройство не поддерживает DoP» |
-| Строгий | Native — «пока не реализовано»; DoP; PCM — «отключено режимом» | `Dop`, если `dop_ok`; иначе `Blocked(DopUnsupported { dsd, max_dop })` |
+| Оптимальный | Native — «пока не реализовано»; DoP; PCM | `Dop`, если `dop_ok`; иначе `DsdToPcm` с причиной: DSD выше возможностей устройства → «DSDxxx выше возможностей устройства (max DSDyyy)» (ТЗ-33, `DsdAboveDac::ConvertToPcm`), иначе, если `!dev.dop`, — «DoP выключен для устройства» (ТЗ-145), иначе «устройство не поддерживает DoP» |
+| Строгий | Native — «пока не реализовано»; DoP; PCM — «отключено режимом» | `Dop`, если `dop_ok`; иначе, если `!dev.dop`, — `Blocked(DopDisabled { device })` (текст «DoP выключен для устройства <имя>», ТЗ-145); иначе `Blocked(DopUnsupported { dsd, max_dop })` |
 
-`max_dop` — наибольшая DSD-частота, для которой выполняется `dop_ok`. Шаги со статусами попадают в `PathPlan::dsd_chain` для показа.
+`dev` — `ModeSettings::device_opts` устройства режима после разрешения (ADR-24). `max_dop` — наибольшая DSD-частота, для которой выполняется `dop_ok` (при `!dev.dop` — `None`). Шаги со статусами попадают в `PathPlan::dsd_chain` для показа.
 
 ```
 dsd_pcm_rate(dsd, filter, caps) -> SampleRate:
@@ -2626,7 +2669,7 @@ summary(r) = NbpSummary { primary: r[0], more: r.len() − 1 }
 
 ### 6.25. Рекомендации и отчёт окна
 
-Выполняет: ТЗ-68, ТЗ-71…ТЗ-84, ТЗ-128…ТЗ-131; ОВ-16, ОВ-28, ОВС-6б, ОВС-8, ОВС-11, ОВС-13; И-Т10.
+Выполняет: ТЗ-68, ТЗ-71…ТЗ-84, ТЗ-128…ТЗ-131, ТЗ-145; ОВ-16, ОВ-28, ОВС-6б, ОВС-8, ОВС-11, ОВС-13; И-Т10.
 
 `recommend(subject, dyn, settings)` проходит по правилам в фиксированном порядке. Каждое правило — чистая функция `(subject, dyn, settings) -> Option<Recommendation>`:
 
@@ -2637,8 +2680,10 @@ summary(r) = NbpSummary { primary: r[0], more: r.len() − 1 }
 | `Resample` с `Cause::DeviceLimit` или `Blocked(RateUnsupported)` | «Оборудование»: `Rate(src)`; в Строгом режиме дополнительно `SwitchMode { to: Optimal }` («ресемплинг в X кГц») (ТЗ-80) |
 | `Truncate` / `Blocked(TruncationForbidden)` | «Оборудование»: `BitDepth(src)`; Строгий → `SwitchMode(Optimal)` |
 | `Downmix` / `Blocked(ChannelsUnsupported)` | «Оборудование»: `Channels(n)`; Строгий → `SwitchMode(Optimal)` |
-| `DsdToPcm` в Оптимальном режиме | «Оборудование»: `DopRate(dsd)` |
+| `DsdToPcm` в Оптимальном режиме из-за `!dev.dop` | «Настройки плеера»: `DeviceDop` (включить, если ЦАП понимает DoP), ТЗ-145 |
+| `DsdToPcm` в Оптимальном режиме по другой причине | «Оборудование»: `DopRate(dsd)` |
 | `Blocked(DopUnsupported)` | «Оборудование»: `DopRate(dsd)`; `SwitchMode(Optimal)` («DSD→PCM») |
+| `Blocked(DopDisabled)` | «Настройки плеера»: `DeviceDop`; `SwitchMode(Optimal)` («DSD→PCM»), ТЗ-145 |
 | Совместимый режим и `OsStage::Known { rate }` ≠ частоте потока | «Настройки ОС»: `PipeWireAllowedRates` (Linux) / `WindowsSharedFormat`; и `SwitchMode(Optimal или Strict)` («Exclusive», ТЗ-82) |
 | Совместимый режим и `OsStage::Unknown` | `SwitchMode(Optimal или Strict)` |
 | `dyn.underruns > 0` | «Настройки плеера»: `Buffer` (увеличить буфер плеера), ТЗ-68 |
@@ -2646,7 +2691,7 @@ summary(r) = NbpSummary { primary: r[0], more: r.len() − 1 }
 | `dyn.xruns > 0` и `dyn.rt_priority == Denied` | дополнительно «Настройки ОС»: `RealtimePriority` (rtkit, группа `audio`), ТЗ-68 |
 | `dyn.dsd_clipped > 0` | «Настройки плеера»: `DsdGainComp` (выключить), ТЗ-129 |
 
-`build_report` собирает шесть `StageRow` (ТЗ-70) из `SignalPath::stages()`: статус — через `StageStatus` (§3.2), «что изменилось» и «почему» — через `describe()` и `Cause`, достоверность — через `Confidence`. Этап «Источник» для lossy содержит пометку и «24 бит (выход декодера)» (ТЗ-74); этап «Декодер» — «с потерями, округление до 24 бит без дизеринга», MD5, `decode_errors` (ТЗ-75). Заметки этапов: «Декодер» — «ограничено N сэмплов» при `lossy_clipped > 0` (ОВС-11); «Обработка» — «ограничено N сэмплов» при `dsd_clipped > 0` (ТЗ-129) и фактическая граница фильтра DSD→PCM, если она меньше выбранной (ТЗ-16); «Вывод» — фактические период и буфер устройства (`DeviceBufferActual`, ТЗ-131), «приоритет реального времени: получен / не получен» (`rt_priority`, ОВС-8), счётчики «Underrun: N» и, в Exclusive, «Xrun: N» (ТЗ-68). Заметки статус этапа не меняют. `guarantee_boundary` — константный текст ТЗ-78. Для `PathSubject::Skipped(blocked)` этап `blocked.at` получает статус «несовместимо» (отображается как `Lossy` с текстом причины), последующие этапы — «не построен». Для `NoStream` все этапы — «поток не открыт» (ТЗ-56).
+`build_report` собирает шесть `StageRow` (ТЗ-70) из `SignalPath::stages()`: статус — через `StageStatus` (§3.2), «что изменилось» и «почему» — через `describe()` и `Cause`, достоверность — через `Confidence`. Этап «Источник» для lossy содержит пометку и «24 бит (выход декодера)» (ТЗ-74); этап «Декодер» — «с потерями, округление до 24 бит без дизеринга», MD5, `decode_errors` (ТЗ-75). Заметки этапов: «Декодер» — «ограничено N сэмплов» при `lossy_clipped > 0` (ОВС-11); «Обработка» — «ограничено N сэмплов» при `dsd_clipped > 0` (ТЗ-129) и фактическая граница фильтра DSD→PCM, если она меньше выбранной (ТЗ-16); «Вывод» — фактические период и буфер устройства (`DeviceBufferActual`, ТЗ-131), «приоритет реального времени: получен / не получен» (`rt_priority`, ОВС-8), счётчики «Underrun: N» и, в Exclusive, «Xrun: N» (ТЗ-68); «Устройство» для DoP-потока — «если ЦАП молчит — он не понимает DoP: снимите „ЦАП понимает DoP“» (ТЗ-145, ADR-25). Заметки статус этапа не меняют. `guarantee_boundary` — константный текст ТЗ-78. Для `PathSubject::Skipped(blocked)` этап `blocked.at` получает статус «несовместимо» (отображается как `Lossy` с текстом причины), последующие этапы — «не построен». Для `NoStream` все этапы — «поток не открыт» (ТЗ-56).
 
 `Display for PathReport` (ТЗ-84): заголовок, шесть блоков «Этап: статус / изменения / причины / достоверность / заметки», рекомендации по трём группам, версия плеера, ОС и ядро. Без разметки UI.
 
@@ -2667,7 +2712,7 @@ Windows: `OsStage::Known { server: WasapiMixer, rate, format }` из `default_ou
 
 ### 6.27. Настройки: загрузка, сохранение, доступность параметров
 
-Выполняет: ТЗ-19, ТЗ-34, ТЗ-93…ТЗ-97, ТЗ-124, ТЗ-128…ТЗ-131; ОВ-27, ОВ-28, ОВС-6, ОВС-6б, ОВС-7, ОВС-13; И-Т19, И-Р22.
+Выполняет: ТЗ-19, ТЗ-34, ТЗ-93…ТЗ-97, ТЗ-124, ТЗ-128…ТЗ-131, ТЗ-145; ОВ-27, ОВ-28, ОВС-6, ОВС-6б, ОВС-7, ОВС-13; И-Т19, И-Р22.
 
 Ключи раздела режима, добавленные решениями ОВС: `src_filter` (`"steep"` / `"slow"` / `"very_slow"`, Совместимый и Оптимальный), `dsd_filter` (`24` / `30` / `50`) и `dsd_gain_comp` (bool) — Совместимый и Оптимальный, `device_buffer_ms` (`20` / `40` / `100` / `200` / `400`) — Оптимальный и Строгий. Ключ `src_quality` удалён: как и любой неизвестный ключ, он игнорируется с заметкой.
 
@@ -2676,6 +2721,7 @@ Windows: `OsStage::Known { server: WasapiMixer, rate, format }` из `default_ou
 1. Нет файла → `default()`, заметок нет (ТЗ-124).
 2. Нет раздела `[playback]` или `schema ≠ 2` → `default()` и одна заметка «аудио-настройки файла не распознаны» (ТЗ-97). Остальные разделы файла (плейлист, колонки, визуализация) загружаются как раньше.
 3. Иначе по каждому режиму: известный ключ с допустимым значением → значение; недопустимое значение → значение по умолчанию и заметка (ТЗ-34: `dsd_above_dac = "remodulate"` → `ConvertToPcm` с заметкой); неизвестный ключ → игнорируется с заметкой (ТЗ-94). Минимально-фазовые значения `src_filter` (`"steep_short_delay"`, `"slow_short_delay"`) — недопустимые значения: `Steep` и заметка (ТЗ-130, И-Т19). Значения других режимов не затрагиваются.
+   Раздел `[playback.devices."<id>"]` (ТЗ-145, ADR-25): `dop` — bool; другой тип → `true` и заметка; неизвестный ключ — игнорируется с заметкой. Записи устройств, которых сейчас нет в каталоге, сохраняются. Запись со всеми значениями по умолчанию при следующей записи файла не пишется.
 4. Согласование буферов (И-Р22, ТЗ-131), после разбора каждого режима с `device_buffer`: если `buffers_allowed(buffer, device_buffer)` — ошибка, `device_buffer` := `Ms40`; если и `Ms40` недопустим — наименьшее допустимое значение (при `BufferMs ≥ 100` это всегда не хуже `Ms40`, ветвь оставлена ради полноты); заметка «буфер устройства N мс больше половины буфера плеера M мс — установлено K мс». `buffer` не меняется, другие режимы не затрагиваются.
 5. Заметки пишутся в журнал одной сводной записью.
 
@@ -2816,6 +2862,11 @@ Windows: `OsStage::Known { server: WasapiMixer, rate, format }` из `default_ou
 | `strict_mono_on_stereo_plays` | 13, 36 | моно → `MonoToStereo`, не несовместимость |
 | `strict_truncation_is_incompatible` | 37 | 24 на {16}: `Blocked(TruncationForbidden)`; 16 на {32}: `ZeroPad` |
 | `strict_dsd_chain_allows_native_to_dop_forbids_pcm` | 39, 40 | DSD64 на DoP 176.4 → DoP; DSD512 без DoP512 → `Blocked(DopUnsupported)`; DSD→PCM не выбирается; попыток Native 0 |
+| `device_dop_off_optimal_goes_pcm` | 31, 145 | Устройство с DoP 176.4, `DeviceOpts { dop: false }`: DSD64 в Оптимальном → `DsdToPcm` с причиной «DoP выключен для устройства»; рекомендация `PlayerSetting(DeviceDop)` |
+| `device_dop_off_strict_blocks` | 39, 145 | То же устройство в Строгом → `Blocked(DopDisabled { device })`; `FakeExclusiveBackend` — 0 `configure` в DoP-формате; рекомендации `PlayerSetting(DeviceDop)`, `SwitchMode(Optimal)` |
+| `device_dop_per_device` | 145 | `dop = false` у устройства A; режим на устройстве B → DoP; на A → DSD→PCM (Оптимальный) |
+| `device_dop_toml_roundtrip` | 94, 124, 145 | Нет раздела `devices` → `dop = true` для любого устройства; `[playback.devices."A"] dop = false` → раундтрип сохраняет; `dop = "x"` → `true` и заметка; запись по умолчанию не сериализуется; запись отсутствующего устройства сохраняется |
+| `device_dop_change_reopens_at_position` | 145 | DSD-трек в Оптимальном на позиции 30 с; `ModeSettingsUpdate` с `(Optimal, DeviceDop)` → одно переоткрытие с позиции 30 с, путь DoP → DSD→PCM; при PCM-треке — переоткрытия нет |
 | `strict_driver_mismatch_skips` | 113 | расхождение частоты → `Skipped(DriverRejectedRate)` |
 | `lossy_source_is_24bit_in_all_modes` | 35, 74, 75, ОВ-36 | MP3: Строгий на {24} — passthrough; на {16} — `Blocked(TruncationForbidden)`; в «Обработке» нет округления |
 | `validate_dsd_pcm_rate_matches_decoder` | 16, И-Р11 | частота в плане = частота, с которой декодер открыл DSD→PCM |
@@ -3088,6 +3139,7 @@ Windows: `OsStage::Known { server: WasapiMixer, rate, format }` из `default_ou
 | **С4. Модель режимов и настроек** | `ModeSettings`, `PARAMS`, `load_mode_settings` без миграции (§6.27), включая новые ключи ОВС (`src_filter`, `dsd_filter`, `dsd_gain_comp`, `device_buffer_ms`) и согласование буферов (И-Р22); `buffers_allowed`; переключатель трёх режимов в главном окне; диалог по `Availability`. **Временное соответствие режимов старому exclusive-пути (ОВС-12):** `BackendCaps.exclusive = true` на Linux. Внутренний адаптер `legacy_exclusive(&ModeSettings)` переводит Оптимальный режим в старый exclusive-путь без перехода в Shared (отказ → ошибка, решение 4), а Строгий — в старый strict-путь. Старые перечисления остаются только внутренними параметрами этого пути и в файле настроек не представимы. Путь по-прежнему открывает `hw:` через резервирование С1. Бейдж «Bit-perfect» до С6 недостижим: старый путь не читает `hw_params` (`DriverFormat::Unreadable`). На Windows и macOS `exclusive = false`. **Действие пользователя:** перед первым запуском сборки С4 удалить файл настроек: Linux — `~/.config/music_player/settings.toml` (или `$XDG_CONFIG_HOME/music_player/settings.toml`), Windows — `%APPDATA%\music_player\settings.toml`, macOS — `~/Library/Application Support/music_player/settings.toml` (путь из `settings::config_dir()`). Агент этапа обязан напомнить об этом (ТЗ-97) (ОВС-15, ОВС-17, ОВС-19) `ModeSettings` без `active`/`volume`/`muted`; `PlaybackState`; `volume_lock`, `ParamId::VolumeLock`, `ApplyKind` в `PARAMS`; применение разницы (§6.18) в пределах старого пути; хранение в `settings.toml`/`state.toml` — по этапам задачи 02. | 18, 19, 93, 94, 95, 96, 97, 124, 109, 110, 111; 128…131 (модель и диалог), 135, 137, 140 | три режима с новыми настройками; Совместимый — на всех ОС, Оптимальный и Строгий на Linux — через старый exclusive-путь с резервированием | `ExclusiveMode`, `FallbackPolicy`, `ResamplerMode`, `FallbackRatePolicy`, `ClockFamily`, `bit_perfect`, `DsdMode`, `TargetBitDepth`, `TargetSampleRate`, `Triangular` как пользовательские настройки; `resampler_fixed_fallback_guard`, `validate_audio_settings` |
 | **С5. Путь сигнала, бейдж, окно** | `plan()` для всех трёх режимов на фейковых `DeviceCaps` (§6.3–§6.5, §6.9), `SignalPath`, `verdict`, `recommend`, `build_report`, `Display`; Slint-свойства бейджа, «Теста» и замка по ADR-06; `OsLevelProbe` (§6.26) (ОВС-18) `ExclusiveBadge::Muted`, `SilenceGate`, `test_availability → Disabled(Muted)`. | 21, 22, 23, 25, 35, 36, 37, 38, 39, 40, 52…57, 59, 60, 70…84 (кроме зависящих от драйвера), 106 (свойства бейджа и окна), 139 | в Совместимом режиме честный бейдж «Shared: …» / «Не bit-perfect: …» и окно; логика Оптимального и Строгого покрыта тестами планировщика | `StreamDesc`, `FallbackReason`, `bp_report.rs`, три bool-бейджа, `dsd_pcm_breaks_bit_perfect` |
 | **С6. ALSA Exclusive, замок** | `AlsaExclusiveBackend` заменяет старый exclusive-путь: `acquire` на `DbusReservation` из С1 (§6.6), `configure` с «Буфером устройства» и чтением фактических периода и буфера, сверка `hw_params`, `apap-alsa-out` (§6.7) с отдельным счётчиком `xruns`, RT-приоритет и его заметка (§6.8), `lock_step` (§6.19) с разрешением устройства: автовыбор по системному выходу, `DeviceAutoSelected`, `Failed(NoDeviceSelected)` (ADR-24), потеря устройства и повторный захват (§6.20). `BackendCaps.exclusive = true` на Linux уже с С4 (ОВС-17, ОВС-19) смена «Буфера устройства» — `configure` без освобождения (§6.7); `OptimalRender::PcmLocked`. | 48 (полностью), 117…123, 42…47, 49, 50, 112, 113, 125, 126, 51, 30, 32, 131 (буфер устройства), 76 (буфер, RT), 137, 140, 143, 144, 21 (тест «Оптимальный с захватом → Совместимый», AM1.0-B13) | Оптимальный и Строгий режимы на Linux на собственном выводе с замком; «Bit-perfect» достижим (ТЗ-4 + ТЗ-113) | старый cpal-путь Exclusive, адаптер `legacy_exclusive` из С4, «shared-downgrade» (R-11); освобождение и переоткрытие exclusive-движка в простое — `release_if_exclusive`, `reopen_and_seek` и их вызовы в `stop()`, `toggle()`, `play()` (`src/audio/player.rs`), при скрытии в трей (`TrayCmd::ShowHide`, `src/app/mod.rs`) (V5.1-B5, V5.1-B6): замок удерживает устройство (ТЗ-43) |
+| **С6а. DoP устройства** | `DeviceOpts`, `ModeSettings::devices`, `HwDeviceId: Ord`, `PlaybackDto::devices` и загрузка (§6.27); `dop_ok` с `dev.dop`, причина «DoP выключен для устройства» в Оптимальном и `Incompatibility::DopDisabled` в Строгом (§6.9); `ParamId::DeviceDop` (`ReopenAtPosition`); рекомендации и подсказка этапа «Устройство» для DoP-потока (§6.25); флажок «ЦАП понимает DoP» рядом с выбором устройства Оптимального и Строгого режимов, неактивен без устройства (ADR-25) | 145; 31, 39 (условие DoP) | DSD на ЦАП без DoP (AM1.0-B25) в Оптимальном звучит через DSD→PCM, в Строгом пропускается с причиной | — |
 | **С7. DSP-корректность** | Полифазный SRC (§6.11) с фильтрами «Крутой», «Медленный», «Очень медленный» (150 дБ, коэффициенты `f64`) и подсказками `SRC_FILTER_INFO`; downmix по ITU (§6.13); моно → 2 канала; `ChannelPad` (ОВС-2); float-PCM (ОВС-1); выбор формата по ОВС-3 и ОВС-4 (§6.5); DSD→PCM многоступенчатый (§6.12) с `dsd_pcm_rate(dsd, filter, caps)`, фильтром 24/30/50 кГц, компенсацией +6 дБ, счётчиком `dsd_clipped` и `DSD_FILTER_INFO`; счётчик `lossy_clipped` (ОВС-11). Пороги качества измеряются, но принимаются в С10 | 11, 12, 13, 16, 22 (ОВС-4), 28 (ОВС-3), 29 (с ITU), 31, 33, 128, 129, 130, 132, 133 | SRC без потерь кадров, downmix по раскладке, единая частота DSD→PCM, выбираемые фильтры | старый windowed-sinc, CIC, «первые N каналов» |
 | **С8. Режимы полностью и пропуск треков** | `Sequencer`, `SkipSeries`, уведомление серии (§6.21); смена режима на ходу (§6.18); Совместимый: следование за системным устройством (§6.20) (ОВС-17, ОВС-20, ОВС-21) применение параметров звука с позиции для всех режимов; правило источников громкости; видимый порядок в `Sequencer`. | 20, 24, 26, 27, 28, 34, 41, 85, 89, 90, 91, 127, 116 (матрица §7.3 полностью), 141, 142 | все три режима по матрице §5 ТЗ; серии пропусков | env-gated `open_*` |
 | **С9. «Тест», MD5, underrun и xrun** | `apap-verify`, зеркало и эталон (§6.23), `TestSlot`, хранилище `bp_tests.toml`; MD5 FLAC (§6.24), `track_marks.toml`; раздельные счётчики underrun и xrun, `IncompleteWhy::Xrun`, рекомендации §6.25 (буфер плеера, буфер устройства, «Настройки ОС» для RT, компенсация DSD) | 61…69, 58, 75 (MD5, заметки ограничений), 81 | кнопка «Тест», MD5, underrun и xrun в окне | — |
@@ -3114,6 +3166,7 @@ Windows: `OsStage::Known { server: WasapiMixer, rate, format }` из `default_ou
 - С4 → С5 (политика из `ModeSettings`).
 - С5 → С6 (вердикт и окно для Exclusive).
 - С6 → С8 и С9 (Exclusive-режимы).
+- С6 → С6а (`dop_ok` на собственном выводе Exclusive). С6а не блокирует С7…С11.
 - С7 → С8 (Оптимальный режим использует SRC, downmix и DSD→PCM).
 - С9 → С10 (`perf_test_overhead`).
 - (ОВС-14…ОВС-21) С3, С4, С8 → этапы задачи `docs/02_settings_persistence_v1.0/`, где появляются единственный писатель `settings.toml`/`state.toml` и `MemStore` со счётчиком записей; до них С3 и С4 сохраняют текущую запись настроек без изменений.
