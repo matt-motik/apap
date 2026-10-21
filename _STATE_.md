@@ -2,42 +2,10 @@
      Source of truth: _STATE_.yaml — edit that, then run:
      python tools/state_tool.py render -->
 
+# Состояние сессии
 
-# Текущая микро-сессия
-
-- **Задача из ROADMAP:** AM1.0-B29 — AM1.0-B29 — возможности текущего ЦАП в советах «Оборудование» окна «Путь сигнала» (ТЗ-80, §3.1, §3.4, §6.25)
-- **Вайтлист файлов в работе (Изменяемые файлы):**
-  - src/audio/path/mod.rs
-  - src/audio/path/plan.rs
-  - src/audio/path/signal.rs
-  - src/audio/path/recommend.rs
-  - src/audio/path/report.rs
-  - src/app/path_view.rs
-  - src/audio/test_run.rs
-  - src/audio/session_build.rs
-  - src/audio/verdict.rs
-  - src/app/ui_audio_state.rs
-  - docs/01_audio_modes_v1.0/03_spec.md
-  - ROADMAP.md
-  - _TODO_/history/archive_bugs.md
-  - _STATE_.yaml
-  - _STATE_.md
-- **Критерий успеха (Definition of Done):** Советы «Оборудование» показывают «(этот ЦАП: …)» по шаблону §6.25 (AM1.0-B29), в Совместимом режиме — без скобки; cargo test и cargo clippy --all-targets зелёные, 0 новых варнингов
-
-## Итерационный трекер
-- [x] Шаг 1: DacCaps (§3.1, ТЗ-80, AM1.0-B29): тип в src/audio/path/mod.rs — rates: RateSet, max_bits: u8, float_only: bool, channels: SmallVec<[u8;4]>, max_dop: Option<DsdRate>; derive Clone, PartialEq, Debug, Default; doc-комментарии по §3.1. Файл: src/audio/path/mod.rs. Проверка: cargo check
-- [x] Шаг 2: PathPlan::dac (§3.1, §6.9, ADR-25): поле в PathPlan (src/audio/path/mod.rs); plan_with_device (src/audio/path/plan.rs) заполняет его из DeviceCaps (max_bits = field_bits наибольшего целого формата, только F32 → 24 и float_only; max_dop = max_dop(каналы источника, caps) при dev_dop, иначе None) и тест; механически dac: DacCaps::default() в тестовых литералах PathPlan (signal.rs, test_run.rs, session_build.rs, verdict.rs, app/ui_audio_state.rs), signal.rs деструктуризация — dac: _ (решение пользователя 2026-10-22: мост для поля литерала невозможен). Проверка: полный cargo test (общий тип)
-- [x] Шаг 3: DeviceStage::dac (§3.1): поле в DeviceStage (src/audio/path/mod.rs), SignalPath::from_opened переносит PathPlan::dac (src/audio/path/signal.rs); тест переноса. Файлы: src/audio/path/mod.rs, src/audio/path/signal.rs. Проверка: полный cargo test (общий тип)
-- [x] Шаг 4: Recommendation::Hardware { need, have: Option<DacCaps> } (§3.4, §6.25): recommend.rs заполняет have из path.device.dac / blocked.partial.dac, в Совместимом режиме и при пустом DacCaps — None; тест; сопоставления и литералы в report.rs (Hardware { need, .. }, have: None в тестах) и app/path_view.rs (тест). Проверка: полный cargo test (общий тип)
-- [x] Шаг 5: Текст «ЦАП с поддержкой X (этот ЦАП: Y)» (§6.25 таблица AM1.0-B29, ТЗ-80): hw_requirement_text(need, have) в src/audio/path/report.rs — список частот через « / » или диапазон «8–192 кГц», «до N бит» / «до 24 бит, float», каналы через « / », «DoP до DSDm, до F кГц» / «без DoP, до F кГц»; тест hardware_recommendation_shows_dac_caps (§7.2). Файл: src/audio/path/report.rs. Проверка: cargo test path::report
-- [>] **Шаг 6: ЧЕКПОИНТ: полный cargo test + cargo clippy --all-targets (0 новых варнингов); закрытие AM1.0-B29 (Шаг 5: строка в _TODO_/history/archive_bugs.md, заметка плана). Проверка: всё зелёное**
-
-Легенда: [x] сделано · [>] текущий шаг · [ ] не начато
-
-- **Текущий шаг (current_step):** Шаг 6
-- **Следующий ход:** Шаг 6 — ЧЕКПОИНТ: полный cargo test + cargo clippy --all-targets, затем закрытие AM1.0-B29 (archive_bugs.md, ROADMAP, заметка плана)
-- **Счетчик безуспешных компиляций:** 0/3
-- **Состояние:** in_progress
+- **Текущая задача:** Нет (все шаги завершены)
+- **Состояние:** done
 
 ## План: Executable workflow: правила AGENTS.md → исполняемые механизмы
 _Источник: чат с пользователем (ноутбук), начат в 67686ce; перенесён в репо 2026-09-22_
@@ -47,8 +15,9 @@ _Источник: чат с пользователем (ноутбук), нач
 - [>] **16.** Реализация AM1.0 + SP1.0 по сквозному порядку (ROADMAP.md): docs/01_audio_modes_v1.0/ (С0…С11) и docs/02_settings_persistence_v1.0/ (С0…С12) — ТЕКУЩАЯ ОСНОВНАЯ ЗАДАЧА
   - AM1.0-8.6.1 шаг 9: тестовый дубль SilentSource (src/engine/source.rs) отдаёт info().sample_rate = SourceFormat.rate без DSD-пересчёта (реальный DsdDecoder даёт dsd_rate/64), поэтому DSD-фикстура device_dop_change_reopens_at_position задаёт rate = 44100, а не битрейт DSD64; поправить дубль при следующей работе с фикстурами движка.
   - Закрытые этапы — в ROADMAP.md (✅ с хэшем), закрытые баги — в _TODO_/history/archive_bugs.md (с 2026-10-21); здесь только открытое.
+  - Ручные проверки за пользователем: AM1.0-B29 — окно «Путь сигнала» в Строгом/Оптимальном на DSD256 или 24/192 через ЦАП с меньшими возможностями показывает «ЦАП с поддержкой … (этот ЦАП: …)», в Совместимом — без скобки.
   - Ручные проверки за пользователем: SP1.0-B18 — диалог «Добавить файлы» показывает и добавляет .dff (и .opus/.aif).
-  - 2026-10-21 закрыт AM1.0-8.6.1 (С6а (01) «DoP устройства», 196ca1d) и баг AM1.0-B25; 2026-10-22 закрыты AM1.0-B27 (163682c, русские подписи параметров в окне пути) и AM1.0-B28 (6359220, советы «ЦАП с поддержкой …»); открыт AM1.0-B29 (возможности ЦАП в советах, сначала правка 03_spec.md — разрешена). СЛЕДУЮЩИЙ (п. 21 сквозного порядка): AM1.0-8.7 (С7 (01) «DSP-корректность»). ЦАП для аппаратной проверки: hw:CARD=RU3U2 (Cayin RU3, с 2026-10-20 — системный выход PipeWire), APAP_HW_TEST_DEVICE для #[ignore]-тестов alsa.rs; карту держит PipeWire — открывать hw только с разрешения пользователя.
+  - 2026-10-21 закрыт AM1.0-8.6.1 (С6а (01) «DoP устройства», 196ca1d) и баг AM1.0-B25; 2026-10-22 закрыты AM1.0-B27 (163682c, русские подписи параметров в окне пути) и AM1.0-B28 (6359220, советы «ЦАП с поддержкой …»); закрыт AM1.0-B29 (c3b5f6d, возможности текущего ЦАП в советах «Оборудование»). СЛЕДУЮЩИЙ (п. 21 сквозного порядка): AM1.0-8.7 (С7 (01) «DSP-корректность»). ЦАП для аппаратной проверки: hw:CARD=RU3U2 (Cayin RU3, с 2026-10-20 — системный выход PipeWire), APAP_HW_TEST_DEVICE для #[ignore]-тестов alsa.rs; карту держит PipeWire — открывать hw только с разрешения пользователя.
   - Ручные проверки за пользователем: AM1.0-8.6.1 — (остаток после проверки на MOTU M2 2026-10-21) флажок «ЦАП понимает DoP» неактивен без выбранного устройства.
   - AM1.0-8.6 (С6 (01) «ALSA Exclusive, замок») закрыт в 154a2ce (2026-10-19, Linux-десктоп); СЛЕДУЮЩИЙ (п. 20 сквозного порядка): AM1.0-8.7 (С7 (01) «DSP-корректность»). Старый cpal-Exclusive путь удалён; Совместимый ещё идёт через легаси Player — остаток AM1.0-B10 (StreamDesc, FallbackReason, Opened.stream_format, legacy_path, open_dop) на С7/С11. Ручные проверки С6 выполнены 2026-10-19: подтверждены B1, B2, B13; найдены/открыты B17 (конец трека в Строгом — транспорт мёртв), B22 (не та карта при авто-выборе), B23 (текст «занято»), B24 (Совместимый→Строгий во время игры), B25 (DoP на ЦАП без DoP, вопрос пользователю).
   - SP1.0-B16 закрыт в 74afd65 только для Windows (реестр, значение ScrollDirection раздела PrecisionTouchPad). ОТКРЫТО (решение пользователя 2026-10-13 — по мере проверки на машинах): macOS (NSEvent.isDirectionInvertedFromDevice), GNOME (natural-scroll), KDE (naturalScroll KWin) — там знак тачпада как пришёл; ветка cfg(not(windows)) в winit.rs на Linux/macOS не компилировалась. Известное ограничение: первое целое Lines свайпа тачпада без предшествующего дробного классифицируется как колесо и поправку не получает.
