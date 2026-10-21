@@ -36,13 +36,13 @@
 - [x] Шаг 6: Рекомендации §6.25: DsdToPcm из-за !dev.dop → PlayerSetting(DeviceDop); Blocked(DopDisabled) → PlayerSetting(DeviceDop) + SwitchMode(Optimal); подсказка этапа «Устройство» для DoP-потока (ADR-25, ТЗ-145); текст причины DsdToPcm с Cause::PlayerSetting(DeviceDop) — «DoP выключен для устройства» (§6.9), сейчас cause_text даёт общее «настройка плеера: …». Файлы: src/audio/path/recommend.rs, src/audio/path/report.rs. Проверка: cargo test path::
 - [x] Шаг 7: Диалог режима: флажок «ЦАП понимает DoP» рядом с выбором устройства Оптимального и Строгого, неактивен без устройства; apply_edit пишет ModeSettings.devices (ADR-25, ТЗ-145). Файлы: src/app/mode_dialog.rs (+ ui/mode_params.slint при необходимости). Проверка: cargo check + cargo test mode_dialog
 - [x] Шаг 8: Движок: plan_with_device с device_opts разрешённого устройства режима (ADR-24, ADR-25); вызовы plan() в run.rs переключены, обёртка-мост в plan.rs удалена, если больше не используется. Файлы: src/engine/run.rs, src/audio/path/plan.rs. Проверка: cargo check
-- [>] **Шаг 9: Тест device_dop_change_reopens_at_position: смена DeviceDop через SetModeSettings переоткрывает трек с позиции (ОВС-17, ТЗ-145, §7.2). Файл: src/engine/run.rs. Проверка: cargo test device_dop_change**
-- [ ] Шаг 10: ЧЕКПОИНТ: полный cargo test + cargo clippy (0 новых варнингов в файлах вайтлиста); закрытие этапа AM1.0-8.6.1 и бага AM1.0-B25 (Шаг 5). Проверка: всё зелёное
+- [x] Шаг 9: Тест device_dop_change_reopens_at_position: смена DeviceDop через SetModeSettings переоткрывает трек с позиции (ОВС-17, ТЗ-145, §7.2). Файл: src/engine/run.rs. Проверка: cargo test device_dop_change
+- [>] **Шаг 10: ЧЕКПОИНТ: полный cargo test + cargo clippy (0 новых варнингов в файлах вайтлиста); закрытие этапа AM1.0-8.6.1 и бага AM1.0-B25 (Шаг 5). Проверка: всё зелёное**
 
 Легенда: [x] сделано · [>] текущий шаг · [ ] не начато
 
-- **Текущий шаг (current_step):** Шаг 9
-- **Следующий ход:** Шаг 9 — новый code-writer (sonnet): тест device_dop_change_reopens_at_position в src/engine/run.rs (смена DeviceDop через SetModeSettings переоткрывает трек с позиции); cargo test device_dop_change
+- **Текущий шаг (current_step):** Шаг 10
+- **Следующий ход:** Шаг 10 — ЧЕКПОИНТ: полный cargo test + cargo clippy (test-runner haiku); затем закрытие AM1.0-8.6.1 и бага AM1.0-B25 по Шагу 5
 - **Счетчик безуспешных компиляций:** 0/3
 - **Состояние:** in_progress
 
@@ -52,6 +52,7 @@ _Источник: чат с пользователем (ноутбук), нач
 - [~] **10.** Кросс-ОС приёмка спеки (вместо CI): tools/acceptance.py run/status, результаты по ОС в git, прогон при закрытии спеки, не на каждой задаче
   - Инструмент готов; ждёт прогонов пакета baseline-2026-09 на linux и windows (python tools/acceptance.py status)
 - [>] **16.** Реализация AM1.0 + SP1.0 по сквозному порядку (ROADMAP.md): docs/01_audio_modes_v1.0/ (С0…С11) и docs/02_settings_persistence_v1.0/ (С0…С12) — ТЕКУЩАЯ ОСНОВНАЯ ЗАДАЧА
+  - AM1.0-8.6.1 шаг 9: тестовый дубль SilentSource (src/engine/source.rs) отдаёт info().sample_rate = SourceFormat.rate без DSD-пересчёта (реальный DsdDecoder даёт dsd_rate/64), поэтому DSD-фикстура device_dop_change_reopens_at_position задаёт rate = 44100, а не битрейт DSD64; поправить дубль при следующей работе с фикстурами движка.
   - Закрытые этапы — в ROADMAP.md (✅ с хэшем), закрытые баги — в _TODO_/history/archive_bugs.md (с 2026-10-21); здесь только открытое.
   - Ручные проверки за пользователем: SP1.0-B18 — диалог «Добавить файлы» показывает и добавляет .dff (и .opus/.aif).
   - 2026-10-20 закрыты: AM1.0-B24 (45deb30), B18 (не воспроизводится), B19 (806d7d2, разворот битов DSF в DoP), SP1.0-B18 (44284ed, .dff в диалоге), B22 (не воспроизводится: в конфиге была прежняя карта), B23 (07e0f46, владелец карты в причине «занято», подтверждено вручную). СЛЕДУЮЩАЯ СЕССИЯ: пользователь выбирает — B25 (железо есть) или этап; по сквозному порядку AM1.0-8.7 (С7 (01) «DSP-корректность»); открытый баг С6 — B25 (вопрос пользователю). ЦАП для аппаратной проверки: hw:CARD=RU3U2 (Cayin RU3, с 2026-10-20 — системный выход PipeWire), APAP_HW_TEST_DEVICE для #[ignore]-тестов alsa.rs; карту держит PipeWire — открывать hw только с разрешения пользователя.

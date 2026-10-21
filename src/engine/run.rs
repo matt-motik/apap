@@ -4380,6 +4380,86 @@ mod tests {
         assert!(!journal.iter().any(|c| matches!(c, crate::audio::testing::ExclusiveCall::Acquire(_))));
     }
 
+    /// §7.2 (ОВС-17, ТЗ-145, ADR-25): смена подокументной опции устройства
+    /// «ЦАП понимает DoP» (`ModeSettings.devices: BTreeMap<HwDeviceId,
+    /// DeviceOpts>`, по умолчанию `dop = true`) через `SetModeSettings` во
+    /// время воспроизведения DSD в Оптимальном режиме меняет маршрут плана
+    /// (`Dop` → `DsdToPcm`, §6.9) и даёт переоткрытие Эксклюзивного пути на
+    /// текущей позиции (`ParamId::DeviceDop` → `ApplyKind::ReopenAtPosition`),
+    /// без освобождения `DeviceClaim` (журнал бэкенда не содержит `Acquire`),
+    /// с повторным `configure` (целевой формат потока меняется вместе с
+    /// маршрутом). Реальный дифф для изменения `devices` помечает `DeviceDop`
+    /// сразу в обоих режимах (`changed_for_devices`, `settings/params.rs`).
+    #[test]
+    fn device_dop_change_reopens_at_position() {
+        let sink = VecSink::new();
+        let dev: HwDeviceId = "hw:CARD=RU3,DEV=0".parse().expect("hw id");
+        let backend = FakeExclusiveBackend::new().with_configure(Ok((
+            crate::audio::backend::DriverFormat::Confirmed(crate::audio::format::StreamFormat {
+                rate: SampleRate::new(44_100).expect("rate"),
+                sample: crate::audio::format::OutputSampleFormat::S32Le,
+                channels: std::num::NonZeroU8::new(2).expect("channels"),
+            }),
+            Some(crate::audio::backend::DeviceBufferActual { period_frames: 256, buffer_frames: 1024 }),
+        )));
+        // Хэндл журнала берётся до того, как `backend` уходит в `Box<dyn
+        // ExclusiveBackend>` внутри `EngineDeps` (§7.1).
+        let calls = backend.calls_handle();
+        let dsd_format = SourceFormat {
+            container: Container::Dsf,
+            codec: Codec::Dsf,
+            lossy: false,
+            rate: SampleRate::new(44_100).expect("rate"),
+            layout: ChannelLayout::stereo(),
+            kind: SourceKind::Dsd { dsd: crate::audio::format::DsdRate::Dsd64 },
+        };
+        let source = Arc::new(FakeSource::with_format(dsd_format));
+        let probes = Arc::clone(&source);
+        let mem = MemStore::new();
+        let deps = EngineDeps {
+            shared: Box::new(FakeSharedBackend::with_devices(Vec::new())),
+            exclusive: Some(Box::new(backend)),
+            server_probe: Box::new(FakeServerProbe::desktop()),
+            watcher: Box::new(FakeDeviceWatcher::new()),
+            sources: source,
+            clock: Box::new(MonotonicClock::new()),
+            store: Box::new(FsPersistStore::new(Arc::new(mem.clone()), Box::new(mem.clone()), PathBuf::from("/cfg"))),
+            events: Box::new(sink.clone()),
+            spawner: Arc::new(StdSpawner),
+            caps: BackendCaps::current(),
+            os_probe: Box::new(FakeOsProbe::new(OsStage::Unknown)),
+            rt: Arc::new(FakeRtRequester::new(None)),
+        };
+        let mut engine = Engine::new(deps, BackendCaps::current());
+        engine.active_mode = ModeKind::Optimal;
+        engine.mode_settings.optimal.device = Some(dev.clone());
+        engine.lock = LockState::Held { info: crate::audio::backend::exclusive::ClaimInfo { device: dev.clone() } };
+        engine.claim = Some(crate::audio::backend::exclusive::DeviceClaim::new(
+            None,
+            crate::audio::reservation::Reservation::UnavailableNoServer,
+            crate::audio::backend::exclusive::ClaimInfo { device: dev.clone() },
+        ));
+
+        engine.handle(EngineCmd::Open { req_gen: 1, path: Arc::from(Path::new("/music/a.flac")), start_secs: 0.0, autoplay: true });
+        engine.handle(EngineCmd::Pause);
+        assert!(!engine.exclusive_path.as_ref().expect("exclusive path open").is_playing());
+
+        let mut settings = engine.mode_settings.clone();
+        settings.devices.insert(dev.clone(), crate::settings::playback::DeviceOpts { dop: false });
+        let diff = ModeSettingsDiff {
+            changed: SmallVec::from_slice(&[(ModeKind::Optimal, ParamId::DeviceDop), (ModeKind::Strict, ParamId::DeviceDop)]),
+        };
+        engine.handle(EngineCmd::SetModeSettings(ModeSettingsUpdate { settings, diff: Some(diff) }));
+
+        assert!(engine.exclusive_path.is_some());
+        assert!(!engine.exclusive_path.as_ref().expect("exclusive path open").is_playing());
+        assert_eq!(probes.probes(), 2);
+        let journal = calls.lock().expect("calls lock");
+        assert_eq!(journal.iter().filter(|c| **c == crate::audio::testing::ExclusiveCall::Configure).count(), 2);
+        assert!(!journal.iter().any(|c| matches!(c, crate::audio::testing::ExclusiveCall::Acquire(_))));
+        assert!(!engine.mode_settings.device_opts(&dev).dop);
+    }
+
     /// §6.7, §6.18 шаг 55 (ТЗ-131, И-Р26, §7.2
     /// `audio_param_change_reopens_at_position_preserving_pause`): одно
     /// `SetModeSettings`, меняющее сразу два параметра звука активного
