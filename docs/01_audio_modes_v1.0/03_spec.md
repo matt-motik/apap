@@ -22,6 +22,8 @@
 
 Обновление 2026-10-21: решение пользователя ОВ-38 ТЗ (ТЗ-145, находка AM1.0-B25) — ADR-25: настройка устройства «ЦАП понимает DoP» (`ModeSettings::devices`, `DeviceOpts { dop }`, по умолчанию true, ключ `[playback.devices."<id>"]`); `dop_ok` учитывает её (§6.9), в Строгом режиме — `Incompatibility::DopDisabled` (§2.4), рекомендация и подсказка окна (§6.25), загрузка (§6.27), тесты (§7.2), этап С6а (§8). `HwDeviceId` получает `PartialOrd, Ord` (ключ `BTreeMap`).
 
+Обновление 2026-10-22: находка AM1.0-B29 (решения пользователя 2026-10-21: полный список частот; только значащие биты, технический формат — на этапе «Устройство») — рекомендация «Оборудование» показывает возможности текущего ЦАП: `DacCaps` и `PathPlan::dac` (§3.1), `DeviceStage::dac`, `Recommendation::Hardware { need, have }` (§3.4), шаблон текста «ЦАП с поддержкой X (этот ЦАП: Y)» (§6.25), тест `hardware_recommendation_shows_dac_caps` (§7.2).
+
 Правила документа:
 
 - Спецификация выполняет требования ТЗ-N и не вводит новых требований. Если требование нельзя выполнить выбранной реализацией, это фиксируется в «Открытых вопросах» (§9), а не обходится.
@@ -1547,6 +1549,25 @@ pub struct PathPlan {
     pub ring: RingPayload,          // тот же тип, что в §2.9 (ОВС-10 п. 1)
     /// Шаги DSD-цепочки с их статусом для показа в UI (ТЗ-23, ТЗ-40).
     pub dsd_chain: Option<DsdChainView>,
+    /// Возможности устройства, против которых построен план: «этот ЦАП: …»
+    /// в рекомендации «Оборудование» (ТЗ-80, §6.25, AM1.0-B29). Попадает и
+    /// в `Blocked::partial`.
+    pub dac: DacCaps,
+}
+
+/// Сводка `DeviceCaps` для текста рекомендации (§6.25, AM1.0-B29). Те же
+/// величины, по которым решал планировщик. `Default` — «неизвестно» (пусто).
+#[derive(Clone, PartialEq, Debug, Default)]
+pub struct DacCaps {
+    pub rates: RateSet,
+    /// Наибольшая разрядность значащих бит: `field_bits` наибольшего целого
+    /// формата; устройство только с `F32` — 24 (мантисса, §6.11). 0 — форматов нет.
+    pub max_bits: u8,
+    /// Устройство принимает только `F32` (целых форматов нет).
+    pub float_only: bool,
+    pub channels: SmallVec<[u8; 4]>,
+    /// `max_dop(каналы источника, caps)` при `dev.dop`, иначе `None` (§6.9, ADR-25).
+    pub max_dop: Option<DsdRate>,
 }
 
 #[derive(Clone, PartialEq, Debug)]
@@ -1626,7 +1647,7 @@ pub enum OsStage {                                               // ТЗ-77
     Known { server: OsServer, rate: Option<SampleRate>, format: Option<String>, confidence: Confidence },
     Unknown,                         // «не контролируется плеером, возможно преобразование»
 }
-pub struct DeviceStage { pub accepted: Option<StreamFormat> }    // ТЗ-78; граница гарантии — константный текст
+pub struct DeviceStage { pub accepted: Option<StreamFormat>, pub dac: DacCaps }    // ТЗ-78; граница гарантии — константный текст; dac — из PathPlan::dac (AM1.0-B29)
 ```
 
 Статус этапа вычисляется, а не хранится: `Processing` — максимум по `Transform::lossiness()`; `Output` — `Unknown`, если `DriverFormat::Unreadable`; `OsLevel` — `Unchanged` при `NotInvolved`, `Unknown` при `Unknown`; `Device` — всегда `Unknown` с пометкой границы гарантии.
@@ -1709,8 +1730,10 @@ pub enum Recommendation {
     PlayerSetting(PlayerSettingRec),
     /// «Настройки ОС» с пояснением.
     Os { topic: OsTopic },
-    /// «Оборудование»: какие характеристики нужны для bit-perfect на этом материале.
-    Hardware { need: HwRequirement },
+    /// «Оборудование»: какие характеристики нужны для bit-perfect на этом материале;
+    /// `have` — что есть у текущего ЦАП (`PathPlan::dac`), `None` — неизвестно или
+    /// Совместимый режим (возможности микшера ОС, не ЦАП), AM1.0-B29.
+    Hardware { need: HwRequirement, have: Option<DacCaps> },
     /// Bit-perfect достижим только в другом режиме (ТЗ-82).
     SwitchMode { to: ModeKind, why: SwitchWhy },
 }
@@ -2691,6 +2714,15 @@ summary(r) = NbpSummary { primary: r[0], more: r.len() − 1 }
 | `dyn.xruns > 0` и `dyn.rt_priority == Denied` | дополнительно «Настройки ОС»: `RealtimePriority` (rtkit, группа `audio`), ТЗ-68 |
 | `dyn.dsd_clipped > 0` | «Настройки плеера»: `DsdGainComp` (выключить), ТЗ-129 |
 
+Возможности текущего ЦАП в «Оборудовании» (AM1.0-B29, решения пользователя 2026-10-21). Для `Opened` — `path.device.dac` (`SignalPath::from_opened` переносит `PathPlan::dac` в `DeviceStage::dac`), для `Skipped` — `blocked.partial.dac`. В Совместимом режиме и при пустом `DacCaps` — `have: None`, текст без скобки. Текст совета — «ЦАП с поддержкой X (этот ЦАП: Y)»:
+
+| `need` | X | Y |
+|---|---|---|
+| `Rate(r)` | `r` в кГц | все частоты `Discrete` через « / » («44,1 / 48 / 88,2 / 96 кГц»); `Range` — «8–192 кГц» |
+| `BitDepth(b)` | «N бит» | «до M бит» по `max_bits`; `float_only` — «до 24 бит, float»; технический формат (`S32_LE`) — только на этапе «Устройство» |
+| `Channels(n)` | «N каналов» | список каналов через « / » |
+| `DopRate(d)` | «DoP DSDn (PCM f кГц)» | «DoP до DSDm, до F кГц» (`max_dop`, наибольшая частота `rates`); `max_dop = None` — «без DoP, до F кГц» |
+
 `build_report` собирает шесть `StageRow` (ТЗ-70) из `SignalPath::stages()`: статус — через `StageStatus` (§3.2), «что изменилось» и «почему» — через `describe()` и `Cause`, достоверность — через `Confidence`. Этап «Источник» для lossy содержит пометку и «24 бит (выход декодера)» (ТЗ-74); этап «Декодер» — «с потерями, округление до 24 бит без дизеринга», MD5, `decode_errors` (ТЗ-75). Заметки этапов: «Декодер» — «ограничено N сэмплов» при `lossy_clipped > 0` (ОВС-11); «Обработка» — «ограничено N сэмплов» при `dsd_clipped > 0` (ТЗ-129) и фактическая граница фильтра DSD→PCM, если она меньше выбранной (ТЗ-16); «Вывод» — фактические период и буфер устройства (`DeviceBufferActual`, ТЗ-131), «приоритет реального времени: получен / не получен» (`rt_priority`, ОВС-8), счётчики «Underrun: N» и, в Exclusive, «Xrun: N» (ТЗ-68); «Устройство» для DoP-потока — «если ЦАП молчит — он не понимает DoP: снимите „ЦАП понимает DoP“» (ТЗ-145, ADR-25). Заметки статус этапа не меняют. `guarantee_boundary` — константный текст ТЗ-78. Для `PathSubject::Skipped(blocked)` этап `blocked.at` получает статус «несовместимо» (отображается как `Lossy` с текстом причины), последующие этапы — «не построен». Для `NoStream` все этапы — «поток не открыт» (ТЗ-56).
 
 `Display for PathReport` (ТЗ-84): заголовок, шесть блоков «Этап: статус / изменения / причины / достоверность / заметки», рекомендации по трём группам, версия плеера, ОС и ядро. Без разметки UI.
@@ -2916,6 +2948,7 @@ Windows: `OsStage::Known { server: WasapiMixer, rate, format }` из `default_ou
 | `report_skipped_track_blocked_stage` | 80 | 24/192 на max 96 в Строгом: этап «Вывод», причина, рекомендации `SwitchMode(Optimal)` и `Hardware(Rate(192k))` |
 | `recommendations_three_types` | 81, 68 | громкость 80 % в Оптимальном; PipeWire 48 в Совместимом; 24/192 на max 96 в Строгом; underrun > 0 → «увеличить буфер плеера» |
 | `recommendations_underrun_vs_xrun` | 68, 81 | только xrun → `DeviceBuffer`, нет `Buffer`; xrun + `rt_priority = Denied` → ещё `Os(RealtimePriority)`; только underrun → `Buffer`; `dsd_clipped > 0` → `DsdGainComp` |
+| `hardware_recommendation_shows_dac_caps` | 80 | (AM1.0-B29) DSD256 на ЦАП 192 кГц / DoP до DSD64 → «ЦАП с поддержкой DoP DSD256 (PCM 705,6 кГц; этот ЦАП: DoP до DSD64, до 192 кГц)»; 24/192 на `Discrete{44,1…96}` → список частот; 32 бит на S24 → «до 24 бит»; 6 каналов на стерео → «этот ЦАП: 2»; Совместимый режим → без скобки |
 | `recommendations_respect_mode_matrix` | 82, И-Т10 | для всех режимов и всех рекомендаций целевой параметр `Configurable`; Совместимый при 100 % и ресемплинге системой → `SwitchMode` |
 | `report_text_contains_all_parts` | 84 | `Display`: шесть этапов, рекомендации, версия, ОС |
 | `transform_descriptor_is_total` | 73 | каждый вариант `TransformKind` имеет ветку в пяти методах дескриптора (исчерпывающий `match` проверяет компилятор; тест проверяет непустые тексты) |
