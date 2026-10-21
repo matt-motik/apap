@@ -11,7 +11,7 @@ use smallvec::SmallVec;
 use crate::audio::backend::{AccessKind, DeviceBufferActual, DriverFormat, OutputApi};
 use crate::audio::error::Incompatibility;
 use crate::audio::format::{Codec, OutputSampleFormat, SourceFormat, SourceKind, StreamFormat};
-use crate::settings::params::{ParamId, PARAMS};
+use crate::settings::params::{param_label, ParamId};
 use crate::settings::playback::{DsdFilter, ModeKind, ModeSettings};
 
 use super::recommend::{
@@ -361,14 +361,13 @@ fn transforms_confidence(transforms: &[Transform], empty: Confidence) -> Confide
     transforms.first().map_or(empty, |t| t.confidence)
 }
 
+/// Текст причины (ТЗ-81, ТЗ-95, §6.25): название параметра — русский
+/// ярлык (`param_label`), не внутренний `label_key`.
 fn cause_text(cause: &Cause) -> String {
     match cause {
         // ТЗ-145, ADR-25: текст точнее, чем «настройка плеера: <ярлык>».
         Cause::PlayerSetting(ParamId::DeviceDop) => "DoP выключен для устройства".to_owned(),
-        Cause::PlayerSetting(param) => {
-            let label = PARAMS.iter().find(|d| d.id == *param).map_or("—", |d| d.label_key);
-            format!("настройка плеера: {label}")
-        }
+        Cause::PlayerSetting(param) => format!("настройка плеера: {}", param_label(*param)),
         Cause::DeviceLimit => "ограничение устройства".to_owned(),
         Cause::DriverAccepted => "драйвер принял другой формат".to_owned(),
         Cause::ServerLimit => "аудиосервер не принимает формат".to_owned(),
@@ -619,9 +618,10 @@ fn confirmed_by_text(by: ConfirmedBy) -> &'static str {
     }
 }
 
+/// Текст рекомендации «Настройки плеера» (ТЗ-81, ТЗ-95, §6.25): русский
+/// ярлык параметра (`param_label`), не внутренний `label_key`.
 fn player_setting_text(rec: &PlayerSettingRec) -> String {
-    let label = PARAMS.iter().find(|d| d.id == rec.param()).map_or("—", |d| d.label_key);
-    format!("{label}: {}", rec_action_text(rec.action()))
+    format!("{}: {}", param_label(rec.param()), rec_action_text(rec.action()))
 }
 
 fn rec_action_text(a: RecAction) -> &'static str {
@@ -1051,5 +1051,22 @@ mod tests {
         let r = optimal_report(&flac(16, 44_100), &pcm_caps, &DynamicPathState::default());
         let dev = row(&r, StageId::Device);
         assert!(!has(&dev.notes, "если ЦАП молчит"), "{:?}", dev.notes);
+    }
+
+    /// AM1.0-B27 (ТЗ-81, ТЗ-95, §6.25): `cause_text` берёт русский ярлык
+    /// параметра из `param_label`, не внутренний `label_key`.
+    #[test]
+    fn cause_text_uses_param_label() {
+        let text = cause_text(&Cause::PlayerSetting(ParamId::DsdAboveDac));
+        assert_eq!(text, "настройка плеера: DSD выше возможностей ЦАП");
+    }
+
+    /// AM1.0-B27 (ТЗ-81, ТЗ-95, §6.25): `player_setting_text` берёт русский
+    /// ярлык параметра из `param_label`, не внутренний `label_key`.
+    #[test]
+    fn player_setting_text_uses_param_label() {
+        let rec = PlayerSettingRec::new(ParamId::Buffer, ModeKind::Optimal, RecAction::Increase)
+            .expect("Buffer настраивается в Optimal");
+        assert_eq!(recommendation_text(&Recommendation::PlayerSetting(rec)), "Буфер декодирование → вывод: увеличить");
     }
 }

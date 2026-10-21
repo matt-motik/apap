@@ -21,15 +21,15 @@ steps:
     done: true
   - id: 2
     description: "B27: cause_text и player_setting_text (src/audio/path/report.rs) берут param_label вместо label_key («настройка плеера: DSD выше возможностей ЦАП»); тест на текст причины и совета плеера (ТЗ-81, §6.25). Файл: src/audio/path/report.rs. Проверка: cargo test path::report"
-    done: false
+    done: true
   - id: 3
     description: "B28: hw_requirement_text (src/audio/path/report.rs) → «ЦАП с поддержкой 192 кГц», «ЦАП с поддержкой 24 бит», «ЦАП с поддержкой 6 каналов», «ЦАП с поддержкой DoP DSD256 (PCM 705,6 кГц)»; обновить тесты, проверяющие старые тексты (ТЗ-80, ТЗ-81, §6.25). Файл: src/audio/path/report.rs. Проверка: cargo test path::report"
     done: false
   - id: 4
     description: "ЧЕКПОИНТ: полный cargo test + cargo clippy --all-targets (0 новых варнингов в файлах вайтлиста); закрытие B27 и B28 (Шаг 5: строки в _TODO_/history/archive_bugs.md). Проверка: всё зелёное"
     done: false
-current_step: 2
-next_action: "Шаг 2 — новый code-writer (sonnet): B27 — cause_text и player_setting_text в src/audio/path/report.rs через param_label; тест; cargo test path::report"
+current_step: 3
+next_action: "Шаг 3 — новый code-writer (sonnet): B28 — hw_requirement_text в src/audio/path/report.rs → «ЦАП с поддержкой …»; обновить тесты; cargo test path::report"
 fail_counter: 0
 fail_counter_max: 3
 failed_attempts: []
