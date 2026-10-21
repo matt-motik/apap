@@ -2,8 +2,25 @@
   "permissions": {
     "deny": [
       "Read(./docs/_canceled/**)",
-      "Read(./_DRAFTS_/**)"
+      "Read(./_DRAFTS_/**)",
+      "Read(./tools/wheel_probe/target/**)",
+      "Read(./releases/**)",
+      "Read(./.venv/**)",
+      "Read(./**/__pycache__/**)",
+      "Read(./.git/**)",
+      "Read(./Cargo.lock)",
+      "Read(./tools/wheel_probe/Cargo.lock)",
+      "Read(./_STATE_.md)",
+      "Read(./**/*.dsf)",
+      "Read(./**/*.dff)",
+      "Read(./**/*.flac)",
+      "Read(./**/*.mp3)",
+      "Read(./**/*.wav)"
+    ],
+    "ask": [
+      "Read(./target/**)",
+      "Read(./ui/icons/**/*.svg)"
     ]
   },
-  "autoCompactWindow": 150000
+  "autoCompactWindow": 350000
 }
