@@ -38,7 +38,7 @@ steps:
     done: true
   - id: 6
     description: "architecture.md: актуальная карта исходников, команды, тесты (сверено с деревом src/ и tests/). Проверка: те же checks"
-    done: false
+    done: true
   - id: 7
     description: "Переписать ядро AGENTS.md (≤ ~200 строк): старт сессии, артефакты и доступ, жёсткие правила кода с проверяющим инструментом (WF1.0 §2 п. 5–6), ссылки на процедуры. Проверка: те же checks + wc -l"
     done: false
@@ -48,8 +48,8 @@ steps:
   - id: 9
     description: "ЧЕКПОИНТ: полные checks, ревью пользователем итогового AGENTS.md и процедур, закрытие WF1.0-B1. Проверка: пользователь одобрил"
     done: false
-current_step: 6
-next_action: "Написать docs/00_workflow_v1.0/architecture.md по строкам architecture сверки 01_inventory.md, сверив с деревом src/ и tests/"
+current_step: 7
+next_action: "Переписать ядро AGENTS.md (≤ ~200 строк) по сверке 01_inventory.md (строки «ядро»), со ссылками на процедуры docs/00_workflow_v1.0/"
 fail_counter: 0
 fail_counter_max: 3
 failed_attempts: []
