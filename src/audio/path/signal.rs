@@ -54,7 +54,7 @@ impl SignalPath {
     /// `DriverFormat::Unreadable` принятый формат не подтверждён, поэтому
     /// `None` (запрошенный формат остаётся в `OutputStage::requested`, ОВ-14).
     pub fn from_opened(plan: PathPlan, facts: OpenedFacts, generation: u64) -> Self {
-        let PathPlan { mode, source, route, transforms, target, ring: _, dsd_chain, dac: _ } = plan;
+        let PathPlan { mode, source, route, transforms, target, ring: _, dsd_chain, dac } = plan;
         let OpenedFacts { access, api, device_name, driver, reservation, os, device_buffer } = facts;
         let accepted = match driver {
             DriverFormat::Confirmed(f) => Some(f),
@@ -79,7 +79,7 @@ impl SignalPath {
                 device_buffer,
             },
             os,
-            device: DeviceStage { accepted },
+            device: DeviceStage { accepted, dac },
             route,
             dsd_chain,
         }
@@ -247,7 +247,7 @@ mod tests {
     use super::super::transform::{Cause, Confidence, TransformKind};
     use super::super::DacCaps;
     use super::*;
-    use crate::audio::backend::{AccessKind, DeviceBufferActual, OutputApi};
+    use crate::audio::backend::{AccessKind, DeviceBufferActual, OutputApi, RateSet};
     use crate::audio::format::{
         BitDepth, ChannelLayout, Codec, Container, OutputSampleFormat, SampleRate, SourceFormat, SourceKind,
         StreamFormat,
@@ -360,6 +360,22 @@ mod tests {
         let mut held = facts(DriverFormat::Confirmed(fmt(44_100)));
         held.reservation = ReservationView::Held;
         assert!(!SignalPath::from_opened(plan_with(&[]), held, 1).output.reservation_warning);
+    }
+
+    /// §3.1, AM1.0-B29: `dac` плана переносится в `DeviceStage` без изменений.
+    #[test]
+    fn from_opened_carries_dac_caps() {
+        let mut plan = plan_with(&[]);
+        plan.dac = DacCaps {
+            rates: RateSet::Discrete(SmallVec::from_slice(&[sr(44_100), sr(48_000)])),
+            max_bits: 24,
+            float_only: false,
+            channels: SmallVec::from_slice(&[2]),
+            max_dop: None,
+        };
+        let expected = plan.dac.clone();
+        let p = SignalPath::from_opened(plan, facts(DriverFormat::Confirmed(fmt(44_100))), 1);
+        assert_eq!(p.device.dac, expected);
     }
 
     /// ТЗ-72: lossy() перечисляет только преобразования с потерями, в порядке плана.

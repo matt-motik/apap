@@ -325,9 +325,12 @@ impl OsStage {
 }
 
 /// Этап «Устройство» (§3.2, ТЗ-78); граница гарантии — константный текст.
-#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+#[derive(Clone, PartialEq, Debug)]
 pub struct DeviceStage {
     pub accepted: Option<StreamFormat>,
+    /// Возможности устройства из `PathPlan::dac` для «этот ЦАП: …» в
+    /// рекомендации «Оборудование» (§3.1, §6.25, AM1.0-B29).
+    pub dac: DacCaps,
 }
 
 impl DeviceStage {
@@ -423,7 +426,10 @@ mod tests {
 
         assert_eq!(OsStage::NotInvolved.status(), StageStatus::Unchanged);
         assert_eq!(OsStage::Unknown.status(), StageStatus::Unknown);
-        assert_eq!(DeviceStage { accepted: Some(fmt()) }.status(), StageStatus::Unknown);
+        assert_eq!(
+            DeviceStage { accepted: Some(fmt()), dac: DacCaps::default() }.status(),
+            StageStatus::Unknown
+        );
     }
 
     /// И-Т3: DoP строится только при монопольном доступе.

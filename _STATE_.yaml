@@ -32,7 +32,7 @@ steps:
     done: true
   - id: 3
     description: "DeviceStage::dac (§3.1): поле в DeviceStage (src/audio/path/mod.rs), SignalPath::from_opened переносит PathPlan::dac (src/audio/path/signal.rs); тест переноса. Файлы: src/audio/path/mod.rs, src/audio/path/signal.rs. Проверка: полный cargo test (общий тип)"
-    done: false
+    done: true
   - id: 4
     description: "Recommendation::Hardware { need, have: Option<DacCaps> } (§3.4, §6.25): recommend.rs заполняет have из path.device.dac / blocked.partial.dac, в Совместимом режиме и при пустом DacCaps — None; тест; сопоставления и литералы в report.rs (Hardware { need, .. }, have: None в тестах) и app/path_view.rs (тест). Проверка: полный cargo test (общий тип)"
     done: false
@@ -42,8 +42,8 @@ steps:
   - id: 6
     description: "ЧЕКПОИНТ: полный cargo test + cargo clippy --all-targets (0 новых варнингов); закрытие AM1.0-B29 (Шаг 5: строка в _TODO_/history/archive_bugs.md, заметка плана). Проверка: всё зелёное"
     done: false
-current_step: 3
-next_action: "Шаг 3 — новый code-writer (sonnet): DeviceStage::dac и перенос в SignalPath::from_opened; полный cargo test"
+current_step: 4
+next_action: "Шаг 4 — новый code-writer (sonnet): Recommendation::Hardware { need, have: Option<DacCaps> }, recommend.rs заполняет have из path.device.dac / blocked.partial.dac (Совместимый и пустой DacCaps — None), правки сопоставлений/литералов в report.rs и app/path_view.rs; полный cargo test"
 fail_counter: 0
 fail_counter_max: 3
 failed_attempts: []
