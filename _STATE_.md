@@ -2,10 +2,45 @@
      Source of truth: _STATE_.yaml — edit that, then run:
      python tools/state_tool.py render -->
 
-# Состояние сессии
 
-- **Текущая задача:** Нет (все шаги завершены)
-- **Состояние:** done
+# Текущая микро-сессия
+
+- **Задача из ROADMAP:** AM1.0-8.6.1 — С6а (01). DoP устройства: настройка «ЦАП понимает DoP» (ТЗ-145, ADR-25, баг AM1.0-B25)
+- **Вайтлист файлов в работе (Изменяемые файлы):**
+  - src/audio/backend/mod.rs
+  - src/settings/playback.rs
+  - src/settings/playback_dto.rs
+  - src/settings/params.rs
+  - src/audio/error.rs
+  - src/audio/path/report.rs
+  - src/audio/path/plan.rs
+  - src/audio/path/recommend.rs
+  - src/app/mode_dialog.rs
+  - ui/mode_params.slint
+  - src/engine/run.rs
+  - ROADMAP.md
+  - _STATE_.yaml
+  - _STATE_.md
+- **Критерий успеха (Definition of Done):** DSD на ЦАП без DoP в Оптимальном идёт через DSD→PCM с причиной, в Строгом пропускается с DopDisabled; настройка на устройство хранится в [playback.devices."<id>"]; флажок в диалоге; тесты §7.2 device_dop_* зелёные; cargo test + clippy зелёные
+
+## Итерационный трекер
+- [>] **Шаг 1: HwDeviceId: PartialOrd, Ord; DeviceOpts { dop } (Default dop=true); ModeSettings.devices: BTreeMap<HwDeviceId, DeviceOpts>; ModeSettings::device_opts(id) (ADR-25, §2.2, §2.3, ТЗ-145) + тест device_dop_per_device. Файлы: src/audio/backend/mod.rs, src/settings/playback.rs. Проверка: полный cargo test (общий тип)**
+- [ ] Шаг 2: PlaybackDto.devices: Option<BTreeMap<String, DeviceDto>>, загрузка/сохранение по §6.27 (dop не bool → true + заметка; неизвестные ключи — заметка; записи отсутствующих устройств сохраняются; записи по умолчанию не пишутся) + тест device_dop_toml_roundtrip (ADR-25, §2.2, §6.27, ТЗ-145). Файл: src/settings/playback_dto.rs. Проверка: полный cargo test (формат файла)
+- [ ] Шаг 3: ParamId::DeviceDop (ApplyKind::ReopenAtPosition), строка PARAMS, доступность Optimal/Strict, учёт devices в ModeSettingsDiff (ОВС-17, ADR-25, §2.2). Файл: src/settings/params.rs (+ src/app/mode_dialog.rs, только если исчерпывающий match требует ветку — тогда строка реализуется полностью, шаг 7 сокращается). Проверка: полный cargo test (публичный enum)
+- [ ] Шаг 4: Incompatibility::DopDisabled { device } и текст «DoP выключен для устройства <имя>» в incompatibility_text (§2.4, §6.9, ТЗ-145). Файлы: src/audio/error.rs, src/audio/path/report.rs. Проверка: cargo check
+- [ ] Шаг 5: Планировщик: dop_ok/max_dop учитывают dev.dop; Оптимальный — DsdToPcm с причиной «DoP выключен для устройства», Строгий — Blocked(DopDisabled), при !dev.dop max_dop = None (§6.9, ТЗ-145, ТЗ-31, ТЗ-39). Мост: новая plan_with_device(src, caps, policy, dev); plan() — обёртка с DeviceOpts::default() до шага 8. Тесты device_dop_off_optimal_goes_pcm, device_dop_off_strict_blocks. Файл: src/audio/path/plan.rs. Проверка: cargo test path::plan
+- [ ] Шаг 6: Рекомендации §6.25: DsdToPcm из-за !dev.dop → PlayerSetting(DeviceDop); Blocked(DopDisabled) → PlayerSetting(DeviceDop) + SwitchMode(Optimal); подсказка этапа «Устройство» для DoP-потока (ADR-25, ТЗ-145). Файлы: src/audio/path/recommend.rs, src/audio/path/report.rs. Проверка: cargo test path::
+- [ ] Шаг 7: Диалог режима: флажок «ЦАП понимает DoP» рядом с выбором устройства Оптимального и Строгого, неактивен без устройства; apply_edit пишет ModeSettings.devices (ADR-25, ТЗ-145). Файлы: src/app/mode_dialog.rs (+ ui/mode_params.slint при необходимости). Проверка: cargo check + cargo test mode_dialog
+- [ ] Шаг 8: Движок: plan_with_device с device_opts разрешённого устройства режима (ADR-24, ADR-25); вызовы plan() в run.rs переключены, обёртка-мост в plan.rs удалена, если больше не используется. Файлы: src/engine/run.rs, src/audio/path/plan.rs. Проверка: cargo check
+- [ ] Шаг 9: Тест device_dop_change_reopens_at_position: смена DeviceDop через SetModeSettings переоткрывает трек с позиции (ОВС-17, ТЗ-145, §7.2). Файл: src/engine/run.rs. Проверка: cargo test device_dop_change
+- [ ] Шаг 10: ЧЕКПОИНТ: полный cargo test + cargo clippy (0 новых варнингов в файлах вайтлиста); закрытие этапа AM1.0-8.6.1 и бага AM1.0-B25 (Шаг 5). Проверка: всё зелёное
+
+Легенда: [x] сделано · [>] текущий шаг · [ ] не начато
+
+- **Текущий шаг (current_step):** Шаг 1
+- **Следующий ход:** Шаг 1 — новый code-writer (sonnet): HwDeviceId Ord, DeviceOpts, ModeSettings.devices, device_opts + тест; затем полный cargo test
+- **Счетчик безуспешных компиляций:** 0/3
+- **Состояние:** in_progress
 
 ## План: Executable workflow: правила AGENTS.md → исполняемые механизмы
 _Источник: чат с пользователем (ноутбук), начат в 67686ce; перенесён в репо 2026-09-22_
