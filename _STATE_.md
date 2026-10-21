@@ -2,49 +2,10 @@
      Source of truth: _STATE_.yaml — edit that, then run:
      python tools/state_tool.py render -->
 
+# Состояние сессии
 
-# Текущая микро-сессия
-
-- **Задача из ROADMAP:** AM1.0-8.6.1 — С6а (01). DoP устройства: настройка «ЦАП понимает DoP» (ТЗ-145, ADR-25, баг AM1.0-B25)
-- **Вайтлист файлов в работе (Изменяемые файлы):**
-  - src/audio/backend/mod.rs
-  - src/settings/playback.rs
-  - src/settings/playback_dto.rs
-  - src/settings/params.rs
-  - src/audio/error.rs
-  - src/audio/path/report.rs
-  - src/audio/path/plan.rs
-  - src/audio/path/plan_tests.rs
-  - src/audio/path/recommend.rs
-  - src/app/mode_dialog.rs
-  - ui/mode_params.slint
-  - src/engine/run.rs
-  - src/core/dialog.rs
-  - src/app/path_view.rs
-  - src/persist/settings_file.rs
-  - ROADMAP.md
-  - _STATE_.yaml
-  - _STATE_.md
-- **Критерий успеха (Definition of Done):** DSD на ЦАП без DoP в Оптимальном идёт через DSD→PCM с причиной, в Строгом пропускается с DopDisabled; настройка на устройство хранится в [playback.devices."<id>"]; флажок в диалоге; тесты §7.2 device_dop_* зелёные; cargo test + clippy зелёные
-
-## Итерационный трекер
-- [x] Шаг 1: HwDeviceId: PartialOrd, Ord; DeviceOpts { dop } (Default dop=true); ModeSettings.devices: BTreeMap<HwDeviceId, DeviceOpts>; ModeSettings::device_opts(id) (ADR-25, §2.2, §2.3, ТЗ-145) + тест device_dop_per_device. Файлы: src/audio/backend/mod.rs, src/settings/playback.rs (+ однострочные адаптации нового поля: src/core/dialog.rs деструктуризация, src/persist/settings_file.rs и src/settings/playback_dto.rs литералы). Проверка: полный cargo test (общий тип)
-- [x] Шаг 2: PlaybackDto.devices: Option<BTreeMap<String, DeviceDto>>, загрузка/сохранение по §6.27 (dop не bool → true + заметка; неизвестные ключи — заметка; записи отсутствующих устройств сохраняются; записи по умолчанию не пишутся) + тест device_dop_toml_roundtrip (ADR-25, §2.2, §6.27, ТЗ-145). Файл: src/settings/playback_dto.rs. Проверка: полный cargo test (формат файла)
-- [x] Шаг 3: ParamId::DeviceDop (ApplyKind::ReopenAtPosition), строка PARAMS, доступность Optimal/Strict, учёт devices в ModeSettingsDiff (ОВС-17, ADR-25, §2.2). Файл: src/settings/params.rs (+ src/app/mode_dialog.rs, только если исчерпывающий match требует ветку — тогда строка реализуется полностью, шаг 7 сокращается). Проверка: полный cargo test (публичный enum)
-- [x] Шаг 4: Incompatibility::DopDisabled { device } и текст «DoP выключен для устройства <имя>» в incompatibility_text (§2.4, §6.9, ТЗ-145). Файлы: src/audio/error.rs, src/audio/path/report.rs. Проверка: cargo check
-- [x] Шаг 5: Планировщик: dop_ok/max_dop учитывают dev.dop; Оптимальный — DsdToPcm с причиной «DoP выключен для устройства», Строгий — Blocked(DopDisabled), при !dev.dop max_dop = None (§6.9, ТЗ-145, ТЗ-31, ТЗ-39). Мост: новая plan_with_device(src, caps, policy, dev); plan() — обёртка с DeviceOpts::default() до шага 8. Тесты device_dop_off_optimal_goes_pcm, device_dop_off_strict_blocks. Файлы: src/audio/path/plan.rs, src/audio/path/plan_tests.rs (тесты). Проверка: cargo test path::plan
-- [x] Шаг 6: Рекомендации §6.25: DsdToPcm из-за !dev.dop → PlayerSetting(DeviceDop); Blocked(DopDisabled) → PlayerSetting(DeviceDop) + SwitchMode(Optimal); подсказка этапа «Устройство» для DoP-потока (ADR-25, ТЗ-145); текст причины DsdToPcm с Cause::PlayerSetting(DeviceDop) — «DoP выключен для устройства» (§6.9), сейчас cause_text даёт общее «настройка плеера: …». Файлы: src/audio/path/recommend.rs, src/audio/path/report.rs. Проверка: cargo test path::
-- [x] Шаг 7: Диалог режима: флажок «ЦАП понимает DoP» рядом с выбором устройства Оптимального и Строгого, неактивен без устройства; apply_edit пишет ModeSettings.devices (ADR-25, ТЗ-145). Файлы: src/app/mode_dialog.rs (+ ui/mode_params.slint при необходимости). Проверка: cargo check + cargo test mode_dialog
-- [x] Шаг 8: Движок: plan_with_device с device_opts разрешённого устройства режима (ADR-24, ADR-25); вызовы plan() в run.rs переключены, обёртка-мост в plan.rs удалена, если больше не используется. Файлы: src/engine/run.rs, src/audio/path/plan.rs. Проверка: cargo check
-- [x] Шаг 9: Тест device_dop_change_reopens_at_position: смена DeviceDop через SetModeSettings переоткрывает трек с позиции (ОВС-17, ТЗ-145, §7.2). Файл: src/engine/run.rs. Проверка: cargo test device_dop_change
-- [>] **Шаг 10: ЧЕКПОИНТ: полный cargo test + cargo clippy (0 новых варнингов в файлах вайтлиста); закрытие этапа AM1.0-8.6.1 и бага AM1.0-B25 (Шаг 5). Проверка: всё зелёное**
-
-Легенда: [x] сделано · [>] текущий шаг · [ ] не начато
-
-- **Текущий шаг (current_step):** Шаг 10
-- **Следующий ход:** Шаг 10 — ЧЕКПОИНТ: полный cargo test + cargo clippy (test-runner haiku); затем закрытие AM1.0-8.6.1 и бага AM1.0-B25 по Шагу 5
-- **Счетчик безуспешных компиляций:** 0/3
-- **Состояние:** in_progress
+- **Текущая задача:** Нет (все шаги завершены)
+- **Состояние:** done
 
 ## План: Executable workflow: правила AGENTS.md → исполняемые механизмы
 _Источник: чат с пользователем (ноутбук), начат в 67686ce; перенесён в репо 2026-09-22_
@@ -55,7 +16,8 @@ _Источник: чат с пользователем (ноутбук), нач
   - AM1.0-8.6.1 шаг 9: тестовый дубль SilentSource (src/engine/source.rs) отдаёт info().sample_rate = SourceFormat.rate без DSD-пересчёта (реальный DsdDecoder даёт dsd_rate/64), поэтому DSD-фикстура device_dop_change_reopens_at_position задаёт rate = 44100, а не битрейт DSD64; поправить дубль при следующей работе с фикстурами движка.
   - Закрытые этапы — в ROADMAP.md (✅ с хэшем), закрытые баги — в _TODO_/history/archive_bugs.md (с 2026-10-21); здесь только открытое.
   - Ручные проверки за пользователем: SP1.0-B18 — диалог «Добавить файлы» показывает и добавляет .dff (и .opus/.aif).
-  - 2026-10-20 закрыты: AM1.0-B24 (45deb30), B18 (не воспроизводится), B19 (806d7d2, разворот битов DSF в DoP), SP1.0-B18 (44284ed, .dff в диалоге), B22 (не воспроизводится: в конфиге была прежняя карта), B23 (07e0f46, владелец карты в причине «занято», подтверждено вручную). СЛЕДУЮЩАЯ СЕССИЯ: пользователь выбирает — B25 (железо есть) или этап; по сквозному порядку AM1.0-8.7 (С7 (01) «DSP-корректность»); открытый баг С6 — B25 (вопрос пользователю). ЦАП для аппаратной проверки: hw:CARD=RU3U2 (Cayin RU3, с 2026-10-20 — системный выход PipeWire), APAP_HW_TEST_DEVICE для #[ignore]-тестов alsa.rs; карту держит PipeWire — открывать hw только с разрешения пользователя.
+  - 2026-10-21 закрыт AM1.0-8.6.1 (С6а (01) «DoP устройства», 196ca1d) и баг AM1.0-B25. СЛЕДУЮЩИЙ (п. 21 сквозного порядка): AM1.0-8.7 (С7 (01) «DSP-корректность»). ЦАП для аппаратной проверки: hw:CARD=RU3U2 (Cayin RU3, с 2026-10-20 — системный выход PipeWire), APAP_HW_TEST_DEVICE для #[ignore]-тестов alsa.rs; карту держит PipeWire — открывать hw только с разрешения пользователя.
+  - Ручные проверки за пользователем: AM1.0-8.6.1 — (GUI не запускался) в диалоге режима у Оптимального/Строгого есть флажок «ЦАП понимает DoP», неактивен без выбранного устройства; на ЦАП без DoP (Xonar DX) с выключенным флажком DSD в Оптимальном играет через DSD→PCM с причиной «DoP выключен для устройства», в Строгом трек пропускается с той же причиной и рекомендацией; настройка сохраняется в [playback.devices."<id>"] и переживает перезапуск; смена флажка во время игры переоткрывает трек с позиции.
   - AM1.0-8.6 (С6 (01) «ALSA Exclusive, замок») закрыт в 154a2ce (2026-10-19, Linux-десктоп); СЛЕДУЮЩИЙ (п. 20 сквозного порядка): AM1.0-8.7 (С7 (01) «DSP-корректность»). Старый cpal-Exclusive путь удалён; Совместимый ещё идёт через легаси Player — остаток AM1.0-B10 (StreamDesc, FallbackReason, Opened.stream_format, legacy_path, open_dop) на С7/С11. Ручные проверки С6 выполнены 2026-10-19: подтверждены B1, B2, B13; найдены/открыты B17 (конец трека в Строгом — транспорт мёртв), B22 (не та карта при авто-выборе), B23 (текст «занято»), B24 (Совместимый→Строгий во время игры), B25 (DoP на ЦАП без DoP, вопрос пользователю).
   - SP1.0-B16 закрыт в 74afd65 только для Windows (реестр, значение ScrollDirection раздела PrecisionTouchPad). ОТКРЫТО (решение пользователя 2026-10-13 — по мере проверки на машинах): macOS (NSEvent.isDirectionInvertedFromDevice), GNOME (natural-scroll), KDE (naturalScroll KWin) — там знак тачпада как пришёл; ветка cfg(not(windows)) в winit.rs на Linux/macOS не компилировалась. Известное ограничение: первое целое Lines свайпа тачпада без предшествующего дробного классифицируется как колесо и поправку не получает.
   - SP1.0-8.11, открытое: при хосте трея Unknown (не KDE/GNOME) знак +1 и единица = модуль первого события — направление может отличаться от прежнего (до С11 было delta < 0 — громче), проверить на реальном хосте и при необходимости добавить строку в wheel_table.toml; отклонение от §2.12: модуль ввода — поле AppCore (set_input / input_mut), а не AppDeps, до set_input стоит FakeWheelInput; ветка «бэкенд выбран, но DefaultRuleOnly» в main.rs с WinitWheelInput недостижима (attach не проверяет, что окно winit); у D-Bus-запросов хоста трея нет таймаута; SLINT_WHEEL_CLICK_PX дублируется в matcher.rs и normalizer.rs; отладочный eprintln в on_volume_scroll и poll_tray; имена файлов фикстур gnome-2/21, kde-3/16–20 не совпадают с source в шапке.
