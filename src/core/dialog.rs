@@ -187,7 +187,7 @@ pub fn validate(draft: &DialogDraft) -> Vec<Invalid> {
 
     // Без `..` — новый режим в `ModeSettings` без строки здесь не компилируется.
     // У Совместимого режима буфера устройства нет (ТЗ-131).
-    let ModeSettings { compatible: _, optimal, strict } = &draft.settings.playback;
+    let ModeSettings { compatible: _, optimal, strict, devices: _ } = &draft.settings.playback;
     let pairs = [
         (PARAM_DEVICE_BUFFER_OPTIMAL, optimal.buffer, optimal.device_buffer),
         (PARAM_DEVICE_BUFFER_STRICT, strict.buffer, strict.device_buffer),

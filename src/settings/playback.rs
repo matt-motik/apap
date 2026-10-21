@@ -1,6 +1,8 @@
 //! Опции режимов воспроизведения (AM1.0 §2.2, ТЗ-93…ТЗ-131).
 #![deny(clippy::unwrap_used, clippy::expect_used, clippy::unreachable)]
 
+use std::collections::BTreeMap;
+
 use crate::audio::backend::{HwDeviceId, SharedDeviceId};
 use crate::audio::format::SampleRate;
 
@@ -167,9 +169,17 @@ pub struct ModeSettings {
     pub compatible: CompatibleOpts,
     pub optimal: OptimalOpts,
     pub strict: StrictOpts,
+    /// Опции аппаратных устройств, общие для Оптимального и Строгого режимов (ТЗ-145, ADR-25).
+    /// Нет записи → DeviceOpts::default(). Записи отсутствующих сейчас устройств сохраняются.
+    pub devices: BTreeMap<HwDeviceId, DeviceOpts>,
 }
 
 impl ModeSettings {
+    /// Опции устройства; нет записи → умолчание (ТЗ-145, ADR-25).
+    pub fn device_opts(&self, id: &HwDeviceId) -> DeviceOpts {
+        self.devices.get(id).copied().unwrap_or_default()
+    }
+
     /// Идентификатор устройства вывода режима `mode` (ТЗ-94, §2.4); `None` —
     /// системное по умолчанию / не выбрано.
     pub fn device(&self, mode: ModeKind) -> Option<&str> {
@@ -298,6 +308,19 @@ impl Default for StrictOpts {
     }
 }
 
+/// Свойства ЦАП, которые нельзя узнать у драйвера (ТЗ-145, ADR-25, §2.2).
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub struct DeviceOpts {
+    /// «ЦАП понимает DoP»; по умолчанию true. false → DoP для устройства не выбирается.
+    pub dop: bool,
+}
+
+impl Default for DeviceOpts {
+    fn default() -> Self {
+        Self { dop: true }
+    }
+}
+
 /// Буфер декодирование→вывод по умолчанию: 1500 мс (диапазон 100…10 000 мс,
 /// матрица §5, ТЗ-129, И-Т15; согласуется с прежним `RING_BUFFER_MS_DEFAULT`
 /// в `settings.rs`).
@@ -374,6 +397,26 @@ mod tests {
             assert_eq!(buffer.ms(), ms);
             assert_eq!(buffer.period_ms(), ms / 4);
         }
+    }
+
+    /// ТЗ-145, ADR-25: нет записи → `DeviceOpts::default()`; запись одного
+    /// устройства не затрагивает опции других.
+    #[test]
+    fn device_dop_per_device() {
+        let Ok(device_a) = "hw:CARD=A,DEV=0".parse::<HwDeviceId>() else {
+            panic!("valid HwDeviceId");
+        };
+        let Ok(device_b) = "hw:CARD=B,DEV=0".parse::<HwDeviceId>() else {
+            panic!("valid HwDeviceId");
+        };
+
+        let settings = ModeSettings::default();
+        assert!(settings.device_opts(&device_a).dop);
+
+        let mut settings = ModeSettings::default();
+        settings.devices.insert(device_a.clone(), DeviceOpts { dop: false });
+        assert!(!settings.device_opts(&device_a).dop);
+        assert!(settings.device_opts(&device_b).dop);
     }
 
     #[test]

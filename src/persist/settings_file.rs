@@ -1618,6 +1618,7 @@ mode = \"spectrum\"
                 buffer: BufferMs::new(400).expect("400 мс в допустимом диапазоне BufferMs"),
                 device_buffer: DeviceBuffer::Ms100,
             },
+            devices: BTreeMap::new(),
         }
     }
 

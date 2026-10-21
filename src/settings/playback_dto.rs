@@ -674,6 +674,7 @@ pub fn load_mode_settings(dto: Option<PlaybackDto>) -> (ModeSettings, Vec<LoadNo
             compatible,
             optimal,
             strict,
+            devices: Default::default(),
         },
         notes,
     )
@@ -916,6 +917,7 @@ mod tests {
                 buffer: BufferMs::new(400).expect("400 мс в допустимом диапазоне BufferMs"),
                 device_buffer: DeviceBuffer::Ms100,
             },
+            devices: Default::default(),
         };
         let dto = playback_dto(&m);
         assert_eq!(load_mode_settings(Some(dto)), (m, Vec::new()));

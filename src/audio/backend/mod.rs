@@ -25,8 +25,9 @@ pub mod shared;
 /// номер устройства, а не номер карты, который может смениться после
 /// переподключения (§2.3, ADR-24, ТЗ-143). Форма строки — имя PCM ALSA
 /// `hw:CARD=<id>,DEV=<d>` (§6.6).
-#[derive(Clone, PartialEq, Eq, Hash, Debug, Serialize, Deserialize)]
+#[derive(Clone, PartialEq, Eq, PartialOrd, Ord, Hash, Debug, Serialize, Deserialize)]
 #[serde(try_from = "String", into = "String")]
+// Ord — ключ ModeSettings::devices (ADR-25).
 pub struct HwDeviceId(String);
 
 /// Строка не прошла разбор `HwDeviceId` (§2.3, ADR-24).

@@ -18,14 +18,16 @@
   - src/app/mode_dialog.rs
   - ui/mode_params.slint
   - src/engine/run.rs
+  - src/core/dialog.rs
+  - src/persist/settings_file.rs
   - ROADMAP.md
   - _STATE_.yaml
   - _STATE_.md
 - **Критерий успеха (Definition of Done):** DSD на ЦАП без DoP в Оптимальном идёт через DSD→PCM с причиной, в Строгом пропускается с DopDisabled; настройка на устройство хранится в [playback.devices."<id>"]; флажок в диалоге; тесты §7.2 device_dop_* зелёные; cargo test + clippy зелёные
 
 ## Итерационный трекер
-- [>] **Шаг 1: HwDeviceId: PartialOrd, Ord; DeviceOpts { dop } (Default dop=true); ModeSettings.devices: BTreeMap<HwDeviceId, DeviceOpts>; ModeSettings::device_opts(id) (ADR-25, §2.2, §2.3, ТЗ-145) + тест device_dop_per_device. Файлы: src/audio/backend/mod.rs, src/settings/playback.rs. Проверка: полный cargo test (общий тип)**
-- [ ] Шаг 2: PlaybackDto.devices: Option<BTreeMap<String, DeviceDto>>, загрузка/сохранение по §6.27 (dop не bool → true + заметка; неизвестные ключи — заметка; записи отсутствующих устройств сохраняются; записи по умолчанию не пишутся) + тест device_dop_toml_roundtrip (ADR-25, §2.2, §6.27, ТЗ-145). Файл: src/settings/playback_dto.rs. Проверка: полный cargo test (формат файла)
+- [x] Шаг 1: HwDeviceId: PartialOrd, Ord; DeviceOpts { dop } (Default dop=true); ModeSettings.devices: BTreeMap<HwDeviceId, DeviceOpts>; ModeSettings::device_opts(id) (ADR-25, §2.2, §2.3, ТЗ-145) + тест device_dop_per_device. Файлы: src/audio/backend/mod.rs, src/settings/playback.rs (+ однострочные адаптации нового поля: src/core/dialog.rs деструктуризация, src/persist/settings_file.rs и src/settings/playback_dto.rs литералы). Проверка: полный cargo test (общий тип)
+- [>] **Шаг 2: PlaybackDto.devices: Option<BTreeMap<String, DeviceDto>>, загрузка/сохранение по §6.27 (dop не bool → true + заметка; неизвестные ключи — заметка; записи отсутствующих устройств сохраняются; записи по умолчанию не пишутся) + тест device_dop_toml_roundtrip (ADR-25, §2.2, §6.27, ТЗ-145). Файл: src/settings/playback_dto.rs. Проверка: полный cargo test (формат файла)**
 - [ ] Шаг 3: ParamId::DeviceDop (ApplyKind::ReopenAtPosition), строка PARAMS, доступность Optimal/Strict, учёт devices в ModeSettingsDiff (ОВС-17, ADR-25, §2.2). Файл: src/settings/params.rs (+ src/app/mode_dialog.rs, только если исчерпывающий match требует ветку — тогда строка реализуется полностью, шаг 7 сокращается). Проверка: полный cargo test (публичный enum)
 - [ ] Шаг 4: Incompatibility::DopDisabled { device } и текст «DoP выключен для устройства <имя>» в incompatibility_text (§2.4, §6.9, ТЗ-145). Файлы: src/audio/error.rs, src/audio/path/report.rs. Проверка: cargo check
 - [ ] Шаг 5: Планировщик: dop_ok/max_dop учитывают dev.dop; Оптимальный — DsdToPcm с причиной «DoP выключен для устройства», Строгий — Blocked(DopDisabled), при !dev.dop max_dop = None (§6.9, ТЗ-145, ТЗ-31, ТЗ-39). Мост: новая plan_with_device(src, caps, policy, dev); plan() — обёртка с DeviceOpts::default() до шага 8. Тесты device_dop_off_optimal_goes_pcm, device_dop_off_strict_blocks. Файл: src/audio/path/plan.rs. Проверка: cargo test path::plan
@@ -37,8 +39,8 @@
 
 Легенда: [x] сделано · [>] текущий шаг · [ ] не начато
 
-- **Текущий шаг (current_step):** Шаг 1
-- **Следующий ход:** Шаг 1 — новый code-writer (sonnet): HwDeviceId Ord, DeviceOpts, ModeSettings.devices, device_opts + тест; затем полный cargo test
+- **Текущий шаг (current_step):** Шаг 2
+- **Следующий ход:** Шаг 2 — новый code-writer (sonnet): PlaybackDto.devices, загрузка/сохранение §6.27 + тест device_dop_toml_roundtrip; затем полный cargo test
 - **Счетчик безуспешных компиляций:** 0/3
 - **Состояние:** in_progress
 
