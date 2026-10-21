@@ -12,7 +12,7 @@ pub use self::plan::plan;
 
 use smallvec::SmallVec;
 
-use crate::audio::backend::{AccessKind, DeviceBufferActual, DriverFormat, OutputApi};
+use crate::audio::backend::{AccessKind, DeviceBufferActual, DriverFormat, OutputApi, RateSet};
 use crate::audio::error::Incompatibility;
 use crate::audio::format::{DsdRate, SampleRate, SourceFormat, StreamFormat};
 use crate::audio::session::RingPayload;
@@ -42,6 +42,44 @@ pub struct PathPlan {
     pub ring: RingPayload,
     /// Шаги DSD-цепочки с их статусом для показа в UI (ТЗ-23, ТЗ-40).
     pub dsd_chain: Option<DsdChainView>,
+}
+
+/// Сводка возможностей устройства (`DeviceCaps`) для текста рекомендации
+/// «Оборудование»: «этот ЦАП: …» (§3.1, §6.25, ТЗ-80, AM1.0-B29). Те же
+/// величины, по которым решал планировщик. `Default` — «неизвестно» (пусто).
+#[derive(Clone, PartialEq, Debug)]
+pub struct DacCaps {
+    pub rates: RateSet,
+    /// Наибольшая разрядность значащих бит: `field_bits` наибольшего целого
+    /// формата; устройство только с `F32` — 24 (мантисса, §6.11). 0 — форматов нет.
+    pub max_bits: u8,
+    /// Устройство принимает только `F32` (целых форматов нет).
+    pub float_only: bool,
+    pub channels: SmallVec<[u8; 4]>,
+    /// Наибольшая DoP-частота при каналах источника и `dev.dop`, иначе `None` (§6.9, ADR-25).
+    pub max_dop: Option<DsdRate>,
+}
+
+impl Default for DacCaps {
+    /// «Неизвестно»: пустая сводка — `is_unknown()` вернёт `true`.
+    fn default() -> Self {
+        DacCaps {
+            rates: RateSet::Discrete(SmallVec::new()),
+            max_bits: 0,
+            float_only: false,
+            channels: SmallVec::new(),
+            max_dop: None,
+        }
+    }
+}
+
+impl DacCaps {
+    /// Сводка пуста: возможности неизвестны — «этот ЦАП» не показывается (§6.25).
+    pub fn is_unknown(&self) -> bool {
+        matches!(&self.rates, RateSet::Discrete(rates) if rates.is_empty())
+            && self.channels.is_empty()
+            && self.max_bits == 0
+    }
 }
 
 /// Маршрут сигнала (§3.1). Варианта Native нет: native DSD не пробуется (И-Т5, ТЗ-40).
@@ -318,6 +356,21 @@ mod tests {
 
     fn tr(kind: TransformKind) -> Transform {
         Transform { kind, cause: Cause::ModeRule, confidence: Confidence::Assumed }
+    }
+
+    /// §6.25: пустая сводка — «неизвестно»; заполненная — нет.
+    #[test]
+    fn dac_caps_default_is_unknown() {
+        assert!(DacCaps::default().is_unknown());
+
+        let known = DacCaps {
+            rates: RateSet::Discrete([sr(44_100)].into_iter().collect()),
+            max_bits: 24,
+            float_only: false,
+            channels: [2].into_iter().collect(),
+            max_dop: None,
+        };
+        assert!(!known.is_unknown());
     }
 
     /// §3.2: худший статус — максимум (Unchanged < Lossless < Unknown < Lossy).

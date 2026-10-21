@@ -22,12 +22,11 @@ whitelist:
   - _TODO_/history/archive_bugs.md
   - _STATE_.yaml
   - _STATE_.md
-  - "_DRAFTS_/native dsd.md"
 dod: "Советы «Оборудование» показывают «(этот ЦАП: …)» по шаблону §6.25 (AM1.0-B29), в Совместимом режиме — без скобки; cargo test и cargo clippy --all-targets зелёные, 0 новых варнингов"
 steps:
   - id: 1
     description: "DacCaps (§3.1, ТЗ-80, AM1.0-B29): тип в src/audio/path/mod.rs — rates: RateSet, max_bits: u8, float_only: bool, channels: SmallVec<[u8;4]>, max_dop: Option<DsdRate>; derive Clone, PartialEq, Debug, Default; doc-комментарии по §3.1. Файл: src/audio/path/mod.rs. Проверка: cargo check"
-    done: false
+    done: true
   - id: 2
     description: "PathPlan::dac (§3.1, §6.9, ADR-25): поле в PathPlan (src/audio/path/mod.rs); plan_with_device (src/audio/path/plan.rs) заполняет его из DeviceCaps (max_bits = field_bits наибольшего целого формата, только F32 → 24 и float_only; max_dop = max_dop(каналы источника, caps) при dev_dop, иначе None) и тест; механически dac: DacCaps::default() в тестовых литералах PathPlan (signal.rs, test_run.rs, session_build.rs, verdict.rs, app/ui_audio_state.rs), signal.rs деструктуризация — dac: _ (решение пользователя 2026-10-22: мост для поля литерала невозможен). Проверка: полный cargo test (общий тип)"
     done: false
@@ -43,8 +42,8 @@ steps:
   - id: 6
     description: "ЧЕКПОИНТ: полный cargo test + cargo clippy --all-targets (0 новых варнингов); закрытие AM1.0-B29 (Шаг 5: строка в _TODO_/history/archive_bugs.md, заметка плана). Проверка: всё зелёное"
     done: false
-current_step: 1
-next_action: "Шаг 1 — новый code-writer (sonnet): тип DacCaps в src/audio/path/mod.rs; cargo check"
+current_step: 2
+next_action: "Шаг 2 — новый code-writer (sonnet): поле PathPlan::dac, заполнение в plan_with_device, dac: DacCaps::default() в тестовых литералах; полный cargo test"
 fail_counter: 0
 fail_counter_max: 3
 failed_attempts: []
