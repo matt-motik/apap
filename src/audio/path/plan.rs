@@ -12,7 +12,7 @@ use std::num::NonZeroU8;
 
 use smallvec::SmallVec;
 
-use crate::audio::backend::{AccessKind, DeviceCaps, RateSet};
+use crate::audio::backend::{AccessKind, DeviceCaps, HwDeviceId, RateSet};
 use crate::audio::error::Incompatibility;
 use crate::audio::format::{
     BitDepth, ChannelLayout, ChannelPos, DopOutFormat, DsdRate, OutputSampleFormat, SampleRate, SourceFormat,
@@ -21,7 +21,7 @@ use crate::audio::format::{
 use crate::audio::session::RingPayload;
 use crate::audio::verdict::GainState;
 use crate::settings::params::ParamId;
-use crate::settings::playback::{Dither, DsdAboveDac, DsdFilter, ModeKind, PathPolicy, RateFallbackRule};
+use crate::settings::playback::{DeviceOpts, Dither, DsdAboveDac, DsdFilter, ModeKind, PathPolicy, RateFallbackRule};
 
 use super::transform::{Cause, Confidence, Transform, TransformKind, Truncate, ZeroPad};
 use super::{Blocked, DopRoute, DsdChainStep, DsdChainView, DsdStepKind, DsdStepStatus, PathPlan, Route, StageId};
@@ -89,6 +89,29 @@ type StepError = (StageId, Incompatibility);
     reason = "сигнатура §6.3: Blocked несёт partial PathPlan (§3.1, ТЗ-80); вызывается раз на открытие трека"
 )]
 pub fn plan(src: &SourceFormat, caps: &DeviceCaps, policy: PathPolicy<'_>) -> Result<PathPlan, Blocked> {
+    // Мост до шага, где движок передаёт разрешённое устройство режима
+    // (ADR-24) и его `DeviceOpts` (§6.9, ADR-25): пока вызывается как
+    // `dev = None`, что равносильно `DeviceOpts::default()` (`dop = true`).
+    plan_with_device(src, caps, policy, None)
+}
+
+/// Строит план пути сигнала с учётом опций устройства режима (§6.9, ТЗ-145,
+/// ADR-24, ADR-25). `dev` — разрешённое устройство режима (`HwDeviceId`) и
+/// его `ModeSettings::device_opts`; `None` — устройство не выбрано (например,
+/// Совместимый режим с системным по умолчанию) и считается как
+/// `DeviceOpts::default()`.
+///
+/// Остальное поведение — как у `plan` (см. её doc).
+#[expect(
+    clippy::result_large_err,
+    reason = "сигнатура §6.3: Blocked несёт partial PathPlan (§3.1, ТЗ-80); вызывается раз на открытие трека"
+)]
+pub fn plan_with_device(
+    src: &SourceFormat,
+    caps: &DeviceCaps,
+    policy: PathPolicy<'_>,
+    dev: Option<(&HwDeviceId, DeviceOpts)>,
+) -> Result<PathPlan, Blocked> {
     let mut draft = PathPlan {
         mode: mode_of(policy),
         source: src.clone(),
@@ -102,7 +125,7 @@ pub fn plan(src: &SourceFormat, caps: &DeviceCaps, policy: PathPolicy<'_>) -> Re
         ring: RingPayload::F32,
         dsd_chain: None,
     };
-    match run_steps(&mut draft, caps, policy) {
+    match run_steps(&mut draft, caps, policy, dev) {
         Ok(()) => Ok(draft),
         Err((at, reason)) => Err(Blocked { at, reason, partial: draft }),
     }
@@ -110,8 +133,13 @@ pub fn plan(src: &SourceFormat, caps: &DeviceCaps, policy: PathPolicy<'_>) -> Re
 
 /// Шаги §6.3 по порядку; шаги 5–6 — в `with_gain`, шаги 2–4 для `Dop` не
 /// нужны (см. doc `plan`).
-fn run_steps(draft: &mut PathPlan, caps: &DeviceCaps, policy: PathPolicy<'_>) -> Result<(), StepError> {
-    step_route(draft, caps, policy)?;
+fn run_steps(
+    draft: &mut PathPlan,
+    caps: &DeviceCaps,
+    policy: PathPolicy<'_>,
+    dev: Option<(&HwDeviceId, DeviceOpts)>,
+) -> Result<(), StepError> {
+    step_route(draft, caps, policy, dev)?;
     if !matches!(draft.route, Route::Dop(_)) {
         // DoP: каналы, частоту и формат уже выбрал шаг 1 (`dop_ok`, ADR-12).
         step_channels(draft, caps)?;
@@ -141,25 +169,36 @@ fn assumed(kind: TransformKind, cause: Cause) -> Transform {
 // Шаг 1. Маршрут (§6.9)
 // ---------------------------------------------------------------------------
 
-/// Шаг 1 (§6.3, §6.9, ТЗ-1, ТЗ-23, ТЗ-31, ТЗ-33, ТЗ-39, ТЗ-40, И-Т3, И-Т5).
+/// Шаг 1 (§6.3, §6.9, ТЗ-1, ТЗ-23, ТЗ-31, ТЗ-33, ТЗ-39, ТЗ-40, ТЗ-145, И-Т3,
+/// И-Т5, ADR-25).
 ///
 /// PCM-источник → `Route::Pcm` без DSD-цепочки. DSD-источник проходит
 /// цепочку Native → DoP → PCM; статусы шагов попадают в `dsd_chain` (ТЗ-40,
-/// Native всегда виден и не пробуется — И-Т5):
+/// Native всегда виден и не пробуется — И-Т5). `dop_ok` дополнительно требует
+/// `dev.dop` («ЦАП понимает DoP», ТЗ-145, ADR-25); `dev` — `None` (устройство
+/// не разрешено) равносильно `DeviceOpts::default()` (`dop = true`):
 /// - Совместимый: Native и DoP «отключено режимом», PCM выбран →
 ///   `DsdToPcm` с `Cause::ModeRule` (Shared не умеет DoP, И-Т3);
 /// - Оптимальный: Native «не реализовано»; `Dop`, если `dop_ok`, иначе
 ///   `DsdToPcm`. Причина DSD→PCM: DSD выше возможностей устройства
 ///   (`max_dop` есть, но ниже `dsd`) → `PlayerSetting(DsdAboveDac)` (ТЗ-33,
-///   `DsdAboveDac::ConvertToPcm`), иначе «устройство не поддерживает DoP» →
-///   `DeviceLimit`;
+///   `DsdAboveDac::ConvertToPcm`), иначе, если `!dev.dop`, —
+///   `PlayerSetting(ParamId::DeviceDop)` («DoP выключен для устройства»,
+///   ТЗ-145), иначе «устройство не поддерживает DoP» → `DeviceLimit`;
 /// - Строгий: Native «не реализовано», PCM «отключено режимом»; `Dop`, если
-///   `dop_ok`, иначе `DopUnsupported { dsd, max_dop }` на этапе «Вывод».
+///   `dop_ok`, иначе, если `!dev.dop`, — `DopDisabled { device }` на этапе
+///   «Вывод» (ТЗ-145), иначе `DopUnsupported { dsd, max_dop }` там же
+///   (`max_dop` при `!dev.dop` не достигается — он уже дал `DopDisabled`).
 ///
 /// `Dop` задаёт цель целиком: частота `dsd / 16`, формат `DopOutFormat`
 /// (ADR-12), каналы источника (их гарантирует `dop_ok`); `DopPack` имеет
 /// причину `ModeRule` (DoP закреплён режимом, строка «DSD: DoP» матрицы).
-fn step_route(draft: &mut PathPlan, caps: &DeviceCaps, policy: PathPolicy<'_>) -> Result<(), StepError> {
+fn step_route(
+    draft: &mut PathPlan,
+    caps: &DeviceCaps,
+    policy: PathPolicy<'_>,
+    dev: Option<(&HwDeviceId, DeviceOpts)>,
+) -> Result<(), StepError> {
     use DsdStepStatus::{Chosen, DisabledByMode, NotImplemented, NotTried, Unsupported};
     let SourceKind::Dsd { dsd } = draft.source.kind else {
         draft.route = Route::Pcm;
@@ -167,7 +206,8 @@ fn step_route(draft: &mut PathPlan, caps: &DeviceCaps, policy: PathPolicy<'_>) -
         return Ok(());
     };
     let channels = draft.source.layout.count().get();
-    let dop = dop_route(dsd, channels, caps);
+    let dev_dop = dev.is_none_or(|(_, opts)| opts.dop);
+    let dop = if dev_dop { dop_route(dsd, channels, caps) } else { None };
     match policy {
         PathPolicy::Compatible(opts) => {
             draft.dsd_chain = Some(dsd_chain(DisabledByMode, DisabledByMode, Chosen));
@@ -181,10 +221,14 @@ fn step_route(draft: &mut PathPlan, caps: &DeviceCaps, policy: PathPolicy<'_>) -
                 return Ok(());
             }
             draft.dsd_chain = Some(dsd_chain(NotImplemented, Unsupported, Chosen));
-            let above_dac = max_dop(channels, caps).is_some_and(|max| max.bit_rate_hz() < dsd.bit_rate_hz());
-            let cause = match (above_dac, opts.dsd_above_dac) {
-                (true, DsdAboveDac::ConvertToPcm) => Cause::PlayerSetting(ParamId::DsdAboveDac),
-                (false, _) => Cause::DeviceLimit,
+            let max = if dev_dop { max_dop(channels, caps) } else { None };
+            let above_dac = max.is_some_and(|max| max.bit_rate_hz() < dsd.bit_rate_hz());
+            let cause = if above_dac && opts.dsd_above_dac == DsdAboveDac::ConvertToPcm {
+                Cause::PlayerSetting(ParamId::DsdAboveDac)
+            } else if !dev_dop {
+                Cause::PlayerSetting(ParamId::DeviceDop)
+            } else {
+                Cause::DeviceLimit
             };
             route_dsd_to_pcm(draft, dsd, opts.dsd_filter, opts.dsd_gain_comp, caps, cause);
             Ok(())
@@ -196,6 +240,12 @@ fn step_route(draft: &mut PathPlan, caps: &DeviceCaps, policy: PathPolicy<'_>) -
                 return Ok(());
             }
             draft.dsd_chain = Some(dsd_chain(NotImplemented, Unsupported, DisabledByMode));
+            match dev {
+                Some((id, opts)) if !opts.dop => {
+                    return Err((StageId::Output, Incompatibility::DopDisabled { device: id.clone() }));
+                }
+                Some(_) | None => {}
+            }
             let max_dop = max_dop(channels, caps);
             Err((StageId::Output, Incompatibility::DopUnsupported { dsd, max_dop }))
         }

@@ -14,6 +14,7 @@
   - src/audio/error.rs
   - src/audio/path/report.rs
   - src/audio/path/plan.rs
+  - src/audio/path/plan_tests.rs
   - src/audio/path/recommend.rs
   - src/app/mode_dialog.rs
   - ui/mode_params.slint
@@ -30,8 +31,8 @@
 - [x] Шаг 2: PlaybackDto.devices: Option<BTreeMap<String, DeviceDto>>, загрузка/сохранение по §6.27 (dop не bool → true + заметка; неизвестные ключи — заметка; записи отсутствующих устройств сохраняются; записи по умолчанию не пишутся) + тест device_dop_toml_roundtrip (ADR-25, §2.2, §6.27, ТЗ-145). Файл: src/settings/playback_dto.rs. Проверка: полный cargo test (формат файла)
 - [x] Шаг 3: ParamId::DeviceDop (ApplyKind::ReopenAtPosition), строка PARAMS, доступность Optimal/Strict, учёт devices в ModeSettingsDiff (ОВС-17, ADR-25, §2.2). Файл: src/settings/params.rs (+ src/app/mode_dialog.rs, только если исчерпывающий match требует ветку — тогда строка реализуется полностью, шаг 7 сокращается). Проверка: полный cargo test (публичный enum)
 - [x] Шаг 4: Incompatibility::DopDisabled { device } и текст «DoP выключен для устройства <имя>» в incompatibility_text (§2.4, §6.9, ТЗ-145). Файлы: src/audio/error.rs, src/audio/path/report.rs. Проверка: cargo check
-- [>] **Шаг 5: Планировщик: dop_ok/max_dop учитывают dev.dop; Оптимальный — DsdToPcm с причиной «DoP выключен для устройства», Строгий — Blocked(DopDisabled), при !dev.dop max_dop = None (§6.9, ТЗ-145, ТЗ-31, ТЗ-39). Мост: новая plan_with_device(src, caps, policy, dev); plan() — обёртка с DeviceOpts::default() до шага 8. Тесты device_dop_off_optimal_goes_pcm, device_dop_off_strict_blocks. Файл: src/audio/path/plan.rs. Проверка: cargo test path::plan**
-- [ ] Шаг 6: Рекомендации §6.25: DsdToPcm из-за !dev.dop → PlayerSetting(DeviceDop); Blocked(DopDisabled) → PlayerSetting(DeviceDop) + SwitchMode(Optimal); подсказка этапа «Устройство» для DoP-потока (ADR-25, ТЗ-145). Файлы: src/audio/path/recommend.rs, src/audio/path/report.rs. Проверка: cargo test path::
+- [x] Шаг 5: Планировщик: dop_ok/max_dop учитывают dev.dop; Оптимальный — DsdToPcm с причиной «DoP выключен для устройства», Строгий — Blocked(DopDisabled), при !dev.dop max_dop = None (§6.9, ТЗ-145, ТЗ-31, ТЗ-39). Мост: новая plan_with_device(src, caps, policy, dev); plan() — обёртка с DeviceOpts::default() до шага 8. Тесты device_dop_off_optimal_goes_pcm, device_dop_off_strict_blocks. Файлы: src/audio/path/plan.rs, src/audio/path/plan_tests.rs (тесты). Проверка: cargo test path::plan
+- [>] **Шаг 6: Рекомендации §6.25: DsdToPcm из-за !dev.dop → PlayerSetting(DeviceDop); Blocked(DopDisabled) → PlayerSetting(DeviceDop) + SwitchMode(Optimal); подсказка этапа «Устройство» для DoP-потока (ADR-25, ТЗ-145); текст причины DsdToPcm с Cause::PlayerSetting(DeviceDop) — «DoP выключен для устройства» (§6.9), сейчас cause_text даёт общее «настройка плеера: …». Файлы: src/audio/path/recommend.rs, src/audio/path/report.rs. Проверка: cargo test path::**
 - [ ] Шаг 7: Диалог режима: флажок «ЦАП понимает DoP» рядом с выбором устройства Оптимального и Строгого, неактивен без устройства; apply_edit пишет ModeSettings.devices (ADR-25, ТЗ-145). Файлы: src/app/mode_dialog.rs (+ ui/mode_params.slint при необходимости). Проверка: cargo check + cargo test mode_dialog
 - [ ] Шаг 8: Движок: plan_with_device с device_opts разрешённого устройства режима (ADR-24, ADR-25); вызовы plan() в run.rs переключены, обёртка-мост в plan.rs удалена, если больше не используется. Файлы: src/engine/run.rs, src/audio/path/plan.rs. Проверка: cargo check
 - [ ] Шаг 9: Тест device_dop_change_reopens_at_position: смена DeviceDop через SetModeSettings переоткрывает трек с позиции (ОВС-17, ТЗ-145, §7.2). Файл: src/engine/run.rs. Проверка: cargo test device_dop_change
@@ -39,8 +40,8 @@
 
 Легенда: [x] сделано · [>] текущий шаг · [ ] не начато
 
-- **Текущий шаг (current_step):** Шаг 5
-- **Следующий ход:** Шаг 5 — новый code-writer (sonnet): планировщик plan_with_device (dev.dop в dop_ok/max_dop; Optimal → DsdToPcm с причиной, Strict → Blocked(DopDisabled)); тесты device_dop_off_*; cargo test path::plan
+- **Текущий шаг (current_step):** Шаг 6
+- **Следующий ход:** Шаг 6 — новый code-writer (sonnet): рекомендации §6.25 для DeviceDop/DopDisabled, текст причины, подсказка этапа «Устройство»; cargo test path::
 - **Счетчик безуспешных компиляций:** 0/3
 - **Состояние:** in_progress
 

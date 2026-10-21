@@ -6,21 +6,23 @@
 
 use smallvec::SmallVec;
 
-use crate::audio::backend::{AccessKind, DeviceCaps, OutputApi, RateSet};
+use crate::audio::backend::{AccessKind, DeviceCaps, HwDeviceId, OutputApi, RateSet};
 use crate::audio::error::Incompatibility;
 use crate::audio::format::{
     BitDepth, ChannelLayout, ChannelPos, Codec, Container, DsdRate, OutputSampleFormat, SampleRate, SourceFormat,
     SourceKind,
 };
 use crate::settings::params::ParamId;
-use crate::settings::playback::{Dither, DsdFilter, ModeKind, ModeSettings, PathPolicy, RateFallbackRule, Volume};
+use crate::settings::playback::{
+    DeviceOpts, Dither, DsdFilter, ModeKind, ModeSettings, PathPolicy, RateFallbackRule, Volume,
+};
 
 use crate::audio::session::RingPayload;
 use crate::audio::verdict::{GainState, NbpReason};
 
 use super::super::transform::{Cause, Lossiness, Transform, TransformKind, Truncate, ZeroPad};
 use super::super::{Blocked, DsdChainStep, DsdStepKind, DsdStepStatus, PathPlan, Route, StageId};
-use super::{dsd_pcm_rate, dsd_stop_hz, plan, requantizes, with_gain};
+use super::{dsd_pcm_rate, dsd_stop_hz, plan, plan_with_device, requantizes, with_gain};
 
 fn sr(hz: u32) -> SampleRate {
     SampleRate::new(hz).unwrap()
@@ -862,6 +864,74 @@ fn strict_dsd_chain_allows_native_to_dop_forbids_pcm() {
             partial.transforms
         );
     }
+}
+
+/// Устройство для тестов `dev` (§6.9, ТЗ-145, ADR-25).
+fn hw_device_id() -> HwDeviceId {
+    let Ok(id) = "hw:CARD=A,DEV=0".parse::<HwDeviceId>() else {
+        panic!("valid HwDeviceId");
+    };
+    id
+}
+
+/// §6.9, ТЗ-145, ADR-25: `dev.dop = false` — Оптимальный уходит на
+/// `DsdToPcm` с причиной `PlayerSetting(DeviceDop)`, даже когда устройство
+/// поддерживает DoP; `dev.dop = true` на том же устройстве — `Dop` (контроль).
+#[test]
+fn device_dop_off_optimal_goes_pcm() {
+    use OutputSampleFormat::{S24Le, S32Le};
+
+    let s = settings();
+    let id = hw_device_id();
+    let c = caps_exclusive(rates(&[44_100, 88_200, 176_400]), &[S24Le, S32Le]);
+
+    let p = plan_with_device(
+        &src_dsd(DsdRate::Dsd64),
+        &c,
+        PathPolicy::Optimal(&s.optimal),
+        Some((&id, DeviceOpts { dop: false })),
+    )
+    .unwrap();
+    assert_dsd_to_pcm(
+        &p,
+        DsdRate::Dsd64,
+        88_200,
+        30_000,
+        Cause::PlayerSetting(ParamId::DeviceDop),
+        "dev.dop=false",
+    );
+
+    let p = plan_with_device(
+        &src_dsd(DsdRate::Dsd64),
+        &c,
+        PathPolicy::Optimal(&s.optimal),
+        Some((&id, DeviceOpts { dop: true })),
+    )
+    .unwrap();
+    assert!(matches!(p.route, Route::Dop(r) if r.dsd() == DsdRate::Dsd64), "dev.dop=true: {:?}", p.route);
+}
+
+/// §6.9, ТЗ-145, ADR-25: `dev.dop = false` в Строгом режиме блокирует план
+/// на этапе «Вывод» с `DopDisabled { device }`, даже когда устройство иначе
+/// поддерживает DoP (`dop_ok` без `dev.dop` не выполняется).
+#[test]
+fn device_dop_off_strict_blocks() {
+    use OutputSampleFormat::{S24Le, S32Le};
+
+    let s = settings();
+    let id = hw_device_id();
+    let c = caps_exclusive(rates(&[44_100, 88_200, 176_400]), &[S24Le, S32Le]);
+
+    let err = plan_with_device(
+        &src_dsd(DsdRate::Dsd64),
+        &c,
+        PathPolicy::Strict(&s.strict),
+        Some((&id, DeviceOpts { dop: false })),
+    )
+    .unwrap_err();
+    let Blocked { at, reason, .. } = err;
+    assert_eq!(at, StageId::Output);
+    assert_eq!(reason, Incompatibility::DopDisabled { device: id });
 }
 
 /// §7.2, ТЗ-16, ТЗ-128, И-Р11: частота DSD→PCM — DSD64 → 88,2; DSD64 +
