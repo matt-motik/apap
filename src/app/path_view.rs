@@ -268,7 +268,8 @@ mod tests {
             PlayerSettingRec::new(ParamId::Volume, ModeKind::Optimal, RecAction::SetVolumeFull).unwrap(),
         );
         let os = Recommendation::Os { topic: OsTopic::PipeWireAllowedRates };
-        let hardware = Recommendation::Hardware { need: HwRequirement::Rate(SampleRate::new(192_000).unwrap()) };
+        let hardware =
+            Recommendation::Hardware { need: HwRequirement::Rate(SampleRate::new(192_000).unwrap()), have: None };
         let switch = Recommendation::SwitchMode { to: ModeKind::Optimal, why: SwitchWhy::Resample };
 
         let mut report = no_stream_report();

@@ -12,7 +12,7 @@ use crate::settings::playback::{buffers_allowed, DeviceBuffer, ModeKind, ModeSet
 
 use super::signal::{DynamicPathState, RtPriorityState, SignalPath};
 use super::transform::{Cause, Lossiness, TransformKind};
-use super::{Blocked, OsServer, OsStage};
+use super::{Blocked, DacCaps, OsServer, OsStage};
 
 /// Рекомендация окна «Путь сигнала» (§3.4, ТЗ-80…ТЗ-82).
 #[derive(Clone, PartialEq, Debug)]
@@ -21,8 +21,10 @@ pub enum Recommendation {
     PlayerSetting(PlayerSettingRec),
     /// «Настройки ОС» с пояснением.
     Os { topic: OsTopic },
-    /// «Оборудование»: какие характеристики нужны для bit-perfect на этом материале.
-    Hardware { need: HwRequirement },
+    /// «Оборудование»: какие характеристики нужны для bit-perfect на этом материале;
+    /// `have` — что есть у текущего ЦАП (`PathPlan::dac`), `None` — неизвестно или
+    /// Совместимый режим (возможности микшера ОС, не ЦАП), AM1.0-B29.
+    Hardware { need: HwRequirement, have: Option<DacCaps> },
     /// Bit-perfect достижим только в другом режиме (ТЗ-82).
     SwitchMode { to: ModeKind, why: SwitchWhy },
 }
@@ -143,28 +145,44 @@ pub fn recommend(
     let mut out = Recs::default();
     let mode = match subject {
         PathSubject::Opened(path) => {
+            out.have = dac_have(path.mode, &path.device.dac);
             transform_rules(path, &mut out);
             os_rules(path, &mut out);
             path.mode
         }
         PathSubject::Skipped(blocked) => {
+            out.have = dac_have(blocked.partial.mode, &blocked.partial.dac);
             blocked_rules(blocked, &mut out);
             blocked.partial.mode
         }
-        PathSubject::NoStream => return out.0,
+        PathSubject::NoStream => return out.recs,
     };
     dynamic_rules(mode, dyn_state, settings, &mut out);
-    out.0
+    out.recs
+}
+
+/// Что показать как «этот ЦАП: …» в рекомендации «Оборудование» (§6.25,
+/// AM1.0-B29): `None` в Совместимом режиме (микшер ОС, не ЦАП) и когда
+/// возможности неизвестны.
+fn dac_have(mode: ModeKind, dac: &DacCaps) -> Option<DacCaps> {
+    if mode == ModeKind::Compatible || dac.is_unknown() {
+        return None;
+    }
+    Some(dac.clone())
 }
 
 /// Накопитель без повторов (порядок первого появления сохраняется).
 #[derive(Default)]
-struct Recs(SmallVec<[Recommendation; 6]>);
+struct Recs {
+    recs: SmallVec<[Recommendation; 6]>,
+    /// Возможности текущего ЦАП для рекомендаций «Оборудование» (§6.25, AM1.0-B29).
+    have: Option<DacCaps>,
+}
 
 impl Recs {
     fn push(&mut self, r: Recommendation) {
-        if !self.0.contains(&r) {
-            self.0.push(r);
+        if !self.recs.contains(&r) {
+            self.recs.push(r);
         }
     }
 
@@ -176,7 +194,7 @@ impl Recs {
     }
 
     fn hw(&mut self, need: HwRequirement) {
-        self.push(Recommendation::Hardware { need });
+        self.push(Recommendation::Hardware { need, have: self.have.clone() });
     }
 
     fn switch(&mut self, to: ModeKind, why: SwitchWhy) {
@@ -472,7 +490,11 @@ mod tests {
         let dev96 = caps(AccessKind::Exclusive, &[44_100, 48_000, 96_000]);
         let blocked = plan(&src(24, 192_000), &dev96, policy(&s, ModeKind::Strict)).unwrap_err();
         let r = recommend(PathSubject::Skipped(&blocked), &calm, &s);
-        assert!(r.contains(&Recommendation::Hardware { need: HwRequirement::Rate(sr(192_000)) }), "{r:?}");
+        assert!(
+            r.iter()
+                .any(|x| matches!(x, Recommendation::Hardware { need: HwRequirement::Rate(rate), .. } if *rate == sr(192_000))),
+            "{r:?}"
+        );
         assert!(r.contains(&Recommendation::SwitchMode { to: ModeKind::Optimal, why: SwitchWhy::Resample }));
 
         // underrun → «увеличить буфер плеера».
@@ -578,7 +600,7 @@ mod tests {
         let r = recommend(PathSubject::Opened(&path), &DynamicPathState::default(), &s);
         assert!(players(&r).contains(&(ParamId::DeviceDop, RecAction::TurnOn)), "{r:?}");
         assert!(
-            !r.iter().any(|x| matches!(x, Recommendation::Hardware { need: HwRequirement::DopRate(_) })),
+            !r.iter().any(|x| matches!(x, Recommendation::Hardware { need: HwRequirement::DopRate(_), .. })),
             "{r:?}"
         );
     }
@@ -603,6 +625,31 @@ mod tests {
             r.contains(&Recommendation::SwitchMode { to: ModeKind::Optimal, why: SwitchWhy::DsdToPcm }),
             "{r:?}"
         );
+    }
+
+    /// §6.25, ТЗ-80, AM1.0-B29: `Hardware::have` — известный ЦАП из плана в
+    /// Строгом/Оптимальном, `None` в Совместимом и при неизвестном ЦАП.
+    #[test]
+    fn hardware_recommendation_carries_dac_caps() {
+        let s = ModeSettings::default();
+
+        // Строгий, устройство до 96 кГц: Hardware.have — известный ЦАП из плана.
+        let dev96 = caps(AccessKind::Exclusive, &[44_100, 48_000, 96_000]);
+        let blocked = plan(&src(24, 192_000), &dev96, policy(&s, ModeKind::Strict)).unwrap_err();
+        let dac = blocked.partial.dac.clone();
+        assert!(!dac.is_unknown());
+        let r = recommend(PathSubject::Skipped(&blocked), &DynamicPathState::default(), &s);
+        let Some(Recommendation::Hardware { have, .. }) =
+            r.iter().find(|x| matches!(x, Recommendation::Hardware { .. })).cloned()
+        else {
+            panic!("ожидается Hardware: {r:?}");
+        };
+        assert_eq!(have, Some(dac));
+
+        // dac_have: Совместимый режим → None независимо от известности ЦАП.
+        assert_eq!(dac_have(ModeKind::Compatible, &blocked.partial.dac), None);
+        // Неизвестный ЦАП в Оптимальном/Строгом → None.
+        assert_eq!(dac_have(ModeKind::Optimal, &DacCaps::default()), None);
     }
 }
 

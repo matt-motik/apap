@@ -553,7 +553,7 @@ pub fn recommendation_text(rec: &Recommendation) -> String {
     match rec {
         Recommendation::PlayerSetting(r) => player_setting_text(r),
         Recommendation::Os { topic } => os_topic_text(*topic).to_owned(),
-        Recommendation::Hardware { need } => hw_requirement_text(need),
+        Recommendation::Hardware { need, .. } => hw_requirement_text(need),
         Recommendation::SwitchMode { to, why } => {
             format!("смена режима: {} ({})", mode_name(*to), switch_why_text(*why))
         }
@@ -972,7 +972,10 @@ mod tests {
             r.recommendations
         );
         assert!(
-            r.recommendations.contains(&Recommendation::Hardware { need: HwRequirement::Rate(sr(192_000)) }),
+            r.recommendations.iter().any(|x| matches!(
+                x,
+                Recommendation::Hardware { need: HwRequirement::Rate(rate), .. } if *rate == sr(192_000)
+            )),
             "{:?}",
             r.recommendations
         );
@@ -1079,21 +1082,22 @@ mod tests {
     #[test]
     fn hardware_recommendation_text_is_dac_support() {
         assert_eq!(
-            recommendation_text(&Recommendation::Hardware { need: HwRequirement::Rate(sr(192_000)) }),
+            recommendation_text(&Recommendation::Hardware { need: HwRequirement::Rate(sr(192_000)), have: None }),
             "ЦАП с поддержкой 192 кГц"
         );
         assert_eq!(
             recommendation_text(&Recommendation::Hardware {
-                need: HwRequirement::BitDepth(BitDepth::new(24).unwrap())
+                need: HwRequirement::BitDepth(BitDepth::new(24).unwrap()),
+                have: None
             }),
             "ЦАП с поддержкой 24 бит"
         );
         assert_eq!(
-            recommendation_text(&Recommendation::Hardware { need: HwRequirement::Channels(6) }),
+            recommendation_text(&Recommendation::Hardware { need: HwRequirement::Channels(6), have: None }),
             "ЦАП с поддержкой 6 каналов"
         );
         assert_eq!(
-            recommendation_text(&Recommendation::Hardware { need: HwRequirement::DopRate(DsdRate::Dsd256) }),
+            recommendation_text(&Recommendation::Hardware { need: HwRequirement::DopRate(DsdRate::Dsd256), have: None }),
             "ЦАП с поддержкой DoP DSD256 (PCM 705,6 кГц)"
         );
     }
