@@ -30,7 +30,7 @@ steps:
     done: true
   - id: 2
     description: "PlaybackDto.devices: Option<BTreeMap<String, DeviceDto>>, загрузка/сохранение по §6.27 (dop не bool → true + заметка; неизвестные ключи — заметка; записи отсутствующих устройств сохраняются; записи по умолчанию не пишутся) + тест device_dop_toml_roundtrip (ADR-25, §2.2, §6.27, ТЗ-145). Файл: src/settings/playback_dto.rs. Проверка: полный cargo test (формат файла)"
-    done: false
+    done: true
   - id: 3
     description: "ParamId::DeviceDop (ApplyKind::ReopenAtPosition), строка PARAMS, доступность Optimal/Strict, учёт devices в ModeSettingsDiff (ОВС-17, ADR-25, §2.2). Файл: src/settings/params.rs (+ src/app/mode_dialog.rs, только если исчерпывающий match требует ветку — тогда строка реализуется полностью, шаг 7 сокращается). Проверка: полный cargo test (публичный enum)"
     done: false
@@ -55,8 +55,8 @@ steps:
   - id: 10
     description: "ЧЕКПОИНТ: полный cargo test + cargo clippy (0 новых варнингов в файлах вайтлиста); закрытие этапа AM1.0-8.6.1 и бага AM1.0-B25 (Шаг 5). Проверка: всё зелёное"
     done: false
-current_step: 2
-next_action: "Шаг 2 — новый code-writer (sonnet): PlaybackDto.devices, загрузка/сохранение §6.27 + тест device_dop_toml_roundtrip; затем полный cargo test"
+current_step: 3
+next_action: "Шаг 3 — новый code-writer (sonnet): ParamId::DeviceDop (ReopenAtPosition), строка PARAMS, ModeSettingsDiff; затем полный cargo test"
 fail_counter: 0
 fail_counter_max: 3
 failed_attempts: []

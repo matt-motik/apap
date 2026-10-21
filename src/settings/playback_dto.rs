@@ -19,8 +19,9 @@ use crate::audio::format::SampleRate;
 use crate::persist::keys::{KeyPath, LoadNote, LoadNoteKind};
 
 use super::playback::{
-    buffers_allowed, BufferMs, CompatibleOpts, DeviceBuffer, Dither, DsdAboveDac, DsdFilter,
-    ModeSettings, OptimalOpts, RateFallbackRule, SharedDeviceChoice, SrcFilter, StrictOpts,
+    buffers_allowed, BufferMs, CompatibleOpts, DeviceBuffer, DeviceOpts, Dither, DsdAboveDac,
+    DsdFilter, ModeSettings, OptimalOpts, RateFallbackRule, SharedDeviceChoice, SrcFilter,
+    StrictOpts,
 };
 
 /// Раздел `[playback]` целиком (§6.27, 02 §2.4). `schema` — версия формата
@@ -37,6 +38,18 @@ pub struct PlaybackDto {
     pub optimal: Option<OptimalDto>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub strict: Option<StrictDto>,
+    /// `[playback.devices."<id>"] dop = false` — только отклонения от умолчания (ADR-25).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub devices: Option<BTreeMap<String, DeviceDto>>,
+    #[serde(flatten)]
+    pub unknown: BTreeMap<String, toml::Value>,
+}
+
+/// Подраздел `[playback.devices."<id>"]` (§6.27, ADR-25).
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
+pub struct DeviceDto {
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub dop: Option<toml::Value>,
     #[serde(flatten)]
     pub unknown: BTreeMap<String, toml::Value>,
 }
@@ -202,6 +215,15 @@ fn optimal_dto(o: &OptimalOpts) -> OptimalDto {
     }
 }
 
+/// `DeviceOpts` -> `DeviceDto` для записи (§6.27, ADR-25): вызывается только
+/// для устройств, уже отобранных как отклонение от умолчания в `playback_dto`.
+fn device_dto(o: &DeviceOpts) -> DeviceDto {
+    DeviceDto {
+        dop: Some(toml::Value::Boolean(o.dop)),
+        unknown: BTreeMap::new(),
+    }
+}
+
 fn strict_dto(o: &StrictOpts) -> StrictDto {
     StrictDto {
         device: o
@@ -221,11 +243,18 @@ fn strict_dto(o: &StrictOpts) -> StrictDto {
 /// всегда записывается равным `2`; поля `unknown` всех уровней всегда пусты —
 /// эта функция строит DTO заново, а не переносит незнакомые ключи файла.
 pub fn playback_dto(m: &ModeSettings) -> PlaybackDto {
+    let devices: BTreeMap<String, DeviceDto> = m
+        .devices
+        .iter()
+        .filter(|(_, opts)| **opts != DeviceOpts::default())
+        .map(|(id, opts)| (id.as_str().to_owned(), device_dto(opts)))
+        .collect();
     PlaybackDto {
         schema: Some(2),
         compatible: Some(compatible_dto(&m.compatible)),
         optimal: Some(optimal_dto(&m.optimal)),
         strict: Some(strict_dto(&m.strict)),
+        devices: if devices.is_empty() { None } else { Some(devices) },
         unknown: BTreeMap::new(),
     }
 }
@@ -621,6 +650,45 @@ fn parse_strict(dto: StrictDto, notes: &mut Vec<LoadNote>) -> StrictOpts {
     opts
 }
 
+/// `[playback.devices]` -> `BTreeMap<HwDeviceId, DeviceOpts>` (§6.27 п. 3,
+/// ТЗ-145, ADR-25): ключ, не разбираемый `HwDeviceId::from_str`, — недопустимое
+/// значение, запись пропускается с заметкой; `dop` — булев ключ записи,
+/// неизвестные ключи записи игнорируются с заметкой. Записи устройств,
+/// которых сейчас нет в каталоге, сохраняются (каталог здесь не проверяется).
+fn parse_devices(
+    dto: Option<BTreeMap<String, DeviceDto>>,
+    notes: &mut Vec<LoadNote>,
+) -> BTreeMap<HwDeviceId, DeviceOpts> {
+    let Some(dto) = dto else {
+        return BTreeMap::new();
+    };
+    let mut devices = BTreeMap::new();
+    for (key, entry) in dto {
+        let Ok(id) = key.parse::<HwDeviceId>() else {
+            notes.push(invalid_note(
+                &format!("playback.devices.\"{key}\""),
+                &toml::Value::String(key.clone()),
+                "строка — идентификатор устройства",
+            ));
+            continue;
+        };
+        let default = DeviceOpts::default();
+        let opts = DeviceOpts {
+            dop: read_bool(
+                entry.dop.as_ref(),
+                default.dop,
+                &format!("playback.devices.\"{key}\".dop"),
+                notes,
+            ),
+        };
+        for unk in entry.unknown.keys() {
+            notes.push(unknown_note(format!("playback.devices.\"{key}\".{unk}")));
+        }
+        devices.insert(id, opts);
+    }
+    devices
+}
+
 /// Загрузка `ModeSettings` из DTO (§6.27 пп. 1–4, ТЗ-97, ТЗ-94, ТЗ-34,
 /// ТЗ-130, ТЗ-131, ТЗ-124): нет файла -> `default()` без заметок; нет раздела
 /// `[playback]` или `schema ≠ 2` -> `default()` и одна заметка «аудио-
@@ -652,6 +720,7 @@ pub fn load_mode_settings(dto: Option<PlaybackDto>) -> (ModeSettings, Vec<LoadNo
     let compatible = parse_compatible(dto.compatible.unwrap_or_default(), &mut notes);
     let mut optimal = parse_optimal(dto.optimal.unwrap_or_default(), &mut notes);
     let mut strict = parse_strict(dto.strict.unwrap_or_default(), &mut notes);
+    let devices = parse_devices(dto.devices, &mut notes);
     optimal.device_buffer = reconcile_device_buffer(
         optimal.buffer,
         optimal.device_buffer,
@@ -674,7 +743,7 @@ pub fn load_mode_settings(dto: Option<PlaybackDto>) -> (ModeSettings, Vec<LoadNo
             compatible,
             optimal,
             strict,
-            devices: Default::default(),
+            devices,
         },
         notes,
     )
@@ -875,6 +944,87 @@ mod tests {
             }
             other => panic!("ожидалась заметка Adjusted, получено {other:?}"),
         }
+    }
+
+    /// §7.2 `device_dop_toml_roundtrip` (ТЗ-145, ADR-25): раздел
+    /// `[playback.devices."<id>"]` — нет раздела -> `dop = true` без заметок;
+    /// загрузка из TOML и круговой проход через `playback_dto` сохраняют
+    /// `dop = false`; недопустимый тип `dop` -> `true` и заметка; запись со
+    /// значением по умолчанию не попадает в `playback_dto`; запись устройства,
+    /// на которое больше ничего не ссылается, переживает круговой проход.
+    #[test]
+    fn device_dop_toml_roundtrip() {
+        // (a) нет раздела [playback.devices] -> умолчание, заметок нет.
+        let (settings, notes) = load_mode_settings(Some(PlaybackDto {
+            schema: Some(2),
+            ..Default::default()
+        }));
+        let any_device: HwDeviceId = "hw:CARD=Z,DEV=0".parse().expect("валидный HwDeviceId");
+        assert!(settings.device_opts(&any_device).dop);
+        assert!(notes.is_empty());
+
+        // (b) TOML с dop = false для одного устройства -> загружается; запись
+        // через playback_dto -> toml::to_string -> toml::from_str сохраняет
+        // значение.
+        let toml_text = r#"
+schema = 2
+
+[devices."hw:CARD=A,DEV=0"]
+dop = false
+"#;
+        let dto: PlaybackDto =
+            toml::from_str(toml_text).expect("валидный TOML раздела [playback]");
+        let (settings, notes) = load_mode_settings(Some(dto));
+        assert!(notes.is_empty());
+        let device_a: HwDeviceId = "hw:CARD=A,DEV=0".parse().expect("валидный HwDeviceId");
+        assert!(!settings.device_opts(&device_a).dop);
+
+        let dto = playback_dto(&settings);
+        let written = toml::to_string(&dto).expect("сериализация PlaybackDto в toml");
+        let dto_back: PlaybackDto =
+            toml::from_str(&written).expect("разбор записанного toml в PlaybackDto");
+        let (settings_back, notes_back) = load_mode_settings(Some(dto_back));
+        assert!(notes_back.is_empty());
+        assert!(!settings_back.device_opts(&device_a).dop);
+
+        // (c) dop = "x" (не bool) -> true и одна заметка.
+        let mut devices = BTreeMap::new();
+        devices.insert(
+            "hw:CARD=B,DEV=0".to_owned(),
+            DeviceDto {
+                dop: Some(toml::Value::String("x".to_owned())),
+                unknown: BTreeMap::new(),
+            },
+        );
+        let dto = PlaybackDto {
+            schema: Some(2),
+            devices: Some(devices),
+            ..Default::default()
+        };
+        let (settings, notes) = load_mode_settings(Some(dto));
+        let device_b: HwDeviceId = "hw:CARD=B,DEV=0".parse().expect("валидный HwDeviceId");
+        assert!(settings.device_opts(&device_b).dop);
+        assert_eq!(notes.len(), 1);
+        assert_eq!(
+            notes[0].key,
+            KeyPath::new("playback.devices.\"hw:CARD=B,DEV=0\".dop")
+        );
+        assert!(matches!(notes[0].kind, LoadNoteKind::Invalid { .. }));
+
+        // (d) запись со значением по умолчанию не попадает в playback_dto.
+        let mut m = ModeSettings::default();
+        m.devices.insert(device_b, DeviceOpts::default());
+        assert_eq!(playback_dto(&m).devices, None);
+
+        // (e) запись устройства, на которое больше ничего не ссылается,
+        // переживает круговой проход.
+        let device_c: HwDeviceId = "hw:CARD=C,DEV=0".parse().expect("валидный HwDeviceId");
+        let mut m = ModeSettings::default();
+        m.devices.insert(device_c.clone(), DeviceOpts { dop: false });
+        let dto = playback_dto(&m);
+        let (settings, notes) = load_mode_settings(Some(dto));
+        assert!(notes.is_empty());
+        assert!(!settings.device_opts(&device_c).dop);
     }
 
     /// Круговой проход `playback_dto` -> `load_mode_settings` для настроек по
