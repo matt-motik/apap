@@ -18,7 +18,7 @@ dod: "Причины и советы окна «Путь сигнала» пок
 steps:
   - id: 1
     description: "Перенести русские подписи параметров из label() (src/app/mode_dialog.rs) в библиотеку: pub fn param_label(ParamId) -> &'static str в src/settings/params.rs; mode_dialog.rs вызывает её, локальная label() удаляется (ТЗ-95, §2.2). Файлы: src/settings/params.rs, src/app/mode_dialog.rs. Проверка: cargo check; cargo test mode_dialog"
-    done: false
+    done: true
   - id: 2
     description: "B27: cause_text и player_setting_text (src/audio/path/report.rs) берут param_label вместо label_key («настройка плеера: DSD выше возможностей ЦАП»); тест на текст причины и совета плеера (ТЗ-81, §6.25). Файл: src/audio/path/report.rs. Проверка: cargo test path::report"
     done: false
@@ -28,8 +28,8 @@ steps:
   - id: 4
     description: "ЧЕКПОИНТ: полный cargo test + cargo clippy --all-targets (0 новых варнингов в файлах вайтлиста); закрытие B27 и B28 (Шаг 5: строки в _TODO_/history/archive_bugs.md). Проверка: всё зелёное"
     done: false
-current_step: 1
-next_action: "Шаг 1 — новый code-writer (sonnet): param_label в src/settings/params.rs, mode_dialog.rs использует её; cargo check; cargo test mode_dialog"
+current_step: 2
+next_action: "Шаг 2 — новый code-writer (sonnet): B27 — cause_text и player_setting_text в src/audio/path/report.rs через param_label; тест; cargo test path::report"
 fail_counter: 0
 fail_counter_max: 3
 failed_attempts: []

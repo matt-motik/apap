@@ -407,6 +407,53 @@ pub static PARAMS: &[ParamDescriptor] = &[
     ParamDescriptor { id: ParamId::UnderrunXrun, label_key: "underrun_xrun", availability: availability_underrun_xrun, apply: ApplyKind::Memory, settings_anchor: None },
 ];
 
+/// Русская подпись параметра для UI (ТЗ-95, §2.2). `label_key` в `PARAMS` —
+/// служебный английский идентификатор, а не текст для пользователя.
+pub fn param_label(id: ParamId) -> &'static str {
+    match id {
+        ParamId::Access => "Доступ к устройству",
+        ParamId::Device => "Устройство",
+        ParamId::Lock => "Монопольный захват",
+        ParamId::OutputRate => "Частота вывода",
+        ParamId::FixedRate => "Фиксированная частота",
+        ParamId::RateFallback => "Политика несовпадения частоты",
+        ParamId::Src => "Ресэмплинг (SRC)",
+        ParamId::SrcFilter => "Фильтр SRC",
+        ParamId::SampleFormat => "Формат сэмплов",
+        ParamId::ZeroPad => "Дополнение нулями",
+        ParamId::Truncation => "Усечение разрядности",
+        ParamId::DitherApplied => "Применение дизеринга",
+        ParamId::DitherKind => "Дизеринг (TPDF)",
+        ParamId::Channels => "Каналы",
+        ParamId::Downmix => "Даунмикс",
+        ParamId::MonoToStereo => "Моно → стерео",
+        ParamId::ChannelPad => "Дополнение каналов",
+        ParamId::FloatSource => "Источник float",
+        ParamId::Volume => "Громкость",
+        ParamId::Mute => "Тишина (mute)",
+        ParamId::VolumeLock => "Фиксировать громкость на 100 %",
+        ParamId::Equalizer => "Эквалайзер",
+        ParamId::DsdNative => "Native DSD",
+        ParamId::DsdDop => "DSD через DoP",
+        ParamId::DsdToPcm => "DSD → PCM",
+        ParamId::DsdAboveDac => "DSD выше возможностей ЦАП",
+        ParamId::DsdPcmParams => "Параметры DSD → PCM",
+        ParamId::DsdFilter => "Фильтр DSD → PCM",
+        ParamId::DsdGainComp => "Компенсация уровня DSD → PCM +6 дБ",
+        ParamId::OnIncompatible => "При несовместимости",
+        ParamId::OnBadFile => "При повреждённом файле",
+        ParamId::OnDeviceLost => "При потере устройства",
+        ParamId::Buffer => "Буфер декодирование → вывод",
+        ParamId::DeviceBuffer => "Буфер устройства",
+        ParamId::RtPriority => "Приоритет реального времени",
+        ParamId::DeviceDop => "ЦАП понимает DoP",
+        ParamId::Badge => "Бейдж",
+        ParamId::Test => "Тест",
+        ParamId::Md5 => "Проверка MD5",
+        ParamId::UnderrunXrun => "Underrun/xrun",
+    }
+}
+
 /// Доступность параметра в режиме: поиск в `PARAMS` (ТЗ-95, ОВ-28, §2.2).
 pub fn availability(id: ParamId, mode: ModeKind) -> Availability {
     for descriptor in PARAMS {
@@ -841,5 +888,16 @@ mod tests {
             &[(ModeKind::Optimal, ParamId::DeviceDop), (ModeKind::Strict, ParamId::DeviceDop)]
         );
         assert_eq!(apply_kind(ParamId::DeviceDop), ApplyKind::ReopenAtPosition);
+    }
+
+    /// ТЗ-95, §2.2: `param_label` отдаёт русский текст для UI, а не
+    /// служебный `label_key` из `PARAMS`.
+    #[test]
+    fn param_label_is_russian_not_key() {
+        assert_eq!(param_label(ParamId::DsdAboveDac), "DSD выше возможностей ЦАП");
+        assert_eq!(param_label(ParamId::DitherKind), "Дизеринг (TPDF)");
+        for descriptor in PARAMS {
+            assert_ne!(param_label(descriptor.id), descriptor.label_key);
+        }
     }
 }

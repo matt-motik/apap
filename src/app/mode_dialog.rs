@@ -19,7 +19,7 @@
 //! `DialogRow` в одну строку панели, подключение сделано в `mod.rs`
 //! (§6.18, §6.27, ТЗ-41, ТЗ-94, ОВС-14).
 
-use music_player_rs::settings::params::{Availability, ParamDescriptor, ParamId, PARAMS};
+use music_player_rs::settings::params::{param_label, Availability, ParamDescriptor, ParamId, PARAMS};
 use music_player_rs::settings::playback::{
     buffers_allowed, BufferMs, DeviceBuffer, DeviceOpts, Dither, DsdAboveDac, DsdFilter, ModeKind, ModeSettings,
     RateFallbackRule, SrcFilter, ValueBlocker,
@@ -132,7 +132,7 @@ fn option_label(opt: &RowOption) -> SharedString {
 }
 
 fn build_row(descriptor: &ParamDescriptor, mode: ModeKind, settings: &ModeSettings) -> DialogRow {
-    let label = label(descriptor.id);
+    let label = param_label(descriptor.id);
     match (descriptor.availability)(mode) {
         Availability::Configurable => build_configurable_row(descriptor.id, mode, settings, label),
         Availability::FixedByMode { shown } => DialogRow {
@@ -654,53 +654,6 @@ fn apply_device_dop(settings: &mut ModeSettings, mode: ModeKind, value: EditValu
         settings.devices.insert(id, opts);
     }
     Ok(())
-}
-
-/// Русская подпись параметра (ТЗ-95, §2.2). `label_key` в `PARAMS` —
-/// служебный английский идентификатор, а не текст для UI.
-fn label(id: ParamId) -> &'static str {
-    match id {
-        ParamId::Access => "Доступ к устройству",
-        ParamId::Device => "Устройство",
-        ParamId::Lock => "Монопольный захват",
-        ParamId::OutputRate => "Частота вывода",
-        ParamId::FixedRate => "Фиксированная частота",
-        ParamId::RateFallback => "Политика несовпадения частоты",
-        ParamId::Src => "Ресэмплинг (SRC)",
-        ParamId::SrcFilter => "Фильтр SRC",
-        ParamId::SampleFormat => "Формат сэмплов",
-        ParamId::ZeroPad => "Дополнение нулями",
-        ParamId::Truncation => "Усечение разрядности",
-        ParamId::DitherApplied => "Применение дизеринга",
-        ParamId::DitherKind => "Дизеринг (TPDF)",
-        ParamId::Channels => "Каналы",
-        ParamId::Downmix => "Даунмикс",
-        ParamId::MonoToStereo => "Моно → стерео",
-        ParamId::ChannelPad => "Дополнение каналов",
-        ParamId::FloatSource => "Источник float",
-        ParamId::Volume => "Громкость",
-        ParamId::Mute => "Тишина (mute)",
-        ParamId::VolumeLock => "Фиксировать громкость на 100 %",
-        ParamId::Equalizer => "Эквалайзер",
-        ParamId::DsdNative => "Native DSD",
-        ParamId::DsdDop => "DSD через DoP",
-        ParamId::DsdToPcm => "DSD → PCM",
-        ParamId::DsdAboveDac => "DSD выше возможностей ЦАП",
-        ParamId::DsdPcmParams => "Параметры DSD → PCM",
-        ParamId::DsdFilter => "Фильтр DSD → PCM",
-        ParamId::DsdGainComp => "Компенсация уровня DSD → PCM +6 дБ",
-        ParamId::OnIncompatible => "При несовместимости",
-        ParamId::OnBadFile => "При повреждённом файле",
-        ParamId::OnDeviceLost => "При потере устройства",
-        ParamId::Buffer => "Буфер декодирование → вывод",
-        ParamId::DeviceBuffer => "Буфер устройства",
-        ParamId::RtPriority => "Приоритет реального времени",
-        ParamId::DeviceDop => "ЦАП понимает DoP",
-        ParamId::Badge => "Бейдж",
-        ParamId::Test => "Тест",
-        ParamId::Md5 => "Проверка MD5",
-        ParamId::UnderrunXrun => "Underrun/xrun",
-    }
 }
 
 #[cfg(test)]

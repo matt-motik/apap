@@ -17,15 +17,15 @@
 - **Критерий успеха (Definition of Done):** Причины и советы окна «Путь сигнала» показывают русские подписи параметров вместо label_key; советы «Оборудование» — «ЦАП с поддержкой …» (DoP — с частотой PCM-контейнера); cargo test и cargo clippy --all-targets зелёные, 0 новых варнингов
 
 ## Итерационный трекер
-- [>] **Шаг 1: Перенести русские подписи параметров из label() (src/app/mode_dialog.rs) в библиотеку: pub fn param_label(ParamId) -> &'static str в src/settings/params.rs; mode_dialog.rs вызывает её, локальная label() удаляется (ТЗ-95, §2.2). Файлы: src/settings/params.rs, src/app/mode_dialog.rs. Проверка: cargo check; cargo test mode_dialog**
-- [ ] Шаг 2: B27: cause_text и player_setting_text (src/audio/path/report.rs) берут param_label вместо label_key («настройка плеера: DSD выше возможностей ЦАП»); тест на текст причины и совета плеера (ТЗ-81, §6.25). Файл: src/audio/path/report.rs. Проверка: cargo test path::report
+- [x] Шаг 1: Перенести русские подписи параметров из label() (src/app/mode_dialog.rs) в библиотеку: pub fn param_label(ParamId) -> &'static str в src/settings/params.rs; mode_dialog.rs вызывает её, локальная label() удаляется (ТЗ-95, §2.2). Файлы: src/settings/params.rs, src/app/mode_dialog.rs. Проверка: cargo check; cargo test mode_dialog
+- [>] **Шаг 2: B27: cause_text и player_setting_text (src/audio/path/report.rs) берут param_label вместо label_key («настройка плеера: DSD выше возможностей ЦАП»); тест на текст причины и совета плеера (ТЗ-81, §6.25). Файл: src/audio/path/report.rs. Проверка: cargo test path::report**
 - [ ] Шаг 3: B28: hw_requirement_text (src/audio/path/report.rs) → «ЦАП с поддержкой 192 кГц», «ЦАП с поддержкой 24 бит», «ЦАП с поддержкой 6 каналов», «ЦАП с поддержкой DoP DSD256 (PCM 705,6 кГц)»; обновить тесты, проверяющие старые тексты (ТЗ-80, ТЗ-81, §6.25). Файл: src/audio/path/report.rs. Проверка: cargo test path::report
 - [ ] Шаг 4: ЧЕКПОИНТ: полный cargo test + cargo clippy --all-targets (0 новых варнингов в файлах вайтлиста); закрытие B27 и B28 (Шаг 5: строки в _TODO_/history/archive_bugs.md). Проверка: всё зелёное
 
 Легенда: [x] сделано · [>] текущий шаг · [ ] не начато
 
-- **Текущий шаг (current_step):** Шаг 1
-- **Следующий ход:** Шаг 1 — новый code-writer (sonnet): param_label в src/settings/params.rs, mode_dialog.rs использует её; cargo check; cargo test mode_dialog
+- **Текущий шаг (current_step):** Шаг 2
+- **Следующий ход:** Шаг 2 — новый code-writer (sonnet): B27 — cause_text и player_setting_text в src/audio/path/report.rs через param_label; тест; cargo test path::report
 - **Счетчик безуспешных компиляций:** 0/3
 - **Состояние:** in_progress
 
