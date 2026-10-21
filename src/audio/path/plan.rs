@@ -89,9 +89,10 @@ type StepError = (StageId, Incompatibility);
     reason = "сигнатура §6.3: Blocked несёт partial PathPlan (§3.1, ТЗ-80); вызывается раз на открытие трека"
 )]
 pub fn plan(src: &SourceFormat, caps: &DeviceCaps, policy: PathPolicy<'_>) -> Result<PathPlan, Blocked> {
-    // Мост до шага, где движок передаёт разрешённое устройство режима
-    // (ADR-24) и его `DeviceOpts` (§6.9, ADR-25): пока вызывается как
-    // `dev = None`, что равносильно `DeviceOpts::default()` (`dop = true`).
+    // Планировщик пути без выбранного аппаратного устройства режима (ADR-24,
+    // ADR-25, ТЗ-145): `dev = None` равносильно `DeviceOpts::default()`
+    // (`dop = true`). Применяется, когда у пути нет захваченного устройства
+    // (Совместимый режим — общий системный микшер) и в тестах.
     plan_with_device(src, caps, policy, None)
 }
 

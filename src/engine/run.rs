@@ -16,7 +16,7 @@ use crate::audio::backend::HwDeviceId;
 use crate::audio::clock::ClockInstant;
 use crate::audio::error::{CaptureFailure, EngineFault, FileError, OpenError, Reaction, StreamFault};
 use crate::audio::format::{SampleRate, SourceFormat};
-use crate::audio::path::plan::{plan, with_gain};
+use crate::audio::path::plan::{plan, plan_with_device, with_gain};
 use crate::audio::path::signal::{DynamicPathState, RtPriorityState, SignalPath};
 use crate::audio::path::{Blocked, OpenedFacts, OsStage, PathPlan};
 use crate::audio::player::{Player, StreamDesc};
@@ -1056,7 +1056,13 @@ impl Engine {
         };
 
         let policy = PathPolicy::active(&self.mode_settings, self.active_mode);
-        let base = match plan(&src, &caps, policy) {
+        // Устройство для шага 1 (маршрут DoP, §6.9) — фактически захваченное
+        // устройство режима (ADR-24), а не только настроенное `optimal.device`/
+        // `strict.device`: при автовыборе (`Resolved::AutoSelected`) захват
+        // мог быть открыт на другом устройстве, чем записано в настройках.
+        let dev_id = claim.info().device.clone();
+        let dev_opts = self.mode_settings.device_opts(&dev_id);
+        let base = match plan_with_device(&src, &caps, policy, Some((&dev_id, dev_opts))) {
             Ok(p) => p,
             Err(blocked) => {
                 self.claim = Some(claim);
@@ -1187,8 +1193,8 @@ impl Engine {
                 // §6.18 шаг 3: сначала только заголовок через `SourceOpener`,
                 // без касания `Player` (ТЗ-86, ТЗ-103, ADR-20). Ошибка —
                 // классифицированный `FileError`, сразу `Skipped`. Формат
-                // источника сохраняется (шаг 28) — нужен для `plan()` моста
-                // Совместимого режима.
+                // источника сохраняется (шаг 28) — нужен для `plan()`
+                // Совместимого режима (`build_compatible_path`).
                 let src = match self.deps.sources.probe(&path) {
                     Ok(src) => src,
                     Err(e) => {
