@@ -2,28 +2,10 @@
      Source of truth: _STATE_.yaml — edit that, then run:
      python tools/state_tool.py render -->
 
+# Состояние сессии
 
-# Текущая микро-сессия
-
-- **Задача из ROADMAP:** SP1.0-B14 — Тесты: event_remove_current_marks_dirty; флейк exit_partial_within_budget; tray_works_during_* на шлюзе ядра
-- **Вайтлист файлов в работе (Изменяемые файлы):**
-  - src/core/exit.rs
-  - src/core/testing.rs
-- **Критерий успеха (Definition of Done):** Все три части SP1.0-B14 закрыты; флейк устранён в обоих окнах гонки ManualWaiter и закреплён регрессионным тестом; полный cargo test + cargo clippy зелёные
-
-## Итерационный трекер
-- [x] Шаг 1: ManualWaiter (src/core/exit.rs): после продвижения часов ждать ответа писателя до REPLY_GRACE (оба окна гонки; решение из эксперимента, копия new), в ветке None — REPLY_GRACE вместо from_secs(2) (§7.1). Проверка: cargo test core::exit
-- [x] Шаг 2: Регрессионный тест manual_waiter_waits_for_slow_writer_after_delay (src/core/exit.rs; из копии old), ссылки doc — по спеке (без ТЗ-32). Проверка: cargo test core::exit
-- [x] Шаг 3: tray_works_during_dialog / tray_works_during_message (src/core/testing.rs): шлюз ядра core.gate_mut() вместо локального UiGate::default(), проверка блокировки в конце (ADR-12, §2.12). Проверка: cargo test core::testing
-- [x] Шаг 4: Тест event_remove_current_marks_dirty (src/core/testing.rs; §7 план тестов, ТЗ-34, ТЗ-12): удаление трека → одна запись playlist.m3u через N, без повтора. Проверка: cargo test core::testing
-- [x] Шаг 5: ЧЕКПОИНТ: полный cargo test + cargo clippy без новых предупреждений
-
-Легенда: [x] сделано · [>] текущий шаг · [ ] не начато
-
-- **Текущий шаг (current_step):** Шаг 5
-- **Следующий ход:** закрытие по closing.md
-- **Счетчик безуспешных компиляций:** 0/3
-- **Состояние:** in_progress
+- **Текущая задача:** Нет (все шаги завершены)
+- **Состояние:** done
 
 ## План: Executable workflow: правила AGENTS.md → исполняемые механизмы
 _Источник: чат с пользователем (ноутбук), начат в 67686ce; перенесён в репо 2026-09-22_
