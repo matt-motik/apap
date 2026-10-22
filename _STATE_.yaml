@@ -2,15 +2,19 @@
 # _STATE_.md генерируется из этого файла — не редактировать его руками.
 # Редактируйте этот файл, затем: python tools/state_tool.py render
 
-status: done
+status: in_progress
 task:
-  roadmap_id: null
-  title: null
-whitelist: []
-dod: null
-steps: []
-current_step: null
-next_action: null
+  roadmap_id: WF1.0-B8
+  title: "closing.md §1: в ✅ — хэш последнего шага с кодом, не ЧЕКПОИНТа"
+whitelist:
+  - docs/00_workflow_v1.0/closing.md
+dod: "closing.md §1 для этапа и бага: <hash> — последний шаг с кодом (без кода — последний шаг); state_tool.py check и traceability_tool.py check зелёные"
+steps:
+  - id: 1
+    description: "closing.md §1: формула <hash> для этапа и бага — последний шаг с кодом (для задачи без кода — последний шаг). Проверка: state_tool.py check + traceability_tool.py check (полный состав для шага без кода)"
+    done: false
+current_step: 1
+next_action: "Шаг 1: поправить формулу <hash> в closing.md §1"
 fail_counter: 0
 fail_counter_max: 3
 failed_attempts: []
