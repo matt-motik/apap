@@ -517,7 +517,7 @@ mod tests {
     use crate::core::exit::{ExitOutcome, ExitPhase, ExitReason, TermSignal};
     use crate::core::SaveButton;
     use crate::core::messages::{MessageCenter, MessageLevel};
-    use crate::core::gate::{BlockReason, MainCmd, UiGate};
+    use crate::core::gate::{BlockReason, MainCmd};
     use crate::core::load::{LoadApplied, LoadState};
     use crate::journal::{HostSource, WriteTarget};
     use crate::platform::fs::FsOp;
@@ -2127,14 +2127,13 @@ mod tests {
         (clicks.0 != 0).then(|| core.volume(VolumeSource::TrayWheel, VolumeCmd::Step(clicks)))
     }
 
-    /// Трей работает во время диалога настроек (ТЗ-24, §5.1: строка «с
-    /// треем; диалог»; ADR-8, §6.11 «Трей», В-5): `UiGate` блокирует команды
-    /// главного окна, но трей не ходит через `UiGate` (`poll_tray` в
-    /// `app/mod.rs` подаёт `TrayScroll` в модуль ввода ядра и щелчки — в
-    /// команду громкости) — пять щелчков колёсика над значком (+10 %) и
-    /// «Сохранить» с одним изменённым параметром (SRC-фильтр ресемплера)
-    /// проходят несмотря на блокировку: одна запись `settings.toml`, затем
-    /// одна запись `state.toml` по отсчёту с новой громкостью.
+    /// Трей работает во время диалога настроек (ТЗ-24, §5.1: строка «с треем; диалог»; ADR-8, §6.11
+    /// «Трей», В-5): шлюз ядра (`UiGate`, `core.gate_mut()`) блокирует команды главного окна, но
+    /// трей не ходит через `UiGate` (`poll_tray` в `app/mod.rs` подаёт `TrayScroll` в модуль ввода
+    /// ядра и щелчки — в команду громкости) — пять щелчков колёсика над значком (+10 %) и
+    /// «Сохранить» с одним изменённым параметром (SRC-фильтр ресемплера) проходят несмотря на
+    /// блокировку: одна запись `settings.toml`, затем одна запись `state.toml` по отсчёту с новой
+    /// громкостью.
     #[test]
     fn tray_works_during_dialog() {
         let h = Harness::new();
@@ -2142,9 +2141,8 @@ mod tests {
         h.put_state(b"");
         let mut core = h.boot();
 
-        let mut gate = UiGate::default();
-        gate.block(BlockReason::Dialog);
-        assert!(!gate.allows(MainCmd::PlayPause), "главное окно блокировано диалогом настроек");
+        core.gate_mut().block(BlockReason::Dialog);
+        assert!(!core.gate().allows(MainCmd::PlayPause), "главное окно блокировано диалогом настроек");
 
         // Исходный уровень ниже максимума, чтобы +10 % были видны.
         core.change_state(Origin::User, StateChange::Volume(32));
@@ -2171,10 +2169,11 @@ mod tests {
         h.settle(&mut core);
         assert_eq!(h.writes(WorkFile::State), 1, "громкость уходит в state.toml по отсчёту");
         assert_eq!(core.state().playback().volume, 42);
+        assert!(core.gate().window_blocked(), "диалог всё ещё блокирует главное окно");
     }
 
     /// Трей работает во время открытого окна сообщения (ТЗ-24, ТЗ-52):
-    /// `UiGate` блокирован причиной `Message` (как при открытом окне
+    /// шлюз ядра (`UiGate`, `core.gate_mut()`) блокирован причиной `Message` (как при открытом окне
     /// ошибки записи), но трей шлёт изменение громкости тем же путём, что
     /// и `TrayEvent::Scroll` в `poll_tray`: событие — в модуль ввода ядра,
     /// щелчки — в команду громкости (ADR-8, §6.11 «Трей», В-5; один щелчок
@@ -2187,9 +2186,8 @@ mod tests {
         h.put_state(b"");
         let mut core = h.boot();
 
-        let mut gate = UiGate::default();
-        gate.block(BlockReason::Message);
-        assert!(!gate.allows(MainCmd::Volume), "главное окно блокировано сообщением");
+        core.gate_mut().block(BlockReason::Message);
+        assert!(!core.gate().allows(MainCmd::Volume), "главное окно блокировано сообщением");
 
         // Исходный уровень ниже максимума, чтобы щелчок колёсика вверх
         // (+2 %) был виден.
@@ -2207,6 +2205,7 @@ mod tests {
         h.settle(&mut core);
         assert_eq!(h.writes(WorkFile::State), 1);
         assert_eq!(core.state().playback().volume, after);
+        assert!(core.gate().window_blocked(), "сообщение всё ещё блокирует главное окно");
     }
 
     /// Таблица модуля ввода с двумя строками трея (§2.8, §6.11 «Трей», В-5):

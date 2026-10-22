@@ -19,15 +19,15 @@ steps:
     done: true
   - id: 3
     description: "tray_works_during_dialog / tray_works_during_message (src/core/testing.rs): шлюз ядра core.gate_mut() вместо локального UiGate::default(), проверка блокировки в конце (ADR-12, §2.12). Проверка: cargo test core::testing"
-    done: false
+    done: true
   - id: 4
     description: "Тест event_remove_current_marks_dirty (src/core/testing.rs; §7 план тестов, ТЗ-34, ТЗ-12): удаление трека → одна запись playlist.m3u через N, без повтора. Проверка: cargo test core::testing"
     done: false
   - id: 5
     description: "ЧЕКПОИНТ: полный cargo test + cargo clippy без новых предупреждений"
     done: false
-current_step: 3
-next_action: "Шаг 3: tray_works_during_* на шлюзе ядра"
+current_step: 4
+next_action: "Шаг 4: тест event_remove_current_marks_dirty"
 fail_counter: 0
 fail_counter_max: 3
 failed_attempts: []

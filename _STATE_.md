@@ -14,14 +14,14 @@
 ## Итерационный трекер
 - [x] Шаг 1: ManualWaiter (src/core/exit.rs): после продвижения часов ждать ответа писателя до REPLY_GRACE (оба окна гонки; решение из эксперимента, копия new), в ветке None — REPLY_GRACE вместо from_secs(2) (§7.1). Проверка: cargo test core::exit
 - [x] Шаг 2: Регрессионный тест manual_waiter_waits_for_slow_writer_after_delay (src/core/exit.rs; из копии old), ссылки doc — по спеке (без ТЗ-32). Проверка: cargo test core::exit
-- [>] **Шаг 3: tray_works_during_dialog / tray_works_during_message (src/core/testing.rs): шлюз ядра core.gate_mut() вместо локального UiGate::default(), проверка блокировки в конце (ADR-12, §2.12). Проверка: cargo test core::testing**
-- [ ] Шаг 4: Тест event_remove_current_marks_dirty (src/core/testing.rs; §7 план тестов, ТЗ-34, ТЗ-12): удаление трека → одна запись playlist.m3u через N, без повтора. Проверка: cargo test core::testing
+- [x] Шаг 3: tray_works_during_dialog / tray_works_during_message (src/core/testing.rs): шлюз ядра core.gate_mut() вместо локального UiGate::default(), проверка блокировки в конце (ADR-12, §2.12). Проверка: cargo test core::testing
+- [>] **Шаг 4: Тест event_remove_current_marks_dirty (src/core/testing.rs; §7 план тестов, ТЗ-34, ТЗ-12): удаление трека → одна запись playlist.m3u через N, без повтора. Проверка: cargo test core::testing**
 - [ ] Шаг 5: ЧЕКПОИНТ: полный cargo test + cargo clippy без новых предупреждений
 
 Легенда: [x] сделано · [>] текущий шаг · [ ] не начато
 
-- **Текущий шаг (current_step):** Шаг 3
-- **Следующий ход:** Шаг 3: tray_works_during_* на шлюзе ядра
+- **Текущий шаг (current_step):** Шаг 4
+- **Следующий ход:** Шаг 4: тест event_remove_current_marks_dirty
 - **Счетчик безуспешных компиляций:** 0/3
 - **Состояние:** in_progress
 
