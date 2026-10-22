@@ -122,6 +122,25 @@ tests/                 # интеграционные тесты (каталог
 + подмодули в одноимённой папке); `playlist.rs` — переименованный из плоского
 файла в такой каталог.
 
+### 3.1. Каталог → спецификация (для ссылок `ТЗ-N`/`ADR-N`/`§X.Y`)
+
+Номера `ТЗ-N`, `ADR-N`, `§X.Y` у AM1.0 и SP1.0 пересекаются (`ТЗ-8` — дизеринг
+в AM1.0 и разбор ключей в SP1.0). Ссылка **без префикса** относится к спеке
+модуля по таблице ниже; ссылка на **другую** спеку и любая ссылка в
+смешанном файле пишется с префиксом: `SP1.0 ТЗ-8`, `AM1.0 §2.2`. Встречающаяся
+в коде запись `02 §2.4` — прежняя форма того же префикса (01 = AM1.0,
+02 = SP1.0); в новом коде — `AM1.0`/`SP1.0`. Старые ссылки массово не
+переписываются, префикс добавляется при правке строки.
+
+| Спека модуля | Каталоги и файлы |
+|---|---|
+| AM1.0 (`docs/01_audio_modes_v1.0/`) | `src/audio/**`, `src/engine/**`, `src/platform/devwatch.rs`, `src/settings/params.rs`, `src/settings/playback.rs`, `src/app/{badge_view,lock_view,mode_dialog,path_view,ui_audio_state,engine_sink}.rs`, `ui/mode_params.slint`, `tests/{rt_zero_alloc,dsd512_playback_cpu_budget,live_worker_zero_alloc}.rs` |
+| SP1.0 (`docs/02_settings_persistence_v1.0/`) | `src/core/**`, `src/persist/**`, `src/platform/**` (кроме `devwatch.rs`), `src/journal.rs`, `ui/message_window.slint` |
+| T1.0 / V5.1 | `src/theme.rs` (T1.0); визуализация `src/audio/{analyzer,spectrogram,fulltrack,palettes,visualizer}.rs`, `src/app/{visualizer,fulltrack,viz_settings}_manager.rs` (V5.1 — исключение из строки AM1.0) |
+| смешанные — только с префиксом | `src/app/mod.rs` и прочие `src/app/*_manager.rs`, `src/main.rs`, `src/lib.rs`, `src/settings.rs`, `src/settings/playback_dto.rs`, `src/playlist/**`, `ui/*.slint` (кроме указанных), `tests/*.rs` (кроме указанных) |
+
+Новый файл добавляется в таблицу тем же коммитом, что и сам файл.
+
 ## 4. Связка Slint ↔ Rust
 
 - `build.rs` компилирует `ui/app.slint` → структура `AppWindow` в Rust
