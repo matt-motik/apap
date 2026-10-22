@@ -50,7 +50,7 @@ steps:
     done: true
   - id: 10
     description: "task_intake.md + planning.md: ожидание подтверждения плана только для задач из чата; исправление при диагностике красной сборки — через B-строку (ревью п.4, 5). Проверка: те же checks"
-    done: false
+    done: true
   - id: 11
     description: "execution.md (пример коммита с ID и шагом) + architecture.md (каталог → спека для ссылок ТЗ-N) (ревью п.7, 10). Проверка: те же checks"
     done: false
@@ -63,8 +63,8 @@ steps:
   - id: 14
     description: "ЧЕКПОИНТ: полные checks, ревью пользователем итогового AGENTS.md и процедур, закрытие WF1.0-B1. Проверка: пользователь одобрил"
     done: false
-current_step: 10
-next_action: "Шаг 10: подтверждение плана только для задач из чата; диагностика через B-строку"
+current_step: 11
+next_action: "Шаг 11: пример коммита в execution.md; каталог → спека в architecture.md"
 fail_counter: 0
 fail_counter_max: 3
 failed_attempts: []
