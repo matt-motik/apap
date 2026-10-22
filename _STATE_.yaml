@@ -87,15 +87,15 @@ steps:
     done: true
   - id: 22
     description: "ROADMAP: зарегистрировать скрипты WF1.0-B3…B7 (step-done, next-bug, вайтлист при закрытии, commit-msg, close-bug) ⬜ открыто; следующий свободный WF1.0-B8. Проверка: те же checks"
-    done: false
+    done: true
   - id: 23
     description: "Холодное чтение итоговых правил тремя исполнителями (Opus, Sonnet, Fable): 10 прежних + 4 новых сценария; сверка ответов, правки по находкам — с согласия пользователя. Проверка: отчёт пользователю"
     done: false
   - id: 24
     description: "ЧЕКПОИНТ: полные checks, одобрение пользователя, закрытие WF1.0-B1. Проверка: пользователь одобрил"
     done: false
-current_step: 22
-next_action: "Шаг 22: зарегистрировать скрипты WF1.0-B3…B7"
+current_step: 23
+next_action: "Шаг 23: холодное чтение итоговых правил тремя исполнителями (Opus, Sonnet, Fable)"
 fail_counter: 0
 fail_counter_max: 3
 failed_attempts: []
