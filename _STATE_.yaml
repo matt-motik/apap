@@ -74,15 +74,15 @@ steps:
     done: true
   - id: 18
     description: "closing.md: ручная проверка не блокирует закрытие (решение 1); §5 — общий пункт плана, сквозной порядок, открытые B-строки, удаление таблицы — разрешённое исключение, приёмка пишет в docs/acceptance без отдельного разрешения; строка «Следующая задача» в ROADMAP; финальная фраза при автопродолжении. Проверка: те же checks"
-    done: false
+    done: true
   - id: 19
     description: "ROADMAP.md шапка (✅-строки этапов живут до закрытия спеки; согласование с _STATE_.yaml), статус WF1.0-B2 «⬜ открыто»; шапка-комментарий _STATE_.yaml → docs/00_workflow_v1.0. Проверка: те же checks"
     done: false
   - id: 20
     description: "ЧЕКПОИНТ: полные checks, ревью пользователем, закрытие WF1.0-B1. Проверка: пользователь одобрил"
     done: false
-current_step: 18
-next_action: "Шаг 18: closing.md по итогам холодного чтения"
+current_step: 19
+next_action: "Шаг 19: шапка ROADMAP.md, статус WF1.0-B2, комментарий в _STATE_.yaml"
 fail_counter: 0
 fail_counter_max: 3
 failed_attempts: []
