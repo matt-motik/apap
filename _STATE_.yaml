@@ -107,10 +107,13 @@ steps:
     description: "Правки по холодному чтению №4 (Opus + Fable): known_issue — исключение docs/ и spec_closing; note — только открытое (без «закрыт…»); перенос всей note при done; прогон приёмки после §2, FAIL не триггер; ремонт сборки без учётной B-строки, ручной ремонт — ремонтным шагом; ЧЕКПОИНТ multi-B, next_action после 3/3, тупик по последнему коммиту; карта §3 для нового файла; этап закрывает баг; push отклонён; chore(roadmap): register; источник задач исчерпан; ночью отложенные просьбы ждут (решение пользователя, вариант 1). Проверка: state_tool.py check + traceability_tool.py check"
     done: true
   - id: 29
-    description: "ЧЕКПОИНТ: анализ Fable на стыкуемость и противоречия, полные checks, одобрение пользователя, закрытие WF1.0-B1. Проверка: пользователь одобрил"
+    description: "Аудит Fable на стыкуемость, противоречия и лишнее + его топ-10 правок (dod в консервации; note без закрытого; приёмка — §2 п. 3; указатели AGENTS; ремонт сборки — исключение в ядре; приёмка по вердикту acceptance.py; сжатие execution §6–7, planning §2; дубли). Проверка: state_tool.py check + traceability_tool.py check"
+    done: true
+  - id: 30
+    description: "ЧЕКПОИНТ: полные checks, одобрение пользователя, закрытие WF1.0-B1. Проверка: пользователь одобрил"
     done: false
-current_step: 29
-next_action: "Шаг 29: анализ Fable на стыкуемость, противоречия и лишнее; затем одобрение и закрытие WF1.0-B1"
+current_step: 30
+next_action: "Шаг 30: ЧЕКПОИНТ — полные checks, одобрение пользователя, закрытие WF1.0-B1"
 fail_counter: 0
 fail_counter_max: 3
 failed_attempts: []
