@@ -1,4 +1,4 @@
-# Источник истины для текущей микро-сессии (AGENTS.md, Шаг 0/3/4).
+# Источник истины для текущей микро-сессии (AGENTS.md; процедуры — docs/00_workflow_v1.0/planning.md, execution.md, closing.md).
 # _STATE_.md генерируется из этого файла — не редактировать его руками.
 # Редактируйте этот файл, затем: python tools/state_tool.py render
 
@@ -77,12 +77,12 @@ steps:
     done: true
   - id: 19
     description: "ROADMAP.md шапка (✅-строки этапов живут до закрытия спеки; согласование с _STATE_.yaml), статус WF1.0-B2 «⬜ открыто»; шапка-комментарий _STATE_.yaml → docs/00_workflow_v1.0. Проверка: те же checks"
-    done: false
+    done: true
   - id: 20
     description: "ЧЕКПОИНТ: полные checks, ревью пользователем, закрытие WF1.0-B1. Проверка: пользователь одобрил"
     done: false
-current_step: 19
-next_action: "Шаг 19: шапка ROADMAP.md, статус WF1.0-B2, комментарий в _STATE_.yaml"
+current_step: 20
+next_action: "ЧЕКПОИНТ: ревью пользователем правок шагов 15–19; после одобрения — закрытие WF1.0-B1 по closing.md §9"
 fail_counter: 0
 fail_counter_max: 3
 failed_attempts: []

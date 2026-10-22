@@ -27,9 +27,12 @@
 > `_TODO_/history/archive_v0.4.md`; спека A2.0 (Real-Time аудио-ядро) — в
 > `_TODO_/history/archive_v0.5.md`.
 >
-> Выполненные задачи удаляются из ROADMAP (полная трассируемость — в архивах);
-> в таблицах остаются только открытые пункты бэклога. Изменение структуры
-> ROADMAP — по согласованию с `_STATE_.md`.
+> Закрытые баги сразу уходят в `_TODO_/history/archive_bugs.md`; строки этапов
+> с ✅ остаются в таблице спеки до её закрытия, затем таблица заменяется
+> строкой статуса, а история — в `_TODO_/history/archive_<Префикс>.md`
+> (`docs/00_workflow_v1.0/closing.md`). Правки ROADMAP — точечные и
+> согласованные с `_STATE_.yaml` (задача и статус строки совпадают с
+> открытой сессией).
 
 ---
 
@@ -174,7 +177,7 @@ Producer/Consumer (Worker → ring → RtConsumer, seek-хендшейк, DoP,
 | SP1.0-B15 | Уборка после С9 (02): (1) `IoGens` — поколения `themes`/`clear` на локальном `wrapping_add`, `theme`/`sizes` из `core.next_io_gen()`; очистка кэшей идёт не через `core.clear_cache`; `IoJob::ListThemes` помечен «ОТКЛОНЕНИЕ от §2.12»; (2) поле `MusicApp::theme_meta` только пишется и сразу читается в `set_theme_meta` — кандидат на удаление; (3) отладочные `debug("settings: …")` в кнопках Save/Cancel и подложке диалога (`ui/settings.slint`); (4) тексты `ValueBlocker` продублированы в `src/core/dialog.rs` и `src/app/mode_dialog.rs`; (5) устаревшие комментарии: `set_output_device` (`src/app/playback_manager.rs`), привязка клавиши V (`src/app/viz_settings_manager.rs`, «когда диалог настроек закрыт» — теперь решает шлюз); (6) подписи вкладки кэша английские, новый текст ТЗ-34 — русский; (7) `MainCmd::ColumnResize` и `MainCmd::DropFiles` в приложении шлюз не спрашивают: ширины колонок снимаются опросом (`save_column_widths_from_ui`), обработчика перетаскивания файлов нет. Найдено на SP1.0-8.9 | 🔵 Низкий | ⬜ открыто | [§8 С9](docs/02_settings_persistence_v1.0/03_spec.md#8-этапы-внедрения) |
 | T1.0-B1 | Таблица плейлиста (`ui/tableview_fork.slint`) — форк `material/tableview.slint`, а приложение в стиле `fluent` (`build.rs`): отступы 16px, строки/заголовок ≥42px и ripple-отклик (`fork_components.slint` `StateLayer`) из material, расходятся с остальными fluent-виджетами; исправления встроенной таблицы при обновлении Slint не приходят. Решение пользователя (2026-10-08): перейти на единую тему — переложить форк на fluent-версию `tableview.slint` той же версии Slint, сохранив уменьшенный шрифт заголовков (`font-size: 11px`) и поведение, нужное плееру (`row-pointer-event`, `set-current-row`, стрелка сортировки, третье состояние «без ключа» из SP1.0-8.6, ТЗ-42); `fork_components.slint` — удалить, если станет не нужен. Делать после закрытия SP1.0-8.6 | 🔵 Низкий | ⬜ открыто | [docs/spec_theme_v1.0.md](docs/spec_theme_v1.0.md) |
 | WF1.0-B1 | Переделать `AGENTS.md` в лаконичное ядро правил (~150–200 строк) без противоречий: процедуры — в `docs/00_workflow_v1.0/`, единый путь регистрации задач из чата (без лёгкого пути), правила кода сверены с линтером и спеками; форматы `_STATE_.yaml`/`ROADMAP.md`, проверяемые `tools/`, не меняются (запрос пользователя 2026-10-22) | 🟢 Средний | 🔄 выполняется | [§2](docs/00_workflow_v1.0/README.md#2-решения-пользователя-2026-10-22) |
-| WF1.0-B2 | Устаревшие ссылки на разделы старого `AGENTS.md` («Шаг 0/3/4/4.1/4.4/5», «§3») в `tools/state_tool.py` (стр. 5, 28–29, 264 — в т.ч. текст ошибки вайтлиста), `tools/traceability_tool.py` (стр. 2, 87), `tools/schema/state.schema.json` (стр. 68), а также `docs/_template/process.md` (п. 9 «по AGENTS.md (Шаги 0–5)», п. 10 «archive_vX.Y.md» → `archive_<Префикс>.md`) и `docs/_template/prompt_template.md` (стр. 14 «Шаги 0–5»): перенаправить на `docs/00_workflow_v1.0/*.md` (найдено на WF1.0-B1 шаги 8, 9; правка `docs/_template/` разрешена пользователем 2026-10-22) | 🔵 Низкий | ⬜ | [§2](docs/00_workflow_v1.0/README.md#2-решения-пользователя-2026-10-22) |
+| WF1.0-B2 | Устаревшие ссылки на разделы старого `AGENTS.md` («Шаг 0/3/4/4.1/4.4/5», «§3») в `tools/state_tool.py` (стр. 5, 28–29, 264 — в т.ч. текст ошибки вайтлиста), `tools/traceability_tool.py` (стр. 2, 87), `tools/schema/state.schema.json` (стр. 68), а также `docs/_template/process.md` (п. 9 «по AGENTS.md (Шаги 0–5)», п. 10 «archive_vX.Y.md» → `archive_<Префикс>.md`) и `docs/_template/prompt_template.md` (стр. 14 «Шаги 0–5»): перенаправить на `docs/00_workflow_v1.0/*.md` (найдено на WF1.0-B1 шаги 8, 9; правка `docs/_template/` разрешена пользователем 2026-10-22) | 🔵 Низкий | ⬜ открыто | [§2](docs/00_workflow_v1.0/README.md#2-решения-пользователя-2026-10-22) |
 
 ### Микро-фиксы (ручные, без сессии)
 
