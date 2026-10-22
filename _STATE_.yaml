@@ -99,12 +99,12 @@ steps:
     done: true
   - id: 26
     description: "Правки по холодному чтению №2, closing.md + spec_closing.md + AGENTS.md + architecture.md + README.md: пункт плана для бага; последний этап сквозного порядка; когда нужна ручная проверка; хэш для бага; полный список служебных коммитов; ссылки без префикса в смешанных файлах; строка нового файла в §3.1; B-строка WF1.0 = разрешение на docs/00_workflow_v1.0/; область WF1.0 едина. Проверка: те же checks"
-    done: false
+    done: true
   - id: 27
     description: "ЧЕКПОИНТ: полные checks, одобрение пользователя, закрытие WF1.0-B1. Проверка: пользователь одобрил"
     done: false
-current_step: 26
-next_action: "Шаг 26: правки closing/spec_closing/AGENTS/architecture/README по холодному чтению №2"
+current_step: 27
+next_action: "Шаг 27: ЧЕКПОИНТ — полные checks, одобрение пользователя, закрытие WF1.0-B1"
 fail_counter: 0
 fail_counter_max: 3
 failed_attempts: []
