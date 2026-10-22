@@ -84,7 +84,7 @@ steps:
     done: true
   - id: 21
     description: "Ответы пользователя на вопросы Fable 1–10 (несколько B-строк одного префикса в сессии; пункт плана «Ручные проверки»; формат chore(state): start; 01_inventory.md — снимок) + формат коммита приёмки формирует tools/acceptance.py. Проверка: те же checks"
-    done: false
+    done: true
   - id: 22
     description: "ROADMAP: зарегистрировать скрипты WF1.0-B3…B7 (step-done, next-bug, вайтлист при закрытии, commit-msg, close-bug) ⬜ открыто; следующий свободный WF1.0-B8. Проверка: те же checks"
     done: false
@@ -94,8 +94,8 @@ steps:
   - id: 24
     description: "ЧЕКПОИНТ: полные checks, одобрение пользователя, закрытие WF1.0-B1. Проверка: пользователь одобрил"
     done: false
-current_step: 21
-next_action: "Шаг 21: ответы на вопросы Fable 1–10 и формат коммита приёмки"
+current_step: 22
+next_action: "Шаг 22: зарегистрировать скрипты WF1.0-B3…B7"
 fail_counter: 0
 fail_counter_max: 3
 failed_attempts: []
