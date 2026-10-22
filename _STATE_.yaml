@@ -2,118 +2,15 @@
 # _STATE_.md генерируется из этого файла — не редактировать его руками.
 # Редактируйте этот файл, затем: python tools/state_tool.py render
 
-status: in_progress
+status: done
 task:
-  roadmap_id: WF1.0-B1
-  title: "AGENTS.md → лаконичное ядро правил; процедуры — в docs/00_workflow_v1.0/"
-whitelist:
-  - AGENTS.md
-  - docs/00_workflow_v1.0/README.md
-  - docs/00_workflow_v1.0/01_inventory.md
-  - docs/00_workflow_v1.0/task_intake.md
-  - docs/00_workflow_v1.0/planning.md
-  - docs/00_workflow_v1.0/execution.md
-  - docs/00_workflow_v1.0/closing.md
-  - docs/00_workflow_v1.0/spec_closing.md
-  - docs/00_workflow_v1.0/architecture.md
-  - docs/README.md
-  - ROADMAP.md
-  - _STATE_.yaml
-  - _STATE_.md
-dod: "AGENTS.md ≤ ~200 строк; каждое правило старого AGENTS.md отражено в сверке 01_inventory.md (куда перенесено или почему удалено); противоречия из WF1.0 §2 сняты; форматы _STATE_.yaml/ROADMAP.md не менялись; state_tool.py check и traceability_tool.py check зелёные; пользователь одобрил итоговый текст"
-steps:
-  - id: 1
-    description: "Сверочная таблица 01_inventory.md: каждое правило старого AGENTS.md → новое место (ядро / процедура / удалено с причиной) (WF1.0 §2). Проверка: state_tool.py check + traceability_tool.py check"
-    done: true
-  - id: 2
-    description: "task_intake.md: приём задачи из чата — два пути, регистрация B-строки, закреплённый текст в спеке (WF1.0 §2 п. 1–3). Проверка: те же checks"
-    done: true
-  - id: 3
-    description: "planning.md: выбор этапа, чтение спеки, микро-декомпозиция, вайтлист, шаблон сессии в терминах _STATE_.yaml. Проверка: те же checks"
-    done: true
-  - id: 4
-    description: "execution.md: цикл шага — вайтлист, верификация (единое правило check/test/clippy), счётчик 3/3 и откат, коммит. Проверка: те же checks"
-    done: true
-  - id: 5
-    description: "closing.md: закрытие этапа/бага — ROADMAP ✅, ручные проверки, консервация state, архив. Проверка: те же checks"
-    done: true
-  - id: 6
-    description: "architecture.md: актуальная карта исходников, команды, тесты (сверено с деревом src/ и tests/). Проверка: те же checks"
-    done: true
-  - id: 7
-    description: "Переписать ядро AGENTS.md (≤ ~200 строк): старт сессии, артефакты и доступ, жёсткие правила кода с проверяющим инструментом (WF1.0 §2 п. 5–6), ссылки на процедуры. Проверка: те же checks + wc -l"
-    done: true
-  - id: 8
-    description: "Уборка: docs/README.md (файлы 00_workflow), README WF1.0 (оглавление процедур). Проверка: те же checks"
-    done: true
-  - id: 9
-    description: "closing.md: баг уходит в archive_bugs.md сразу; ручные проверки и заметка плана — и для багов; оговорка для doc-only; архив по префиксу (archive_<Префикс>.md); кросс-ОС приёмка при закрытии спеки (ревью пользователя п.1, 2, 6, 8, 9). Проверка: те же checks"
-    done: true
-  - id: 10
-    description: "task_intake.md + planning.md: ожидание подтверждения плана только для задач из чата; исправление при диагностике красной сборки — через B-строку (ревью п.4, 5). Проверка: те же checks"
-    done: true
-  - id: 11
-    description: "execution.md (пример коммита с ID и шагом) + architecture.md (каталог → спека для ссылок ТЗ-N) (ревью п.7, 10). Проверка: те же checks"
-    done: true
-  - id: 12
-    description: "AGENTS.md: раздел «Продукт» (приоритеты, платформы), правило префикса ТЗ-N, таблица процедур — одна копия (README §3 → ссылка) (ревью п.7, «Продукт»). Проверка: те же checks + wc -l"
-    done: true
-  - id: 13
-    description: "ROADMAP.md: следующий свободный AM1.0-B30; WF1.0-B2 + docs/_template/*; 01_inventory.md — синхронизация мест и опечатки (ревью п.3, 11, 12). Проверка: те же checks"
-    done: true
-  - id: 14
-    description: "architecture.md: убрать исторические пометки старого AGENTS.md («tests/ нет — неверно», «замена прежнего …», абзац о несуществующем src/playlist.rs) и устаревающие счётчики тестов (замечание пользователя 2026-10-22). Проверка: те же checks"
-    done: true
-  - id: 15
-    description: "AGENTS.md: критерий «Продолжения» = status: in_progress; пункт плана vs открытая сессия; V5.1/T1.0 — действующие для визуализатора и тем; ссылки ТЗ-N — любой новый код; служебные коммиты вне сессии (ручная проверка, приёмка) (проверка холодным чтением 2026-10-22, решения пользователя 1–4). Проверка: те же checks"
-    done: true
-  - id: 16
-    description: "task_intake.md + planning.md: префикс правки вне спек (решение 3), шкала 🟢/🔵, путь Б, текст в ТЗ и коде — одна сущность, 🔄 один раз; planning: связь пункта плана с ROADMAP, «Продолжение» без ложного СТОПа, красная сборка — шаг текущей сессии, вопросы в note. Проверка: те же checks"
-    done: true
-  - id: 17
-    description: "execution.md: 3/3 — удалить новые файлы шага, коммит+push failed_attempts; «сессия» для отключения остановок = чат, после закрытия этапа — следующий без остановки (решение 2); ссылки ТЗ — любой код. Проверка: те же checks"
-    done: true
-  - id: 18
-    description: "closing.md: ручная проверка не блокирует закрытие (решение 1); §5 — общий пункт плана, сквозной порядок, открытые B-строки, удаление таблицы — разрешённое исключение, приёмка пишет в docs/acceptance без отдельного разрешения; строка «Следующая задача» в ROADMAP; финальная фраза при автопродолжении. Проверка: те же checks"
-    done: true
-  - id: 19
-    description: "ROADMAP.md шапка (✅-строки этапов живут до закрытия спеки; согласование с _STATE_.yaml), статус WF1.0-B2 «⬜ открыто»; шапка-комментарий _STATE_.yaml → docs/00_workflow_v1.0. Проверка: те же checks"
-    done: true
-  - id: 20
-    description: "Перенос редакции Fable (worktree на dedd263): AGENTS.md, planning/execution/task_intake/closing.md, новый spec_closing.md, architecture.md, README WF1.0, docs/README.md, шапка ROADMAP. Проверка: те же checks"
-    done: true
-  - id: 21
-    description: "Ответы пользователя на вопросы Fable 1–10 (несколько B-строк одного префикса в сессии; пункт плана «Ручные проверки»; формат chore(state): start; 01_inventory.md — снимок) + формат коммита приёмки формирует tools/acceptance.py. Проверка: те же checks"
-    done: true
-  - id: 22
-    description: "ROADMAP: зарегистрировать скрипты WF1.0-B3…B7 (step-done, next-bug, вайтлист при закрытии, commit-msg, close-bug) ⬜ открыто; следующий свободный WF1.0-B8. Проверка: те же checks"
-    done: true
-  - id: 23
-    description: "Холодное чтение итоговых правил тремя исполнителями (Opus, Sonnet, Fable): 10 прежних + 4 новых сценария; сверка ответов, правки по находкам — с согласия пользователя. Проверка: отчёт пользователю"
-    done: true
-  - id: 24
-    description: "Правки по холодному чтению №2, planning.md + task_intake.md: отказ от плана после регистрации; брошенная 🔄 любого префикса; незавершённое закрытие спеки в note на старте; просьба из чата при открытой сессии; префикс закреплённого текста; ЧЕКПОИНТ одношаговой сессии; создание пункта plan при закрытии; красная сборка в Продолжении (новый шаг, не fail_counter); ВОПРОС ПОЛЬЗОВАТЕЛЮ — по содержанию. Проверка: state_tool.py check + traceability_tool.py check"
-    done: true
-  - id: 25
-    description: "Правки по холодному чтению №2, execution.md: провалы 1–2 в failed_attempts; откат 3/3 (staged, ??, render); тогл «без остановок» строкой в note; ВОПРОС ПОЛЬЗОВАТЕЛЮ среди СТОПов ночью; проверка смешанного шага; ID коммита при нескольких B-строках; разбиение шага — коммит и ожидание; хук не пропускает fail_counter 3 → коммит 3/3 с fail_counter 0; строка architecture.md §3.1 для нового файла. Проверка: те же checks"
-    done: true
-  - id: 26
-    description: "Правки по холодному чтению №2, closing.md + spec_closing.md + AGENTS.md + architecture.md + README.md: пункт плана для бага; последний этап сквозного порядка; когда нужна ручная проверка; хэш для бага; полный список служебных коммитов; ссылки без префикса в смешанных файлах; строка нового файла в §3.1; B-строка WF1.0 = разрешение на docs/00_workflow_v1.0/; область WF1.0 едина. Проверка: те же checks"
-    done: true
-  - id: 27
-    description: "Правки по холодному чтению №3 (Fable): приёмка второй ОС в любом режиме; вопрос до 🔄; id шагов без перенумерации; known_issue при закрытии; note пункта плана при закрытии спеки; новая траектория после 3/3 — коммит; «отложено» vs «отменено»; push после каждого коммита; мелочи (ручная проверка, ЧЕКПОИНТ без кода, тогл, приёмка FAIL, pull при автопереходе); WF1.0-B4 — убрать строку свободных номеров. Проверка: state_tool.py check + traceability_tool.py check"
-    done: true
-  - id: 28
-    description: "Правки по холодному чтению №4 (Opus + Fable): known_issue — исключение docs/ и spec_closing; note — только открытое (без «закрыт…»); перенос всей note при done; прогон приёмки после §2, FAIL не триггер; ремонт сборки без учётной B-строки, ручной ремонт — ремонтным шагом; ЧЕКПОИНТ multi-B, next_action после 3/3, тупик по последнему коммиту; карта §3 для нового файла; этап закрывает баг; push отклонён; chore(roadmap): register; источник задач исчерпан; ночью отложенные просьбы ждут (решение пользователя, вариант 1). Проверка: state_tool.py check + traceability_tool.py check"
-    done: true
-  - id: 29
-    description: "Аудит Fable на стыкуемость, противоречия и лишнее + его топ-10 правок (dod в консервации; note без закрытого; приёмка — §2 п. 3; указатели AGENTS; ремонт сборки — исключение в ядре; приёмка по вердикту acceptance.py; сжатие execution §6–7, planning §2; дубли). Проверка: state_tool.py check + traceability_tool.py check"
-    done: true
-  - id: 30
-    description: "ЧЕКПОИНТ: полные checks, одобрение пользователя, закрытие WF1.0-B1. Проверка: пользователь одобрил"
-    done: false
-current_step: 30
-next_action: "Шаг 30: ЧЕКПОИНТ — полные checks, одобрение пользователя, закрытие WF1.0-B1"
+  roadmap_id: null
+  title: null
+whitelist: []
+dod: null
+steps: []
+current_step: null
+next_action: null
 fail_counter: 0
 fail_counter_max: 3
 failed_attempts: []
