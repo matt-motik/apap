@@ -341,6 +341,45 @@ mod tests {
         assert_eq!(clock.now(), until);
     }
 
+    /// Регрессия (SP1.0-B14, §7.1): момент задержки уже наступил, часы до
+    /// него продвинуты, но поток-писатель отвечает не сразу — ему нужно до
+    /// `REPLY_GRACE` реального времени. До фикса продвижение часов к точке
+    /// снятия задержки возвращало выполнение в опрос по 5 мс, а следующая
+    /// итерация сразу дотягивала часы до `until` и забирала канал
+    /// `try_recv()`, не дождавшись ответа — тест ложно видел таймаут.
+    /// `wait_with_grace` даёт писателю этот запас, и ответ, отправленный на
+    /// отдельном потоке позже, доходит до вызывающего кода без продвижения
+    /// часов до `until`.
+    #[test]
+    fn manual_waiter_waits_for_slow_writer_after_delay() {
+        let clock = ManualClock::new();
+        let store = MemStore::new();
+        let path = std::path::Path::new("/cfg/playlist.m3u");
+        let delay_at = ClockInstant::START.saturating_add(Duration::from_secs(4));
+        store.delay_write(path, delay_at, clock.clone());
+
+        let (tx, rx) = mpsc::channel();
+        let waiter = ManualWaiter::new(clock.clone(), store);
+        let until = ClockInstant::START.saturating_add(Duration::from_secs(5));
+
+        let writer_clock = clock.clone();
+        let writer = std::thread::spawn(move || {
+            let deadline = std::time::Instant::now() + Duration::from_secs(2);
+            while writer_clock.now() < delay_at && std::time::Instant::now() < deadline {
+                std::thread::sleep(Duration::from_millis(1));
+            }
+            // Поток-писатель "опоздал" с реальным планированием ОС.
+            std::thread::sleep(Duration::from_millis(50));
+            tx.send(reply()).expect("send reply");
+        });
+
+        let got = waiter.wait(&rx, until, &clock);
+
+        writer.join().expect("writer thread joins");
+        assert!(matches!(got, Some(WriterReply::Written { file: WorkFile::Settings, .. })));
+        assert!(clock.now() < until);
+    }
+
     #[test]
     fn manual_waiter_returns_reply() {
         let clock = ManualClock::new();

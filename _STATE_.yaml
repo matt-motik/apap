@@ -16,7 +16,7 @@ steps:
     done: true
   - id: 2
     description: "Регрессионный тест manual_waiter_waits_for_slow_writer_after_delay (src/core/exit.rs; из копии old), ссылки doc — по спеке (без ТЗ-32). Проверка: cargo test core::exit"
-    done: false
+    done: true
   - id: 3
     description: "tray_works_during_dialog / tray_works_during_message (src/core/testing.rs): шлюз ядра core.gate_mut() вместо локального UiGate::default(), проверка блокировки в конце (ADR-12, §2.12). Проверка: cargo test core::testing"
     done: false
@@ -26,8 +26,8 @@ steps:
   - id: 5
     description: "ЧЕКПОИНТ: полный cargo test + cargo clippy без новых предупреждений"
     done: false
-current_step: 2
-next_action: "Шаг 2: регрессионный тест manual_waiter_waits_for_slow_writer_after_delay"
+current_step: 3
+next_action: "Шаг 3: tray_works_during_* на шлюзе ядра"
 fail_counter: 0
 fail_counter_max: 3
 failed_attempts: []
