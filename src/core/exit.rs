@@ -158,11 +158,22 @@ impl ReplyWaiter for ChannelWaiter {
     }
 }
 
+/// Срок реального времени, в который писатель `apap-persist` должен снять
+/// задержку (`MemStore::delay_write`) и ответить, когда симулированные часы
+/// дошли до её точки: превышение значит, что снимать задержку некому (нет
+/// настоящего писателя), а не то, что писатель медленный. Та же граница, что
+/// у `Harness::settle` в `core/testing.rs`.
+const REPLY_GRACE: Duration = Duration::from_secs(2);
+
 /// Тестовая подмена (ADR-19, §7.1): никогда не спит по оси симулированного
 /// времени. При пустом канале переводит `ManualClock` на
 /// `min(until, MemStore::next_wake())` и повторяет — вместо ожидания срока
 /// целиком. Опрос канала (`recv_timeout` на 5 мс реального времени) даёт
-/// потоку писателя шанс ответить между продвижениями часов.
+/// потоку писателя шанс ответить между продвижениями часов. Если продвижение
+/// дошло до точки снятия задержки внутри срока (или задержка уже наступила,
+/// но часы это не продвигает), даётся запас `REPLY_GRACE` реального времени —
+/// иначе под нагрузкой писатель может не успеть снять задержку и ответить
+/// между 5-мс опросами, и тест ложно увидит таймаут.
 ///
 /// Параметр `clock: &dyn Clock` трейта `ReplyWaiter` здесь игнорируется в
 /// пользу собственных часов `self.clock` — в тестах это те же часы, которыми
@@ -175,6 +186,25 @@ pub struct ManualWaiter {
 impl ManualWaiter {
     pub fn new(clock: ManualClock, store: MemStore) -> ManualWaiter {
         ManualWaiter { clock, store }
+    }
+
+    /// Запас `REPLY_GRACE` реального времени на ответ писателя после того,
+    /// как часы дошли до точки снятия задержки (§7.1). Таймаут запаса
+    /// дотягивает часы до `until` и забирает то, что успело лечь в канал —
+    /// как и прежнее немедленное исчерпание срока, но с шансом писателю
+    /// ответить.
+    fn wait_with_grace(&self, rx: &Receiver<WriterReply>, until: ClockInstant) -> Option<WriterReply> {
+        match rx.recv_timeout(REPLY_GRACE) {
+            Ok(reply) => Some(reply),
+            Err(RecvTimeoutError::Disconnected) => None,
+            Err(RecvTimeoutError::Timeout) => {
+                let gap = until.saturating_since(self.clock.now());
+                if gap > Duration::ZERO {
+                    self.clock.advance(gap);
+                }
+                rx.try_recv().ok()
+            }
+        }
     }
 }
 
@@ -197,18 +227,22 @@ impl ReplyWaiter for ManualWaiter {
                     let target = if w < until { w } else { until };
                     if target > now {
                         self.clock.advance(target.saturating_since(now));
+                        if w < until {
+                            // Продвижение дошло до точки снятия задержки
+                            // внутри срока — писателю нужен запас
+                            // REPLY_GRACE, прежде чем признавать срок
+                            // исчерпанным (§7.1).
+                            return self.wait_with_grace(rx, until);
+                        }
                         continue;
                     }
-                    // `target` не продвигает часы (задержка уже наступила, но
-                    // её некому снять без реального писателя): срок исчерпан
-                    // сразу, без бесконечного опроса (§7.1).
-                    let gap = until.saturating_since(self.clock.now());
-                    if gap > Duration::ZERO {
-                        self.clock.advance(gap);
-                    }
-                    return rx.try_recv().ok();
+                    // `target` не продвигает часы (задержка уже наступила):
+                    // тот же запас REPLY_GRACE вместо немедленного
+                    // исчерпания срока — писателю нужно реальное время,
+                    // чтобы снять задержку и ответить (§7.1).
+                    return self.wait_with_grace(rx, until);
                 }
-                None => match rx.recv_timeout(Duration::from_secs(2)) {
+                None => match rx.recv_timeout(REPLY_GRACE) {
                     Ok(reply) => return Some(reply),
                     Err(RecvTimeoutError::Disconnected) => return None,
                     Err(RecvTimeoutError::Timeout) => {
@@ -284,10 +318,11 @@ mod tests {
         assert!(got.is_none());
     }
 
-    /// §7.1, ADR-19: пустой канал с живым отправителем — `ManualWaiter`
-    /// продвигает часы к `next_wake`, затем (раз задержку некому снять) к
-    /// `until`, и возвращает `None`; весь тест укладывается в несколько
-    /// опросов по 5 мс реального времени.
+    /// §7.1, ADR-19: пустой канал с живым, но неотвечающим отправителем —
+    /// `ManualWaiter` продвигает часы к `next_wake` внутри срока, затем ждёт
+    /// ответа с запасом `REPLY_GRACE` реального времени (отвечать некому —
+    /// настоящего писателя нет), по истечении запаса дотягивает часы до
+    /// `until` и возвращает `None`.
     #[test]
     fn manual_waiter_advances_to_next_wake() {
         let clock = ManualClock::new();

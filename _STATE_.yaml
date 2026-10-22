@@ -13,7 +13,7 @@ dod: "Все три части SP1.0-B14 закрыты; флейк устран
 steps:
   - id: 1
     description: "ManualWaiter (src/core/exit.rs): после продвижения часов ждать ответа писателя до REPLY_GRACE (оба окна гонки; решение из эксперимента, копия new), в ветке None — REPLY_GRACE вместо from_secs(2) (§7.1). Проверка: cargo test core::exit"
-    done: false
+    done: true
   - id: 2
     description: "Регрессионный тест manual_waiter_waits_for_slow_writer_after_delay (src/core/exit.rs; из копии old), ссылки doc — по спеке (без ТЗ-32). Проверка: cargo test core::exit"
     done: false
@@ -26,8 +26,8 @@ steps:
   - id: 5
     description: "ЧЕКПОИНТ: полный cargo test + cargo clippy без новых предупреждений"
     done: false
-current_step: 1
-next_action: "Шаг 1: перенести исправление ManualWaiter в src/core/exit.rs"
+current_step: 2
+next_action: "Шаг 2: регрессионный тест manual_waiter_waits_for_slow_writer_after_delay"
 fail_counter: 0
 fail_counter_max: 3
 failed_attempts: []
