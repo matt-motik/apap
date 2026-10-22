@@ -22,12 +22,12 @@ steps:
     done: true
   - id: 4
     description: "Тест event_remove_current_marks_dirty (src/core/testing.rs; §7 план тестов, ТЗ-34, ТЗ-12): удаление трека → одна запись playlist.m3u через N, без повтора. Проверка: cargo test core::testing"
-    done: false
+    done: true
   - id: 5
     description: "ЧЕКПОИНТ: полный cargo test + cargo clippy без новых предупреждений"
     done: false
-current_step: 4
-next_action: "Шаг 4: тест event_remove_current_marks_dirty"
+current_step: 5
+next_action: "Шаг 5: ЧЕКПОИНТ — полный cargo test + cargo clippy"
 fail_counter: 0
 fail_counter_max: 3
 failed_attempts: []

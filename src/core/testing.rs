@@ -2517,6 +2517,54 @@ mod tests {
         assert_eq!(h.writes(WorkFile::Playlist), 2, "повторной записи нет");
     }
 
+    /// «Удалить текущий» из меню взводит флаг изменений плейлиста (ТЗ-34,
+    /// ТЗ-12, §6.13, §7): меню удаляет строку, выбранную в таблице, —
+    /// `app/playlist_manager.rs::remove_track` берёт `id` по индексу через
+    /// `core.playlist().visible()[index]` и вызывает `playlist_remove(&[id])`
+    /// только после `core.gate().allows(MainCmd::RemoveCurrent)`. Удаление
+    /// средней из трёх строк взводит флаг немедленно, запись приходит через
+    /// N с ровно один раз и не повторяется следующим сроком.
+    #[test]
+    fn event_remove_current_marks_dirty() {
+        let h = Harness::new();
+        h.put_settings(b"");
+        h.put_state(b"");
+        let mut core = h.boot();
+        let interval = core.settings().save_interval.duration();
+
+        // Три трека, уже записанные на диск: флаг снят.
+        core.playlist_add(vec![track_path("track1.flac"), track_path("track2.flac"), track_path("track3.flac")]);
+        h.advance(&mut core, interval);
+        h.settle(&mut core);
+        assert_eq!(core.playlist().len(), 3);
+        assert_eq!(h.writes(WorkFile::Playlist), 1);
+        assert!(!core.tracker().playlist_dirty());
+        let filled = h.disk_bytes(WorkFile::Playlist).expect("playlist.m3u на диске");
+
+        assert!(core.gate().allows(MainCmd::RemoveCurrent), "«Удалить текущий» разрешена шлюзом");
+        let id = core.playlist().visible()[1];
+        core.playlist_remove(&[id]);
+        assert_eq!(core.playlist().len(), 2, "средняя строка удалена");
+        assert!(core.tracker().playlist_dirty(), "флаг изменений плейлиста взведён");
+        assert_eq!(h.writes(WorkFile::Playlist), 1, "до срока N записи нет");
+
+        h.advance(&mut core, interval);
+        h.settle(&mut core);
+        assert_eq!(h.writes(WorkFile::Playlist), 2, "через N с — ровно одна запись плейлиста");
+        assert!(!core.tracker().playlist_dirty());
+        let after = h.disk_bytes(WorkFile::Playlist).expect("playlist.m3u на диске");
+        assert_eq!(after, core.playlist_m3u().to_vec(), "записан плейлист без удалённого трека");
+        assert_ne!(after, filled);
+        let text = String::from_utf8(after).expect("playlist.m3u is valid utf-8");
+        let (i1, i2, i3) = (text.find("track1.flac"), text.find("track2.flac"), text.find("track3.flac"));
+        assert!(i1.is_some() && i3.is_some() && i2.is_none(), "track1 и track3 на месте, track2 удалён: {text}");
+        assert!(i1 < i3, "исходный порядок track1 перед track3 сохранён: {text}");
+
+        h.advance(&mut core, interval);
+        h.settle(&mut core);
+        assert_eq!(h.writes(WorkFile::Playlist), 2, "повторной записи нет");
+    }
+
     /// Трек с единственным заданным полем — путём (§4.2, ТЗ-12): тестам
     /// записи `playlist.m3u`, которым нужен только исходный порядок путей.
     fn track_path(path: &str) -> (Track, CompareKeys) {
