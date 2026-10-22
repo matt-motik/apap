@@ -61,9 +61,12 @@ steps:
     description: "ROADMAP.md: следующий свободный AM1.0-B30; WF1.0-B2 + docs/_template/*; 01_inventory.md — синхронизация мест и опечатки (ревью п.3, 11, 12). Проверка: те же checks"
     done: true
   - id: 14
+    description: "architecture.md: убрать исторические пометки старого AGENTS.md («tests/ нет — неверно», «замена прежнего …», абзац о несуществующем src/playlist.rs) и устаревающие счётчики тестов (замечание пользователя 2026-10-22). Проверка: те же checks"
+    done: true
+  - id: 15
     description: "ЧЕКПОИНТ: полные checks, ревью пользователем итогового AGENTS.md и процедур, закрытие WF1.0-B1. Проверка: пользователь одобрил"
     done: false
-current_step: 14
+current_step: 15
 next_action: "ЧЕКПОИНТ: ревью пользователем правок шагов 9–13; после одобрения — закрытие WF1.0-B1 по closing.md §9"
 fail_counter: 0
 fail_counter_max: 3

@@ -90,8 +90,8 @@ src/
     lifecycle/            # macos.rs, unix.rs, windows.rs, fake.rs
     notify/               # linux.rs, none.rs, fake.rs
     pick/                 # rfd.rs (нативный диалог), fake.rs
-    tray/mod.rs           # StatusNotifier-трей (замена прежнего src/tray.rs)
-  playlist/            # Track, M3U, сканирование (заменил бывший src/playlist.rs)
+    tray/mod.rs           # StatusNotifier-трей
+  playlist/            # Track, M3U, сканирование
     mod.rs, compare.rs, load.rs, model.rs, shuffle.rs
   settings/            # модуль-файл src/settings.rs + подмодули params.rs, playback.rs, playback_dto.rs
   audio/               # аудио-подсистема
@@ -109,7 +109,7 @@ src/
     spectrogram.rs, fulltrack.rs, palettes.rs, visualizer.rs
     rt.rs                 # #[cfg(target_os = "linux")]
   cover.rs, meta.rs, playlist_layout.rs, journal.rs, theme.rs
-tests/                 # интеграционные тесты (каталог СУЩЕСТВУЕТ)
+tests/                 # интеграционные тесты
   dsd512_playback_cpu_budget.rs, fulltrack_memory_budget.rs, live_worker_zero_alloc.rs,
   parsers_survive_mutations.rs, perf_budgets.rs, rt_zero_alloc.rs
   data/                # эталонные FLAC/MP3/DSF/DFF (+ мутации), data/wheel/*.fixture (кросс-ОС фикстуры колёсика)
@@ -117,10 +117,8 @@ tests/                 # интеграционные тесты (каталог
 
 `app/*` — «Ромб-декомпозиция»: методы `MusicApp` разнесены по `impl`-блокам в
 подмодулях, поля — в `mod.rs`, вызовы между подмодулями через `pub(super)`.
-`src/settings.rs`/`src/playlist.rs` рядом с папками `src/settings/`,
-`src/playlist/` — не дублирование: стандартный модуль-файл Rust 2018+ (корень
-+ подмодули в одноимённой папке); `playlist.rs` — переименованный из плоского
-файла в такой каталог.
+`src/settings.rs` + папка `src/settings/` — модуль-файл Rust 2018+ (корень и
+подмодули в одноимённой папке).
 
 ### 3.1. Каталог → спецификация (для ссылок `ТЗ-N`/`ADR-N`/`§X.Y`)
 
@@ -155,16 +153,13 @@ tests/                 # интеграционные тесты (каталог
 ## 5. Тесты
 
 ```sh
-cargo test 2>&1 | grep -E "^test result|Running"   # точные счётчики на конкретный коммит
+cargo test 2>&1 | grep -E "^test result|Running"   # счётчики lib / bin / tests/*.rs на текущий коммит
 ```
 
-Счётчики на момент написания (не обновлять вручную при каждом изменении —
-перезапускать команду выше): lib (`src/**`) — 1092 passed, 2 ignored; bin
-(`src/app/**`) — 110 passed; интеграционные `tests/*.rs` — по одному бинарнику
-на файл, большинство 0-1 тестов (`perf_budgets.rs` — 4), один `#[ignore]`
-(`dsd512_playback_cpu_budget.rs`); doctests — 0.
+Числа тестов здесь не записываются — они устаревают; при необходимости
+запусти команду выше. Интеграционные `tests/*.rs` — по бинарнику на файл.
 
-- `#[ignore]`-тесты (требуют реального оборудования, не гоняются в CI):
+- `#[ignore]`-тесты (требуют реального оборудования, обычным `cargo test` не запускаются):
   `src/audio/backend/alsa.rs`, `src/audio/reservation/dbus.rs`,
   `tests/dsd512_playback_cpu_budget.rs`. Запуск ALSA-теста на реальной карте:
   `APAP_HW_TEST_DEVICE=hw:CARD=...,DEV=0 cargo test --lib -- --ignored` (точный
@@ -174,8 +169,6 @@ cargo test 2>&1 | grep -E "^test result|Running"   # точные счётчик
   `parsers_survive_mutations.rs`), кросс-ОС фикстуры колёсика
   (`tests/data/wheel/{gnome,kde,windows}-N/*.fixture`, генерируются
   `tools/wheel_probe/`).
-- Каталогов `tests/` «нет» — неверно, см. список в §3; это интеграционные
-  тесты сверх lib/bin-юнитов.
 
 ## 6. Зависимости и features
 
