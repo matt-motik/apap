@@ -12,9 +12,9 @@ dod: "closing.md §1 для этапа и бага: <hash> — последни�
 steps:
   - id: 1
     description: "closing.md §1: формула <hash> для этапа и бага — последний шаг с кодом (для задачи без кода — последний шаг). Проверка: state_tool.py check + traceability_tool.py check (полный состав для шага без кода)"
-    done: false
+    done: true
 current_step: 1
-next_action: "Шаг 1: поправить формулу <hash> в closing.md §1"
+next_action: "закрытие по closing.md"
 fail_counter: 0
 fail_counter_max: 3
 failed_attempts: []
