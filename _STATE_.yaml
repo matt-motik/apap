@@ -56,15 +56,15 @@ steps:
     done: true
   - id: 12
     description: "AGENTS.md: раздел «Продукт» (приоритеты, платформы), правило префикса ТЗ-N, таблица процедур — одна копия (README §3 → ссылка) (ревью п.7, «Продукт»). Проверка: те же checks + wc -l"
-    done: false
+    done: true
   - id: 13
     description: "ROADMAP.md: следующий свободный AM1.0-B30; WF1.0-B2 + docs/_template/*; 01_inventory.md — синхронизация мест и опечатки (ревью п.3, 11, 12). Проверка: те же checks"
     done: false
   - id: 14
     description: "ЧЕКПОИНТ: полные checks, ревью пользователем итогового AGENTS.md и процедур, закрытие WF1.0-B1. Проверка: пользователь одобрил"
     done: false
-current_step: 12
-next_action: "Шаг 12: AGENTS.md — раздел «Продукт», префикс ТЗ-N, одна таблица процедур"
+current_step: 13
+next_action: "Шаг 13: ROADMAP (AM1.0-B30, WF1.0-B2 + docs/_template) и синхронизация 01_inventory.md"
 fail_counter: 0
 fail_counter_max: 3
 failed_attempts: []
