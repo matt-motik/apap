@@ -68,7 +68,7 @@ steps:
     done: true
   - id: 16
     description: "task_intake.md + planning.md: префикс правки вне спек (решение 3), шкала 🟢/🔵, путь Б, текст в ТЗ и коде — одна сущность, 🔄 один раз; planning: связь пункта плана с ROADMAP, «Продолжение» без ложного СТОПа, красная сборка — шаг текущей сессии, вопросы в note. Проверка: те же checks"
-    done: false
+    done: true
   - id: 17
     description: "execution.md: 3/3 — удалить новые файлы шага, коммит+push failed_attempts; «сессия» для отключения остановок = чат, после закрытия этапа — следующий без остановки (решение 2); ссылки ТЗ — любой код. Проверка: те же checks"
     done: false
@@ -81,8 +81,8 @@ steps:
   - id: 20
     description: "ЧЕКПОИНТ: полные checks, ревью пользователем, закрытие WF1.0-B1. Проверка: пользователь одобрил"
     done: false
-current_step: 16
-next_action: "Шаг 16: task_intake.md + planning.md по итогам холодного чтения"
+current_step: 17
+next_action: "Шаг 17: execution.md — 3/3, область отключения остановок, ссылки ТЗ"
 fail_counter: 0
 fail_counter_max: 3
 failed_attempts: []
