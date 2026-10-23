@@ -2,15 +2,29 @@
 # _STATE_.md генерируется из этого файла — не редактировать его руками.
 # Редактируйте этот файл, затем: python tools/state_tool.py render
 
-status: done
+status: in_progress
 task:
-  roadmap_id: null
-  title: null
-whitelist: []
-dod: null
-steps: []
-current_step: null
-next_action: null
+  roadmap_id: SP1.0-B13
+  title: "Настройки меняются при открытом диалоге в обход черновика (автовыбор устройства)"
+whitelist:
+  - src/core/mod.rs
+  - src/core/dialog.rs
+  - src/core/testing.rs
+  - src/app/mod.rs
+  - src/app/ui_manager.rs
+dod: "Изменение настроек в обход диалога при открытом черновике перебазирует черновик (неотредактированные значения следуют новым действующим), «Сохранить» не откатывает автовыбор устройства, кнопка «Сохранить» пересчитывается; автотесты ядра; полный cargo test и clippy зелёные (решение пользователя 2026-10-23 — вариант А)"
+steps:
+  - id: 1
+    description: "Ядро: при save_settings_now вне dialog_save и открытом черновике — перебазирование черновика (значения, не изменённые в черновике, следуют новым действующим) (SP1.0 ТЗ-25, ТЗ-27, ADR-11); тесты ядра (≤5). Проверка: полный cargo test (общий тип ядра)"
+    done: false
+  - id: 2
+    description: "Слой app: пересчёт кнопки «Сохранить» после save_auto_selected_device и после изменения ширин колонок при открытом диалоге (ТЗ-27). Проверка: cargo check"
+    done: false
+  - id: 3
+    description: "ЧЕКПОИНТ: полный cargo test + cargo clippy без новых предупреждений по файлам вайтлиста"
+    done: false
+current_step: 1
+next_action: "Перебазирование черновика в ядре"
 fail_counter: 0
 fail_counter_max: 3
 failed_attempts: []
