@@ -1,0 +1,18 @@
+#!/bin/sh
+# commit-msg hook (AGENTS.md tooling; docs/00_workflow_v1.0/execution.md §9):
+# guarantees the "commit" link of the traceability chain (AGENTS.md
+# "Трассируемость") — when a session is open (_STATE_.yaml status:
+# in_progress), the commit message must carry "(<roadmap_id>, step <N>)"
+# or start with a service prefix (chore(state), chore(roadmap),
+# chore(claude), acceptance(). No-op when there is no open session.
+# Installed via: python tools/setup_dev.py  (sets core.hooksPath)
+set -e
+
+PY="$(git config --get apap.pythonPath || true)"
+if [ -z "$PY" ]; then
+    PY="python"
+fi
+
+if ! "$PY" tools/state_tool.py check-commit-msg "$1"; then
+    exit 1
+fi
