@@ -73,12 +73,12 @@ steps:
     done: true
   - id: 15
     description: "Окно ошибки захвата закрывается само при возвращении устройства (ТЗ-126, ручная проверка пользователя 2026-10-24 — сейчас закрывается только вручную через повторный захват). Проверка: разобрать цепочку DeviceWatcher → Engine::try_reacquire_reappeared_device/lock_input(DeviceReappeared) → EngineEvent::Lock → MusicApp::apply_lock_failure_message/lock_failure_transition; починить или зарегистрировать находку, если дефект не воспроизводится статическим анализом"
-    done: false
+    done: true
   - id: 16
     description: "ЧЕКПОИНТ: полный cargo test + cargo clippy зелёные"
     done: false
-current_step: 15
-next_action: "шаг 15 — автозакрытие окна ошибки по ТЗ-126"
+current_step: 16
+next_action: "шаг 16 — чекпоинт"
 fail_counter: 0
 fail_counter_max: 3
 failed_attempts: []
