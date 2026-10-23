@@ -2,10 +2,29 @@
      Source of truth: _STATE_.yaml — edit that, then run:
      python tools/state_tool.py render -->
 
-# Состояние сессии
 
-- **Текущая задача:** Нет (все шаги завершены)
-- **Состояние:** done
+# Текущая микро-сессия
+
+- **Задача из ROADMAP:** AM1.0-B7 — Планировщик не строит усечение 24→16 при F32-нагрузке (SRC/downmix) в Оптимальном
+- **Вайтлист файлов в работе (Изменяемые файлы):**
+  - src/audio/path/plan.rs
+  - src/audio/path/plan_tests.rs
+  - src/audio/path/report.rs
+  - docs/01_audio_modes_v1.0/03_spec.md
+- **Критерий успеха (Definition of Done):** plan() для 5.1 24/192 на стерео 16/96 в Оптимальном даёт SRC, downmix и Truncate(24→16) с причиной «ограничение устройства»; report_lists_all_transforms проверяет «усечение»; §6.5 спеки описывает правило; полный cargo test и clippy зелёные
+
+## Итерационный трекер
+- [>] **Шаг 1: exclusive_format (src/audio/path/plan.rs): при F32-нагрузке и целом PCM-источнике с valid_bits > field_bits наибольшего формата — Truncate(src → field_bits) с причиной limit_cause (описательный, рендер не меняется; в Строгом F32-нагрузки нет); в 03_spec.md §6.5 (абзац «Для планов с F32-нагрузкой…») — фраза-уточнение (разрешение пользователя 2026-10-23, вариант 1). §6.5, §6.3, ТЗ-72, ТЗ-28, ОВС-3. Проверка: cargo check; cargo test audio::path; state_tool check; traceability_tool check**
+- [ ] Шаг 2: Тесты plan_tests.rs (§7.2, ТЗ-72): Truncate(24→16) при SRC+downmix на 16-бит устройстве; нет Truncate для 16-бит источника с SRC и для 24-бит источника на S32. Проверка: cargo test audio::path
+- [ ] Шаг 3: report.rs report_lists_all_transforms: вернуть проверку «усечение» вместо комментария AM1.0-B7 (§7.2, ТЗ-72). Проверка: cargo test report_lists_all_transforms
+- [ ] Шаг 4: ЧЕКПОИНТ: полный cargo test + cargo clippy без новых предупреждений по файлам вайтлиста
+
+Легенда: [x] сделано · [>] текущий шаг · [ ] не начато
+
+- **Текущий шаг (current_step):** Шаг 1
+- **Следующий ход:** Добавить Truncate в F32-ветку exclusive_format и уточнение §6.5 спеки
+- **Счетчик безуспешных компиляций:** 0/3
+- **Состояние:** in_progress
 
 ## План: Executable workflow: правила AGENTS.md → исполняемые механизмы
 _Источник: чат с пользователем (ноутбук), начат в 67686ce; перенесён в репо 2026-09-22_
