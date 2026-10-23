@@ -2,10 +2,30 @@
      Source of truth: _STATE_.yaml — edit that, then run:
      python tools/state_tool.py render -->
 
-# Состояние сессии
 
-- **Текущая задача:** Нет (все шаги завершены)
-- **Состояние:** done
+# Текущая микро-сессия
+
+- **Задача из ROADMAP:** WF1.0-B2 — WF1.0-B2: перенаправить устаревшие ссылки на разделы старого AGENTS.md
+- **Вайтлист файлов в работе (Изменяемые файлы):**
+  - tools/state_tool.py
+  - tools/traceability_tool.py
+  - tools/schema/state.schema.json
+  - docs/_template/process.md
+  - docs/_template/prompt_template.md
+- **Критерий успеха (Definition of Done):** Ссылки на устаревшую нумерацию старого AGENTS.md («Шаг 0/3/4/4.1/4.4/5», «§3») в tools/state_tool.py, tools/traceability_tool.py, tools/schema/state.schema.json, docs/_template/process.md, docs/_template/prompt_template.md заменены на docs/00_workflow_v1.0/*.md (и архивный термин archive_vX.Y.md на archive_<Префикс>.md); python tools/state_tool.py check и python tools/traceability_tool.py check зелёные
+
+## Итерационный трекер
+- [>] **Шаг 1: tools/state_tool.py: докстринг стр.5 («AGENTS.md, Шаг 0/3/4») → docs/00_workflow_v1.0/planning.md, execution.md; комментарий WHITELIST_EXEMPT стр.28–29 («Шаг 4.4» / «Шаг 5») → execution.md §4 / closing.md §1; текст ошибки вайтлиста стр.264 («Шаг 4.1, СТРОГОЕ ТАБУ») → execution.md §1. Проверка: python tools/state_tool.py check**
+- [ ] Шаг 2: tools/traceability_tool.py (докстринг стр.2 и slugify докстринг стр.87, «AGENTS.md §3») и tools/schema/state.schema.json (стр.68, «AGENTS.md Шаг 4, сценарий Б»): заменить на AGENTS.md «Трассируемость» + docs/00_workflow_v1.0/task_intake.md §4 (якорь) и execution.md §5 (сценарий Б). Проверка: python tools/traceability_tool.py check и python tools/state_tool.py check
+- [ ] Шаг 3: docs/_template/process.md: п.9 «по AGENTS.md (Шаги 0–5)» → docs/00_workflow_v1.0/planning.md, execution.md, closing.md; п.10 «archive_vX.Y.md» → «archive_<Префикс>.md». Проверка: python tools/state_tool.py check и python tools/traceability_tool.py check
+- [ ] Шаг 4: docs/_template/prompt_template.md: стр.14 «не выполняй Шаги 0–5» → ссылка на обычный цикл задачи (docs/00_workflow_v1.0/planning.md, execution.md, closing.md). Проверка: python tools/state_tool.py check и python tools/traceability_tool.py check
+
+Легенда: [x] сделано · [>] текущий шаг · [ ] не начато
+
+- **Текущий шаг (current_step):** Шаг 1
+- **Следующий ход:** Шаг 1: заменить ссылки в tools/state_tool.py
+- **Счетчик безуспешных компиляций:** 0/3
+- **Состояние:** in_progress
 
 ## План: Executable workflow: правила AGENTS.md → исполняемые механизмы
 _Источник: чат с пользователем (ноутбук), начат в 67686ce; перенесён в репо 2026-09-22_
