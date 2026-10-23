@@ -2,7 +2,7 @@
 """_STATE_.yaml <-> _STATE_.md tooling.
 
 _STATE_.yaml is the source of truth for the current micro-session
-(see AGENTS.md, Шаг 0/3/4). _STATE_.md is a generated, human/agent-readable
+(see docs/00_workflow_v1.0/planning.md, execution.md). _STATE_.md is a generated, human/agent-readable
 rendering of it — it must never be hand-edited; `render` regenerates it and
 `check` fails if it has drifted from what `render` would produce.
 
@@ -25,8 +25,9 @@ from jsonschema import Draft7Validator
 
 # Files that are part of the workflow bookkeeping itself, not "code" — they
 # legitimately change on nearly every commit regardless of the task's
-# whitelist (see AGENTS.md Шаг 4.4: _STATE_.md is committed together with
-# the code on every successful step; ROADMAP.md is patched at Шаг 5).
+# whitelist (see docs/00_workflow_v1.0/execution.md §4: _STATE_.md is
+# committed together with the code on every successful step;
+# docs/00_workflow_v1.0/closing.md §1: ROADMAP.md is patched at closing).
 WHITELIST_EXEMPT = {"_STATE_.md", "_STATE_.yaml", "ROADMAP.md"}
 # Acceptance results are written and committed by tools/acceptance.py run,
 # which may happen while an unrelated micro-session is in progress.
@@ -261,7 +262,7 @@ def cmd_check_whitelist() -> int:
         print(
             "\nЛибо верните файл(ы) в исходное состояние, либо расширьте "
             "whitelist в _STATE_.yaml, либо запросите разрешение пользователя "
-            "(AGENTS.md Шаг 4.1, СТРОГОЕ ТАБУ).",
+            "(docs/00_workflow_v1.0/execution.md §1).",
             file=sys.stderr,
         )
         return 1
