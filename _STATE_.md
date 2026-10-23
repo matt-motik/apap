@@ -2,25 +2,10 @@
      Source of truth: _STATE_.yaml — edit that, then run:
      python tools/state_tool.py render -->
 
+# Состояние сессии
 
-# Текущая микро-сессия
-
-- **Задача из ROADMAP:** WF1.0-B3 — tools/state_tool.py step-done: автоматизация успешного завершения шага
-- **Вайтлист файлов в работе (Изменяемые файлы):**
-  - tools/state_tool.py
-  - docs/00_workflow_v1.0/execution.md
-- **Критерий успеха (Definition of Done):** python tools/state_tool.py step-done [--next "<next_action>"] отмечает current_step done:true, сдвигает current_step на следующий шаг списка (после последнего — не меняется, next_action = «закрытие по closing.md»), сбрасывает fail_counter/failed_attempts, делает render и печатает «Шаг N завершён, текущий — M»; execution.md §4 больше не описывает эти действия как ручные. Проверка: python tools/state_tool.py check и python tools/traceability_tool.py check зелёные; step-done проверен ручным прогоном на тестовом _STATE_.yaml (обычный шаг и последний шаг).
-
-## Итерационный трекер
-- [x] Шаг 1: tools/state_tool.py: команда step-done [--next "<next_action>"] — отмечает current_step done:true (поиск по id, без предположения о сквозной нумерации), сдвигает current_step на следующий шаг списка, иначе (последний шаг) current_step не меняется и next_action = «закрытие по closing.md» независимо от --next; сбрасывает fail_counter в 0 и failed_attempts в []; делает render; печатает «Шаг N завершён, текущий — M» (или вариант для последнего шага). Проверка: ручной прогон на тестовом _STATE_.yaml вне репозитория (обычный шаг и последний шаг, включая ошибку при пропущенном --next) + python tools/state_tool.py check
-- [x] Шаг 2: docs/00_workflow_v1.0/execution.md §4: убрать ручные пункты (сброс fail_counter/failed_attempts, done:true + новые current_step/next_action, render) — заменить одним вызовом step-done; сообщение пользователю — строка, которую печатает step-done. Проверка: python tools/state_tool.py check и python tools/traceability_tool.py check
-
-Легенда: [x] сделано · [>] текущий шаг · [ ] не начато
-
-- **Текущий шаг (current_step):** Шаг 2
-- **Следующий ход:** закрытие по closing.md
-- **Счетчик безуспешных компиляций:** 0/3
-- **Состояние:** in_progress
+- **Текущая задача:** Нет (все шаги завершены)
+- **Состояние:** done
 
 ## План: Executable workflow: правила AGENTS.md → исполняемые механизмы
 _Источник: чат с пользователем (ноутбук), начат в 67686ce; перенесён в репо 2026-09-22_
