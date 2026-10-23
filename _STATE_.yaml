@@ -27,7 +27,7 @@ dod: "Замок — кнопка-значок без подписи (откры
 steps:
   - id: 1
     description: "ТЗ-46, ТЗ-50, ТЗ-119 (docs/01_audio_modes_v1.0/02_tz.md): правка текста по решению пользователя 2026-10-23 — набор кнопок окна ошибки по причине, скрытие замка в Совместимом режиме, песочные часы + подсказка вместо текста «захват…». Проверка: python tools/traceability_tool.py check"
-    done: false
+    done: true
   - id: 2
     description: "SVG-иконки lock-open/lock-closed/hourglass в ui/icons/, ui/icons/dark/, ui/icons/light/ (стиль как у существующих иконок транспорта). Проверка: cargo check"
     done: false
@@ -52,8 +52,8 @@ steps:
   - id: 9
     description: "ЧЕКПОИНТ: полный cargo test + cargo clippy зелёные"
     done: false
-current_step: 1
-next_action: "Шаг 1: править ТЗ-46, ТЗ-50, ТЗ-119 в docs/01_audio_modes_v1.0/02_tz.md"
+current_step: 2
+next_action: "Шаг 2: SVG-иконки lock-open/lock-closed/hourglass в ui/icons/, ui/icons/dark/, ui/icons/light/"
 fail_counter: 0
 fail_counter_max: 3
 failed_attempts: []
