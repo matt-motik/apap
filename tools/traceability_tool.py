@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
-"""SPEC <-> ROADMAP traceability checker (AGENTS.md §3, "Сквозная
-трассируемость"; executable-workflow plan item 3, folding in item 7's first
-two bullets: "every task -> valid spec anchor", "every spec prefix ->
-unique").
+"""SPEC <-> ROADMAP traceability checker (AGENTS.md, "Трассируемость";
+anchor style — docs/00_workflow_v1.0/task_intake.md §4; executable-workflow
+plan item 3, folding in item 7's first two bullets: "every task -> valid
+spec anchor", "every spec prefix -> unique").
 
 Validates, from ROADMAP.md and the specs it registers under docs/, without
 touching either:
@@ -84,8 +84,9 @@ class Result:
 
 
 def slugify(heading: str) -> str:
-    """Approximate GitHub's heading -> anchor algorithm (see AGENTS.md §3,
-    "Стиль якоря"). GitHub does NOT collapse consecutive whitespace before
+    """Approximate GitHub's heading -> anchor algorithm (see
+    docs/00_workflow_v1.0/task_intake.md §4, "Стиль якоря"). GitHub does NOT
+    collapse consecutive whitespace before
     converting to hyphens — removing a punctuation char like em-dash that
     sits between two spaces ("X — Y") leaves two adjacent spaces, which
     become two adjacent hyphens ("x--y"), not one."""

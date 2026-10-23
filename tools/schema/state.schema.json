@@ -65,7 +65,7 @@
     },
     "failed_attempts": {
       "type": "array",
-      "description": "Тезисы неудачных подходов текущего шага, записываются перед откатом при fail_counter == fail_counter_max (см. AGENTS.md Шаг 4, сценарий Б).",
+      "description": "Тезисы неудачных подходов текущего шага, записываются перед откатом при fail_counter == fail_counter_max (см. docs/00_workflow_v1.0/execution.md §5).",
       "items": { "type": "string" }
     },
     "plan": {
