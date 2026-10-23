@@ -14,12 +14,12 @@
 ## Итерационный трекер
 - [x] Шаг 1: src/audio/format.rs: SampleRate::family — F48k при кратности 8 000 Гц (§6.4), doc-комментарий; тест sample_rate_rejects_zero_and_classifies_family: 12 000 → Other. Проверка: cargo check; cargo test audio::format
 - [x] Шаг 2: src/audio/path/plan.rs: удалить приватные enum Family и fn family, использовать SampleRate::family / RateFamily (§6.4, ТЗ-27); тест family_classifies_rates на RateFamily. Проверка: cargo check; cargo test audio::path
-- [>] **Шаг 3: ЧЕКПОИНТ: полный cargo test + cargo clippy без новых предупреждений по файлам вайтлиста**
+- [x] Шаг 3: ЧЕКПОИНТ: полный cargo test + cargo clippy без новых предупреждений по файлам вайтлиста
 
 Легенда: [x] сделано · [>] текущий шаг · [ ] не начато
 
 - **Текущий шаг (current_step):** Шаг 3
-- **Следующий ход:** ЧЕКПОИНТ: полный cargo test + clippy
+- **Следующий ход:** закрытие по closing.md
 - **Счетчик безуспешных компиляций:** 0/3
 - **Состояние:** in_progress
 
