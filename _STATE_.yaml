@@ -26,12 +26,12 @@ steps:
     done: true
   - id: 5
     description: "src/app/ui_audio_state.rs: удалить UiAudioState::format() (без потребителей после шага 3) и поле stream_format, которое читал только он (присваивания из Opened/OpenFailed); тесты format_follows_signal_path и format_falls_back_to_stream_format_without_path удаляются, проверки format() в getters_hold_last_accepted_values и format_default_before_open убираются; само поле EngineEvent::Opened.stream_format — остаток AM1.0-B10. Проверка: cargo check без предупреждений; cargo test ui_audio_state"
-    done: false
+    done: true
   - id: 4
     description: "ЧЕКПОИНТ: полный cargo test + cargo clippy без новых предупреждений по файлам вайтлиста; check_rt_imports"
     done: false
-current_step: 5
-next_action: "Удалить UiAudioState::format и stream_format"
+current_step: 4
+next_action: "ЧЕКПОИНТ: полный cargo test + clippy"
 fail_counter: 0
 fail_counter_max: 3
 failed_attempts: []
