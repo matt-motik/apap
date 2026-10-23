@@ -431,7 +431,9 @@ pub fn bind_viz_settings_callbacks(this: &Rc<RefCell<MusicApp>>) {
         app.borrow_mut().reset_viz_type();
     });
 
-    // Горячая клавиша V (срабатывает, когда диалог настроек закрыт).
+    // Горячая клавиша V: колбэк вызывается всегда, доступность решает сам
+    // `cycle_viz_mode` через `core.gate().allows(MainCmd::VizCycle)`
+    // (блокировка при открытом диалоге/окне сообщения, §2.11, ADR-12).
     let app = this.clone();
     let Some(ui) = app.borrow().try_ui() else { return };
     ui.on_cycle_viz(move || {

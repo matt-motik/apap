@@ -30,7 +30,7 @@ steps:
     done: true
   - id: 5
     description: "Обновить устаревшие комментарии: set_output_device (playback_manager.rs), привязка клавиши V (viz_settings_manager.rs, шлюз решает сам) (SP1.0-B15 п.5). Проверка: cargo check"
-    done: false
+    done: true
   - id: 6
     description: "Перевести подписи вкладки Cache в ui/settings.slint на русский, согласованно с текстом ТЗ-34 (SP1.0-B15 п.6). Проверка: cargo check"
     done: false
@@ -40,8 +40,8 @@ steps:
   - id: 8
     description: "ЧЕКПОИНТ: полный cargo test + clippy"
     done: false
-current_step: 5
-next_action: "Шаг 5: обновить устаревшие комментарии в playback_manager.rs и viz_settings_manager.rs"
+current_step: 6
+next_action: "Шаг 6: перевести подписи вкладки Cache в ui/settings.slint на русский"
 fail_counter: 0
 fail_counter_max: 3
 failed_attempts: []
