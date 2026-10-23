@@ -68,8 +68,17 @@ steps:
   - id: 9
     description: "ЧЕКПОИНТ: полный cargo test + cargo clippy зелёные"
     done: true
-current_step: 9
-next_action: "закрытие по closing.md"
+  - id: 14
+    description: "Подсказка замка (ui/top_panel.slint, LockButton): внутри окна, под кнопкой, прижата к правому краю, не перекрывает кнопку; задержка показа ~700 мс, скрытие сразу при уходе курсора (ручная проверка пользователя 2026-10-24 — подсказка обрезается окном). Проверка: cargo check + clippy"
+    done: false
+  - id: 15
+    description: "Окно ошибки захвата закрывается само при возвращении устройства (ТЗ-126, ручная проверка пользователя 2026-10-24 — сейчас закрывается только вручную через повторный захват). Проверка: разобрать цепочку DeviceWatcher → Engine::try_reacquire_reappeared_device/lock_input(DeviceReappeared) → EngineEvent::Lock → MusicApp::apply_lock_failure_message/lock_failure_transition; починить или зарегистрировать находку, если дефект не воспроизводится статическим анализом"
+    done: false
+  - id: 16
+    description: "ЧЕКПОИНТ: полный cargo test + cargo clippy зелёные"
+    done: false
+current_step: 14
+next_action: "шаг 15 — автозакрытие окна ошибки по ТЗ-126"
 fail_counter: 0
 fail_counter_max: 3
 failed_attempts: []
