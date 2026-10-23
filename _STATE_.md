@@ -11,12 +11,12 @@
 - **Критерий успеха (Definition of Done):** open_settings_from_path_window открывает диалог через open_settings_dialog (тема, поля, визуализация, устройства, обложки, режимы, размеры кэшей) и закрывает окно тракта; полный cargo test и clippy зелёные
 
 ## Итерационный трекер
-- [>] **Шаг 1: open_settings_from_path_window (src/app/mod.rs): вызвать open_settings_dialog(), при успехе — set_bp_report_open(false); собственные sync_* убрать (SP1.0 §6.9, ТЗ-22, ТЗ-23; AM1.0 ТЗ-81, ТЗ-84). Проверка (сессия из одного шага): cargo check; полный cargo test; cargo clippy без новых предупреждений по mod.rs**
+- [x] Шаг 1: open_settings_from_path_window (src/app/mod.rs): вызвать open_settings_dialog(), при успехе — set_bp_report_open(false); собственные sync_* убрать (SP1.0 §6.9, ТЗ-22, ТЗ-23; AM1.0 ТЗ-81, ТЗ-84). Проверка (сессия из одного шага): cargo check; полный cargo test; cargo clippy без новых предупреждений по mod.rs
 
 Легенда: [x] сделано · [>] текущий шаг · [ ] не начато
 
 - **Текущий шаг (current_step):** Шаг 1
-- **Следующий ход:** Свести open_settings_from_path_window к open_settings_dialog
+- **Следующий ход:** закрытие по closing.md
 - **Счетчик безуспешных компиляций:** 0/3
 - **Состояние:** in_progress
 

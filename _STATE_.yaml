@@ -12,9 +12,9 @@ dod: "open_settings_from_path_window открывает диалог через 
 steps:
   - id: 1
     description: "open_settings_from_path_window (src/app/mod.rs): вызвать open_settings_dialog(), при успехе — set_bp_report_open(false); собственные sync_* убрать (SP1.0 §6.9, ТЗ-22, ТЗ-23; AM1.0 ТЗ-81, ТЗ-84). Проверка (сессия из одного шага): cargo check; полный cargo test; cargo clippy без новых предупреждений по mod.rs"
-    done: false
+    done: true
 current_step: 1
-next_action: "Свести open_settings_from_path_window к open_settings_dialog"
+next_action: "закрытие по closing.md"
 fail_counter: 0
 fail_counter_max: 3
 failed_attempts: []

@@ -1524,19 +1524,17 @@ impl MusicApp {
         true
     }
 
-    /// Переход из окна «Путь сигнала» в диалог настроек (ТЗ-81, ТЗ-84): как
-    /// `open_settings` — шлюз, черновик, блокировка `Dialog` и подсчёт
-    /// размера кэшей в ядре (ТЗ-22, ТЗ-23, ADR-11).
+    /// Переход из окна «Путь сигнала» в диалог настроек (ТЗ-81, ТЗ-84): тот же
+    /// путь, что у кнопки «Настройки» (`open_settings_dialog`: шлюз, черновик,
+    /// поля диалога, размеры кэшей — ТЗ-22, ТЗ-23, ADR-11), затем окно тракта
+    /// закрывается (SP1.0-B9).
     fn open_settings_from_path_window(&mut self) {
-        if !self.open_dialog_draft() {
+        if !self.open_settings_dialog() {
             return;
         }
         if let Some(ui) = self.try_ui() {
             ui.set_bp_report_open(false);
-            ui.set_settings_open(true);
         }
-        self.sync_audio_devices();
-        self.sync_gate_ui();
     }
 
     // ---------------- Тема: состояние диалога настроек (T1.0) ----------------
