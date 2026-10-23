@@ -30,7 +30,7 @@ steps:
     done: true
   - id: 2
     description: "SVG-иконки lock-open/lock-closed/hourglass в ui/icons/, ui/icons/dark/, ui/icons/light/ (стиль как у существующих иконок транспорта). Проверка: cargo check"
-    done: false
+    done: true
   - id: 3
     description: "Модель сообщения (src/core/messages.rs): переменный набор кнопок с действиями вместо фиксированного MessageButtons; чистая функция «причина отказа захвата → набор кнопок» (ТЗ-46, ТЗ-119, ТЗ-122) + тесты маппинга. Проверка: cargo test core::messages::"
     done: false
@@ -52,8 +52,8 @@ steps:
   - id: 9
     description: "ЧЕКПОИНТ: полный cargo test + cargo clippy зелёные"
     done: false
-current_step: 2
-next_action: "Шаг 2: SVG-иконки lock-open/lock-closed/hourglass в ui/icons/, ui/icons/dark/, ui/icons/light/"
+current_step: 3
+next_action: "Модель сообщения (src/core/messages.rs): переменный набор кнопок с действиями вместо фиксированного MessageButtons"
 fail_counter: 0
 fail_counter_max: 3
 failed_attempts: []
