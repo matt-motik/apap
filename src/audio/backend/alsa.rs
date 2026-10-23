@@ -530,6 +530,11 @@ fn read_hw_params_current(pcm: &alsa::PCM) -> Option<DriverReadout> {
 /// п. 2, ТЗ-113). Кадры приходят либо из чтения hw_params (точные значения
 /// драйвера), либо, если чтение не удалось, из `requested_frames` —
 /// sw_params должны быть установлены независимо от исхода чтения.
+/// `start_threshold` — не `buffer_frames` напрямую (AM1.0-B34), а
+/// `start_threshold_frames`: писатель потока (`alsa_out.rs::run_output_loop`)
+/// пишет только целые периоды, и если `buffer_frames` не делится на
+/// `period_frames`, порог `buffer_frames` недостижим — PCM никогда не
+/// переходит в `RUNNING` (тишина без xrun и без ошибки).
 fn apply_sw_params(
     pcm: &alsa::PCM,
     period_frames: alsa::pcm::Frames,
@@ -537,8 +542,30 @@ fn apply_sw_params(
 ) -> Result<(), ConfigureError> {
     let sw = pcm.sw_params_current().map_err(configure_refused)?;
     sw.set_avail_min(period_frames).map_err(configure_refused)?;
-    sw.set_start_threshold(buffer_frames).map_err(configure_refused)?;
+    sw.set_start_threshold(start_threshold_frames(buffer_frames, period_frames)).map_err(configure_refused)?;
     pcm.sw_params(&sw).map_err(configure_refused)
+}
+
+/// Порог старта потока — целые периоды, вмещающиеся в буфер (§6.7 п. 2,
+/// ТЗ-131, AM1.0-B34). Причина подтверждена 2026-10-24: писатель
+/// (`alsa_out.rs::run_output_loop`) пишет в PCM только целыми периодами
+/// (`while avail >= period_frames`), поэтому если `buffer_frames` не кратен
+/// `period_frames` (частый случай — драйвер подгоняет период/буфер
+/// по-своему, `period_time_near`/`buffer_time_near`), доступных для записи
+/// кадров никогда не хватает до `buffer_frames`: порог старта недостижим,
+/// ALSA не переводит поток в `RUNNING`, и это не xrun и не ошибка — просто
+/// тишина. Пример: 44,1 кГц/20 мс — буфер 882 кадра, период 221, писатель
+/// может заполнить максимум 3×221=663 < 882. Порог — наибольшее кратное
+/// периоду, не превышающее буфер, и не меньше одного периода. Вырожденные
+/// входы (`period_frames <= 0` или `period_frames > buffer_frames`) не
+/// пересчитываются — возвращается `buffer_frames` без изменений, как было
+/// раньше (на практике оба случая исключены ALSA: период не может
+/// превышать буфер, а `period_time_near`/`buffer_time_near` не отдают 0).
+fn start_threshold_frames(buffer_frames: alsa::pcm::Frames, period_frames: alsa::pcm::Frames) -> alsa::pcm::Frames {
+    if period_frames <= 0 || period_frames > buffer_frames {
+        return buffer_frames;
+    }
+    (buffer_frames / period_frames).max(1) * period_frames
 }
 
 /// Период/буфер в кадрах по запрошенным параметрам (§6.7 п. 2, ТЗ-113):
@@ -835,6 +862,71 @@ mod tests {
         assert_eq!(buffer_period_us(DeviceBuffer::Ms40), (40_000, 10_000));
         assert_eq!(buffer_period_us(DeviceBuffer::Ms400), (400_000, 100_000));
         assert_eq!(buffer_period_us(DeviceBuffer::Ms20), (20_000, 5_000));
+    }
+
+    /// AM1.0-B34: случай, подтверждённый на MOTU M2 2026-10-24 — 44,1 кГц,
+    /// буфер устройства 20 мс. Драйвер отдал период 221 кадр и буфер 882
+    /// кадра (882 не кратно 221): писатель заполняет максимум 3×221=663
+    /// кадра, старый порог `buffer_frames` (882) был недостижим.
+    #[test]
+    fn start_threshold_frames_counts_only_whole_periods_that_fit_44_1k_20ms() {
+        assert_eq!(start_threshold_frames(882, 221), 663);
+    }
+
+    /// 48 кГц/20 мс на том же устройстве (период 240, буфер 960 = 4×240,
+    /// кратно) — порог не меняется относительно старого поведения.
+    #[test]
+    fn start_threshold_frames_keeps_buffer_when_exact_multiple_48k_20ms() {
+        assert_eq!(start_threshold_frames(960, 240), 960);
+    }
+
+    #[test]
+    fn start_threshold_frames_period_larger_than_buffer_is_unchanged() {
+        // Вырожденный случай (на практике недостижим через ALSA): порог не
+        // пересчитывается, остаётся `buffer_frames`, как было раньше.
+        assert_eq!(start_threshold_frames(100, 200), 100);
+    }
+
+    #[test]
+    fn start_threshold_frames_zero_period_is_unchanged() {
+        assert_eq!(start_threshold_frames(882, 0), 882);
+    }
+
+    /// Инвариант по сетке частот (PCM и DoP-контейнеры DSD64/128/256/512
+    /// делят один путь `configure`/`apply_sw_params`) × буферов устройства:
+    /// порог старта всегда кратен периоду, не превышает буфер и не меньше
+    /// одного периода — иначе писатель (целые периоды) не сможет его
+    /// достичь ни при каком `avail`.
+    #[test]
+    fn start_threshold_frames_is_always_reachable_by_whole_period_writes() {
+        const RATES_HZ: [u32; 11] = [
+            44_100, 48_000, 88_200, 96_000, 176_400, 192_000, // PCM
+            352_800, 705_600, // DoP DSD128/DSD256 контейнер
+            384_000, 768_000, 1_411_200, // 384/768 кГц PCM, DoP DSD512 контейнер
+        ];
+        const BUFFERS: [DeviceBuffer; 5] =
+            [DeviceBuffer::Ms20, DeviceBuffer::Ms40, DeviceBuffer::Ms100, DeviceBuffer::Ms200, DeviceBuffer::Ms400];
+
+        for &hz in &RATES_HZ {
+            let rate = SampleRate::new(hz).expect("нестандартная частота теста должна быть ненулевой");
+            for &buffer in &BUFFERS {
+                let (period_frames, buffer_frames) = requested_frames(buffer, rate);
+                let threshold = start_threshold_frames(buffer_frames, period_frames);
+                assert!(
+                    threshold <= buffer_frames,
+                    "{hz} Гц / {buffer:?}: порог {threshold} больше буфера {buffer_frames}"
+                );
+                assert!(
+                    threshold >= period_frames,
+                    "{hz} Гц / {buffer:?}: порог {threshold} меньше одного периода {period_frames}"
+                );
+                assert_eq!(
+                    threshold % period_frames,
+                    0,
+                    "{hz} Гц / {buffer:?}: порог {threshold} не кратен периоду {period_frames} — писатель целых периодов его не достигнет"
+                );
+            }
+        }
     }
 
     #[test]
