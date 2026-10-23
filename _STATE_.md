@@ -23,13 +23,13 @@
 - [x] Шаг 4: ValueBlocker::reason(): общий текст вместо дублей в src/core/dialog.rs и src/app/mode_dialog.rs (SP1.0-B15 п.4). Проверка: cargo check
 - [x] Шаг 5: Обновить устаревшие комментарии: set_output_device (playback_manager.rs), привязка клавиши V (viz_settings_manager.rs, шлюз решает сам) (SP1.0-B15 п.5). Проверка: cargo check
 - [x] Шаг 6: Перевести подписи вкладки Cache в ui/settings.slint на русский, согласованно с текстом ТЗ-34 (SP1.0-B15 п.6). Проверка: cargo check
-- [>] **Шаг 7: MainCmd::ColumnResize спрашивает core.gate() перед сохранением ширин колонок в tick() (SP1.0-B15 п.7). Проверка: cargo check**
-- [ ] Шаг 8: ЧЕКПОИНТ: полный cargo test + clippy
+- [x] Шаг 7: MainCmd::ColumnResize спрашивает core.gate() перед сохранением ширин колонок в tick() (SP1.0-B15 п.7). Проверка: cargo check
+- [>] **Шаг 8: ЧЕКПОИНТ: полный cargo test + clippy**
 
 Легенда: [x] сделано · [>] текущий шаг · [ ] не начато
 
-- **Текущий шаг (current_step):** Шаг 7
-- **Следующий ход:** Шаг 7: MainCmd::ColumnResize спрашивает core.gate() в tick()
+- **Текущий шаг (current_step):** Шаг 8
+- **Следующий ход:** Шаг 8 (ЧЕКПОИНТ): полный cargo test + clippy
 - **Счетчик безуспешных компиляций:** 0/3
 - **Состояние:** in_progress
 

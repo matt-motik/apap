@@ -36,12 +36,12 @@ steps:
     done: true
   - id: 7
     description: "MainCmd::ColumnResize спрашивает core.gate() перед сохранением ширин колонок в tick() (SP1.0-B15 п.7). Проверка: cargo check"
-    done: false
+    done: true
   - id: 8
     description: "ЧЕКПОИНТ: полный cargo test + clippy"
     done: false
-current_step: 7
-next_action: "Шаг 7: MainCmd::ColumnResize спрашивает core.gate() в tick()"
+current_step: 8
+next_action: "Шаг 8 (ЧЕКПОИНТ): полный cargo test + clippy"
 fail_counter: 0
 fail_counter_max: 3
 failed_attempts: []

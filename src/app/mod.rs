@@ -2839,19 +2839,25 @@ impl MusicApp {
         }
         self.push_tray_status();
 
-        let sig = self.compute_col_sig();
-        if sig != 0 && sig != self.col_model_sig {
-            // Column layout changed from the UI (user dragging a border): adopt
-            // it as the new baseline and wait until the drag settles before
-            // taking the widths into session state and re-flowing.
-            self.col_model_sig = sig;
-            self.col_sig_stable_ticks = 0;
-        } else if self.col_sig_stable_ticks < COL_SAVE_DEBOUNCE_TICKS {
-            self.col_sig_stable_ticks = self.col_sig_stable_ticks.saturating_add(1);
-            if self.col_sig_stable_ticks == COL_SAVE_DEBOUNCE_TICKS {
-                // Перетаскивание границы колонки — действие пользователя.
-                self.save_column_widths_from_ui(Origin::User);
-                self.update_column_widths();
+        // MainCmd::ColumnResize спрашивает шлюз (§2.11, ADR-12, SP1.0-B15
+        // п.7): при блокировке главного окна (диалог/сообщение/выбор файла)
+        // детектирование и сохранение живых ширин колонок приостанавливается
+        // целиком, чтобы не обойти ТЗ-23 опросом тика.
+        if self.core.gate().allows(MainCmd::ColumnResize) {
+            let sig = self.compute_col_sig();
+            if sig != 0 && sig != self.col_model_sig {
+                // Column layout changed from the UI (user dragging a border): adopt
+                // it as the new baseline and wait until the drag settles before
+                // taking the widths into session state and re-flowing.
+                self.col_model_sig = sig;
+                self.col_sig_stable_ticks = 0;
+            } else if self.col_sig_stable_ticks < COL_SAVE_DEBOUNCE_TICKS {
+                self.col_sig_stable_ticks = self.col_sig_stable_ticks.saturating_add(1);
+                if self.col_sig_stable_ticks == COL_SAVE_DEBOUNCE_TICKS {
+                    // Перетаскивание границы колонки — действие пользователя.
+                    self.save_column_widths_from_ui(Origin::User);
+                    self.update_column_widths();
+                }
             }
         }
         // Конец тика UI: событие winit без парного `scroll-event` ползунка
