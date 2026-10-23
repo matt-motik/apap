@@ -2,24 +2,10 @@
      Source of truth: _STATE_.yaml — edit that, then run:
      python tools/state_tool.py render -->
 
+# Состояние сессии
 
-# Текущая микро-сессия
-
-- **Задача из ROADMAP:** V5.1-B8 — drain_fulltrack вызывает fs::metadata на каждом UI-тике
-- **Вайтлист файлов в работе (Изменяемые файлы):**
-  - src/app/mod.rs
-  - src/app/fulltrack_manager.rs
-- **Критерий успеха (Definition of Done):** drain_fulltrack читает mtime/размер текущего файла один раз при смене пути (кеш в MusicApp), ключ кэша картинки строится без I/O на тике; полный cargo test и clippy зелёные
-
-## Итерационный трекер
-- [x] Шаг 1: Поле MusicApp::fulltrack_file_meta (src/app/mod.rs) — (путь, mtime, размер) последнего прочитанного файла; drain_fulltrack (src/app/fulltrack_manager.rs) берёт mtime/размер из него и вызывает fs::metadata только при смене пути (V5.1 §13). Проверка (сессия из одного шага): cargo check; полный cargo test; cargo clippy без новых предупреждений по файлам вайтлиста
-
-Легенда: [x] сделано · [>] текущий шаг · [ ] не начато
-
-- **Текущий шаг (current_step):** Шаг 1
-- **Следующий ход:** закрытие по closing.md
-- **Счетчик безуспешных компиляций:** 0/3
-- **Состояние:** in_progress
+- **Текущая задача:** Нет (все шаги завершены)
+- **Состояние:** done
 
 ## План: Executable workflow: правила AGENTS.md → исполняемые механизмы
 _Источник: чат с пользователем (ноутбук), начат в 67686ce; перенесён в репо 2026-09-22_
