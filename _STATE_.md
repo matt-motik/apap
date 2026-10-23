@@ -2,10 +2,30 @@
      Source of truth: _STATE_.yaml — edit that, then run:
      python tools/state_tool.py render -->
 
-# Состояние сессии
 
-- **Текущая задача:** Нет (все шаги завершены)
-- **Состояние:** done
+# Текущая микро-сессия
+
+- **Задача из ROADMAP:** AM1.0-B12 — Пики анализатора спектра «скачут» при смене трека
+- **Вайтлист файлов в работе (Изменяемые файлы):**
+  - src/audio/worker.rs
+  - src/audio/session_build.rs
+  - src/audio/player.rs
+  - src/audio/analyzer.rs
+  - src/app/visualizer_manager.rs
+- **Критерий успеха (Definition of Done):** Декодер каждого трека пишет в tap заголовок границы [NaN, частота, каналы] одним write_chunk перед первыми сэмплами; LiveWorker на заголовке сбрасывает окно/сглаживание/пики и строит SpectrumEngine по частоте и каналам из заголовка; set_format и атомики rate/in_ch LiveWorker удалены; автотесты сброса и частоты; полный cargo test и clippy зелёные (решение пользователя 2026-10-23 — исправить)
+
+## Итерационный трекер
+- [>] **Шаг 1: src/audio/worker.rs: DecodeConfig.rate (Гц выхода tap); DecodeLoop пишет в tap заголовок [f32::NAN, rate, channels] одним write_chunk(3) перед первыми зеркалируемыми сэмплами (флаг «заголовок записан», повтор при нехватке места — сэмплы не пишутся без заголовка); константа/описание формата заголовка для анализатора; конструкторы DecodeConfig в session_build.rs (plan.rate), player.rs и тестах worker.rs (V5.1 §4.2, ТЗ-108). Проверка: полный cargo test (общий тип)**
+- [ ] Шаг 2: src/audio/analyzer.rs: SpectrumEngine распознаёт заголовок в pull_frame (NaN → частота, каналы), останавливает consume и отдаёт границу (take_boundary); LiveWorker на границе пересоздаёт SpectrumEngine по частоте/каналам заголовка и обнуляет bars; тесты: заголовок сбрасывает окно и пики, частота берётся из заголовка (≤5). Проверка: cargo test audio::analyzer
+- [ ] Шаг 3: Удалить LiveWorker::set_format и атомики rate/in_ch (src/audio/analyzer.rs) и вызовы set_format в setup_visualizer/viz_push (src/app/visualizer_manager.rs): формат приходит только заголовком tap. Проверка: cargo check; cargo test audio::analyzer
+- [ ] Шаг 4: ЧЕКПОИНТ: полный cargo test + cargo clippy без новых предупреждений по файлам вайтлиста; check_rt_imports
+
+Легенда: [x] сделано · [>] текущий шаг · [ ] не начато
+
+- **Текущий шаг (current_step):** Шаг 1
+- **Следующий ход:** Заголовок границы трека в tap (worker.rs)
+- **Счетчик безуспешных компиляций:** 0/3
+- **Состояние:** in_progress
 
 ## План: Executable workflow: правила AGENTS.md → исполняемые механизмы
 _Источник: чат с пользователем (ноутбук), начат в 67686ce; перенесён в репо 2026-09-22_
