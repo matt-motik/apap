@@ -22,7 +22,7 @@
 use music_player_rs::settings::params::{param_label, Availability, ParamDescriptor, ParamId, PARAMS};
 use music_player_rs::settings::playback::{
     buffer_floor_blocker, buffer_floor_ms, buffers_allowed, BufferMs, DeviceBuffer, DeviceOpts, Dither, DsdAboveDac,
-    DsdFilter, ModeKind, ModeSettings, RateFallbackRule, SrcFilter,
+    DsdFilter, ModeKind, ModeSettings, RateFallbackRule, SrcFilter, ValueBlocker,
 };
 use slint::{ModelRc, SharedString};
 
@@ -471,7 +471,10 @@ pub(super) enum EditRejected {
     BadValue,
     /// ТЗ-94: итоговая пара (буфер декодирование → вывод, буфер устройства)
     /// не проходит `buffers_allowed` — недопустимое сочетание не применяется.
-    BuffersNotAllowed,
+    /// Несёт причину отказа (`ValueBlocker`), чтобы обработчик мог показать
+    /// конкретный текст («увеличьте буфер плеера до N мс») вместо общей
+    /// формулировки (AM1.0-B33).
+    BuffersNotAllowed(ValueBlocker),
 }
 
 /// Применить правку строки диалога к черновику `settings` (§6.27, ТЗ-94).
@@ -527,7 +530,7 @@ fn apply_device_buffer(settings: &mut ModeSettings, mode: ModeKind, value: EditV
         ModeKind::Strict => settings.strict.buffer,
         ModeKind::Compatible => return Err(EditRejected::NotEditable),
     };
-    buffers_allowed(buffer, candidate).map_err(|_| EditRejected::BuffersNotAllowed)?;
+    buffers_allowed(buffer, candidate).map_err(EditRejected::BuffersNotAllowed)?;
     match mode {
         ModeKind::Optimal => settings.optimal.device_buffer = candidate,
         ModeKind::Strict => settings.strict.device_buffer = candidate,
@@ -597,12 +600,12 @@ fn apply_buffer(settings: &mut ModeSettings, mode: ModeKind, value: EditValue) -
             Ok(())
         }
         ModeKind::Optimal => {
-            buffers_allowed(buffer, settings.optimal.device_buffer).map_err(|_| EditRejected::BuffersNotAllowed)?;
+            buffers_allowed(buffer, settings.optimal.device_buffer).map_err(EditRejected::BuffersNotAllowed)?;
             settings.optimal.buffer = buffer;
             Ok(())
         }
         ModeKind::Strict => {
-            buffers_allowed(buffer, settings.strict.device_buffer).map_err(|_| EditRejected::BuffersNotAllowed)?;
+            buffers_allowed(buffer, settings.strict.device_buffer).map_err(EditRejected::BuffersNotAllowed)?;
             settings.strict.buffer = buffer;
             Ok(())
         }
@@ -762,7 +765,7 @@ mod tests {
 
         let result = apply_edit(&mut settings, ModeKind::Optimal, ParamId::DeviceBuffer, EditValue::Index(4));
 
-        assert_eq!(result, Err(EditRejected::BuffersNotAllowed));
+        assert_eq!(result, Err(EditRejected::BuffersNotAllowed(ValueBlocker::PlayerBufferTooSmall { need_ms: 800 })));
         assert_eq!(settings, before);
     }
 

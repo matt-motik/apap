@@ -1511,12 +1511,10 @@ impl MusicApp {
         let Some(result) = result else { return };
         match result {
             Ok(()) => self.sync_mode_dialog_to_ui(),
-            Err(mode_dialog::EditRejected::BuffersNotAllowed) => {
+            Err(mode_dialog::EditRejected::BuffersNotAllowed(blocker)) => {
                 self.sync_mode_dialog_to_ui();
                 if let Some(ui) = self.try_ui() {
-                    ui.set_settings_mode_validation(SharedString::from(
-                        "Недопустимая пара буферов: уменьшите буфер устройства или увеличьте буфер плеера (ТЗ-94).",
-                    ));
+                    ui.set_settings_mode_validation(SharedString::from(blocker.reason()));
                 }
             }
             Err(_) => {}

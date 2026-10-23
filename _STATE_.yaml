@@ -22,15 +22,15 @@ steps:
     done: true
   - id: 3
     description: "Отказ правки буферов — текст конкретной причины ValueBlocker::reason() вместо общего. Проверка: cargo check + clippy"
-    done: false
+    done: true
   - id: 4
     description: "Комментарий viz_settings_manager.rs: визуализация читает действующие настройки, не черновик (SP1.0-B8). Проверка: cargo check"
     done: false
   - id: 5
     description: "ЧЕКПОИНТ: полный cargo test + clippy"
     done: false
-current_step: 3
-next_action: "Конкретная причина отказа правки буферов"
+current_step: 4
+next_action: "Комментарий viz_settings_manager.rs"
 fail_counter: 0
 fail_counter_max: 3
 failed_attempts: []
