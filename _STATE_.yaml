@@ -16,7 +16,7 @@ dod: "Декодер каждого трека пишет в tap заголов�
 steps:
   - id: 1
     description: "src/audio/worker.rs: DecodeConfig.rate (Гц выхода tap); DecodeLoop пишет в tap заголовок [f32::NAN, rate, channels] одним write_chunk(3) перед первыми зеркалируемыми сэмплами (флаг «заголовок записан», повтор при нехватке места — сэмплы не пишутся без заголовка); константа/описание формата заголовка для анализатора; конструкторы DecodeConfig в session_build.rs (plan.rate), player.rs и тестах worker.rs (V5.1 §4.2, ТЗ-108). Проверка: полный cargo test (общий тип)"
-    done: false
+    done: true
   - id: 2
     description: "src/audio/analyzer.rs: SpectrumEngine распознаёт заголовок в pull_frame (NaN → частота, каналы), останавливает consume и отдаёт границу (take_boundary); LiveWorker на границе пересоздаёт SpectrumEngine по частоте/каналам заголовка и обнуляет bars; тесты: заголовок сбрасывает окно и пики, частота берётся из заголовка (≤5). Проверка: cargo test audio::analyzer"
     done: false
@@ -26,8 +26,8 @@ steps:
   - id: 4
     description: "ЧЕКПОИНТ: полный cargo test + cargo clippy без новых предупреждений по файлам вайтлиста; check_rt_imports"
     done: false
-current_step: 1
-next_action: "Заголовок границы трека в tap (worker.rs)"
+current_step: 2
+next_action: "Распознавание заголовка в SpectrumEngine/LiveWorker"
 fail_counter: 0
 fail_counter_max: 3
 failed_attempts: []

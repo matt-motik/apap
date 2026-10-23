@@ -1410,7 +1410,7 @@ mod tests {
             let (producer, consumer) = rtrb::RingBuffer::<i32>::new(E2E_CAP);
             let (tx, rx) = std::sync::mpsc::channel();
             let feed = E2eFeed { pos: 0, stall_after_seek, stall_left: stall_after_seek };
-            let cfg = DecodeConfig { channels: 1, start_frame: 0, start_fill: 0, tail_samples: 64 };
+            let cfg = DecodeConfig { channels: 1, rate: 44_100, start_frame: 0, start_fill: 0, tail_samples: 64 };
             let lp = DecodeLoop::new(feed, producer, shared.clone(), cfg, tx, None);
             let core = RenderCore::new(consumer, shared.clone(), 1, prime);
             let payload = RingPayload::ExactI32 { valid_bits: BitDepth::new(24).expect("24 бита") };

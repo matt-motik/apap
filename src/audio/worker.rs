@@ -2,6 +2,7 @@
 //! вне RT-потока; `SampleBlock` источника пишется в типизированный SPSC-ring,
 //! который читает колбэк `render`. Общее состояние — атомики `SessionShared`.
 
+use std::cell::Cell;
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::mpsc::Sender;
 use std::sync::{Arc, Mutex};
@@ -24,6 +25,15 @@ const WORKER_CHUNK_FRAMES: usize = 1024;
 /// producer) and the worker (which pushes post-resampler PCM into it). The
 /// worker is not a real-time thread, so a short `Mutex` here is acceptable.
 pub type VizTap = Arc<Mutex<Option<rtrb::Producer<f32>>>>;
+
+/// Длина заголовка границы трека в tap: `[TAP_BOUNDARY, частота, каналы]`
+/// (AM1.0-B12, V5.1 §4.2). Декодер пишет его одним `write_chunk` перед первыми
+/// сэмплами сессии; анализатор по нему сбрасывает окно и берёт формат —
+/// без запаздывающего формата от UI. Частота и число каналов точно
+/// представимы в `f32`.
+pub const TAP_HEADER_LEN: usize = 3;
+/// Маркер начала заголовка: в аудио-сэмплах tap NaN не встречается.
+pub const TAP_BOUNDARY: f32 = f32::NAN;
 
 // ---------------------------------------------------------------------------
 // Поток `apap-decode` нового тракта (§6.16–§6.18, ADR-03, ADR-13): пишет
@@ -287,6 +297,8 @@ pub enum Step {
 pub struct DecodeConfig {
     /// Каналов в кадре ring.
     pub channels: usize,
+    /// Частота кадров ring, Гц — для заголовка границы tap (AM1.0-B12).
+    pub rate: u32,
     /// Кадр ring, с которого начинается сессия (`Open { start_frame }`, §6.18).
     pub start_frame: u64,
     /// Кадров до `Ready` ([`start_fill_frames`]).
@@ -317,6 +329,10 @@ pub struct DecodeLoop<P: TapSample, F: Feed<P>> {
     ready_sent: bool,
     events: Sender<DecodeEvent>,
     viz_tap: Option<VizTap>,
+    /// Частота для заголовка границы tap (AM1.0-B12).
+    tap_rate: u32,
+    /// Заголовок границы уже в tap: сэмплы сессии пишутся только после него.
+    tap_header_sent: Cell<bool>,
     decode_errors: Arc<AtomicU64>,
 }
 
@@ -353,6 +369,8 @@ impl<P: TapSample, F: Feed<P>> DecodeLoop<P, F> {
             ready_sent: false,
             events,
             viz_tap,
+            tap_rate: cfg.rate,
+            tap_header_sent: Cell::new(false),
             decode_errors: Arc::new(AtomicU64::new(0)),
         }
     }
@@ -467,6 +485,16 @@ impl<P: TapSample, F: Feed<P>> DecodeLoop<P, F> {
             return;
         };
         if let Some(p) = guard.as_mut() {
+            if !self.tap_header_sent.get() {
+                // Граница трека (AM1.0-B12): заголовок целиком или ничего.
+                let header = [TAP_BOUNDARY, self.tap_rate as f32, self.channels as f32];
+                let Ok(chunk) = p.write_chunk_uninit(TAP_HEADER_LEN) else {
+                    self.shared.mirror_overflow.store(true, Ordering::Relaxed);
+                    return;
+                };
+                chunk.fill_from_iter(header);
+                self.tap_header_sent.set(true);
+            }
             for &s in samples {
                 if p.push(s.to_tap()).is_err() {
                     self.shared.mirror_overflow.store(true, Ordering::Relaxed);
@@ -666,7 +694,7 @@ mod tests {
     }
 
     fn cfg(start_fill: usize) -> DecodeConfig {
-        DecodeConfig { channels: 1, start_frame: 0, start_fill, tail_samples: 64 }
+        DecodeConfig { channels: 1, rate: 44_100, start_frame: 0, start_fill, tail_samples: 64 }
     }
 
     type Rig<F> = (DecodeLoop<i32, F>, RenderCore<i32>, mpsc::Receiver<DecodeEvent>);
@@ -862,7 +890,7 @@ mod tests {
             1,
             1,
         );
-        let cfg = DecodeConfig { channels: 1, start_frame: 0, start_fill: 2048, tail_samples: 1024 };
+        let cfg = DecodeConfig { channels: 1, rate: 44_100, start_frame: 0, start_fill: 2048, tail_samples: 1024 };
         let mut w = DecodeWorker::spawn(&StdSpawner, DecodeLoop::new(feed, p, shared.clone(), cfg, tx, None))
             .unwrap();
         assert_eq!(rx.recv_timeout(Duration::from_secs(2)), Ok(DecodeEvent::Ready));
@@ -888,7 +916,7 @@ mod tests {
             1,
             1,
         );
-        let cfg = DecodeConfig { channels: 1, start_frame: 0, start_fill: 2048, tail_samples: 1024 };
+        let cfg = DecodeConfig { channels: 1, rate: 44_100, start_frame: 0, start_fill: 2048, tail_samples: 1024 };
         let spawner = FailingSpawner::new(1);
         let result = DecodeWorker::spawn(&spawner, DecodeLoop::new(feed, p, shared, cfg, tx, None));
         assert!(matches!(

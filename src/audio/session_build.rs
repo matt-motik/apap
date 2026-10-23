@@ -533,6 +533,7 @@ pub(crate) fn spawn_decoder(
     let (tx, rx) = mpsc::channel();
     let cfg = DecodeConfig {
         channels: plan.channels,
+        rate: plan.rate,
         start_frame,
         start_fill: start_fill_frames(cap_frames, plan.rate),
         tail_samples: DECODE_TAIL_FRAMES.saturating_mul(plan.channels.max(1)),
