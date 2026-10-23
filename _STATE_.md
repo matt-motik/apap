@@ -12,13 +12,13 @@
 - **Критерий успеха (Definition of Done):** Фикстуры тестов `core::testing` (startup/command-загрузка плейлиста) и `persist::state_file` (`last_dir`) строят абсолютные пути платформонезависимо (без хардкода `/`-корня) — на Windows `/music/...` не абсолютен без буквы диска; производственный код проверки абсолютности (`parse_startup`/`parse_command` в src/playlist/load.rs, `last_dir_spec` в src/persist/state_file.rs) не меняется, дефект только в тестовых фикстурах; полный cargo test и clippy зелёные.
 
 ## Итерационный трекер
-- [>] **Шаг 1: Фикстуры шести падающих тестов (src/core/testing.rs: load_playlist_from_pause_and_stop_starts_playback, load_playlist_plays_first_by_key, load_playlist_unreadable_keeps_everything, startup_load_shows_full_sorted_list, startup_playlist_nonexistent_paths_not_corrupt; src/persist/state_file.rs: state_roundtrip_deterministic) переведены на платформонезависимый хелпер абсолютного пути (std::env::temp_dir()-based), не хардкодящий POSIX-корень. Проверка: тесты core::testing и persist::state_file + cargo clippy --all-targets 0 предупреждений**
-- [ ] Шаг 2: ЧЕКПОИНТ: полный cargo test + cargo clippy
+- [x] Шаг 1: Фикстуры шести падающих тестов (src/core/testing.rs: load_playlist_from_pause_and_stop_starts_playback, load_playlist_plays_first_by_key, load_playlist_unreadable_keeps_everything, startup_load_shows_full_sorted_list, startup_playlist_nonexistent_paths_not_corrupt; src/persist/state_file.rs: state_roundtrip_deterministic) переведены на платформонезависимый хелпер абсолютного пути (std::env::temp_dir()-based), не хардкодящий POSIX-корень. Проверка: тесты core::testing и persist::state_file + cargo clippy --all-targets 0 предупреждений
+- [>] **Шаг 2: ЧЕКПОИНТ: полный cargo test + cargo clippy**
 
 Легенда: [x] сделано · [>] текущий шаг · [ ] не начато
 
-- **Текущий шаг (current_step):** Шаг 1
-- **Следующий ход:** Фикстуры тестов: платформонезависимый абсолютный путь вместо хардкода /music
+- **Текущий шаг (current_step):** Шаг 2
+- **Следующий ход:** ЧЕКПОИНТ: полный cargo test + clippy
 - **Счетчик безуспешных компиляций:** 0/3
 - **Состояние:** in_progress
 

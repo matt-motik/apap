@@ -2565,6 +2565,23 @@ mod tests {
         assert_eq!(h.writes(WorkFile::Playlist), 2, "повторной записи нет");
     }
 
+    /// Абсолютный путь для фикстур `playlist.m3u`/команды «Загрузить
+    /// плейлист», прошедших через `parse_startup`/`parse_command`
+    /// (SP1.0-B7, src/playlist/load.rs): литерал вида `/music/a.flac`
+    /// абсолютен на Unix, но не на Windows (нет буквы диска) —
+    /// `path.is_absolute()` там верно отбрасывает такую строку, поэтому
+    /// фикстура должна строить путь, абсолютный на текущей ОС. Существование
+    /// файла не требуется (`parse_startup` его не проверяет).
+    fn abs_music_path(rel: &str) -> PathBuf {
+        std::env::temp_dir().join("apap-test-music").join(rel)
+    }
+
+    /// Строковая форма `abs_music_path` — для байтов содержимого
+    /// `playlist.m3u`/файла команды (SP1.0-B7).
+    fn abs_music_str(rel: &str) -> String {
+        abs_music_path(rel).to_string_lossy().into_owned()
+    }
+
     /// Трек с единственным заданным полем — путём (§4.2, ТЗ-12): тестам
     /// записи `playlist.m3u`, которым нужен только исходный порядок путей.
     fn track_path(path: &str) -> (Track, CompareKeys) {
@@ -2827,7 +2844,8 @@ mod tests {
         let h = Harness::new();
         h.put_settings(b"");
         h.put_state(b"");
-        h.put_playlist(b"/music/missing-a.flac\n/music/missing-b.flac\n");
+        let playlist = format!("{}\n{}\n", abs_music_str("missing-a.flac"), abs_music_str("missing-b.flac"));
+        h.put_playlist(playlist.as_bytes());
         let mut core = h.boot();
 
         core.start_startup_load();
@@ -2848,7 +2866,9 @@ mod tests {
         let h = Harness::new();
         h.put_settings(b"");
         h.put_state(b"sort.column = \"title\"\nsort.direction = \"asc\"\n");
-        h.put_playlist(b"/music/b.flac\n/music/a.flac\n/music/c.flac\n");
+        let playlist =
+            format!("{}\n{}\n{}\n", abs_music_str("b.flac"), abs_music_str("a.flac"), abs_music_str("c.flac"));
+        h.put_playlist(playlist.as_bytes());
         let mut core = h.boot();
 
         core.start_startup_load();
@@ -3092,7 +3112,13 @@ mod tests {
         h.put_settings(b"");
         h.put_state(b"sort.column = \"title\"\nsort.direction = \"asc\"\n");
         let command_path = PathBuf::from("/import/mix.m3u");
-        h.put_command_playlist(&command_path, b"/music/zebra.flac\n/music/apple.flac\n/music/mango.flac\n");
+        let command_playlist = format!(
+            "{}\n{}\n{}\n",
+            abs_music_str("zebra.flac"),
+            abs_music_str("apple.flac"),
+            abs_music_str("mango.flac")
+        );
+        h.put_command_playlist(&command_path, command_playlist.as_bytes());
         let mut core = h.boot();
         core.playlist_add(vec![track_path("/music/x.flac")]);
         assert_eq!(playlist_paths(&core), vec![PathBuf::from("/music/x.flac")]);
@@ -3122,8 +3148,8 @@ mod tests {
         assert_eq!(h.writes(WorkFile::Playlist), 1);
         let bytes = h.disk_bytes(WorkFile::Playlist).expect("playlist записан");
         let text = String::from_utf8_lossy(&bytes);
-        for p in ["/music/zebra.flac", "/music/apple.flac", "/music/mango.flac"] {
-            assert!(text.contains(p), "{text} должен содержать {p}");
+        for p in [abs_music_str("zebra.flac"), abs_music_str("apple.flac"), abs_music_str("mango.flac")] {
+            assert!(text.contains(&p), "{text} должен содержать {p}");
         }
         assert!(!text.contains("/music/x.flac"));
     }
@@ -3142,7 +3168,13 @@ mod tests {
         h.put_state(b"");
         h.put_playlist(b"/music/x.flac\n");
         let command_path = PathBuf::from("/import/mix.m3u");
-        h.put_command_playlist(&command_path, b"/music/zebra.flac\n/music/apple.flac\n/music/mango.flac\n");
+        let command_playlist = format!(
+            "{}\n{}\n{}\n",
+            abs_music_str("zebra.flac"),
+            abs_music_str("apple.flac"),
+            abs_music_str("mango.flac")
+        );
+        h.put_command_playlist(&command_path, command_playlist.as_bytes());
         let mut core = h.boot();
         core.change_state(Origin::Program, StateChange::Shuffle(true));
 
@@ -3166,8 +3198,8 @@ mod tests {
         let h = Harness::new();
         h.put_settings(b"");
         h.put_state(b"");
-        let original = b"/music/x.flac\n";
-        h.put_playlist(original);
+        let original = format!("{}\n", abs_music_str("x.flac"));
+        h.put_playlist(original.as_bytes());
         let command_path = PathBuf::from("/import/mix.m3u");
         h.fail_read_path(&command_path, ReadErrorClass::NoAccess);
         let mut core = h.boot();
@@ -3182,7 +3214,7 @@ mod tests {
         let message = report.message.expect("ошибка чтения приходит сразу, в самом отчёте");
         assert_eq!(message.level, MessageLevel::Error);
 
-        assert_eq!(playlist_paths(&core), vec![PathBuf::from("/music/x.flac")]);
+        assert_eq!(playlist_paths(&core), vec![abs_music_path("x.flac")]);
         assert!(!core.tracker().playlist_dirty());
         assert!(!core.tracker().playlist_forbidden(), "командная ReadFailed не запрещает запись плейлиста");
 
@@ -3190,7 +3222,7 @@ mod tests {
         h.advance(&mut core, interval);
         h.settle(&mut core);
         assert_eq!(h.writes(WorkFile::Playlist), 0);
-        assert_eq!(h.disk_bytes(WorkFile::Playlist).as_deref(), Some(original.as_slice()));
+        assert_eq!(h.disk_bytes(WorkFile::Playlist).as_deref(), Some(original.as_bytes()));
     }
 
     /// Пустой файл командной загрузки (нет валидных строк) заменяет

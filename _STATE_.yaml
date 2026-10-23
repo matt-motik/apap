@@ -13,12 +13,12 @@ dod: "Фикстуры тестов `core::testing` (startup/command-загру�
 steps:
   - id: 1
     description: "Фикстуры шести падающих тестов (src/core/testing.rs: load_playlist_from_pause_and_stop_starts_playback, load_playlist_plays_first_by_key, load_playlist_unreadable_keeps_everything, startup_load_shows_full_sorted_list, startup_playlist_nonexistent_paths_not_corrupt; src/persist/state_file.rs: state_roundtrip_deterministic) переведены на платформонезависимый хелпер абсолютного пути (std::env::temp_dir()-based), не хардкодящий POSIX-корень. Проверка: тесты core::testing и persist::state_file + cargo clippy --all-targets 0 предупреждений"
-    done: false
+    done: true
   - id: 2
     description: "ЧЕКПОИНТ: полный cargo test + cargo clippy"
     done: false
-current_step: 1
-next_action: "Фикстуры тестов: платформонезависимый абсолютный путь вместо хардкода /music"
+current_step: 2
+next_action: "ЧЕКПОИНТ: полный cargo test + clippy"
 fail_counter: 0
 fail_counter_max: 3
 failed_attempts: []

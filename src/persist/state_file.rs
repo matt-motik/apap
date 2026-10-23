@@ -1358,6 +1358,17 @@ mod tests {
         assert!(matches!(unknown_note.kind, LoadNoteKind::Unknown));
     }
 
+    /// Абсолютный путь для `non_default_state.last_dir` (SP1.0-B7):
+    /// `/home/user/music` абсолютен на Unix, но не на Windows (нет буквы
+    /// диска) — `last_dir_spec::read` (`path.is_absolute()`, выше) при
+    /// разборе round-trip'а верно отбрасывает такую строку, и
+    /// `state_roundtrip_deterministic` получает `last_dir: None` вместо
+    /// исходного значения. Фикстура строит путь, абсолютный на текущей ОС;
+    /// каталог может не существовать на диске.
+    fn abs_last_dir() -> PathBuf {
+        std::env::temp_dir().join("apap-test-state").join("music")
+    }
+
     /// `SessionState` отличное от значений по умолчанию во всех разделах
     /// §2.5: активный режим и громкость/mute Совместимого, Оптимального и
     /// Строгого режимов (ADR-04), ширины колонок, сортировка, визуализация,
@@ -1391,7 +1402,7 @@ mod tests {
             maximized: true,
             fullscreen: true,
         }));
-        s.apply(StateChange::LastDir(PathBuf::from("/home/user/music")));
+        s.apply(StateChange::LastDir(abs_last_dir()));
         s
     }
 
