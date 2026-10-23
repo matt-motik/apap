@@ -8,7 +8,7 @@
 //! (`RwLock<Arc<VisualizerConfig>>`), публикует свежие полосы в `RwLock<Vec<f32>>`
 //! (канал без аллокаций через `mem::swap`), UI забирает их таймером ~33 мс.
 
-use std::sync::atomic::{AtomicBool, AtomicU32, AtomicUsize, Ordering};
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, RwLock};
 use std::thread::{self, JoinHandle};
 
@@ -300,6 +300,9 @@ pub struct TapFormat {
 /// NaN в самих сэмплах float-источника (такой «заголовок» отбрасывается).
 const TAP_HEADER_MAX_RATE: u32 = 1_536_000;
 const TAP_HEADER_MAX_CHANNELS: usize = 32;
+/// Формат движка до первого заголовка: декодер пишет заголовок перед
+/// первыми сэмплами, поэтому значение влияет только на пустой движок.
+const TAP_FORMAT_BEFORE_HEADER: TapFormat = TapFormat { rate: 44_100, channels: 2 };
 
 /// Хвост заголовка границы после маркера: частота и каналы (`worker::
 /// TAP_HEADER_LEN`, пишется одним `write_chunk`). `None` — значения вне
@@ -347,8 +350,6 @@ fn band_ranges(scale: FreqScale, bands: usize, rate_hz: u32, fft_size: usize) ->
 pub struct LiveWorker {
     running: Arc<AtomicBool>,
     cfg: Arc<RwLock<Arc<VisualizerConfig>>>,
-    rate: Arc<AtomicU32>,
-    in_ch: Arc<AtomicUsize>,
     bars: Arc<RwLock<Vec<f32>>>,
     handle: Option<JoinHandle<()>>,
 }
@@ -359,14 +360,10 @@ impl LiveWorker {
     pub fn start(consumer: rtrb::Consumer<f32>, cfg: Arc<VisualizerConfig>) -> Self {
         let running = Arc::new(AtomicBool::new(true));
         let cfg_rc = Arc::new(RwLock::new(cfg));
-        let rate = Arc::new(AtomicU32::new(44_100));
-        let in_ch = Arc::new(AtomicUsize::new(2));
         let bars = Arc::new(RwLock::new(Vec::new()));
 
         let run = running.clone();
         let cfg_by = cfg_rc.clone();
-        let rate_by = rate.clone();
-        let in_ch_by = in_ch.clone();
         let bars_by = bars.clone();
 
         let handle = thread::spawn(move || {
@@ -381,10 +378,9 @@ impl LiveWorker {
                     .read()
                     .map(|g| g.clone())
                     .unwrap_or_else(|p| p.into_inner().clone());
-                let (rate_now, ch_now) = match tap_fmt {
-                    Some(f) => (f.rate, f.channels),
-                    None => (rate_by.load(Ordering::Relaxed).max(1), in_ch_by.load(Ordering::Relaxed).max(1)),
-                };
+                // Формат — только из заголовка границы трека; до первого
+                // заголовка сэмплов в tap нет (AM1.0-B12).
+                let TapFormat { rate: rate_now, channels: ch_now } = tap_fmt.unwrap_or(TAP_FORMAT_BEFORE_HEADER);
                 if cfg.mode != VisualizationMode::Spectrum {
                     // Неанализ: слить остатки (только в этом потоке) и не
                     // считаем; формат из заголовков границы не теряется.
@@ -433,8 +429,6 @@ impl LiveWorker {
         Self {
             running,
             cfg: cfg_rc,
-            rate,
-            in_ch,
             bars,
             handle: Some(handle),
         }
@@ -445,12 +439,6 @@ impl LiveWorker {
         if let Ok(mut g) = self.cfg.write() {
             *g = cfg;
         }
-    }
-
-    /// Обновить формат устройства (out_rate / out_ch).
-    pub fn set_format(&self, rate: u32, ch: usize) {
-        self.rate.store(rate.max(1), Ordering::Relaxed);
-        self.in_ch.store(ch.max(1), Ordering::Relaxed);
     }
 
     /// Последний кадр полос (`bands * proc_ch`, значение каждой ∈ 0..=1).
@@ -737,10 +725,10 @@ mod tests {
         let worker = LiveWorker::start(cons, cfg.clone());
         let rate = 44_100u32;
         let samples = sine(rate, 1000.0, 4 * SPECTRUM_HOP + 64, 0.0);
-        for &s in samples.iter() {
+        // Формат — заголовком границы трека, как пишет декодер (AM1.0-B12).
+        for &s in [f32::NAN, 44_100.0, 1.0].iter().chain(samples.iter()) {
             let _ = prod.push(s);
         }
-        worker.set_format(rate, 1);
         let mut bars = Vec::new();
         for _ in 0..200 {
             bars = worker.bars();

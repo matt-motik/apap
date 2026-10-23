@@ -12,6 +12,7 @@ whitelist:
   - src/audio/player.rs
   - src/audio/analyzer.rs
   - src/app/visualizer_manager.rs
+  - src/app/ui_audio_state.rs
 dod: "Декодер каждого трека пишет в tap заголовок границы [NaN, частота, каналы] одним write_chunk перед первыми сэмплами; LiveWorker на заголовке сбрасывает окно/сглаживание/пики и строит SpectrumEngine по частоте и каналам из заголовка; set_format и атомики rate/in_ch LiveWorker удалены; автотесты сброса и частоты; полный cargo test и clippy зелёные (решение пользователя 2026-10-23 — исправить)"
 steps:
   - id: 1
@@ -22,12 +23,15 @@ steps:
     done: true
   - id: 3
     description: "Удалить LiveWorker::set_format и атомики rate/in_ch (src/audio/analyzer.rs) и вызовы set_format в setup_visualizer/viz_push (src/app/visualizer_manager.rs): формат приходит только заголовком tap. Проверка: cargo check; cargo test audio::analyzer"
+    done: true
+  - id: 5
+    description: "src/app/ui_audio_state.rs: удалить UiAudioState::format() (без потребителей после шага 3) и поле stream_format, которое читал только он (присваивания из Opened/OpenFailed); тесты format_follows_signal_path и format_falls_back_to_stream_format_without_path удаляются, проверки format() в getters_hold_last_accepted_values и format_default_before_open убираются; само поле EngineEvent::Opened.stream_format — остаток AM1.0-B10. Проверка: cargo check без предупреждений; cargo test ui_audio_state"
     done: false
   - id: 4
     description: "ЧЕКПОИНТ: полный cargo test + cargo clippy без новых предупреждений по файлам вайтлиста; check_rt_imports"
     done: false
-current_step: 3
-next_action: "Удалить set_format и атомики rate/in_ch LiveWorker"
+current_step: 5
+next_action: "Удалить UiAudioState::format и stream_format"
 fail_counter: 0
 fail_counter_max: 3
 failed_attempts: []

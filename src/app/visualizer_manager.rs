@@ -38,19 +38,15 @@ impl MusicApp {
         self.viz_sig = None;
         self.viz_bars = Vec::new();
         self.viz_tap_active = false;
-        let (rate, ch) = self.audio().format();
-        if let Some(v) = &self.viz {
-            v.set_format(rate, ch);
-        }
     }
 
     /// Быстрый push визуализации (~33 мс). Применяет конфиг при изменении
     /// (mode/bands/каналы/параметры полос), тумблер tap и публикует полосы;
     /// на паузе/стопе полосы распадаются (§8.1 С3).
     pub(crate) fn viz_push(&mut self) {
+        // Формат анализатор берёт из заголовка границы трека в tap, а не
+        // отсюда с запаздыванием тика (AM1.0-B12).
         let Some(viz) = &self.viz else { return };
-        let (rate, ch) = self.audio().format();
-        viz.set_format(rate, ch);
 
         // Действующие настройки и тип визуализации, не черновик диалога:
         // правки видны только после «Сохранить» (SP1.0 ТЗ-25, ТЗ-26).
