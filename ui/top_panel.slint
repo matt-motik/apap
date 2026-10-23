@@ -106,69 +106,93 @@ component ModeButton inherits Rectangle {
     }
 }
 
-// ADR-06, §6.19, ТЗ-50, ТЗ-55, ТЗ-61, ТЗ-118: компактный индикатор замка
-// устройства — значок + текст из LockView, видимый и в Совместимом режиме
-// (ТЗ-50: not-applicable не прячется, только притушен). Действия (ТЗ-46,
-// ТЗ-144) и коллбэки добавятся следующим шагом.
-component LockIndicator inherits Rectangle {
+// ADR-06, §6.19, ТЗ-44, ТЗ-46, ТЗ-50, ТЗ-55, ТЗ-61, ТЗ-118, ТЗ-119, ТЗ-121,
+// ТЗ-144 (решение пользователя 2026-10-23 — редизайн): кнопка-значок замка
+// устройства без подписи. Вид (значок, цвет не несёт смысла — различимость
+// формой) выбирает Slint по `kind`; текст и подсказку строит Rust
+// (LockView, src/app/lock_view.rs). Скрыта в Совместимом режиме (ТЗ-50);
+// во время захвата — значок песочных часов, кнопка недоступна; в Open
+// (включая отказ захвата — замок остаётся визуально «открыт», ТЗ-46) клик
+// вызывает `close` (захват/повтор), в Held — `open` (освобождение, ТЗ-44).
+// Причина отказа и действия по ней — отдельное окно ошибки (AM1.0-B14 шаг
+// 5), не эта кнопка.
+component LockButton inherits Rectangle {
     in property <LockKind> kind: LockKind.not-applicable;
     in property <string> text: "";
     in property <string> hint: "";
+    in property <int> theme-palette: 0;
+    callback close();
+    callback open();
 
-    private property <bool> active: root.kind != LockKind.not-applicable;
-    // Значок по варианту, без опоры на цвет (ТЗ-55, ТЗ-61): «–» замок не
-    // нужен, «🔓» (U+1F513) открыт, «◐» захват, «🔒» (U+1F512) закрыт
-    // (захвачен), «✕» не удалось захватить. Эмодзи — временно, до
-    // монохромной SVG-иконки.
-    private property <string> glyph: root.kind == LockKind.not-applicable ? "–"
-        : root.kind == LockKind.open ? "🔓"
-        : root.kind == LockKind.acquiring ? "◐"
-        : root.kind == LockKind.held ? "🔒"
-        : "✕";
-    private property <color> tint: root.kind == LockKind.held ? Colors.accent
-        : root.kind == LockKind.failed ? Colors.text-warn
-        : root.kind == LockKind.not-applicable ? Colors.text-dim
-        : Colors.text-secondary;
+    private property <bool> dark: root.theme-palette == 0;
+    private property <bool> acquiring: root.kind == LockKind.acquiring;
+    private property <bool> held: root.kind == LockKind.held;
+    // Подсказка при наведении — текст состояния (ТЗ-119) и, если он несёт
+    // что-то сверх текста (ТЗ-121 — перенаправление звука в Held), подсказка
+    // отдельной строкой.
+    private property <string> tooltip-text: root.hint == "" || root.hint == root.text
+        ? root.text
+        : (root.text == "" ? root.hint : root.text + "\n" + root.hint);
+    private property <image> icon: root.held
+        ? (root.dark ? @image-url("icons/dark/lock-closed.svg") : @image-url("icons/light/lock-closed.svg"))
+        : root.acquiring
+            ? (root.dark ? @image-url("icons/dark/hourglass.svg") : @image-url("icons/light/hourglass.svg"))
+            : (root.dark ? @image-url("icons/dark/lock-open.svg") : @image-url("icons/light/lock-open.svg"));
 
-    height: 28px;
+    visible: root.kind != LockKind.not-applicable;
+    width: root.visible ? 24px : 0px;
+    height: 24px;
     border-radius: 6px;
-    border-width: 1px;
-    border-color: root.active ? Colors.border-default : Colors.border-subtle;
-    background: Colors.bg-toolbar;
-    opacity: root.active ? 1.0 : 0.6;
+    background: !touch.enabled ? transparent : (touch.pressed ? Colors.surface-hover : (touch.has-hover ? Colors.bg-elevated : Colors.bg-toolbar));
 
-    HorizontalLayout {
-        padding-left: 10px;
-        padding-right: 10px;
-        spacing: 6px;
-        alignment: center;
-        Text {
-            text: root.glyph;
-            color: root.tint;
-            font-size: 13px;
-            vertical-alignment: center;
-        }
-        if root.text != "": Text {
-            text: root.text;
-            color: root.tint;
-            font-size: 12px;
-            vertical-alignment: center;
+    accessible-role: button;
+    accessible-label: root.text;
+    accessible-enabled: touch.enabled;
+    accessible-action-default => { touch.clicked(); }
+
+    // Анимация ожидания (ТЗ-119) — дёшево: таймер переключает прозрачность
+    // значка, плавность даёт только `animate` на уже существующем свойстве
+    // (без доп. перерисовки формы/поворота).
+    private property <bool> pulse-tick: false;
+    Timer {
+        interval: 650ms;
+        running: root.acquiring;
+        triggered => { root.pulse-tick = !root.pulse-tick; }
+    }
+
+    icon-image := Image {
+        source: root.icon;
+        width: 16px;
+        height: 16px;
+        x: (parent.width - self.width) / 2;
+        y: (parent.height - self.height) / 2;
+        opacity: !touch.enabled && !root.acquiring ? 0.4 : (root.acquiring ? (root.pulse-tick ? 1.0 : 0.5) : 1.0);
+        animate opacity { duration: 550ms; easing: ease-in-out; }
+    }
+
+    touch := TouchArea {
+        enabled: !root.acquiring;
+        mouse-cursor: touch.enabled ? MouseCursor.pointer : MouseCursor.default;
+        clicked => {
+            if (root.held) {
+                root.open();
+            } else {
+                root.close();
+            }
         }
     }
 
-    // Подсказка замка (ТЗ-50 — почему недоступен в Совместимом режиме;
-    // ТЗ-121 — куда уходит звук других приложений при Held).
-    if root.hint != "": Tooltip {
+    if root.tooltip-text != "": Tooltip {
         Rectangle {
             width: 220px;
-            height: lock-hint-text.preferred-height + 10px;
+            height: lock-tip-text.preferred-height + 10px;
             background: Colors.bg-elevated;
             border-color: Colors.border-default;
             border-width: 1px;
             border-radius: 4px;
 
-            lock-hint-text := Text {
-                text: root.hint;
+            lock-tip-text := Text {
+                text: root.tooltip-text;
                 color: Colors.text-secondary;
                 font-size: 11px;
                 wrap: word-wrap;
@@ -177,39 +201,6 @@ component LockIndicator inherits Rectangle {
                 width: parent.width - 12px;
             }
         }
-    }
-}
-
-// ADR-06, §6.19, ТЗ-46, ТЗ-120…ТЗ-123, ТЗ-144: компактная кнопка действия
-// замка (Захватить / Открыть / Повторить захват / Выбрать устройство /
-// Перейти в Совместимый режим). Доступность каждого действия решает Rust
-// (lock_view.rs) по состоянию автомата §6.19 — кнопка рисуется, только
-// когда действие применимо, без заглушек и пустых коллбэков (ТЗ-109).
-component LockActionButton inherits Rectangle {
-    in property <string> label: "";
-    callback clicked;
-
-    height: 28px;
-    border-radius: 6px;
-    border-width: 1px;
-    border-color: Colors.border-default;
-    background: touch.pressed ? Colors.surface-hover : Colors.bg-toolbar;
-
-    HorizontalLayout {
-        padding-left: 10px;
-        padding-right: 10px;
-        alignment: center;
-        Text {
-            text: root.label;
-            color: Colors.text-primary;
-            font-size: 12px;
-            vertical-alignment: center;
-        }
-    }
-
-    touch := TouchArea {
-        mouse-cursor: MouseCursor.pointer;
-        clicked => { root.clicked(); }
     }
 }
 
@@ -275,25 +266,17 @@ export component TopPanel inherits Rectangle {
     // Bit-perfect (Direct Output): программные ползунки громкости/мьюта
     // блокируются, тракт идёт в ЦАП без пересчёта сэмплов.
     in property <bool> bit-perfect: false;
-    // ADR-06, §6.19, ТЗ-50, ТЗ-118: вид индикатора замка устройства
-    // (LockView, src/app/lock_view.rs) — значок/цвет выбирает Slint по
-    // lock-kind, текст и подсказку строит Rust.
+    // ADR-06, §6.19, ТЗ-44, ТЗ-46, ТЗ-50, ТЗ-118, ТЗ-119, ТЗ-121, ТЗ-144:
+    // кнопка-значок замка устройства (LockButton) — вид выбирает Slint по
+    // lock-kind, текст и подсказку строит Rust (LockView,
+    // src/app/lock_view.rs). Клик сам выбирает lock-close/lock-open по
+    // kind; набор кнопок окна ошибки по причине отказа — отдельное окно
+    // (AM1.0-B14 шаг 5), не эта кнопка.
     in property <LockKind> lock-kind: LockKind.not-applicable;
     in property <string> lock-text: "";
     in property <string> lock-hint: "";
-    // ADR-06, §6.19, ТЗ-46, ТЗ-120…ТЗ-123, ТЗ-144: доступность действий
-    // замка решает Rust (lock_view.rs) по состоянию автомата §6.19 —
-    // кнопка рисуется только когда флаг true, остальные скрыты полностью.
-    in property <bool> lock-can-close: false;
-    in property <bool> lock-can-open: false;
-    in property <bool> lock-can-retry: false;
-    in property <bool> lock-can-choose-device: false;
-    in property <bool> lock-can-go-compatible: false;
     callback lock-close();
     callback lock-open();
-    callback lock-retry();
-    callback lock-choose-device();
-    callback lock-go-compatible();
     in property <float> seek-fraction: 0.0;
     out property <bool> seekbar-dragging: false;
     in property <string> pos: "0:00";
@@ -381,36 +364,16 @@ export component TopPanel inherits Rectangle {
                 clicked => { root.select-mode(i); }
             }
 
-            LockIndicator {
+            // Кнопка-значок замка (ТЗ-42, ТЗ-44, ТЗ-46, ТЗ-50, ТЗ-144):
+            // скрыта в Совместимом режиме (LockKind.not-applicable),
+            // недоступна во время захвата; клик — close()/open() по kind.
+            LockButton {
                 kind: root.lock-kind;
                 text: root.lock-text;
                 hint: root.lock-hint;
-            }
-
-            // Действия замка (ТЗ-42, ТЗ-44, ТЗ-46, ТЗ-144): «Захватить» —
-            // ручное закрытие (UserClose), «Открыть» — освобождение
-            // (UserOpen), «Повторить захват» (RetryCapture) и «Выбрать
-            // устройство» / «Перейти в Совместимый режим» для состояния
-            // «не удалось захватить» (§6.19). Rust-обработчики — шаг 70.
-            if root.lock-can-close: LockActionButton {
-                label: "Захватить";
-                clicked => { root.lock-close(); }
-            }
-            if root.lock-can-open: LockActionButton {
-                label: "Открыть";
-                clicked => { root.lock-open(); }
-            }
-            if root.lock-can-retry: LockActionButton {
-                label: "Повторить захват";
-                clicked => { root.lock-retry(); }
-            }
-            if root.lock-can-choose-device: LockActionButton {
-                label: "Выбрать устройство";
-                clicked => { root.lock-choose-device(); }
-            }
-            if root.lock-can-go-compatible: LockActionButton {
-                label: "Перейти в Совместимый режим";
-                clicked => { root.lock-go-compatible(); }
+                theme-palette: root.theme-palette;
+                close => { root.lock-close(); }
+                open => { root.lock-open(); }
             }
         }
 

@@ -181,23 +181,15 @@ export component AppWindow inherits Window {
     in property <[string]> mode-unavailable-reason: ["", "", ""];
     callback select-mode(int);
     in property <bool> bit-perfect: false;
-    // ADR-06, §6.19, ТЗ-50, ТЗ-118: индикатор замка устройства (LockView,
-    // src/app/lock_view.rs) — вид по lock-kind, текст/подсказка из Rust.
+    // ADR-06, §6.19, ТЗ-44, ТЗ-46, ТЗ-50, ТЗ-118, ТЗ-144: кнопка-значок
+    // замка устройства (LockButton, ui/top_panel.slint) — вид по lock-kind,
+    // текст/подсказка из Rust (LockView, src/app/lock_view.rs). Клик сам
+    // выбирает lock-close/lock-open по kind.
     in property <LockKind> lock-kind: LockKind.not-applicable;
     in property <string> lock-text: "";
     in property <string> lock-hint: "";
-    // ADR-06, §6.19, ТЗ-46, ТЗ-120…ТЗ-123, ТЗ-144: доступность действий
-    // замка решает Rust (lock_view.rs) по состоянию автомата §6.19.
-    in property <bool> lock-can-close: false;
-    in property <bool> lock-can-open: false;
-    in property <bool> lock-can-retry: false;
-    in property <bool> lock-can-choose-device: false;
-    in property <bool> lock-can-go-compatible: false;
     callback lock-close();
     callback lock-open();
-    callback lock-retry();
-    callback lock-choose-device();
-    callback lock-go-compatible();
     in property <float> seek-fraction: 0.0;
     out property <bool> seekbar-dragging: main-top.seekbar-dragging;
     in property <string> pos: "0:00";
@@ -509,11 +501,6 @@ export component AppWindow inherits Window {
                 lock-kind: root.lock-kind;
                 lock-text: root.lock-text;
                 lock-hint: root.lock-hint;
-                lock-can-close: root.lock-can-close;
-                lock-can-open: root.lock-can-open;
-                lock-can-retry: root.lock-can-retry;
-                lock-can-choose-device: root.lock-can-choose-device;
-                lock-can-go-compatible: root.lock-can-go-compatible;
                 seek-fraction: root.seek-fraction;
                 pos: root.pos;
                 dur: root.dur;
@@ -557,9 +544,6 @@ export component AppWindow inherits Window {
                 select-mode(i) => { root.select-mode(i); }
                 lock-close => { root.lock-close(); }
                 lock-open => { root.lock-open(); }
-                lock-retry => { root.lock-retry(); }
-                lock-choose-device => { root.lock-choose-device(); }
-                lock-go-compatible => { root.lock-go-compatible(); }
             }
 
             HorizontalLayout {

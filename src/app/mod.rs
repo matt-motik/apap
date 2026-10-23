@@ -74,7 +74,7 @@ use badge_view::{BadgeView, BadgeViewState, TestView};
 use engine_sink::EngineEventQueue;
 use events::AppEvent;
 use fulltrack_manager::{FullCmd, FullEvt};
-use lock_view::{failure_hint, failure_label, lock_failure_transition, lock_view, LockAction, LockFailureEffect};
+use lock_view::{failure_hint, failure_label, lock_failure_transition, lock_view, LockFailureEffect};
 use path_view::PathWindowCache;
 use ui_audio_state::{Applied, UiAudioState};
 
@@ -1244,23 +1244,21 @@ impl MusicApp {
         apply_engine_event(&mut self.audio_state, &mut self.badge_view, &mut self.path_cache, ev)
     }
 
-    /// Применить вид замка устройства к top_panel: `lock-kind`/`lock-text`/
-    /// `lock-hint` и пять `lock-can-*`, перечисленных действием из
-    /// `lock_view` (ADR-06, §6.19, ТЗ-46, ТЗ-118…ТЗ-123, ТЗ-144). Вызывается
-    /// из `drain_engine_events` на каждый `EngineEvent::Lock`; кнопка
-    /// «Выбрать устройство» (`lock-can-choose-device`) открывает диалог
-    /// настроек на вкладке «Audio» (ADR-24, ТЗ-144, см. `on_lock_choose_device`).
+    /// Применить вид замка устройства к кнопке-значку top_panel:
+    /// `lock-kind`/`lock-text`/`lock-hint` из `lock_view` (ADR-06, §6.19,
+    /// ТЗ-44, ТЗ-46, ТЗ-118…ТЗ-123, ТЗ-144, AM1.0-B14 шаг 6). Вызывается из
+    /// `drain_engine_events` на каждый `EngineEvent::Lock`. Клик по кнопке
+    /// выбирает `lock-close`/`lock-open` сам по `lock-kind` (Slint,
+    /// `ui/top_panel.slint::LockButton`); набор кнопок окна ошибки по
+    /// причине — отдельная функция `lock_failure_actions`
+    /// (`show_lock_failure_message` ниже), включая «Настройки аудио» для
+    /// «устройство не выбрано» (ADR-24, ТЗ-144).
     pub(super) fn apply_lock_view(&self, state: &LockState) {
         let Some(ui) = self.try_ui() else { return };
         let view = lock_view(state);
         ui.set_lock_kind(view.kind);
         ui.set_lock_text(view.text.into());
         ui.set_lock_hint(view.hint.into());
-        ui.set_lock_can_close(view.actions.contains(&LockAction::Close));
-        ui.set_lock_can_open(view.actions.contains(&LockAction::Open));
-        ui.set_lock_can_retry(view.actions.contains(&LockAction::RetryCapture));
-        ui.set_lock_can_choose_device(view.actions.contains(&LockAction::ChooseDevice));
-        ui.set_lock_can_go_compatible(view.actions.contains(&LockAction::SwitchToCompatible));
     }
 
     /// Окно ошибки замка по переходу `prev -> next` (ТЗ-46, ТЗ-119, ТЗ-122,
@@ -2039,13 +2037,16 @@ impl MusicApp {
             });
         }
 
-        // 9c. lock-close/lock-open/lock-retry/lock-choose-device/
-        // lock-go-compatible: кнопки действий замка в top_panel (ADR-06,
-        // §6.19, ТЗ-46, ТЗ-118…ТЗ-123, ТЗ-144). Гейт — тот же
+        // 9c. lock-close/lock-open: клик по кнопке-значку замка в top_panel
+        // (ADR-06, §6.19, ТЗ-44, ТЗ-46, ТЗ-118…ТЗ-123, ТЗ-144, AM1.0-B14 шаг
+        // 6) — Slint выбирает, какой из двух коллбэков вызвать, по
+        // `lock-kind` (`LockButton` в `ui/top_panel.slint`). Гейт — тот же
         // `MainCmd::SwitchMode`, что и у переключателя режимов: действия
         // замка переводят монопольный тракт между открытым/захваченным
         // состояниями и Совместимым режимом, отдельного варианта шлюза под
-        // них нет.
+        // них нет. «Повторить захват»/«Настройки аудио»/«В Совместимый» для
+        // отказа захвата — кнопки окна ошибки (`on_msg_action` ниже,
+        // `lock_failure_actions`), не этой кнопки.
         {
             let app = this.clone();
             ui.on_lock_close(move || {
@@ -2066,45 +2067,6 @@ impl MusicApp {
                     return;
                 }
                 a.engine_send(EngineCmd::Lock(LockInput::UserOpen));
-            });
-        }
-        {
-            let app = this.clone();
-            ui.on_lock_retry(move || {
-                eprintln!("[gui] lock_retry");
-                let a = app.borrow_mut();
-                if !a.core.gate().allows(MainCmd::SwitchMode) {
-                    return;
-                }
-                a.engine_send(EngineCmd::Lock(LockInput::RetryCapture));
-            });
-        }
-        {
-            let app = this.clone();
-            ui.on_lock_choose_device(move || {
-                eprintln!("[gui] lock_choose_device");
-                let mut a = app.borrow_mut();
-                if !a.core.gate().allows(MainCmd::SwitchMode) {
-                    return;
-                }
-                // ADR-24, ТЗ-144: открыть диалог настроек сразу на вкладке
-                // «Audio» (индекс 1 в `ui/settings.slint`, после «General»).
-                if a.open_settings_dialog() {
-                    if let Some(ui) = a.try_ui() {
-                        ui.set_settings_tab(1);
-                    }
-                }
-            });
-        }
-        {
-            let app = this.clone();
-            ui.on_lock_go_compatible(move || {
-                eprintln!("[gui] lock_go_compatible");
-                let mut a = app.borrow_mut();
-                if !a.core.gate().allows(MainCmd::SwitchMode) {
-                    return;
-                }
-                a.select_active_mode(ModeKind::Compatible);
             });
         }
 
@@ -2868,8 +2830,10 @@ impl MusicApp {
                     CloseEffect::Closed => {}
                 }
                 // Действия окна ошибки замка без своего `CloseEffect` (ТЗ-46,
-                // ТЗ-144, AM1.0-B14 шаг 5): тот же путь, что у кнопок замка в
-                // top_panel (`on_lock_retry`/`on_lock_choose_device`).
+                // ТЗ-144, AM1.0-B14 шаг 5/6): «Повторить захват» шлёт ту же
+                // команду движку, что раньше слала отдельная кнопка
+                // `lock-retry` в top_panel (убрана — кнопка-значок там
+                // теперь одна, клик по ней — `lock-close`/`lock-open`).
                 // `SwitchToCompatible` уже обработан выше через
                 // `CloseEffect::SwitchToCompatible` (общий для любого окна с
                 // этой кнопкой, не только окна замка).
