@@ -2,10 +2,25 @@
      Source of truth: _STATE_.yaml — edit that, then run:
      python tools/state_tool.py render -->
 
-# Состояние сессии
 
-- **Текущая задача:** Нет (все шаги завершены)
-- **Состояние:** done
+# Текущая микро-сессия
+
+- **Задача из ROADMAP:** SP1.0-B7 — На Windows падают 6 lib-тестов с POSIX-путями в фикстурах
+- **Вайтлист файлов в работе (Изменяемые файлы):**
+  - src/core/testing.rs
+  - src/persist/state_file.rs
+- **Критерий успеха (Definition of Done):** Фикстуры тестов `core::testing` (startup/command-загрузка плейлиста) и `persist::state_file` (`last_dir`) строят абсолютные пути платформонезависимо (без хардкода `/`-корня) — на Windows `/music/...` не абсолютен без буквы диска; производственный код проверки абсолютности (`parse_startup`/`parse_command` в src/playlist/load.rs, `last_dir_spec` в src/persist/state_file.rs) не меняется, дефект только в тестовых фикстурах; полный cargo test и clippy зелёные.
+
+## Итерационный трекер
+- [>] **Шаг 1: Фикстуры шести падающих тестов (src/core/testing.rs: load_playlist_from_pause_and_stop_starts_playback, load_playlist_plays_first_by_key, load_playlist_unreadable_keeps_everything, startup_load_shows_full_sorted_list, startup_playlist_nonexistent_paths_not_corrupt; src/persist/state_file.rs: state_roundtrip_deterministic) переведены на платформонезависимый хелпер абсолютного пути (std::env::temp_dir()-based), не хардкодящий POSIX-корень. Проверка: тесты core::testing и persist::state_file + cargo clippy --all-targets 0 предупреждений**
+- [ ] Шаг 2: ЧЕКПОИНТ: полный cargo test + cargo clippy
+
+Легенда: [x] сделано · [>] текущий шаг · [ ] не начато
+
+- **Текущий шаг (current_step):** Шаг 1
+- **Следующий ход:** Фикстуры тестов: платформонезависимый абсолютный путь вместо хардкода /music
+- **Счетчик безуспешных компиляций:** 0/3
+- **Состояние:** in_progress
 
 ## План: Executable workflow: правила AGENTS.md → исполняемые механизмы
 _Источник: чат с пользователем (ноутбук), начат в 67686ce; перенесён в репо 2026-09-22_
