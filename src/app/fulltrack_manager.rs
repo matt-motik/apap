@@ -431,12 +431,11 @@ impl MusicApp {
             }
         }
 
-        // Целевой ключ: path + ключ кэша построения.
+        // Целевой ключ: path + ключ кэша построения. mtime/размер — из кеша,
+        // диск читается только при смене файла (V5.1-B8).
         let target = if want {
             current.map(|p| {
-                let md = fs::metadata(&p).ok();
-                let mtime = md.as_ref().and_then(|m| m.modified().ok());
-                let size = md.as_ref().map(|m| m.len()).unwrap_or(0);
+                let (mtime, size) = self.fulltrack_meta_of(&p);
                 let key = match (mode, mtime, is_dsd(&p)) {
                     (VisualizationMode::Spectrogram, Some(t), dsd) => {
                         ft::cache_key_spectrogram(&p, t, size, &cfg.spectrogram, dsd.then_some(&cfg.dsd_params))
@@ -460,6 +459,22 @@ impl MusicApp {
 
         // События воркера.
         self.drain_fulltrack_events(&cfg, &osc);
+    }
+
+    /// mtime и размер файла для ключа кэша полнотрековой картинки: из
+    /// `fulltrack_file_meta`, если путь тот же, иначе одно чтение метаданных
+    /// (V5.1 §13, V5.1-B8).
+    fn fulltrack_meta_of(&mut self, path: &std::path::Path) -> (Option<std::time::SystemTime>, u64) {
+        if let Some((p, mtime, size)) = &self.fulltrack_file_meta {
+            if p == path {
+                return (*mtime, *size);
+            }
+        }
+        let md = fs::metadata(path).ok();
+        let mtime = md.as_ref().and_then(|m| m.modified().ok());
+        let size = md.as_ref().map(|m| m.len()).unwrap_or(0);
+        self.fulltrack_file_meta = Some((path.to_path_buf(), mtime, size));
+        (mtime, size)
     }
 
     /// Применить целевой (path, key): отменить текущий билд, проверить RAM-кэш,

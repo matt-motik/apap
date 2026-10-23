@@ -12,12 +12,12 @@
 - **Критерий успеха (Definition of Done):** drain_fulltrack читает mtime/размер текущего файла один раз при смене пути (кеш в MusicApp), ключ кэша картинки строится без I/O на тике; полный cargo test и clippy зелёные
 
 ## Итерационный трекер
-- [>] **Шаг 1: Поле MusicApp::fulltrack_file_meta (src/app/mod.rs) — (путь, mtime, размер) последнего прочитанного файла; drain_fulltrack (src/app/fulltrack_manager.rs) берёт mtime/размер из него и вызывает fs::metadata только при смене пути (V5.1 §13). Проверка (сессия из одного шага): cargo check; полный cargo test; cargo clippy без новых предупреждений по файлам вайтлиста**
+- [x] Шаг 1: Поле MusicApp::fulltrack_file_meta (src/app/mod.rs) — (путь, mtime, размер) последнего прочитанного файла; drain_fulltrack (src/app/fulltrack_manager.rs) берёт mtime/размер из него и вызывает fs::metadata только при смене пути (V5.1 §13). Проверка (сессия из одного шага): cargo check; полный cargo test; cargo clippy без новых предупреждений по файлам вайтлиста
 
 Легенда: [x] сделано · [>] текущий шаг · [ ] не начато
 
 - **Текущий шаг (current_step):** Шаг 1
-- **Следующий ход:** Кеш метаданных файла для ключа полнотрековой картинки
+- **Следующий ход:** закрытие по closing.md
 - **Счетчик безуспешных компиляций:** 0/3
 - **Состояние:** in_progress
 

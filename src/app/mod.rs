@@ -482,6 +482,10 @@ pub struct MusicApp {
     fulltrack_id: u64,
     /// Целевой (path, cache_key) текущего билда.
     fulltrack_target: Option<(std::path::PathBuf, String)>,
+    /// Метаданные текущего файла для ключа кэша полнотрековой картинки:
+    /// (путь, mtime, размер). Читаются один раз при смене пути, а не на
+    /// каждом UI-тике (V5.1 §13, V5.1-B8).
+    fulltrack_file_meta: Option<(std::path::PathBuf, Option<std::time::SystemTime>, u64)>,
     /// Ключ билда, уже показанный на UI (для дропа устаревших Ready).
     fulltrack_key: Option<String>,
     /// RAM-кэш построенных изображений по cache-ключу (режим+параметры).
@@ -779,6 +783,7 @@ impl MusicApp {
             fulltrack_rx: None,
             fulltrack_id: 0,
             fulltrack_target: None,
+            fulltrack_file_meta: None,
             fulltrack_key: None,
             fulltrack_cache: clru::CLruCache::new(cache_max_entries),
             fulltrack_mode: None,

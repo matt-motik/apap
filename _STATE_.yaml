@@ -13,9 +13,9 @@ dod: "drain_fulltrack читает mtime/размер текущего файл�
 steps:
   - id: 1
     description: "Поле MusicApp::fulltrack_file_meta (src/app/mod.rs) — (путь, mtime, размер) последнего прочитанного файла; drain_fulltrack (src/app/fulltrack_manager.rs) берёт mtime/размер из него и вызывает fs::metadata только при смене пути (V5.1 §13). Проверка (сессия из одного шага): cargo check; полный cargo test; cargo clippy без новых предупреждений по файлам вайтлиста"
-    done: false
+    done: true
 current_step: 1
-next_action: "Кеш метаданных файла для ключа полнотрековой картинки"
+next_action: "закрытие по closing.md"
 fail_counter: 0
 fail_counter_max: 3
 failed_attempts: []
