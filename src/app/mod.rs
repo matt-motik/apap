@@ -1577,7 +1577,7 @@ impl MusicApp {
     /// приходит; «Сохранить» этот запрос не блокирует — черновик он не
     /// меняет (ТЗ-27).
     fn populate_theme_ui(&mut self) {
-        self.io_gens.themes = self.io_gens.themes.wrapping_add(1);
+        self.io_gens.themes = self.core.next_io_gen();
         self.core.io().submit(IoJob::ListThemes { gen: self.io_gens.themes });
     }
 
@@ -2683,8 +2683,7 @@ impl MusicApp {
                 eprintln!("[gui] settings_clear_viz_cache");
                 let mut a = app.borrow_mut();
                 a.fulltrack_cache.clear();
-                a.io_gens.clear = a.io_gens.clear.wrapping_add(1);
-                a.core.io().submit(IoJob::ClearCache { gen: a.io_gens.clear, which: CacheKind::Visualization });
+                a.io_gens.clear = a.core.clear_cache(CacheKind::Visualization);
                 let disk = a.cache_disk;
                 a.apply_cache_sizes(&disk);
             });
@@ -2697,8 +2696,7 @@ impl MusicApp {
             ui.on_settings_clear_cover_cache(move || {
                 eprintln!("[gui] settings_clear_cover_cache");
                 let mut a = app.borrow_mut();
-                a.io_gens.clear = a.io_gens.clear.wrapping_add(1);
-                a.core.io().submit(IoJob::ClearCache { gen: a.io_gens.clear, which: CacheKind::Covers });
+                a.io_gens.clear = a.core.clear_cache(CacheKind::Covers);
             });
         }
 
@@ -2710,8 +2708,7 @@ impl MusicApp {
                 eprintln!("[gui] settings_clear_all_cache");
                 let mut a = app.borrow_mut();
                 a.fulltrack_cache.clear();
-                a.io_gens.clear = a.io_gens.clear.wrapping_add(1);
-                a.core.io().submit(IoJob::ClearCache { gen: a.io_gens.clear, which: CacheKind::All });
+                a.io_gens.clear = a.core.clear_cache(CacheKind::All);
                 let disk = a.cache_disk;
                 a.apply_cache_sizes(&disk);
             });

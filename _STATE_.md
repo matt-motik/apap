@@ -17,8 +17,8 @@
 - **Критерий успеха (Definition of Done):** Все 7 пунктов строки SP1.0-B15 устранены или явно объяснены как сохраняемые; полный cargo test и cargo clippy --all-targets зелёные без новых предупреждений
 
 ## Итерационный трекер
-- [>] **Шаг 1: IoGens: themes/clear через core.next_io_gen() вместо локального wrapping_add, очистка кэшей через core.clear_cache() (SP1.0-B15 п.1). Проверка: cargo check**
-- [ ] Шаг 2: Удалить мёртвое поле MusicApp::theme_meta — пишется и сразу читается только в set_theme_meta (SP1.0-B15 п.2). Проверка: cargo check
+- [x] Шаг 1: IoGens: themes/clear через core.next_io_gen() вместо локального wrapping_add, очистка кэшей через core.clear_cache() (SP1.0-B15 п.1). Проверка: cargo check
+- [>] **Шаг 2: Удалить мёртвое поле MusicApp::theme_meta — пишется и сразу читается только в set_theme_meta (SP1.0-B15 п.2). Проверка: cargo check**
 - [ ] Шаг 3: Убрать отладочные debug("settings: …") подложки диалога и кнопок Save/Cancel в ui/settings.slint (SP1.0-B15 п.3). Проверка: cargo check
 - [ ] Шаг 4: ValueBlocker::reason(): общий текст вместо дублей в src/core/dialog.rs и src/app/mode_dialog.rs (SP1.0-B15 п.4). Проверка: cargo check
 - [ ] Шаг 5: Обновить устаревшие комментарии: set_output_device (playback_manager.rs), привязка клавиши V (viz_settings_manager.rs, шлюз решает сам) (SP1.0-B15 п.5). Проверка: cargo check
@@ -28,8 +28,8 @@
 
 Легенда: [x] сделано · [>] текущий шаг · [ ] не начато
 
-- **Текущий шаг (current_step):** Шаг 1
-- **Следующий ход:** Шаг 1: IoGens.themes/clear через core.next_io_gen(), очистка кэшей через core.clear_cache()
+- **Текущий шаг (current_step):** Шаг 2
+- **Следующий ход:** Шаг 2: удалить мёртвое поле MusicApp::theme_meta
 - **Счетчик безуспешных компиляций:** 0/3
 - **Состояние:** in_progress
 

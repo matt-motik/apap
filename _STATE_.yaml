@@ -18,7 +18,7 @@ dod: "Все 7 пунктов строки SP1.0-B15 устранены или �
 steps:
   - id: 1
     description: "IoGens: themes/clear через core.next_io_gen() вместо локального wrapping_add, очистка кэшей через core.clear_cache() (SP1.0-B15 п.1). Проверка: cargo check"
-    done: false
+    done: true
   - id: 2
     description: "Удалить мёртвое поле MusicApp::theme_meta — пишется и сразу читается только в set_theme_meta (SP1.0-B15 п.2). Проверка: cargo check"
     done: false
@@ -40,8 +40,8 @@ steps:
   - id: 8
     description: "ЧЕКПОИНТ: полный cargo test + clippy"
     done: false
-current_step: 1
-next_action: "Шаг 1: IoGens.themes/clear через core.next_io_gen(), очистка кэшей через core.clear_cache()"
+current_step: 2
+next_action: "Шаг 2: удалить мёртвое поле MusicApp::theme_meta"
 fail_counter: 0
 fail_counter_max: 3
 failed_attempts: []
