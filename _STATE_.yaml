@@ -62,6 +62,9 @@ steps:
   - id: 8
     description: "Место кнопки замка (ui/app.slint, src/app/mod.rs): наложение на правый край строки меню на Linux/Windows; на macOS — правый край верхней панели, свойство выставляется из Rust через cfg!(target_os = \"macos\"). Проверка: cargo check; ревью ветки macOS (не компилируется локально, AGENTS.md)"
     done: true
+  - id: 13
+    description: "Окно сообщения: ширина по ряду кнопок (не шире окна приложения), перенос заголовка и текста по словам, кнопки не обрезаются — «Отмена» всегда видна (ручная проверка пользователя 2026-10-24). Проверка: cargo check + clippy"
+    done: true
   - id: 9
     description: "ЧЕКПОИНТ: полный cargo test + cargo clippy зелёные"
     done: false

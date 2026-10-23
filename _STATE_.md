@@ -41,6 +41,7 @@
 - [x] Шаг 6: Кнопка замка (ui/top_panel.slint): icon-only toggle вместо LockIndicator + ряда LockActionButton (открыт/захват-песочные часы/закрыт, подсказка — текст состояния, ТЗ-119, ТЗ-121), скрыта при LockKind.not-applicable (ТЗ-50), disabled во время захвата. Проверка: cargo check
 - [x] Шаг 7: Проводка кнопки замка (src/app/mod.rs): клик по иконке — UserClose/UserOpen по текущему lock-kind; apply_lock_view без lock-can-* (действия теперь в окне ошибки шага 5). Проверка: cargo test app:: — СДЕЛАНО ВНУТРИ ШАГА 6: LockButton (top_panel.slint) сам выбирает close()/open() по kind и вызывает существующие TopPanel.lock-close()/lock-open() (on_lock_close/on_lock_open, AM1.0-8.6); apply_lock_view больше не трогает lock-can-*, on_lock_retry/on_lock_choose_device/on_lock_go_compatible убраны вместе с LockActionButton.
 - [x] Шаг 8: Место кнопки замка (ui/app.slint, src/app/mod.rs): наложение на правый край строки меню на Linux/Windows; на macOS — правый край верхней панели, свойство выставляется из Rust через cfg!(target_os = "macos"). Проверка: cargo check; ревью ветки macOS (не компилируется локально, AGENTS.md)
+- [x] Шаг 13: Окно сообщения: ширина по ряду кнопок (не шире окна приложения), перенос заголовка и текста по словам, кнопки не обрезаются — «Отмена» всегда видна (ручная проверка пользователя 2026-10-24). Проверка: cargo check + clippy
 - [>] **Шаг 9: ЧЕКПОИНТ: полный cargo test + cargo clippy зелёные**
 
 Легенда: [x] сделано · [>] текущий шаг · [ ] не начато

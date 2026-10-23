@@ -22,7 +22,8 @@ export struct MessageActionItem {
 // заменяет бывшие фиксированные `retry`/`primary-label`); рендерится слева
 // направо в порядке массива. Кнопки без акцента стиля — как в окне настроек
 // (SP1.0-B3); Enter/Esc — через обработчик клавиш, а не через свойство
-// кнопки (см. `MessageActionItem`).
+// кнопки (см. `MessageActionItem`). Ширина диалога и перенос на вертикальный
+// стек кнопок при нехватке места по горизонтали — AM1.0-B14 шаг 13.
 export component MessageWindow inherits Rectangle {
     in property <bool> shown: false;
     in property <int> level: 2;
@@ -54,9 +55,38 @@ export component MessageWindow inherits Rectangle {
         }
     }
 
+    // Запасной ряд кнопок — не отображается, нужен только чтобы измерить
+    // суммарную предпочтительную ширину actions в один ряд (AM1.0-B14 шаг
+    // 13): preferred-width считается от текста кнопок независимо от того,
+    // показан ли этот ряд где-либо; по нему решаем — buttons-fit ниже —
+    // влезают ли кнопки в одну строку или нужен вертикальный стек.
+    measure-row := HorizontalLayout {
+        visible: false;
+        spacing: 8px;
+        for item in root.actions : Button {
+            text: item.label;
+        }
+    }
+
+    property <length> dialog-margin: 24px;
+    property <length> content-padding: 16px;
+    // Диалог не шире и не выше окна приложения за вычетом отступов от
+    // краёв (AM1.0-B14 шаг 13, ручная проверка пользователя 2026-10-24:
+    // заголовок не влезал, «Отмена» обрезалась).
+    property <length> max-dialog-width: max(320px, root.width - 2 * root.dialog-margin);
+    property <length> max-dialog-height: max(260px, root.height - 2 * root.dialog-margin);
+    property <bool> buttons-fit: measure-row.preferred-width + 2 * root.content-padding <= root.max-dialog-width;
+
     dialog := Rectangle {
-        width: 440px;
-        height: 260px;
+        // Ширина — по ряду кнопок (один ряд) с минимумом в прежние 440px и
+        // потолком в ширину окна приложения; если кнопки одним рядом не
+        // влезают, buttons-fit ниже переключает их на вертикальный стек, а
+        // ширина диалога остаётся на минимуме 440px.
+        width: Math.clamp(root.buttons-fit ? measure-row.preferred-width + 2 * root.content-padding : 440px, 440px, root.max-dialog-width);
+        // Высота — по содержимому (заголовок/текст переносятся по словам,
+        // кнопки могут стать вертикальным стеком), с минимумом в прежние
+        // 260px и потолком в высоту окна приложения.
+        height: Math.clamp(content-wrap.preferred-height, 260px, root.max-dialog-height);
         x: (parent.width - self.width) / 2;
         y: (parent.height - self.height) / 2;
 
@@ -65,8 +95,8 @@ export component MessageWindow inherits Rectangle {
         border-width: 1px;
         border-color: Colors.border-default;
 
-        VerticalLayout {
-            padding: 16px;
+        content-wrap := VerticalLayout {
+            padding: root.content-padding;
             spacing: 12px;
 
             // Пересобирается при каждом показе (как диалог настроек): забирает
@@ -98,6 +128,8 @@ export component MessageWindow inherits Rectangle {
                             font-size: 16px;
                             font-weight: 600;
                             vertical-alignment: center;
+                            wrap: word-wrap;
+                            horizontal-stretch: 1;
                         }
                     }
 
@@ -118,9 +150,24 @@ export component MessageWindow inherits Rectangle {
                         }
                     }
 
-                    HorizontalLayout {
+                    // Один ряд, если кнопки влезают по ширине (первая —
+                    // основная, последняя — «Отмена», слева направо как и
+                    // раньше); иначе — вертикальный стек на всю ширину
+                    // диалога в том же порядке, чтобы «Отмена» не
+                    // обрезалась (AM1.0-B14 шаг 13).
+                    if root.buttons-fit : HorizontalLayout {
                         spacing: 8px;
                         alignment: end;
+
+                        for item in root.actions : Button {
+                            text: item.label;
+                            preferred-height: 28px;
+                            clicked => { root.action(item.action-id); }
+                        }
+                    }
+
+                    if !root.buttons-fit : VerticalLayout {
+                        spacing: 8px;
 
                         for item in root.actions : Button {
                             text: item.label;
