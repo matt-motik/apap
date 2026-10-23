@@ -20,12 +20,12 @@
 - [x] Шаг 2: src/audio/analyzer.rs: SpectrumEngine распознаёт заголовок в pull_frame (NaN → частота, каналы), останавливает consume и отдаёт границу (take_boundary); LiveWorker на границе пересоздаёт SpectrumEngine по частоте/каналам заголовка и обнуляет bars; тесты: заголовок сбрасывает окно и пики, частота берётся из заголовка (≤5). Проверка: cargo test audio::analyzer
 - [x] Шаг 3: Удалить LiveWorker::set_format и атомики rate/in_ch (src/audio/analyzer.rs) и вызовы set_format в setup_visualizer/viz_push (src/app/visualizer_manager.rs): формат приходит только заголовком tap. Проверка: cargo check; cargo test audio::analyzer
 - [x] Шаг 5: src/app/ui_audio_state.rs: удалить UiAudioState::format() (без потребителей после шага 3) и поле stream_format, которое читал только он (присваивания из Opened/OpenFailed); тесты format_follows_signal_path и format_falls_back_to_stream_format_without_path удаляются, проверки format() в getters_hold_last_accepted_values и format_default_before_open убираются; само поле EngineEvent::Opened.stream_format — остаток AM1.0-B10. Проверка: cargo check без предупреждений; cargo test ui_audio_state
-- [>] **Шаг 4: ЧЕКПОИНТ: полный cargo test + cargo clippy без новых предупреждений по файлам вайтлиста; check_rt_imports**
+- [x] Шаг 4: ЧЕКПОИНТ: полный cargo test + cargo clippy без новых предупреждений по файлам вайтлиста; check_rt_imports
 
 Легенда: [x] сделано · [>] текущий шаг · [ ] не начато
 
 - **Текущий шаг (current_step):** Шаг 4
-- **Следующий ход:** ЧЕКПОИНТ: полный cargo test + clippy
+- **Следующий ход:** закрытие по closing.md
 - **Счетчик безуспешных компиляций:** 0/3
 - **Состояние:** in_progress
 
