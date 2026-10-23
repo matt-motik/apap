@@ -2,24 +2,15 @@
 # _STATE_.md генерируется из этого файла — не редактировать его руками.
 # Редактируйте этот файл, затем: python tools/state_tool.py render
 
-status: in_progress
+status: done
 task:
-  roadmap_id: WF1.0-B6
-  title: "Хук commit-msg: при status: in_progress сообщение несёт (<roadmap_id>, step <N>) либо служебный префикс"
-whitelist:
-  - tools/state_tool.py
-  - hooks/commit-msg
-  - docs/00_workflow_v1.0/execution.md
-dod: "hooks/commit-msg (через tools/state_tool.py check-commit-msg) при status: in_progress пропускает сообщение с (<roadmap_id>, step <N>) и служебные префиксы (chore(state), chore(roadmap), chore(claude), acceptance(), блокирует прочее; при status: done — пропускает всё; git config core.hooksPath уже указывает на hooks/, новый коммит сам проходит проверку"
-steps:
-  - id: 1
-    description: "tools/state_tool.py: команда check-commit-msg <путь-к-файлу-сообщения> — при status: in_progress проверяет вхождение '(<roadmap_id>, step <N>)' в текст коммита или служебный префикс (chore(state), chore(roadmap), chore(claude), acceptance(); при status: done пропускает. Проверка: ручной прогон на временных копиях _STATE_.yaml (in_progress/done, подходящее/неподходящее сообщение) — ожидаемые коды возврата; tools/state_tool.py check зелёный"
-    done: true
-  - id: 2
-    description: "hooks/commit-msg (новый, исполняемый) вызывает tools/state_tool.py check-commit-msg \"$1\"; документировать хук в docs/00_workflow_v1.0/execution.md (новый §9, по образцу §8 pre-commit). Проверка: реальный коммит этого шага проходит через сам хук (git commit отрабатывает commit-msg без --no-verify) — живое подтверждение; tools/traceability_tool.py check зелёный"
-    done: true
-current_step: 2
-next_action: "закрытие по closing.md"
+  roadmap_id: null
+  title: null
+whitelist: []
+dod: null
+steps: []
+current_step: null
+next_action: null
 fail_counter: 0
 fail_counter_max: 3
 failed_attempts: []
