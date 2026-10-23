@@ -10,19 +10,22 @@ whitelist:
   - src/app/mod.rs
   - src/app/visualizer_manager.rs
   - src/app/fulltrack_manager.rs
-dod: "viz_push и drain_fulltrack читают действующие настройки и тип визуализации (core.settings(), core.state().viz_mode()) независимо от открытого диалога; изменения визуализации видны только после «Сохранить», «Отмена» картинку не меняет (ТЗ-25, ТЗ-26; решение пользователя 2026-10-23 — править код); полный cargo test и clippy зелёные"
+dod: "viz_push и drain_fulltrack читают действующие настройки и тип визуализации (core.settings(), core.state().viz_mode()) независимо от открытого диалога; изменения визуализации видны только после «Сохранить», «Отмена» картинку не меняет; задержки для черновика (viz_debounce) нет (ТЗ-25, ТЗ-26; решение пользователя 2026-10-23 — править код); полный cargo test и clippy зелёные"
 steps:
   - id: 1
-    description: "mod.rs: метод MusicApp::live_viz() -> (&PersistSettings, VisualizationMode) — действующие настройки и тип визуализации ядра без черновика (ТЗ-25, ТЗ-26, SP1.0 §6.9); viz_push (visualizer_manager.rs) переводится на него вместо cfg()/cfg_viz_mode(). Проверка: cargo check"
+    description: "viz_push (src/app/visualizer_manager.rs): параметры и тип визуализации из self.core.settings() / self.core.state().viz_mode() вместо cfg()/cfg_viz_mode(), комментарий «действующие, не черновик» (ТЗ-25, ТЗ-26, SP1.0 §6.9). Проверка: cargo check"
     done: false
   - id: 2
-    description: "drain_fulltrack (fulltrack_manager.rs:401): VisualizerConfig из live_viz() вместо cfg()/cfg_viz_mode() (ТЗ-25, ТЗ-26). Проверка: cargo check"
+    description: "drain_fulltrack (src/app/fulltrack_manager.rs): VisualizerConfig из core.settings() / core.state().viz_mode() вместо cfg()/cfg_viz_mode() (ТЗ-25, ТЗ-26). Проверка: cargo check"
     done: false
   - id: 3
+    description: "Удалить задержку 500 мс для правок черновика: ветку in_dialog в drain_fulltrack, константу FULLTRACK_DEBOUNCE (fulltrack_manager.rs), поле MusicApp::viz_debounce (mod.rs) — после шагов 1–2 черновик картинку не меняет, задержка лишь откладывала бы пересборку при смене трека во время диалога (ТЗ-25, ТЗ-26). Проверка: cargo check"
+    done: false
+  - id: 4
     description: "ЧЕКПОИНТ: полный cargo test + cargo clippy без новых предупреждений по файлам вайтлиста"
     done: false
 current_step: 1
-next_action: "Добавить MusicApp::live_viz и перевести на него viz_push"
+next_action: "Перевести viz_push на core.settings()/core.state().viz_mode()"
 fail_counter: 0
 fail_counter_max: 3
 failed_attempts: []
