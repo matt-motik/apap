@@ -15,13 +15,13 @@
 
 ## Итерационный трекер
 - [x] Шаг 1: ui/visualizer.slint: in property <bool> has-track; условия видимости спектра и плейсхолдера — по has-track вместо artist != / == «—»; ui/top_panel.slint: in property <bool> info-has-track, передача в Visualizer (V5.1 §5.5, §4.2). Проверка: cargo check
-- [>] **Шаг 2: ui/app.slint: in property <bool> info-has-track и передача в TopPanel; src/app/playback_manager.rs sync_track_info_to_ui: set_info_has_track(true) при текущем треке, false без него. Проверка: cargo check**
-- [ ] Шаг 3: ЧЕКПОИНТ: полный cargo test + cargo clippy без новых предупреждений по файлам вайтлиста
+- [x] Шаг 2: ui/app.slint: in property <bool> info-has-track и передача в TopPanel; src/app/playback_manager.rs sync_track_info_to_ui: set_info_has_track(true) при текущем треке, false без него. Проверка: cargo check
+- [>] **Шаг 3: ЧЕКПОИНТ: полный cargo test + cargo clippy без новых предупреждений по файлам вайтлиста**
 
 Легенда: [x] сделано · [>] текущий шаг · [ ] не начато
 
-- **Текущий шаг (current_step):** Шаг 2
-- **Следующий ход:** Свойство info-has-track в app.slint и установка в sync_track_info_to_ui
+- **Текущий шаг (current_step):** Шаг 3
+- **Следующий ход:** ЧЕКПОИНТ: полный cargo test + clippy
 - **Счетчик безуспешных компиляций:** 0/3
 - **Состояние:** in_progress
 

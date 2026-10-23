@@ -218,6 +218,7 @@ export component AppWindow inherits Window {
     in property <string> status-test-hint: "";
 
     in property <string> info-artist: "—";
+    in property <bool> info-has-track: false;
     in property <string> info-track: "—";
     in property <string> info-title: "—";
     in property <string> info-duration: "—";
@@ -516,6 +517,7 @@ export component AppWindow inherits Window {
                 pos: root.pos;
                 dur: root.dur;
                 info-artist: root.info-artist;
+                info-has-track: root.info-has-track;
                 info-track: root.info-track;
                 info-title: root.info-title;
                 info-duration: root.info-duration;

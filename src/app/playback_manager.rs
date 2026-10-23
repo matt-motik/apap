@@ -109,6 +109,8 @@ impl MusicApp {
         if let Some(i) = self.current {
             if let Some(t) = self.track_at(i) {
                 if let Some(ui) = &ui {
+                    // Признак трека отдельно от тега «Исполнитель» (AM1.0-B11).
+                    ui.set_info_has_track(true);
                     ui.set_info_artist(opt_str(&t.artist));
                     ui.set_info_track(fmt_num(t.track_number, t.track_total));
                     ui.set_info_title(if t.title.is_empty() {
@@ -156,6 +158,7 @@ impl MusicApp {
             }
         }
         if let Some(ui) = &ui {
+            ui.set_info_has_track(false);
             ui.set_info_artist("—".into());
             ui.set_info_track("—".into());
             ui.set_info_title("—".into());

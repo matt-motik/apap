@@ -18,12 +18,12 @@ steps:
     done: true
   - id: 2
     description: "ui/app.slint: in property <bool> info-has-track и передача в TopPanel; src/app/playback_manager.rs sync_track_info_to_ui: set_info_has_track(true) при текущем треке, false без него. Проверка: cargo check"
-    done: false
+    done: true
   - id: 3
     description: "ЧЕКПОИНТ: полный cargo test + cargo clippy без новых предупреждений по файлам вайтлиста"
     done: false
-current_step: 2
-next_action: "Свойство info-has-track в app.slint и установка в sync_track_info_to_ui"
+current_step: 3
+next_action: "ЧЕКПОИНТ: полный cargo test + clippy"
 fail_counter: 0
 fail_counter_max: 3
 failed_attempts: []
