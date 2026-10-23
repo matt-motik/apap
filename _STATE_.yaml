@@ -33,15 +33,15 @@ steps:
     done: true
   - id: 6
     description: "Перевести подписи вкладки Cache в ui/settings.slint на русский, согласованно с текстом ТЗ-34 (SP1.0-B15 п.6). Проверка: cargo check"
-    done: false
+    done: true
   - id: 7
     description: "MainCmd::ColumnResize спрашивает core.gate() перед сохранением ширин колонок в tick() (SP1.0-B15 п.7). Проверка: cargo check"
     done: false
   - id: 8
     description: "ЧЕКПОИНТ: полный cargo test + clippy"
     done: false
-current_step: 6
-next_action: "Шаг 6: перевести подписи вкладки Cache в ui/settings.slint на русский"
+current_step: 7
+next_action: "Шаг 7: MainCmd::ColumnResize спрашивает core.gate() в tick()"
 fail_counter: 0
 fail_counter_max: 3
 failed_attempts: []

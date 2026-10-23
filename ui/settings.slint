@@ -1490,7 +1490,7 @@ export component Settings inherits Rectangle {
                                         padding-right: 8px;
                                         spacing: 4px;
                                         RowLabel {
-                                            text: "RAM viz cache";
+                                            text: "RAM-кэш визуализации";
                                         }
 
                                         RowLabel {
@@ -1508,7 +1508,7 @@ export component Settings inherits Rectangle {
                                         padding-right: 8px;
                                         spacing: 4px;
                                         RowLabel {
-                                            text: "Viz cache";
+                                            text: "Кэш визуализации (диск)";
                                         }
 
                                         RowLabel {
@@ -1526,7 +1526,7 @@ export component Settings inherits Rectangle {
                                         padding-right: 8px;
                                         spacing: 4px;
                                         RowLabel {
-                                            text: "Cover cache";
+                                            text: "Кэш обложек";
                                         }
 
                                         RowLabel {
@@ -1549,19 +1549,19 @@ export component Settings inherits Rectangle {
                                         }
 
                                         Button {
-                                            text: "Clear viz cache";
+                                            text: "Очистить кэш визуализации";
                                             preferred-height: 28px;
                                             clicked => { root.clear-viz-cache(); }
                                         }
 
                                         Button {
-                                            text: "Clear cover cache";
+                                            text: "Очистить кэш обложек";
                                             preferred-height: 28px;
                                             clicked => { root.clear-cover-cache(); }
                                         }
 
                                         Button {
-                                            text: "Clear all";
+                                            text: "Очистить всё";
                                             preferred-height: 28px;
                                             clicked => { root.clear-all-cache(); }
                                         }
