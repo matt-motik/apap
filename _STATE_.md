@@ -2,10 +2,28 @@
      Source of truth: _STATE_.yaml — edit that, then run:
      python tools/state_tool.py render -->
 
-# Состояние сессии
 
-- **Текущая задача:** Нет (все шаги завершены)
-- **Состояние:** done
+# Текущая микро-сессия
+
+- **Задача из ROADMAP:** AM1.0-B11 — Анализатор спектра не рисуется для треков без тега «Исполнитель»
+- **Вайтлист файлов в работе (Изменяемые файлы):**
+  - ui/visualizer.slint
+  - ui/top_panel.slint
+  - ui/app.slint
+  - src/app/playback_manager.rs
+- **Критерий успеха (Definition of Done):** Visualizer получает признак «трек загружен» отдельным свойством has-track; видимость спектра и плейсхолдера не зависит от текста artist; sync_track_info_to_ui ставит его true при текущем треке и false без него; полный cargo test и clippy зелёные
+
+## Итерационный трекер
+- [>] **Шаг 1: ui/visualizer.slint: in property <bool> has-track; условия видимости спектра и плейсхолдера — по has-track вместо artist != / == «—»; ui/top_panel.slint: in property <bool> info-has-track, передача в Visualizer (V5.1 §5.5, §4.2). Проверка: cargo check**
+- [ ] Шаг 2: ui/app.slint: in property <bool> info-has-track и передача в TopPanel; src/app/playback_manager.rs sync_track_info_to_ui: set_info_has_track(true) при текущем треке, false без него. Проверка: cargo check
+- [ ] Шаг 3: ЧЕКПОИНТ: полный cargo test + cargo clippy без новых предупреждений по файлам вайтлиста
+
+Легенда: [x] сделано · [>] текущий шаг · [ ] не начато
+
+- **Текущий шаг (current_step):** Шаг 1
+- **Следующий ход:** Свойство has-track в Visualizer и TopPanel
+- **Счетчик безуспешных компиляций:** 0/3
+- **Состояние:** in_progress
 
 ## План: Executable workflow: правила AGENTS.md → исполняемые механизмы
 _Источник: чат с пользователем (ноутбук), начат в 67686ce; перенесён в репо 2026-09-22_
