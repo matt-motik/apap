@@ -10,7 +10,9 @@ use crate::persist::settings_file::{ColumnDef, SaveInterval, Settings};
 use crate::persist::state_file::SessionState;
 use crate::settings::ColumnId;
 use crate::settings::params::{ModeSettingsDiff, ModeSettingsUpdate};
-use crate::settings::playback::{buffers_allowed, ModeKind, ModeSettings, ValueBlocker};
+use crate::settings::playback::{
+    buffers_allowed, CompatibleOpts, ModeKind, ModeSettings, OptimalOpts, StrictOpts, ValueBlocker,
+};
 use crate::theme::ThemeData;
 
 /// Черновик диалога (§2.10, ADR-11, ТЗ-25): только параметры диалога.
@@ -157,6 +159,174 @@ pub fn diff(cur: &Settings, state: &SessionState, draft: &DialogDraft) -> Settin
     let reset_widths = draft.reset_widths && !state.column_widths().is_empty();
 
     SettingsDiff { fields, modes, viz_mode, reset_widths }
+}
+
+/// Перебазирование черновика при изменении действующих настроек в обход
+/// диалога (SP1.0-B13, вариант А, ТЗ-25, ТЗ-27, ADR-11): пока диалог открыт,
+/// единственный известный случай — автовыбор устройства Оптимального/
+/// Строгого режима (`save_auto_selected_device`, ТЗ-143). Для каждого
+/// значения, которое пользователь не редактировал в черновике (оно равно
+/// прежнему действующему `old`), черновик получает новое действующее
+/// значение `new`; значение, которое пользователь уже изменил в черновике,
+/// остаётся как есть — внешнее изменение его не перетирает. Для `playback`
+/// сравнение идёт по каждому параметру режима отдельно (`rebase_compatible`/
+/// `rebase_optimal`/`rebase_strict`), а не по режиму целиком: правка одного
+/// параметра режима в черновике не мешает перебазированию устройства того
+/// же режима. Чистая функция, без записи и без обращения к `AppCore`.
+///
+/// Вызывается только из `AppCore::save_settings_now` на пути, отличном от
+/// «Сохранить» диалога (`dialog_save` забирает черновик до вызова
+/// `save_settings_now`, поэтому там черновика уже нет и `rebase` не
+/// затрагивает её семантику).
+pub fn rebase(draft: &mut DialogDraft, old: &Settings, new: &Settings) {
+    // Без `..` — новое поле `Settings` без строки здесь не компилируется
+    // (как в `diff`).
+    let Settings {
+        theme: old_theme,
+        save_interval: old_save_interval,
+        minimize_to_tray: old_minimize_to_tray,
+        scroll_to_playing: old_scroll_to_playing,
+        top_panel: old_top_panel,
+        columns: old_columns,
+        covers: old_covers,
+        info_labels: old_info_labels,
+        visualization: old_visualization,
+        playback: old_playback,
+    } = old;
+    let Settings {
+        theme: new_theme,
+        save_interval: new_save_interval,
+        minimize_to_tray: new_minimize_to_tray,
+        scroll_to_playing: new_scroll_to_playing,
+        top_panel: new_top_panel,
+        columns: new_columns,
+        covers: new_covers,
+        info_labels: new_info_labels,
+        visualization: new_visualization,
+        playback: new_playback,
+    } = new;
+
+    rebase_field(&mut draft.settings.theme, old_theme, new_theme);
+    rebase_field(&mut draft.settings.save_interval, old_save_interval, new_save_interval);
+    rebase_field(&mut draft.settings.minimize_to_tray, old_minimize_to_tray, new_minimize_to_tray);
+    rebase_field(&mut draft.settings.scroll_to_playing, old_scroll_to_playing, new_scroll_to_playing);
+    rebase_field(&mut draft.settings.top_panel, old_top_panel, new_top_panel);
+    rebase_field(&mut draft.settings.columns, old_columns, new_columns);
+    rebase_field(&mut draft.settings.covers, old_covers, new_covers);
+    rebase_field(&mut draft.settings.info_labels, old_info_labels, new_info_labels);
+    rebase_field(&mut draft.settings.visualization, old_visualization, new_visualization);
+    rebase_playback(&mut draft.settings.playback, old_playback, new_playback);
+}
+
+/// Одно значение черновика (§2.10, ADR-11): если пользователь его не
+/// редактировал (оно равно прежнему действующему `old`), оно следует новому
+/// действующему значению `new`; иначе остаётся как в черновике.
+fn rebase_field<T: Clone + PartialEq>(draft: &mut T, old: &T, new: &T) {
+    if draft == old {
+        draft.clone_from(new);
+    }
+}
+
+/// Перебазирование режимов (ТЗ-143, ADR-24, ADR-25) по каждому параметру
+/// отдельно — автовыбор устройства Оптимального/Строгого режима следует
+/// новому значению, даже если пользователь уже редактирует другой параметр
+/// того же режима в черновике. `devices` (ТЗ-145, ADR-25) не меняется
+/// `save_auto_selected_device`, но перебазируется как единое целое — так же,
+/// как прочие групповые поля `Settings`.
+fn rebase_playback(draft: &mut ModeSettings, old: &ModeSettings, new: &ModeSettings) {
+    // Без `..` — новый режим/поле `ModeSettings` без строки здесь не
+    // компилируется.
+    let ModeSettings { compatible: old_compatible, optimal: old_optimal, strict: old_strict, devices: old_devices } =
+        old;
+    let ModeSettings { compatible: new_compatible, optimal: new_optimal, strict: new_strict, devices: new_devices } =
+        new;
+
+    rebase_compatible(&mut draft.compatible, old_compatible, new_compatible);
+    rebase_optimal(&mut draft.optimal, old_optimal, new_optimal);
+    rebase_strict(&mut draft.strict, old_strict, new_strict);
+    rebase_field(&mut draft.devices, old_devices, new_devices);
+}
+
+/// Перебазирование Совместимого режима по параметрам (ТЗ-93, §2.2).
+fn rebase_compatible(draft: &mut CompatibleOpts, old: &CompatibleOpts, new: &CompatibleOpts) {
+    // Без `..` — новое поле `CompatibleOpts` без строки здесь не компилируется.
+    let CompatibleOpts {
+        device: old_device,
+        fixed_rate: old_fixed_rate,
+        src_filter: old_src_filter,
+        dither: old_dither,
+        dsd_filter: old_dsd_filter,
+        dsd_gain_comp: old_dsd_gain_comp,
+        buffer: old_buffer,
+    } = old;
+    let CompatibleOpts {
+        device: new_device,
+        fixed_rate: new_fixed_rate,
+        src_filter: new_src_filter,
+        dither: new_dither,
+        dsd_filter: new_dsd_filter,
+        dsd_gain_comp: new_dsd_gain_comp,
+        buffer: new_buffer,
+    } = new;
+    rebase_field(&mut draft.device, old_device, new_device);
+    rebase_field(&mut draft.fixed_rate, old_fixed_rate, new_fixed_rate);
+    rebase_field(&mut draft.src_filter, old_src_filter, new_src_filter);
+    rebase_field(&mut draft.dither, old_dither, new_dither);
+    rebase_field(&mut draft.dsd_filter, old_dsd_filter, new_dsd_filter);
+    rebase_field(&mut draft.dsd_gain_comp, old_dsd_gain_comp, new_dsd_gain_comp);
+    rebase_field(&mut draft.buffer, old_buffer, new_buffer);
+}
+
+/// Перебазирование Оптимального режима по параметрам (ТЗ-143, §2.2): `device`
+/// — тот самый автовыбор `save_auto_selected_device`, остальные параметры
+/// независимы от него.
+fn rebase_optimal(draft: &mut OptimalOpts, old: &OptimalOpts, new: &OptimalOpts) {
+    // Без `..` — новое поле `OptimalOpts` без строки здесь не компилируется.
+    let OptimalOpts {
+        device: old_device,
+        rate_fallback: old_rate_fallback,
+        src_filter: old_src_filter,
+        dither: old_dither,
+        volume_lock: old_volume_lock,
+        dsd_above_dac: old_dsd_above_dac,
+        dsd_filter: old_dsd_filter,
+        dsd_gain_comp: old_dsd_gain_comp,
+        buffer: old_buffer,
+        device_buffer: old_device_buffer,
+    } = old;
+    let OptimalOpts {
+        device: new_device,
+        rate_fallback: new_rate_fallback,
+        src_filter: new_src_filter,
+        dither: new_dither,
+        volume_lock: new_volume_lock,
+        dsd_above_dac: new_dsd_above_dac,
+        dsd_filter: new_dsd_filter,
+        dsd_gain_comp: new_dsd_gain_comp,
+        buffer: new_buffer,
+        device_buffer: new_device_buffer,
+    } = new;
+    rebase_field(&mut draft.device, old_device, new_device);
+    rebase_field(&mut draft.rate_fallback, old_rate_fallback, new_rate_fallback);
+    rebase_field(&mut draft.src_filter, old_src_filter, new_src_filter);
+    rebase_field(&mut draft.dither, old_dither, new_dither);
+    rebase_field(&mut draft.volume_lock, old_volume_lock, new_volume_lock);
+    rebase_field(&mut draft.dsd_above_dac, old_dsd_above_dac, new_dsd_above_dac);
+    rebase_field(&mut draft.dsd_filter, old_dsd_filter, new_dsd_filter);
+    rebase_field(&mut draft.dsd_gain_comp, old_dsd_gain_comp, new_dsd_gain_comp);
+    rebase_field(&mut draft.buffer, old_buffer, new_buffer);
+    rebase_field(&mut draft.device_buffer, old_device_buffer, new_device_buffer);
+}
+
+/// Перебазирование Строгого режима по параметрам (ТЗ-143, §2.2): `device` —
+/// тот самый автовыбор `save_auto_selected_device`.
+fn rebase_strict(draft: &mut StrictOpts, old: &StrictOpts, new: &StrictOpts) {
+    // Без `..` — новое поле `StrictOpts` без строки здесь не компилируется.
+    let StrictOpts { device: old_device, buffer: old_buffer, device_buffer: old_device_buffer } = old;
+    let StrictOpts { device: new_device, buffer: new_buffer, device_buffer: new_device_buffer } = new;
+    rebase_field(&mut draft.device, old_device, new_device);
+    rebase_field(&mut draft.buffer, old_buffer, new_buffer);
+    rebase_field(&mut draft.device_buffer, old_device_buffer, new_device_buffer);
 }
 
 /// Подпись темы в подсказке «Сохранить» (§6.9, ТЗ-27).
@@ -550,6 +720,35 @@ mod tests {
         let plan = apply_plan(&d, &draft);
         assert_eq!(plan, vec![ApplyStep::TopPanel]);
         assert!(!plan.iter().any(|step| matches!(step, ApplyStep::Engine(_))));
+    }
+
+    /// `rebase` на поле, не относящемся к `playback` (SP1.0-B13, вариант А):
+    /// неотредактированное пользователем значение следует новому действующему,
+    /// а отредактированное — остаётся черновиковым, даже если действующее
+    /// значение тоже изменилось.
+    #[test]
+    fn rebase_follows_unedited_field_keeps_edited_one() {
+        let cur = Settings::default();
+        let state = SessionState::default();
+        let mut draft = draft_of(&cur, &state);
+
+        // `minimize_to_tray` в черновике не редактировался — следует новому
+        // действующему значению.
+        let mut new = cur.clone();
+        new.minimize_to_tray = !cur.minimize_to_tray;
+        rebase(&mut draft, &cur, &new);
+        assert_eq!(draft.settings.minimize_to_tray, new.minimize_to_tray);
+
+        // `scroll_to_playing` пользователь уже изменил в черновике — внешнее
+        // изменение действующего значения его не перетирает.
+        draft.settings.scroll_to_playing = !cur.scroll_to_playing;
+        let mut new2 = new.clone();
+        new2.scroll_to_playing = !new.scroll_to_playing;
+        let user_value = draft.settings.scroll_to_playing;
+        rebase(&mut draft, &new, &new2);
+        assert_eq!(draft.settings.scroll_to_playing, user_value);
+        // Поле, которое продолжало следовать действующему значению, обновилось.
+        assert_eq!(draft.settings.minimize_to_tray, new2.minimize_to_tray);
     }
 
     #[test]

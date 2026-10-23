@@ -16,15 +16,15 @@ dod: "Изменение настроек в обход диалога при о
 steps:
   - id: 1
     description: "Ядро: при save_settings_now вне dialog_save и открытом черновике — перебазирование черновика (значения, не изменённые в черновике, следуют новым действующим) (SP1.0 ТЗ-25, ТЗ-27, ADR-11); тесты ядра (≤5). Проверка: полный cargo test (общий тип ядра)"
-    done: false
+    done: true
   - id: 2
     description: "Слой app: пересчёт кнопки «Сохранить» после save_auto_selected_device и после изменения ширин колонок при открытом диалоге (ТЗ-27). Проверка: cargo check"
     done: false
   - id: 3
     description: "ЧЕКПОИНТ: полный cargo test + cargo clippy без новых предупреждений по файлам вайтлиста"
     done: false
-current_step: 1
-next_action: "Перебазирование черновика в ядре"
+current_step: 2
+next_action: "Пересчёт кнопки «Сохранить» в слое app"
 fail_counter: 0
 fail_counter_max: 3
 failed_attempts: []

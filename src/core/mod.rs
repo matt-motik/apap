@@ -860,6 +860,14 @@ impl AppCore {
     /// заменяет настройки в памяти (мост).
     pub fn save_settings_now(&mut self, settings: Settings) -> Option<ReplyEffect> {
         let old_interval = self.settings.save_interval;
+        // Черновик уже есть только на пути, отличном от «Сохранить» диалога
+        // (SP1.0-B13, вариант А): `dialog_save` забирает черновик до этого
+        // вызова, поэтому здесь перебазируется только внешнее изменение
+        // (например, автовыбор устройства, ТЗ-143) — своя семантика
+        // «Сохранить» не затрагивается.
+        if let Some(draft) = self.draft.as_mut() {
+            dialog::rebase(draft, &self.settings, &settings);
+        }
         self.settings = settings;
         self.deps.as_ref()?;
 

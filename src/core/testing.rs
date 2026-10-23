@@ -537,7 +537,7 @@ mod tests {
     use crate::playlist::compare::{compare_keys, CompareKeys};
     use crate::playlist::model::SortKey;
     use crate::playlist::Track;
-    use crate::audio::backend::SharedDeviceId;
+    use crate::audio::backend::{HwDeviceId, SharedDeviceId};
     use crate::core::volume::{Clicks, VolumeBlock, VolumeCmd, VolumeOutcome, VolumeSource};
     use crate::settings::playback::{DeviceBuffer, ModeKind, PlaybackState, SharedDeviceChoice, SrcFilter, Volume};
     use crate::settings::{ColumnId, RepeatMode};
@@ -4079,6 +4079,86 @@ mod tests {
         let mut core = h.boot();
         core.dialog_open().expect("диалог открыт");
         (h, core)
+    }
+
+    /// Устройство Оптимального режима, построенное из строки `hw:...`
+    /// (ТЗ-143, ADR-24) — для сценариев перебазирования черновика.
+    fn hw_device(s: &str) -> HwDeviceId {
+        s.parse().expect("valid HwDeviceId")
+    }
+
+    /// Автовыбор устройства Оптимального режима в обход диалога
+    /// (`MusicApp::save_auto_selected_device`, ТЗ-143) — на стенде это просто
+    /// `save_settings_now` с действующими настройками, где изменено только
+    /// `playback.optimal.device`; сам автовыбор живёт в слое app.
+    fn external_device_change(core: &mut AppCore, device: HwDeviceId) {
+        let mut settings = core.settings().clone();
+        settings.playback.optimal.device = Some(device);
+        core.save_settings_now(settings);
+    }
+
+    /// SP1.0-B13 (вариант А): автовыбор устройства Оптимального режима в
+    /// обход диалога перебазирует черновик, а не перетирает его правку темы.
+    /// «Сохранить» затем сохраняет и автовыбранное устройство, и тему,
+    /// выбранную пользователем — устройство из черновика не откатывается к
+    /// значению на момент открытия диалога (ТЗ-25, ТЗ-143, ADR-11).
+    #[test]
+    fn dialog_save_keeps_external_device_and_user_theme() {
+        let (_h, mut core) = boot_with_dialog();
+        assert_eq!(core.settings().playback.optimal.device, None, "автовыбора ещё нет");
+        let (theme, _) = pick_other_theme(&mut core);
+
+        let device = hw_device("hw:CARD=A,DEV=0");
+        external_device_change(&mut core, device.clone());
+        assert_eq!(
+            core.draft().expect("диалог открыт").settings.playback.optimal.device,
+            Some(device.clone()),
+            "неотредактированное устройство черновика следует автовыбору"
+        );
+
+        let saved = core.dialog_save().expect("тема изменена — отличия есть");
+        assert!(
+            !saved.plan.iter().any(|s| matches!(s, ApplyStep::Engine(_))),
+            "устройство само по себе не отличается от автовыбора — команды движку нет: {:?}",
+            saved.plan
+        );
+        assert_eq!(core.settings().playback.optimal.device, Some(device), "автовыбор не откатился");
+        assert_eq!(core.settings().theme, theme, "тема пользователя сохранена");
+    }
+
+    /// SP1.0-B13: автовыбор устройства в обход диалога с нетронутым
+    /// черновиком не даёт фантомного отличия — кнопка «Сохранить» остаётся
+    /// неактивной (ТЗ-27, ADR-11).
+    #[test]
+    fn save_button_disabled_after_external_change_with_untouched_draft() {
+        let (_h, mut core) = boot_with_dialog();
+        assert!(!core.save_button().enabled, "черновик только что открыт — без отличий");
+
+        external_device_change(&mut core, hw_device("hw:CARD=A,DEV=0"));
+        assert!(!core.save_button().enabled, "автовыбор перебазировал черновик — фантомного отличия нет");
+        assert!(core.save_button().tooltip.is_none());
+    }
+
+    /// SP1.0-B13: если пользователь уже выбрал в черновике устройство
+    /// Оптимального режима, автовыбор другого устройства в обход диалога
+    /// это значение не перетирает — побеждает правка пользователя (вариант А:
+    /// перебазируются только неотредактированные значения).
+    #[test]
+    fn external_device_change_does_not_overwrite_user_edited_draft() {
+        let (_h, mut core) = boot_with_dialog();
+        let user_device = hw_device("hw:CARD=USER,DEV=0");
+        core.dialog_edit(|d| d.settings.playback.optimal.device = Some(user_device.clone()));
+
+        let external_device = hw_device("hw:CARD=AUTO,DEV=0");
+        external_device_change(&mut core, external_device.clone());
+
+        assert_eq!(
+            core.draft().expect("диалог открыт").settings.playback.optimal.device,
+            Some(user_device),
+            "правка пользователя не перетёрта автовыбором"
+        );
+        assert_eq!(core.settings().playback.optimal.device, Some(external_device), "действующие настройки — автовыбор");
+        assert!(core.save_button().enabled, "черновик теперь отличается от действующего устройства");
     }
 
     /// «Сохранить» применяет только изменённое (ТЗ-29, §6.9, §7.2). Каждый
