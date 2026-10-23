@@ -2,15 +2,35 @@
 # _STATE_.md генерируется из этого файла — не редактировать его руками.
 # Редактируйте этот файл, затем: python tools/state_tool.py render
 
-status: done
+status: in_progress
 task:
-  roadmap_id: null
-  title: null
-whitelist: []
-dod: null
-steps: []
-current_step: null
-next_action: null
+  roadmap_id: AM1.0-B33
+  title: "Ползунок буфера: нижняя граница max(100, 2·буфер устройства), подсказка DeviceBufferTooLarge, перетаскивание"
+whitelist:
+  - src/app/mod.rs
+  - src/app/mode_dialog.rs
+  - src/settings/playback.rs
+  - ui/mode_params.slint
+  - src/app/viz_settings_manager.rs
+dod: "Ползунок буфера перетаскивается; нижняя граница = max(100 мс, 2·DeviceBuffer), подсказка у границы «уменьшите буфер устройства до {d} мс» (§6.27); при отказе — конкретная причина из ValueBlocker::reason(); комментарий viz_settings_manager.rs не утверждает живой предпросмотр; тесты; полный cargo test и clippy зелёные"
+steps:
+  - id: 1
+    description: "Модель строк параметров режима создаётся один раз и обновляется на месте (set_row_data только изменившихся строк) — ползунок не пересоздаётся при перетаскивании (SP1.0 ADR-11). Проверка: cargo check + clippy"
+    done: false
+  - id: 2
+    description: "Нижняя граница ползунка буфера max(100, 2·DeviceBuffer) и подсказка ValueBlocker::DeviceBufferTooLarge (§6.27, ТЗ-131); тесты mode_dialog/playback. Проверка: тесты модулей + clippy"
+    done: false
+  - id: 3
+    description: "Отказ правки буферов — текст конкретной причины ValueBlocker::reason() вместо общего. Проверка: cargo check + clippy"
+    done: false
+  - id: 4
+    description: "Комментарий viz_settings_manager.rs: визуализация читает действующие настройки, не черновик (SP1.0-B8). Проверка: cargo check"
+    done: false
+  - id: 5
+    description: "ЧЕКПОИНТ: полный cargo test + clippy"
+    done: false
+current_step: 1
+next_action: "Обновление модели строк на месте"
 fail_counter: 0
 fail_counter_max: 3
 failed_attempts: []
