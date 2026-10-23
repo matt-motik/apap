@@ -7,6 +7,7 @@
 
 use std::collections::{BTreeMap, VecDeque};
 
+use crate::audio::error::CaptureFailure;
 use crate::persist::WorkFile;
 use crate::platform::fs::WriteErrorClass;
 use crate::platform::lifecycle::PlatformCaps;
@@ -36,6 +37,71 @@ pub enum MessageButtons {
 pub enum MessageButton {
     Primary,
     Close,
+}
+
+/// Действие в окне ошибки замка (ТЗ-46, ТЗ-144, редизайн замка — решение
+/// пользователя 2026-10-23). В отличие от `MessageButtons` набор не фиксирован:
+/// `lock_failure_actions` возвращает переменное по длине и составу
+/// упорядоченное подмножество в зависимости от причины отказа захвата.
+/// UI-рендеринг и привязка к `Message`/`MessageCenter` — последующие шаги
+/// (AM1.0-B14); здесь только модель действия и чистая функция маппинга.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub enum MessageAction {
+    /// Повторить попытку захвата устройства (ТЗ-42). Отсутствует для причин, при
+    /// которых повтор заведомо бессмыслен (`NoDeviceSelected`, `PlatformUnsupported`).
+    RetryCapture,
+    /// Открыть диалог настроек на вкладке «Аудио» (ТЗ-46, ТЗ-144).
+    OpenAudioSettings,
+    /// Перейти в Совместимый режим (ТЗ-46, ТЗ-111).
+    SwitchToCompatible,
+    /// Закрыть окно без действия. Всегда присутствует и всегда последняя в
+    /// наборе — привязана к Esc (см. `lock_failure_actions`).
+    Cancel,
+}
+
+impl MessageAction {
+    /// Русская подпись кнопки (ТЗ-46).
+    pub fn label(self) -> &'static str {
+        match self {
+            MessageAction::RetryCapture => "Повторить захват",
+            MessageAction::OpenAudioSettings => "Настройки аудио",
+            MessageAction::SwitchToCompatible => "Перейти в Совместимый режим",
+            MessageAction::Cancel => "Отмена",
+        }
+    }
+}
+
+/// Набор кнопок окна ошибки захвата по причине (ТЗ-46, ТЗ-144). Порядок в
+/// возвращённом `Vec` — порядок кнопок слева направо; первый элемент —
+/// основная кнопка окна (Enter), последний элемент — всегда `Cancel`,
+/// привязанная к Esc (§6.15 определяет `MessageButton::Close` как Esc; для
+/// переменного набора это действие, а не фиксированная кнопка `MessageButtons`).
+///
+/// Группы по таблице решения пользователя 2026-10-23:
+/// - `NoDeviceSelected`, `PlatformUnsupported` — без повтора: «Настройки
+///   аудио» (основная) · «Перейти в Совместимый» · «Отмена»;
+/// - все прочие причины (устройство отключено/занято — с владельцем или в
+///   обход протокола, отказ драйвера, владелец не отвечает, резерв потерян,
+///   нет сессионной шины, отказ при повторном открытии) — с повтором:
+///   «Повторить захват» (основная) · «Настройки аудио» · «Перейти в
+///   Совместимый» · «Отмена».
+pub fn lock_failure_actions(reason: &CaptureFailure) -> Vec<MessageAction> {
+    use MessageAction::{Cancel, OpenAudioSettings, RetryCapture, SwitchToCompatible};
+    match reason {
+        CaptureFailure::NoDeviceSelected | CaptureFailure::PlatformUnsupported => {
+            vec![OpenAudioSettings, SwitchToCompatible, Cancel]
+        }
+        CaptureFailure::DeviceDisconnected
+        | CaptureFailure::ReservationDenied { .. }
+        | CaptureFailure::BusyOutsideProtocol { .. }
+        | CaptureFailure::DriverRefused { .. }
+        | CaptureFailure::OwnerNotResponding
+        | CaptureFailure::ReservationLost
+        | CaptureFailure::LostOnReopen
+        | CaptureFailure::NoSessionBus => {
+            vec![RetryCapture, OpenAudioSettings, SwitchToCompatible, Cancel]
+        }
+    }
 }
 
 /// Содержимое окна сообщения (ADR-13, §6.15).
@@ -501,5 +567,86 @@ mod tests {
 
         let e = mc.window_shown();
         assert_eq!(e.show, None, "очередь тоже очищена — показывать нечего");
+    }
+
+    /// `lock_failure_actions` (ТЗ-144): «устройство не выбрано» — без повтора,
+    /// «Настройки аудио» основная.
+    #[test]
+    fn no_device_selected_actions() {
+        let actions = lock_failure_actions(&CaptureFailure::NoDeviceSelected);
+        assert_eq!(
+            actions,
+            vec![MessageAction::OpenAudioSettings, MessageAction::SwitchToCompatible, MessageAction::Cancel]
+        );
+    }
+
+    /// `lock_failure_actions` (ТЗ-46): «платформа не поддерживает» — тот же
+    /// набор, что «устройство не выбрано» (без повтора).
+    #[test]
+    fn platform_unsupported_actions() {
+        let actions = lock_failure_actions(&CaptureFailure::PlatformUnsupported);
+        assert_eq!(
+            actions,
+            vec![MessageAction::OpenAudioSettings, MessageAction::SwitchToCompatible, MessageAction::Cancel]
+        );
+    }
+
+    /// `lock_failure_actions` (ТЗ-46, ТЗ-122): все причины, допускающие повтор
+    /// захвата, дают один и тот же набор с «Повторить захват» первой кнопкой.
+    #[test]
+    fn retryable_reasons_get_retry_first() {
+        let reasons = [
+            CaptureFailure::DeviceDisconnected,
+            CaptureFailure::ReservationDenied { owner: None },
+            CaptureFailure::BusyOutsideProtocol { owner: None },
+            CaptureFailure::DriverRefused { errno: 0 },
+            CaptureFailure::OwnerNotResponding,
+            CaptureFailure::ReservationLost,
+            CaptureFailure::LostOnReopen,
+            CaptureFailure::NoSessionBus,
+        ];
+        let expected = vec![
+            MessageAction::RetryCapture,
+            MessageAction::OpenAudioSettings,
+            MessageAction::SwitchToCompatible,
+            MessageAction::Cancel,
+        ];
+        for reason in &reasons {
+            assert_eq!(lock_failure_actions(reason), expected, "reason={reason:?}");
+        }
+    }
+
+    /// `lock_failure_actions`: «Отмена» и «Настройки аудио» присутствуют для
+    /// любой причины отказа захвата.
+    #[test]
+    fn cancel_and_audio_settings_always_present() {
+        let reasons = [
+            CaptureFailure::NoDeviceSelected,
+            CaptureFailure::PlatformUnsupported,
+            CaptureFailure::DeviceDisconnected,
+            CaptureFailure::ReservationDenied { owner: None },
+            CaptureFailure::BusyOutsideProtocol { owner: None },
+            CaptureFailure::DriverRefused { errno: 0 },
+            CaptureFailure::OwnerNotResponding,
+            CaptureFailure::ReservationLost,
+            CaptureFailure::LostOnReopen,
+            CaptureFailure::NoSessionBus,
+        ];
+        for reason in &reasons {
+            let actions = lock_failure_actions(reason);
+            assert!(actions.contains(&MessageAction::Cancel), "reason={reason:?}");
+            assert!(actions.contains(&MessageAction::OpenAudioSettings), "reason={reason:?}");
+            assert_eq!(actions.last(), Some(&MessageAction::Cancel), "Cancel не последняя: reason={reason:?}");
+        }
+    }
+
+    /// `lock_failure_actions`: «Повторить захват» отсутствует ровно для
+    /// `NoDeviceSelected`/`PlatformUnsupported` — там повтор бессмыслен.
+    #[test]
+    fn retry_absent_for_no_device_and_platform_unsupported() {
+        for reason in [CaptureFailure::NoDeviceSelected, CaptureFailure::PlatformUnsupported] {
+            let actions = lock_failure_actions(&reason);
+            assert!(!actions.contains(&MessageAction::RetryCapture), "reason={reason:?}");
+        }
     }
 }

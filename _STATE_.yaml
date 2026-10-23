@@ -37,7 +37,7 @@ steps:
     done: true
   - id: 3
     description: "Модель сообщения (src/core/messages.rs): переменный набор кнопок с действиями вместо фиксированного MessageButtons; чистая функция «причина отказа захвата → набор кнопок» (ТЗ-46, ТЗ-119, ТЗ-122) + тесты маппинга. Проверка: cargo test core::messages::"
-    done: false
+    done: true
   - id: 4
     description: "MessageWindow UI (ui/message_window.slint, ui/app.slint): рендер переменного ряда кнопок из модели шага 3 вместо фиксированных primary/OK. Проверка: cargo check"
     done: false
@@ -56,8 +56,8 @@ steps:
   - id: 9
     description: "ЧЕКПОИНТ: полный cargo test + cargo clippy зелёные"
     done: false
-current_step: 3
-next_action: "Модель сообщения (src/core/messages.rs): переменный набор кнопок с действиями вместо фиксированного MessageButtons; чистая функция «причина отказа захвата → набор кнопок» (ТЗ-46, ТЗ-119, ТЗ-122) + тесты маппинга. Проверка: cargo test core::messages::"
+current_step: 4
+next_action: "MessageWindow UI (ui/message_window.slint, ui/app.slint): рендер переменного ряда кнопок из модели шага 3 вместо фиксированных primary/OK. Проверка: cargo check"
 fail_counter: 0
 fail_counter_max: 3
 failed_attempts: []
