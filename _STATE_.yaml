@@ -12,9 +12,9 @@ dod: "git status --porcelain не показывает tools/__pycache__/ пос
 steps:
   - id: 1
     description: "Добавить __pycache__/ и *.pyc в .gitignore (область — весь репозиторий, кэш появляется под tools/). Проверка: запустить python tools/state_tool.py check, затем git status --porcelain — tools/__pycache__/ не отображается"
-    done: false
+    done: true
 current_step: 1
-next_action: "Добавить строки __pycache__/ и *.pyc в .gitignore"
+next_action: "закрытие по closing.md"
 fail_counter: 0
 fail_counter_max: 3
 failed_attempts: []

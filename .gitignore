@@ -4,3 +4,5 @@
 .venv/
 tools/acceptance.local.yaml
 /opencode.exe
+__pycache__/
+*.pyc
