@@ -753,6 +753,11 @@ impl MusicApp {
             return;
         }
         self.core.change_state(origin, StateChange::ColumnWidths(new_widths));
+        // `dialog::diff` сверяет `reset_widths` с пустотой ширин состояния
+        // сессии, так что их смена пересчитывает кнопку «Сохранить» и при
+        // закрытом диалоге (без черновика это просто неактивная кнопка) —
+        // безопасно (SP1.0 ТЗ-27).
+        self.sync_save_button();
     }
 
 }

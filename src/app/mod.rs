@@ -3359,6 +3359,9 @@ impl MusicApp {
         if let Some(effect) = self.core.save_settings_now(settings) {
             self.apply_reply_effects(vec![effect]);
         }
+        // Внешнее изменение настроек перебазирует открытый черновик — кнопка
+        // «Сохранить» пересчитывается следом (SP1.0 ТЗ-27).
+        self.sync_save_button();
     }
 
     /// Drain the event feed. Discrete transitions that matter to the tray
