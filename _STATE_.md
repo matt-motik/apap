@@ -2,10 +2,26 @@
      Source of truth: _STATE_.yaml — edit that, then run:
      python tools/state_tool.py render -->
 
-# Состояние сессии
 
-- **Текущая задача:** Нет (все шаги завершены)
-- **Состояние:** done
+# Текущая микро-сессия
+
+- **Задача из ROADMAP:** SP1.0-B20 — Переименовать MusicApp::cfg()/cfg_viz_mode() в dialog_cfg()/dialog_viz_mode() + аудит вызывающих
+- **Вайтлист файлов в работе (Изменяемые файлы):**
+  - src/app/mod.rs
+  - src/app/ui_manager.rs
+  - src/app/viz_settings_manager.rs
+- **Критерий успеха (Definition of Done):** cfg()->dialog_cfg(), cfg_viz_mode()->dialog_viz_mode() (src/app/mod.rs), все вызовы в mod.rs/ui_manager.rs/viz_settings_manager.rs обновлены, doc-комментарии ссылаются на SP1.0 ADR-11; аудит вызывающих завершён (все — построение/синхронизация диалога настроек, переключать на core.settings()/core.state() не требуется); cargo check и cargo clippy --all-targets 0 предупреждений; ЧЕКПОИНТ — полный cargo test зелёный
+
+## Итерационный трекер
+- [>] **Шаг 1: Переименовать cfg()/cfg_viz_mode() в dialog_cfg()/dialog_viz_mode(), обновить doc-комментарии (SP1.0 ADR-11) и все вызовы; аудит вызывающих (ни один не переключён на core.settings()/state() — все в контексте диалога). Верификация: cargo check + cargo clippy --all-targets 0 предупреждений**
+- [ ] Шаг 2: ЧЕКПОИНТ: полный cargo test + clippy
+
+Легенда: [x] сделано · [>] текущий шаг · [ ] не начато
+
+- **Текущий шаг (current_step):** Шаг 1
+- **Следующий ход:** выполнить шаг 1: переименование + аудит вызывающих, cargo check + clippy --all-targets
+- **Счетчик безуспешных компиляций:** 0/3
+- **Состояние:** in_progress
 
 ## План: Executable workflow: правила AGENTS.md → исполняемые механизмы
 _Источник: чат с пользователем (ноутбук), начат в 67686ce; перенесён в репо 2026-09-22_
