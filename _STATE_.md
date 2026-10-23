@@ -2,10 +2,24 @@
      Source of truth: _STATE_.yaml — edit that, then run:
      python tools/state_tool.py render -->
 
-# Состояние сессии
 
-- **Текущая задача:** Нет (все шаги завершены)
-- **Состояние:** done
+# Текущая микро-сессия
+
+- **Задача из ROADMAP:** T1.0-B3 — ComboBox темы (и устройства) в настройках показывает не текущее значение
+- **Вайтлист файлов в работе (Изменяемые файлы):**
+  - ui/app.slint
+  - ui/settings.slint
+- **Критерий успеха (Definition of Done):** theme-current и settings-device-idx — in-out и связаны <=> по цепочке AppWindow → Settings → ComboBox; при открытии диалога показывается текущая тема, первый же выбор другой темы включает «Сохранить»; полный cargo test и clippy зелёные
+
+## Итерационный трекер
+- [>] **Шаг 1: ui/app.slint и ui/settings.slint: theme-current и settings-device-idx / audio-device-idx — in-out property, привязки Settings { theme-current <=> …; audio-device-idx <=> … } и ComboBox { current-value <=> root.theme-current; current-index <=> root.audio-device-idx; } (T1.0 §6.2, SP1.0 ТЗ-27). Проверка (сессия из одного шага): cargo check; полный cargo test; cargo clippy без новых предупреждений**
+
+Легенда: [x] сделано · [>] текущий шаг · [ ] не начато
+
+- **Текущий шаг (current_step):** Шаг 1
+- **Следующий ход:** Двусторонние привязки ComboBox темы и устройства
+- **Счетчик безуспешных компиляций:** 0/3
+- **Состояние:** in_progress
 
 ## План: Executable workflow: правила AGENTS.md → исполняемые механизмы
 _Источник: чат с пользователем (ноутбук), начат в 67686ce; перенесён в репо 2026-09-22_
