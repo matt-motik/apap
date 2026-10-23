@@ -22,13 +22,13 @@ impl SampleRate {
         self.0.get()
     }
 
-    /// Семейство кратности: 44,1 кГц (кратные 11 025 Гц), 48 кГц (кратные
-    /// 4 000 Гц) или прочие.
+    /// Семейство кратности (AM1.0 §6.4): 44,1 кГц (кратные 11 025 Гц), 48 кГц
+    /// (кратные 8 000 Гц) или прочие — единое правило для планировщика.
     pub const fn family(self) -> RateFamily {
         let hz = self.hz();
         if hz.is_multiple_of(11_025) {
             RateFamily::F44k1
-        } else if hz.is_multiple_of(4_000) {
+        } else if hz.is_multiple_of(8_000) {
             RateFamily::F48k
         } else {
             RateFamily::Other
@@ -305,6 +305,8 @@ mod tests {
             assert_eq!(rate(hz).family(), RateFamily::F48k, "{hz}");
         }
         assert_eq!(rate(37_800).family(), RateFamily::Other);
+        // Кратна 4 000, но не 8 000 Гц — не семейство 48k (§6.4, AM1.0-B6).
+        assert_eq!(rate(12_000).family(), RateFamily::Other);
         assert!(rate(44_100) < rate(48_000));
     }
 

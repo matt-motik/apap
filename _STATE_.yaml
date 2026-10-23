@@ -13,15 +13,15 @@ dod: "SampleRate::family относит к 48k кратные 8 000 Гц (§6.4,
 steps:
   - id: 1
     description: "src/audio/format.rs: SampleRate::family — F48k при кратности 8 000 Гц (§6.4), doc-комментарий; тест sample_rate_rejects_zero_and_classifies_family: 12 000 → Other. Проверка: cargo check; cargo test audio::format"
-    done: false
+    done: true
   - id: 2
     description: "src/audio/path/plan.rs: удалить приватные enum Family и fn family, использовать SampleRate::family / RateFamily (§6.4, ТЗ-27); тест family_classifies_rates на RateFamily. Проверка: cargo check; cargo test audio::path"
     done: false
   - id: 3
     description: "ЧЕКПОИНТ: полный cargo test + cargo clippy без новых предупреждений по файлам вайтлиста"
     done: false
-current_step: 1
-next_action: "SampleRate::family на кратность 8 000 Гц"
+current_step: 2
+next_action: "plan.rs на SampleRate::family"
 fail_counter: 0
 fail_counter_max: 3
 failed_attempts: []

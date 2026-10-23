@@ -12,14 +12,14 @@
 - **Критерий успеха (Definition of Done):** SampleRate::family относит к 48k кратные 8 000 Гц (§6.4, решение пользователя 2026-10-23 — по спеке); приватные Family/family планировщика удалены, plan.rs использует SampleRate::family; 12 000 Гц — Other в обоих местах; полный cargo test и clippy зелёные
 
 ## Итерационный трекер
-- [>] **Шаг 1: src/audio/format.rs: SampleRate::family — F48k при кратности 8 000 Гц (§6.4), doc-комментарий; тест sample_rate_rejects_zero_and_classifies_family: 12 000 → Other. Проверка: cargo check; cargo test audio::format**
-- [ ] Шаг 2: src/audio/path/plan.rs: удалить приватные enum Family и fn family, использовать SampleRate::family / RateFamily (§6.4, ТЗ-27); тест family_classifies_rates на RateFamily. Проверка: cargo check; cargo test audio::path
+- [x] Шаг 1: src/audio/format.rs: SampleRate::family — F48k при кратности 8 000 Гц (§6.4), doc-комментарий; тест sample_rate_rejects_zero_and_classifies_family: 12 000 → Other. Проверка: cargo check; cargo test audio::format
+- [>] **Шаг 2: src/audio/path/plan.rs: удалить приватные enum Family и fn family, использовать SampleRate::family / RateFamily (§6.4, ТЗ-27); тест family_classifies_rates на RateFamily. Проверка: cargo check; cargo test audio::path**
 - [ ] Шаг 3: ЧЕКПОИНТ: полный cargo test + cargo clippy без новых предупреждений по файлам вайтлиста
 
 Легенда: [x] сделано · [>] текущий шаг · [ ] не начато
 
-- **Текущий шаг (current_step):** Шаг 1
-- **Следующий ход:** SampleRate::family на кратность 8 000 Гц
+- **Текущий шаг (current_step):** Шаг 2
+- **Следующий ход:** plan.rs на SampleRate::family
 - **Счетчик безуспешных компиляций:** 0/3
 - **Состояние:** in_progress
 
