@@ -13,7 +13,7 @@ use slint::language::{SortOrder, TableColumn};
 use music_player_rs::audio::analyzer::TAP_CAPACITY;
 use music_player_rs::audio::backend::{BackendError, HwDeviceId, SharedDeviceId};
 use music_player_rs::audio::decoder::TrackInfo;
-use music_player_rs::audio::error::{EngineFault, FileError, OpenError, Reaction};
+use music_player_rs::audio::error::{CaptureFailure, EngineFault, FileError, OpenError, Reaction};
 use music_player_rs::audio::output::{default_device_name, DeviceInfo};
 use music_player_rs::audio::path::report::PathReport;
 use music_player_rs::audio::visualizer::{
@@ -23,7 +23,7 @@ use music_player_rs::core::dialog::{ApplyStep, DialogDraft, ThemeLoad};
 use music_player_rs::core::SaveButton;
 use music_player_rs::core::gate::{BlockReason, LoadKind, MainCmd};
 use music_player_rs::core::messages::{
-    CloseEffect, Message, MessageAction, MessageCenter, MessageLevel, MsgEffect,
+    lock_failure_actions, CloseEffect, Message, MessageAction, MessageCenter, MessageLevel, MsgEffect,
 };
 use music_player_rs::core::exit::{ExitOutcome, ExitReason};
 use music_player_rs::core::io::{CacheKind, CacheSizes, IoDone, IoJob};
@@ -74,7 +74,7 @@ use badge_view::{BadgeView, BadgeViewState, TestView};
 use engine_sink::EngineEventQueue;
 use events::AppEvent;
 use fulltrack_manager::{FullCmd, FullEvt};
-use lock_view::{lock_view, LockAction};
+use lock_view::{failure_hint, failure_label, lock_failure_transition, lock_view, LockAction, LockFailureEffect};
 use path_view::PathWindowCache;
 use ui_audio_state::{Applied, UiAudioState};
 
@@ -590,6 +590,14 @@ pub struct MusicApp {
     /// флаг как есть; любой другой исход (`Failed`/`Open`/`NotApplicable`)
     /// снимает его без запуска воспроизведения.
     capture_and_play_pending: bool,
+    /// Окно ошибки замка, которое сейчас отслеживает эта сессия — показано
+    /// или ещё стоит в очереди `MessageCenter` (ТЗ-46, ТЗ-144, AM1.0-B14
+    /// шаг 5): отличает «моё» сообщение от любого другого (ошибки записи,
+    /// уведомление о недоступном режиме), занявшего показ впереди.
+    /// `apply_lock_failure_message` ставит и снимает его по решению
+    /// `lock_failure_transition`; `on_msg_action` снимает при нажатии любой
+    /// кнопки этого окна.
+    lock_failure_msg: Option<Message>,
 }
 
 /// Команды, которыми при старте применяется сохранённая политика режимов
@@ -840,6 +848,7 @@ impl MusicApp {
             mode_notice_pending: false,
             path_actions: Vec::new(),
             capture_and_play_pending: false,
+            lock_failure_msg: None,
         };
         // Стартовая загрузка плейлиста в фоне (ADR-16, ADR-23 шаг 9, §6.12,
         // ТЗ-21, ТЗ-47): поток `apap-playlist` через `AppCore`; `tick()`
@@ -1252,6 +1261,50 @@ impl MusicApp {
         ui.set_lock_can_retry(view.actions.contains(&LockAction::RetryCapture));
         ui.set_lock_can_choose_device(view.actions.contains(&LockAction::ChooseDevice));
         ui.set_lock_can_go_compatible(view.actions.contains(&LockAction::SwitchToCompatible));
+    }
+
+    /// Окно ошибки замка по переходу `prev -> next` (ТЗ-46, ТЗ-119, ТЗ-122,
+    /// ТЗ-126, ТЗ-144, AM1.0-B14 шаг 5): `lock_failure_transition` решает
+    /// Show/Replace/Dismiss/None, этот метод выполняет решение через
+    /// `MessageCenter`. Вызывается из `drain_engine_events` на каждый
+    /// принятый `EngineEvent::Lock`, рядом с `apply_lock_view`; `prev` —
+    /// состояние замка до этого события (`self.audio_state.lock()` в точке
+    /// вызова, пока `on_engine_event` его не перезаписал).
+    pub(super) fn apply_lock_failure_message(&mut self, prev: &LockState, next: &LockState) {
+        match lock_failure_transition(prev, next) {
+            LockFailureEffect::Show(reason) => self.show_lock_failure_message(&reason),
+            LockFailureEffect::Replace(reason) => {
+                self.dismiss_lock_failure_message();
+                self.show_lock_failure_message(&reason);
+            }
+            LockFailureEffect::Dismiss => self.dismiss_lock_failure_message(),
+            LockFailureEffect::None => {}
+        }
+    }
+
+    /// Поставить окно ошибки замка для причины `reason` и запомнить его в
+    /// `lock_failure_msg` (AM1.0-B14 шаг 5): заголовок/текст — те же строки,
+    /// что подсказка самого замка (`lock_view::failure_label`/`failure_hint`,
+    /// §6.19, ТЗ-122 — с именем владельца, если он известен), набор кнопок —
+    /// `lock_failure_actions` (ТЗ-46, ТЗ-144).
+    fn show_lock_failure_message(&mut self, reason: &CaptureFailure) {
+        let message = Message {
+            level: MessageLevel::Error,
+            title: failure_label(reason).into(),
+            body: failure_hint(reason).into(),
+            actions: lock_failure_actions(reason),
+        };
+        self.lock_failure_msg = Some(message.clone());
+        self.push_message(message);
+    }
+
+    /// Снять окно ошибки замка, если оно ещё отслеживается — показано или
+    /// стоит в очереди (AM1.0-B14 шаг 5, см. `MessageCenter::retract`).
+    fn dismiss_lock_failure_message(&mut self) {
+        if let Some(message) = self.lock_failure_msg.take() {
+            let effect = self.messages.retract(&message);
+            self.apply_msg_effect(effect);
+        }
     }
 
     /// Истина только для Строгого режима (ADR-04, ТЗ-52, §6.18): Строгий
@@ -2785,9 +2838,16 @@ impl MusicApp {
                 eprintln!("[gui] msg_action id={id}");
                 let mut a = app.borrow_mut();
                 let Ok(idx) = usize::try_from(id) else { return };
-                let Some(action) = a.messages.shown().and_then(|m| m.actions.get(idx).copied()) else {
-                    return;
-                };
+                let Some(shown) = a.messages.shown() else { return };
+                let Some(action) = shown.actions.get(idx).copied() else { return };
+                // Показанное — окно ошибки замка, которое отслеживает
+                // `apply_lock_failure_message` (AM1.0-B14 шаг 5): любая его
+                // кнопка закрывает его (см. `MessageCenter::press` ниже),
+                // поэтому снимаем метку здесь же, одним местом для всех
+                // кнопок, а не в каждой ветке `match action`.
+                if a.lock_failure_msg.as_ref() == Some(&shown) {
+                    a.lock_failure_msg = None;
+                }
                 let (close_effect, msg_effect) = a.messages.press(action);
                 a.apply_msg_effect(msg_effect);
                 // Окно недоступного режима закрыто одной из своих кнопок —
@@ -2808,11 +2868,11 @@ impl MusicApp {
                     CloseEffect::Closed => {}
                 }
                 // Действия окна ошибки замка без своего `CloseEffect` (ТЗ-46,
-                // ТЗ-144): тот же путь, что у кнопок замка в top_panel
-                // (`on_lock_retry`/`on_lock_choose_device`). Сообщения с этими
-                // действиями пока не ставятся — `lock_failure_actions` не
-                // подключён к `push_message` (следующий шаг, AM1.0-B14); эта
-                // проводка готова принять их заранее.
+                // ТЗ-144, AM1.0-B14 шаг 5): тот же путь, что у кнопок замка в
+                // top_panel (`on_lock_retry`/`on_lock_choose_device`).
+                // `SwitchToCompatible` уже обработан выше через
+                // `CloseEffect::SwitchToCompatible` (общий для любого окна с
+                // этой кнопкой, не только окна замка).
                 match action {
                     MessageAction::RetryCapture => {
                         a.engine_send(EngineCmd::Lock(LockInput::RetryCapture));
@@ -3227,7 +3287,15 @@ impl MusicApp {
             // бы до top_panel (ADR-06, §6.19, ТЗ-118…ТЗ-123, ТЗ-144).
             let mut resume_after_capture = false;
             if let EngineEvent::Lock(ref state) = ev {
+                // Состояние до этого события — ещё не перезаписано
+                // `on_engine_event` ниже (`UiAudioState::apply` снимает его
+                // в `self.audio_state.lock()` только там); нужно как `prev`
+                // для `lock_failure_transition` (ТЗ-46, ТЗ-126, AM1.0-B14
+                // шаг 5) — иначе окно ошибки замка не узнало бы, что замок
+                // только что вошёл или вышел из `Failed`.
+                let prev_lock = self.audio_state.lock().clone();
                 self.apply_lock_view(state);
+                self.apply_lock_failure_message(&prev_lock, state);
                 // «Захватить и играть» ждёт `Held`: воспроизведение
                 // запускается только после того, как `on_engine_event` ниже
                 // применит это же состояние к `self.audio_state.lock()`,

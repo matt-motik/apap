@@ -9,6 +9,8 @@ use music_player_rs::engine::lock::LockState;
 
 #[cfg(test)]
 use music_player_rs::audio::backend::exclusive::ClaimInfo;
+#[cfg(test)]
+use music_player_rs::audio::clock::ClockInstant;
 
 // Вид замка для UI (§2.6): открыт/захват/закрыт/недоступен в Совместимом
 // режиме/не удалось захватить. Перечисление сгенерировано из
@@ -86,8 +88,9 @@ pub(super) fn failure_label(f: &CaptureFailure) -> String {
 
 /// Подсказка замка для отказа захвата (ТЗ-122): по умолчанию совпадает с
 /// `failure_label`, но для «занято вне протокола» с известным владельцем
-/// заменяется на указание закрыть приложение-владельца.
-fn failure_hint(f: &CaptureFailure) -> String {
+/// заменяется на указание закрыть приложение-владельца. Этот же текст идёт
+/// в тело окна ошибки замка (AM1.0-B14 шаг 5, `mod.rs::lock_failure_message`).
+pub(super) fn failure_hint(f: &CaptureFailure) -> String {
     match f {
         CaptureFailure::BusyOutsideProtocol { owner: Some(owner) } => format!(
             "карту открыло напрямую приложение {}, минуя резервирование PipeWire. \
@@ -146,7 +149,11 @@ pub(super) fn lock_view(state: &LockState) -> LockView {
             actions: HELD_ACTIONS,
         },
         LockState::Failed(CaptureFailure::NoDeviceSelected) => LockView {
-            kind: LockKind::Failed,
+            // Решение пользователя 2026-10-23 (ТЗ-46, ТЗ-144): замок
+            // остаётся визуально «открыт» (клик снова начинает захват) —
+            // причину отказа и действия несёт отдельное окно ошибки
+            // (AM1.0-B14 шаг 5), а не значок замка.
+            kind: LockKind::Open,
             text: "устройство не выбрано".to_string(),
             hint: "устройство не выбрано".to_string(),
             actions: NO_DEVICE_ACTIONS,
@@ -162,12 +169,57 @@ pub(super) fn lock_view(state: &LockState) -> LockView {
                 FAILED_ACTIONS
             };
             LockView {
-                kind: LockKind::Failed,
+                // См. комментарий у `NoDeviceSelected` выше — тот же
+                // редизайн (ТЗ-46).
+                kind: LockKind::Open,
                 text: format!("не удалось захватить: {reason}"),
                 hint: failure_hint(f),
                 actions,
             }
         }
+    }
+}
+
+/// Решение «что сделать с окном ошибки замка» на переходе `prev -> next`
+/// автомата `LockState` (ТЗ-46, ТЗ-126, AM1.0-B14 шаг 5). Чистая функция, не
+/// знающая о `MessageCenter`: `MusicApp::apply_lock_failure_message` в
+/// `mod.rs` вызывает её на каждом принятом `EngineEvent::Lock` ровно
+/// однажды (движок уже не шлёт событие, когда состояние не изменилось —
+/// `src/engine/run.rs`, `changed = state != self.lock` — так что «тот же
+/// отказ, что уже показан» эта функция видит только при редком прямом
+/// переходе `Failed(a) -> Failed(b)` без промежуточного `Acquiring`,
+/// например повтор захвата без выбранного устройства, `lock_step`
+/// `acquire_or_fail`).
+#[derive(Clone, PartialEq, Debug)]
+pub(super) enum LockFailureEffect {
+    /// Переход в `Failed` из состояния, не являвшегося отказом: показать
+    /// новое окно ошибки с этой причиной.
+    Show(CaptureFailure),
+    /// `Failed(a) -> Failed(b)` с разной причиной: заменить содержимое
+    /// показанного (или ещё не показанного) окна ошибки, не показывая
+    /// промежуточно пустой экран.
+    Replace(CaptureFailure),
+    /// Уход из `Failed` в любое другое состояние — автоматический повторный
+    /// захват вернувшегося устройства (ТЗ-126) или действие пользователя:
+    /// закрыть окно ошибки, если оно ещё открыто.
+    Dismiss,
+    /// Переход не касается окна ошибки замка: не отказ, либо тот же отказ,
+    /// что уже показан.
+    None,
+}
+
+pub(super) fn lock_failure_transition(prev: &LockState, next: &LockState) -> LockFailureEffect {
+    match (prev, next) {
+        (LockState::Failed(_), LockState::Failed(reason)) => {
+            if prev == next {
+                LockFailureEffect::None
+            } else {
+                LockFailureEffect::Replace(reason.clone())
+            }
+        }
+        (LockState::Failed(_), _) => LockFailureEffect::Dismiss,
+        (_, LockState::Failed(reason)) => LockFailureEffect::Show(reason.clone()),
+        _ => LockFailureEffect::None,
     }
 }
 
@@ -181,7 +233,9 @@ mod tests {
     fn reservation_denied_with_owner_names_owner() {
         let f = CaptureFailure::ReservationDenied { owner: Some("Spotify".to_string()) };
         let v = lock_view(&LockState::Failed(f));
-        assert_eq!(v.kind, LockKind::Failed);
+        // ТЗ-46 (решение 2026-10-23): замок визуально остаётся «открыт» —
+        // причину несёт окно ошибки, не значок замка.
+        assert_eq!(v.kind, LockKind::Open);
         assert!(v.text.contains("Spotify"));
         assert!(v.hint.contains("Spotify"));
         assert!(!v.text.contains("не найдено"));
@@ -268,5 +322,52 @@ mod tests {
         let v = lock_view(&LockState::Failed(CaptureFailure::DeviceDisconnected));
         assert_eq!(v.actions, DEVICE_DISCONNECTED_ACTIONS);
         assert!(v.text.contains("устройство отключено"));
+    }
+
+    /// `lock_failure_transition` (AM1.0-B14 шаг 5): переход в `Failed` из
+    /// `Acquiring` — показать новое окно ошибки.
+    #[test]
+    fn transition_into_failed_shows() {
+        let acquiring = LockState::Acquiring { started: ClockInstant::START };
+        let failed = LockState::Failed(CaptureFailure::DeviceDisconnected);
+        assert_eq!(
+            lock_failure_transition(&acquiring, &failed),
+            LockFailureEffect::Show(CaptureFailure::DeviceDisconnected)
+        );
+    }
+
+    /// Та же причина отказа повторно (движок в норме не шлёт такое событие,
+    /// но функция тотальна) — без действия.
+    #[test]
+    fn transition_same_failure_is_none() {
+        let failed = LockState::Failed(CaptureFailure::OwnerNotResponding);
+        assert_eq!(lock_failure_transition(&failed, &failed), LockFailureEffect::None);
+    }
+
+    /// `Failed(a) -> Failed(b)` с разной причиной (например, `RetryCapture`
+    /// без выбранного устройства, `lock_step::acquire_or_fail`) — заменить
+    /// содержимое окна, а не закрыть и снова открыть.
+    #[test]
+    fn transition_different_failure_replaces() {
+        let a = LockState::Failed(CaptureFailure::DriverRefused { errno: 5 });
+        let b = LockState::Failed(CaptureFailure::NoDeviceSelected);
+        assert_eq!(lock_failure_transition(&a, &b), LockFailureEffect::Replace(CaptureFailure::NoDeviceSelected));
+    }
+
+    /// Уход из `Failed` в `Acquiring` (автозахват вернувшегося устройства,
+    /// ТЗ-126) закрывает окно ошибки.
+    #[test]
+    fn transition_out_of_failed_dismisses() {
+        let failed = LockState::Failed(CaptureFailure::DeviceDisconnected);
+        let acquiring = LockState::Acquiring { started: ClockInstant::START };
+        assert_eq!(lock_failure_transition(&failed, &acquiring), LockFailureEffect::Dismiss);
+    }
+
+    /// Переход, не касающийся `Failed` ни с одной стороны — без действия.
+    #[test]
+    fn transition_unrelated_to_failed_is_none() {
+        let device = "hw:CARD=X,DEV=0".parse().expect("валидный HwDeviceId");
+        let held = LockState::Held { info: ClaimInfo { device } };
+        assert_eq!(lock_failure_transition(&LockState::Open, &held), LockFailureEffect::None);
     }
 }

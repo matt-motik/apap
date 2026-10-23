@@ -49,7 +49,7 @@ steps:
     done: true
   - id: 5
     description: "Проводка окна ошибки замка (src/app/mod.rs, src/app/lock_view.rs): LockState::Failed(..) → push_message с набором кнопок по причине; «Отмена» закрывает окно без изменения состояния, «Настройки аудио» открывает диалог настроек на вкладке «Аудио», «Повторить захват» шлёт RetryCapture, «Перейти в Совместимый» переключает режим. Проверка: cargo test app::"
-    done: false
+    done: true
   - id: 6
     description: "Кнопка замка (ui/top_panel.slint): icon-only toggle вместо LockIndicator + ряда LockActionButton (открыт/захват-песочные часы/закрыт, подсказка — текст состояния, ТЗ-119, ТЗ-121), скрыта при LockKind.not-applicable (ТЗ-50), disabled во время захвата. Проверка: cargo check"
     done: false
@@ -62,8 +62,8 @@ steps:
   - id: 9
     description: "ЧЕКПОИНТ: полный cargo test + cargo clippy зелёные"
     done: false
-current_step: 5
-next_action: "Проводка окна ошибки замка (src/app/mod.rs, src/app/lock_view.rs): LockState::Failed(..) → push_message с набором кнопок по причине; «Отмена» закрывает окно без изменения состояния, «Настройки аудио» открывает диалог настроек на вкладке «Аудио», «Повторить захват» шлёт RetryCapture, «Перейти в Совместимый» переключает режим. Проверка: cargo test app::"
+current_step: 6
+next_action: "Кнопка замка (ui/top_panel.slint): icon-only toggle вместо LockIndicator + ряда LockActionButton (открыт/захват-песочные часы/закрыт, подсказка — текст состояния, ТЗ-119, ТЗ-121), скрыта при LockKind.not-applicable (ТЗ-50), disabled во время захвата. Проверка: cargo check"
 fail_counter: 0
 fail_counter_max: 3
 failed_attempts: []

@@ -36,16 +36,16 @@
 - [x] Шаг 3: Модель сообщения (src/core/messages.rs): переменный набор кнопок с действиями вместо фиксированного MessageButtons; чистая функция «причина отказа захвата → набор кнопок» (ТЗ-46, ТЗ-119, ТЗ-122) + тесты маппинга. Проверка: cargo test core::messages::
 - [x] Шаг 4: MessageWindow UI (ui/message_window.slint, ui/app.slint): рендер переменного ряда кнопок из модели шага 3 вместо фиксированных primary/OK. Проверка: cargo check
 - [x] Шаг 11: Добавлено на шаге 4 (вышло за вайтлист): убрать MessageButtons целиком — Message.buttons: MessageButtons заменить на actions: Vec<MessageAction> (поле + все литералы Message{...}); обновить src/core/load.rs, src/core/mod.rs, src/app/playback_manager.rs (buttons: MessageButtons::X → actions: X.actions()) и messages.rs (убрать MessageButtons/impl MessageButtons::actions, MessageCenter::press возвращается к единому полю). Пока — MessageButtons жив как временный мост (messages.rs, шаг 4). Проверка: cargo check; cargo test core::messages:: app::
-- [>] **Шаг 5: Проводка окна ошибки замка (src/app/mod.rs, src/app/lock_view.rs): LockState::Failed(..) → push_message с набором кнопок по причине; «Отмена» закрывает окно без изменения состояния, «Настройки аудио» открывает диалог настроек на вкладке «Аудио», «Повторить захват» шлёт RetryCapture, «Перейти в Совместимый» переключает режим. Проверка: cargo test app::**
-- [ ] Шаг 6: Кнопка замка (ui/top_panel.slint): icon-only toggle вместо LockIndicator + ряда LockActionButton (открыт/захват-песочные часы/закрыт, подсказка — текст состояния, ТЗ-119, ТЗ-121), скрыта при LockKind.not-applicable (ТЗ-50), disabled во время захвата. Проверка: cargo check
+- [x] Шаг 5: Проводка окна ошибки замка (src/app/mod.rs, src/app/lock_view.rs): LockState::Failed(..) → push_message с набором кнопок по причине; «Отмена» закрывает окно без изменения состояния, «Настройки аудио» открывает диалог настроек на вкладке «Аудио», «Повторить захват» шлёт RetryCapture, «Перейти в Совместимый» переключает режим. Проверка: cargo test app::
+- [>] **Шаг 6: Кнопка замка (ui/top_panel.slint): icon-only toggle вместо LockIndicator + ряда LockActionButton (открыт/захват-песочные часы/закрыт, подсказка — текст состояния, ТЗ-119, ТЗ-121), скрыта при LockKind.not-applicable (ТЗ-50), disabled во время захвата. Проверка: cargo check**
 - [ ] Шаг 7: Проводка кнопки замка (src/app/mod.rs): клик по иконке — UserClose/UserOpen по текущему lock-kind; apply_lock_view без lock-can-* (действия теперь в окне ошибки шага 5). Проверка: cargo test app::
 - [ ] Шаг 8: Место кнопки замка (ui/app.slint, src/app/mod.rs): наложение на правый край строки меню на Linux/Windows; на macOS — правый край верхней панели, свойство выставляется из Rust через cfg!(target_os = "macos"). Проверка: cargo check; ревью ветки macOS (не компилируется локально, AGENTS.md)
 - [ ] Шаг 9: ЧЕКПОИНТ: полный cargo test + cargo clippy зелёные
 
 Легенда: [x] сделано · [>] текущий шаг · [ ] не начато
 
-- **Текущий шаг (current_step):** Шаг 5
-- **Следующий ход:** Проводка окна ошибки замка (src/app/mod.rs, src/app/lock_view.rs): LockState::Failed(..) → push_message с набором кнопок по причине; «Отмена» закрывает окно без изменения состояния, «Настройки аудио» открывает диалог настроек на вкладке «Аудио», «Повторить захват» шлёт RetryCapture, «Перейти в Совместимый» переключает режим. Проверка: cargo test app::
+- **Текущий шаг (current_step):** Шаг 6
+- **Следующий ход:** Кнопка замка (ui/top_panel.slint): icon-only toggle вместо LockIndicator + ряда LockActionButton (открыт/захват-песочные часы/закрыт, подсказка — текст состояния, ТЗ-119, ТЗ-121), скрыта при LockKind.not-applicable (ТЗ-50), disabled во время захвата. Проверка: cargo check
 - **Счетчик безуспешных компиляций:** 0/3
 - **Состояние:** in_progress
 

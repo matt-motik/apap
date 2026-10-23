@@ -274,6 +274,26 @@ impl MessageCenter {
         }
     }
 
+    /// Убирает сообщение `m` программно — без нажатия кнопки (AM1.0-B14,
+    /// ТЗ-46, ТЗ-126): окно ошибки замка вызывает это при выходе из
+    /// `Failed` (автозахват вернувшегося устройства) и при замене причины
+    /// отказа другой. Если `m` сейчас показано — закрывает его и показывает
+    /// следующее из очереди (как `press`); если оно только стоит в
+    /// очереди — снимает его оттуда без эффекта. `m` ищется по значению, не
+    /// по указателю — несколько равных по содержимому сообщений не
+    /// различаются (в текущем использовании «моё» сообщение всегда одно).
+    pub fn retract(&mut self, m: &Message) -> MsgEffect {
+        let mut effect = MsgEffect::default();
+        if matches!(&self.shown, Some(Queued::Plain(shown)) if shown == m) {
+            self.shown = None;
+            effect.hide = true;
+            self.show_next(&mut effect);
+            return effect;
+        }
+        self.queue.retain(|q| !matches!(q, Queued::Plain(q) if q == m));
+        effect
+    }
+
     /// Путь выхода: закрыть показанное и очистить очередь без вопроса (ТЗ-52).
     pub fn dismiss_for_exit(&mut self) {
         self.shown = None;
@@ -647,5 +667,32 @@ mod tests {
             let actions = lock_failure_actions(&reason);
             assert!(!actions.contains(&MessageAction::RetryCapture), "reason={reason:?}");
         }
+    }
+
+    /// `retract` (AM1.0-B14 шаг 5): показанное сообщение закрывается и
+    /// освобождает место следующему в очереди; сообщение, которое ещё не
+    /// показывалось, снимается из очереди без эффекта.
+    #[test]
+    fn retract_shown_closes_and_queued_removes_without_effect() {
+        let mut mc = MessageCenter::default();
+        mc.window_shown();
+        let caps = PlatformCaps::default();
+        let a = plain_msg("A");
+        let b = plain_msg("B");
+
+        mc.push(a.clone(), caps);
+        assert_eq!(mc.shown(), Some(a.clone()));
+        mc.push(b.clone(), caps);
+
+        // "B" ещё в очереди, не показано — retract его убирает молча.
+        let effect = mc.retract(&b);
+        assert!(!effect.hide);
+        assert_eq!(effect.show, None);
+
+        // "A" показано — retract закрывает его; очередь пуста ("B" снято), окно пропадает.
+        let effect = mc.retract(&a);
+        assert!(effect.hide);
+        assert_eq!(effect.show, None);
+        assert!(!mc.is_shown());
     }
 }
