@@ -653,6 +653,51 @@ fn optimal_dsp_path_uses_largest_format() {
     assert!(!requantizes(&p));
 }
 
+/// §7.2, ТЗ-72, §6.5, AM1.0-B7: Оптимальный, 5.1 24/192 на стерео 16/96 —
+/// `Downmix`, `Resample` и `Truncate 24→16` (ограничение устройства) по
+/// порядку шагов; `F32`-нагрузка, одно переквантование с TPDF.
+#[test]
+fn optimal_dsp_path_lists_truncation_on_narrow_device() {
+    use OutputSampleFormat::S16Le;
+
+    let s = settings();
+    let mut src = src_51();
+    src.rate = sr(192_000);
+    let c = caps_exclusive(rates(&[96_000]), &[S16Le]);
+    let p = plan(&src, &c, PathPolicy::Optimal(&s.optimal)).unwrap();
+
+    let ks = kinds(&p);
+    assert_eq!(ks.len(), 3, "{:?}", p.transforms);
+    assert!(matches!(ks[0], TransformKind::Downmix { .. }), "{:?}", ks[0]);
+    assert!(matches!(ks[1], TransformKind::Resample { .. }), "{:?}", ks[1]);
+    let cut = TransformKind::Truncate(Truncate::new(bd(24), bd(16)).unwrap());
+    assert_eq!(ks[2], &cut);
+    assert_eq!(p.transforms[2].cause, Cause::DeviceLimit);
+    assert_eq!(cut.badge_reason(), Some(NbpReason::Truncation));
+    assert_eq!(p.target.sample, S16Le);
+    assert_eq!(p.ring, RingPayload::F32);
+    assert!(requantizes(&p));
+    assert!(gets_tpdf(&p, PathPolicy::Optimal(&s.optimal)));
+}
+
+/// §6.5, ТЗ-28, AM1.0-B7: при `F32`-нагрузке `Truncate` только если
+/// разрядность источника больше наибольшего формата: 16 бит с SRC на {16} и
+/// 24 бита с SRC на {16, 32} — без усечения.
+#[test]
+fn optimal_dsp_path_no_truncation_when_device_wide_enough() {
+    use OutputSampleFormat::{S16Le, S32Le};
+
+    let s = settings();
+    for (bits, formats, out) in [(16, &[S16Le][..], S16Le), (24, &[S16Le, S32Le][..], S32Le)] {
+        let c = caps_exclusive(rates(&[48_000]), formats);
+        let p = plan(&src_pcm(bits, 44_100, 2), &c, PathPolicy::Optimal(&s.optimal)).unwrap();
+        assert_eq!(single_resample(&p), (sr(44_100), sr(48_000), Cause::DeviceLimit));
+        assert_eq!(p.transforms.len(), 1, "bits={bits}: лишние преобразования {:?}", p.transforms);
+        assert_eq!(p.target.sample, out, "bits={bits}");
+        assert_eq!(p.ring, RingPayload::F32, "bits={bits}");
+    }
+}
+
 /// §7.2, ТЗ-22, ОВС-4: Совместимый, сервер без `F32`. На {16, 32} 24-битный
 /// трек → `S32_LE` + `ZeroPad 24→32` без потерь; только {16} → `S16_LE` +
 /// `Truncate 24→16` (`ServerLimit`) с переквантованием.

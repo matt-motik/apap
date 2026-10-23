@@ -18,15 +18,15 @@ steps:
     done: true
   - id: 2
     description: "Тесты plan_tests.rs (§7.2, ТЗ-72): Truncate(24→16) при SRC+downmix на 16-бит устройстве; нет Truncate для 16-бит источника с SRC и для 24-бит источника на S32. Проверка: cargo test audio::path"
-    done: false
+    done: true
   - id: 3
     description: "report.rs report_lists_all_transforms: вернуть проверку «усечение» вместо комментария AM1.0-B7 (§7.2, ТЗ-72). Проверка: cargo test report_lists_all_transforms"
     done: false
   - id: 4
     description: "ЧЕКПОИНТ: полный cargo test + cargo clippy без новых предупреждений по файлам вайтлиста"
     done: false
-current_step: 2
-next_action: "Тесты Truncate при F32-нагрузке в plan_tests.rs"
+current_step: 3
+next_action: "Вернуть проверку «усечение» в report_lists_all_transforms"
 fail_counter: 0
 fail_counter_max: 3
 failed_attempts: []

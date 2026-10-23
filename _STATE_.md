@@ -15,14 +15,14 @@
 
 ## Итерационный трекер
 - [x] Шаг 1: exclusive_format (src/audio/path/plan.rs): при F32-нагрузке и целом PCM-источнике с valid_bits > field_bits наибольшего формата — Truncate(src → field_bits) с причиной limit_cause (описательный, рендер не меняется; в Строгом F32-нагрузки нет); в 03_spec.md §6.5 (абзац «Для планов с F32-нагрузкой…») — фраза-уточнение (разрешение пользователя 2026-10-23, вариант 1). §6.5, §6.3, ТЗ-72, ТЗ-28, ОВС-3. Проверка: cargo check; cargo test audio::path; state_tool check; traceability_tool check
-- [>] **Шаг 2: Тесты plan_tests.rs (§7.2, ТЗ-72): Truncate(24→16) при SRC+downmix на 16-бит устройстве; нет Truncate для 16-бит источника с SRC и для 24-бит источника на S32. Проверка: cargo test audio::path**
-- [ ] Шаг 3: report.rs report_lists_all_transforms: вернуть проверку «усечение» вместо комментария AM1.0-B7 (§7.2, ТЗ-72). Проверка: cargo test report_lists_all_transforms
+- [x] Шаг 2: Тесты plan_tests.rs (§7.2, ТЗ-72): Truncate(24→16) при SRC+downmix на 16-бит устройстве; нет Truncate для 16-бит источника с SRC и для 24-бит источника на S32. Проверка: cargo test audio::path
+- [>] **Шаг 3: report.rs report_lists_all_transforms: вернуть проверку «усечение» вместо комментария AM1.0-B7 (§7.2, ТЗ-72). Проверка: cargo test report_lists_all_transforms**
 - [ ] Шаг 4: ЧЕКПОИНТ: полный cargo test + cargo clippy без новых предупреждений по файлам вайтлиста
 
 Легенда: [x] сделано · [>] текущий шаг · [ ] не начато
 
-- **Текущий шаг (current_step):** Шаг 2
-- **Следующий ход:** Тесты Truncate при F32-нагрузке в plan_tests.rs
+- **Текущий шаг (current_step):** Шаг 3
+- **Следующий ход:** Вернуть проверку «усечение» в report_lists_all_transforms
 - **Счетчик безуспешных компиляций:** 0/3
 - **Состояние:** in_progress
 
