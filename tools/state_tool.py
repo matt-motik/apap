@@ -45,6 +45,14 @@ WHITELIST_EXEMPT = {"_STATE_.md", "_STATE_.yaml", "ROADMAP.md"}
 # which may happen while an unrelated micro-session is in progress.
 WHITELIST_EXEMPT_RE = re.compile(r"^docs/acceptance/[^/]+/results-[a-z]+\.yaml$")
 
+# docs/00_workflow_v1.0/closing.md §1/§4/§5: the closing commit (status: done
+# in the written-out _STATE_.yaml) only ever touches ROADMAP.md, the state
+# files themselves, the bug archive and acceptance packages — nothing else
+# is legitimate here, so check-whitelist must keep constraining it instead of
+# skipping the check once status != in_progress (WF1.0-B5).
+CLOSING_EXEMPT = {"_STATE_.md", "_STATE_.yaml", "ROADMAP.md"}
+CLOSING_EXEMPT_RE = re.compile(r"^(_TODO_/history/|docs/acceptance/)")
+
 ROOT = Path(__file__).resolve().parent.parent
 STATE_YAML = ROOT / "_STATE_.yaml"
 STATE_MD = ROOT / "_STATE_.md"
@@ -257,12 +265,31 @@ def cmd_check_whitelist() -> int:
             print(e, file=sys.stderr)
         return 1
 
+    changed = git_changed_files()
+
     if data.get("status") != "in_progress":
-        print(f"status == {data.get('status')!r} — whitelist check skipped (nothing to constrain).")
+        # status == "done": no open session, but the closing commit itself
+        # (closing.md §1/§4/§5) is not unconstrained — only the closing set.
+        offenders = sorted(
+            f for f in changed
+            if f not in CLOSING_EXEMPT and not CLOSING_EXEMPT_RE.match(f)
+        )
+        if offenders:
+            print("status == 'done' — изменены файлы вне набора закрытия:", file=sys.stderr)
+            for f in offenders:
+                print(f"  {f}", file=sys.stderr)
+            print(
+                "\nБез открытой сессии (status: done) допустимы только: ROADMAP.md, "
+                "_STATE_.yaml, _STATE_.md, _TODO_/history/*, docs/acceptance/* "
+                "(docs/00_workflow_v1.0/closing.md §1, §4, §5). Любая другая правка — "
+                "новая сессия (planning.md §6).",
+                file=sys.stderr,
+            )
+            return 1
+        print(f"OK — status == 'done', все изменённые файлы ({len(changed)}) входят в набор закрытия.")
         return 0
 
     whitelist = {p.replace("\\", "/") for p in data.get("whitelist", [])}
-    changed = git_changed_files()
     offenders = sorted(
         f for f in changed
         if f not in whitelist and f not in WHITELIST_EXEMPT and not WHITELIST_EXEMPT_RE.match(f)

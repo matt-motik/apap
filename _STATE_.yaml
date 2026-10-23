@@ -12,9 +12,9 @@ dod: "check-whitelist при status: done блокирует файл вне н�
 steps:
   - id: 1
     description: "cmd_check_whitelist (tools/state_tool.py): при status == done ограничить изменённые файлы набором закрытия вместо полного пропуска проверки. Проверка: ручной прогон check-whitelist при status: done — посторонний файл блокируется, файлы набора закрытия проходят; tools/state_tool.py check и tools/traceability_tool.py check зелёные"
-    done: false
+    done: true
 current_step: 1
-next_action: "Переписать ветку status == done в cmd_check_whitelist (tools/state_tool.py): ограничить набором закрытия вместо безусловного пропуска"
+next_action: "закрытие по closing.md"
 fail_counter: 0
 fail_counter_max: 3
 failed_attempts: []

@@ -11,12 +11,12 @@
 - **Критерий успеха (Definition of Done):** check-whitelist при status: done блокирует файл вне набора закрытия (ROADMAP.md, _STATE_.*, _TODO_/history/*, docs/acceptance/*) и пропускает файлы этого набора; python tools/state_tool.py check и tools/traceability_tool.py check зелёные
 
 ## Итерационный трекер
-- [>] **Шаг 1: cmd_check_whitelist (tools/state_tool.py): при status == done ограничить изменённые файлы набором закрытия вместо полного пропуска проверки. Проверка: ручной прогон check-whitelist при status: done — посторонний файл блокируется, файлы набора закрытия проходят; tools/state_tool.py check и tools/traceability_tool.py check зелёные**
+- [x] Шаг 1: cmd_check_whitelist (tools/state_tool.py): при status == done ограничить изменённые файлы набором закрытия вместо полного пропуска проверки. Проверка: ручной прогон check-whitelist при status: done — посторонний файл блокируется, файлы набора закрытия проходят; tools/state_tool.py check и tools/traceability_tool.py check зелёные
 
 Легенда: [x] сделано · [>] текущий шаг · [ ] не начато
 
 - **Текущий шаг (current_step):** Шаг 1
-- **Следующий ход:** Переписать ветку status == done в cmd_check_whitelist (tools/state_tool.py): ограничить набором закрытия вместо безусловного пропуска
+- **Следующий ход:** закрытие по closing.md
 - **Счетчик безуспешных компиляций:** 0/3
 - **Состояние:** in_progress
 
