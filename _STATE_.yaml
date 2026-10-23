@@ -22,12 +22,12 @@ steps:
     done: true
   - id: 3
     description: "docs/_template/process.md: п.9 «по AGENTS.md (Шаги 0–5)» → docs/00_workflow_v1.0/planning.md, execution.md, closing.md; п.10 «archive_vX.Y.md» → «archive_<Префикс>.md». Проверка: python tools/state_tool.py check и python tools/traceability_tool.py check"
-    done: false
+    done: true
   - id: 4
     description: "docs/_template/prompt_template.md: стр.14 «не выполняй Шаги 0–5» → ссылка на обычный цикл задачи (docs/00_workflow_v1.0/planning.md, execution.md, closing.md). Проверка: python tools/state_tool.py check и python tools/traceability_tool.py check"
     done: false
-current_step: 3
-next_action: "Шаг 3: заменить ссылки в docs/_template/process.md"
+current_step: 4
+next_action: "Шаг 4: заменить ссылки в docs/_template/prompt_template.md"
 fail_counter: 0
 fail_counter_max: 3
 failed_attempts: []
