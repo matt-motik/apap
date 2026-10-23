@@ -17,15 +17,15 @@ steps:
     done: true
   - id: 2
     description: "drain_fulltrack (src/app/fulltrack_manager.rs): VisualizerConfig из core.settings() / core.state().viz_mode() вместо cfg()/cfg_viz_mode() (ТЗ-25, ТЗ-26). Проверка: cargo check"
-    done: false
+    done: true
   - id: 3
     description: "Удалить задержку 500 мс для правок черновика: ветку in_dialog в drain_fulltrack, константу FULLTRACK_DEBOUNCE (fulltrack_manager.rs), поле MusicApp::viz_debounce (mod.rs) — после шагов 1–2 черновик картинку не меняет, задержка лишь откладывала бы пересборку при смене трека во время диалога (ТЗ-25, ТЗ-26). Проверка: cargo check"
     done: false
   - id: 4
     description: "ЧЕКПОИНТ: полный cargo test + cargo clippy без новых предупреждений по файлам вайтлиста"
     done: false
-current_step: 2
-next_action: "Перевести drain_fulltrack на core.settings()/core.state().viz_mode()"
+current_step: 3
+next_action: "Удалить задержку viz_debounce для черновика"
 fail_counter: 0
 fail_counter_max: 3
 failed_attempts: []

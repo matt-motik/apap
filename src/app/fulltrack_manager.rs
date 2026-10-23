@@ -398,7 +398,9 @@ impl MusicApp {
     /// треком, строит/отменяет/показывает картинку. Вызывается каждый UI-тик
     /// (§8.1 С3).
     pub(super) fn drain_fulltrack(&mut self) {
-        let cfg = VisualizerConfig::from_persist_settings(self.cfg(), self.cfg_viz_mode());
+        // Действующие настройки и тип визуализации, не черновик диалога
+        // (SP1.0 ТЗ-25, ТЗ-26).
+        let cfg = VisualizerConfig::from_persist_settings(self.core.settings(), self.core.state().viz_mode());
         let mode = cfg.mode;
         let osc = cfg.oscilloscope.clone();
 
