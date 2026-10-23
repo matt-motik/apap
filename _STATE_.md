@@ -2,10 +2,25 @@
      Source of truth: _STATE_.yaml — edit that, then run:
      python tools/state_tool.py render -->
 
-# Состояние сессии
 
-- **Текущая задача:** Нет (все шаги завершены)
-- **Состояние:** done
+# Текущая микро-сессия
+
+- **Задача из ROADMAP:** WF1.0-B4 — tools/traceability_tool.py next-bug <Префикс> — вычисляемый номер бага вместо ручного счётчика
+- **Вайтлист файлов в работе (Изменяемые файлы):**
+  - tools/traceability_tool.py
+  - docs/00_workflow_v1.0/task_intake.md
+- **Критерий успеха (Definition of Done):** python tools/traceability_tool.py next-bug <Префикс> печатает '<Префикс>-B<N>' (N = max существующих <Префикс>-B* по ROADMAP.md и archive_bugs.md + 1, ничего не хранится); строка «Следующие свободные номера» убрана из ROADMAP.md; task_intake.md §2 ссылается на команду вместо ручного счётчика
+
+## Итерационный трекер
+- [>] **Шаг 1: tools/traceability_tool.py: подкоманда next-bug <Префикс> — сканирует таблицы задач ROADMAP.md и _TODO_/history/archive_bugs.md на ID вида <Префикс>-B<N>, печатает <Префикс>-B<max+1> (неизвестный префикс — ошибка в stderr, код 1); ничего не хранится и не пишется. Проверка: python tools/traceability_tool.py next-bug AM1.0 печатает AM1.0-B35; next-bug check (без подкоманды) и check остаются рабочими**
+- [ ] Шаг 2: docs/00_workflow_v1.0/task_intake.md §2: заменить инструкцию «бери номер из строки «Следующие свободные номера» и увеличивай её» на «бери номер из `python tools/traceability_tool.py next-bug <Префикс>`»; ROADMAP.md (не в вайтлисте, правится свободно): убрать перечисление номеров из преамбулы БАГ-РАУНДа, оставив ссылку на архив и команду. Проверка: python tools/state_tool.py check и python tools/traceability_tool.py check зелёные; grep «Следующие свободные номера» не находит совпадений в ROADMAP.md
+
+Легенда: [x] сделано · [>] текущий шаг · [ ] не начато
+
+- **Текущий шаг (current_step):** Шаг 1
+- **Следующий ход:** Добавить подкоманду next-bug в tools/traceability_tool.py
+- **Счетчик безуспешных компиляций:** 0/3
+- **Состояние:** in_progress
 
 ## План: Executable workflow: правила AGENTS.md → исполняемые механизмы
 _Источник: чат с пользователем (ноутбук), начат в 67686ce; перенесён в репо 2026-09-22_
