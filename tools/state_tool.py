@@ -12,9 +12,21 @@ Usage:
                                                    # fail if _STATE_.md is stale
     python tools/state_tool.py check-whitelist    # fail if any changed file (git status)
                                                    # is outside _STATE_.yaml's whitelist
+    python tools/state_tool.py step-done [--next "<next_action>"]
+                                                   # successful end of current_step
+                                                   # (docs/00_workflow_v1.0/execution.md §4):
+                                                   # marks it done, advances current_step to
+                                                   # the next steps[] entry (list order, not
+                                                   # id+1), resets fail_counter/failed_attempts,
+                                                   # renders _STATE_.md, prints the chat line.
+                                                   # --next is required unless current_step is
+                                                   # the last entry (then current_step stays
+                                                   # put and next_action becomes "закрытие по
+                                                   # closing.md" regardless of --next).
 """
 from __future__ import annotations
 
+import json
 import re
 import subprocess
 import sys
@@ -49,12 +61,14 @@ class StateError(Exception):
     """A schema or business-rule violation in _STATE_.yaml."""
 
 
+def load_yaml_text(text: str) -> dict:
+    return yaml.safe_load(text) or {}
+
+
 def load_state() -> dict:
     if not STATE_YAML.exists():
         raise StateError(f"{STATE_YAML} not found")
-    with STATE_YAML.open("r", encoding="utf-8") as f:
-        data = yaml.safe_load(f) or {}
-    return data
+    return load_yaml_text(STATE_YAML.read_text(encoding="utf-8"))
 
 
 def load_schema() -> dict:
@@ -271,6 +285,112 @@ def cmd_check_whitelist() -> int:
     return 0
 
 
+def cmd_step_done(args: list[str]) -> int:
+    """Успешное завершение current_step (execution.md §4): отмечает шаг
+    done:true, сдвигает current_step на следующий элемент steps[] (порядок
+    списка, не id+1 — execution.md §1 допускает несмежные id после
+    разбиения на подшаги), сбрасывает fail_counter/failed_attempts, пишет
+    _STATE_.md и печатает строку для чата. После последнего шага
+    current_step не меняется и next_action становится «закрытие по
+    closing.md» независимо от --next (его можно не передавать).
+    """
+    next_action_arg: str | None = None
+    if args:
+        if len(args) == 2 and args[0] == "--next" and args[1]:
+            next_action_arg = args[1]
+        else:
+            print('usage: step-done [--next "<next_action>"]', file=sys.stderr)
+            return 2
+
+    data = load_state()
+    errors = validate_schema(data) + validate_business_rules(data)
+    if errors:
+        for e in errors:
+            print(e, file=sys.stderr)
+        return 1
+
+    if data.get("status") != "in_progress":
+        print("error: step-done requires status == in_progress", file=sys.stderr)
+        return 1
+
+    steps = data.get("steps") or []
+    current = data.get("current_step")
+    idx = next((i for i, s in enumerate(steps) if s["id"] == current), None)
+    if idx is None:
+        print(f"error: current_step={current!r} does not reference any steps[].id", file=sys.stderr)
+        return 1
+    if steps[idx]["done"]:
+        print(f"error: step {current} is already marked done", file=sys.stderr)
+        return 1
+
+    is_last = idx + 1 >= len(steps)
+    if not is_last and next_action_arg is None:
+        print('error: --next "<next_action>" is required — this is not the last step', file=sys.stderr)
+        return 2
+
+    text = STATE_YAML.read_text(encoding="utf-8")
+
+    id_marker = f"- id: {current}\n"
+    id_pos = text.find(id_marker)
+    if id_pos == -1:
+        print(f"error: could not locate '- id: {current}' line in {STATE_YAML.name}", file=sys.stderr)
+        return 1
+    done_pos = text.find("done: false", id_pos)
+    if done_pos == -1:
+        print(f"error: could not locate 'done: false' for step {current} in {STATE_YAML.name}", file=sys.stderr)
+        return 1
+    text = text[:done_pos] + "done: true" + text[done_pos + len("done: false"):]
+
+    if is_last:
+        new_current = current
+        new_next_action = "закрытие по closing.md"
+    else:
+        new_current = steps[idx + 1]["id"]
+        new_next_action = next_action_arg
+
+    text, n = re.subn(r"(?m)^current_step: .*$", f"current_step: {new_current}", text, count=1)
+    if n != 1:
+        print("error: could not locate 'current_step:' line", file=sys.stderr)
+        return 1
+    text, n = re.subn(
+        r"(?m)^next_action: .*$",
+        f"next_action: {json.dumps(new_next_action, ensure_ascii=False)}",
+        text,
+        count=1,
+    )
+    if n != 1:
+        print("error: could not locate 'next_action:' line", file=sys.stderr)
+        return 1
+    text, n = re.subn(r"(?m)^fail_counter: \d+$", "fail_counter: 0", text, count=1)
+    if n != 1:
+        print("error: could not locate 'fail_counter:' line", file=sys.stderr)
+        return 1
+    # failed_attempts может быть "[]" или многострочным списком — съедаем всё
+    # до следующего поля верхнего уровня (следующая строка без отступа) или
+    # до конца файла.
+    text, n = re.subn(r"(?ms)^failed_attempts:.*?(?=\n\S|\Z)", "failed_attempts: []", text, count=1)
+    if n != 1:
+        print("error: could not locate 'failed_attempts:' field", file=sys.stderr)
+        return 1
+
+    new_data_for_check = load_yaml_text(text)
+    errors = validate_schema(new_data_for_check) + validate_business_rules(new_data_for_check)
+    if errors:
+        print("error: resulting _STATE_.yaml would be invalid, aborting write:", file=sys.stderr)
+        for e in errors:
+            print(e, file=sys.stderr)
+        return 1
+
+    STATE_YAML.write_text(text, encoding="utf-8", newline="\n")
+    STATE_MD.write_text(render_markdown(new_data_for_check), encoding="utf-8", newline="\n")
+
+    if is_last:
+        print(f"Шаг {current} завершён (последний шаг) — закрытие по closing.md")
+    else:
+        print(f"Шаг {current} завершён, текущий — {new_current}")
+    return 0
+
+
 def cmd_render() -> int:
     data = load_state()
     errors = validate_schema(data) + validate_business_rules(data)
@@ -324,11 +444,17 @@ def _force_utf8_console() -> None:
 
 def main(argv: list[str]) -> int:
     _force_utf8_console()
-    if len(argv) != 1 or argv[0] not in COMMANDS:
+    if not argv:
         print(__doc__)
         return 2
+    cmd, rest = argv[0], argv[1:]
     try:
-        return COMMANDS[argv[0]]()
+        if cmd == "step-done":
+            return cmd_step_done(rest)
+        if rest or cmd not in COMMANDS:
+            print(__doc__)
+            return 2
+        return COMMANDS[cmd]()
     except StateError as e:
         print(f"error: {e}", file=sys.stderr)
         return 1
