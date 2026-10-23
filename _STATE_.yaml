@@ -24,6 +24,9 @@ whitelist:
   - src/app/mod.rs
   - src/app/lock_view.rs
   - ui/top_panel.slint
+  - src/core/load.rs
+  - src/core/mod.rs
+  - src/app/playback_manager.rs
 dod: "Замок — кнопка-значок без подписи (открыт=клик захват, захват…=песочные часы с подсказкой-текстом, закрыт=клик открыть), скрыта в Совместимом режиме (ТЗ-50); при неудаче захвата лоток остаётся открытым и сразу открывается окно ошибки с набором кнопок по причине (ТЗ-46, ТЗ-119, ТЗ-122): везде «Отмена»/«Настройки аудио»/«Перейти в Совместимый», «Повторить захват» — для отключено/занято-с-владельцем/отказ-драйвера/не-отвечает/резерв-потерян; кнопка — у правого края строки меню (Linux/Windows) / у правого края верхней панели (macOS); cargo test + clippy зелёные"
 steps:
   - id: 1
@@ -40,6 +43,9 @@ steps:
     done: true
   - id: 4
     description: "MessageWindow UI (ui/message_window.slint, ui/app.slint): рендер переменного ряда кнопок из модели шага 3 вместо фиксированных primary/OK. Проверка: cargo check"
+    done: true
+  - id: 11
+    description: "Добавлено на шаге 4 (вышло за вайтлист): убрать MessageButtons целиком — Message.buttons: MessageButtons заменить на actions: Vec<MessageAction> (поле + все литералы Message{...}); обновить src/core/load.rs, src/core/mod.rs, src/app/playback_manager.rs (buttons: MessageButtons::X → actions: X.actions()) и messages.rs (убрать MessageButtons/impl MessageButtons::actions, MessageCenter::press возвращается к единому полю). Пока — MessageButtons жив как временный мост (messages.rs, шаг 4). Проверка: cargo check; cargo test core::messages:: app::"
     done: false
   - id: 5
     description: "Проводка окна ошибки замка (src/app/mod.rs, src/app/lock_view.rs): LockState::Failed(..) → push_message с набором кнопок по причине; «Отмена» закрывает окно без изменения состояния, «Настройки аудио» открывает диалог настроек на вкладке «Аудио», «Повторить захват» шлёт RetryCapture, «Перейти в Совместимый» переключает режим. Проверка: cargo test app::"
@@ -56,8 +62,8 @@ steps:
   - id: 9
     description: "ЧЕКПОИНТ: полный cargo test + cargo clippy зелёные"
     done: false
-current_step: 4
-next_action: "MessageWindow UI (ui/message_window.slint, ui/app.slint): рендер переменного ряда кнопок из модели шага 3 вместо фиксированных primary/OK. Проверка: cargo check"
+current_step: 11
+next_action: "Добавлено на шаге 4 (вышло за вайтлист): убрать MessageButtons целиком — Message.buttons: MessageButtons заменить на actions: Vec<MessageAction> (поле + все литералы Message{...}); обновить src/core/load.rs, src/core/mod.rs, src/app/playback_manager.rs (buttons: MessageButtons::X → actions: X.actions()) и messages.rs (убрать MessageButtons/impl MessageButtons::actions, MessageCenter::press возвращается к единому полю). Пока — MessageButtons жив как временный мост (messages.rs, шаг 4). Проверка: cargo check; cargo test core::messages:: app::"
 fail_counter: 0
 fail_counter_max: 3
 failed_attempts: []

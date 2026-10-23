@@ -21,7 +21,13 @@ pub enum MessageLevel {
     Error,
 }
 
-/// Набор кнопок окна сообщения (ADR-13).
+/// Набор кнопок окна сообщения — по-прежнему используется местами, где
+/// строится `Message` (`src/core/load.rs`, `src/core/mod.rs`,
+/// `src/app/playback_manager.rs`): `actions()` переводит его в тот же
+/// `MessageAction`-список, что рендерит `MessageWindow` и обрабатывает
+/// `MessageCenter::press` (ADR-13, AM1.0-B14 шаг 4). Эти три места
+/// переводятся прямо на `Vec<MessageAction>` следующим шагом — после него
+/// этот тип и его единственный метод уходят.
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub enum MessageButtons {
     Ok,
@@ -32,19 +38,34 @@ pub enum MessageButtons {
     CaptureAndPlayOk,
 }
 
-/// Нажатая кнопка: `Primary` — основная (Enter), `Close` — закрыть (Esc) (§6.15).
-#[derive(Clone, Copy, PartialEq, Eq, Debug)]
-pub enum MessageButton {
-    Primary,
-    Close,
+impl MessageButtons {
+    /// Тот же порядок, что рендерил `ui/message_window.slint` до AM1.0-B14
+    /// шага 4: доп. кнопка (если есть) первой — основная, Enter; «OK»
+    /// последней — закрывающая, Esc (см. `MessageAction` и `lock_failure_actions`
+    /// про общую конвенцию порядка).
+    pub fn actions(self) -> Vec<MessageAction> {
+        match self {
+            MessageButtons::Ok => vec![MessageAction::Ok],
+            MessageButtons::RetryOk => vec![MessageAction::Retry, MessageAction::Ok],
+            MessageButtons::SwitchCompatibleOk => {
+                vec![MessageAction::SwitchToCompatible, MessageAction::Ok]
+            }
+            MessageButtons::CaptureAndPlayOk => {
+                vec![MessageAction::CaptureAndPlay, MessageAction::Ok]
+            }
+        }
+    }
 }
 
-/// Действие в окне ошибки замка (ТЗ-46, ТЗ-144, редизайн замка — решение
-/// пользователя 2026-10-23). В отличие от `MessageButtons` набор не фиксирован:
-/// `lock_failure_actions` возвращает переменное по длине и составу
-/// упорядоченное подмножество в зависимости от причины отказа захвата.
-/// UI-рендеринг и привязка к `Message`/`MessageCenter` — последующие шаги
-/// (AM1.0-B14); здесь только модель действия и чистая функция маппинга.
+/// Действие кнопки окна сообщения (ADR-13, §6.15, ТЗ-46, ТЗ-144). Одна модель
+/// и для фиксированных окон (бывший `MessageButtons`, см. `MessageButtons::actions`),
+/// и для переменного набора окна ошибки замка: `lock_failure_actions`
+/// возвращает переменное по длине и составу упорядоченное подмножество в
+/// зависимости от причины отказа захвата. Конвенция порядка — общая для
+/// обоих источников и для `ui/message_window.slint`: первый элемент —
+/// основная кнопка окна (Enter), последний — закрывающая (Esc); если
+/// элемент один, он и основная, и закрывающая. Полная проводка окна ошибки
+/// замка (`LockState::Failed` → `push_message`) — следующий шаг (AM1.0-B14).
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub enum MessageAction {
     /// Повторить попытку захвата устройства (ТЗ-42). Отсутствует для причин, при
@@ -57,6 +78,15 @@ pub enum MessageAction {
     /// Закрыть окно без действия. Всегда присутствует и всегда последняя в
     /// наборе — привязана к Esc (см. `lock_failure_actions`).
     Cancel,
+    /// Единственная кнопка обычного информационного/предупреждающего
+    /// сообщения (бывший `MessageButtons::Ok`).
+    Ok,
+    /// Повторить запись рабочих файлов — основная кнопка сводного окна
+    /// ошибок записи (§6.8, бывший `MessageButtons::RetryOk`).
+    Retry,
+    /// Захватить устройство и начать воспроизведение — основная кнопка окна
+    /// «Замок открыт» (ТЗ-125, бывший `MessageButtons::CaptureAndPlayOk`).
+    CaptureAndPlay,
 }
 
 impl MessageAction {
@@ -67,6 +97,9 @@ impl MessageAction {
             MessageAction::OpenAudioSettings => "Настройки аудио",
             MessageAction::SwitchToCompatible => "Перейти в Совместимый режим",
             MessageAction::Cancel => "Отмена",
+            MessageAction::Ok => "OK",
+            MessageAction::Retry => "Повторить",
+            MessageAction::CaptureAndPlay => "Захватить и играть",
         }
     }
 }
@@ -74,8 +107,7 @@ impl MessageAction {
 /// Набор кнопок окна ошибки захвата по причине (ТЗ-46, ТЗ-144). Порядок в
 /// возвращённом `Vec` — порядок кнопок слева направо; первый элемент —
 /// основная кнопка окна (Enter), последний элемент — всегда `Cancel`,
-/// привязанная к Esc (§6.15 определяет `MessageButton::Close` как Esc; для
-/// переменного набора это действие, а не фиксированная кнопка `MessageButtons`).
+/// привязанная к Esc (см. `MessageAction` про общую конвенцию порядка).
 ///
 /// Группы по таблице решения пользователя 2026-10-23:
 /// - `NoDeviceSelected`, `PlatformUnsupported` — без повтора: «Настройки
@@ -237,35 +269,34 @@ impl MessageCenter {
         effect
     }
 
-    /// Нажатие кнопки показанного окна (Enter → `Primary`, Esc → `Close`).
-    /// Для `Ok`-окна обе кнопки закрывают его (§6.15).
-    pub fn press(&mut self, b: MessageButton) -> (CloseEffect, MsgEffect) {
+    /// Нажатие кнопки показанного окна: `action` — действие нажатой кнопки
+    /// (`Message.buttons.actions()`/`lock_failure_actions`; Enter —
+    /// действие с индексом 0, Esc — с последним индексом, см.
+    /// `MessageAction`). Для `Ok`-окна любое действие закрывает его (§6.15).
+    pub fn press(&mut self, action: MessageAction) -> (CloseEffect, MsgEffect) {
         let mut effect = MsgEffect::default();
         match self.shown.take() {
             None => (CloseEffect::Closed, effect),
-            Some(Queued::Plain(msg)) => {
+            Some(Queued::Plain(_)) => {
                 effect.hide = true;
                 self.show_next(&mut effect);
-                match (msg.buttons, b) {
-                    (MessageButtons::SwitchCompatibleOk, MessageButton::Primary) => {
-                        (CloseEffect::SwitchToCompatible, effect)
-                    }
-                    (MessageButtons::CaptureAndPlayOk, MessageButton::Primary) => {
-                        (CloseEffect::CaptureAndPlay, effect)
-                    }
+                match action {
+                    MessageAction::SwitchToCompatible => (CloseEffect::SwitchToCompatible, effect),
+                    MessageAction::CaptureAndPlay => (CloseEffect::CaptureAndPlay, effect),
                     _ => (CloseEffect::Closed, effect),
                 }
             }
-            Some(Queued::WriteErrors) => match b {
+            Some(Queued::WriteErrors) => match action {
                 // «Повторить»: окно остаётся открытым, пока список не пуст (§6.8).
-                MessageButton::Primary => {
+                MessageAction::Retry => {
                     let files: Vec<WorkFile> = self.write_errors.keys().copied().collect();
                     self.shown = Some(Queued::WriteErrors);
                     (CloseEffect::Retry(files), effect)
                 }
-                // «OK»: окно закрыто, запись по отсчёту для этих файлов остаётся
-                // остановленной — это заботит вызывающий код (ТЗ-20).
-                MessageButton::Close => {
+                // «OK» (или любое другое действие): окно закрыто, запись по
+                // отсчёту для этих файлов остаётся остановленной — это
+                // заботит вызывающий код (ТЗ-20).
+                _ => {
                     self.write_errors.clear();
                     effect.hide = true;
                     self.show_next(&mut effect);
@@ -357,7 +388,7 @@ mod tests {
         let shown = mc.window_shown();
         assert_eq!(shown.show, Some(m1));
 
-        let (close, effect) = mc.press(MessageButton::Primary);
+        let (close, effect) = mc.press(MessageAction::Ok);
         assert_eq!(close, CloseEffect::Closed);
         assert!(effect.hide);
         assert_eq!(effect.show, Some(m2));
@@ -408,23 +439,23 @@ mod tests {
         let mut primary_closes = MessageCenter::default();
         primary_closes.window_shown();
         primary_closes.push(plain_msg("A"), caps);
-        let (close, _) = primary_closes.press(MessageButton::Primary);
+        let (close, _) = primary_closes.press(MessageAction::Ok);
         assert_eq!(close, CloseEffect::Closed);
 
         let mut close_closes = MessageCenter::default();
         close_closes.window_shown();
         close_closes.push(plain_msg("A"), caps);
-        let (close, _) = close_closes.press(MessageButton::Close);
+        let (close, _) = close_closes.press(MessageAction::Ok);
         assert_eq!(close, CloseEffect::Closed);
 
         let mut retry = MessageCenter::default();
         retry.window_shown();
         retry.write_failed(WorkFile::State, WriteErrorClass::Io, caps);
-        let (close, _) = retry.press(MessageButton::Primary);
+        let (close, _) = retry.press(MessageAction::Retry);
         assert_eq!(close, CloseEffect::Retry(vec![WorkFile::State]));
         assert!(retry.is_shown());
 
-        let (close, effect) = retry.press(MessageButton::Close);
+        let (close, effect) = retry.press(MessageAction::Ok);
         assert_eq!(close, CloseEffect::Closed);
         assert!(effect.hide);
         assert!(!retry.is_shown());
@@ -444,7 +475,7 @@ mod tests {
         assert!(shown.body.contains("state.toml"));
         assert!(shown.body.contains("settings.toml"));
 
-        let (close, _) = mc.press(MessageButton::Primary);
+        let (close, _) = mc.press(MessageAction::Retry);
         assert_eq!(close, CloseEffect::Retry(vec![WorkFile::State, WorkFile::Settings]));
     }
 
@@ -481,7 +512,7 @@ mod tests {
             caps,
         );
 
-        let (close, effect) = mc.press(MessageButton::Primary);
+        let (close, effect) = mc.press(MessageAction::SwitchToCompatible);
         assert_eq!(close, CloseEffect::SwitchToCompatible);
         assert!(effect.hide);
     }
@@ -501,7 +532,7 @@ mod tests {
             caps,
         );
 
-        let (close, _) = mc.press(MessageButton::Close);
+        let (close, _) = mc.press(MessageAction::Ok);
         assert_eq!(close, CloseEffect::Closed);
     }
 
@@ -520,7 +551,7 @@ mod tests {
             caps,
         );
 
-        let (close, effect) = mc.press(MessageButton::Primary);
+        let (close, effect) = mc.press(MessageAction::CaptureAndPlay);
         assert_eq!(close, CloseEffect::CaptureAndPlay);
         assert!(effect.hide);
     }
@@ -540,7 +571,7 @@ mod tests {
             caps,
         );
 
-        let (close, _) = mc.press(MessageButton::Close);
+        let (close, _) = mc.press(MessageAction::Ok);
         assert_eq!(close, CloseEffect::Closed);
     }
 
@@ -550,7 +581,7 @@ mod tests {
         mc.window_shown();
         mc.push(plain_msg("A"), PlatformCaps::default());
 
-        let (close, _) = mc.press(MessageButton::Primary);
+        let (close, _) = mc.press(MessageAction::Ok);
         assert_eq!(close, CloseEffect::Closed);
     }
 

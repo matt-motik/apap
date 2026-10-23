@@ -1,31 +1,36 @@
 import { Colors } from "theme.slint";
 import { Button, ScrollView } from "std-widgets.slint";
 
-// Окно сообщения (ADR-13, §6.15, ТЗ-52). Последний потомок AppWindow —
-// рендерится поверх главного окна и диалога настроек. Пока показано,
-// AppCore держит UiGate::block(Message) (ТЗ-23), поэтому это окно само
-// недоступности не проверяет.
+// Кнопка окна сообщения (ADR-13, §6.15, редизайн замка — ТЗ-46, ТЗ-144):
+// элемент — подпись кнопки и её action-id, который `action()` передаёт как
+// есть — значение решает Rust-сторона (`src/core/messages.rs::MessageAction`,
+// `src/app/mod.rs`). Массив — порядок рендера слева направо; первый элемент
+// — основная кнопка окна (Enter), последний — закрывающая (Esc); если
+// элемент один, он и основная, и закрывающая.
+export struct MessageActionItem {
+    label: string,
+    action-id: int,
+}
+
+// Окно сообщения (ADR-13, §6.15, ТЗ-52, ТЗ-46, ТЗ-144). Последний потомок
+// AppWindow — рендерится поверх главного окна и диалога настроек. Пока
+// показано, AppCore держит UiGate::block(Message) (ТЗ-23), поэтому это окно
+// само недоступности не проверяет.
 //
 // `level` — MessageLevel (ТЗ-52): 0 = Info, 1 = Warning, 2 = Error.
-// `retry` — true для сводного окна ошибок записи (§6.8): кнопки
-// «Повторить» (primary) + «OK» (close); false — одна кнопка «OK», которая
-// сама по себе primary (Ok-окну всё равно, какая кнопка нажата, §6.15).
-// Кнопки без акцента стиля — как в окне настроек (SP1.0-B3); Enter
-// вызывает `primary` через обработчик клавиш, а не через свойство кнопки.
+// `actions` — переменный по длине и составу набор кнопок (AM1.0-B14 шаг 4,
+// заменяет бывшие фиксированные `retry`/`primary-label`); рендерится слева
+// направо в порядке массива. Кнопки без акцента стиля — как в окне настроек
+// (SP1.0-B3); Enter/Esc — через обработчик клавиш, а не через свойство
+// кнопки (см. `MessageActionItem`).
 export component MessageWindow inherits Rectangle {
     in property <bool> shown: false;
     in property <int> level: 2;
     in property <string> title: "";
     in property <string> body: "";
-    in property <bool> retry: false;
-    // Непустое значение (ТЗ-111, ADR-13) показывает ту же доп. кнопку, что и
-    // `retry`, но с этим текстом вместо «Повторить» (например,
-    // «Переключить в Совместимый режим»); нажатие вызывает `primary`,
-    // «OK» — `close`.
-    in property <string> primary-label: "";
+    in property <[MessageActionItem]> actions: [];
 
-    callback primary();
-    callback close();
+    callback action(int);
 
     visible: root.shown;
     width: 100%;
@@ -70,8 +75,9 @@ export component MessageWindow inherits Rectangle {
             if root.shown: FocusScope {
                 init => { self.focus(); }
                 key-pressed(event) => {
-                    if (event.text == Key.Return) { root.primary(); return accept; }
-                    if (event.text == Key.Escape) { root.close(); return accept; }
+                    if (root.actions.length == 0) { return accept; }
+                    if (event.text == Key.Return) { root.action(root.actions[0].action-id); return accept; }
+                    if (event.text == Key.Escape) { root.action(root.actions[root.actions.length - 1].action-id); return accept; }
                     return accept;
                 }
 
@@ -116,22 +122,10 @@ export component MessageWindow inherits Rectangle {
                         spacing: 8px;
                         alignment: end;
 
-                        if root.retry || root.primary-label != "": Button {
-                            text: root.primary-label != "" ? root.primary-label : "Повторить";
+                        for item in root.actions : Button {
+                            text: item.label;
                             preferred-height: 28px;
-                            clicked => { root.primary(); }
-                        }
-
-                        Button {
-                            text: "OK";
-                            preferred-height: 28px;
-                            clicked => {
-                                if (root.retry || root.primary-label != "") {
-                                    root.close();
-                                } else {
-                                    root.primary();
-                                }
-                            }
+                            clicked => { root.action(item.action-id); }
                         }
                     }
                 }

@@ -23,7 +23,7 @@ use music_player_rs::core::dialog::{ApplyStep, DialogDraft, ThemeLoad};
 use music_player_rs::core::SaveButton;
 use music_player_rs::core::gate::{BlockReason, LoadKind, MainCmd};
 use music_player_rs::core::messages::{
-    CloseEffect, Message, MessageButton, MessageButtons, MessageCenter, MessageLevel, MsgEffect,
+    CloseEffect, Message, MessageAction, MessageButtons, MessageCenter, MessageLevel, MsgEffect,
 };
 use music_player_rs::core::exit::{ExitOutcome, ExitReason};
 use music_player_rs::core::io::{CacheKind, CacheSizes, IoDone, IoJob};
@@ -943,22 +943,25 @@ impl MusicApp {
                 MessageLevel::Warning => 1,
                 MessageLevel::Error => 2,
             };
-            let retry = message.buttons == MessageButtons::RetryOk;
-            // Доп. основная кнопка «Переключить в Совместимый режим» для
-            // окна недоступного режима (ТЗ-111, §6.2 п. 5) и «Захватить и
-            // играть» для окна «Замок открыт» (ТЗ-125, §6.19); пустая строка —
-            // без доп. кнопки (OK закрывает как обычно).
-            let primary_label: SharedString = match message.buttons {
-                MessageButtons::SwitchCompatibleOk => "Переключить в Совместимый режим".into(),
-                MessageButtons::CaptureAndPlayOk => "Захватить и играть".into(),
-                _ => SharedString::default(),
-            };
+            // Переменный набор кнопок (AM1.0-B14 шаг 4): `message.buttons`
+            // переводится в тот же `MessageAction`-список, что рендерит
+            // `MessageWindow` и обрабатывает `on_msg_action` ниже; индекс в
+            // этом списке — `action-id`.
+            let items: Vec<MessageActionItem> = message
+                .buttons
+                .actions()
+                .into_iter()
+                .enumerate()
+                .map(|(i, action)| MessageActionItem {
+                    label: action.label().into(),
+                    action_id: i32::try_from(i).unwrap_or(0),
+                })
+                .collect();
             if let Some(ui) = &ui {
                 ui.set_msg_level(level);
                 ui.set_msg_title(message.title.as_ref().into());
                 ui.set_msg_body(message.body.as_ref().into());
-                ui.set_msg_retry(retry);
-                ui.set_msg_primary_label(primary_label);
+                ui.set_msg_actions(ModelRc::from(items.as_slice()));
                 ui.set_msg_shown(true);
             }
             self.core.gate_mut().block(BlockReason::Message);
@@ -2774,13 +2777,19 @@ impl MusicApp {
             });
         }
 
-        // 32b. message window: primary ("OK"/"Повторить") and close buttons (§6.15).
+        // 32b. message window: один callback на клик любой кнопки (§6.15,
+        // AM1.0-B14 шаг 4): `id` — `action-id` из модели `apply_msg_effect`,
+        // индекс в `message.buttons.actions()` показанного сообщения.
         {
             let app = this.clone();
-            ui.on_msg_primary(move || {
-                eprintln!("[gui] msg_primary");
+            ui.on_msg_action(move |id| {
+                eprintln!("[gui] msg_action id={id}");
                 let mut a = app.borrow_mut();
-                let (close_effect, msg_effect) = a.messages.press(MessageButton::Primary);
+                let Ok(idx) = usize::try_from(id) else { return };
+                let Some(action) = a.messages.shown().and_then(|m| m.buttons.actions().get(idx).copied()) else {
+                    return;
+                };
+                let (close_effect, msg_effect) = a.messages.press(action);
                 a.apply_msg_effect(msg_effect);
                 // Окно недоступного режима закрыто одной из своих кнопок —
                 // снять признак, иначе новое такое окно не поставится
@@ -2799,18 +2808,28 @@ impl MusicApp {
                     }
                     CloseEffect::Closed => {}
                 }
-            });
-        }
-        {
-            let app = this.clone();
-            ui.on_msg_close(move || {
-                eprintln!("[gui] msg_close");
-                let mut a = app.borrow_mut();
-                let (close_effect, msg_effect) = a.messages.press(MessageButton::Close);
-                a.apply_msg_effect(msg_effect);
-                a.mode_notice_pending = false;
-                if let CloseEffect::Retry(files) = close_effect {
-                    a.retry_writes(files);
+                // Действия окна ошибки замка без своего `CloseEffect` (ТЗ-46,
+                // ТЗ-144): тот же путь, что у кнопок замка в top_panel
+                // (`on_lock_retry`/`on_lock_choose_device`). Сообщения с этими
+                // действиями пока не ставятся — `lock_failure_actions` не
+                // подключён к `push_message` (следующий шаг, AM1.0-B14); эта
+                // проводка готова принять их заранее.
+                match action {
+                    MessageAction::RetryCapture => {
+                        a.engine_send(EngineCmd::Lock(LockInput::RetryCapture));
+                    }
+                    MessageAction::OpenAudioSettings => {
+                        if a.open_settings_dialog() {
+                            if let Some(ui) = a.try_ui() {
+                                ui.set_settings_tab(1);
+                            }
+                        }
+                    }
+                    MessageAction::Cancel
+                    | MessageAction::Ok
+                    | MessageAction::Retry
+                    | MessageAction::SwitchToCompatible
+                    | MessageAction::CaptureAndPlay => {}
                 }
             });
         }

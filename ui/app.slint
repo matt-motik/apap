@@ -13,7 +13,7 @@ import {
     CoverSetting,
     ModeParamRow,
 } from "settings.slint";
-import { MessageWindow } from "message_window.slint";
+import { MessageWindow, MessageActionItem } from "message_window.slint";
 import { Button, ScrollView } from "std-widgets.slint";
 
 // Окно «Путь сигнала» (§3.6, ТЗ-71, ТЗ-81, ТЗ-84): строка этапа отчёта.
@@ -270,15 +270,16 @@ export component AppWindow inherits Window {
     // главного окна (Dialog/Message/FilePicker). Гасит оверлей ниже, меню и
     // горячие клавиши корневого FocusScope.
     in property <bool> window-blocked: false;
-    // ADR-13, §6.15, ТЗ-52: окно сообщения — проброс в MessageWindow.
+    // ADR-13, §6.15, ТЗ-52, ТЗ-46, ТЗ-144: окно сообщения — проброс в
+    // MessageWindow; `msg-actions` — переменный набор кнопок (AM1.0-B14 шаг 4,
+    // см. `MessageActionItem`), `msg-action` — единый callback на клик любой
+    // из них (id — её `action-id`).
     in property <bool> msg-shown: false;
     in property <int> msg-level: 2;
     in property <string> msg-title: "";
     in property <string> msg-body: "";
-    in property <bool> msg-retry: false;
-    in property <string> msg-primary-label: "";
-    callback msg-primary();
-    callback msg-close();
+    in property <[MessageActionItem]> msg-actions: [];
+    callback msg-action(int);
     in property <bool> bp-report-open: false;
     // Окно «Путь сигнала» (§3.6, ТЗ-71, ТЗ-81, ТЗ-84).
     in property <string> path-title: "";
@@ -996,9 +997,7 @@ export component AppWindow inherits Window {
         level: root.msg-level;
         title: root.msg-title;
         body: root.msg-body;
-        retry: root.msg-retry;
-        primary-label: root.msg-primary-label;
-        primary => { root.msg-primary(); }
-        close => { root.msg-close(); }
+        actions: root.msg-actions;
+        action(id) => { root.msg-action(id); }
     }
 }
