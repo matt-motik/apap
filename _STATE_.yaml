@@ -2,28 +2,15 @@
 # _STATE_.md генерируется из этого файла — не редактировать его руками.
 # Редактируйте этот файл, затем: python tools/state_tool.py render
 
-status: in_progress
+status: done
 task:
-  roadmap_id: AM1.0-B11
-  title: "Анализатор спектра не рисуется для треков без тега «Исполнитель»"
-whitelist:
-  - ui/visualizer.slint
-  - ui/top_panel.slint
-  - ui/app.slint
-  - src/app/playback_manager.rs
-dod: "Visualizer получает признак «трек загружен» отдельным свойством has-track; видимость спектра и плейсхолдера не зависит от текста artist; sync_track_info_to_ui ставит его true при текущем треке и false без него; полный cargo test и clippy зелёные"
-steps:
-  - id: 1
-    description: "ui/visualizer.slint: in property <bool> has-track; условия видимости спектра и плейсхолдера — по has-track вместо artist != / == «—»; ui/top_panel.slint: in property <bool> info-has-track, передача в Visualizer (V5.1 §5.5, §4.2). Проверка: cargo check"
-    done: true
-  - id: 2
-    description: "ui/app.slint: in property <bool> info-has-track и передача в TopPanel; src/app/playback_manager.rs sync_track_info_to_ui: set_info_has_track(true) при текущем треке, false без него. Проверка: cargo check"
-    done: true
-  - id: 3
-    description: "ЧЕКПОИНТ: полный cargo test + cargo clippy без новых предупреждений по файлам вайтлиста"
-    done: true
-current_step: 3
-next_action: "закрытие по closing.md"
+  roadmap_id: null
+  title: null
+whitelist: []
+dod: null
+steps: []
+current_step: null
+next_action: null
 fail_counter: 0
 fail_counter_max: 3
 failed_attempts: []
@@ -42,6 +29,7 @@ plan:
       description: "Реализация AM1.0 + SP1.0 по сквозному порядку (ROADMAP.md): docs/01_audio_modes_v1.0/ (С0…С11) и docs/02_settings_persistence_v1.0/ (С0…С12) — ТЕКУЩАЯ ОСНОВНАЯ ЗАДАЧА"
       status: in_progress
       note:
+        - "Ручные проверки за пользователем: AM1.0-B11 — трек без тега «Исполнитель» (например, синус без тегов): в режиме «Спектр» полосы рисуются; в осциллограмме/спектрограмме картинка видна, а не плейсхолдер; без трека — плейсхолдер как раньше."
         - "Ручные проверки за пользователем: AM1.0-B5 — в диалоге «Настройки» переключить редактируемый режим Совместимый → Оптимальный → Строгий: комбобокс устройства сразу показывает устройство выбранного режима (в Совместимом — cpal-список, в Оптимальном/Строгом — hw-каталог)."
         - "AM1.0-8.6.1 шаг 9: тестовый дубль SilentSource (src/engine/source.rs) отдаёт info().sample_rate = SourceFormat.rate без DSD-пересчёта (реальный DsdDecoder даёт dsd_rate/64), поэтому DSD-фикстура device_dop_change_reopens_at_position задаёт rate = 44100, а не битрейт DSD64; поправить дубль при следующей работе с фикстурами движка."
         - "Закрытые этапы — в ROADMAP.md (✅ с хэшем), закрытые баги — в _TODO_/history/archive_bugs.md (с 2026-10-21); здесь только открытое."
