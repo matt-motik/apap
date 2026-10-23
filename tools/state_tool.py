@@ -30,6 +30,16 @@ Usage:
                                                    # message or a service prefix (chore(state),
                                                    # chore(roadmap), chore(claude), acceptance();
                                                    # no-op at status == done.
+    python tools/state_tool.py close-bug <ID1> <hash1> [<ID2> <hash2> ...]
+                                                   # docs/00_workflow_v1.0/closing.md §1, §4, §5:
+                                                   # moves each bug row from ROADMAP.md's
+                                                   # БАГ-РАУНД table (must be '🔄 выполняется')
+                                                   # to _TODO_/history/archive_bugs.md as
+                                                   # '✅ сделано в <hash> (ветка <branch>)',
+                                                   # conserves _STATE_.yaml (plan untouched),
+                                                   # renders _STATE_.md, prints the remaining
+                                                   # open plan.items[].note lines and the
+                                                   # chore(roadmap): close <ID...> commit to run.
 """
 from __future__ import annotations
 
@@ -64,6 +74,8 @@ ROOT = Path(__file__).resolve().parent.parent
 STATE_YAML = ROOT / "_STATE_.yaml"
 STATE_MD = ROOT / "_STATE_.md"
 SCHEMA_PATH = ROOT / "tools" / "schema" / "state.schema.json"
+ROADMAP_MD = ROOT / "ROADMAP.md"
+ARCHIVE_BUGS_MD = ROOT / "_TODO_" / "history" / "archive_bugs.md"
 
 GENERATED_HEADER = (
     "<!-- GENERATED FILE — do not edit by hand.\n"
@@ -487,6 +499,149 @@ def cmd_check_commit_msg(args: list[str]) -> int:
     return 1
 
 
+def current_branch() -> str:
+    proc = subprocess.run(
+        ["git", "rev-parse", "--abbrev-ref", "HEAD"],
+        cwd=ROOT,
+        capture_output=True,
+        check=True,
+        text=True,
+    )
+    return proc.stdout.strip()
+
+
+def cmd_close_bug(args: list[str]) -> int:
+    """close-bug <ID1> <hash1> [<ID2> <hash2> ...] (closing.md §1, §4, §5):
+    moves each named bug row from ROADMAP.md's БАГ-РАУНД table to
+    _TODO_/history/archive_bugs.md with status
+    '✅ сделано в <hash> (ветка <branch>)' (only rows currently
+    '🔄 выполняется' — closing.md §1 assumes an active session row),
+    conserves _STATE_.yaml (closing.md §4: status: done, task/whitelist/
+    dod/steps/current_step/next_action/failed_attempts cleared,
+    fail_counter: 0; `plan` is left byte-identical — nothing under it is
+    touched), re-renders _STATE_.md, and prints the still-open items of
+    plan.items[].note plus the closing commit message to run
+    (closing.md §3, §5). Several (ID, hash) pairs close in one call —
+    закрытие сессии на несколько B-строк (planning.md §5).
+    """
+    if len(args) < 2 or len(args) % 2 != 0:
+        print("usage: close-bug <ID1> <hash1> [<ID2> <hash2> ...]", file=sys.stderr)
+        return 2
+    pairs = list(zip(args[0::2], args[1::2]))
+
+    branch = current_branch()
+
+    roadmap_lines = ROADMAP_MD.read_text(encoding="utf-8").split("\n")
+    archive_rows: list[str] = []
+    for bug_id, h in pairs:
+        idx = next((i for i, l in enumerate(roadmap_lines) if l.startswith(f"| {bug_id} |")), None)
+        if idx is None:
+            print(f"error: no ROADMAP.md row starting with '| {bug_id} |'", file=sys.stderr)
+            return 1
+        row = roadmap_lines[idx]
+        if "| 🔄 выполняется |" not in row:
+            print(
+                f"error: row '{bug_id}' is not '🔄 выполняется' — close-bug only "
+                "closes an active-session row (closing.md §1)",
+                file=sys.stderr,
+            )
+            return 1
+        roadmap_lines.pop(idx)
+        archive_rows.append(row.replace("| 🔄 выполняется |", f"| ✅ сделано в {h} (ветка {branch}) |"))
+
+    new_roadmap_text = "\n".join(roadmap_lines)
+
+    archive_text = ARCHIVE_BUGS_MD.read_text(encoding="utf-8").rstrip("\n")
+    new_archive_text = archive_text + "\n" + "\n".join(archive_rows) + "\n"
+
+    # Консервация _STATE_.yaml (closing.md §4) — правка строго текстовая
+    # (как cmd_step_done): "plan:" и всё под ним копируется без изменений,
+    # чтобы не переформатировать большой блок через YAML-сериализатор.
+    text = STATE_YAML.read_text(encoding="utf-8")
+    plan_marker = "\nplan:\n"
+    if plan_marker not in text:
+        print("error: _STATE_.yaml has no top-level 'plan:' key", file=sys.stderr)
+        return 1
+    head, plan_tail = text.split(plan_marker, 1)
+
+    head, n = re.subn(r"(?m)^status: .*$", "status: done", head, count=1)
+    if n != 1:
+        print("error: could not locate 'status:' line", file=sys.stderr)
+        return 1
+    head, n = re.subn(
+        r"(?m)^task:\n(?:  [^\n]*\n)*",
+        "task:\n  roadmap_id: null\n  title: null\n",
+        head,
+        count=1,
+    )
+    if n != 1:
+        print("error: could not locate 'task:' block", file=sys.stderr)
+        return 1
+    head, n = re.subn(r"(?ms)^whitelist:.*?(?=\n\S|\Z)", "whitelist: []", head, count=1)
+    if n != 1:
+        print("error: could not locate 'whitelist:' field", file=sys.stderr)
+        return 1
+    head, n = re.subn(r"(?m)^dod: .*$", "dod: null", head, count=1)
+    if n != 1:
+        print("error: could not locate 'dod:' line", file=sys.stderr)
+        return 1
+    head, n = re.subn(r"(?ms)^steps:.*?(?=\n\S|\Z)", "steps: []", head, count=1)
+    if n != 1:
+        print("error: could not locate 'steps:' field", file=sys.stderr)
+        return 1
+    head, n = re.subn(r"(?m)^current_step: .*$", "current_step: null", head, count=1)
+    if n != 1:
+        print("error: could not locate 'current_step:' line", file=sys.stderr)
+        return 1
+    head, n = re.subn(r"(?m)^next_action: .*$", "next_action: null", head, count=1)
+    if n != 1:
+        print("error: could not locate 'next_action:' line", file=sys.stderr)
+        return 1
+    head, n = re.subn(r"(?m)^fail_counter: \d+$", "fail_counter: 0", head, count=1)
+    if n != 1:
+        print("error: could not locate 'fail_counter:' line", file=sys.stderr)
+        return 1
+    head, n = re.subn(r"(?ms)^failed_attempts:.*?(?=\n\S|\Z)", "failed_attempts: []", head, count=1)
+    if n != 1:
+        print("error: could not locate 'failed_attempts:' field", file=sys.stderr)
+        return 1
+
+    new_text = head + plan_marker + plan_tail
+
+    new_data_for_check = load_yaml_text(new_text)
+    errors = validate_schema(new_data_for_check) + validate_business_rules(new_data_for_check)
+    if errors:
+        print("error: resulting _STATE_.yaml would be invalid, aborting write:", file=sys.stderr)
+        for e in errors:
+            print(e, file=sys.stderr)
+        return 1
+
+    ROADMAP_MD.write_text(new_roadmap_text, encoding="utf-8", newline="\n")
+    ARCHIVE_BUGS_MD.write_text(new_archive_text, encoding="utf-8", newline="\n")
+    STATE_YAML.write_text(new_text, encoding="utf-8", newline="\n")
+    STATE_MD.write_text(render_markdown(new_data_for_check), encoding="utf-8", newline="\n")
+
+    closed_ids = [bug_id for bug_id, _ in pairs]
+    print(f"Закрыто: {', '.join(closed_ids)}")
+
+    open_notes: list[str] = []
+    for item in (new_data_for_check.get("plan") or {}).get("items", []):
+        if item.get("status") in ("partial", "in_progress"):
+            note = item.get("note")
+            if isinstance(note, str) and note:
+                open_notes.append(note)
+            elif isinstance(note, list):
+                open_notes.extend(note)
+    if open_notes:
+        print("\nОстаток чек-листа (plan.items[].note, открытое — closing.md §3):")
+        for note_line in open_notes:
+            print(f"  - {note_line}")
+
+    commit_subject = "close " + " and ".join(closed_ids)
+    print(f"\nКоммит закрытия (closing.md §5): chore(roadmap): {commit_subject}")
+    return 0
+
+
 def cmd_render() -> int:
     data = load_state()
     errors = validate_schema(data) + validate_business_rules(data)
@@ -549,6 +704,8 @@ def main(argv: list[str]) -> int:
             return cmd_step_done(rest)
         if cmd == "check-commit-msg":
             return cmd_check_commit_msg(rest)
+        if cmd == "close-bug":
+            return cmd_close_bug(rest)
         if rest or cmd not in COMMANDS:
             print(__doc__)
             return 2

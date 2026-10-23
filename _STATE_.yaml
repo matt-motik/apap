@@ -13,9 +13,9 @@ dod: "close-bug <ID1> <hash1> [<ID2> <hash2> ...] переносит строк�
 steps:
   - id: 1
     description: "tools/state_tool.py: команда close-bug <ID1> <hash1> [<ID2> <hash2> ...> — перенос строки(строк) БАГ-РАУНДА в archive_bugs.md, консервация _STATE_.yaml (plan не трогать), render, печать остатка note открытых plan.items и команды chore(roadmap): close <ID1> [and <ID2> ...]. Проверка: ручной прогон на временных копиях ROADMAP.md/_STATE_.yaml/archive_bugs.md (один ID, два ID) — строки и состояние конвертируются верно; tools/state_tool.py check зелёный"
-    done: false
+    done: true
 current_step: 1
-next_action: "Добавить cmd_close_bug и диспетчеризацию 'close-bug' в tools/state_tool.py"
+next_action: "закрытие по closing.md"
 fail_counter: 0
 fail_counter_max: 3
 failed_attempts: []

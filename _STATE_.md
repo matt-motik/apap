@@ -12,12 +12,12 @@
 - **Критерий успеха (Definition of Done):** close-bug <ID1> <hash1> [<ID2> <hash2> ...] переносит строку(и) из БАГ-РАУНДА ROADMAP.md в _TODO_/history/archive_bugs.md со статусом ✅ сделано в <hash> (ветка <branch>), консервирует _STATE_.yaml (status: done; task/whitelist/dod/steps/current_step/next_action/failed_attempts очищены, fail_counter: 0; plan не тронут байт-в-байт), рендерит _STATE_.md, печатает остаток note открытых пунктов plan.items и предлагаемую команду коммита закрытия; поддерживает несколько ID за один вызов. Проверка — на временных копиях файлов (без изменения реальных ROADMAP.md/_STATE_.yaml этой же сессии); python tools/state_tool.py check зелёный
 
 ## Итерационный трекер
-- [>] **Шаг 1: tools/state_tool.py: команда close-bug <ID1> <hash1> [<ID2> <hash2> ...> — перенос строки(строк) БАГ-РАУНДА в archive_bugs.md, консервация _STATE_.yaml (plan не трогать), render, печать остатка note открытых plan.items и команды chore(roadmap): close <ID1> [and <ID2> ...]. Проверка: ручной прогон на временных копиях ROADMAP.md/_STATE_.yaml/archive_bugs.md (один ID, два ID) — строки и состояние конвертируются верно; tools/state_tool.py check зелёный**
+- [x] Шаг 1: tools/state_tool.py: команда close-bug <ID1> <hash1> [<ID2> <hash2> ...> — перенос строки(строк) БАГ-РАУНДА в archive_bugs.md, консервация _STATE_.yaml (plan не трогать), render, печать остатка note открытых plan.items и команды chore(roadmap): close <ID1> [and <ID2> ...]. Проверка: ручной прогон на временных копиях ROADMAP.md/_STATE_.yaml/archive_bugs.md (один ID, два ID) — строки и состояние конвертируются верно; tools/state_tool.py check зелёный
 
 Легенда: [x] сделано · [>] текущий шаг · [ ] не начато
 
 - **Текущий шаг (current_step):** Шаг 1
-- **Следующий ход:** Добавить cmd_close_bug и диспетчеризацию 'close-bug' в tools/state_tool.py
+- **Следующий ход:** закрытие по closing.md
 - **Счетчик безуспешных компиляций:** 0/3
 - **Состояние:** in_progress
 
