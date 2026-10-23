@@ -2452,8 +2452,14 @@ impl MusicApp {
                             }
                         }
                         // Воркер обложек получает `CoverConfig` из действующих
-                        // настроек с каждым заданием; здесь — только поля UI.
-                        ApplyStep::Covers => a.sync_cover_settings_to_ui(),
+                        // настроек с каждым заданием: поля UI и перезапрос
+                        // обложки текущего трека с новыми настройками (SP1.0-B12).
+                        ApplyStep::Covers => {
+                            a.sync_cover_settings_to_ui();
+                            if let Some(i) = a.current {
+                                a.request_cover(i);
+                            }
+                        }
                         ApplyStep::InfoLabels => {
                             let labels: Vec<SharedString> = a
                                 .core

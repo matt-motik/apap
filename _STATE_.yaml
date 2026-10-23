@@ -13,9 +13,9 @@ dod: "После «Сохранить» с изменёнными настрой
 steps:
   - id: 1
     description: "ApplyStep::Covers (src/app/mod.rs): после sync_cover_settings_to_ui — request_cover(current), если трек есть; MusicApp::request_cover (src/app/playback_manager.rs) — pub(super) (SP1.0 §6.9, ADR-11). Проверка (сессия из одного шага): cargo check; полный cargo test; cargo clippy без новых предупреждений по файлам вайтлиста"
-    done: false
+    done: true
 current_step: 1
-next_action: "Перезапрос обложки в ApplyStep::Covers"
+next_action: "закрытие по closing.md"
 fail_counter: 0
 fail_counter_max: 3
 failed_attempts: []

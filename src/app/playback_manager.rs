@@ -237,7 +237,7 @@ impl MusicApp {
 
     /// Request a cover for the track; bumps `cover_gen` so stale results are
     /// discarded when `drain_cover` applies them.
-    fn request_cover(&mut self, index: usize) {
+    pub(super) fn request_cover(&mut self, index: usize) {
         let Some(track) = self.track_at(index).cloned() else {
             return;
         };
