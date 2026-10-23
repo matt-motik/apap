@@ -16,7 +16,7 @@ dod: "Ползунок буфера перетаскивается; нижняя
 steps:
   - id: 1
     description: "Модель строк параметров режима создаётся один раз и обновляется на месте (set_row_data только изменившихся строк) — ползунок не пересоздаётся при перетаскивании (SP1.0 ADR-11). Проверка: cargo check + clippy"
-    done: false
+    done: true
   - id: 2
     description: "Нижняя граница ползунка буфера max(100, 2·DeviceBuffer) и подсказка ValueBlocker::DeviceBufferTooLarge (§6.27, ТЗ-131); тесты mode_dialog/playback. Проверка: тесты модулей + clippy"
     done: false
@@ -29,8 +29,8 @@ steps:
   - id: 5
     description: "ЧЕКПОИНТ: полный cargo test + clippy"
     done: false
-current_step: 1
-next_action: "Обновление модели строк на месте"
+current_step: 2
+next_action: "Нижняя граница ползунка буфера и подсказка"
 fail_counter: 0
 fail_counter_max: 3
 failed_attempts: []

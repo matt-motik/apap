@@ -330,6 +330,33 @@ fn num_str(v: u32, suffix: &str) -> SharedString {
     if v > 0 { format!("{v}{suffix}").into() } else { "—".into() }
 }
 
+/// Отличается ли строка диалога настроек режима `new` от уже показанной
+/// `old` (AM1.0-B33, SP1.0 ADR-11): используется, чтобы `set_row_data`
+/// вызывался только для изменившихся строк персистентной модели
+/// `MusicApp::mode_rows`, а не для всех — иначе Slider ползунка каждую
+/// правку перерисовывается полностью, хоть и без пересоздания. Не
+/// `ModeParamRow: PartialEq` напрямую: `ModelRc::eq` сравнивает указатель
+/// на модель, а `to_param_row` строит новый `ModelRc` для `options` на
+/// каждый вызов, поэтому список пунктов сверяется по содержимому.
+fn mode_param_row_changed(old: &ModeParamRow, new: &ModeParamRow) -> bool {
+    if old.param != new.param
+        || old.label != new.label
+        || old.kind != new.kind
+        || old.enabled != new.enabled
+        || old.note != new.note
+        || old.selected != new.selected
+        || old.checked != new.checked
+        || old.value != new.value
+        || old.min != new.min
+        || old.max != new.max
+    {
+        return true;
+    }
+    let old_opts: Vec<SharedString> = old.options.iter().collect();
+    let new_opts: Vec<SharedString> = new.options.iter().collect();
+    old_opts != new_opts
+}
+
 /// Строки рекомендаций одной группы окна «Путь сигнала» → `PathRecItem`
 /// (ТЗ-81, ТЗ-84). Действие с кнопкой (`QuickFix`/`OpenSettings`) дописывается
 /// в `actions`, а `action-id` элемента — его индекс там; без действия —
@@ -405,6 +432,12 @@ pub struct MusicApp {
     /// keeps resizing smooth and never lets the column widths constrain the
     /// window size.
     playlist_cols: Rc<VecModel<TableColumn>>,
+    /// Persistent row model for the mode-settings dialog panel (SP1.0
+    /// ADR-11, AM1.0-B33): `sync_mode_dialog_to_ui` touches only the rows
+    /// whose value changed via `set_row_data` instead of replacing the whole
+    /// `ModelRc`, so a `Slider` mid-drag is never torn down and recreated by
+    /// the `ui/mode_params.slint` repeater.
+    mode_rows: Rc<VecModel<ModeParamRow>>,
     current: Option<usize>,
     /// Трек, открытие которого отправлено движку; применяется по событию
     /// Opened (ADR-01, ТЗ-103).
@@ -703,6 +736,11 @@ impl MusicApp {
         let playlist_cols: Rc<VecModel<TableColumn>> = Rc::new(slint::VecModel::default());
         ui_handle.set_playlist_cols(ModelRc::from(playlist_cols.clone()));
 
+        // Same pattern for the mode-settings dialog rows (AM1.0-B33): wired
+        // once here, mutated in place by `sync_mode_dialog_to_ui`.
+        let mode_rows: Rc<VecModel<ModeParamRow>> = Rc::new(slint::VecModel::default());
+        ui_handle.set_settings_mode_rows(ModelRc::from(mode_rows.clone()));
+
         let repeat = core.state().repeat();
         let shuffle = core.state().shuffle();
 
@@ -742,6 +780,7 @@ impl MusicApp {
             path_cache: PathWindowCache::new(),
             playlist_rows,
             playlist_cols,
+            mode_rows,
             current: None,
             pending_open: None,
             scan_rx: None,
@@ -1420,6 +1459,15 @@ impl MusicApp {
     /// отправить их в UI вместе с выбранным режимом (§6.18, §6.27, ТЗ-41,
     /// ТЗ-94, ОВС-14); очищает сообщение валидации. Нет открытого диалога —
     /// ничего не делает.
+    ///
+    /// Строки обновляются на месте в `self.mode_rows` (`set_row_data` только
+    /// для изменившихся индексов), а не пересборкой `ModelRc` целиком: число
+    /// и порядок строк не зависят от режима (`build_rows` зеркалит `PARAMS`
+    /// без фильтрации, §2.2), поэтому индекс всегда соответствует одному
+    /// `ParamId`. Это сохраняет виджет `Slider` ползунка буфера живым во
+    /// время перетаскивания — пересборка модели посреди `changed` пересоздаёт
+    /// его в репитере `ui/mode_params.slint` и рвёт drag (AM1.0-B33, SP1.0
+    /// ADR-11).
     fn sync_mode_dialog_to_ui(&mut self) {
         let Some(draft) = self.core.draft() else { return };
         let edit_mode = draft.shown_mode;
@@ -1427,13 +1475,24 @@ impl MusicApp {
             .iter()
             .map(mode_dialog::to_param_row)
             .collect();
+        if self.mode_rows.row_count() == rows.len() {
+            for (i, row) in rows.into_iter().enumerate() {
+                let changed = self.mode_rows.row_data(i).is_none_or(|old| mode_param_row_changed(&old, &row));
+                if changed {
+                    self.mode_rows.set_row_data(i, row);
+                }
+            }
+        } else {
+            // Первое заполнение (модель пуста) либо число строк разошлось с
+            // `PARAMS` — полная пересборка как страховка.
+            self.mode_rows.set_vec(rows);
+        }
         let Some(ui) = self.try_ui() else { return };
         ui.set_settings_mode_edit_mode(match edit_mode {
             ModeKind::Compatible => 0,
             ModeKind::Optimal => 1,
             ModeKind::Strict => 2,
         });
-        ui.set_settings_mode_rows(ModelRc::from(rows.as_slice()));
         ui.set_settings_mode_validation(SharedString::new());
     }
 
@@ -3489,6 +3548,49 @@ mod tests {
             bit_depth: "24 bit".to_string(),
             sample_rate: 96000,
         }
+    }
+
+    fn mode_param_row(value: f32, options: &[&str]) -> ModeParamRow {
+        let opts: Vec<SharedString> = options.iter().map(|s| SharedString::from(*s)).collect();
+        ModeParamRow {
+            param: 5,
+            label: SharedString::from("Буфер декодирование→вывод"),
+            kind: 2,
+            enabled: true,
+            note: SharedString::new(),
+            options: ModelRc::from(opts.as_slice()),
+            selected: 0,
+            checked: false,
+            value,
+            min: 100.0,
+            max: 4000.0,
+        }
+    }
+
+    /// AM1.0-B33: `mode_param_row_changed` сравнивает скалярные поля и
+    /// содержимое `options` — не идентичность `ModelRc` (`to_param_row`
+    /// строит новый `ModelRc` на каждый вызов, поэтому `old.options !=
+    /// new.options` указателем даже без изменений, см. комментарий у
+    /// функции).
+    #[test]
+    fn mode_param_row_changed_ignores_fresh_modelrc_identity() {
+        let old = mode_param_row(200.0, &["a", "b"]);
+        let same_content = mode_param_row(200.0, &["a", "b"]);
+        assert!(!mode_param_row_changed(&old, &same_content));
+    }
+
+    #[test]
+    fn mode_param_row_changed_detects_value_change() {
+        let old = mode_param_row(200.0, &["a", "b"]);
+        let moved = mode_param_row(250.0, &["a", "b"]);
+        assert!(mode_param_row_changed(&old, &moved));
+    }
+
+    #[test]
+    fn mode_param_row_changed_detects_option_list_change() {
+        let old = mode_param_row(200.0, &["a", "b"]);
+        let relabeled = mode_param_row(200.0, &["a", "b (недоступно)"]);
+        assert!(mode_param_row_changed(&old, &relabeled));
     }
 
     /// AM1.0-B21, §6.18, ТЗ-20: из «Стоп» (в т. ч. после смены режима,
