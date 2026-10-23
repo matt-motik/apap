@@ -2,10 +2,46 @@
      Source of truth: _STATE_.yaml — edit that, then run:
      python tools/state_tool.py render -->
 
-# Состояние сессии
 
-- **Текущая задача:** Нет (все шаги завершены)
-- **Состояние:** done
+# Текущая микро-сессия
+
+- **Задача из ROADMAP:** AM1.0-B14 — Замок — редизайн: кнопка-значок без подписи, окно ошибки по причине
+- **Вайтлист файлов в работе (Изменяемые файлы):**
+  - docs/01_audio_modes_v1.0/02_tz.md
+  - ui/icons/lock-open.svg
+  - ui/icons/lock-closed.svg
+  - ui/icons/hourglass.svg
+  - ui/icons/dark/lock-open.svg
+  - ui/icons/dark/lock-closed.svg
+  - ui/icons/dark/hourglass.svg
+  - ui/icons/light/lock-open.svg
+  - ui/icons/light/lock-closed.svg
+  - ui/icons/light/hourglass.svg
+  - src/core/messages.rs
+  - ui/message_window.slint
+  - ui/app.slint
+  - src/app/mod.rs
+  - src/app/lock_view.rs
+  - ui/top_panel.slint
+- **Критерий успеха (Definition of Done):** Замок — кнопка-значок без подписи (открыт=клик захват, захват…=песочные часы с подсказкой-текстом, закрыт=клик открыть), скрыта в Совместимом режиме (ТЗ-50); при неудаче захвата лоток остаётся открытым и сразу открывается окно ошибки с набором кнопок по причине (ТЗ-46, ТЗ-119, ТЗ-122): везде «Отмена»/«Настройки аудио»/«Перейти в Совместимый», «Повторить захват» — для отключено/занято-с-владельцем/отказ-драйвера/не-отвечает/резерв-потерян; кнопка — у правого края строки меню (Linux/Windows) / у правого края верхней панели (macOS); cargo test + clippy зелёные
+
+## Итерационный трекер
+- [>] **Шаг 1: ТЗ-46, ТЗ-50, ТЗ-119 (docs/01_audio_modes_v1.0/02_tz.md): правка текста по решению пользователя 2026-10-23 — набор кнопок окна ошибки по причине, скрытие замка в Совместимом режиме, песочные часы + подсказка вместо текста «захват…». Проверка: python tools/traceability_tool.py check**
+- [ ] Шаг 2: SVG-иконки lock-open/lock-closed/hourglass в ui/icons/, ui/icons/dark/, ui/icons/light/ (стиль как у существующих иконок транспорта). Проверка: cargo check
+- [ ] Шаг 3: Модель сообщения (src/core/messages.rs): переменный набор кнопок с действиями вместо фиксированного MessageButtons; чистая функция «причина отказа захвата → набор кнопок» (ТЗ-46, ТЗ-119, ТЗ-122) + тесты маппинга. Проверка: cargo test core::messages::
+- [ ] Шаг 4: MessageWindow UI (ui/message_window.slint, ui/app.slint): рендер переменного ряда кнопок из модели шага 3 вместо фиксированных primary/OK. Проверка: cargo check
+- [ ] Шаг 5: Проводка окна ошибки замка (src/app/mod.rs, src/app/lock_view.rs): LockState::Failed(..) → push_message с набором кнопок по причине; «Отмена» закрывает окно без изменения состояния, «Настройки аудио» открывает диалог настроек на вкладке «Аудио», «Повторить захват» шлёт RetryCapture, «Перейти в Совместимый» переключает режим. Проверка: cargo test app::
+- [ ] Шаг 6: Кнопка замка (ui/top_panel.slint): icon-only toggle вместо LockIndicator + ряда LockActionButton (открыт/захват-песочные часы/закрыт, подсказка — текст состояния, ТЗ-119, ТЗ-121), скрыта при LockKind.not-applicable (ТЗ-50), disabled во время захвата. Проверка: cargo check
+- [ ] Шаг 7: Проводка кнопки замка (src/app/mod.rs): клик по иконке — UserClose/UserOpen по текущему lock-kind; apply_lock_view без lock-can-* (действия теперь в окне ошибки шага 5). Проверка: cargo test app::
+- [ ] Шаг 8: Место кнопки замка (ui/app.slint, src/app/mod.rs): наложение на правый край строки меню на Linux/Windows; на macOS — правый край верхней панели, свойство выставляется из Rust через cfg!(target_os = "macos"). Проверка: cargo check; ревью ветки macOS (не компилируется локально, AGENTS.md)
+- [ ] Шаг 9: ЧЕКПОИНТ: полный cargo test + cargo clippy зелёные
+
+Легенда: [x] сделано · [>] текущий шаг · [ ] не начато
+
+- **Текущий шаг (current_step):** Шаг 1
+- **Следующий ход:** Шаг 1: править ТЗ-46, ТЗ-50, ТЗ-119 в docs/01_audio_modes_v1.0/02_tz.md
+- **Счетчик безуспешных компиляций:** 0/3
+- **Состояние:** in_progress
 
 ## План: Executable workflow: правила AGENTS.md → исполняемые механизмы
 _Источник: чат с пользователем (ноутбук), начат в 67686ce; перенесён в репо 2026-09-22_
