@@ -2,20 +2,15 @@
 # _STATE_.md генерируется из этого файла — не редактировать его руками.
 # Редактируйте этот файл, затем: python tools/state_tool.py render
 
-status: in_progress
+status: done
 task:
-  roadmap_id: T1.0-B3
-  title: "ComboBox темы (и устройства) в настройках показывает не текущее значение"
-whitelist:
-  - ui/app.slint
-  - ui/settings.slint
-dod: "theme-current и settings-device-idx — in-out и связаны <=> по цепочке AppWindow → Settings → ComboBox; при открытии диалога показывается текущая тема, первый же выбор другой темы включает «Сохранить»; полный cargo test и clippy зелёные"
-steps:
-  - id: 1
-    description: "ui/app.slint и ui/settings.slint: theme-current и settings-device-idx / audio-device-idx — in-out property, привязки Settings { theme-current <=> …; audio-device-idx <=> … } и ComboBox { current-value <=> root.theme-current; current-index <=> root.audio-device-idx; } (T1.0 §6.2, SP1.0 ТЗ-27). Проверка (сессия из одного шага): cargo check; полный cargo test; cargo clippy без новых предупреждений"
-    done: true
-current_step: 1
-next_action: "закрытие по closing.md"
+  roadmap_id: null
+  title: null
+whitelist: []
+dod: null
+steps: []
+current_step: null
+next_action: null
 fail_counter: 0
 fail_counter_max: 3
 failed_attempts: []
@@ -34,6 +29,7 @@ plan:
       description: "Реализация AM1.0 + SP1.0 по сквозному порядку (ROADMAP.md): docs/01_audio_modes_v1.0/ (С0…С11) и docs/02_settings_persistence_v1.0/ (С0…С12) — ТЕКУЩАЯ ОСНОВНАЯ ЗАДАЧА"
       status: in_progress
       note:
+        - "Ручные проверки за пользователем: T1.0-B3 — при светлой теме открыть «Настройки» (в т. ч. первый раз за сеанс): список тем показывает текущую тему; выбор другой темы с первого раза включает «Сохранить»; на вкладке «Аудио» после «Refresh» выделено текущее устройство."
         - "Ручные проверки за пользователем: SP1.0-B12 — при играющем треке изменить в «Настройки» → обложки порядок источников / имена файлов / онлайн и «Сохранить»: обложка текущего трека сразу перечитывается по новым правилам (например, отключить источник, из которого она взята, — обложка меняется или пропадает)."
         - "Ручные проверки за пользователем: AM1.0-B11 — трек без тега «Исполнитель» (например, синус без тегов): в режиме «Спектр» полосы рисуются; в осциллограмме/спектрограмме картинка видна, а не плейсхолдер; без трека — плейсхолдер как раньше."
         - "Ручные проверки за пользователем: AM1.0-B5 — в диалоге «Настройки» переключить редактируемый режим Совместимый → Оптимальный → Строгий: комбобокс устройства сразу показывает устройство выбранного режима (в Совместимом — cpal-список, в Оптимальном/Строгом — hw-каталог)."
