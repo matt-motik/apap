@@ -37,7 +37,8 @@ export component Settings inherits Rectangle {
     // T1.0 §5: динамический список тем (из `themes/*.toml`), текущая тема,
     // метаданные под ComboBox и блокировка Save при невалидной теме.
     in property <[string]> theme-list-model: [""];
-    in property <string> theme-current: "";
+    // Двусторонне: самоприсваивание ComboBox при смене модели не рвёт связь (T1.0-B3).
+    in-out property <string> theme-current: "";
     in property <string> theme-name: "";
     in property <string> theme-description: "";
     // Доступность «Сохранить»: в копии есть отличия и нет недопустимых значений (ТЗ-27, §6.9).
@@ -53,7 +54,7 @@ export component Settings inherits Rectangle {
     // Постоянный текст у «Сохранить» при нечитаемом settings.toml; пусто — не показывается (ОВС-6 в, §2.13).
     in property <string> save-notice: "";
     in property <[string]> audio-devices: [];
-    in property <int> audio-device-idx: -1;
+    in-out property <int> audio-device-idx: -1;
     in property <string> active-device: "";
     in property <string> codec-info: "";
     in property <string> active-error: "";
@@ -250,7 +251,7 @@ export component Settings inherits Rectangle {
                                             spacing: 2px;
                                             ComboBox {
                                                 model: root.theme-list-model;
-                                                current-value: root.theme-current;
+                                                current-value <=> root.theme-current;
                                                 selected(s) => { debug("settings: theme combo selected"); root.settings-theme-selected(s); }
                                             }
 
@@ -391,7 +392,7 @@ export component Settings inherits Rectangle {
 
                                         ComboBox {
                                             model: root.audio-devices;
-                                            current-index: root.audio-device-idx;
+                                            current-index <=> root.audio-device-idx;
                                             selected(s) => { debug("settings: audio combo selected"); root.set-audio-device(s); }
                                         }
 

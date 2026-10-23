@@ -292,7 +292,7 @@ export component AppWindow inherits Window {
     in property <int> theme-palette: 0;
     // T1.0 §5: список тем и состояние UI выбора темы в диалоге.
     in property <[string]> theme-list-model: [""];
-    in property <string> theme-current: "";
+    in-out property <string> theme-current: "";
     in property <string> theme-name: "";
     in property <string> theme-description: "";
     // Доступность «Сохранить» и подсказка с причиной недоступности (ТЗ-27, §6.9).
@@ -302,7 +302,7 @@ export component AppWindow inherits Window {
     in property <int> settings-save-interval-idx: 1;
     in property <string> settings-save-notice: "";
     in property <[string]> settings-devices: [];
-    in property <int> settings-device-idx: -1;
+    in-out property <int> settings-device-idx: -1;
     in property <string> settings-active-device: "";
     in property <string> settings-codec-info: "";
     in property <string> settings-active-error: "";
@@ -864,7 +864,7 @@ export component AppWindow inherits Window {
         save-enabled: root.settings-save-enabled;
         save-tooltip: root.settings-save-tooltip;
         audio-devices: root.settings-devices;
-        audio-device-idx: root.settings-device-idx;
+        audio-device-idx <=> root.settings-device-idx;
         active-device: root.settings-active-device;
         codec-info: root.settings-codec-info;
         active-error: root.settings-active-error;
@@ -878,7 +878,7 @@ export component AppWindow inherits Window {
         cover-names: root.settings-cover-names;
         cover-online: root.settings-cover-online;
         theme-list-model: root.theme-list-model;
-        theme-current: root.theme-current;
+        theme-current <=> root.theme-current;
         theme-name: root.theme-name;
         theme-description: root.theme-description;
         close => { root.settings-close(); }

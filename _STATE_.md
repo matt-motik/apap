@@ -12,12 +12,12 @@
 - **Критерий успеха (Definition of Done):** theme-current и settings-device-idx — in-out и связаны <=> по цепочке AppWindow → Settings → ComboBox; при открытии диалога показывается текущая тема, первый же выбор другой темы включает «Сохранить»; полный cargo test и clippy зелёные
 
 ## Итерационный трекер
-- [>] **Шаг 1: ui/app.slint и ui/settings.slint: theme-current и settings-device-idx / audio-device-idx — in-out property, привязки Settings { theme-current <=> …; audio-device-idx <=> … } и ComboBox { current-value <=> root.theme-current; current-index <=> root.audio-device-idx; } (T1.0 §6.2, SP1.0 ТЗ-27). Проверка (сессия из одного шага): cargo check; полный cargo test; cargo clippy без новых предупреждений**
+- [x] Шаг 1: ui/app.slint и ui/settings.slint: theme-current и settings-device-idx / audio-device-idx — in-out property, привязки Settings { theme-current <=> …; audio-device-idx <=> … } и ComboBox { current-value <=> root.theme-current; current-index <=> root.audio-device-idx; } (T1.0 §6.2, SP1.0 ТЗ-27). Проверка (сессия из одного шага): cargo check; полный cargo test; cargo clippy без новых предупреждений
 
 Легенда: [x] сделано · [>] текущий шаг · [ ] не начато
 
 - **Текущий шаг (current_step):** Шаг 1
-- **Следующий ход:** Двусторонние привязки ComboBox темы и устройства
+- **Следующий ход:** закрытие по closing.md
 - **Счетчик безуспешных компиляций:** 0/3
 - **Состояние:** in_progress
 
