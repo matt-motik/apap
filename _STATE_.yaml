@@ -2,14 +2,30 @@
 # _STATE_.md генерируется из этого файла — не редактировать его руками.
 # Редактируйте этот файл, затем: python tools/state_tool.py render
 
-status: done
+status: in_progress
 task:
-  roadmap_id: null
-  title: null
-whitelist: []
-dod: null
-steps: []
-current_step: null
+  roadmap_id: AM1.0-B34
+  title: "Буфер устройства 20 мс при 44,1 кГц: PCM не стартует (порог старта недостижим), тишина без ошибки"
+whitelist:
+  - src/audio/backend/alsa.rs
+  - src/audio/backend/alsa_out.rs
+  - src/engine/run.rs
+  - src/engine/exclusive_path.rs
+  - src/core/messages.rs
+  - src/app/mod.rs
+  - src/app/lock_view.rs
+dod: "44,1 кГц/20 мс и любые некратные буфер/период стартуют; порог старта = ⌊buffer/period⌋·period; неудачный запуск потока (нет движения hw-указателя за отведённое время) — окно ошибки с действиями, не тишина; тесты; полный cargo test + clippy"
+steps:
+  - id: 1
+    description: "Порог старта = целые периоды, вмещающиеся в фактический буфер (чистая функция + тесты для 44,1/48/88,2/96/176,4/192 кГц × 20/40/100/200/400 мс, и DoP/DSD-частоты, если путь общий). Проверка: тесты модуля + clippy"
+    done: false
+  - id: 2
+    description: "Сторож запуска: открыто, но hw-указатель не двинулся за max(3·buffer, 300 мс) после заполнения — StreamFault::Stalled (или новый вариант) → событие → окно ошибки «Устройство не запустило воспроизведение» с действиями (Настройки аудио, Отмена; при буфере устройства < 100 мс — «Увеличить буфер устройства»), ТЗ-68. Проверка: тесты + clippy"
+    done: false
+  - id: 3
+    description: "ЧЕКПОИНТ: полный cargo test + clippy"
+    done: false
+current_step: 1
 next_action: null
 fail_counter: 0
 fail_counter_max: 3
