@@ -2,23 +2,10 @@
      Source of truth: _STATE_.yaml — edit that, then run:
      python tools/state_tool.py render -->
 
+# Состояние сессии
 
-# Текущая микро-сессия
-
-- **Задача из ROADMAP:** WF1.0-B10 — execution.md §8 п.2: уточнить формулировку check-whitelist при status: done
-- **Вайтлист файлов в работе (Изменяемые файлы):**
-  - docs/00_workflow_v1.0/execution.md
-- **Критерий успеха (Definition of Done):** Формулировка §8 п.2 execution.md отражает текущее поведение check-whitelist при status: done (ограничение набором закрытия, не полный пропуск); tools/state_tool.py check и tools/traceability_tool.py check зелёные
-
-## Итерационный трекер
-- [x] Шаг 1: execution.md §8 п.2: заменить «при status: done не проверяется» на описание ограничения набором закрытия (ROADMAP.md, _STATE_.*, _TODO_/history/*, docs/acceptance/*) — поведение tools/state_tool.py cmd_check_whitelist (WF1.0-B10). Проверка: tools/state_tool.py check + tools/traceability_tool.py check
-
-Легенда: [x] сделано · [>] текущий шаг · [ ] не начато
-
-- **Текущий шаг (current_step):** Шаг 1
-- **Следующий ход:** закрытие по closing.md
-- **Счетчик безуспешных компиляций:** 0/3
-- **Состояние:** in_progress
+- **Текущая задача:** Нет (все шаги завершены)
+- **Состояние:** done
 
 ## План: Executable workflow: правила AGENTS.md → исполняемые механизмы
 _Источник: чат с пользователем (ноутбук), начат в 67686ce; перенесён в репо 2026-09-22_
