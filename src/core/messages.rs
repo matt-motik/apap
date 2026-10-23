@@ -60,7 +60,7 @@ impl MessageAction {
         match self {
             MessageAction::RetryCapture => "Повторить захват",
             MessageAction::OpenAudioSettings => "Настройки аудио",
-            MessageAction::SwitchToCompatible => "Перейти в Совместимый режим",
+            MessageAction::SwitchToCompatible => "В Совместимый",
             MessageAction::Cancel => "Отмена",
             MessageAction::Ok => "OK",
             MessageAction::Retry => "Повторить",

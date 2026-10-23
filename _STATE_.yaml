@@ -50,6 +50,9 @@ steps:
   - id: 5
     description: "Проводка окна ошибки замка (src/app/mod.rs, src/app/lock_view.rs): LockState::Failed(..) → push_message с набором кнопок по причине; «Отмена» закрывает окно без изменения состояния, «Настройки аудио» открывает диалог настроек на вкладке «Аудио», «Повторить захват» шлёт RetryCapture, «Перейти в Совместимый» переключает режим. Проверка: cargo test app::"
     done: true
+  - id: 12
+    description: "Подпись действия SwitchToCompatible — «В Совместимый» (решение пользователя 2026-10-24); ТЗ-46 и ТЗ-111 (и ТЗ-144, 03_spec.md, если там та же кнопка) — та же подпись (разрешение пользователя 2026-10-24). Проверка: cargo test core::messages + traceability check"
+    done: true
   - id: 6
     description: "Кнопка замка (ui/top_panel.slint): icon-only toggle вместо LockIndicator + ряда LockActionButton (открыт/захват-песочные часы/закрыт, подсказка — текст состояния, ТЗ-119, ТЗ-121), скрыта при LockKind.not-applicable (ТЗ-50), disabled во время захвата. Проверка: cargo check"
     done: false
