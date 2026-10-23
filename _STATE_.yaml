@@ -21,12 +21,12 @@ steps:
     done: true
   - id: 3
     description: "report.rs report_lists_all_transforms: вернуть проверку «усечение» вместо комментария AM1.0-B7 (§7.2, ТЗ-72). Проверка: cargo test report_lists_all_transforms"
-    done: false
+    done: true
   - id: 4
     description: "ЧЕКПОИНТ: полный cargo test + cargo clippy без новых предупреждений по файлам вайтлиста"
     done: false
-current_step: 3
-next_action: "Вернуть проверку «усечение» в report_lists_all_transforms"
+current_step: 4
+next_action: "ЧЕКПОИНТ: полный cargo test + clippy"
 fail_counter: 0
 fail_counter_max: 3
 failed_attempts: []

@@ -882,7 +882,7 @@ mod tests {
         let r = build_report(PathSubject::Opened(&path), &DynamicPathState::default(), &s);
         let p = row(&r, StageId::Processing);
         let ts = &path.processing.transforms;
-        assert!(ts.len() >= 2, "{:?}", p.changes);
+        assert!(ts.len() >= 3, "{:?}", p.changes);
         assert_eq!(p.changes.len(), ts.len());
         assert_eq!(p.causes.len(), ts.len(), "каждое преобразование со своей причиной");
         for (change, t) in p.changes.iter().zip(ts.iter()) {
@@ -890,7 +890,7 @@ mod tests {
         }
         assert!(has(&p.changes, "SRC"), "{:?}", p.changes);
         assert!(has(&p.changes, "downmix"), "{:?}", p.changes);
-        // «усечение 24 → 16» план пока не строит — AM1.0-B7.
+        assert!(has(&p.changes, "24 → 16 бит, усечение"), "{:?}", p.changes);
     }
 
     #[test]
