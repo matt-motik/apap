@@ -14,7 +14,7 @@
 use std::path::{Path, PathBuf};
 use std::sync::mpsc::{self, Receiver, Sender};
 
-use super::messages::{Message, MessageButtons, MessageLevel};
+use super::messages::{Message, MessageAction, MessageLevel};
 use super::AppCore;
 use crate::journal::JournalRecord;
 use crate::persist::writer::WriterCmd;
@@ -259,7 +259,7 @@ pub(super) fn quarantined_message(path: &Path) -> Message {
             path.display()
         )
         .into(),
-        buttons: MessageButtons::Ok,
+        actions: vec![MessageAction::Ok],
     }
 }
 
@@ -279,7 +279,7 @@ pub(super) fn playlist_unreadable_message(path: &Path, os_text: &str) -> Message
             os_text
         )
         .into(),
-        buttons: MessageButtons::Ok,
+        actions: vec![MessageAction::Ok],
     }
 }
 
@@ -296,7 +296,7 @@ pub(super) fn command_unreadable_message(path: &Path, os_text: &str) -> Message 
             os_text
         )
         .into(),
-        buttons: MessageButtons::Ok,
+        actions: vec![MessageAction::Ok],
     }
 }
 
@@ -308,7 +308,7 @@ pub(super) fn export_failed_message(path: &Path, os_text: &str) -> Message {
         level: MessageLevel::Error,
         title: "Не удалось сохранить плейлист".into(),
         body: format!("Файл {} не удалось записать ({}).", path.display(), os_text).into(),
-        buttons: MessageButtons::Ok,
+        actions: vec![MessageAction::Ok],
     }
 }
 

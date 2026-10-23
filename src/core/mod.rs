@@ -24,7 +24,7 @@ use gate::{BlockReason, MainCmd, UiGate};
 use geometry::GeometryTracker;
 use io::{CacheKind, IoDone, IoJob, IoWorker};
 use load::LoadCtl;
-use messages::{Message, MessageButtons, MessageLevel};
+use messages::{Message, MessageAction, MessageLevel};
 use volume::{apply_volume, VolumeBlock, VolumeCmd, VolumeOutcome, VolumeSource};
 
 use crate::audio::clock::{Clock, ClockInstant};
@@ -751,7 +751,7 @@ impl AppCore {
                 err.os_text
             )
             .into(),
-            buttons: MessageButtons::Ok,
+            actions: vec![MessageAction::Ok],
         })
     }
 

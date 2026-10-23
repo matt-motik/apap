@@ -21,45 +21,10 @@ pub enum MessageLevel {
     Error,
 }
 
-/// Набор кнопок окна сообщения — по-прежнему используется местами, где
-/// строится `Message` (`src/core/load.rs`, `src/core/mod.rs`,
-/// `src/app/playback_manager.rs`): `actions()` переводит его в тот же
-/// `MessageAction`-список, что рендерит `MessageWindow` и обрабатывает
-/// `MessageCenter::press` (ADR-13, AM1.0-B14 шаг 4). Эти три места
-/// переводятся прямо на `Vec<MessageAction>` следующим шагом — после него
-/// этот тип и его единственный метод уходят.
-#[derive(Clone, Copy, PartialEq, Eq, Debug)]
-pub enum MessageButtons {
-    Ok,
-    RetryOk,
-    /// Основная кнопка «Переключить в Совместимый режим», закрыть — «OK» (ТЗ-111).
-    SwitchCompatibleOk,
-    /// Основная кнопка «Захватить и играть», закрыть — «OK» (ТЗ-125).
-    CaptureAndPlayOk,
-}
-
-impl MessageButtons {
-    /// Тот же порядок, что рендерил `ui/message_window.slint` до AM1.0-B14
-    /// шага 4: доп. кнопка (если есть) первой — основная, Enter; «OK»
-    /// последней — закрывающая, Esc (см. `MessageAction` и `lock_failure_actions`
-    /// про общую конвенцию порядка).
-    pub fn actions(self) -> Vec<MessageAction> {
-        match self {
-            MessageButtons::Ok => vec![MessageAction::Ok],
-            MessageButtons::RetryOk => vec![MessageAction::Retry, MessageAction::Ok],
-            MessageButtons::SwitchCompatibleOk => {
-                vec![MessageAction::SwitchToCompatible, MessageAction::Ok]
-            }
-            MessageButtons::CaptureAndPlayOk => {
-                vec![MessageAction::CaptureAndPlay, MessageAction::Ok]
-            }
-        }
-    }
-}
-
 /// Действие кнопки окна сообщения (ADR-13, §6.15, ТЗ-46, ТЗ-144). Одна модель
-/// и для фиксированных окон (бывший `MessageButtons`, см. `MessageButtons::actions`),
-/// и для переменного набора окна ошибки замка: `lock_failure_actions`
+/// и для фиксированных окон (`Message.actions`, составляется прямо на
+/// месте вызова `push_message`/`Message { .. }`), и для переменного набора
+/// окна ошибки замка: `lock_failure_actions`
 /// возвращает переменное по длине и составу упорядоченное подмножество в
 /// зависимости от причины отказа захвата. Конвенция порядка — общая для
 /// обоих источников и для `ui/message_window.slint`: первый элемент —
@@ -79,13 +44,13 @@ pub enum MessageAction {
     /// наборе — привязана к Esc (см. `lock_failure_actions`).
     Cancel,
     /// Единственная кнопка обычного информационного/предупреждающего
-    /// сообщения (бывший `MessageButtons::Ok`).
+    /// сообщения.
     Ok,
     /// Повторить запись рабочих файлов — основная кнопка сводного окна
-    /// ошибок записи (§6.8, бывший `MessageButtons::RetryOk`).
+    /// ошибок записи (§6.8).
     Retry,
     /// Захватить устройство и начать воспроизведение — основная кнопка окна
-    /// «Замок открыт» (ТЗ-125, бывший `MessageButtons::CaptureAndPlayOk`).
+    /// «Замок открыт» (ТЗ-125).
     CaptureAndPlay,
 }
 
@@ -142,7 +107,10 @@ pub struct Message {
     pub level: MessageLevel,
     pub title: Box<str>,
     pub body: Box<str>,
-    pub buttons: MessageButtons,
+    /// Набор кнопок слева направо; первый элемент — основная кнопка окна
+    /// (Enter), последний — закрывающая (Esc); если элемент один, он и
+    /// основная, и закрывающая (см. `MessageAction`, `lock_failure_actions`).
+    pub actions: Vec<MessageAction>,
 }
 
 /// Запись очереди: обычное сообщение или сводная запись ошибок записи (§6.8).
@@ -270,7 +238,7 @@ impl MessageCenter {
     }
 
     /// Нажатие кнопки показанного окна: `action` — действие нажатой кнопки
-    /// (`Message.buttons.actions()`/`lock_failure_actions`; Enter —
+    /// (`Message.actions`/`lock_failure_actions`; Enter —
     /// действие с индексом 0, Esc — с последним индексом, см.
     /// `MessageAction`). Для `Ok`-окна любое действие закрывает его (§6.15).
     pub fn press(&mut self, action: MessageAction) -> (CloseEffect, MsgEffect) {
@@ -357,7 +325,7 @@ impl MessageCenter {
             level: MessageLevel::Error,
             title: "Не удалось сохранить данные".into(),
             body: body.into(),
-            buttons: MessageButtons::RetryOk,
+            actions: vec![MessageAction::Retry, MessageAction::Ok],
         }
     }
 }
@@ -371,7 +339,7 @@ mod tests {
             level: MessageLevel::Warning,
             title: title.into(),
             body: "body".into(),
-            buttons: MessageButtons::Ok,
+            actions: vec![MessageAction::Ok],
         }
     }
 
@@ -429,7 +397,7 @@ mod tests {
         assert!(e.notify.is_none());
         let shown = e.show.expect("окно ошибки записи показано без трея");
         assert_eq!(shown.level, MessageLevel::Error);
-        assert_eq!(shown.buttons, MessageButtons::RetryOk);
+        assert_eq!(shown.actions, vec![MessageAction::Retry, MessageAction::Ok]);
     }
 
     #[test]
@@ -507,7 +475,7 @@ mod tests {
                 level: MessageLevel::Warning,
                 title: "Сохранённый режим недоступен".into(),
                 body: "body".into(),
-                buttons: MessageButtons::SwitchCompatibleOk,
+                actions: vec![MessageAction::SwitchToCompatible, MessageAction::Ok],
             },
             caps,
         );
@@ -527,7 +495,7 @@ mod tests {
                 level: MessageLevel::Warning,
                 title: "Сохранённый режим недоступен".into(),
                 body: "body".into(),
-                buttons: MessageButtons::SwitchCompatibleOk,
+                actions: vec![MessageAction::SwitchToCompatible, MessageAction::Ok],
             },
             caps,
         );
@@ -546,7 +514,7 @@ mod tests {
                 level: MessageLevel::Warning,
                 title: "Замок открыт".into(),
                 body: "body".into(),
-                buttons: MessageButtons::CaptureAndPlayOk,
+                actions: vec![MessageAction::CaptureAndPlay, MessageAction::Ok],
             },
             caps,
         );
@@ -566,7 +534,7 @@ mod tests {
                 level: MessageLevel::Warning,
                 title: "Замок открыт".into(),
                 body: "body".into(),
-                buttons: MessageButtons::CaptureAndPlayOk,
+                actions: vec![MessageAction::CaptureAndPlay, MessageAction::Ok],
             },
             caps,
         );

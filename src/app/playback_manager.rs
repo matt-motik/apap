@@ -310,7 +310,7 @@ impl MusicApp {
             level: MessageLevel::Warning,
             title: "Замок открыт".into(),
             body: "устройство не захвачено; нажмите «Захватить и играть», чтобы захватить устройство и начать воспроизведение".into(),
-            buttons: MessageButtons::CaptureAndPlayOk,
+            actions: vec![MessageAction::CaptureAndPlay, MessageAction::Ok],
         });
         true
     }
@@ -577,7 +577,7 @@ impl MusicApp {
             level: MessageLevel::Error,
             title: "Не удалось воспроизвести трек".into(),
             body: format!("{title}: {err}").into(),
-            buttons: MessageButtons::Ok,
+            actions: vec![MessageAction::Ok],
         });
     }
 

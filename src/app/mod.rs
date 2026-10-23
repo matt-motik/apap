@@ -23,7 +23,7 @@ use music_player_rs::core::dialog::{ApplyStep, DialogDraft, ThemeLoad};
 use music_player_rs::core::SaveButton;
 use music_player_rs::core::gate::{BlockReason, LoadKind, MainCmd};
 use music_player_rs::core::messages::{
-    CloseEffect, Message, MessageAction, MessageButtons, MessageCenter, MessageLevel, MsgEffect,
+    CloseEffect, Message, MessageAction, MessageCenter, MessageLevel, MsgEffect,
 };
 use music_player_rs::core::exit::{ExitOutcome, ExitReason};
 use music_player_rs::core::io::{CacheKind, CacheSizes, IoDone, IoJob};
@@ -867,7 +867,7 @@ impl MusicApp {
                 level: MessageLevel::Error,
                 title: "Аудио-движок не запущен".into(),
                 body: format!("{fault:?}").into(),
-                buttons: MessageButtons::Ok,
+                actions: vec![MessageAction::Ok],
             });
         }
         // Стартовая синхронизация переключателя режимов (§6.18, ТЗ-109, ТЗ-110).
@@ -943,13 +943,12 @@ impl MusicApp {
                 MessageLevel::Warning => 1,
                 MessageLevel::Error => 2,
             };
-            // Переменный набор кнопок (AM1.0-B14 шаг 4): `message.buttons`
-            // переводится в тот же `MessageAction`-список, что рендерит
-            // `MessageWindow` и обрабатывает `on_msg_action` ниже; индекс в
-            // этом списке — `action-id`.
+            // Переменный набор кнопок (AM1.0-B14): `message.actions` — тот
+            // же `MessageAction`-список, что рендерит `MessageWindow` и
+            // обрабатывает `on_msg_action` ниже; индекс в этом списке —
+            // `action-id`.
             let items: Vec<MessageActionItem> = message
-                .buttons
-                .actions()
+                .actions
                 .into_iter()
                 .enumerate()
                 .map(|(i, action)| MessageActionItem {
@@ -1167,7 +1166,7 @@ impl MusicApp {
             level: MessageLevel::Warning,
             title: "Режим недоступен".into(),
             body: "на этой платформе доступен только Совместимый режим (Shared), для воспроизведения переключите режим".into(),
-            buttons: MessageButtons::SwitchCompatibleOk,
+            actions: vec![MessageAction::SwitchToCompatible, MessageAction::Ok],
         });
     }
 
@@ -1369,7 +1368,7 @@ impl MusicApp {
                         "Тема \"{theme_name}\" не загружена, применена светлая тема"
                     )
                     .into(),
-                    buttons: MessageButtons::Ok,
+                    actions: vec![MessageAction::Ok],
                 });
             }
             app.sync_settings_to_ui();
@@ -2778,15 +2777,15 @@ impl MusicApp {
         }
 
         // 32b. message window: один callback на клик любой кнопки (§6.15,
-        // AM1.0-B14 шаг 4): `id` — `action-id` из модели `apply_msg_effect`,
-        // индекс в `message.buttons.actions()` показанного сообщения.
+        // AM1.0-B14): `id` — `action-id` из модели `apply_msg_effect`,
+        // индекс в `message.actions` показанного сообщения.
         {
             let app = this.clone();
             ui.on_msg_action(move |id| {
                 eprintln!("[gui] msg_action id={id}");
                 let mut a = app.borrow_mut();
                 let Ok(idx) = usize::try_from(id) else { return };
-                let Some(action) = a.messages.shown().and_then(|m| m.buttons.actions().get(idx).copied()) else {
+                let Some(action) = a.messages.shown().and_then(|m| m.actions.get(idx).copied()) else {
                     return;
                 };
                 let (close_effect, msg_effect) = a.messages.press(action);
@@ -3371,7 +3370,7 @@ impl MusicApp {
                             level: MessageLevel::Error,
                             title: "Не удалось воспроизвести трек".into(),
                             body: text.into(),
-                            buttons: MessageButtons::Ok,
+                            actions: vec![MessageAction::Ok],
                         });
                     }
                 }
@@ -3388,7 +3387,7 @@ impl MusicApp {
                         level: MessageLevel::Error,
                         title: "Устройство вывода потеряно".into(),
                         body: "Воспроизведение остановлено (ТЗ-51, ADR-14).".into(),
-                        buttons: MessageButtons::Ok,
+                        actions: vec![MessageAction::Ok],
                     });
                 }
                 Reaction::FollowSystemDefault => {

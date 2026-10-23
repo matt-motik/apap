@@ -46,7 +46,7 @@ steps:
     done: true
   - id: 11
     description: "Добавлено на шаге 4 (вышло за вайтлист): убрать MessageButtons целиком — Message.buttons: MessageButtons заменить на actions: Vec<MessageAction> (поле + все литералы Message{...}); обновить src/core/load.rs, src/core/mod.rs, src/app/playback_manager.rs (buttons: MessageButtons::X → actions: X.actions()) и messages.rs (убрать MessageButtons/impl MessageButtons::actions, MessageCenter::press возвращается к единому полю). Пока — MessageButtons жив как временный мост (messages.rs, шаг 4). Проверка: cargo check; cargo test core::messages:: app::"
-    done: false
+    done: true
   - id: 5
     description: "Проводка окна ошибки замка (src/app/mod.rs, src/app/lock_view.rs): LockState::Failed(..) → push_message с набором кнопок по причине; «Отмена» закрывает окно без изменения состояния, «Настройки аудио» открывает диалог настроек на вкладке «Аудио», «Повторить захват» шлёт RetryCapture, «Перейти в Совместимый» переключает режим. Проверка: cargo test app::"
     done: false
@@ -62,8 +62,8 @@ steps:
   - id: 9
     description: "ЧЕКПОИНТ: полный cargo test + cargo clippy зелёные"
     done: false
-current_step: 11
-next_action: "Добавлено на шаге 4 (вышло за вайтлист): убрать MessageButtons целиком — Message.buttons: MessageButtons заменить на actions: Vec<MessageAction> (поле + все литералы Message{...}); обновить src/core/load.rs, src/core/mod.rs, src/app/playback_manager.rs (buttons: MessageButtons::X → actions: X.actions()) и messages.rs (убрать MessageButtons/impl MessageButtons::actions, MessageCenter::press возвращается к единому полю). Пока — MessageButtons жив как временный мост (messages.rs, шаг 4). Проверка: cargo check; cargo test core::messages:: app::"
+current_step: 5
+next_action: "Проводка окна ошибки замка (src/app/mod.rs, src/app/lock_view.rs): LockState::Failed(..) → push_message с набором кнопок по причине; «Отмена» закрывает окно без изменения состояния, «Настройки аудио» открывает диалог настроек на вкладке «Аудио», «Повторить захват» шлёт RetryCapture, «Перейти в Совместимый» переключает режим. Проверка: cargo test app::"
 fail_counter: 0
 fail_counter_max: 3
 failed_attempts: []
