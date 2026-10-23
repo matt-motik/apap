@@ -12,9 +12,9 @@ dod: "on_settings_mode_edit_mode_selected после смены shown_mode вы�
 steps:
   - id: 1
     description: "on_settings_mode_edit_mode_selected (src/app/mod.rs): после sync_mode_dialog_to_ui вызвать apply_audio_device_listing (ТЗ-94, ТЗ-126, ADR-24). Проверка (сессия из одного шага): cargo check; полный cargo test; cargo clippy без новых предупреждений по mod.rs"
-    done: false
+    done: true
 current_step: 1
-next_action: "Вызвать apply_audio_device_listing при смене редактируемого режима"
+next_action: "закрытие по closing.md"
 fail_counter: 0
 fail_counter_max: 3
 failed_attempts: []

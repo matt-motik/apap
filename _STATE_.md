@@ -11,12 +11,12 @@
 - **Критерий успеха (Definition of Done):** on_settings_mode_edit_mode_selected после смены shown_mode вызывает apply_audio_device_listing — комбобокс показывает устройство выбранного режима; полный cargo test и clippy зелёные
 
 ## Итерационный трекер
-- [>] **Шаг 1: on_settings_mode_edit_mode_selected (src/app/mod.rs): после sync_mode_dialog_to_ui вызвать apply_audio_device_listing (ТЗ-94, ТЗ-126, ADR-24). Проверка (сессия из одного шага): cargo check; полный cargo test; cargo clippy без новых предупреждений по mod.rs**
+- [x] Шаг 1: on_settings_mode_edit_mode_selected (src/app/mod.rs): после sync_mode_dialog_to_ui вызвать apply_audio_device_listing (ТЗ-94, ТЗ-126, ADR-24). Проверка (сессия из одного шага): cargo check; полный cargo test; cargo clippy без новых предупреждений по mod.rs
 
 Легенда: [x] сделано · [>] текущий шаг · [ ] не начато
 
 - **Текущий шаг (current_step):** Шаг 1
-- **Следующий ход:** Вызвать apply_audio_device_listing при смене редактируемого режима
+- **Следующий ход:** закрытие по closing.md
 - **Счетчик безуспешных компиляций:** 0/3
 - **Состояние:** in_progress
 

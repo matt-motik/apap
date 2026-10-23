@@ -2538,6 +2538,9 @@ impl MusicApp {
                 };
                 a.edit_draft(|d| d.shown_mode = mode);
                 a.sync_mode_dialog_to_ui();
+                // Список и выбор устройства — показанного режима (ТЗ-94,
+                // ТЗ-126, ADR-24, AM1.0-B5).
+                a.apply_audio_device_listing();
             });
         }
 
