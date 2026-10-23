@@ -13,12 +13,12 @@
 
 ## Итерационный трекер
 - [x] Шаг 1: tools/state_tool.py: команда step-done [--next "<next_action>"] — отмечает current_step done:true (поиск по id, без предположения о сквозной нумерации), сдвигает current_step на следующий шаг списка, иначе (последний шаг) current_step не меняется и next_action = «закрытие по closing.md» независимо от --next; сбрасывает fail_counter в 0 и failed_attempts в []; делает render; печатает «Шаг N завершён, текущий — M» (или вариант для последнего шага). Проверка: ручной прогон на тестовом _STATE_.yaml вне репозитория (обычный шаг и последний шаг, включая ошибку при пропущенном --next) + python tools/state_tool.py check
-- [>] **Шаг 2: docs/00_workflow_v1.0/execution.md §4: убрать ручные пункты (сброс fail_counter/failed_attempts, done:true + новые current_step/next_action, render) — заменить одним вызовом step-done; сообщение пользователю — строка, которую печатает step-done. Проверка: python tools/state_tool.py check и python tools/traceability_tool.py check**
+- [x] Шаг 2: docs/00_workflow_v1.0/execution.md §4: убрать ручные пункты (сброс fail_counter/failed_attempts, done:true + новые current_step/next_action, render) — заменить одним вызовом step-done; сообщение пользователю — строка, которую печатает step-done. Проверка: python tools/state_tool.py check и python tools/traceability_tool.py check
 
 Легенда: [x] сделано · [>] текущий шаг · [ ] не начато
 
 - **Текущий шаг (current_step):** Шаг 2
-- **Следующий ход:** execution.md §4: заменить ручные пункты вызовом step-done
+- **Следующий ход:** закрытие по closing.md
 - **Счетчик безуспешных компиляций:** 0/3
 - **Состояние:** in_progress
 

@@ -16,9 +16,9 @@ steps:
     done: true
   - id: 2
     description: "docs/00_workflow_v1.0/execution.md §4: убрать ручные пункты (сброс fail_counter/failed_attempts, done:true + новые current_step/next_action, render) — заменить одним вызовом step-done; сообщение пользователю — строка, которую печатает step-done. Проверка: python tools/state_tool.py check и python tools/traceability_tool.py check"
-    done: false
+    done: true
 current_step: 2
-next_action: "execution.md §4: заменить ручные пункты вызовом step-done"
+next_action: "закрытие по closing.md"
 fail_counter: 0
 fail_counter_max: 3
 failed_attempts: []
