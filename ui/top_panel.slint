@@ -182,24 +182,52 @@ component LockButton inherits Rectangle {
         }
     }
 
-    if root.tooltip-text != "": Tooltip {
-        Rectangle {
-            width: 220px;
-            height: lock-tip-text.preferred-height + 10px;
-            background: Colors.bg-elevated;
-            border-color: Colors.border-default;
-            border-width: 1px;
-            border-radius: 4px;
-
-            lock-tip-text := Text {
-                text: root.tooltip-text;
-                color: Colors.text-secondary;
-                font-size: 11px;
-                wrap: word-wrap;
-                x: 6px;
-                y: 5px;
-                width: parent.width - 12px;
+    // Подсказка замка (AM1.0-B14 шаг 14, ТЗ-119, ТЗ-121): свой попап
+    // вместо встроенного `Tooltip` — у его лаунчера (TooltipArea,
+    // builtins.slint) в 1.17/1.18 нет публичных delay/offset, а кнопка
+    // стоит у самого края окна, где фиксированная позиция «у курсора»
+    // обрезается рамкой экрана. Показ — после 700 мс непрерывного
+    // наведения (root.hover-ms, тик каждые 50 мс); скрытие — сразу при
+    // уходе курсора (условие ниже проверяет touch.has-hover напрямую, не
+    // только защёлку show-tooltip). Позиция: правый край подсказки
+    // совпадает с правым краем кнопки, а кнопка уже прижата к правому
+    // краю окна отступом ≥ 10px контейнером (MenuBarTrailing —
+    // app.slint padding-right 12px / top_panel.slint 10px), поэтому
+    // подсказка остаётся внутри окна без знания его ширины.
+    private property <int> hover-ms: 0;
+    private property <bool> show-tooltip: false;
+    Timer {
+        interval: 50ms;
+        running: true;
+        triggered => {
+            if (touch.has-hover) {
+                root.hover-ms += 50;
+            } else {
+                root.hover-ms = 0;
             }
+            root.show-tooltip = root.hover-ms >= 700;
+        }
+    }
+
+    if root.tooltip-text != "" && touch.has-hover && root.show-tooltip: Rectangle {
+        x: root.width - self.width;
+        y: root.height + 4px;
+        width: 220px;
+        height: lock-tip-text.preferred-height + 10px;
+        background: Colors.bg-elevated;
+        border-color: Colors.border-default;
+        border-width: 1px;
+        border-radius: 4px;
+        z: 10;
+
+        lock-tip-text := Text {
+            text: root.tooltip-text;
+            color: Colors.text-secondary;
+            font-size: 11px;
+            wrap: word-wrap;
+            x: 6px;
+            y: 5px;
+            width: parent.width - 12px;
         }
     }
 }
