@@ -13,13 +13,13 @@
 - **Критерий успеха (Definition of Done):** hooks/commit-msg (через tools/state_tool.py check-commit-msg) при status: in_progress пропускает сообщение с (<roadmap_id>, step <N>) и служебные префиксы (chore(state), chore(roadmap), chore(claude), acceptance(), блокирует прочее; при status: done — пропускает всё; git config core.hooksPath уже указывает на hooks/, новый коммит сам проходит проверку
 
 ## Итерационный трекер
-- [>] **Шаг 1: tools/state_tool.py: команда check-commit-msg <путь-к-файлу-сообщения> — при status: in_progress проверяет вхождение '(<roadmap_id>, step <N>)' в текст коммита или служебный префикс (chore(state), chore(roadmap), chore(claude), acceptance(); при status: done пропускает. Проверка: ручной прогон на временных копиях _STATE_.yaml (in_progress/done, подходящее/неподходящее сообщение) — ожидаемые коды возврата; tools/state_tool.py check зелёный**
-- [ ] Шаг 2: hooks/commit-msg (новый, исполняемый) вызывает tools/state_tool.py check-commit-msg "$1"; документировать хук в docs/00_workflow_v1.0/execution.md (новый §9, по образцу §8 pre-commit). Проверка: реальный коммит этого шага проходит через сам хук (git commit отрабатывает commit-msg без --no-verify) — живое подтверждение; tools/traceability_tool.py check зелёный
+- [x] Шаг 1: tools/state_tool.py: команда check-commit-msg <путь-к-файлу-сообщения> — при status: in_progress проверяет вхождение '(<roadmap_id>, step <N>)' в текст коммита или служебный префикс (chore(state), chore(roadmap), chore(claude), acceptance(); при status: done пропускает. Проверка: ручной прогон на временных копиях _STATE_.yaml (in_progress/done, подходящее/неподходящее сообщение) — ожидаемые коды возврата; tools/state_tool.py check зелёный
+- [>] **Шаг 2: hooks/commit-msg (новый, исполняемый) вызывает tools/state_tool.py check-commit-msg "$1"; документировать хук в docs/00_workflow_v1.0/execution.md (новый §9, по образцу §8 pre-commit). Проверка: реальный коммит этого шага проходит через сам хук (git commit отрабатывает commit-msg без --no-verify) — живое подтверждение; tools/traceability_tool.py check зелёный**
 
 Легенда: [x] сделано · [>] текущий шаг · [ ] не начато
 
-- **Текущий шаг (current_step):** Шаг 1
-- **Следующий ход:** Добавить cmd_check_commit_msg и диспетчеризацию 'check-commit-msg' в tools/state_tool.py
+- **Текущий шаг (current_step):** Шаг 2
+- **Следующий ход:** Добавить hooks/commit-msg и документировать его в execution.md §9
 - **Счетчик безуспешных компиляций:** 0/3
 - **Состояние:** in_progress
 

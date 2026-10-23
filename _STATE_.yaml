@@ -14,12 +14,12 @@ dod: "hooks/commit-msg (через tools/state_tool.py check-commit-msg) при 
 steps:
   - id: 1
     description: "tools/state_tool.py: команда check-commit-msg <путь-к-файлу-сообщения> — при status: in_progress проверяет вхождение '(<roadmap_id>, step <N>)' в текст коммита или служебный префикс (chore(state), chore(roadmap), chore(claude), acceptance(); при status: done пропускает. Проверка: ручной прогон на временных копиях _STATE_.yaml (in_progress/done, подходящее/неподходящее сообщение) — ожидаемые коды возврата; tools/state_tool.py check зелёный"
-    done: false
+    done: true
   - id: 2
     description: "hooks/commit-msg (новый, исполняемый) вызывает tools/state_tool.py check-commit-msg \"$1\"; документировать хук в docs/00_workflow_v1.0/execution.md (новый §9, по образцу §8 pre-commit). Проверка: реальный коммит этого шага проходит через сам хук (git commit отрабатывает commit-msg без --no-verify) — живое подтверждение; tools/traceability_tool.py check зелёный"
     done: false
-current_step: 1
-next_action: "Добавить cmd_check_commit_msg и диспетчеризацию 'check-commit-msg' в tools/state_tool.py"
+current_step: 2
+next_action: "Добавить hooks/commit-msg и документировать его в execution.md §9"
 fail_counter: 0
 fail_counter_max: 3
 failed_attempts: []

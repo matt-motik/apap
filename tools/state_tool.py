@@ -23,6 +23,13 @@ Usage:
                                                    # the last entry (then current_step stays
                                                    # put and next_action becomes "закрытие по
                                                    # closing.md" regardless of --next).
+    python tools/state_tool.py check-commit-msg <msgfile>
+                                                   # hooks/commit-msg (docs/00_workflow_v1.0/
+                                                   # execution.md §9): at status == in_progress,
+                                                   # requires '(<roadmap_id>, step <N>)' in the
+                                                   # message or a service prefix (chore(state),
+                                                   # chore(roadmap), chore(claude), acceptance();
+                                                   # no-op at status == done.
 """
 from __future__ import annotations
 
@@ -418,6 +425,68 @@ def cmd_step_done(args: list[str]) -> int:
     return 0
 
 
+SERVICE_COMMIT_PREFIXES = ("chore(state)", "chore(roadmap)", "chore(claude)", "acceptance(")
+STEP_COMMIT_RE_TEMPLATE = r"\({}\s*,\s*step\s+\d+\)"
+
+
+def cmd_check_commit_msg(args: list[str]) -> int:
+    """check-commit-msg <путь-к-файлу-сообщения> (hooks/commit-msg, WF1.0-B6):
+    при status == in_progress требует, чтобы сообщение несло звено
+    трассируемости "коммит -> шаг _STATE_.yaml" — либо содержит
+    '(<roadmap_id>, step <N>)' (execution.md §4), либо начинается со
+    служебного префикса (chore(state), chore(roadmap), chore(claude),
+    acceptance() для коммитов самого workflow-инструментария/приёмки
+    (planning.md §7, closing.md §2/§5, execution.md §5, tools/acceptance.py).
+    При status == done (нет открытой сессии) ничего не проверяет — нет
+    roadmap_id, с которым сверяться.
+    """
+    if len(args) != 1:
+        print("usage: check-commit-msg <путь-к-файлу-сообщения>", file=sys.stderr)
+        return 2
+
+    data = load_state()
+    errors = validate_schema(data) + validate_business_rules(data)
+    if errors:
+        for e in errors:
+            print(e, file=sys.stderr)
+        return 1
+
+    if data.get("status") != "in_progress":
+        print(f"status == {data.get('status')!r} — commit-msg check skipped (нет открытой сессии).")
+        return 0
+
+    msg_path = Path(args[0])
+    try:
+        message = msg_path.read_text(encoding="utf-8")
+    except OSError as e:
+        print(f"error: could not read commit message file '{msg_path}': {e}", file=sys.stderr)
+        return 1
+
+    first_line = message.splitlines()[0] if message.splitlines() else ""
+    if first_line.startswith(SERVICE_COMMIT_PREFIXES):
+        print("OK — служебный префикс коммита workflow/приёмки.")
+        return 0
+
+    roadmap_id = data["task"]["roadmap_id"]
+    step_re = re.compile(STEP_COMMIT_RE_TEMPLATE.format(re.escape(roadmap_id)))
+    if step_re.search(message):
+        print(f"OK — сообщение несёт звено ({roadmap_id}, step N).")
+        return 0
+
+    print(
+        f"Сообщение коммита не несёт звено трассируемости к открытой сессии "
+        f"({roadmap_id}).",
+        file=sys.stderr,
+    )
+    print(
+        f"Нужно либо '({roadmap_id}, step <N>)' в тексте сообщения "
+        "(docs/00_workflow_v1.0/execution.md §4), либо служебный префикс "
+        f"({', '.join(SERVICE_COMMIT_PREFIXES)}).",
+        file=sys.stderr,
+    )
+    return 1
+
+
 def cmd_render() -> int:
     data = load_state()
     errors = validate_schema(data) + validate_business_rules(data)
@@ -478,6 +547,8 @@ def main(argv: list[str]) -> int:
     try:
         if cmd == "step-done":
             return cmd_step_done(rest)
+        if cmd == "check-commit-msg":
+            return cmd_check_commit_msg(rest)
         if rest or cmd not in COMMANDS:
             print(__doc__)
             return 2
