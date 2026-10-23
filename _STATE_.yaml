@@ -2,15 +2,19 @@
 # _STATE_.md генерируется из этого файла — не редактировать его руками.
 # Редактируйте этот файл, затем: python tools/state_tool.py render
 
-status: done
+status: in_progress
 task:
-  roadmap_id: null
-  title: null
-whitelist: []
-dod: null
-steps: []
-current_step: null
-next_action: null
+  roadmap_id: AM1.0-B5
+  title: "Диалог настроек: смена редактируемого режима не пересинхронизирует список устройств"
+whitelist:
+  - src/app/mod.rs
+dod: "on_settings_mode_edit_mode_selected после смены shown_mode вызывает apply_audio_device_listing — комбобокс показывает устройство выбранного режима; полный cargo test и clippy зелёные"
+steps:
+  - id: 1
+    description: "on_settings_mode_edit_mode_selected (src/app/mod.rs): после sync_mode_dialog_to_ui вызвать apply_audio_device_listing (ТЗ-94, ТЗ-126, ADR-24). Проверка (сессия из одного шага): cargo check; полный cargo test; cargo clippy без новых предупреждений по mod.rs"
+    done: false
+current_step: 1
+next_action: "Вызвать apply_audio_device_listing при смене редактируемого режима"
 fail_counter: 0
 fail_counter_max: 3
 failed_attempts: []

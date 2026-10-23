@@ -2,10 +2,23 @@
      Source of truth: _STATE_.yaml — edit that, then run:
      python tools/state_tool.py render -->
 
-# Состояние сессии
 
-- **Текущая задача:** Нет (все шаги завершены)
-- **Состояние:** done
+# Текущая микро-сессия
+
+- **Задача из ROADMAP:** AM1.0-B5 — Диалог настроек: смена редактируемого режима не пересинхронизирует список устройств
+- **Вайтлист файлов в работе (Изменяемые файлы):**
+  - src/app/mod.rs
+- **Критерий успеха (Definition of Done):** on_settings_mode_edit_mode_selected после смены shown_mode вызывает apply_audio_device_listing — комбобокс показывает устройство выбранного режима; полный cargo test и clippy зелёные
+
+## Итерационный трекер
+- [>] **Шаг 1: on_settings_mode_edit_mode_selected (src/app/mod.rs): после sync_mode_dialog_to_ui вызвать apply_audio_device_listing (ТЗ-94, ТЗ-126, ADR-24). Проверка (сессия из одного шага): cargo check; полный cargo test; cargo clippy без новых предупреждений по mod.rs**
+
+Легенда: [x] сделано · [>] текущий шаг · [ ] не начато
+
+- **Текущий шаг (current_step):** Шаг 1
+- **Следующий ход:** Вызвать apply_audio_device_listing при смене редактируемого режима
+- **Счетчик безуспешных компиляций:** 0/3
+- **Состояние:** in_progress
 
 ## План: Executable workflow: правила AGENTS.md → исполняемые механизмы
 _Источник: чат с пользователем (ноутбук), начат в 67686ce; перенесён в репо 2026-09-22_
