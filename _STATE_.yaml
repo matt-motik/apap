@@ -21,7 +21,7 @@ steps:
     done: true
   - id: 2
     description: "Удалить мёртвое поле MusicApp::theme_meta — пишется и сразу читается только в set_theme_meta (SP1.0-B15 п.2). Проверка: cargo check"
-    done: false
+    done: true
   - id: 3
     description: "Убрать отладочные debug(\"settings: …\") подложки диалога и кнопок Save/Cancel в ui/settings.slint (SP1.0-B15 п.3). Проверка: cargo check"
     done: false
@@ -40,8 +40,8 @@ steps:
   - id: 8
     description: "ЧЕКПОИНТ: полный cargo test + clippy"
     done: false
-current_step: 2
-next_action: "Шаг 2: удалить мёртвое поле MusicApp::theme_meta"
+current_step: 3
+next_action: "Шаг 3: убрать отладочные debug() в ui/settings.slint"
 fail_counter: 0
 fail_counter_max: 3
 failed_attempts: []

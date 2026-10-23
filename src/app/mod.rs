@@ -440,8 +440,6 @@ pub struct MusicApp {
     view_w_stable_ticks: u32,
     col_model_sig: u64,
     col_sig_stable_ticks: u32,
-    /// Метаданные темы, показанные под ComboBox (name/description/valid).
-    theme_meta: Option<ThemeMeta>,
     cover_tx: Option<std::sync::mpsc::Sender<CoverJob>>,
     cover_rx: Option<Receiver<CoverDone>>,
     cover_gen: u64,
@@ -763,7 +761,6 @@ impl MusicApp {
             view_w_stable_ticks: 0,
             col_model_sig: 0,
             col_sig_stable_ticks: 0,
-            theme_meta: None,
             cover_tx: Some(cover_tx),
             cover_rx: Some(cover_done_rx),
             cover_gen: 0,
@@ -1552,8 +1549,7 @@ impl MusicApp {
     /// найдена в `themes/`; `name` пуст — файл есть, но не читается/невалиден.
     /// Только показ под ComboBox: на кнопку «Сохранить» не влияет (ТЗ-27).
     fn set_theme_meta(&mut self, meta: Option<ThemeMeta>) {
-        self.theme_meta = meta;
-        let (name, desc) = match &self.theme_meta {
+        let (name, desc) = match &meta {
             Some(m) if !m.name.is_empty() => (
                 m.name.clone(),
                 m.description.clone().unwrap_or_default(),
