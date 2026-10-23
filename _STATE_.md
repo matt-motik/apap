@@ -11,12 +11,12 @@
 - **Критерий успеха (Definition of Done):** Формулировка §8 п.2 execution.md отражает текущее поведение check-whitelist при status: done (ограничение набором закрытия, не полный пропуск); tools/state_tool.py check и tools/traceability_tool.py check зелёные
 
 ## Итерационный трекер
-- [>] **Шаг 1: execution.md §8 п.2: заменить «при status: done не проверяется» на описание ограничения набором закрытия (ROADMAP.md, _STATE_.*, _TODO_/history/*, docs/acceptance/*) — поведение tools/state_tool.py cmd_check_whitelist (WF1.0-B10). Проверка: tools/state_tool.py check + tools/traceability_tool.py check**
+- [x] Шаг 1: execution.md §8 п.2: заменить «при status: done не проверяется» на описание ограничения набором закрытия (ROADMAP.md, _STATE_.*, _TODO_/history/*, docs/acceptance/*) — поведение tools/state_tool.py cmd_check_whitelist (WF1.0-B10). Проверка: tools/state_tool.py check + tools/traceability_tool.py check
 
 Легенда: [x] сделано · [>] текущий шаг · [ ] не начато
 
 - **Текущий шаг (current_step):** Шаг 1
-- **Следующий ход:** Править docs/00_workflow_v1.0/execution.md §8 п.2
+- **Следующий ход:** закрытие по closing.md
 - **Счетчик безуспешных компиляций:** 0/3
 - **Состояние:** in_progress
 

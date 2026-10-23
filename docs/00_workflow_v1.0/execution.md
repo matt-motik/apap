@@ -152,7 +152,10 @@ Doc-комментарии нового и переписываемого код
 1. `tools/state_tool.py check` — схема и бизнес-правила `_STATE_.yaml`,
    `_STATE_.md` не разошёлся с `render`;
 2. `tools/state_tool.py check-whitelist` — изменённые файлы (`git status`)
-   не выходят за `whitelist` сессии (при `status: done` не проверяется);
+   не выходят за `whitelist` сессии; при `status: done` (нет открытой
+   сессии) — не полный пропуск, а ограничение набором закрытия
+   (`ROADMAP.md`, `_STATE_.*`, `_TODO_/history/*`, `docs/acceptance/*`,
+   `closing.md` §1, §4, §5);
 3. `tools/traceability_tool.py check` — ID, якоря и маркеры статуса между
    спецификациями и `ROADMAP.md`; `task.roadmap_id` открытой сессии —
    существующая не-✅ строка;
