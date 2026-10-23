@@ -2,15 +2,20 @@
 # _STATE_.md генерируется из этого файла — не редактировать его руками.
 # Редактируйте этот файл, затем: python tools/state_tool.py render
 
-status: done
+status: in_progress
 task:
-  roadmap_id: null
-  title: null
-whitelist: []
-dod: null
-steps: []
-current_step: null
-next_action: null
+  roadmap_id: SP1.0-B12
+  title: "ApplyStep::Covers не перезапрашивает обложку текущего трека"
+whitelist:
+  - src/app/mod.rs
+  - src/app/playback_manager.rs
+dod: "После «Сохранить» с изменёнными настройками обложек обложка текущего трека перезапрашивается с новым CoverConfig; полный cargo test и clippy зелёные"
+steps:
+  - id: 1
+    description: "ApplyStep::Covers (src/app/mod.rs): после sync_cover_settings_to_ui — request_cover(current), если трек есть; MusicApp::request_cover (src/app/playback_manager.rs) — pub(super) (SP1.0 §6.9, ADR-11). Проверка (сессия из одного шага): cargo check; полный cargo test; cargo clippy без новых предупреждений по файлам вайтлиста"
+    done: false
+current_step: 1
+next_action: "Перезапрос обложки в ApplyStep::Covers"
 fail_counter: 0
 fail_counter_max: 3
 failed_attempts: []

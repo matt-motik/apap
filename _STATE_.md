@@ -2,10 +2,24 @@
      Source of truth: _STATE_.yaml — edit that, then run:
      python tools/state_tool.py render -->
 
-# Состояние сессии
 
-- **Текущая задача:** Нет (все шаги завершены)
-- **Состояние:** done
+# Текущая микро-сессия
+
+- **Задача из ROADMAP:** SP1.0-B12 — ApplyStep::Covers не перезапрашивает обложку текущего трека
+- **Вайтлист файлов в работе (Изменяемые файлы):**
+  - src/app/mod.rs
+  - src/app/playback_manager.rs
+- **Критерий успеха (Definition of Done):** После «Сохранить» с изменёнными настройками обложек обложка текущего трека перезапрашивается с новым CoverConfig; полный cargo test и clippy зелёные
+
+## Итерационный трекер
+- [>] **Шаг 1: ApplyStep::Covers (src/app/mod.rs): после sync_cover_settings_to_ui — request_cover(current), если трек есть; MusicApp::request_cover (src/app/playback_manager.rs) — pub(super) (SP1.0 §6.9, ADR-11). Проверка (сессия из одного шага): cargo check; полный cargo test; cargo clippy без новых предупреждений по файлам вайтлиста**
+
+Легенда: [x] сделано · [>] текущий шаг · [ ] не начато
+
+- **Текущий шаг (current_step):** Шаг 1
+- **Следующий ход:** Перезапрос обложки в ApplyStep::Covers
+- **Счетчик безуспешных компиляций:** 0/3
+- **Состояние:** in_progress
 
 ## План: Executable workflow: правила AGENTS.md → исполняемые механизмы
 _Источник: чат с пользователем (ноутбук), начат в 67686ce; перенесён в репо 2026-09-22_
