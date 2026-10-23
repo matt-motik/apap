@@ -27,7 +27,7 @@ steps:
     done: true
   - id: 4
     description: "ValueBlocker::reason(): общий текст вместо дублей в src/core/dialog.rs и src/app/mode_dialog.rs (SP1.0-B15 п.4). Проверка: cargo check"
-    done: false
+    done: true
   - id: 5
     description: "Обновить устаревшие комментарии: set_output_device (playback_manager.rs), привязка клавиши V (viz_settings_manager.rs, шлюз решает сам) (SP1.0-B15 п.5). Проверка: cargo check"
     done: false
@@ -40,8 +40,8 @@ steps:
   - id: 8
     description: "ЧЕКПОИНТ: полный cargo test + clippy"
     done: false
-current_step: 4
-next_action: "Шаг 4: ValueBlocker::reason() вместо дублей в core/dialog.rs и app/mode_dialog.rs"
+current_step: 5
+next_action: "Шаг 5: обновить устаревшие комментарии в playback_manager.rs и viz_settings_manager.rs"
 fail_counter: 0
 fail_counter_max: 3
 failed_attempts: []

@@ -10,9 +10,7 @@ use crate::persist::settings_file::{ColumnDef, SaveInterval, Settings};
 use crate::persist::state_file::SessionState;
 use crate::settings::ColumnId;
 use crate::settings::params::{ModeSettingsDiff, ModeSettingsUpdate};
-use crate::settings::playback::{
-    buffers_allowed, CompatibleOpts, ModeKind, ModeSettings, OptimalOpts, StrictOpts, ValueBlocker,
-};
+use crate::settings::playback::{buffers_allowed, CompatibleOpts, ModeKind, ModeSettings, OptimalOpts, StrictOpts};
 use crate::theme::ThemeData;
 
 /// Черновик диалога (§2.10, ADR-11, ТЗ-25): только параметры диалога.
@@ -364,21 +362,11 @@ pub fn validate(draft: &DialogDraft) -> Vec<Invalid> {
     ];
     for (param, buffer, device_buffer) in pairs {
         if let Err(blocker) = buffers_allowed(buffer, device_buffer) {
-            invalid.push(Invalid { param, reason: blocker_reason(blocker) });
+            invalid.push(Invalid { param, reason: blocker.reason().into_boxed_str() });
         }
     }
 
     invalid
-}
-
-/// Причина недопустимого сочетания буферов (И-Р22, ТЗ-27, ТЗ-131):
-/// формулировки вариантов `ValueBlocker`, те же, что в диалоге режима.
-fn blocker_reason(blocker: ValueBlocker) -> Box<str> {
-    match blocker {
-        ValueBlocker::PlayerBufferTooSmall { need_ms } => format!("увеличьте буфер плеера до {need_ms} мс"),
-        ValueBlocker::DeviceBufferTooLarge { max_ms } => format!("уменьшите буфер устройства до {max_ms} мс"),
-    }
-    .into_boxed_str()
 }
 
 /// Шаг применения по строкам §5.2 ТЗ (§2.10, §6.9, ТЗ-29): одно действие

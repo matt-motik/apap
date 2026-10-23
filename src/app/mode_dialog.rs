@@ -22,7 +22,7 @@
 use music_player_rs::settings::params::{param_label, Availability, ParamDescriptor, ParamId, PARAMS};
 use music_player_rs::settings::playback::{
     buffers_allowed, BufferMs, DeviceBuffer, DeviceOpts, Dither, DsdAboveDac, DsdFilter, ModeKind, ModeSettings,
-    RateFallbackRule, SrcFilter, ValueBlocker,
+    RateFallbackRule, SrcFilter,
 };
 use slint::{ModelRc, SharedString};
 
@@ -250,12 +250,7 @@ fn row_device_buffer(mode: ModeKind, settings: &ModeSettings, label: &'static st
         }
         let (enabled, hint) = match buffers_allowed(buffer, *candidate) {
             Ok(()) => (true, String::new()),
-            Err(ValueBlocker::PlayerBufferTooSmall { need_ms }) => {
-                (false, format!("увеличьте буфер плеера до {need_ms} мс"))
-            }
-            Err(ValueBlocker::DeviceBufferTooLarge { max_ms }) => {
-                (false, format!("уменьшите буфер устройства до {max_ms} мс"))
-            }
+            Err(blocker) => (false, blocker.reason()),
         };
         options.push(RowOption { label: device_buffer_label(*candidate), enabled, hint });
     }

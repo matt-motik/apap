@@ -147,6 +147,18 @@ pub enum ValueBlocker {
     DeviceBufferTooLarge { max_ms: u16 },
 }
 
+impl ValueBlocker {
+    /// Текст блокировки (ТЗ-94, ТЗ-131, И-Р22, §6.27): единая формулировка
+    /// для диалога режима (`mode_dialog.rs`) и валидации диалога настроек
+    /// (`core::dialog::blocker_reason`, SP1.0-B15 п.4) — раньше дублировалась.
+    pub fn reason(self) -> String {
+        match self {
+            ValueBlocker::PlayerBufferTooSmall { need_ms } => format!("увеличьте буфер плеера до {need_ms} мс"),
+            ValueBlocker::DeviceBufferTooLarge { max_ms } => format!("уменьшите буфер устройства до {max_ms} мс"),
+        }
+    }
+}
+
 /// Проверка инварианта И-Р22: `BufferMs ≥ 2 × DeviceBuffer` — единственное правило,
 /// связывающее буфер плеера и буфер устройства Оптимального и Строгого режимов
 /// (ТЗ-94, ТЗ-131, §6.27). Диалог настроек вызывает её для каждого значения списка
