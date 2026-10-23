@@ -15,7 +15,7 @@ dod: "plan() для 5.1 24/192 на стерео 16/96 в Оптимальном
 steps:
   - id: 1
     description: "exclusive_format (src/audio/path/plan.rs): при F32-нагрузке и целом PCM-источнике с valid_bits > field_bits наибольшего формата — Truncate(src → field_bits) с причиной limit_cause (описательный, рендер не меняется; в Строгом F32-нагрузки нет); в 03_spec.md §6.5 (абзац «Для планов с F32-нагрузкой…») — фраза-уточнение (разрешение пользователя 2026-10-23, вариант 1). §6.5, §6.3, ТЗ-72, ТЗ-28, ОВС-3. Проверка: cargo check; cargo test audio::path; state_tool check; traceability_tool check"
-    done: false
+    done: true
   - id: 2
     description: "Тесты plan_tests.rs (§7.2, ТЗ-72): Truncate(24→16) при SRC+downmix на 16-бит устройстве; нет Truncate для 16-бит источника с SRC и для 24-бит источника на S32. Проверка: cargo test audio::path"
     done: false
@@ -25,8 +25,8 @@ steps:
   - id: 4
     description: "ЧЕКПОИНТ: полный cargo test + cargo clippy без новых предупреждений по файлам вайтлиста"
     done: false
-current_step: 1
-next_action: "Добавить Truncate в F32-ветку exclusive_format и уточнение §6.5 спеки"
+current_step: 2
+next_action: "Тесты Truncate при F32-нагрузке в plan_tests.rs"
 fail_counter: 0
 fail_counter_max: 3
 failed_attempts: []

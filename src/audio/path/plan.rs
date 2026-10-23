@@ -715,7 +715,8 @@ fn float_conversion(draft: &PathPlan) -> Option<TransformKind> {
 /// Кандидаты — целые форматы устройства по возрастанию
 /// `(field_bits, байт на сэмпл)`. План с `F32`-нагрузкой (SRC, downmix,
 /// DSD→PCM, float-источник) получает наибольший формат; float-источник —
-/// с `FloatToInt { bits }` (ОВС-1). Целая нагрузка с `valid_bits = need`:
+/// с `FloatToInt { bits }` (ОВС-1), целый источник с `valid_bits` больше
+/// этого формата — с `Truncate` (ТЗ-72). Целая нагрузка с `valid_bits = need`:
 /// первый формат с `field_bits ≥ need` (`ZeroPad`, если поле шире; 24 бита в
 /// `S24_LE` — без преобразования, ОВ-32), иначе наибольший формат с
 /// `Truncate` (Строгий — `TruncationForbidden`). Переквантование в целый
@@ -730,9 +731,19 @@ fn exclusive_format(draft: &mut PathPlan, caps: &DeviceCaps, cause: Cause) -> Re
     };
     if f32_payload(draft) {
         draft.target.sample = largest;
-        if matches!(draft.source.kind, SourceKind::FloatPcm { .. }) {
-            let kind = TransformKind::FloatToInt { bits: largest.field_bits() };
-            draft.transforms.push(assumed(kind, cause));
+        match draft.source.kind {
+            SourceKind::FloatPcm { .. } => {
+                let kind = TransformKind::FloatToInt { bits: largest.field_bits() };
+                draft.transforms.push(assumed(kind, cause));
+            }
+            // Целый источник шире устройства: усечение видно в пути (ТЗ-72,
+            // AM1.0-B7). Описательное — квантование `F32` → целое одно, с TPDF.
+            SourceKind::Pcm { bits: need } => {
+                if let Some(cut) = BitDepth::new(largest.field_bits()).and_then(|to| Truncate::new(need, to)) {
+                    draft.transforms.push(assumed(TransformKind::Truncate(cut), cause));
+                }
+            }
+            SourceKind::Dsd { .. } => {}
         }
         return Ok(());
     }
