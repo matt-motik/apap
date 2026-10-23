@@ -14,7 +14,7 @@ dod: "viz_push и drain_fulltrack читают действующие настр
 steps:
   - id: 1
     description: "viz_push (src/app/visualizer_manager.rs): параметры и тип визуализации из self.core.settings() / self.core.state().viz_mode() вместо cfg()/cfg_viz_mode(), комментарий «действующие, не черновик» (ТЗ-25, ТЗ-26, SP1.0 §6.9). Проверка: cargo check"
-    done: false
+    done: true
   - id: 2
     description: "drain_fulltrack (src/app/fulltrack_manager.rs): VisualizerConfig из core.settings() / core.state().viz_mode() вместо cfg()/cfg_viz_mode() (ТЗ-25, ТЗ-26). Проверка: cargo check"
     done: false
@@ -24,8 +24,8 @@ steps:
   - id: 4
     description: "ЧЕКПОИНТ: полный cargo test + cargo clippy без новых предупреждений по файлам вайтлиста"
     done: false
-current_step: 1
-next_action: "Перевести viz_push на core.settings()/core.state().viz_mode()"
+current_step: 2
+next_action: "Перевести drain_fulltrack на core.settings()/core.state().viz_mode()"
 fail_counter: 0
 fail_counter_max: 3
 failed_attempts: []

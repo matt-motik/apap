@@ -52,8 +52,10 @@ impl MusicApp {
         let (rate, ch) = self.audio().format();
         viz.set_format(rate, ch);
 
-        let settings = self.cfg().visualization.clone();
-        let mode = self.cfg_viz_mode();
+        // Действующие настройки и тип визуализации, не черновик диалога:
+        // правки видны только после «Сохранить» (SP1.0 ТЗ-25, ТЗ-26).
+        let settings = self.core.settings().visualization.clone();
+        let mode = self.core.state().viz_mode();
         let sp = &settings.spectrum;
         let bands = sp.bands.clamp(4, 128) as usize;
         let channels = if sp.channels == ChannelMode::Mono { 1usize } else { 2usize };
@@ -79,7 +81,7 @@ impl MusicApp {
         });
         if sig != self.viz_sig {
             self.viz_sig = sig;
-            viz.set_cfg(Arc::new(VisualizerConfig::from_persist_settings(self.cfg(), mode)));
+            viz.set_cfg(Arc::new(VisualizerConfig::from_persist_settings(self.core.settings(), mode)));
             let active = mode == VisualizationMode::Spectrum;
             if active != self.viz_tap_active {
                 self.viz_tap_active = active;

@@ -13,15 +13,15 @@
 - **Критерий успеха (Definition of Done):** viz_push и drain_fulltrack читают действующие настройки и тип визуализации (core.settings(), core.state().viz_mode()) независимо от открытого диалога; изменения визуализации видны только после «Сохранить», «Отмена» картинку не меняет; задержки для черновика (viz_debounce) нет (ТЗ-25, ТЗ-26; решение пользователя 2026-10-23 — править код); полный cargo test и clippy зелёные
 
 ## Итерационный трекер
-- [>] **Шаг 1: viz_push (src/app/visualizer_manager.rs): параметры и тип визуализации из self.core.settings() / self.core.state().viz_mode() вместо cfg()/cfg_viz_mode(), комментарий «действующие, не черновик» (ТЗ-25, ТЗ-26, SP1.0 §6.9). Проверка: cargo check**
-- [ ] Шаг 2: drain_fulltrack (src/app/fulltrack_manager.rs): VisualizerConfig из core.settings() / core.state().viz_mode() вместо cfg()/cfg_viz_mode() (ТЗ-25, ТЗ-26). Проверка: cargo check
+- [x] Шаг 1: viz_push (src/app/visualizer_manager.rs): параметры и тип визуализации из self.core.settings() / self.core.state().viz_mode() вместо cfg()/cfg_viz_mode(), комментарий «действующие, не черновик» (ТЗ-25, ТЗ-26, SP1.0 §6.9). Проверка: cargo check
+- [>] **Шаг 2: drain_fulltrack (src/app/fulltrack_manager.rs): VisualizerConfig из core.settings() / core.state().viz_mode() вместо cfg()/cfg_viz_mode() (ТЗ-25, ТЗ-26). Проверка: cargo check**
 - [ ] Шаг 3: Удалить задержку 500 мс для правок черновика: ветку in_dialog в drain_fulltrack, константу FULLTRACK_DEBOUNCE (fulltrack_manager.rs), поле MusicApp::viz_debounce (mod.rs) — после шагов 1–2 черновик картинку не меняет, задержка лишь откладывала бы пересборку при смене трека во время диалога (ТЗ-25, ТЗ-26). Проверка: cargo check
 - [ ] Шаг 4: ЧЕКПОИНТ: полный cargo test + cargo clippy без новых предупреждений по файлам вайтлиста
 
 Легенда: [x] сделано · [>] текущий шаг · [ ] не начато
 
-- **Текущий шаг (current_step):** Шаг 1
-- **Следующий ход:** Перевести viz_push на core.settings()/core.state().viz_mode()
+- **Текущий шаг (current_step):** Шаг 2
+- **Следующий ход:** Перевести drain_fulltrack на core.settings()/core.state().viz_mode()
 - **Счетчик безуспешных компиляций:** 0/3
 - **Состояние:** in_progress
 
