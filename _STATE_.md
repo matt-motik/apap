@@ -2,10 +2,27 @@
      Source of truth: _STATE_.yaml — edit that, then run:
      python tools/state_tool.py render -->
 
-# Состояние сессии
 
-- **Текущая задача:** Нет (все шаги завершены)
-- **Состояние:** done
+# Текущая микро-сессия
+
+- **Задача из ROADMAP:** SP1.0-B8 — Визуализация читает черновик диалога настроек до «Сохранить»
+- **Вайтлист файлов в работе (Изменяемые файлы):**
+  - src/app/mod.rs
+  - src/app/visualizer_manager.rs
+  - src/app/fulltrack_manager.rs
+- **Критерий успеха (Definition of Done):** viz_push и drain_fulltrack читают действующие настройки и тип визуализации (core.settings(), core.state().viz_mode()) независимо от открытого диалога; изменения визуализации видны только после «Сохранить», «Отмена» картинку не меняет (ТЗ-25, ТЗ-26; решение пользователя 2026-10-23 — править код); полный cargo test и clippy зелёные
+
+## Итерационный трекер
+- [>] **Шаг 1: mod.rs: метод MusicApp::live_viz() -> (&PersistSettings, VisualizationMode) — действующие настройки и тип визуализации ядра без черновика (ТЗ-25, ТЗ-26, SP1.0 §6.9); viz_push (visualizer_manager.rs) переводится на него вместо cfg()/cfg_viz_mode(). Проверка: cargo check**
+- [ ] Шаг 2: drain_fulltrack (fulltrack_manager.rs:401): VisualizerConfig из live_viz() вместо cfg()/cfg_viz_mode() (ТЗ-25, ТЗ-26). Проверка: cargo check
+- [ ] Шаг 3: ЧЕКПОИНТ: полный cargo test + cargo clippy без новых предупреждений по файлам вайтлиста
+
+Легенда: [x] сделано · [>] текущий шаг · [ ] не начато
+
+- **Текущий шаг (current_step):** Шаг 1
+- **Следующий ход:** Добавить MusicApp::live_viz и перевести на него viz_push
+- **Счетчик безуспешных компиляций:** 0/3
+- **Состояние:** in_progress
 
 ## План: Executable workflow: правила AGENTS.md → исполняемые механизмы
 _Источник: чат с пользователем (ноутбук), начат в 67686ce; перенесён в репо 2026-09-22_
