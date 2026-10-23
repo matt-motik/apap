@@ -2,10 +2,26 @@
      Source of truth: _STATE_.yaml — edit that, then run:
      python tools/state_tool.py render -->
 
-# Состояние сессии
 
-- **Текущая задача:** Нет (все шаги завершены)
-- **Состояние:** done
+# Текущая микро-сессия
+
+- **Задача из ROADMAP:** AM1.0-B6 — Два правила семейства частоты (4 000 и 8 000 Гц) — одно правило по спеке §6.4
+- **Вайтлист файлов в работе (Изменяемые файлы):**
+  - src/audio/format.rs
+  - src/audio/path/plan.rs
+- **Критерий успеха (Definition of Done):** SampleRate::family относит к 48k кратные 8 000 Гц (§6.4, решение пользователя 2026-10-23 — по спеке); приватные Family/family планировщика удалены, plan.rs использует SampleRate::family; 12 000 Гц — Other в обоих местах; полный cargo test и clippy зелёные
+
+## Итерационный трекер
+- [>] **Шаг 1: src/audio/format.rs: SampleRate::family — F48k при кратности 8 000 Гц (§6.4), doc-комментарий; тест sample_rate_rejects_zero_and_classifies_family: 12 000 → Other. Проверка: cargo check; cargo test audio::format**
+- [ ] Шаг 2: src/audio/path/plan.rs: удалить приватные enum Family и fn family, использовать SampleRate::family / RateFamily (§6.4, ТЗ-27); тест family_classifies_rates на RateFamily. Проверка: cargo check; cargo test audio::path
+- [ ] Шаг 3: ЧЕКПОИНТ: полный cargo test + cargo clippy без новых предупреждений по файлам вайтлиста
+
+Легенда: [x] сделано · [>] текущий шаг · [ ] не начато
+
+- **Текущий шаг (current_step):** Шаг 1
+- **Следующий ход:** SampleRate::family на кратность 8 000 Гц
+- **Счетчик безуспешных компиляций:** 0/3
+- **Состояние:** in_progress
 
 ## План: Executable workflow: правила AGENTS.md → исполняемые механизмы
 _Источник: чат с пользователем (ноутбук), начат в 67686ce; перенесён в репо 2026-09-22_
