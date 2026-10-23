@@ -582,7 +582,7 @@ pub trait Clock: Send {
 
 - Разрешение выполняет движок перед эффектом `Acquire` (§6.19): `resolve_device(opts.device, probe, catalog) -> Option<HwDeviceId>`. Выбранное в настройках устройство используется как есть, системный выход не опрашивается.
 - Автовыбор → движок записывает устройство в свою копию опций режима и шлёт `EngineEvent::DeviceAutoSelected { mode, device }`. Файлы пишет приложение (ТЗ-134, ОВС-14): обновляет опции режима и записывает `settings.toml` одной записью, как «Сохранить» диалога; `SetModeSettings` обратно не отправляет (движок уже применил, повторного `SwitchDevice` нет). Устройство другого режима не меняется.
-- Нет соответствия → `LockState::Failed(CaptureFailure::NoDeviceSelected)`: ни `acquire`, ни `SharedBackend::start`, записи настроек нет (ТЗ-32, ТЗ-144). Действия замка — «Выбрать устройство» (UI открывает выбор устройства режима в диалоге; выбор → `SetModeSettings` с `SwitchDevice` → `Lock(DeviceSelected(d))`) и «Перейти в Совместимый режим».
+- Нет соответствия → `LockState::Failed(CaptureFailure::NoDeviceSelected)`: ни `acquire`, ни `SharedBackend::start`, записи настроек нет (ТЗ-32, ТЗ-144). Замок остаётся открытым; окно ошибки с причиной «устройство не выбрано» и кнопками «Отмена», «Настройки аудио» (открывает диалог настроек на вкладке «Аудио»; выбор устройства там → `SetModeSettings` с `SwitchDevice` → `Lock(DeviceSelected(d))`) и «Перейти в Совместимый режим» (решение пользователя 2026-10-23).
 - Режим, однажды получивший устройство, за системным выходом не следует (ТЗ-143).
 
 **Последствия.** `AudioServerProbe` получает метод `default_sink_card`, `FakeServerProbe` — заданный `Option<SinkCard>` и счётчик вызовов. `lock_step` получает разрешённое устройство параметром (§2.6). Тест ТЗ-21 «Оптимальный (захват) → Совместимый» закрепляет освобождение до открытия Shared (B13).
@@ -2540,7 +2540,7 @@ word := (m << 24) | (payload << 8)                          // 32-битное �
 | `Held` / `Acquiring` / `Failed` | `ModeSelected(Compatible)` | `NotApplicable` | `StopPlayback`, `Release`, `ForgetReacquire` |
 | `Open` / `Failed` | `Startup`, `ModeSelected(E)`, `UserClose`, `CaptureAndPlay`, `RetryCapture` | `Acquiring` | `Acquire(dev)` |
 | `Held` | `DeviceSelected(d')` | `Acquiring` | `StopPlayback`, `Release`, `Acquire(d')` |
-| `Open` / `Failed` | `DeviceSelected(d')` | `Acquiring` | `Acquire(d')` (ТЗ-42; выход из `Failed(NoDeviceSelected)` по «Выбрать устройство») |
+| `Open` / `Failed` | `DeviceSelected(d')` | `Acquiring` | `Acquire(d')` (ТЗ-42; выход из `Failed(NoDeviceSelected)` — через диалог настроек, открытый кнопкой «Настройки аудио» окна ошибки) |
 | `Acquiring` | `CaptureResult(Ok(info))` | `Held { info }` | — (при `CaptureAndPlay` UI затем шлёт `Open`/`Play`) |
 | `Acquiring` | `CaptureResult(Err(f))` | `Failed(f)` | — |
 | `Held` | `UserOpen` | `Open` | `StopPlayback`, `Release`, `ForgetReacquire` (ТЗ-44) |
@@ -2551,7 +2551,7 @@ word := (m << 24) | (payload << 8)                          // 32-битное �
 
 Для прочих сочетаний состояние не меняется и эффектов нет. Входов Play, Pause, Stop и смены трека у автомата нет (И-Т17). Тест `lock_step_is_total` перебирает все пары «состояние × вход × режим» и проверяет, что функция не паникует и соблюдает эту таблицу.
 
-Подсказки: `Held` — текст ТЗ-121; `NotApplicable` — «в Совместимом режиме устройство не захватывается» (ТЗ-50); `Failed(f)` — причина из `f` и действия «Повторить захват» / «Перейти в Совместимый режим» (ТЗ-46); `Failed(NoDeviceSelected)` — «устройство не выбрано» и действия «Выбрать устройство» / «Перейти в Совместимый режим» (ТЗ-144).
+Подсказка при наведении на кнопку замка: `Held` — текст ТЗ-121; `Acquiring` — «захват…» (ТЗ-119); `NotApplicable` — кнопка скрыта, подсказки нет (ТЗ-50). Состояния `Failed` вместо подсказки сразу открывают окно ошибки: `Failed(f)` — причина из `f` и кнопки «Отмена», «Настройки аудио», по причине — «Повторить захват» и/или «Перейти в Совместимый режим» (ТЗ-46); `Failed(NoDeviceSelected)` — «устройство не выбрано» и кнопки «Отмена», «Настройки аудио», «Перейти в Совместимый режим» (ТЗ-144).
 
 ### 6.20. Потеря устройства, повторный захват, следование за системным устройством
 

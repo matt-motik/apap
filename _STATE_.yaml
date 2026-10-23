@@ -8,6 +8,7 @@ task:
   title: "Замок — редизайн: кнопка-значок без подписи, окно ошибки по причине"
 whitelist:
   - docs/01_audio_modes_v1.0/02_tz.md
+  - docs/01_audio_modes_v1.0/03_spec.md
   - ui/icons/lock-open.svg
   - ui/icons/lock-closed.svg
   - ui/icons/hourglass.svg
@@ -31,6 +32,9 @@ steps:
   - id: 2
     description: "SVG-иконки lock-open/lock-closed/hourglass в ui/icons/, ui/icons/dark/, ui/icons/light/ (стиль как у существующих иконок транспорта). Проверка: cargo check"
     done: true
+  - id: 10
+    description: "Спека: ТЗ-144 и правила lock_view в 03_spec.md под редизайн замка (разрешение пользователя 2026-10-23). Проверка: traceability_tool check"
+    done: true
   - id: 3
     description: "Модель сообщения (src/core/messages.rs): переменный набор кнопок с действиями вместо фиксированного MessageButtons; чистая функция «причина отказа захвата → набор кнопок» (ТЗ-46, ТЗ-119, ТЗ-122) + тесты маппинга. Проверка: cargo test core::messages::"
     done: false
@@ -53,7 +57,7 @@ steps:
     description: "ЧЕКПОИНТ: полный cargo test + cargo clippy зелёные"
     done: false
 current_step: 3
-next_action: "Модель сообщения (src/core/messages.rs): переменный набор кнопок с действиями вместо фиксированного MessageButtons"
+next_action: "Модель сообщения (src/core/messages.rs): переменный набор кнопок с действиями вместо фиксированного MessageButtons; чистая функция «причина отказа захвата → набор кнопок» (ТЗ-46, ТЗ-119, ТЗ-122) + тесты маппинга. Проверка: cargo test core::messages::"
 fail_counter: 0
 fail_counter_max: 3
 failed_attempts: []
