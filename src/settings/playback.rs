@@ -173,6 +173,40 @@ pub fn buffers_allowed(buffer: BufferMs, device: DeviceBuffer) -> Result<(), Val
     Err(ValueBlocker::PlayerBufferTooSmall { need_ms })
 }
 
+/// Все значения `DeviceBuffer` (ТЗ-131): единственный список для функций
+/// нижней границы ползунка «Буфер декодирование → вывод» ниже (порядок не
+/// важен — используется только для поиска максимума/минимума).
+const ALL_DEVICE_BUFFERS: [DeviceBuffer; 5] =
+    [DeviceBuffer::Ms20, DeviceBuffer::Ms40, DeviceBuffer::Ms100, DeviceBuffer::Ms200, DeviceBuffer::Ms400];
+
+/// Нижняя граница ползунка «Буфер декодирование → вывод» в Оптимальном/
+/// Строгом режиме: `max(100, 2 · device)` мс (И-Р22, ТЗ-131, §6.27). В
+/// Совместимом режиме `DeviceBuffer` не применяется — граница всегда 100,
+/// вызывающая сторона эту функцию не использует.
+pub const fn buffer_floor_ms(device: DeviceBuffer) -> u16 {
+    let doubled = device.ms() * 2;
+    if doubled > 100 {
+        doubled
+    } else {
+        100
+    }
+}
+
+/// Подсказка у нижней границы ползунка «Буфер декодирование → вывод», когда
+/// её поднимает буфер устройства (`buffer_floor_ms(device) > 100`, ТЗ-131,
+/// И-Р22, §6.27): `None`, если граница и так равна абсолютному минимуму
+/// 100 мс. Иначе — `ValueBlocker::DeviceBufferTooLarge` с наибольшим
+/// значением `DeviceBuffer`, при котором граница опустится до 100 мс
+/// (симметрично `buffers_allowed` для списка «Буфер устройства»).
+pub fn buffer_floor_blocker(device: DeviceBuffer) -> Option<ValueBlocker> {
+    if buffer_floor_ms(device) <= 100 {
+        return None;
+    }
+    let max_ms =
+        ALL_DEVICE_BUFFERS.into_iter().filter(|d| buffer_floor_ms(*d) <= 100).map(DeviceBuffer::ms).max().unwrap_or(0);
+    Some(ValueBlocker::DeviceBufferTooLarge { max_ms })
+}
+
 /// Опции всех трёх режимов. Значения неактивных режимов сохраняются (ТЗ-93,
 /// §2.2). Активный режим не хранится здесь — он снят в `PlaybackState`
 /// (ОВС-15).
@@ -503,6 +537,37 @@ mod tests {
         assert_eq!(
             buffers_allowed(too_small, DeviceBuffer::Ms400),
             Err(ValueBlocker::PlayerBufferTooSmall { need_ms: 800 })
+        );
+    }
+
+    /// Нижняя граница ползунка «Буфер декодирование → вывод» — `max(100,
+    /// 2·device)` (И-Р22, ТЗ-131, §6.27): `Ms20`/`Ms40` не поднимают
+    /// абсолютный минимум 100 мс, `Ms100`/`Ms200`/`Ms400` поднимают его
+    /// ровно до удвоенного значения.
+    #[test]
+    fn buffer_floor_ms_is_max_of_100_and_doubled_device() {
+        assert_eq!(buffer_floor_ms(DeviceBuffer::Ms20), 100);
+        assert_eq!(buffer_floor_ms(DeviceBuffer::Ms40), 100);
+        assert_eq!(buffer_floor_ms(DeviceBuffer::Ms100), 200);
+        assert_eq!(buffer_floor_ms(DeviceBuffer::Ms200), 400);
+        assert_eq!(buffer_floor_ms(DeviceBuffer::Ms400), 800);
+    }
+
+    /// Подсказка `DeviceBufferTooLarge` появляется только когда буфер
+    /// устройства поднимает границу выше 100 мс, и называет 40 мс —
+    /// наибольшее значение `DeviceBuffer`, при котором граница вернётся к
+    /// абсолютному минимуму (ТЗ-131, §6.27).
+    #[test]
+    fn buffer_floor_blocker_only_when_device_raises_floor() {
+        assert_eq!(buffer_floor_blocker(DeviceBuffer::Ms20), None);
+        assert_eq!(buffer_floor_blocker(DeviceBuffer::Ms40), None);
+        assert_eq!(
+            buffer_floor_blocker(DeviceBuffer::Ms100),
+            Some(ValueBlocker::DeviceBufferTooLarge { max_ms: 40 })
+        );
+        assert_eq!(
+            buffer_floor_blocker(DeviceBuffer::Ms400),
+            Some(ValueBlocker::DeviceBufferTooLarge { max_ms: 40 })
         );
     }
 

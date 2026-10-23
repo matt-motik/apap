@@ -21,8 +21,8 @@
 
 use music_player_rs::settings::params::{param_label, Availability, ParamDescriptor, ParamId, PARAMS};
 use music_player_rs::settings::playback::{
-    buffers_allowed, BufferMs, DeviceBuffer, DeviceOpts, Dither, DsdAboveDac, DsdFilter, ModeKind, ModeSettings,
-    RateFallbackRule, SrcFilter,
+    buffer_floor_blocker, buffer_floor_ms, buffers_allowed, BufferMs, DeviceBuffer, DeviceOpts, Dither, DsdAboveDac,
+    DsdFilter, ModeKind, ModeSettings, RateFallbackRule, SrcFilter,
 };
 use slint::{ModelRc, SharedString};
 
@@ -335,19 +335,28 @@ fn row_volume_lock(mode: ModeKind, settings: &ModeSettings, label: &'static str)
     DialogRow { param: ParamId::VolumeLock, label, kind: RowKind::Toggle { on }, enabled: true, note: String::new() }
 }
 
-/// Ползунок «Буфер декодирование → вывод» в мс (ТЗ-131).
+/// Ползунок «Буфер декодирование → вывод» в мс (ТЗ-131, §6.27). Нижняя
+/// граница в Оптимальном/Строгом — `buffer_floor_ms(device_buffer)`
+/// (`max(100, 2·device)`); в Совместимом `DeviceBuffer` не участвует —
+/// граница всегда 100. Если буфер устройства поднимает границу выше 100,
+/// строка несёт подсказку `buffer_floor_blocker` («уменьшите буфер
+/// устройства до {d} мс»). Текущее значение не подгоняется под новую
+/// границу — честно отображается как есть (недопустимая пара уже не
+/// сохранится — `apply_buffer`).
 fn row_buffer(mode: ModeKind, settings: &ModeSettings, label: &'static str) -> DialogRow {
-    let buffer = match mode {
-        ModeKind::Compatible => settings.compatible.buffer,
-        ModeKind::Optimal => settings.optimal.buffer,
-        ModeKind::Strict => settings.strict.buffer,
+    let (buffer, device_buffer) = match mode {
+        ModeKind::Compatible => (settings.compatible.buffer, None),
+        ModeKind::Optimal => (settings.optimal.buffer, Some(settings.optimal.device_buffer)),
+        ModeKind::Strict => (settings.strict.buffer, Some(settings.strict.device_buffer)),
     };
+    let min = device_buffer.map_or(100, buffer_floor_ms);
+    let note = device_buffer.and_then(buffer_floor_blocker).map(|blocker| blocker.reason()).unwrap_or_default();
     DialogRow {
         param: ParamId::Buffer,
         label,
-        kind: RowKind::Slider { value: buffer.get(), min: 100, max: 10_000 },
+        kind: RowKind::Slider { value: buffer.get(), min, max: 10_000 },
         enabled: true,
-        note: String::new(),
+        note,
     }
 }
 
@@ -811,6 +820,37 @@ mod tests {
             .find(|o| o.starts_with("Крутой, короткая задержка"))
             .expect("short-latency option must exist");
         assert!(short_latency.contains("пока не реализовано"));
+    }
+
+    /// ТЗ-131, §6.27: буфер устройства `Ms100` поднимает нижнюю границу
+    /// ползунка «Буфер декодирование → вывод» до 200 мс и несёт подсказку
+    /// «уменьшите буфер устройства до 40 мс».
+    #[test]
+    fn row_buffer_floor_raised_by_device_buffer_with_hint() {
+        let mut settings = ModeSettings::default();
+        settings.optimal.device_buffer = DeviceBuffer::Ms100;
+        let rows = build_rows(ModeKind::Optimal, &settings);
+        let row = rows.iter().find(|r| r.param == ParamId::Buffer).expect("Buffer row must exist");
+        assert_eq!(row.kind, RowKind::Slider { value: row_value(row), min: 200, max: 10_000 });
+        assert!(row.note.contains("уменьшите буфер устройства до 40 мс"));
+    }
+
+    /// ТЗ-131, §6.27: в Совместимом режиме `DeviceBuffer` не применяется —
+    /// нижняя граница ползунка всегда 100 мс без подсказки.
+    #[test]
+    fn row_buffer_floor_is_100_in_compatible_mode() {
+        let settings = ModeSettings::default();
+        let rows = build_rows(ModeKind::Compatible, &settings);
+        let row = rows.iter().find(|r| r.param == ParamId::Buffer).expect("Buffer row must exist");
+        assert_eq!(row.kind, RowKind::Slider { value: row_value(row), min: 100, max: 10_000 });
+        assert!(row.note.is_empty());
+    }
+
+    /// Текущее значение ползунка `Buffer` для теста выше (значение не
+    /// меняется правкой границы — ТЗ-131).
+    fn row_value(row: &DialogRow) -> u16 {
+        let RowKind::Slider { value, .. } = &row.kind else { panic!("expected Slider") };
+        *value
     }
 
     /// §6.27: `RowKind::Slider` → `kind == 2` с значением/границами, перенесёнными
