@@ -16,9 +16,9 @@ steps:
     done: true
   - id: 2
     description: "docs/00_workflow_v1.0/task_intake.md §2: заменить инструкцию «бери номер из строки «Следующие свободные номера» и увеличивай её» на «бери номер из `python tools/traceability_tool.py next-bug <Префикс>`»; ROADMAP.md (не в вайтлисте, правится свободно): убрать перечисление номеров из преамбулы БАГ-РАУНДа, оставив ссылку на архив и команду. Проверка: python tools/state_tool.py check и python tools/traceability_tool.py check зелёные; grep «Следующие свободные номера» не находит совпадений в ROADMAP.md"
-    done: false
+    done: true
 current_step: 2
-next_action: "docs/00_workflow_v1.0/task_intake.md §2 и ROADMAP.md: убрать ручной счётчик, сослаться на next-bug"
+next_action: "закрытие по closing.md"
 fail_counter: 0
 fail_counter_max: 3
 failed_attempts: []
