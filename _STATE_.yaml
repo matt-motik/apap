@@ -2,15 +2,19 @@
 # _STATE_.md генерируется из этого файла — не редактировать его руками.
 # Редактируйте этот файл, затем: python tools/state_tool.py render
 
-status: done
+status: in_progress
 task:
-  roadmap_id: null
-  title: null
-whitelist: []
-dod: null
-steps: []
-current_step: null
-next_action: null
+  roadmap_id: WF1.0-B9
+  title: "Игнорировать Python-кэш tools/__pycache__/ в .gitignore"
+whitelist:
+  - .gitignore
+dod: "git status --porcelain не показывает tools/__pycache__/ после запуска любого tools/*.py"
+steps:
+  - id: 1
+    description: "Добавить __pycache__/ и *.pyc в .gitignore (область — весь репозиторий, кэш появляется под tools/). Проверка: запустить python tools/state_tool.py check, затем git status --porcelain — tools/__pycache__/ не отображается"
+    done: false
+current_step: 1
+next_action: "Добавить строки __pycache__/ и *.pyc в .gitignore"
 fail_counter: 0
 fail_counter_max: 3
 failed_attempts: []

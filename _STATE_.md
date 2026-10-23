@@ -2,10 +2,23 @@
      Source of truth: _STATE_.yaml — edit that, then run:
      python tools/state_tool.py render -->
 
-# Состояние сессии
 
-- **Текущая задача:** Нет (все шаги завершены)
-- **Состояние:** done
+# Текущая микро-сессия
+
+- **Задача из ROADMAP:** WF1.0-B9 — Игнорировать Python-кэш tools/__pycache__/ в .gitignore
+- **Вайтлист файлов в работе (Изменяемые файлы):**
+  - .gitignore
+- **Критерий успеха (Definition of Done):** git status --porcelain не показывает tools/__pycache__/ после запуска любого tools/*.py
+
+## Итерационный трекер
+- [>] **Шаг 1: Добавить __pycache__/ и *.pyc в .gitignore (область — весь репозиторий, кэш появляется под tools/). Проверка: запустить python tools/state_tool.py check, затем git status --porcelain — tools/__pycache__/ не отображается**
+
+Легенда: [x] сделано · [>] текущий шаг · [ ] не начато
+
+- **Текущий шаг (current_step):** Шаг 1
+- **Следующий ход:** Добавить строки __pycache__/ и *.pyc в .gitignore
+- **Счетчик безуспешных компиляций:** 0/3
+- **Состояние:** in_progress
 
 ## План: Executable workflow: правила AGENTS.md → исполняемые механизмы
 _Источник: чат с пользователем (ноутбук), начат в 67686ce; перенесён в репо 2026-09-22_
