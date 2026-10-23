@@ -2,57 +2,10 @@
      Source of truth: _STATE_.yaml — edit that, then run:
      python tools/state_tool.py render -->
 
+# Состояние сессии
 
-# Текущая микро-сессия
-
-- **Задача из ROADMAP:** AM1.0-B14 — Замок — редизайн: кнопка-значок без подписи, окно ошибки по причине
-- **Вайтлист файлов в работе (Изменяемые файлы):**
-  - docs/01_audio_modes_v1.0/02_tz.md
-  - docs/01_audio_modes_v1.0/03_spec.md
-  - ui/icons/lock-open.svg
-  - ui/icons/lock-closed.svg
-  - ui/icons/hourglass.svg
-  - ui/icons/dark/lock-open.svg
-  - ui/icons/dark/lock-closed.svg
-  - ui/icons/dark/hourglass.svg
-  - ui/icons/light/lock-open.svg
-  - ui/icons/light/lock-closed.svg
-  - ui/icons/light/hourglass.svg
-  - src/core/messages.rs
-  - ui/message_window.slint
-  - ui/app.slint
-  - src/app/mod.rs
-  - src/app/lock_view.rs
-  - ui/top_panel.slint
-  - src/core/load.rs
-  - src/core/mod.rs
-  - src/app/playback_manager.rs
-- **Критерий успеха (Definition of Done):** Замок — кнопка-значок без подписи (открыт=клик захват, захват…=песочные часы с подсказкой-текстом, закрыт=клик открыть), скрыта в Совместимом режиме (ТЗ-50); при неудаче захвата лоток остаётся открытым и сразу открывается окно ошибки с набором кнопок по причине (ТЗ-46, ТЗ-119, ТЗ-122): везде «Отмена»/«Настройки аудио»/«Перейти в Совместимый», «Повторить захват» — для отключено/занято-с-владельцем/отказ-драйвера/не-отвечает/резерв-потерян; кнопка — у правого края строки меню (Linux/Windows) / у правого края верхней панели (macOS); cargo test + clippy зелёные
-
-## Итерационный трекер
-- [x] Шаг 1: ТЗ-46, ТЗ-50, ТЗ-119 (docs/01_audio_modes_v1.0/02_tz.md): правка текста по решению пользователя 2026-10-23 — набор кнопок окна ошибки по причине, скрытие замка в Совместимом режиме, песочные часы + подсказка вместо текста «захват…». Проверка: python tools/traceability_tool.py check
-- [x] Шаг 2: SVG-иконки lock-open/lock-closed/hourglass в ui/icons/, ui/icons/dark/, ui/icons/light/ (стиль как у существующих иконок транспорта). Проверка: cargo check
-- [x] Шаг 10: Спека: ТЗ-144 и правила lock_view в 03_spec.md под редизайн замка (разрешение пользователя 2026-10-23). Проверка: traceability_tool check
-- [x] Шаг 3: Модель сообщения (src/core/messages.rs): переменный набор кнопок с действиями вместо фиксированного MessageButtons; чистая функция «причина отказа захвата → набор кнопок» (ТЗ-46, ТЗ-119, ТЗ-122) + тесты маппинга. Проверка: cargo test core::messages::
-- [x] Шаг 4: MessageWindow UI (ui/message_window.slint, ui/app.slint): рендер переменного ряда кнопок из модели шага 3 вместо фиксированных primary/OK. Проверка: cargo check
-- [x] Шаг 11: Добавлено на шаге 4 (вышло за вайтлист): убрать MessageButtons целиком — Message.buttons: MessageButtons заменить на actions: Vec<MessageAction> (поле + все литералы Message{...}); обновить src/core/load.rs, src/core/mod.rs, src/app/playback_manager.rs (buttons: MessageButtons::X → actions: X.actions()) и messages.rs (убрать MessageButtons/impl MessageButtons::actions, MessageCenter::press возвращается к единому полю). Пока — MessageButtons жив как временный мост (messages.rs, шаг 4). Проверка: cargo check; cargo test core::messages:: app::
-- [x] Шаг 5: Проводка окна ошибки замка (src/app/mod.rs, src/app/lock_view.rs): LockState::Failed(..) → push_message с набором кнопок по причине; «Отмена» закрывает окно без изменения состояния, «Настройки аудио» открывает диалог настроек на вкладке «Аудио», «Повторить захват» шлёт RetryCapture, «Перейти в Совместимый» переключает режим. Проверка: cargo test app::
-- [x] Шаг 12: Подпись действия SwitchToCompatible — «В Совместимый» (решение пользователя 2026-10-24); ТЗ-46 и ТЗ-111 (и ТЗ-144, 03_spec.md, если там та же кнопка) — та же подпись (разрешение пользователя 2026-10-24). Проверка: cargo test core::messages + traceability check
-- [x] Шаг 6: Кнопка замка (ui/top_panel.slint): icon-only toggle вместо LockIndicator + ряда LockActionButton (открыт/захват-песочные часы/закрыт, подсказка — текст состояния, ТЗ-119, ТЗ-121), скрыта при LockKind.not-applicable (ТЗ-50), disabled во время захвата. Проверка: cargo check
-- [x] Шаг 7: Проводка кнопки замка (src/app/mod.rs): клик по иконке — UserClose/UserOpen по текущему lock-kind; apply_lock_view без lock-can-* (действия теперь в окне ошибки шага 5). Проверка: cargo test app:: — СДЕЛАНО ВНУТРИ ШАГА 6: LockButton (top_panel.slint) сам выбирает close()/open() по kind и вызывает существующие TopPanel.lock-close()/lock-open() (on_lock_close/on_lock_open, AM1.0-8.6); apply_lock_view больше не трогает lock-can-*, on_lock_retry/on_lock_choose_device/on_lock_go_compatible убраны вместе с LockActionButton.
-- [x] Шаг 8: Место кнопки замка (ui/app.slint, src/app/mod.rs): наложение на правый край строки меню на Linux/Windows; на macOS — правый край верхней панели, свойство выставляется из Rust через cfg!(target_os = "macos"). Проверка: cargo check; ревью ветки macOS (не компилируется локально, AGENTS.md)
-- [x] Шаг 13: Окно сообщения: ширина по ряду кнопок (не шире окна приложения), перенос заголовка и текста по словам, кнопки не обрезаются — «Отмена» всегда видна (ручная проверка пользователя 2026-10-24). Проверка: cargo check + clippy
-- [x] Шаг 9: ЧЕКПОИНТ: полный cargo test + cargo clippy зелёные
-- [x] Шаг 14: Подсказка замка (ui/top_panel.slint, LockButton): внутри окна, под кнопкой, прижата к правому краю, не перекрывает кнопку; задержка показа ~700 мс, скрытие сразу при уходе курсора (ручная проверка пользователя 2026-10-24 — подсказка обрезается окном). Проверка: cargo check + clippy
-- [x] Шаг 15: Окно ошибки захвата закрывается само при возвращении устройства (ТЗ-126, ручная проверка пользователя 2026-10-24 — сейчас закрывается только вручную через повторный захват). Проверка: разобрать цепочку DeviceWatcher → Engine::try_reacquire_reappeared_device/lock_input(DeviceReappeared) → EngineEvent::Lock → MusicApp::apply_lock_failure_message/lock_failure_transition; починить или зарегистрировать находку, если дефект не воспроизводится статическим анализом
-- [x] Шаг 16: ЧЕКПОИНТ: полный cargo test + cargo clippy зелёные
-
-Легенда: [x] сделано · [>] текущий шаг · [ ] не начато
-
-- **Текущий шаг (current_step):** Шаг 16
-- **Следующий ход:** закрытие по closing.md
-- **Счетчик безуспешных компиляций:** 0/3
-- **Состояние:** in_progress
+- **Текущая задача:** Нет (все шаги завершены)
+- **Состояние:** done
 
 ## План: Executable workflow: правила AGENTS.md → исполняемые механизмы
 _Источник: чат с пользователем (ноутбук), начат в 67686ce; перенесён в репо 2026-09-22_
