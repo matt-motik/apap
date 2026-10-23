@@ -24,7 +24,7 @@ steps:
     done: true
   - id: 3
     description: "Убрать отладочные debug(\"settings: …\") подложки диалога и кнопок Save/Cancel в ui/settings.slint (SP1.0-B15 п.3). Проверка: cargo check"
-    done: false
+    done: true
   - id: 4
     description: "ValueBlocker::reason(): общий текст вместо дублей в src/core/dialog.rs и src/app/mode_dialog.rs (SP1.0-B15 п.4). Проверка: cargo check"
     done: false
@@ -40,8 +40,8 @@ steps:
   - id: 8
     description: "ЧЕКПОИНТ: полный cargo test + clippy"
     done: false
-current_step: 3
-next_action: "Шаг 3: убрать отладочные debug() в ui/settings.slint"
+current_step: 4
+next_action: "Шаг 4: ValueBlocker::reason() вместо дублей в core/dialog.rs и app/mode_dialog.rs"
 fail_counter: 0
 fail_counter_max: 3
 failed_attempts: []

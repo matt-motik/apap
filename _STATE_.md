@@ -19,8 +19,8 @@
 ## Итерационный трекер
 - [x] Шаг 1: IoGens: themes/clear через core.next_io_gen() вместо локального wrapping_add, очистка кэшей через core.clear_cache() (SP1.0-B15 п.1). Проверка: cargo check
 - [x] Шаг 2: Удалить мёртвое поле MusicApp::theme_meta — пишется и сразу читается только в set_theme_meta (SP1.0-B15 п.2). Проверка: cargo check
-- [>] **Шаг 3: Убрать отладочные debug("settings: …") подложки диалога и кнопок Save/Cancel в ui/settings.slint (SP1.0-B15 п.3). Проверка: cargo check**
-- [ ] Шаг 4: ValueBlocker::reason(): общий текст вместо дублей в src/core/dialog.rs и src/app/mode_dialog.rs (SP1.0-B15 п.4). Проверка: cargo check
+- [x] Шаг 3: Убрать отладочные debug("settings: …") подложки диалога и кнопок Save/Cancel в ui/settings.slint (SP1.0-B15 п.3). Проверка: cargo check
+- [>] **Шаг 4: ValueBlocker::reason(): общий текст вместо дублей в src/core/dialog.rs и src/app/mode_dialog.rs (SP1.0-B15 п.4). Проверка: cargo check**
 - [ ] Шаг 5: Обновить устаревшие комментарии: set_output_device (playback_manager.rs), привязка клавиши V (viz_settings_manager.rs, шлюз решает сам) (SP1.0-B15 п.5). Проверка: cargo check
 - [ ] Шаг 6: Перевести подписи вкладки Cache в ui/settings.slint на русский, согласованно с текстом ТЗ-34 (SP1.0-B15 п.6). Проверка: cargo check
 - [ ] Шаг 7: MainCmd::ColumnResize спрашивает core.gate() перед сохранением ширин колонок в tick() (SP1.0-B15 п.7). Проверка: cargo check
@@ -28,8 +28,8 @@
 
 Легенда: [x] сделано · [>] текущий шаг · [ ] не начато
 
-- **Текущий шаг (current_step):** Шаг 3
-- **Следующий ход:** Шаг 3: убрать отладочные debug() в ui/settings.slint
+- **Текущий шаг (current_step):** Шаг 4
+- **Следующий ход:** Шаг 4: ValueBlocker::reason() вместо дублей в core/dialog.rs и app/mode_dialog.rs
 - **Счетчик безуспешных компиляций:** 0/3
 - **Состояние:** in_progress
 
