@@ -39,8 +39,16 @@ touching either:
      docs/acceptance/*/criteria.yaml names an existing task (a ✅ one is a
      warning — the issue is fixed, drop known_issue and re-run acceptance).
 
+Also provides `next-bug <PREFIX>`: prints the next unused `<PREFIX>-B<N>`
+bug ID (N = the highest existing `<PREFIX>-B<N>` across ROADMAP.md's task
+tables and `_TODO_/history/archive_bugs.md`, plus one; 1 if none exist).
+Nothing is stored — the number is recomputed from the task tables each
+time, replacing the hand-maintained "Следующие свободные номера" line
+(task_intake.md §2, WF1.0-B4).
+
 Usage:
     python tools/traceability_tool.py check
+    python tools/traceability_tool.py next-bug <PREFIX>
 """
 from __future__ import annotations
 
@@ -53,6 +61,7 @@ import yaml
 
 ROOT = Path(__file__).resolve().parent.parent
 ROADMAP = ROOT / "ROADMAP.md"
+ARCHIVE_BUGS = ROOT / "_TODO_/history/archive_bugs.md"
 
 REGISTRY_ROW_RE = re.compile(r"^>\s*\|\s*`(docs/[^`]+)`\s*\|\s*`([^`]+)`\s*\|\s*$")
 SELF_PREFIX_RE = re.compile(r"Префикс[^`\n]*`([^`]+)`", re.IGNORECASE)
@@ -333,6 +342,39 @@ def cmd_check() -> int:
     return 0
 
 
+def cmd_next_bug(prefix: str) -> int:
+    """next-bug <PREFIX> (WF1.0-B4): print the next unused '<PREFIX>-B<N>'
+    bug ID. N is the highest N of an existing '<PREFIX>-B<N>' task ID found
+    across ROADMAP.md's task tables and archive_bugs.md, plus one (1 if
+    none exist). Nothing is read from or written to any counter — the
+    number is recomputed from the task tables themselves each call."""
+    res = Result()
+    registry = parse_registry(res)
+    if prefix not in registry:
+        print(f"ERROR unknown prefix '{prefix}' — not registered in the ROADMAP.md header", file=sys.stderr)
+        return 1
+
+    bug_id_re = re.compile(rf"^{re.escape(prefix)}-B([0-9]+)$")
+    max_n = 0
+    for path in (ROADMAP, ARCHIVE_BUGS):
+        if not path.exists():
+            continue
+        for table in find_tables(path.read_text(encoding="utf-8")):
+            header = table[0]
+            if "ID" not in header:
+                continue
+            id_idx = header.index("ID")
+            for row in table[1:]:
+                if len(row) <= id_idx:
+                    continue
+                m = bug_id_re.match(row[id_idx])
+                if m:
+                    max_n = max(max_n, int(m.group(1)))
+
+    print(f"{prefix}-B{max_n + 1}")
+    return 0
+
+
 def _force_utf8_console() -> None:
     for stream in (sys.stdout, sys.stderr):
         if getattr(stream, "encoding", "").lower() != "utf-8":
@@ -344,10 +386,12 @@ def _force_utf8_console() -> None:
 
 def main(argv: list[str]) -> int:
     _force_utf8_console()
-    if len(argv) != 1 or argv[0] != "check":
-        print(__doc__)
-        return 2
-    return cmd_check()
+    if len(argv) == 1 and argv[0] == "check":
+        return cmd_check()
+    if len(argv) == 2 and argv[0] == "next-bug":
+        return cmd_next_bug(argv[1])
+    print(__doc__)
+    return 2
 
 
 if __name__ == "__main__":

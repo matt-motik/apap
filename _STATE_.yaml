@@ -13,12 +13,12 @@ dod: "python tools/traceability_tool.py next-bug <Префикс> печатае
 steps:
   - id: 1
     description: "tools/traceability_tool.py: подкоманда next-bug <Префикс> — сканирует таблицы задач ROADMAP.md и _TODO_/history/archive_bugs.md на ID вида <Префикс>-B<N>, печатает <Префикс>-B<max+1> (неизвестный префикс — ошибка в stderr, код 1); ничего не хранится и не пишется. Проверка: python tools/traceability_tool.py next-bug AM1.0 печатает AM1.0-B35; next-bug check (без подкоманды) и check остаются рабочими"
-    done: false
+    done: true
   - id: 2
     description: "docs/00_workflow_v1.0/task_intake.md §2: заменить инструкцию «бери номер из строки «Следующие свободные номера» и увеличивай её» на «бери номер из `python tools/traceability_tool.py next-bug <Префикс>`»; ROADMAP.md (не в вайтлисте, правится свободно): убрать перечисление номеров из преамбулы БАГ-РАУНДа, оставив ссылку на архив и команду. Проверка: python tools/state_tool.py check и python tools/traceability_tool.py check зелёные; grep «Следующие свободные номера» не находит совпадений в ROADMAP.md"
     done: false
-current_step: 1
-next_action: "Добавить подкоманду next-bug в tools/traceability_tool.py"
+current_step: 2
+next_action: "docs/00_workflow_v1.0/task_intake.md §2 и ROADMAP.md: убрать ручной счётчик, сослаться на next-bug"
 fail_counter: 0
 fail_counter_max: 3
 failed_attempts: []
