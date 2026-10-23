@@ -2,35 +2,15 @@
 # _STATE_.md генерируется из этого файла — не редактировать его руками.
 # Редактируйте этот файл, затем: python tools/state_tool.py render
 
-status: in_progress
+status: done
 task:
-  roadmap_id: AM1.0-B33
-  title: "Ползунок буфера: нижняя граница max(100, 2·буфер устройства), подсказка DeviceBufferTooLarge, перетаскивание"
-whitelist:
-  - src/app/mod.rs
-  - src/app/mode_dialog.rs
-  - src/settings/playback.rs
-  - ui/mode_params.slint
-  - src/app/viz_settings_manager.rs
-dod: "Ползунок буфера перетаскивается; нижняя граница = max(100 мс, 2·DeviceBuffer), подсказка у границы «уменьшите буфер устройства до {d} мс» (§6.27); при отказе — конкретная причина из ValueBlocker::reason(); комментарий viz_settings_manager.rs не утверждает живой предпросмотр; тесты; полный cargo test и clippy зелёные"
-steps:
-  - id: 1
-    description: "Модель строк параметров режима создаётся один раз и обновляется на месте (set_row_data только изменившихся строк) — ползунок не пересоздаётся при перетаскивании (SP1.0 ADR-11). Проверка: cargo check + clippy"
-    done: true
-  - id: 2
-    description: "Нижняя граница ползунка буфера max(100, 2·DeviceBuffer) и подсказка ValueBlocker::DeviceBufferTooLarge (§6.27, ТЗ-131); тесты mode_dialog/playback. Проверка: тесты модулей + clippy"
-    done: true
-  - id: 3
-    description: "Отказ правки буферов — текст конкретной причины ValueBlocker::reason() вместо общего. Проверка: cargo check + clippy"
-    done: true
-  - id: 4
-    description: "Комментарий viz_settings_manager.rs: визуализация читает действующие настройки, не черновик (SP1.0-B8). Проверка: cargo check"
-    done: true
-  - id: 5
-    description: "ЧЕКПОИНТ: полный cargo test + clippy"
-    done: true
-current_step: 5
-next_action: "закрытие по closing.md"
+  roadmap_id: null
+  title: null
+whitelist: []
+dod: null
+steps: []
+current_step: null
+next_action: null
 fail_counter: 0
 fail_counter_max: 3
 failed_attempts: []
@@ -49,6 +29,7 @@ plan:
       description: "Реализация AM1.0 + SP1.0 по сквозному порядку (ROADMAP.md): docs/01_audio_modes_v1.0/ (С0…С11) и docs/02_settings_persistence_v1.0/ (С0…С12) — ТЕКУЩАЯ ОСНОВНАЯ ЗАДАЧА"
       status: in_progress
       note:
+        - "Ручные проверки за пользователем: AM1.0-B33 — Настройки → режим Оптимальный/Строгий: ползунок «Буфер декодирование→вывод» перетаскивается мышью и стрелками; при буфере устройства 100/200/400 мс нижняя граница = 2× буфера устройства, у границы подсказка «уменьшите буфер устройства до 40 мс»; в Совместимом граница 100 мс без подсказки"
         - "Ручные проверки за пользователем: SP1.0-B7 — SP1.0-B7: на Windows — cargo test по затронутым модулям зелёный"
         - "Ручные проверки за пользователем: SP1.0-B13 — Оптимальный режим, устройство не выбрано → открыть Настройки, запустить трек (автовыбор устройства) → кнопка «Сохранить» остаётся неактивной; сменить тему → Сохранить → устройство осталось автовыбранным, тема применилась"
         - "Ручные проверки за пользователем: AM1.0-B12 — переключать треки 44,1 ↔ 96 кГц и 44,1 → 44,1 (синус 1 кГц) в режиме «Спектр»: пики не скачут, полосы гаснут и сразу встают на место; в Совместимом и Оптимальном/Строгом режимах."
