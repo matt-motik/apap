@@ -196,7 +196,13 @@ mod slint_generated {
 pub use slint_generated::*;
 
 pub fn create_ui() -> Result<AppWindow, slint::PlatformError> {
-    AppWindow::new()
+    let ui = AppWindow::new()?;
+    // AM1.0-B14 шаг 8: на macOS строка меню — системный NSMenu (не занимает
+    // место в окне), поэтому группа «режим ▾ · устройство · замок»
+    // (MenuBarTrailing, ui/top_panel.slint) не накладывается оверлеем на
+    // MenuBar (ui/app.slint), а встаёт у правого края верхней панели.
+    ui.set_menu_bar_in_window(!cfg!(target_os = "macos"));
+    Ok(ui)
 }
 
 fn fmt_num(num: u32, total: u32) -> SharedString {

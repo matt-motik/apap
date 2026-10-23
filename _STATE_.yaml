@@ -61,12 +61,12 @@ steps:
     done: true
   - id: 8
     description: "Место кнопки замка (ui/app.slint, src/app/mod.rs): наложение на правый край строки меню на Linux/Windows; на macOS — правый край верхней панели, свойство выставляется из Rust через cfg!(target_os = \"macos\"). Проверка: cargo check; ревью ветки macOS (не компилируется локально, AGENTS.md)"
-    done: false
+    done: true
   - id: 9
     description: "ЧЕКПОИНТ: полный cargo test + cargo clippy зелёные"
     done: false
-current_step: 8
-next_action: "Место кнопки замка (ui/app.slint, src/app/mod.rs): наложение на правый край строки меню на Linux/Windows; на macOS — правый край верхней панели, свойство выставляется из Rust через cfg!(target_os = \"macos\"). Проверка: cargo check; ревью ветки macOS (не компилируется локально, AGENTS.md)"
+current_step: 9
+next_action: "ЧЕКПОИНТ: полный cargo test + clippy"
 fail_counter: 0
 fail_counter_max: 3
 failed_attempts: []

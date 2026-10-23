@@ -2,7 +2,7 @@ import { Colors } from "theme.slint";
 export { Colors }
 import { FluentPalette } from "builtin:/fluent/styling.slint";
 export { FluentPalette }
-import { TopPanel, LockKind } from "top_panel.slint";
+import { TopPanel, LockKind, MenuBarTrailing } from "top_panel.slint";
 export { LockKind }
 import { Playlist } from "playlist.slint";
 import { StatusBar, BadgeKind } from "status.slint";
@@ -190,6 +190,19 @@ export component AppWindow inherits Window {
     in property <string> lock-hint: "";
     callback lock-close();
     callback lock-open();
+    // AM1.0-B14 шаг 8: true (Linux/Windows) — строка меню встроена в окно,
+    // кнопка замка (MenuBarTrailing) накладывается оверлеем на её правый
+    // край ниже; false (macOS, системный NSMenu) — та же группа встаёт у
+    // правого края верхней панели (TopPanel, ui/top_panel.slint). Выставляет
+    // Rust при создании окна (`cfg!(target_os = "macos")`, src/app/mod.rs).
+    in property <bool> menu-bar-in-window: true;
+    // Высота строки встроенного MenuBar — Fluent-стиль фиксирует её
+    // (widgets/fluent/menu.slint: `MenuBar inherits MenuBarBase { min-layout-height: 40px; }`);
+    // Slint не даёт runtime-доступа к фактической высоте MenuBar, поэтому
+    // константа держится в синхроне с виджетом style руками (проект
+    // закреплён на Fluent, ветка `menu-bar-in-window: false` эту константу
+    // не использует).
+    private property <length> menu-bar-height: 40px;
     in property <float> seek-fraction: 0.0;
     out property <bool> seekbar-dragging: main-top.seekbar-dragging;
     in property <string> pos: "0:00";
@@ -501,6 +514,7 @@ export component AppWindow inherits Window {
                 lock-kind: root.lock-kind;
                 lock-text: root.lock-text;
                 lock-hint: root.lock-hint;
+                menu-bar-in-window: root.menu-bar-in-window;
                 seek-fraction: root.seek-fraction;
                 pos: root.pos;
                 dur: root.dur;
@@ -576,6 +590,44 @@ export component AppWindow inherits Window {
                 test-hint: root.status-test-hint;
                 bp-clicked => { root.bp-clicked(); }
             }
+        }
+    }
+
+    // AM1.0-B14 шаг 8: группа «режим ▾ · устройство · замок» (сейчас —
+    // только замок, MenuBarTrailing) оверлеем над правым краем встроенного
+    // MenuBar (Linux/Windows, `menu-bar-in-window`). Slint лишает
+    // встроенный MenuBar и весь остальной контент окна общего родителя
+    // (компилятор превращает `Window { MenuBar{...} остальное }` в
+    // `VerticalLayout { MenuBarImpl; Empty{ остальное } }` — passes/
+    // lower_menus.rs в i-slint-compiler, `root.height` после этого уже
+    // означает высоту `Empty`, не всего окна); этот элемент — потомок той
+    // самой `Empty`, поэтому отрицательный `y` поднимает его из тела окна
+    // в область строки меню, рисуемой раньше (нет clip — не обрезается).
+    // Скрыт на macOS (`menu-bar-in-window: false`) — там та же группа стоит
+    // в TopPanel (ui/top_panel.slint), у правого края верхней панели.
+    // Реальный HorizontalLayout (не Rectangle) — ширина/высота этого
+    // контейнера заданы явно (100% / menu-bar-height), поэтому компилятор
+    // не пытается подставить свой `width: 100%`-дефолт для layout-элемента
+    // без явной геометрии (который иначе зациклился бы на размере самого
+    // MenuBarTrailing); `alignment: end` и `padding-right` прижимают
+    // MenuBarTrailing к правому краю, вертикальное центрирование
+    // LockButton (фиксированная высота 24px) в полосе menu-bar-height даёт
+    // сам layout-движок — без ручной арифметики.
+    if root.menu-bar-in-window: HorizontalLayout {
+        x: 0px;
+        y: -root.menu-bar-height;
+        width: 100%;
+        height: root.menu-bar-height;
+        padding-right: 12px;
+        alignment: end;
+
+        MenuBarTrailing {
+            lock-kind: root.lock-kind;
+            lock-text: root.lock-text;
+            lock-hint: root.lock-hint;
+            theme-palette: root.theme-palette;
+            lock-close => { root.lock-close(); }
+            lock-open => { root.lock-open(); }
         }
     }
 

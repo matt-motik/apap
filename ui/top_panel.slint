@@ -204,6 +204,34 @@ component LockButton inherits Rectangle {
     }
 }
 
+// ADR-06, §6.19, AM1.0-B14 шаг 8 (AM1.0-B4, AM1.0-B30): контейнер у правого
+// края строки меню — пока только кнопка замка; будущая группа
+// «режим ▾ · устройство» встаёт здесь же, слева от неё (новые элементы
+// добавляются ПЕРЕД LockButton, выравнивание `end` сохраняет замок крайним
+// справа). Используется дважды в зависимости от `menu-bar-in-window`
+// (ui/app.slint): оверлеем над встроенным MenuBar (Linux/Windows) или здесь,
+// в TopPanel, у правого края верхней панели (macOS, системный NSMenu).
+export component MenuBarTrailing inherits HorizontalLayout {
+    in property <LockKind> lock-kind: LockKind.not-applicable;
+    in property <string> lock-text: "";
+    in property <string> lock-hint: "";
+    in property <int> theme-palette: 0;
+    callback lock-close();
+    callback lock-open();
+
+    alignment: end;
+    spacing: 8px;
+
+    LockButton {
+        kind: root.lock-kind;
+        text: root.lock-text;
+        hint: root.lock-hint;
+        theme-palette: root.theme-palette;
+        close => { root.lock-close(); }
+        open => { root.lock-open(); }
+    }
+}
+
 component IconButton inherits Rectangle {
     in property <image> icon: @image-url("icons/play.svg");
     in property <bool> active: false;
@@ -277,6 +305,12 @@ export component TopPanel inherits Rectangle {
     in property <string> lock-hint: "";
     callback lock-close();
     callback lock-open();
+    // AM1.0-B14 шаг 8: true — строка меню встроена в окно (Linux/Windows,
+    // MenuBarTrailing — оверлей над ней в ui/app.slint, здесь не рендерится);
+    // false — строка меню системная (macOS, NSMenu), MenuBarTrailing встаёт
+    // у правого края этой панели ниже. Значение приходит из AppWindow, та
+    // выставляет его из Rust (`cfg!(target_os = "macos")`, src/app/mod.rs).
+    in property <bool> menu-bar-in-window: true;
     in property <float> seek-fraction: 0.0;
     out property <bool> seekbar-dragging: false;
     in property <string> pos: "0:00";
@@ -364,16 +398,21 @@ export component TopPanel inherits Rectangle {
                 clicked => { root.select-mode(i); }
             }
 
-            // Кнопка-значок замка (ТЗ-42, ТЗ-44, ТЗ-46, ТЗ-50, ТЗ-144):
-            // скрыта в Совместимом режиме (LockKind.not-applicable),
-            // недоступна во время захвата; клик — close()/open() по kind.
-            LockButton {
-                kind: root.lock-kind;
-                text: root.lock-text;
-                hint: root.lock-hint;
+            // AM1.0-B14 шаг 8: на macOS (menu-bar-in-window: false, строка
+            // меню — системный NSMenu) группа «режим ▾ · устройство · замок»
+            // стоит у правого края этой панели, не оверлеем над строкой меню
+            // (ui/app.slint — для Linux/Windows, где MenuBar встроен в окно).
+            if !root.menu-bar-in-window: Rectangle {
+                horizontal-stretch: 1;
+            }
+
+            if !root.menu-bar-in-window: MenuBarTrailing {
+                lock-kind: root.lock-kind;
+                lock-text: root.lock-text;
+                lock-hint: root.lock-hint;
                 theme-palette: root.theme-palette;
-                close => { root.lock-close(); }
-                open => { root.lock-open(); }
+                lock-close => { root.lock-close(); }
+                lock-open => { root.lock-open(); }
             }
         }
 
