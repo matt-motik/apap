@@ -18,6 +18,7 @@ use rustfft::{Fft, FftPlanner};
 use crate::audio::visualizer::{
     ChannelMode, FreqScale, LevelScale, SpectrumCfg, VisualizerConfig, VisualizationMode,
 };
+use crate::audio::worker::TAP_HEADER_LEN;
 
 /// Размер tap-буфера из каркаса (≈1.3 с стерео @96 кГц). f32 при 262144 = 1 МБ.
 pub const TAP_CAPACITY: usize = 262_144;
@@ -97,6 +98,8 @@ pub struct SpectrumEngine {
     peaks: Vec<f32>,
     /// Множитель спада пика за кадр (из peak_decay_ms и реальной fps).
     decay_per_frame: f32,
+    /// Формат из заголовка границы трека, встреченного `consume` (AM1.0-B12).
+    boundary: Option<TapFormat>,
 }
 
 impl SpectrumEngine {
@@ -137,6 +140,7 @@ impl SpectrumEngine {
             smoothed: vec![0.0; n_bands],
             peaks: vec![0.0; n_bands],
             decay_per_frame,
+            boundary: None,
         }
     }
 
@@ -148,6 +152,13 @@ impl SpectrumEngine {
     /// Обрабатываемых каналов (1 | 2).
     pub fn channels(&self) -> usize {
         self.proc_ch
+    }
+
+    /// Заголовок границы трека, на котором остановился `consume`: формат
+    /// нового трека (AM1.0-B12). Движок прошлого трека после него не
+    /// используется — вызывающий создаёт новый с этим форматом.
+    pub fn take_boundary(&mut self) -> Option<TapFormat> {
+        self.boundary.take()
     }
 
     /// Попытаться накопить и обработать кадр. Возвращает `true`, если новый
@@ -165,6 +176,9 @@ impl SpectrumEngine {
                     return produced;
                 }
             }
+            if self.boundary.is_some() {
+                return produced;
+            }
             self.compute_bands(cfg, out);
             self.shift_window();
             produced = true;
@@ -176,8 +190,20 @@ impl SpectrumEngine {
     /// чтение кадра сохраняется в `frame_fill` и дополняется следующими
     /// вызовами — сэмплы одного кадра не смешиваются с другими интервалами).
     fn pull_frame(&mut self, consumer: &mut rtrb::Consumer<f32>) -> Option<()> {
+        if self.boundary.is_some() {
+            return None;
+        }
         while self.frame_fill < self.in_ch {
             match consumer.pop() {
+                Ok(s) if s.is_nan() => {
+                    // Граница трека (AM1.0-B12): остаток кадра прошлого трека
+                    // отбрасывается, дальше — новый движок под формат заголовка.
+                    if let Some(fmt) = read_tap_header(consumer) {
+                        self.frame_fill = 0;
+                        self.boundary = Some(fmt);
+                        return None;
+                    }
+                }
                 Ok(s) => {
                     self.frame_buf[self.frame_fill] = s;
                     self.frame_fill += 1;
@@ -263,6 +289,34 @@ impl SpectrumEngine {
     }
 }
 
+/// Формат tap из заголовка границы трека: частота, Гц, и каналы (AM1.0-B12).
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub struct TapFormat {
+    pub rate: u32,
+    pub channels: usize,
+}
+
+/// Наибольшая частота и число каналов, принимаемые из заголовка: защита от
+/// NaN в самих сэмплах float-источника (такой «заголовок» отбрасывается).
+const TAP_HEADER_MAX_RATE: u32 = 1_536_000;
+const TAP_HEADER_MAX_CHANNELS: usize = 32;
+
+/// Хвост заголовка границы после маркера: частота и каналы (`worker::
+/// TAP_HEADER_LEN`, пишется одним `write_chunk`). `None` — значения вне
+/// допустимого диапазона: маркер считается сэмплом-выбросом и пропускается.
+fn read_tap_header(consumer: &mut rtrb::Consumer<f32>) -> Option<TapFormat> {
+    let mut vals = [0.0f32; TAP_HEADER_LEN - 1];
+    for v in &mut vals {
+        *v = consumer.pop().ok()?;
+    }
+    let [rate, channels] = vals;
+    let valid = |x: f32, max: f32| x.is_finite() && x >= 1.0 && x <= max && x.fract() == 0.0;
+    if !valid(rate, TAP_HEADER_MAX_RATE as f32) || !valid(channels, TAP_HEADER_MAX_CHANNELS as f32) {
+        return None;
+    }
+    Some(TapFormat { rate: rate as u32, channels: channels as usize })
+}
+
 /// Разбить бины 1..half на полосы по частотной сетке `scale`.
 fn band_ranges(scale: FreqScale, bands: usize, rate_hz: u32, fft_size: usize) -> Vec<(usize, usize)> {
     let half = fft_size / 2;
@@ -320,16 +374,27 @@ impl LiveWorker {
             let mut scratch: Vec<f32> = Vec::new();
             let mut engine: Option<SpectrumEngine> = None;
             let mut last_key: Option<(u32, usize, u32, ChannelMode, FreqScale, u32)> = None;
+            // Формат последнего заголовка границы трека (AM1.0-B12).
+            let mut tap_fmt: Option<TapFormat> = None;
             while run.load(Ordering::Relaxed) {
                 let cfg = cfg_by
                     .read()
                     .map(|g| g.clone())
                     .unwrap_or_else(|p| p.into_inner().clone());
-                let rate_now = rate_by.load(Ordering::Relaxed).max(1);
-                let ch_now = in_ch_by.load(Ordering::Relaxed).max(1);
+                let (rate_now, ch_now) = match tap_fmt {
+                    Some(f) => (f.rate, f.channels),
+                    None => (rate_by.load(Ordering::Relaxed).max(1), in_ch_by.load(Ordering::Relaxed).max(1)),
+                };
                 if cfg.mode != VisualizationMode::Spectrum {
-                    // Неанализ: слить остатки (только в этом потоке) и не считаем.
-                    while consumer.pop().is_ok() {}
+                    // Неанализ: слить остатки (только в этом потоке) и не
+                    // считаем; формат из заголовков границы не теряется.
+                    while let Ok(s) = consumer.pop() {
+                        if s.is_nan() {
+                            if let Some(f) = read_tap_header(&mut consumer) {
+                                tap_fmt = Some(f);
+                            }
+                        }
+                    }
                     thread::sleep(std::time::Duration::from_millis(SLEEP_DRAIN_MS));
                     continue;
                 }
@@ -343,6 +408,17 @@ impl LiveWorker {
                     .as_mut()
                     .map(|eng| eng.consume(&mut consumer, sp, &mut scratch))
                     .unwrap_or(false);
+                if let Some(f) = engine.as_mut().and_then(SpectrumEngine::take_boundary) {
+                    // Новый трек: окно, сглаживание и пики — с нуля, полосы
+                    // гаснут; движок пересоздаётся под формат заголовка.
+                    tap_fmt = Some(f);
+                    engine = None;
+                    last_key = None;
+                    if let Ok(mut guard) = bars_by.write() {
+                        guard.clear();
+                    }
+                    continue;
+                }
                 if produced {
                     // Обмен без аллокаций: в `bars` — свежий кадр, в scratch — старый.
                     if let Ok(mut guard) = bars_by.write() {
@@ -563,6 +639,87 @@ mod tests {
             let edges: Vec<f32> = (0..=n).map(|b| band_freq(scale, b as f32 / n as f32, lo, hi)).collect();
             assert!(edges.windows(2).all(|w| w[0] < w[1]), "{scale:?} monotonic");
         }
+    }
+
+    /// Кольцо с сэмплами `samples`, заголовком границы `header` и `after`.
+    fn ring_with_boundary(samples: &[f32], header: [f32; 3], after: &[f32]) -> rtrb::Consumer<f32> {
+        let total = samples.len() + header.len() + after.len();
+        let (mut prod, cons) = rtrb::RingBuffer::new(total.next_power_of_two().max(16));
+        for &v in samples.iter().chain(header.iter()).chain(after.iter()) {
+            let _ = prod.push(v);
+        }
+        cons
+    }
+
+    /// Номер полосы с максимумом.
+    fn peak_band(out: &[f32]) -> usize {
+        let mut max_i = 0;
+        for (i, &v) in out.iter().enumerate() {
+            if v > out[max_i] {
+                max_i = i;
+            }
+        }
+        max_i
+    }
+
+    /// AM1.0-B12: заголовок границы трека останавливает `consume` и отдаёт
+    /// формат нового трека; движок под этот формат начинает с пустого окна и
+    /// пиков — громкий синус прошлого трека в полосы нового не попадает.
+    #[test]
+    fn boundary_header_stops_engine_and_resets_state() {
+        let cfg = cfg_of();
+        let loud = sine(44_100, 1000.0, 8 * SPECTRUM_HOP, 0.0);
+        let silence = vec![0.0; 8 * SPECTRUM_HOP];
+        let mut cons = ring_with_boundary(&loud, [f32::NAN, 48_000.0, 1.0], &silence);
+        let mut out = Vec::new();
+        let mut eng = SpectrumEngine::new(&cfg, 44_100, 1);
+        for _ in 0..4 {
+            eng.consume(&mut cons, &cfg, &mut out);
+        }
+        assert!(out.iter().any(|v| *v > 0.5), "до границы — синус прошлого трека");
+        assert!(!eng.consume(&mut cons, &cfg, &mut out), "на границе старый движок не считает");
+        assert_eq!(eng.take_boundary(), Some(TapFormat { rate: 48_000, channels: 1 }));
+
+        let mut fresh = SpectrumEngine::new(&cfg, 48_000, 1);
+        for _ in 0..4 {
+            fresh.consume(&mut cons, &cfg, &mut out);
+        }
+        assert!(out.iter().all(|v| *v <= 1e-3), "новый трек — тишина без пиков: {out:?}");
+    }
+
+    /// AM1.0-B12: частота нового трека берётся из заголовка — синус 1 кГц на
+    /// 96 кГц после границы даёт ту же полосу, что у движка, созданного на 96 кГц.
+    #[test]
+    fn boundary_header_carries_rate() {
+        let cfg = cfg_of();
+        let tone = sine(96_000, 1000.0, 16 * SPECTRUM_HOP, 0.0);
+        let mut cons = ring_with_boundary(&[0.0; 64], [f32::NAN, 96_000.0, 1.0], &tone);
+        let mut out = Vec::new();
+        let mut eng = SpectrumEngine::new(&cfg, 44_100, 1);
+        eng.consume(&mut cons, &cfg, &mut out);
+        let fmt = eng.take_boundary().unwrap();
+        let mut next = SpectrumEngine::new(&cfg, fmt.rate, fmt.channels);
+        for _ in 0..4 {
+            next.consume(&mut cons, &cfg, &mut out);
+        }
+        let expected = run_engine(&tone, 1, &cfg, 96_000);
+        assert_eq!(peak_band(&out), peak_band(&expected));
+    }
+
+    /// NaN в сэмплах float-источника с недопустимым «заголовком» не считается
+    /// границей: движок не останавливается.
+    #[test]
+    fn invalid_boundary_header_is_ignored() {
+        let cfg = cfg_of();
+        let tone = sine(44_100, 1000.0, 8 * SPECTRUM_HOP, 0.0);
+        let mut cons = ring_with_boundary(&[0.0; 64], [f32::NAN, 0.5, -3.0], &tone);
+        let mut out = Vec::new();
+        let mut eng = SpectrumEngine::new(&cfg, 44_100, 1);
+        for _ in 0..4 {
+            eng.consume(&mut cons, &cfg, &mut out);
+        }
+        assert_eq!(eng.take_boundary(), None);
+        assert!(out.iter().any(|v| *v > 0.5));
     }
 
     #[test]

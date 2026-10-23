@@ -19,15 +19,15 @@ steps:
     done: true
   - id: 2
     description: "src/audio/analyzer.rs: SpectrumEngine распознаёт заголовок в pull_frame (NaN → частота, каналы), останавливает consume и отдаёт границу (take_boundary); LiveWorker на границе пересоздаёт SpectrumEngine по частоте/каналам заголовка и обнуляет bars; тесты: заголовок сбрасывает окно и пики, частота берётся из заголовка (≤5). Проверка: cargo test audio::analyzer"
-    done: false
+    done: true
   - id: 3
     description: "Удалить LiveWorker::set_format и атомики rate/in_ch (src/audio/analyzer.rs) и вызовы set_format в setup_visualizer/viz_push (src/app/visualizer_manager.rs): формат приходит только заголовком tap. Проверка: cargo check; cargo test audio::analyzer"
     done: false
   - id: 4
     description: "ЧЕКПОИНТ: полный cargo test + cargo clippy без новых предупреждений по файлам вайтлиста; check_rt_imports"
     done: false
-current_step: 2
-next_action: "Распознавание заголовка в SpectrumEngine/LiveWorker"
+current_step: 3
+next_action: "Удалить set_format и атомики rate/in_ch LiveWorker"
 fail_counter: 0
 fail_counter_max: 3
 failed_attempts: []
