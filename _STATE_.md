@@ -15,13 +15,13 @@
 ## Итерационный трекер
 - [x] Шаг 1: viz_push (src/app/visualizer_manager.rs): параметры и тип визуализации из self.core.settings() / self.core.state().viz_mode() вместо cfg()/cfg_viz_mode(), комментарий «действующие, не черновик» (ТЗ-25, ТЗ-26, SP1.0 §6.9). Проверка: cargo check
 - [x] Шаг 2: drain_fulltrack (src/app/fulltrack_manager.rs): VisualizerConfig из core.settings() / core.state().viz_mode() вместо cfg()/cfg_viz_mode() (ТЗ-25, ТЗ-26). Проверка: cargo check
-- [>] **Шаг 3: Удалить задержку 500 мс для правок черновика: ветку in_dialog в drain_fulltrack, константу FULLTRACK_DEBOUNCE (fulltrack_manager.rs), поле MusicApp::viz_debounce (mod.rs) — после шагов 1–2 черновик картинку не меняет, задержка лишь откладывала бы пересборку при смене трека во время диалога (ТЗ-25, ТЗ-26). Проверка: cargo check**
-- [ ] Шаг 4: ЧЕКПОИНТ: полный cargo test + cargo clippy без новых предупреждений по файлам вайтлиста
+- [x] Шаг 3: Удалить задержку 500 мс для правок черновика: ветку in_dialog в drain_fulltrack, константу FULLTRACK_DEBOUNCE (fulltrack_manager.rs), поле MusicApp::viz_debounce (mod.rs) — после шагов 1–2 черновик картинку не меняет, задержка лишь откладывала бы пересборку при смене трека во время диалога (ТЗ-25, ТЗ-26). Проверка: cargo check
+- [>] **Шаг 4: ЧЕКПОИНТ: полный cargo test + cargo clippy без новых предупреждений по файлам вайтлиста**
 
 Легенда: [x] сделано · [>] текущий шаг · [ ] не начато
 
-- **Текущий шаг (current_step):** Шаг 3
-- **Следующий ход:** Удалить задержку viz_debounce для черновика
+- **Текущий шаг (current_step):** Шаг 4
+- **Следующий ход:** ЧЕКПОИНТ: полный cargo test + clippy
 - **Счетчик безуспешных компиляций:** 0/3
 - **Состояние:** in_progress
 

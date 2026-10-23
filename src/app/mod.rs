@@ -488,12 +488,8 @@ pub struct MusicApp {
     /// LRU: лимит записей из `viz_max_ram_mb` (см. `fulltrack_cache_max_entries`).
     /// Значение хранит фактический размер RGBA-буфера в байтах (для §10.5).
     fulltrack_cache: clru::CLruCache<String, (slint::Image, usize)>,
-    /// Режим, под который построен текущий целевой билд (детект смены типа —
-    /// смена режима применяется сразу, а не с debounce).
+    /// Режим, под который построен текущий целевой билд (детект смены типа).
     fulltrack_mode: Option<music_player_rs::audio::visualizer::VisualizationMode>,
-    /// Debounce перестроения полнотрековых при изменении параметров из диалога
-    /// (ТЗ §9.2: 500 мс): (момент последнего изменения, целевой (path, key)).
-    viz_debounce: Option<(Instant, Option<(PathBuf, String)>)>,
     /// Центр сообщений: очередь до первого показа, по одному, сводное окно
     /// ошибок записи с «Повторить»/«OK» (ADR-13, §6.15, §6.8, ТЗ-52, ТЗ-20).
     messages: MessageCenter,
@@ -786,7 +782,6 @@ impl MusicApp {
             fulltrack_key: None,
             fulltrack_cache: clru::CLruCache::new(cache_max_entries),
             fulltrack_mode: None,
-            viz_debounce: None,
             messages: MessageCenter::default(),
             // Трей и уведомления — после регистрации значка (poll_tray, ADR-6).
             caps: PlatformCaps::default(),

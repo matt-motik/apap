@@ -20,12 +20,12 @@ steps:
     done: true
   - id: 3
     description: "Удалить задержку 500 мс для правок черновика: ветку in_dialog в drain_fulltrack, константу FULLTRACK_DEBOUNCE (fulltrack_manager.rs), поле MusicApp::viz_debounce (mod.rs) — после шагов 1–2 черновик картинку не меняет, задержка лишь откладывала бы пересборку при смене трека во время диалога (ТЗ-25, ТЗ-26). Проверка: cargo check"
-    done: false
+    done: true
   - id: 4
     description: "ЧЕКПОИНТ: полный cargo test + cargo clippy без новых предупреждений по файлам вайтлиста"
     done: false
-current_step: 3
-next_action: "Удалить задержку viz_debounce для черновика"
+current_step: 4
+next_action: "ЧЕКПОИНТ: полный cargo test + clippy"
 fail_counter: 0
 fail_counter_max: 3
 failed_attempts: []

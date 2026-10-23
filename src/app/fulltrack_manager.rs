@@ -11,7 +11,7 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::mpsc::{channel, Receiver, Sender};
 use std::sync::Arc;
 use std::thread;
-use std::time::{Instant, UNIX_EPOCH};
+use std::time::UNIX_EPOCH;
 
 use music_player_rs::audio::decoder::{AudioSource, Decoder};
 use music_player_rs::audio::dsd::DsdDecoder;
@@ -25,10 +25,6 @@ use music_player_rs::audio::visualizer::{
 use slint::{Rgba8Pixel, SharedPixelBuffer};
 
 use super::MusicApp;
-
-/// Debounce перестроения полнотрековых при изменении параметров из диалога
-/// настроек (ТЗ §9.2).
-const FULLTRACK_DEBOUNCE: std::time::Duration = std::time::Duration::from_millis(500);
 
 /// Запрос на построение полнотрековой визуализации трека.
 #[derive(Clone)]
@@ -454,37 +450,12 @@ impl MusicApp {
             None
         };
 
-        // Debounce (§9.2): правки параметров из диалога (draft) перезапускают
-        // полнотрековый билд только после 500 мс стабильности; смена режима
-        // применяется сразу (V / комбобокс типа).
-        let in_dialog = self.dialog_is_open();
+        // Черновик диалога сюда не попадает (действующие настройки выше,
+        // SP1.0 ТЗ-25, ТЗ-26), поэтому без задержки: смена трека, режима или
+        // сохранённых параметров применяется сразу.
         let mode_changed = self.fulltrack_mode != Some(mode);
-        if !in_dialog {
-            self.viz_debounce = None;
-        }
-
-        let changed = target != self.fulltrack_target || mode_changed;
-        if changed {
-            if in_dialog && !mode_changed {
-                let rearm = match &self.viz_debounce {
-                    Some((_, pending)) => pending.as_ref() != target.as_ref(),
-                    None => true,
-                };
-                if rearm {
-                    self.viz_debounce = Some((Instant::now(), target.clone()));
-                }
-            } else {
-                self.viz_debounce = None;
-                self.apply_fulltrack(mode, target, &cfg);
-            }
-        } else if let Some((t0, pending)) = &self.viz_debounce {
-            if pending.as_ref() != target.as_ref() {
-                // Вернулись к прежним значениям — сбрасываем отложенный билд.
-                self.viz_debounce = None;
-            } else if t0.elapsed() >= FULLTRACK_DEBOUNCE {
-                self.viz_debounce = None;
-                self.apply_fulltrack(mode, target, &cfg);
-            }
+        if target != self.fulltrack_target || mode_changed {
+            self.apply_fulltrack(mode, target, &cfg);
         }
 
         // События воркера.
