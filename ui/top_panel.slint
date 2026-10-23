@@ -303,6 +303,7 @@ export component TopPanel inherits Rectangle {
     private property <float> pending-seek: -1;
 
     in property <string> info-artist: "—";
+    in property <bool> info-has-track: false;
     in property <string> info-track: "—";
     in property <string> info-title: "—";
     in property <string> info-duration: "—";
@@ -613,6 +614,7 @@ export component TopPanel inherits Rectangle {
                 Visualizer {
                     mode: root.viz-mode;
                     artist: root.info-artist;
+                    has-track: root.info-has-track;
                     album: root.info-album;
                     format: root.info-format;
                     viz-channels: root.viz-channels;

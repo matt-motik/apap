@@ -15,15 +15,15 @@ dod: "Visualizer получает признак «трек загружен» �
 steps:
   - id: 1
     description: "ui/visualizer.slint: in property <bool> has-track; условия видимости спектра и плейсхолдера — по has-track вместо artist != / == «—»; ui/top_panel.slint: in property <bool> info-has-track, передача в Visualizer (V5.1 §5.5, §4.2). Проверка: cargo check"
-    done: false
+    done: true
   - id: 2
     description: "ui/app.slint: in property <bool> info-has-track и передача в TopPanel; src/app/playback_manager.rs sync_track_info_to_ui: set_info_has_track(true) при текущем треке, false без него. Проверка: cargo check"
     done: false
   - id: 3
     description: "ЧЕКПОИНТ: полный cargo test + cargo clippy без новых предупреждений по файлам вайтлиста"
     done: false
-current_step: 1
-next_action: "Свойство has-track в Visualizer и TopPanel"
+current_step: 2
+next_action: "Свойство info-has-track в app.slint и установка в sync_track_info_to_ui"
 fail_counter: 0
 fail_counter_max: 3
 failed_attempts: []

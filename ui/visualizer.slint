@@ -46,6 +46,8 @@ component SpectrumBars inherits Rectangle {
 export component Visualizer inherits Rectangle {
     in property <int> mode: 0;              // 0 off, 1 oscilloscope, 2 spectrogram, 3 spectrum
     in property <string> artist: "—";
+    // Трек загружен (AM1.0-B11): «нет тега» в artist не означает «нет трека».
+    in property <bool> has-track: false;
     in property <string> album: "—";
     in property <string> format: "";
     in property <string> disabled-text: ""; // спец-плейсхолдер (§6.3)
@@ -159,7 +161,7 @@ export component Visualizer inherits Rectangle {
 
     // Анализатор спектра (§4.2): стерео — L слева, R справа; моно — один ряд.
     Rectangle {
-        visible: root.mode == 3 && root.artist != "—" && root.disabled-text == "";
+        visible: root.mode == 3 && root.has-track && root.disabled-text == "";
         height: 100%;
         width: 100%;
 
@@ -198,7 +200,7 @@ export component Visualizer inherits Rectangle {
         width: 100%;
         height: 100%;
         horizontal-stretch: 1;
-        visible: ((root.mode == 0 || root.artist == "—") && root.mode != 3)
+        visible: ((root.mode == 0 || !root.has-track) && root.mode != 3)
             || ((root.mode == 1 || root.mode == 2) && !root.osc-ready);
 
         Text {
