@@ -160,7 +160,7 @@ impl MusicApp {
     /// from the current settings view (draft while the dialog is open),
     /// reading widths from session state via `effective_width_pct` (§8.1 С3).
     fn dialog_cols_model(&self) -> Vec<ColumnSetting> {
-        let cfg = self.cfg();
+        let cfg = self.dialog_cfg();
         let widths = self.cfg_column_widths();
         let ordered = cfg.columns.ordered_columns();
         ordered
@@ -181,7 +181,7 @@ impl MusicApp {
     /// live properties `cover-size`/`col-info-w`/`col-gap` — only call this
     /// when those really should change.
     pub(super) fn sync_settings_to_ui(&self) {
-        let s = self.cfg();
+        let s = self.dialog_cfg();
         let Some(ui) = self.try_ui() else { return };
         ui.set_theme_palette(if s.theme.as_str() == "dark" { 0 } else { 1 });
         ui
@@ -205,7 +205,7 @@ impl MusicApp {
         ui.set_repeat(self.repeat == RepeatMode::All);
         ui.set_repeat_one(self.repeat == RepeatMode::One);
         ui
-            .set_viz_mode(self.cfg_viz_mode().index());
+            .set_viz_mode(self.dialog_viz_mode().index());
         ui
             .set_settings_cols(ModelRc::from(self.dialog_cols_model().as_slice()));
     }
@@ -235,7 +235,7 @@ impl MusicApp {
     }
 
     pub(super) fn sync_cover_settings_to_ui(&self) {
-        let s = self.cfg();
+        let s = self.dialog_cfg();
         let covers: Vec<CoverSetting> = s
             .covers
             .priority
@@ -389,7 +389,7 @@ impl MusicApp {
             })
             .collect::<Vec<_>>();
 
-        let saved = self.cfg().playback.device(mode).unwrap_or("").to_string();
+        let saved = self.dialog_cfg().playback.device(mode).unwrap_or("").to_string();
         let active = self.active_device.clone();
         let want = if !active.is_empty() {
             Some(active)
@@ -438,7 +438,7 @@ impl MusicApp {
     /// `device_display_name` одинаково работают для обоих списков
     /// (ADR-24, ТЗ-126, ТЗ-143, AM1.0-B16).
     fn apply_hw_device_listing(&mut self, mode: ModeKind) {
-        let saved = self.cfg().playback.device(mode).unwrap_or("").to_string();
+        let saved = self.dialog_cfg().playback.device(mode).unwrap_or("").to_string();
         let saved_ref = if saved.is_empty() { None } else { Some(saved.as_str()) };
 
         let (pairs, selected) = match self.audio().devices() {

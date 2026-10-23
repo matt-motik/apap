@@ -13,13 +13,13 @@
 - **Критерий успеха (Definition of Done):** cfg()->dialog_cfg(), cfg_viz_mode()->dialog_viz_mode() (src/app/mod.rs), все вызовы в mod.rs/ui_manager.rs/viz_settings_manager.rs обновлены, doc-комментарии ссылаются на SP1.0 ADR-11; аудит вызывающих завершён (все — построение/синхронизация диалога настроек, переключать на core.settings()/core.state() не требуется); cargo check и cargo clippy --all-targets 0 предупреждений; ЧЕКПОИНТ — полный cargo test зелёный
 
 ## Итерационный трекер
-- [>] **Шаг 1: Переименовать cfg()/cfg_viz_mode() в dialog_cfg()/dialog_viz_mode(), обновить doc-комментарии (SP1.0 ADR-11) и все вызовы; аудит вызывающих (ни один не переключён на core.settings()/state() — все в контексте диалога). Верификация: cargo check + cargo clippy --all-targets 0 предупреждений**
-- [ ] Шаг 2: ЧЕКПОИНТ: полный cargo test + clippy
+- [x] Шаг 1: Переименовать cfg()/cfg_viz_mode() в dialog_cfg()/dialog_viz_mode(), обновить doc-комментарии (SP1.0 ADR-11) и все вызовы; аудит вызывающих (ни один не переключён на core.settings()/state() — все в контексте диалога). Верификация: cargo check + cargo clippy --all-targets 0 предупреждений
+- [>] **Шаг 2: ЧЕКПОИНТ: полный cargo test + clippy**
 
 Легенда: [x] сделано · [>] текущий шаг · [ ] не начато
 
-- **Текущий шаг (current_step):** Шаг 1
-- **Следующий ход:** выполнить шаг 1: переименование + аудит вызывающих, cargo check + clippy --all-targets
+- **Текущий шаг (current_step):** Шаг 2
+- **Следующий ход:** ЧЕКПОИНТ: полный cargo test + clippy
 - **Счетчик безуспешных компиляций:** 0/3
 - **Состояние:** in_progress
 

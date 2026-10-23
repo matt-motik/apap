@@ -14,12 +14,12 @@ dod: "cfg()->dialog_cfg(), cfg_viz_mode()->dialog_viz_mode() (src/app/mod.rs), �
 steps:
   - id: 1
     description: "Переименовать cfg()/cfg_viz_mode() в dialog_cfg()/dialog_viz_mode(), обновить doc-комментарии (SP1.0 ADR-11) и все вызовы; аудит вызывающих (ни один не переключён на core.settings()/state() — все в контексте диалога). Верификация: cargo check + cargo clippy --all-targets 0 предупреждений"
-    done: false
+    done: true
   - id: 2
     description: "ЧЕКПОИНТ: полный cargo test + clippy"
     done: false
-current_step: 1
-next_action: "выполнить шаг 1: переименование + аудит вызывающих, cargo check + clippy --all-targets"
+current_step: 2
+next_action: "ЧЕКПОИНТ: полный cargo test + clippy"
 fail_counter: 0
 fail_counter_max: 3
 failed_attempts: []

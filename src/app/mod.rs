@@ -1343,14 +1343,18 @@ impl MusicApp {
         Self::bind_callbacks(this);
     }
 
-    /// Действующие настройки для чтения: черновик диалога в ядре, если он
-    /// открыт, иначе применённые настройки ядра (§6.9, ADR-11).
-    fn cfg(&self) -> &PersistSettings {
+    /// Черновик диалога настроек, если он открыт, иначе применённые
+    /// настройки ядра (§6.9, SP1.0 ADR-11). Только для построения и
+    /// синхронизации самого диалога настроек: коду вне диалога, которому
+    /// нужны действующие значения, брать `self.core.settings()` (SP1.0-B20).
+    fn dialog_cfg(&self) -> &PersistSettings {
         self.core.draft().map_or(self.core.settings(), |d| &d.settings)
     }
 
-    /// Тип визуализации с учётом черновика диалога (Т-1, §6.9).
-    fn cfg_viz_mode(&self) -> VisualizationMode {
+    /// Тип визуализации с учётом черновика диалога (Т-1, §6.9, SP1.0 ADR-11)
+    /// — только для диалога настроек; действующий тип снаружи —
+    /// `self.core.state().viz_mode()` (SP1.0-B20).
+    fn dialog_viz_mode(&self) -> VisualizationMode {
         self.core.draft().map_or(self.core.state().viz_mode(), |d| d.viz_mode)
     }
 
@@ -2302,9 +2306,9 @@ impl MusicApp {
                 let idx = idx as usize;
                 let (col, visible) = {
                     let a = app.borrow();
-                    let ordered = a.cfg().columns.ordered_columns();
+                    let ordered = a.dialog_cfg().columns.ordered_columns();
                     let Some(&col) = ordered.get(idx) else { return };
-                    let visible = a.cfg().columns.column_visible(col);
+                    let visible = a.dialog_cfg().columns.column_visible(col);
                     (col, visible)
                 };
                 let mut a = app.borrow_mut();
@@ -2346,14 +2350,14 @@ impl MusicApp {
                 eprintln!("[gui] settings_move_col_up idx={idx}");
                 let idx = idx as usize;
                 let mut a = app.borrow_mut();
-                let ordered = a.cfg().columns.ordered_columns();
+                let ordered = a.dialog_cfg().columns.ordered_columns();
                 if idx == 0 || idx >= ordered.len() {
                     return;
                 }
                 let col_id = ordered[idx];
                 a.edit_cfg(|s| s.columns.move_column(idx, idx - 1));
                 a.sync_dialog_cols();
-                let new_ordered = a.cfg().columns.ordered_columns();
+                let new_ordered = a.dialog_cfg().columns.ordered_columns();
                 let new_idx = new_ordered.iter().position(|&c| c == col_id).unwrap_or(idx - 1);
                 if let Some(ui) = a.try_ui() {
                     ui.set_settings_selected_col(new_idx as i32);
@@ -2368,14 +2372,14 @@ impl MusicApp {
                 eprintln!("[gui] settings_move_col_down idx={idx}");
                 let idx = idx as usize;
                 let mut a = app.borrow_mut();
-                let ordered = a.cfg().columns.ordered_columns();
+                let ordered = a.dialog_cfg().columns.ordered_columns();
                 if idx + 1 >= ordered.len() {
                     return;
                 }
                 let col_id = ordered[idx];
                 a.edit_cfg(|s| s.columns.move_column(idx, idx + 1));
                 a.sync_dialog_cols();
-                let new_ordered = a.cfg().columns.ordered_columns();
+                let new_ordered = a.dialog_cfg().columns.ordered_columns();
                 let new_idx = new_ordered.iter().position(|&c| c == col_id).unwrap_or(idx + 1);
                 if let Some(ui) = a.try_ui() {
                     ui.set_settings_selected_col(new_idx as i32);
@@ -2623,7 +2627,7 @@ impl MusicApp {
                 eprintln!("[gui] settings_cover_move_up idx={idx}");
                 let idx = idx as usize;
                 let mut a = app.borrow_mut();
-                let ordered = a.cfg().covers.priority.clone();
+                let ordered = a.dialog_cfg().covers.priority.clone();
                 if idx == 0 || idx >= ordered.len() {
                     return;
                 }
@@ -2639,7 +2643,7 @@ impl MusicApp {
                 eprintln!("[gui] settings_cover_move_down idx={idx}");
                 let idx = idx as usize;
                 let mut a = app.borrow_mut();
-                let ordered = a.cfg().covers.priority.clone();
+                let ordered = a.dialog_cfg().covers.priority.clone();
                 if idx + 1 >= ordered.len() {
                     return;
                 }

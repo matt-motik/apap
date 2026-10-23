@@ -174,7 +174,7 @@ impl MusicApp {
         if !self.dialog_is_open() {
             return;
         }
-        let mode = self.cfg_viz_mode();
+        let mode = self.dialog_viz_mode();
         match mode {
             VisualizationMode::Oscilloscope => {
                 self.edit_viz(|v| v.oscilloscope = OscilloscopeCfg::default());
@@ -193,11 +193,11 @@ impl MusicApp {
 
     /// Проброс всех настроек визуализации в диалог (open + reset) (§8.1 С3).
     pub(super) fn sync_viz_settings_to_ui(&self) {
-        let s = self.cfg();
+        let s = self.dialog_cfg();
         let v = &s.visualization;
         let Some(ui) = self.try_ui() else { return };
 
-        ui.set_settings_viz_mode(self.cfg_viz_mode().index());
+        ui.set_settings_viz_mode(self.dialog_viz_mode().index());
         ui.set_settings_viz_skip_dsd(v.skip_fulltrack_for_dsd);
 
         let o = &v.oscilloscope;
