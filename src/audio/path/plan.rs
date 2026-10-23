@@ -15,8 +15,8 @@ use smallvec::SmallVec;
 use crate::audio::backend::{AccessKind, DeviceCaps, HwDeviceId, RateSet};
 use crate::audio::error::Incompatibility;
 use crate::audio::format::{
-    BitDepth, ChannelLayout, ChannelPos, DopOutFormat, DsdRate, OutputSampleFormat, SampleRate, SourceFormat,
-    SourceKind, StreamFormat,
+    BitDepth, ChannelLayout, ChannelPos, DopOutFormat, DsdRate, OutputSampleFormat, RateFamily, SampleRate,
+    SourceFormat, SourceKind, StreamFormat,
 };
 use crate::audio::session::RingPayload;
 use crate::audio::verdict::GainState;
@@ -369,7 +369,7 @@ pub fn dsd_pcm_rate(dsd: DsdRate, filter: DsdFilter, caps: &DeviceCaps) -> Sampl
     cands
         .iter()
         .copied()
-        .filter(|&r| family(r) == Family::F44k1 && r < base)
+        .filter(|&r| r.family() == RateFamily::F44k1 && r < base)
         .max()
         .or_else(|| cands.iter().copied().max())
         .unwrap_or(base)
@@ -590,30 +590,6 @@ fn candidates(set: &RateSet) -> SmallVec<[SampleRate; 16]> {
     }
 }
 
-/// Семейство частоты по §6.4.
-#[derive(Clone, Copy, PartialEq, Eq, Debug)]
-enum Family {
-    /// Кратные 11 025 Гц.
-    F44k1,
-    /// Кратные 8 000 Гц.
-    F48k,
-    Other,
-}
-
-/// Семейство частоты (§6.4): `F44k1`, если `r % 11025 == 0`; `F48k`, если
-/// `r % 8000 == 0`; иначе `Other`. Делитель 8 000 — по §6.4 (а не 4 000, как
-/// у `SampleRate::family`), поэтому классификация своя.
-fn family(rate: SampleRate) -> Family {
-    let hz = rate.hz();
-    if hz.is_multiple_of(11_025) {
-        Family::F44k1
-    } else if hz.is_multiple_of(8_000) {
-        Family::F48k
-    } else {
-        Family::Other
-    }
-}
-
 /// Правило выбора частоты (ТЗ-27, ОВ-3); `None` — кандидатов нет.
 fn apply_rule(rule: RateFallbackRule, cands: &[SampleRate], f: SampleRate) -> Option<SampleRate> {
     match rule {
@@ -627,8 +603,8 @@ fn apply_rule(rule: RateFallbackRule, cands: &[SampleRate], f: SampleRate) -> Op
 /// нет — `min{r ∈ S : fam(r) = fam(f), r > f}`; если частот этого семейства
 /// нет — `Nearest`.
 fn same_family(cands: &[SampleRate], f: SampleRate) -> Option<SampleRate> {
-    let fam = family(f);
-    let same = || cands.iter().copied().filter(move |&r| family(r) == fam);
+    let fam = f.family();
+    let same = || cands.iter().copied().filter(move |&r| r.family() == fam);
     same()
         .filter(|&r| r <= f)
         .max()
@@ -985,12 +961,12 @@ mod tests {
     /// §6.4: семейства 44,1/48 кГц и прочие; Range → стандартный ряд.
     #[test]
     fn family_classifies_rates() {
-        assert_eq!(family(sr(44_100)), Family::F44k1);
-        assert_eq!(family(sr(352_800)), Family::F44k1);
-        assert_eq!(family(sr(48_000)), Family::F48k);
-        assert_eq!(family(sr(768_000)), Family::F48k);
-        assert_eq!(family(sr(12_000)), Family::Other);
-        assert_eq!(family(sr(37_800)), Family::Other);
+        assert_eq!(sr(44_100).family(), RateFamily::F44k1);
+        assert_eq!(sr(352_800).family(), RateFamily::F44k1);
+        assert_eq!(sr(48_000).family(), RateFamily::F48k);
+        assert_eq!(sr(768_000).family(), RateFamily::F48k);
+        assert_eq!(sr(12_000).family(), RateFamily::Other);
+        assert_eq!(sr(37_800).family(), RateFamily::Other);
         let range = RateSet::Range { min: sr(48_000), max: sr(192_000) };
         assert_eq!(candidates(&range), set(&[48_000, 88_200, 96_000, 176_400, 192_000]));
     }
