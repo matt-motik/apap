@@ -2,10 +2,36 @@
      Source of truth: _STATE_.yaml — edit that, then run:
      python tools/state_tool.py render -->
 
-# Состояние сессии
 
-- **Текущая задача:** Нет (все шаги завершены)
-- **Состояние:** done
+# Текущая микро-сессия
+
+- **Задача из ROADMAP:** SP1.0-B15 — Уборка после С9 (02)
+- **Вайтлист файлов в работе (Изменяемые файлы):**
+  - src/app/mod.rs
+  - src/app/playback_manager.rs
+  - src/app/viz_settings_manager.rs
+  - src/app/mode_dialog.rs
+  - src/core/dialog.rs
+  - src/settings/playback.rs
+  - ui/settings.slint
+- **Критерий успеха (Definition of Done):** Все 7 пунктов строки SP1.0-B15 устранены или явно объяснены как сохраняемые; полный cargo test и cargo clippy --all-targets зелёные без новых предупреждений
+
+## Итерационный трекер
+- [>] **Шаг 1: IoGens: themes/clear через core.next_io_gen() вместо локального wrapping_add, очистка кэшей через core.clear_cache() (SP1.0-B15 п.1). Проверка: cargo check**
+- [ ] Шаг 2: Удалить мёртвое поле MusicApp::theme_meta — пишется и сразу читается только в set_theme_meta (SP1.0-B15 п.2). Проверка: cargo check
+- [ ] Шаг 3: Убрать отладочные debug("settings: …") подложки диалога и кнопок Save/Cancel в ui/settings.slint (SP1.0-B15 п.3). Проверка: cargo check
+- [ ] Шаг 4: ValueBlocker::reason(): общий текст вместо дублей в src/core/dialog.rs и src/app/mode_dialog.rs (SP1.0-B15 п.4). Проверка: cargo check
+- [ ] Шаг 5: Обновить устаревшие комментарии: set_output_device (playback_manager.rs), привязка клавиши V (viz_settings_manager.rs, шлюз решает сам) (SP1.0-B15 п.5). Проверка: cargo check
+- [ ] Шаг 6: Перевести подписи вкладки Cache в ui/settings.slint на русский, согласованно с текстом ТЗ-34 (SP1.0-B15 п.6). Проверка: cargo check
+- [ ] Шаг 7: MainCmd::ColumnResize спрашивает core.gate() перед сохранением ширин колонок в tick() (SP1.0-B15 п.7). Проверка: cargo check
+- [ ] Шаг 8: ЧЕКПОИНТ: полный cargo test + clippy
+
+Легенда: [x] сделано · [>] текущий шаг · [ ] не начато
+
+- **Текущий шаг (current_step):** Шаг 1
+- **Следующий ход:** Шаг 1: IoGens.themes/clear через core.next_io_gen(), очистка кэшей через core.clear_cache()
+- **Счетчик безуспешных компиляций:** 0/3
+- **Состояние:** in_progress
 
 ## План: Executable workflow: правила AGENTS.md → исполняемые механизмы
 _Источник: чат с пользователем (ноутбук), начат в 67686ce; перенесён в репо 2026-09-22_

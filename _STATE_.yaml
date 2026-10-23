@@ -2,15 +2,46 @@
 # _STATE_.md генерируется из этого файла — не редактировать его руками.
 # Редактируйте этот файл, затем: python tools/state_tool.py render
 
-status: done
+status: in_progress
 task:
-  roadmap_id: null
-  title: null
-whitelist: []
-dod: null
-steps: []
-current_step: null
-next_action: null
+  roadmap_id: SP1.0-B15
+  title: "Уборка после С9 (02)"
+whitelist:
+  - src/app/mod.rs
+  - src/app/playback_manager.rs
+  - src/app/viz_settings_manager.rs
+  - src/app/mode_dialog.rs
+  - src/core/dialog.rs
+  - src/settings/playback.rs
+  - ui/settings.slint
+dod: "Все 7 пунктов строки SP1.0-B15 устранены или явно объяснены как сохраняемые; полный cargo test и cargo clippy --all-targets зелёные без новых предупреждений"
+steps:
+  - id: 1
+    description: "IoGens: themes/clear через core.next_io_gen() вместо локального wrapping_add, очистка кэшей через core.clear_cache() (SP1.0-B15 п.1). Проверка: cargo check"
+    done: false
+  - id: 2
+    description: "Удалить мёртвое поле MusicApp::theme_meta — пишется и сразу читается только в set_theme_meta (SP1.0-B15 п.2). Проверка: cargo check"
+    done: false
+  - id: 3
+    description: "Убрать отладочные debug(\"settings: …\") подложки диалога и кнопок Save/Cancel в ui/settings.slint (SP1.0-B15 п.3). Проверка: cargo check"
+    done: false
+  - id: 4
+    description: "ValueBlocker::reason(): общий текст вместо дублей в src/core/dialog.rs и src/app/mode_dialog.rs (SP1.0-B15 п.4). Проверка: cargo check"
+    done: false
+  - id: 5
+    description: "Обновить устаревшие комментарии: set_output_device (playback_manager.rs), привязка клавиши V (viz_settings_manager.rs, шлюз решает сам) (SP1.0-B15 п.5). Проверка: cargo check"
+    done: false
+  - id: 6
+    description: "Перевести подписи вкладки Cache в ui/settings.slint на русский, согласованно с текстом ТЗ-34 (SP1.0-B15 п.6). Проверка: cargo check"
+    done: false
+  - id: 7
+    description: "MainCmd::ColumnResize спрашивает core.gate() перед сохранением ширин колонок в tick() (SP1.0-B15 п.7). Проверка: cargo check"
+    done: false
+  - id: 8
+    description: "ЧЕКПОИНТ: полный cargo test + clippy"
+    done: false
+current_step: 1
+next_action: "Шаг 1: IoGens.themes/clear через core.next_io_gen(), очистка кэшей через core.clear_cache()"
 fail_counter: 0
 fail_counter_max: 3
 failed_attempts: []
