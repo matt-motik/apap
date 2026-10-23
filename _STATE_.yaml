@@ -2,18 +2,15 @@
 # _STATE_.md генерируется из этого файла — не редактировать его руками.
 # Редактируйте этот файл, затем: python tools/state_tool.py render
 
-status: in_progress
+status: done
 task:
-  roadmap_id: SP1.0-B10
-  title: "Кнопка «отключить дизеринг» окна тракта в обход dialog_save — проверка актуальности"
+  roadmap_id: null
+  title: null
 whitelist: []
-dod: "Подтверждено, что кнопки/функции bp_report::disable_dither в коде нет (модуль удалён в 2de2ee8); строка закрыта как неактуальная"
-steps:
-  - id: 1
-    description: "Проверка: grep disable_dither / DisableDither по src и ui пуст; быстрые исправления окна тракта — только QuickFix::Volume/Unmute (состояние, не настройки). Проверка: state_tool check; traceability_tool check"
-    done: true
-current_step: 1
-next_action: "закрытие по closing.md"
+dod: null
+steps: []
+current_step: null
+next_action: null
 fail_counter: 0
 fail_counter_max: 3
 failed_attempts: []
