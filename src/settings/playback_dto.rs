@@ -511,10 +511,55 @@ fn read_fixed_rate(
     }
 }
 
+/// Сохранённый `Named(id)` Совместимого режима, выбранный мимо аудиосервера
+/// (старые `hw:`/`plughw:`/`front:`… значения — до фильтра
+/// `is_server_routed_pcm`, ADR-07, AM1.0-B32, фаза 1) — список Совместимого
+/// на Linux больше никогда не предлагает такие id, сохранённое значение не
+/// должно тихо открывать голое железо: мигрирует на `SystemDefault` с
+/// заметкой `Adjusted`, как согласование буфера устройства (И-Р22, ТЗ-131).
+/// `SystemDefault` и алиасы сервера (`default`/`pipewire`/`pulse`) не
+/// трогаются. Проверка платформенная (AM1.0-B32, фаза 2): на Windows/macOS
+/// список никогда не ограничивался выходами сервера — id не трогаем.
+#[cfg(target_os = "linux")]
+fn migrate_legacy_compatible_device(
+    device: SharedDeviceChoice,
+    key: &str,
+    notes: &mut Vec<LoadNote>,
+) -> SharedDeviceChoice {
+    let SharedDeviceChoice::Named(id) = &device else {
+        return device;
+    };
+    if crate::audio::output::is_server_routed_pcm(id.as_str()) {
+        return device;
+    }
+    notes.push(LoadNote {
+        key: KeyPath::new(key.to_owned()),
+        kind: LoadNoteKind::Adjusted {
+            reason: format!(
+                "устройство «{}» выбрано в обход аудиосервера — установлено «Системное по умолчанию»",
+                id.as_str()
+            )
+            .into(),
+        },
+    });
+    SharedDeviceChoice::SystemDefault
+}
+
+/// На Windows/macOS список Совместимого никогда не ограничивался выходами
+/// аудиосервера (ADR-07, AM1.0-B32, фаза 1) — миграция здесь не нужна.
+#[cfg(not(target_os = "linux"))]
+fn migrate_legacy_compatible_device(
+    device: SharedDeviceChoice,
+    _key: &str,
+    _notes: &mut Vec<LoadNote>,
+) -> SharedDeviceChoice {
+    device
+}
+
 /// `[playback.compatible]` -> `CompatibleOpts` (§6.27 п. 3).
 fn parse_compatible(dto: CompatibleDto, notes: &mut Vec<LoadNote>) -> CompatibleOpts {
     let default = CompatibleOpts::default();
-    let opts = CompatibleOpts {
+    let mut opts = CompatibleOpts {
         device: read_shared_device(dto.device.as_ref(), "playback.compatible.device", notes),
         fixed_rate: read_fixed_rate(dto.fixed_rate.as_ref(), "playback.compatible.fixed_rate", notes),
         src_filter: read_str_enum(
@@ -549,6 +594,7 @@ fn parse_compatible(dto: CompatibleDto, notes: &mut Vec<LoadNote>) -> Compatible
         ),
         buffer: read_buffer_ms(dto.buffer.as_ref(), default.buffer, "playback.compatible.buffer", notes),
     };
+    opts.device = migrate_legacy_compatible_device(opts.device, "playback.compatible.device", notes);
     for key in dto.unknown.keys() {
         notes.push(unknown_note(format!("playback.compatible.{key}")));
     }
@@ -1042,7 +1088,11 @@ dop = false
     fn round_trip_non_default_mode_settings() {
         let m = ModeSettings {
             compatible: CompatibleOpts {
-                device: SharedDeviceChoice::Named(SharedDeviceId::new("hw:CARD=X,DEV=0")),
+                // Алиас сервера, не голый hw: — круговой проход без заметок
+                // (AM1.0-B32, фаза 2: `hw:`/`plughw:` мигрируют на
+                // `SystemDefault` с заметкой, см. тесты
+                // `migrate_legacy_compatible_device_*` ниже).
+                device: SharedDeviceChoice::Named(SharedDeviceId::new("pipewire")),
                 fixed_rate: SampleRate::new(96_000),
                 src_filter: SrcFilter::Slow,
                 dither: Dither::Off,
@@ -1071,5 +1121,62 @@ dop = false
         };
         let dto = playback_dto(&m);
         assert_eq!(load_mode_settings(Some(dto)), (m, Vec::new()));
+    }
+
+    /// AM1.0-B32, фаза 2 (ADR-07): сохранённый `hw:`/`plughw:` id
+    /// Совместимого — выбор мимо аудиосервера до фильтра
+    /// `is_server_routed_pcm` — мигрирует на `SystemDefault` с заметкой
+    /// `Adjusted`, список Совместимого на Linux больше не предлагает такие id.
+    #[test]
+    #[cfg(target_os = "linux")]
+    fn migrate_legacy_compatible_device_replaces_bare_hardware_ids() {
+        for raw in ["hw:CARD=4,DEV=0", "plughw:CARD=4,DEV=0"] {
+            let dto = CompatibleDto { device: Some(toml::Value::String(raw.to_owned())), ..Default::default() };
+            let mut notes = Vec::new();
+            let opts = parse_compatible(dto, &mut notes);
+            assert_eq!(opts.device, SharedDeviceChoice::SystemDefault, "{raw}");
+            assert_eq!(notes.len(), 1, "{raw}: {notes:?}");
+            assert_eq!(notes[0].key.as_str(), "playback.compatible.device");
+            assert!(matches!(notes[0].kind, LoadNoteKind::Adjusted { .. }), "{raw}: {notes:?}");
+        }
+    }
+
+    /// Алиасы сервера (`default`/`pipewire`/`pulse`) и `SystemDefault` (нет
+    /// ключа) не трогаются миграцией — заметок нет.
+    #[test]
+    #[cfg(target_os = "linux")]
+    fn migrate_legacy_compatible_device_keeps_server_aliases_and_system_default() {
+        for raw in ["default", "pipewire", "pulse"] {
+            let dto = CompatibleDto { device: Some(toml::Value::String(raw.to_owned())), ..Default::default() };
+            let mut notes = Vec::new();
+            let opts = parse_compatible(dto, &mut notes);
+            assert_eq!(opts.device, SharedDeviceChoice::Named(SharedDeviceId::new(raw)), "{raw}");
+            assert!(notes.is_empty(), "{raw}: {notes:?}");
+        }
+
+        let mut notes = Vec::new();
+        let opts = parse_compatible(CompatibleDto::default(), &mut notes);
+        assert_eq!(opts.device, SharedDeviceChoice::SystemDefault);
+        assert!(notes.is_empty());
+    }
+
+    /// Миграция срабатывает и через полный путь `load_mode_settings`, не
+    /// только напрямую через `parse_compatible` (интеграция с разбором
+    /// `[playback]` целиком, AM1.0-B32, фаза 2).
+    #[test]
+    #[cfg(target_os = "linux")]
+    fn load_mode_settings_migrates_legacy_compatible_device() {
+        let dto = PlaybackDto {
+            schema: Some(2),
+            compatible: Some(CompatibleDto {
+                device: Some(toml::Value::String("hw:CARD=X,DEV=0".to_owned())),
+                ..Default::default()
+            }),
+            ..Default::default()
+        };
+        let (settings, notes) = load_mode_settings(Some(dto));
+        assert_eq!(settings.compatible.device, SharedDeviceChoice::SystemDefault);
+        assert_eq!(notes.len(), 1);
+        assert_eq!(notes[0].key.as_str(), "playback.compatible.device");
     }
 }

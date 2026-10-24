@@ -34,6 +34,7 @@ use music_player_rs::cover::{self, CoverDone, CoverJob};
 use music_player_rs::engine::lock::{LockInput, LockState};
 use music_player_rs::engine::messages::{EngineCmd, EngineEvent, Notice, SkipReason};
 use music_player_rs::engine::run::{BackendCaps, EngineHandle};
+use music_player_rs::persist::keys::LoadNoteKind;
 use music_player_rs::persist::settings_file::Settings as PersistSettings;
 use music_player_rs::persist::settings_file::{ColumnsConfig, ThemeName};
 use music_player_rs::persist::state_file::{
@@ -892,6 +893,24 @@ impl MusicApp {
         // кнопкой переключения в Совместимый (ТЗ-111, §6.2 п. 5).
         if !app.backend_caps.available(app.core.state().active_mode()) {
             app.push_mode_unavailable_notice();
+        }
+        // Сохранённое устройство Совместимого было выбрано мимо аудиосервера
+        // (старый hw:/plughw: id до фильтра `is_server_routed_pcm`) и
+        // мигрировало на «Системное по умолчанию» при загрузке
+        // (`migrate_legacy_compatible_device`, AM1.0-B32, фаза 2) —
+        // одноразовое уведомление по образцу `push_mode_unavailable_notice`
+        // (ТЗ-111); исправленное значение переживёт как обычно следующую
+        // запись настроек (И-Р22: та же схема, что у согласования буфера
+        // устройства).
+        if app.core.startup_notes().settings.iter().any(|n| {
+            n.key.as_str() == "playback.compatible.device" && matches!(n.kind, LoadNoteKind::Adjusted { .. })
+        }) {
+            app.push_message(Message {
+                level: MessageLevel::Info,
+                title: "Устройство изменено".into(),
+                body: "Устройство Совместимого режима было выбрано в обход аудиосервера — переключено на «Системное по умолчанию»".into(),
+                actions: vec![MessageAction::Ok],
+            });
         }
         // Запуск ничего не пишет (ТЗ-4, §8.1 С3).
         app

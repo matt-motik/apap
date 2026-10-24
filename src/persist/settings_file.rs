@@ -1593,7 +1593,10 @@ mode = \"spectrum\"
     fn non_default_mode_settings() -> ModeSettings {
         ModeSettings {
             compatible: CompatibleOpts {
-                device: SharedDeviceChoice::Named(SharedDeviceId::new("hw:CARD=X,DEV=0")),
+                // Алиас сервера, не голый hw: — круговой проход без заметок
+                // (AM1.0-B32, фаза 2: `hw:`/`plughw:` мигрируют на
+                // `SystemDefault` с заметкой `Adjusted`).
+                device: SharedDeviceChoice::Named(SharedDeviceId::new("pipewire")),
                 fixed_rate: SampleRate::new(96_000),
                 src_filter: SrcFilter::Slow,
                 dither: Dither::Off,

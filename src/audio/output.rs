@@ -617,74 +617,9 @@ impl AudioHost for CpalHost {
         let mut out = Vec::new();
         if let Ok(devices) = host.output_devices() {
             for dev in devices {
-                let name = match dev.description().map(|d| d.name().to_string()) {
-                    Ok(name) => name,
-                    Err(_) => continue,
-                };
-                // Stable backend key used to re-open the device and persisted in
-                // settings (ALSA pcm id, e.g. "hw:CARD=4,DEV=0").
-                let id = dev.id().map(|d| d.id().to_string()).unwrap_or_else(|_| name.clone());
-                // Supported configs and their formats are aligned by index so a
-                // fallback default can pick a format the device really supports.
-                let mut supported = Vec::new();
-                let mut supported_formats: Vec<SampleFormat> = Vec::new();
-                if let Ok(configs) = dev.supported_output_configs() {
-                    for cfg in configs {
-                        supported.push(RateRange {
-                            channels: cfg.channels(),
-                            min: cfg.min_sample_rate(),
-                            max: cfg.max_sample_rate(),
-                            buffer_size: *cfg.buffer_size(),
-                        });
-                        supported_formats.push(cfg.sample_format());
-                    }
+                if let Some(info) = device_info_from_cpal(&dev) {
+                    out.push(info);
                 }
-                let default = dev.default_output_config().ok();
-                // A device whose default config cannot be resolved right now
-                // (e.g. the probe/another stream holds it at that instant) must
-                // still show up in the settings list — otherwise a working DAC
-                // "disappears" between two Refreshes. Fall back to the first
-                // 2-channel supported config; `choose_output` re-picks a precise
-                // rate from `supported` anyway.
-                let (channels, sample_rate, sample_format, buffer_size) = match &default {
-                    Some(cfg) => (
-                        cfg.channels(),
-                        cfg.sample_rate(),
-                        cfg.sample_format(),
-                        *cfg.buffer_size(),
-                    ),
-                    None => {
-                        let pick = supported
-                            .iter()
-                            .enumerate()
-                            .find(|(_, r)| r.channels == 2)
-                            .or_else(|| supported.iter().enumerate().next());
-                        match pick {
-                            Some((i, r)) => (
-                                r.channels,
-                                r.min,
-                                supported_formats.get(i).copied().unwrap_or(SampleFormat::F32),
-                                r.buffer_size,
-                            ),
-                            None => continue, // no supported config at all
-                        }
-                    }
-                };
-                let category = classify_device(&id, &name);
-                let rates = expand_supported_rates(&supported);
-                let formats = dedup_formats(&supported_formats);
-                out.push(DeviceInfo {
-                    id,
-                    name,
-                    channels,
-                    sample_rate,
-                    sample_format,
-                    buffer_size,
-                    supported,
-                    category,
-                    supported_rates: rates,
-                    supported_formats: formats,
-                });
             }
         }
         // На Linux Совместимый обязан показывать только выходы аудиосервера,
@@ -696,7 +631,18 @@ impl AudioHost for CpalHost {
         // список остаётся как раньше (review).
         #[cfg(target_os = "linux")]
         {
-            collapse_to_system_default(out, &system_default_label())
+            // Ни одного фиксированного алиаса сервера среди перечисленных PCM
+            // (редкий случай: `output_devices()` пропустил "default"/"pipewire"/
+            // "pulse", например из-за временного сбоя пробы) — отдельно
+            // спрашиваем у cpal его собственное представление о дефолтном
+            // устройстве (AM1.0-B32, фаза 2); `collapse_to_system_default`
+            // всё равно откажется от голого hw:/plughw: узла.
+            let fallback_default = if out.iter().any(|d| is_server_routed_pcm(&d.id)) {
+                None
+            } else {
+                host.default_output_device().as_ref().and_then(device_info_from_cpal)
+            };
+            collapse_to_system_default(out, &system_default_label(), fallback_default)
         }
         #[cfg(not(target_os = "linux"))]
         {
@@ -726,13 +672,94 @@ impl AudioHost for CpalHost {
     }
 }
 
+/// Probes one cpal output device into [`DeviceInfo`], applying the same
+/// "default config unresolvable right now" fallback as the enumeration loop
+/// (a device busy with a transient probe must not vanish from the list).
+/// `None` when the device exposes neither a readable name nor any supported
+/// config at all. Shared between full enumeration and the single-device
+/// probe of cpal's own default output device (AM1.0-B32, фаза 2).
+fn device_info_from_cpal(dev: &cpal::Device) -> Option<DeviceInfo> {
+    let name = dev.description().map(|d| d.name().to_string()).ok()?;
+    // Stable backend key used to re-open the device and persisted in
+    // settings (ALSA pcm id, e.g. "hw:CARD=4,DEV=0").
+    let id = dev.id().map(|d| d.id().to_string()).unwrap_or_else(|_| name.clone());
+    // Supported configs and their formats are aligned by index so a
+    // fallback default can pick a format the device really supports.
+    let mut supported = Vec::new();
+    let mut supported_formats: Vec<SampleFormat> = Vec::new();
+    if let Ok(configs) = dev.supported_output_configs() {
+        for cfg in configs {
+            supported.push(RateRange {
+                channels: cfg.channels(),
+                min: cfg.min_sample_rate(),
+                max: cfg.max_sample_rate(),
+                buffer_size: *cfg.buffer_size(),
+            });
+            supported_formats.push(cfg.sample_format());
+        }
+    }
+    let default = dev.default_output_config().ok();
+    // A device whose default config cannot be resolved right now (e.g. the
+    // probe/another stream holds it at that instant) must still show up in
+    // the settings list — otherwise a working DAC "disappears" between two
+    // Refreshes. Fall back to the first 2-channel supported config;
+    // `choose_output` re-picks a precise rate from `supported` anyway.
+    let (channels, sample_rate, sample_format, buffer_size) = match &default {
+        Some(cfg) => (cfg.channels(), cfg.sample_rate(), cfg.sample_format(), *cfg.buffer_size()),
+        None => {
+            let pick = supported
+                .iter()
+                .enumerate()
+                .find(|(_, r)| r.channels == 2)
+                .or_else(|| supported.iter().enumerate().next());
+            match pick {
+                Some((i, r)) => (
+                    r.channels,
+                    r.min,
+                    supported_formats.get(i).copied().unwrap_or(SampleFormat::F32),
+                    r.buffer_size,
+                ),
+                None => return None, // no supported config at all
+            }
+        }
+    };
+    let category = classify_device(&id, &name);
+    let rates = expand_supported_rates(&supported);
+    let formats = dedup_formats(&supported_formats);
+    Some(DeviceInfo {
+        id,
+        name,
+        channels,
+        sample_rate,
+        sample_format,
+        buffer_size,
+        supported,
+        category,
+        supported_rates: rates,
+        supported_formats: formats,
+    })
+}
+
 /// True when the backend-specific device id names a raw ALSA hardware node
 /// (`hw:*`). Such nodes expose discrete native rates and formats without a
 /// software-resampling proxy (PipeWire/Pulse/plughw) in between, so they are
 /// the only handles that can deliver native-rate and bit-exact (DoP) output.
+/// Used by [`collapse_same_name`], which on Linux only remains live in tests
+/// (AM1.0-B32, фаза 2 — the Linux call site now goes through
+/// `collapse_to_system_default`).
+#[cfg(any(not(target_os = "linux"), test))]
 fn is_raw_hardware_id(id: &str) -> bool {
     let id = id.to_ascii_lowercase();
     id.starts_with("hw:") || id.starts_with("hw=")
+}
+
+/// True when the id names either a raw hardware node (`hw:*`) or its
+/// software-plugin twin (`plughw:*`) — both are "голое железо" for
+/// AM1.0-B32's Совместимый fallback: the system-default entry must never be
+/// backed by either, even when it is cpal's own default output device.
+fn is_bare_hardware_or_plughw_id(id: &str) -> bool {
+    let id = id.to_ascii_lowercase();
+    id.starts_with("hw:") || id.starts_with("hw=") || id.starts_with("plughw:") || id.starts_with("plughw=")
 }
 
 /// Категория устройства вывода (ТЗ A3.0 §3.1) — используется для фильтрации
@@ -804,6 +831,11 @@ pub fn classify_device(id: &str, name: &str) -> DeviceCategory {
 /// buffer size — selecting it silently re-samples everything to the server's
 /// rate (48 kHz) and makes DoP impossible. Among equal names the raw `hw:*`
 /// node wins; anything else keeps the first handle (existing behaviour).
+///
+/// On Linux the Совместимый list no longer calls this directly (ADR-07,
+/// AM1.0-B32, фаза 2 — `collapse_to_system_default` owns that path); it stays
+/// live for Windows/macOS and for tests.
+#[cfg(any(not(target_os = "linux"), test))]
 fn collapse_same_name(infos: Vec<DeviceInfo>) -> Vec<DeviceInfo> {
     let mut seen = std::collections::HashSet::new();
     let mut out: Vec<DeviceInfo> = Vec::with_capacity(infos.len());
@@ -834,24 +866,45 @@ fn collapse_same_name(infos: Vec<DeviceInfo>) -> Vec<DeviceInfo> {
 /// показывать только выходы аудиосервера (ADR-07, ТЗ-127, матрица AM1.0 ТЗ
 /// §5, AM1.0-B32) — все эти варианты, как и любой id с `:CARD=`, не являются
 /// фиксированным алиасом сервера и отбрасываются простым несовпадением.
-fn is_server_routed_pcm(id: &str) -> bool {
+///
+/// `pub(crate)`: переиспользуется миграцией сохранённого Совместимого
+/// устройства при загрузке настроек (`settings::playback_dto`, AM1.0-B32,
+/// фаза 2) — тот же критерий «это выход аудиосервера», без дублирования.
+pub(crate) fn is_server_routed_pcm(id: &str) -> bool {
     matches!(id.to_ascii_lowercase().as_str(), "default" | "pipewire" | "pulse")
 }
 
 /// Схлопывает полный cpal-список до одной записи с заданной подписью, если
-/// среди устройств есть хоть один выход аудиосервера ([`is_server_routed_pcm`]);
-/// иначе — старое поведение ([`collapse_same_name`]), чтобы список не
-/// опустел молча (AGENTS.md: честность сигнала важнее удобства). Чистая
-/// функция — платформенная проверка живёт в вызывающем коде (ADR-07,
-/// AM1.0-B32, фаза 1).
-fn collapse_to_system_default(infos: Vec<DeviceInfo>, label: &str) -> Vec<DeviceInfo> {
-    if !infos.iter().any(|d| is_server_routed_pcm(&d.id)) {
-        return collapse_same_name(infos);
-    }
+/// среди устройств есть хоть один выход аудиосервера ([`is_server_routed_pcm`]).
+///
+/// Иначе (редкий случай — ни "default", ни "pipewire", ни "pulse" среди
+/// перечисленных PCM) список обязан по-прежнему не показывать голые
+/// hw:/plughw: узлы (ADR-07, AM1.0-B32, фаза 2): берётся `fallback_default`
+/// (отдельный, вне перечисления, вызов cpal для его собственного дефолтного
+/// устройства — платформенная проверка и сам вызов живут в вызывающем коде,
+/// эта функция остаётся чистой), с тем же ограничением — если он сам
+/// hw:/plughw:, он отбрасывается. Нет и такого — список честно пуст
+/// (AGENTS.md: честность сигнала важнее удобства; UI уже обрабатывает «нет
+/// устройств»).
+fn collapse_to_system_default(
+    infos: Vec<DeviceInfo>,
+    label: &str,
+    fallback_default: Option<DeviceInfo>,
+) -> Vec<DeviceInfo> {
     // Любой из трёх алиасов ведёт на тот же сервер; порядок — просто
     // предпочтение более информативного имени для представителя записи.
     const PRIORITY: [&str; 3] = ["pipewire", "pulse", "default"];
     let mut filtered: Vec<DeviceInfo> = infos.into_iter().filter(|d| is_server_routed_pcm(&d.id)).collect();
+    if filtered.is_empty() {
+        return match fallback_default {
+            Some(d) if !is_bare_hardware_or_plughw_id(&d.id) => {
+                let mut d = d;
+                d.name = label.to_owned();
+                vec![d]
+            }
+            _ => Vec::new(),
+        };
+    }
     filtered.sort_by_key(|d| {
         PRIORITY.iter().position(|p| *p == d.id.to_ascii_lowercase()).unwrap_or(PRIORITY.len())
     });
@@ -1929,7 +1982,7 @@ mod tests {
             mock_device_id("pulse", "PulseAudio Sound Server", 2, 48000, &[(2, 44100, 48000)]),
             mock_device_id("pipewire", "PipeWire Sound Server", 2, 48000, &[(2, 44100, 48000)]),
         ];
-        let collapsed = collapse_to_system_default(devs, "Системное по умолчанию (PipeWire)");
+        let collapsed = collapse_to_system_default(devs, "Системное по умолчанию (PipeWire)", None);
         assert_eq!(collapsed.len(), 1);
         // pipewire — высший приоритет среди трёх алиасов сервера.
         assert_eq!(collapsed[0].id, "pipewire");
@@ -1937,18 +1990,66 @@ mod tests {
     }
 
     #[test]
-    fn collapse_to_system_default_falls_back_without_server_alias() {
-        // Нет ни одного фиксированного алиаса сервера — список не должен
-        // молча опустеть (AGENTS.md: честность сигнала), поведение как у
-        // старого `collapse_same_name`.
+    fn collapse_to_system_default_falls_back_to_empty_without_server_alias_or_default() {
+        // Нет ни одного фиксированного алиаса сервера, и cpal не называет
+        // отдельного дефолтного устройства — список обязан остаться честно
+        // пустым, а не подсовывать голые hw:/plughw: узлы (AGENTS.md:
+        // честность сигнала; AM1.0-B32, фаза 2). UI уже обрабатывает «нет
+        // устройств».
         let devs = vec![
             mock_device_id("hw:CARD=4,DEV=0", "ADI-2 DAC, USB Audio", 2, 48000, &[(2, 48000, 48000)]),
             mock_device_id("plughw:CARD=4,DEV=0", "ADI-2 DAC, USB Audio", 2, 48000, &[(2, 4000, 4294967295)]),
         ];
-        let expected = collapse_same_name(devs.clone());
-        let collapsed = collapse_to_system_default(devs, "Системное по умолчанию");
-        assert_eq!(collapsed.len(), expected.len());
-        assert_eq!(collapsed[0].id, expected[0].id);
+        let collapsed = collapse_to_system_default(devs, "Системное по умолчанию", None);
+        assert!(collapsed.is_empty());
+    }
+
+    #[test]
+    fn collapse_to_system_default_falls_back_to_cpals_own_default_device() {
+        // cpal называет дефолтное устройство отдельно от перечисления (id не
+        // входит ни в один из трёх алиасов, но и не голое hw:/plughw:) — оно
+        // становится представителем «Системного по умолчанию».
+        let devs = vec![mock_device_id(
+            "hw:CARD=4,DEV=0",
+            "ADI-2 DAC, USB Audio",
+            2,
+            48000,
+            &[(2, 48000, 48000)],
+        )];
+        let fallback = mock_device_id(
+            "sysdefault:CARD=4",
+            "ADI-2 DAC, USB Audio",
+            2,
+            48000,
+            &[(2, 44100, 48000)],
+        );
+        let collapsed = collapse_to_system_default(devs, "Системное по умолчанию", Some(fallback.clone()));
+        assert_eq!(collapsed.len(), 1);
+        assert_eq!(collapsed[0].id, fallback.id);
+        assert_eq!(collapsed[0].name, "Системное по умолчанию");
+    }
+
+    #[test]
+    fn collapse_to_system_default_never_uses_hw_or_plughw_as_fallback_default() {
+        // Даже если cpal само называет дефолтным устройством голый hw:/plughw:
+        // узел, он не становится представителем — список честно пуст
+        // (ADR-07, AM1.0-B32, фаза 2: "никогда hw:/plughw: записи").
+        let devs = vec![mock_device_id(
+            "hw:CARD=4,DEV=0",
+            "ADI-2 DAC, USB Audio",
+            2,
+            48000,
+            &[(2, 48000, 48000)],
+        )];
+        let fallback = mock_device_id(
+            "plughw:CARD=4,DEV=0",
+            "ADI-2 DAC, USB Audio",
+            2,
+            48000,
+            &[(2, 4000, 4294967295)],
+        );
+        let collapsed = collapse_to_system_default(devs, "Системное по умолчанию", Some(fallback));
+        assert!(collapsed.is_empty());
     }
 
     #[test]

@@ -15,6 +15,7 @@ whitelist:
   - src/app/ui_manager.rs
   - src/app/mod.rs
   - src/audio/path/report.rs
+  - src/persist/settings_file.rs
 dod: "Список Совместимого на Linux — одна запись «Системное по умолчанию»; сохранённый hw-выбор мигрирует на неё с одноразовым уведомлением; cargo test audio:: app:: settings:: и clippy зелёные"
 steps:
   - id: 1
@@ -22,15 +23,15 @@ steps:
     done: true
   - id: 2
     description: "Миграция: сохранённый Named(id) Совместимого, не прошедший is_server_routed_pcm → SystemDefault + одноразовое уведомление «Устройство было выбрано в обход аудиосервера — переключено на «Системное по умолчанию»» (по образцу существующих one-shot уведомлений); тест миграции. Проверка: тесты settings/app + clippy"
-    done: false
+    done: true
   - id: 3
     description: "Путь сигнала и смена default между треками: тест, что при SystemDefault этап «Уровень ОС» — Known{server}; тест, что между треками SystemDefault переразрешается в текущий default (choose_output). Проверка: тесты + clippy"
     done: false
   - id: 4
     description: "ЧЕКПОИНТ: полный cargo test + clippy"
     done: false
-current_step: 2
-next_action: "Миграция сохранённого Named(id) Совместимого, не прошедшего is_server_routed_pcm, на SystemDefault с одноразовым уведомлением"
+current_step: 3
+next_action: "Путь сигнала и смена default между треками: тест, что при SystemDefault этап «Уровень ОС» — Known{server}; тест, что между треками SystemDefault переразрешается в текущий default (choose_output). Проверка: тесты + clippy"
 fail_counter: 0
 fail_counter_max: 3
 failed_attempts: []
