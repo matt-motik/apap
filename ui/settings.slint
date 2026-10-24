@@ -620,14 +620,14 @@ export component Settings inherits Rectangle {
 
                         // ===== Covers =====
                         Tab {
-                            title: "Covers";
+                            title: @tr("Обложки");
                             ScrollView {
                                 VerticalLayout {
                                     spacing: 8px;
                                     padding-top: 10px;
 
                                     RowLabel {
-                                        text: "Cover source priority";
+                                        text: @tr("Приоритет источников обложки");
                                     }
 
                                     ListView {
@@ -672,7 +672,7 @@ export component Settings inherits Rectangle {
                                         padding-left: 8px;
                                         spacing: 4px;
                                         RowLabel {
-                                            text: "Folder cover filenames (comma-separated)";
+                                            text: @tr("Имена файлов обложек в папке (через запятую)");
                                         }
 
                                         Rectangle {
@@ -690,7 +690,7 @@ export component Settings inherits Rectangle {
                                         padding-left: 8px;
                                         spacing: 4px;
                                         RowLabel {
-                                            text: "Search the internet (iTunes)";
+                                            text: @tr("Искать в интернете (iTunes)");
                                         }
 
                                         CheckBox {

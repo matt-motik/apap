@@ -49,9 +49,9 @@
 
 - [x] Шаг 7: ui/settings.slint — вкладка Columns (~строки 530–621): @tr + перевод.
 - [x] Шаг 8: ЧЕКПОИНТ: полный cargo test + cargo clippy зелёные (settings.slint General/Audio/Columns).
-- [>] **Шаг 9: ui/settings.slint — вкладка Covers (~строки 621–709): @tr + перевод.**
-- [ ] Шаг 10: ui/settings.slint — вкладка Visualization, под-секции «Осциллограмма» + «Спектрограмма» (~строки 709–1244): @tr + перевод; окна Hann/Hamming/Blackman и палитры Magma/Viridis/Plasma/Inferno не переводятся.
-
+- [x] Шаг 9: ui/settings.slint — вкладка Covers (~строки 621–709): @tr + перевод.
+- [>] **Шаг 10: ui/settings.slint — вкладка Visualization, под-секции «Осциллограмма» + «Спектрограмма» (~строки 709–1244): @tr + перевод; окна Hann/Hamming/Blackman и палитры Magma/Viridis/Plasma/Inferno не переводятся.
+**
 - [ ] Шаг 11: ui/settings.slint — вкладка Visualization, под-секции «Анализатор спектра» + «Отключено» (~строки 1244–1532): @tr + перевод; Solid→«Сплошная», Gray→«Серая», Rainbow→«Радуга», Thermal→«Тепловая».
 
 - [ ] Шаг 12: ЧЕКПОИНТ: полный cargo test + cargo clippy зелёные (settings.slint Covers/Visualization).
@@ -88,8 +88,8 @@
 
 Легенда: [x] сделано · [>] текущий шаг · [ ] не начато
 
-- **Текущий шаг (current_step):** Шаг 9
-- **Следующий ход:** ui/settings.slint — вкладка Covers (~строки 621–709): @tr + перевод.
+- **Текущий шаг (current_step):** Шаг 10
+- **Следующий ход:** ui/settings.slint — вкладка Visualization, под-секции «Осциллограмма» + «Спектрограмма» (~строки 709–1244): @tr + перевод; окна Hann/Hamming/Blackman и палитры Magma/Viridis/Plasma/Inferno не переводятся.
 - **Счетчик безуспешных компиляций:** 0/3
 - **Состояние:** in_progress
 

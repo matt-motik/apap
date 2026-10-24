@@ -85,7 +85,7 @@ steps:
     done: true
   - id: 9
     description: "ui/settings.slint — вкладка Covers (~строки 621–709): @tr + перевод."
-    done: false
+    done: true
   - id: 10
     description: >
       ui/settings.slint — вкладка Visualization, под-секции «Осциллограмма» + «Спектрограмма»
@@ -183,8 +183,8 @@ steps:
       check зелёные; готовность к closing.md (ручная проверка пользователем — обрезка длинных
       русских подписей на всех экранах).
     done: false
-current_step: 9
-next_action: "ui/settings.slint — вкладка Covers (~строки 621–709): @tr + перевод."
+current_step: 10
+next_action: "ui/settings.slint — вкладка Visualization, под-секции «Осциллограмма» + «Спектрограмма» (~строки 709–1244): @tr + перевод; окна Hann/Hamming/Blackman и палитры Magma/Viridis/Plasma/Inferno не переводятся."
 fail_counter: 0
 fail_counter_max: 3
 failed_attempts: []
