@@ -385,13 +385,13 @@ fn row_buffer(mode: ModeKind, settings: &ModeSettings, label: &'static str) -> D
 /// видимый в Оптимальном/Строгом режиме (ТЗ-131, §6.27, решение
 /// пользователя 2026-10-24): «минимум {N} мс», и когда границу поднимает
 /// буфер устройства (`N > 100`) — пояснение «вдвое больше буфера устройства
-/// ({d} мс)».
+/// ({d} мс)» (`i18n::mode_dialog_buffer_floor`/`_raised`, AM1.0-B35).
 fn buffer_floor_note(device: DeviceBuffer) -> String {
     let floor = buffer_floor_ms(device);
     if floor > 100 {
-        format!("минимум {floor} мс — вдвое больше буфера устройства ({} мс)", device.ms())
+        i18n::mode_dialog_buffer_floor_raised(floor, device.ms())
     } else {
-        format!("минимум {floor} мс")
+        i18n::mode_dialog_buffer_floor(floor)
     }
 }
 

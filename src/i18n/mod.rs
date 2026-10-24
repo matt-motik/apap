@@ -328,6 +328,27 @@ pub fn mode_dialog_fixed_by_mode(shown: &str) -> String {
     format_named("{shown} — задано режимом", &[("shown", shown)])
 }
 
+/// Строка нижней границы ползунка «Буфер декодирование → вывод» в диалоге
+/// настроек режима, всегда видимая в Оптимальном/Строгом режиме, когда
+/// граница равна абсолютному минимуму 100 мс (AM1.0-B35; перенесено из
+/// `src/app/mode_dialog.rs::buffer_floor_note`, §6.27, ТЗ-131, решение
+/// пользователя 2026-10-24).
+pub fn mode_dialog_buffer_floor(floor_ms: u16) -> String {
+    format_named("минимум {floor_ms} мс", &[("floor_ms", floor_ms.to_string().as_str())])
+}
+
+/// Строка нижней границы ползунка «Буфер декодирование → вывод», когда её
+/// поднимает буфер устройства (AM1.0-B35; перенесено из
+/// `src/app/mode_dialog.rs::buffer_floor_note`, §6.27, ТЗ-131, решение
+/// пользователя 2026-10-24): `floor_ms` — граница (`buffer_floor_ms`),
+/// `device_ms` — буфер устройства, который её поднял.
+pub fn mode_dialog_buffer_floor_raised(floor_ms: u16, device_ms: u16) -> String {
+    format_named(
+        "минимум {floor_ms} мс — вдвое больше буфера устройства ({device_ms} мс)",
+        &[("floor_ms", floor_ms.to_string().as_str()), ("device_ms", device_ms.to_string().as_str())],
+    )
+}
+
 /// Пояснение/значение строки или пункта списка диалога настроек режима, пока
 /// не реализованного (T1.0-B2; перенесено из `src/app/mode_dialog.rs`,
 /// И-Т19, ТЗ-130, §6.27).
