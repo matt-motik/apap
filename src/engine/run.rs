@@ -2700,6 +2700,7 @@ mod tests {
     use crate::engine::sink::VecSink;
     use crate::engine::source::FakeSource;
     use crate::audio::rt::RtPriorityRequester;
+    use crate::audio::reservation::{AudioServerProbe, SinkCard};
     use crate::audio::testing::{FakeExclusiveBackend, FakeRtRequester, FakeServerProbe, ManualClock};
     use crate::engine::spawner::{FailingSpawner, StdSpawner};
     use crate::platform::fs::{FsPersistStore, MemStore};
@@ -3435,6 +3436,148 @@ mod tests {
         assert!(matches!(engine.lock, LockState::Acquiring { .. }));
         let events = sink.take();
         assert!(!events.iter().any(|e| matches!(e, EngineEvent::DeviceAutoSelected { .. })));
+    }
+
+    /// AM1.0-B40: резолюция устройства режима (`start_device_resolve`) не
+    /// вызывает `AudioServerProbe::default_sink_card` на цикле движка —
+    /// сразу после `lock_input` замок ещё не знает устройства (`Acquiring` +
+    /// `device_resolve_pending`, опрос ждёт в канале служебного потока);
+    /// итог приходит `InternalMsg::DeviceResolveDone` и только тогда
+    /// `probe.default_sink_card` оказывается вызванной.
+    #[test]
+    fn lock_input_resolve_runs_on_worker_not_on_engine_loop() {
+        let sink = VecSink::new();
+        let probe = Arc::new(FakeServerProbe::desktop().with_sink_card(Some(SinkCard { card: 1, device: Some(0) })));
+        let mut deps = fake_deps(Box::new(sink.clone()), Arc::new(StdSpawner));
+        deps.server_probe = Arc::clone(&probe) as Arc<dyn AudioServerProbe>;
+        let mut engine = Engine::new(deps, BackendCaps::current());
+        engine.catalog.hw = vec![crate::audio::backend::catalog::HwDeviceInfo {
+            id: "hw:CARD=RU3,DEV=0".parse().expect("hw id"),
+            card: 1,
+            device: 0,
+            name: "RU3".to_string(),
+        }];
+        engine.active_mode = ModeKind::Optimal;
+        engine.mode_settings.optimal.device = None;
+        engine.lock = LockState::Open;
+
+        engine.lock_input(LockInput::Startup);
+
+        assert!(matches!(engine.lock, LockState::Acquiring { .. }));
+        assert!(
+            engine.device_resolve_pending.is_some(),
+            "резолюция ещё не вернулась — цикл движка не ждёт wpctl synchronously"
+        );
+        assert_eq!(probe.sink_card_calls(), 0, "сам lock_input не должен звать default_sink_card на своём стеке");
+
+        let msg = engine.internal_rx.recv().expect("device resolve done");
+        engine.handle_internal(msg);
+
+        assert!(engine.device_resolve_pending.is_none());
+        assert_eq!(probe.sink_card_calls(), 1, "опрос выполнен ровно один раз, в служебном потоке");
+    }
+
+    /// Коалесинг (AM1.0-B40, по образцу `start_os_probe`/`start_shared_enumerate`/
+    /// `probe_device_caps`): второй `needs_resolution`-вход, пришедший до
+    /// возврата первой пробы, не запускает отдельное задание — приходит
+    /// ровно одно `InternalMsg::DeviceResolveDone`.
+    #[test]
+    fn lock_input_resolve_coalesces_second_request_while_pending() {
+        let sink = VecSink::new();
+        let probe = Arc::new(FakeServerProbe::desktop().with_sink_card(Some(SinkCard { card: 1, device: Some(0) })));
+        let mut deps = fake_deps(Box::new(sink.clone()), Arc::new(StdSpawner));
+        deps.server_probe = Arc::clone(&probe) as Arc<dyn AudioServerProbe>;
+        let mut engine = Engine::new(deps, BackendCaps::current());
+        engine.catalog.hw = vec![crate::audio::backend::catalog::HwDeviceInfo {
+            id: "hw:CARD=RU3,DEV=0".parse().expect("hw id"),
+            card: 1,
+            device: 0,
+            name: "RU3".to_string(),
+        }];
+        engine.active_mode = ModeKind::Optimal;
+        engine.mode_settings.optimal.device = None;
+        engine.lock = LockState::Open;
+
+        engine.lock_input(LockInput::Startup);
+        let attempt_after_first = engine.device_resolve_attempt;
+        engine.lock_input(LockInput::Startup);
+        assert_eq!(engine.device_resolve_attempt, attempt_after_first, "второй запрос не запустил новую попытку");
+
+        let msg = engine.internal_rx.recv().expect("ровно одно сообщение");
+        engine.handle_internal(msg);
+        assert!(
+            engine.internal_rx.try_recv().is_err(),
+            "второй запрос не должен был запустить отдельное задание"
+        );
+    }
+
+    /// AM1.0-B40: пользователь отменяет переключение режима
+    /// (`ModeSelected(Compatible)`) во время ожидания `wpctl` — запущенная
+    /// резолюция становится устаревшей (`device_resolve_pending` сброшен в
+    /// конце `finish_lock_input`, раз замок покинул `Acquiring`); когда её
+    /// итог (`InternalMsg::DeviceResolveDone`) всё же приходит, он
+    /// отбрасывается и не трогает уже отменённый замок (ТЗ-144).
+    #[test]
+    fn lock_input_resolve_stale_result_dropped_after_cancel() {
+        let sink = VecSink::new();
+        let probe = Arc::new(FakeServerProbe::desktop().with_sink_card(Some(SinkCard { card: 1, device: Some(0) })));
+        let mut deps = fake_deps(Box::new(sink.clone()), Arc::new(StdSpawner));
+        deps.server_probe = Arc::clone(&probe) as Arc<dyn AudioServerProbe>;
+        let mut engine = Engine::new(deps, BackendCaps::current());
+        engine.catalog.hw = vec![crate::audio::backend::catalog::HwDeviceInfo {
+            id: "hw:CARD=RU3,DEV=0".parse().expect("hw id"),
+            card: 1,
+            device: 0,
+            name: "RU3".to_string(),
+        }];
+        engine.active_mode = ModeKind::Compatible;
+        engine.mode_settings.optimal.device = None;
+        engine.lock = LockState::NotApplicable;
+
+        engine.lock_input(LockInput::ModeSelected(ModeKind::Optimal));
+        assert!(matches!(engine.lock, LockState::Acquiring { .. }));
+        assert!(engine.device_resolve_pending.is_some());
+
+        // Пользователь отменяет переключение, не дождавшись wpctl.
+        engine.lock_input(LockInput::ModeSelected(ModeKind::Compatible));
+        assert_eq!(engine.lock, LockState::NotApplicable);
+        assert!(engine.device_resolve_pending.is_none(), "отменённая резолюция должна быть забыта");
+        sink.take();
+
+        let msg = engine.internal_rx.recv().expect("устаревший итог всё равно приходит из служебного потока");
+        engine.handle_internal(msg);
+
+        assert_eq!(engine.lock, LockState::NotApplicable, "устаревший итог не должен менять уже отменённый замок");
+        assert!(engine.mode_settings.optimal.device.is_none(), "автовыбор не должен применяться после отмены");
+        let events = sink.take();
+        assert!(!events.iter().any(|e| matches!(e, EngineEvent::DeviceAutoSelected { .. })));
+        assert!(!events.iter().any(|e| matches!(e, EngineEvent::Lock(_))), "{events:?}");
+    }
+
+    /// AM1.0-B40: отказ резолюции (нет `SinkCard` у системного выхода) ведёт
+    /// к тому же `EngineEvent::Lock(Failed(NoDeviceSelected))`, что показывал
+    /// синхронный путь до этого исправления (ТЗ-144) — сообщение
+    /// пользователю не изменилось, изменился только способ дойти до него.
+    #[test]
+    fn lock_input_resolve_failure_emits_same_lock_event_as_before() {
+        let sink = VecSink::new();
+        let deps = fake_deps(Box::new(sink.clone()), Arc::new(StdSpawner));
+        let mut engine = Engine::new(deps, BackendCaps::current());
+        engine.active_mode = ModeKind::Strict;
+        engine.mode_settings.strict.device = None;
+        engine.lock = LockState::Open;
+
+        engine.lock_input(LockInput::Startup);
+        let msg = engine.internal_rx.recv().expect("device resolve done");
+        engine.handle_internal(msg);
+
+        let events = sink.take();
+        assert!(
+            events
+                .iter()
+                .any(|e| matches!(e, EngineEvent::Lock(LockState::Failed(CaptureFailure::NoDeviceSelected)))),
+            "{events:?}"
+        );
     }
 
     /// §6.19 (ТЗ-123): `ClaimDone` от отменённой попытки (несовпадающий

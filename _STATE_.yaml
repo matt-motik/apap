@@ -26,12 +26,12 @@ steps:
     done: true
   - id: 4
     description: "src/engine/run.rs: новые тесты — без блокировки (start_device_resolve уходит в служебный поток, цикл не ждёт), коалесинг (второй needs_resolution-вход, пока проба не вернулась, — no-op), устаревший итог отбрасывается (отмена ModeSelected(Compatible) во время ожидания → поздний DeviceResolveDone не ломает NotApplicable), отказ (нет SinkCard) → Failed(NoDeviceSelected), как раньше. Проверка: cargo test engine::"
-    done: false
+    done: true
   - id: 5
     description: "ЧЕКПОИНТ: полный cargo test, cargo clippy (0 новых предупреждений), tools/check_rt_imports.py, tools/traceability_tool.py check"
     done: false
-current_step: 4
-next_action: "новые тесты: без блокировки, коалесинг, устаревший итог, отказ (src/engine/run.rs)"
+current_step: 5
+next_action: "ЧЕКПОИНТ: cargo test + clippy + check_rt_imports + traceability"
 fail_counter: 0
 fail_counter_max: 3
 failed_attempts: []
