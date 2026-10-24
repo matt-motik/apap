@@ -66,7 +66,7 @@ steps:
     done: true
   - id: 4
     description: "ЧЕКПОИНТ: полный cargo test + cargo clippy по всему проекту зелёные (фундамент i18n)."
-    done: false
+    done: true
   - id: 5
     description: >
       ui/settings.slint — вкладка General (~строки 246–390): обернуть строки в @tr(...), перевести
@@ -183,8 +183,8 @@ steps:
       check зелёные; готовность к closing.md (ручная проверка пользователем — обрезка длинных
       русских подписей на всех экранах).
     done: false
-current_step: 4
-next_action: "ЧЕКПОИНТ: полный cargo test + cargo clippy по всему проекту зелёные (фундамент i18n)."
+current_step: 5
+next_action: "ui/settings.slint — вкладка General (~строки 246–390): обернуть строки в @tr(...), перевести на русский; технические термины не трогать."
 fail_counter: 0
 fail_counter_max: 3
 failed_attempts: []
