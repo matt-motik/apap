@@ -29,6 +29,9 @@ steps:
   - id: 4
     description: "src/core/testing.rs: тесты уровня AppCore — смена shown_mode без других правок разблокирует «Сохранить»; «Сохранить» меняет активный режим и закрывает диалог; «Отмена» — активный режим прежний (переписать тесты ~3960-3977). Проверка: cargo test core:: зелёный"
     done: true
+  - id: 11
+    description: "dialog_save шлёт движку SetActiveMode, как бейдж/select_active_mode; тест ожидает 1 SetActiveMode"
+    done: true
   - id: 5
     description: "ЧЕКПОИНТ: полный cargo test + cargo clippy зелёные (шаги 2-4)"
     done: false

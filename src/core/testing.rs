@@ -3947,11 +3947,10 @@ mod tests {
     /// отличие, разблокирующее «Сохранить» (ТЗ-27, ТЗ-30); «Отмена» уничтожает
     /// выбор без следа (ТЗ-26) — активный режим остаётся Совместимым, команд
     /// движку нет; «Сохранить» переключает активный режим одной операцией —
-    /// план из одного шага `ActiveMode`, 0 `SetActiveMode`/других команд
-    /// движку (переоткрытие по этому шагу не делается — оно определяется
-    /// отдельным шагом `Engine`, только если изменились и параметры звука
-    /// режима, §5.2 ТЗ), `settings.toml` не пишется, активный режим меняется
-    /// в `state.toml`.
+    /// план из одного шага `ActiveMode`, ровно одна команда движку —
+    /// `EngineCmd::SetActiveMode`, тот же путь, что бейдж/`select_active_mode`
+    /// («Save switches the active mode»), `settings.toml` не пишется,
+    /// активный режим меняется в `state.toml`.
     #[test]
     fn dialog_save_switches_active_mode() {
         let h = Harness::new();
@@ -3989,8 +3988,11 @@ mod tests {
 
         assert_eq!(core.state().active_mode(), ModeKind::Strict, "активный режим переключён");
         assert_eq!(core.settings(), &settings, "settings.toml не тронут");
-        assert_eq!(engine_cmd_count(&h, "SetActiveMode"), 0, "dialog_save не шлёт SetActiveMode (§5.2 ТЗ)");
-        assert!(h.engine_cmds().is_empty(), "других команд движку нет");
+        assert_eq!(
+            engine_cmd_count(&h, "SetActiveMode"), 1,
+            "dialog_save шлёт SetActiveMode, как бейдж/select_active_mode (§5.2 ТЗ)"
+        );
+        assert_eq!(h.engine_cmds().len(), 1, "других команд движку нет — ровно один SetActiveMode");
 
         h.settle(&mut core);
         h.advance(&mut core, Duration::from_secs(600));

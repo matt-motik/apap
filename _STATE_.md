@@ -22,6 +22,7 @@
 - [x] Шаг 2: src/core/dialog.rs: shown_mode входит в SettingsDiff (поле mode: Option<ModeKind>), apply_plan — шаг ActiveMode; validate не меняется; тест diff_ignores_shown_mode переименован/инвертирован (diff_detects_shown_mode_change). Проверка: cargo test core::dialog:: зелёный
 - [x] Шаг 3: src/core/mod.rs: dialog_save применяет шаг ActiveMode из плана — change_state(Origin::User, ActiveMode(m)), тот же путь, что и текущий select_mode главного окна/бейджа устройства. Проверка: cargo check; cargo test core:: зелёный
 - [x] Шаг 4: src/core/testing.rs: тесты уровня AppCore — смена shown_mode без других правок разблокирует «Сохранить»; «Сохранить» меняет активный режим и закрывает диалог; «Отмена» — активный режим прежний (переписать тесты ~3960-3977). Проверка: cargo test core:: зелёный
+- [x] Шаг 11: dialog_save шлёт движку SetActiveMode, как бейдж/select_active_mode; тест ожидает 1 SetActiveMode
 - [>] **Шаг 5: ЧЕКПОИНТ: полный cargo test + cargo clippy зелёные (шаги 2-4)**
 - [ ] Шаг 6: ui/top_panel.slint: бейдж активного режима в MenuBarTrailing рядом с бейджем устройства (ярлык режима + попап-меню из трёх режимов, недоступные неактивны, ТЗ-111), по образцу device-label/lock-kind. Проверка: cargo check (slint build)
 - [ ] Шаг 7: src/app/mod.rs или src/app/ui_manager.rs (один файл, уточнить при реализации): колбэк бейджа режима подключён к существующему обработчику select_mode (применяется сразу, как раньше из главного окна); бейдж обновляется после dialog_save. Проверка: cargo check; ручной сценарий позже
