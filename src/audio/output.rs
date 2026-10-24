@@ -1267,8 +1267,9 @@ pub fn select_output_for(req: &OutputRequest) -> Result<OutputSpec, String> {
 pub fn is_server_node(name: &str) -> bool {
     // «Системное по умолчанию» (ADR-07, AM1.0-B32) уже само обозначает себя
     // как единственный выход аудиосервера, вплоть до подписи активного
-    // сервера в скобках; старый суффикс [`SERVER_NODE_SUFFIX`] здесь не
-    // нужен и не должен задваиваться с этой подписью.
+    // сервера в скобках; старый суффикс
+    // [`crate::i18n::audio::SERVER_NODE_SUFFIX`] здесь не нужен и не должен
+    // задваиваться с этой подписью.
     if name.starts_with("Системное по умолчанию") {
         return false;
     }
@@ -1280,9 +1281,12 @@ pub fn is_server_node(name: &str) -> bool {
         || n == "default audio device"
 }
 
-/// Suffix appended to software sound-server (PipeWire/Pulse) device labels in
-/// the settings dialog, signalling that such nodes resample the stream.
-pub const SERVER_NODE_SUFFIX: &str = " — (software, resamples)";
+/// Временный мост T1.0-B6 (убирается шагом 5 этой задачи): строка переехала
+/// в [`crate::i18n::audio::SERVER_NODE_SUFFIX`], но внешние вызывающие
+/// (`app::ui_manager`, тесты `app::mod`) ещё ссылаются на старый путь
+/// `audio::output::SERVER_NODE_SUFFIX` — реэкспорт держит крейт собираемым
+/// на промежуточных шагах миграции.
+pub use crate::i18n::audio::SERVER_NODE_SUFFIX;
 
 /// Build the settings-dialog device list as `(raw_name, label)` pairs.
 ///
@@ -1292,9 +1296,10 @@ pub const SERVER_NODE_SUFFIX: &str = " — (software, resamples)";
 /// 2. Groups direct hardware nodes first, software server nodes last, so a
 ///    user picking an audiophile output (DoP / bit-perfect) sees the DAC before
 ///    the PipeWire/Pulse proxies.
-/// 3. Server nodes get a [`SERVER_NODE_SUFFIX`] suffix in the label while the
-///    raw name is preserved untouched (it is what gets persisted in settings
-///    and matched by `choose_output`/`device_by_name`).
+/// 3. Server nodes get a [`crate::i18n::audio::SERVER_NODE_SUFFIX`] suffix
+///    (T1.0-B6, русский текст) in the label while the raw name is preserved
+///    untouched (it is what gets persisted in settings and matched by
+///    `choose_output`/`device_by_name`).
 pub fn label_device_names(names: &[impl AsRef<str>]) -> Vec<(String, String)> {
     let mut seen = std::collections::HashSet::new();
     let mut hw = Vec::new();
@@ -1310,7 +1315,7 @@ pub fn label_device_names(names: &[impl AsRef<str>]) -> Vec<(String, String)> {
             &mut hw
         };
         let label = if is_server_node(name) {
-            format!("{name}{SERVER_NODE_SUFFIX}")
+            format!("{name}{}", crate::i18n::audio::SERVER_NODE_SUFFIX)
         } else {
             name.to_string()
         };
@@ -1898,9 +1903,9 @@ mod tests {
         assert_eq!(pairs[1].1, "ADI-2 DAC (56680121)");
         // Server nodes last, raw name preserved, label carries the hint.
         assert_eq!(pairs[2].0, "PipeWire Sound Server");
-        assert!(pairs[2].1.contains("(software, resamples)"), "{}", pairs[2].1);
+        assert!(pairs[2].1.contains(crate::i18n::audio::SERVER_NODE_SUFFIX), "{}", pairs[2].1);
         assert_eq!(pairs[3].0, "Default Audio Device");
-        assert!(pairs[3].1.contains("(software, resamples)"), "{}", pairs[3].1);
+        assert!(pairs[3].1.contains(crate::i18n::audio::SERVER_NODE_SUFFIX), "{}", pairs[3].1);
     }
 
     #[test]
@@ -1918,7 +1923,7 @@ mod tests {
         assert_eq!(pairs[0].1, "ADI-2 DAC (56680121), USB Audio");
         // Server nodes last: raw id preserved, label carries the hint.
         assert_eq!(pairs[1].0, "pulse");
-        assert!(pairs[1].1.contains("(software, resamples)"), "{}", pairs[1].1);
+        assert!(pairs[1].1.contains(crate::i18n::audio::SERVER_NODE_SUFFIX), "{}", pairs[1].1);
     }
 
     #[test]
@@ -1935,7 +1940,7 @@ mod tests {
         assert_eq!(pairs.len(), 1);
         assert_eq!(pairs[0].0, "default");
         let name = pairs.pop().unwrap().1;
-        assert!(name.contains("(software, resamples)"), "{name}");
+        assert!(name.contains(crate::i18n::audio::SERVER_NODE_SUFFIX), "{name}");
     }
 
     #[test]
