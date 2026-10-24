@@ -34,11 +34,12 @@
 //! открытом замке (шаг 75). Поле `lock` хранит последнее принятое
 //! состояние целиком; `lock_acquiring()` сведён к `matches!` по нему.
 
+use std::collections::BTreeMap;
 use std::path::Path;
 use std::sync::Arc;
 
 use music_player_rs::audio::backend::catalog::DeviceCatalog;
-use music_player_rs::audio::backend::HwDeviceId;
+use music_player_rs::audio::backend::{DeviceCaps, HwDeviceId};
 use music_player_rs::audio::decoder::TrackInfo;
 use music_player_rs::audio::error::{OpenError, Reaction, StreamFault};
 use music_player_rs::audio::path::signal::{DynamicPathState, SignalPath};
@@ -206,6 +207,16 @@ pub struct UiAudioState {
     /// замка (`lock-kind`/`lock-text`/…) строится отдельно из сырого
     /// `EngineEvent::Lock` в `apply_lock_view`.
     lock: LockState,
+    /// Кэш возможностей открытых аппаратных устройств по `HwDeviceId`
+    /// (AM1.0-B30, решение 2026-10-24): наполняется из
+    /// `EngineEvent::DeviceCapsCached`, пережитого открытием устройства, а
+    /// не перечислением каталога — блок «Аудио» диалога настроек читает
+    /// его для устройства, выбранного в редактируемом режиме, без
+    /// повторного открытия. Запись для `id` сохраняется между открытиями
+    /// разных треков того же устройства и между перечислениями каталога,
+    /// пока устройство остаётся в `DeviceCatalog.hw` (обрезается в
+    /// `EngineEvent::Devices`, когда устройство пропадает из списка).
+    hw_caps: BTreeMap<HwDeviceId, Arc<DeviceCaps>>,
 }
 
 impl Default for UiAudioState {
@@ -227,6 +238,7 @@ impl Default for UiAudioState {
             opened: None,
             skipped: None,
             lock: LockState::NotApplicable,
+            hw_caps: BTreeMap::new(),
         }
     }
 }
@@ -340,7 +352,20 @@ impl UiAudioState {
             }
             EngineEvent::DeviceLost { reaction, fault } => Applied::DeviceLost { reaction, fault },
             EngineEvent::Devices(catalog) => {
+                // Кэш возможностей переживает перечисление для устройств,
+                // остающихся в списке (AM1.0-B30); запись устройства,
+                // пропавшего из `hw` (отключено/не видно ALSA), удаляется —
+                // иначе блок «Аудио» показывал бы возможности устройства,
+                // которого больше нет.
+                self.hw_caps.retain(|id, _| catalog.hw.iter().any(|dev| &dev.id == id));
                 self.devices.set(DeviceSnapshot(catalog));
+                Applied::None
+            }
+            // Возможности сняты при открытии устройства, не при
+            // перечислении каталога (AM1.0-B30, решение 2026-10-24) —
+            // кэшируются сразу, отдельно от `Devices`.
+            EngineEvent::DeviceCapsCached { device, caps } => {
+                self.hw_caps.insert(device, caps);
                 Applied::None
             }
             // Автовыбор сохраняется приложением в настройках (ТЗ-143,
@@ -386,6 +411,17 @@ impl UiAudioState {
     /// а не из перечисления cpal.
     pub fn devices(&self) -> Option<&Arc<DeviceCatalog>> {
         self.devices.get().map(|snap| &snap.0)
+    }
+
+    /// Кэшированные возможности аппаратного устройства `id`, если оно уже
+    /// открывалось в этой сессии движка (AM1.0-B30, решение 2026-10-24) —
+    /// блок «Аудио» диалога настроек строит из них «Частоты»/«Разрядность»/
+    /// «DSD» устройства, выбранного в редактируемом режиме, без повторного
+    /// открытия. `None` — устройство этого режима ещё не открывалось.
+    // Вызывающая сторона (`ui_manager.rs`) подключается следующим шагом
+    // (AM1.0-B30 step 2) — метод уже покрыт тестами кэша ниже.
+    pub fn hw_caps(&self, id: &HwDeviceId) -> Option<&DeviceCaps> {
+        self.hw_caps.get(id).map(Arc::as_ref)
     }
 
     /// Истина после принятого `Ended`, пока не снята `clear_end` (ТЗ-56,
@@ -1000,5 +1036,76 @@ mod tests {
 
         state.apply(EngineEvent::Lock(LockState::Open));
         assert_eq!(state.lock(), &LockState::Open);
+    }
+
+    fn fake_hw_caps() -> DeviceCaps {
+        use music_player_rs::audio::backend::{AccessKind, OutputApi, RateSet};
+        use music_player_rs::audio::format::{OutputSampleFormat, SampleRate};
+        use smallvec::SmallVec;
+
+        DeviceCaps {
+            api: OutputApi::AlsaHw,
+            access: AccessKind::Exclusive,
+            name: "RU3".to_owned(),
+            rates: RateSet::Discrete(SmallVec::from_slice(&[SampleRate::new(44_100).expect("44100 валидна")])),
+            formats: SmallVec::from_slice(&[OutputSampleFormat::S24_3Le]),
+            channels: SmallVec::from_slice(&[2]),
+        }
+    }
+
+    fn fake_hw_catalog(ids: &[&HwDeviceId]) -> Arc<DeviceCatalog> {
+        use music_player_rs::audio::backend::catalog::HwDeviceInfo;
+
+        Arc::new(DeviceCatalog {
+            hw: ids
+                .iter()
+                .enumerate()
+                .map(|(i, id)| {
+                    let card = u32::try_from(i).expect("card id fits u32 in test");
+                    HwDeviceInfo { id: (*id).clone(), card, device: 0, name: "RU3".to_owned() }
+                })
+                .collect(),
+            ..Default::default()
+        })
+    }
+
+    /// AM1.0-B30: `DeviceCapsCached` кэширует возможности по `HwDeviceId` —
+    /// без них отдельного события (например, `Opened`) блок «Аудио» не
+    /// знает частот/форматов/DSD устройства.
+    #[test]
+    fn hw_caps_cached_by_device_caps_cached_event() {
+        let mut state = UiAudioState::new();
+        let device: HwDeviceId = "hw:CARD=RU3,DEV=0".parse().expect("валидный HwDeviceId");
+        assert!(state.hw_caps(&device).is_none());
+
+        state.apply(EngineEvent::DeviceCapsCached { device: device.clone(), caps: Arc::new(fake_hw_caps()) });
+        assert_eq!(state.hw_caps(&device), Some(&fake_hw_caps()));
+    }
+
+    /// AM1.0-B30: кэш переживает перечисление каталога, пока устройство
+    /// остаётся в `DeviceCatalog.hw` — переоткрывать устройство для показа
+    /// возможностей блок «Аудио» не должен.
+    #[test]
+    fn hw_caps_survive_catalog_refresh_when_device_still_present() {
+        let mut state = UiAudioState::new();
+        let device: HwDeviceId = "hw:CARD=RU3,DEV=0".parse().expect("валидный HwDeviceId");
+        state.apply(EngineEvent::DeviceCapsCached { device: device.clone(), caps: Arc::new(fake_hw_caps()) });
+
+        state.apply(EngineEvent::Devices(fake_hw_catalog(&[&device])));
+        assert_eq!(state.hw_caps(&device), Some(&fake_hw_caps()));
+    }
+
+    /// AM1.0-B30: устройство пропало из перечисления (отключено/не видно
+    /// ALSA) — его кэш удаляется, иначе блок «Аудио» показал бы
+    /// возможности устройства, которого больше нет.
+    #[test]
+    fn hw_caps_evicted_when_device_leaves_catalog() {
+        let mut state = UiAudioState::new();
+        let device: HwDeviceId = "hw:CARD=RU3,DEV=0".parse().expect("валидный HwDeviceId");
+        let other: HwDeviceId = "hw:CARD=M2,DEV=0".parse().expect("валидный HwDeviceId");
+        state.apply(EngineEvent::DeviceCapsCached { device: device.clone(), caps: Arc::new(fake_hw_caps()) });
+
+        state.apply(EngineEvent::Devices(fake_hw_catalog(&[&other])));
+        assert!(state.hw_caps(&device).is_none());
     }
 }

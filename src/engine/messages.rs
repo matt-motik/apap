@@ -8,7 +8,7 @@ use std::sync::Arc;
 
 use crate::audio::backend::catalog::DeviceCatalog;
 use crate::audio::backend::exclusive::DeviceClaim;
-use crate::audio::backend::{BackendError, HwDeviceId};
+use crate::audio::backend::{BackendError, DeviceCaps, HwDeviceId};
 use crate::audio::decoder::TrackInfo;
 use crate::audio::error::{CaptureFailure, FileError, OpenError, Reaction, StreamFault};
 use crate::audio::format::StreamFormat;
@@ -198,6 +198,14 @@ pub enum EngineEvent {
     /// Каталог устройств после перечисления (ТЗ-104, ТЗ-105, ADR-16, §6.2 п.3):
     /// шлётся при старте движка и затем только при изменении списка.
     Devices(Arc<DeviceCatalog>),
+    /// Возможности аппаратного устройства, снятые при его открытии
+    /// (AM1.0-B30, решение 2026-10-24): шлётся из `open_exclusive` сразу
+    /// после `ExclusiveBackend::device_caps`, в дополнение к `Opened` — не
+    /// только при изменении каталога, в отличие от `Devices`. UI кэширует
+    /// по `device` (`HwDeviceId`), без повторного открытия, для блока
+    /// «Аудио» диалога настроек (вкладка показывает возможности устройства,
+    /// выбранного в редактируемом режиме, а не только фактически играющего).
+    DeviceCapsCached { device: HwDeviceId, caps: Arc<DeviceCaps> },
     /// Автовыбор устройства режима (ТЗ-143, ADR-24); приложение сохраняет его в настройках.
     DeviceAutoSelected { mode: ModeKind, device: HwDeviceId },
     Notice(Notice),

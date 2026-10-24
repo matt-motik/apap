@@ -1114,6 +1114,12 @@ impl Engine {
         // `strict.device`: при автовыборе (`Resolved::AutoSelected`) захват
         // мог быть открыт на другом устройстве, чем записано в настройках.
         let dev_id = claim.info().device.clone();
+        // Кэш возможностей открытых устройств (AM1.0-B30, решение
+        // 2026-10-24): отдельное от `Devices` событие — `caps` снят сейчас,
+        // при открытии, а не при перечислении каталога (который меняется
+        // реже и может не измениться вовсе). UI кэширует по `dev_id`, блок
+        // «Аудио» диалога настроек показывает его без повторного открытия.
+        self.deps.events.emit(EngineEvent::DeviceCapsCached { device: dev_id.clone(), caps: Arc::new(caps.clone()) });
         let dev_opts = self.mode_settings.device_opts(&dev_id);
         let base = match plan_with_device(&src, &caps, policy, Some((&dev_id, dev_opts))) {
             Ok(p) => p,
@@ -2952,11 +2958,13 @@ mod tests {
         engine.handle(EngineCmd::Open { req_gen: 1, path: Arc::from(Path::new("/music/a.flac")), start_secs: 0.0, autoplay: true });
 
         let events = sink.take();
-        match events.first() {
+        // `DeviceCapsCached` (AM1.0-B30) может прийти раньше `Opened` —
+        // возможности снимаются до сборки пути; здесь важен сам `Opened`.
+        match events.iter().find(|e| matches!(e, EngineEvent::Opened { .. })) {
             Some(EngineEvent::Opened { path: Some(signal), .. }) => {
                 assert!(signal.device.accepted.is_some());
             }
-            other => panic!("expected Opened event first, got {other:?}"),
+            other => panic!("expected Opened event, got {other:?}"),
         }
         // Захват переходит в `ExclusivePath` (§6.19): `self.claim` после
         // успешного открытия пуст — замок держит сессию, не `claim`.
@@ -4477,7 +4485,12 @@ mod tests {
         engine.handle(EngineCmd::Open { req_gen: 1, path: Arc::from(Path::new("/music/a.flac")), start_secs: 0.0, autoplay: true });
 
         let events = sink.take();
-        assert!(matches!(events.as_slice(), [EngineEvent::OpenFailed { err: OpenError::DeviceLost, .. }]));
+        // `DeviceCapsCached` (AM1.0-B30) идёт первым: возможности снимаются
+        // до `configure`, который и отказывает здесь.
+        assert!(matches!(
+            events.as_slice(),
+            [EngineEvent::DeviceCapsCached { .. }, EngineEvent::OpenFailed { err: OpenError::DeviceLost, .. }]
+        ));
         assert!(engine.claim.is_some());
         assert!(engine.exclusive_path.is_none());
     }
@@ -4530,9 +4543,14 @@ mod tests {
         engine.handle(EngineCmd::Open { req_gen: 1, path: Arc::from(Path::new("/music/a.flac")), start_secs: 0.0, autoplay: true });
 
         let events = sink.take();
+        // `DeviceCapsCached` (AM1.0-B30) идёт первым: возможности снимаются
+        // до сборки пути, где и обнаруживается рассогласование.
         assert!(matches!(
             events.as_slice(),
-            [EngineEvent::OpenFailed { err: OpenError::Internal(EngineFault::SpawnFailed { .. }), .. }]
+            [
+                EngineEvent::DeviceCapsCached { .. },
+                EngineEvent::OpenFailed { err: OpenError::Internal(EngineFault::SpawnFailed { .. }), .. }
+            ]
         ));
         assert!(engine.claim.is_some());
         assert!(engine.exclusive_path.is_none());
