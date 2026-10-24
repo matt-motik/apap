@@ -185,7 +185,7 @@ steps:
     description: >
       ЧЕКПОИНТ: полный cargo test + cargo clippy зелёные (mode_dialog.rs, device_info_view.rs,
       path_view.rs перенесены в src/i18n/).
-    done: false
+    done: true
   - id: 28
     description: >
       Финальный сквозной grep по ui/*.slint, src/app/*, tray, rfd на оставшийся английский
@@ -198,8 +198,8 @@ steps:
       check зелёные; готовность к closing.md (ручная проверка пользователем — обрезка длинных
       русских подписей на всех экранах).
     done: false
-current_step: 32
-next_action: "ЧЕКПОИНТ: полный cargo test + cargo clippy зелёные (mode_dialog.rs, device_info_view.rs, path_view.rs перенесены в src/i18n/)."
+current_step: 28
+next_action: "Финальный сквозной grep по ui/*.slint, src/app/*, tray, rfd на оставшийся английский пользовательский текст; найденное вне описи T1.0-B2 — новой B-строкой (⬜ открыто, без сессии), не молча."
 fail_counter: 0
 fail_counter_max: 3
 failed_attempts: []
