@@ -2,24 +2,10 @@
      Source of truth: _STATE_.yaml — edit that, then run:
      python tools/state_tool.py render -->
 
+# Состояние сессии
 
-# Текущая микро-сессия
-
-- **Задача из ROADMAP:** T1.0-B10 — Spectrogram::new: «пустой трек (0 кадров)» литерал вне src/i18n/
-- **Вайтлист файлов в работе (Изменяемые файлы):**
-  - src/audio/spectrogram.rs
-  - src/i18n/messages.rs
-- **Критерий успеха (Definition of Done):** Текст «пустой трек (0 кадров)» — константа SPECTROGRAM_FAIL_SHORT_TRACK в src/i18n/messages.rs, Spectrogram::new использует её байт-в-байт (отдельная от FULLTRACK_FAIL_ZERO_LENGTH — разный смысл); cargo test + clippy --all-targets зелёные
-
-## Итерационный трекер
-- [x] Шаг 1: Добавить константу SPECTROGRAM_FAIL_SHORT_TRACK в src/i18n/messages.rs (byte-identical «пустой трек (0 кадров)»), Spectrogram::new (src/audio/spectrogram.rs:246) использует её вместо литерала; тип ошибки (String) не менять. Проверка: ЧЕКПОИНТ — cargo test + cargo clippy --all-targets + check_rt_imports.py
-
-Легенда: [x] сделано · [>] текущий шаг · [ ] не начато
-
-- **Текущий шаг (current_step):** Шаг 1
-- **Следующий ход:** закрытие по closing.md
-- **Счетчик безуспешных компиляций:** 0/3
-- **Состояние:** in_progress
+- **Текущая задача:** Нет (все шаги завершены)
+- **Состояние:** done
 
 ## План: Executable workflow: правила AGENTS.md → исполняемые механизмы
 _Источник: чат с пользователем (ноутбук), начат в 67686ce; перенесён в репо 2026-09-22_
