@@ -213,16 +213,17 @@ pub(crate) enum ExclusiveOpenReason {
 
 impl std::fmt::Display for ExclusiveOpenReason {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        use crate::i18n::errors as i18n_errors;
         match self {
             ExclusiveOpenReason::Configure(e) => write!(f, "configure: {}", e.0),
             ExclusiveOpenReason::BufferUnavailable => {
-                write!(f, "configure не вернул фактический буфер устройства (ТЗ-131)")
+                write!(f, "{}", i18n_errors::EXCLUSIVE_BUFFER_UNAVAILABLE)
             }
-            ExclusiveOpenReason::Plan(e) => write!(f, "план сессии: {e:?}"),
-            ExclusiveOpenReason::Render(e) => write!(f, "рендер: {e}"),
-            ExclusiveOpenReason::Feed(e) => write!(f, "источник декодера: {e}"),
+            ExclusiveOpenReason::Plan(e) => write!(f, "{}", i18n_errors::exclusive_plan_failed_text(&format!("{e:?}"))),
+            ExclusiveOpenReason::Render(e) => write!(f, "{}", i18n_errors::exclusive_render_failed_text(&e.to_string())),
+            ExclusiveOpenReason::Feed(e) => write!(f, "{}", i18n_errors::exclusive_feed_failed_text(&e.to_string())),
             ExclusiveOpenReason::Decode(SpawnDecoderError::Spawn(e)) => {
-                write!(f, "поток декодера: {e:?}")
+                write!(f, "{}", i18n_errors::exclusive_decode_spawn_failed_text(&format!("{e:?}")))
             }
             ExclusiveOpenReason::Decode(SpawnDecoderError::Open(msg)) => write!(f, "{msg}"),
             ExclusiveOpenReason::Start(e) => write!(f, "start: {}", e.0),

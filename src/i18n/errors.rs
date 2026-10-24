@@ -65,7 +65,7 @@ pub fn io_error_reason(kind: std::io::ErrorKind) -> Option<&'static str> {
     use std::io::ErrorKind;
     match kind {
         ErrorKind::NotFound => Some("файл не найден"),
-        ErrorKind::PermissionDenied => Some("нет доступа"),
+        ErrorKind::PermissionDenied => Some(NO_ACCESS),
         ErrorKind::AlreadyExists => Some("файл уже существует"),
         ErrorKind::TimedOut => Some("превышено время ожидания"),
         ErrorKind::Interrupted => Some("операция прервана"),
@@ -82,6 +82,59 @@ pub fn io_error_reason(kind: std::io::ErrorKind) -> Option<&'static str> {
 /// и [`system_error`]; исходный текст — `Display` стандартной библиотеки.
 pub fn describe_io_error(kind: std::io::ErrorKind) -> String {
     system_error(io_error_reason(kind), &kind.to_string())
+}
+
+/// Текст «нет доступа» — причина для `std::io::ErrorKind::PermissionDenied`
+/// ([`io_error_reason`]) и текст класса ошибки записи
+/// `WriteErrorClass::NoAccess` (ТЗ-20, §2.8, T1.0-B8,
+/// `src/platform/fs/mod.rs`, доходит до пользователя через
+/// `core/messages.rs::write_failed`).
+pub const NO_ACCESS: &str = "нет доступа";
+
+/// Текст класса ошибки записи «нет места на диске»
+/// (`WriteErrorClass::NoSpace`, ТЗ-20, §2.8, T1.0-B8,
+/// `src/platform/fs/mod.rs`).
+pub const WRITE_ERROR_NO_SPACE: &str = "нет места на диске";
+/// Текст класса ошибки записи «файловая система только для чтения»
+/// (`WriteErrorClass::ReadOnlyFs`, ТЗ-20, §2.8, T1.0-B8,
+/// `src/platform/fs/mod.rs`).
+pub const WRITE_ERROR_READ_ONLY_FS: &str = "файловая система только для чтения";
+/// Текст класса ошибки записи «ошибка ввода-вывода» (`WriteErrorClass::Io`,
+/// ТЗ-20, §2.8, T1.0-B8, `src/platform/fs/mod.rs`).
+pub const WRITE_ERROR_IO: &str = "ошибка ввода-вывода";
+
+/// Текст отказа `configure` Эксклюзивного пути без фактического буфера
+/// устройства (§6.18 п. 1, ТЗ-131, T1.0-B8): `Display`
+/// `ExclusiveOpenReason::BufferUnavailable` (`src/engine/exclusive_path.rs`).
+pub const EXCLUSIVE_BUFFER_UNAVAILABLE: &str = "configure не вернул фактический буфер устройства (ТЗ-131)";
+
+/// Текст отказа построения плана сессии Эксклюзивного пути (§6.18 п. 2,
+/// T1.0-B8): `Display` `ExclusiveOpenReason::Plan`. `detail` — `Debug`
+/// исходной ошибки (`{e:?}`).
+pub fn exclusive_plan_failed_text(detail: &str) -> String {
+    format_named("план сессии: {detail}", &[("detail", detail)])
+}
+
+/// Текст отказа построения рендера/ring Эксклюзивного пути под фактический
+/// формат устройства (§6.18 п. 3, T1.0-B8): `Display`
+/// `ExclusiveOpenReason::Render`. `detail` — `Display` исходной ошибки
+/// (`{e}`).
+pub fn exclusive_render_failed_text(detail: &str) -> String {
+    format_named("рендер: {detail}", &[("detail", detail)])
+}
+
+/// Текст несовпадения источника декодера с планом сессии Эксклюзивного
+/// пути (§6.18 п. 4, T1.0-B8): `Display` `ExclusiveOpenReason::Feed`.
+/// `detail` — `Display` исходной ошибки (`{e}`).
+pub fn exclusive_feed_failed_text(detail: &str) -> String {
+    format_named("источник декодера: {detail}", &[("detail", detail)])
+}
+
+/// Текст отказа запуска потока декодера Эксклюзивного пути (§6.18 п. 5,
+/// T1.0-B8): `Display` `ExclusiveOpenReason::Decode(SpawnDecoderError::Spawn)`.
+/// `detail` — `Debug` исходной ошибки (`{e:?}`).
+pub fn exclusive_decode_spawn_failed_text(detail: &str) -> String {
+    format_named("поток декодера: {detail}", &[("detail", detail)])
 }
 
 /// Причина недопустимого цвета черновика темы для подсказки кнопки
@@ -612,5 +665,38 @@ mod tests {
     #[test]
     fn playlist_thread_spawn_failed_text_is_russian() {
         assert_eq!(PLAYLIST_THREAD_SPAWN_FAILED, "не удалось создать поток apap-playlist");
+    }
+
+    #[test]
+    fn write_error_class_texts_are_russian() {
+        assert_eq!(NO_ACCESS, "нет доступа");
+        assert_eq!(WRITE_ERROR_NO_SPACE, "нет места на диске");
+        assert_eq!(WRITE_ERROR_READ_ONLY_FS, "файловая система только для чтения");
+        assert_eq!(WRITE_ERROR_IO, "ошибка ввода-вывода");
+    }
+
+    #[test]
+    fn exclusive_buffer_unavailable_text_is_russian() {
+        assert_eq!(EXCLUSIVE_BUFFER_UNAVAILABLE, "configure не вернул фактический буфер устройства (ТЗ-131)");
+    }
+
+    #[test]
+    fn exclusive_plan_failed_text_substitutes_detail() {
+        assert_eq!(exclusive_plan_failed_text("NotExclusive"), "план сессии: NotExclusive");
+    }
+
+    #[test]
+    fn exclusive_render_failed_text_substitutes_detail() {
+        assert_eq!(exclusive_render_failed_text("формат не поддерживается"), "рендер: формат не поддерживается");
+    }
+
+    #[test]
+    fn exclusive_feed_failed_text_substitutes_detail() {
+        assert_eq!(exclusive_feed_failed_text("несовпадение источника"), "источник декодера: несовпадение источника");
+    }
+
+    #[test]
+    fn exclusive_decode_spawn_failed_text_substitutes_detail() {
+        assert_eq!(exclusive_decode_spawn_failed_text("Spawn(\"os error\")"), "поток декодера: Spawn(\"os error\")");
     }
 }

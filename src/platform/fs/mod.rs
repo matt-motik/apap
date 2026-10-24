@@ -207,13 +207,15 @@ pub enum WriteErrorClass {
 }
 
 impl WriteErrorClass {
-    /// Текст класса для окна Error (ТЗ-20).
+    /// Текст класса для окна Error (ТЗ-20; текст — `src/i18n/errors.rs`,
+    /// T1.0-B8).
     pub const fn text(self) -> &'static str {
+        use crate::i18n::errors as i18n_errors;
         match self {
-            WriteErrorClass::NoSpace => "нет места на диске",
-            WriteErrorClass::NoAccess => "нет доступа",
-            WriteErrorClass::ReadOnlyFs => "файловая система только для чтения",
-            WriteErrorClass::Io => "ошибка ввода-вывода",
+            WriteErrorClass::NoSpace => i18n_errors::WRITE_ERROR_NO_SPACE,
+            WriteErrorClass::NoAccess => i18n_errors::NO_ACCESS,
+            WriteErrorClass::ReadOnlyFs => i18n_errors::WRITE_ERROR_READ_ONLY_FS,
+            WriteErrorClass::Io => i18n_errors::WRITE_ERROR_IO,
         }
     }
 }
