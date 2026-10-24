@@ -21,8 +21,8 @@
 - [x] Шаг 1: SP1.0 docs: ТЗ-30/Т-4 (02_tz.md) и связанные места 03_spec.md (DialogDraft.shown_mode — ADR-11 ~485, §2.10 ~1739, §6.9 ~2538-2573, §8.3 С9 ~3384, §7.2 тест ~3064) — shown_mode часть отличий, Save переключает активный режим, тест переименован/инвертирован. Проверка: traceability_tool.py check зелёный, текст непротиворечив
 - [x] Шаг 2: src/core/dialog.rs: shown_mode входит в SettingsDiff (поле mode: Option<ModeKind>), apply_plan — шаг ActiveMode; validate не меняется; тест diff_ignores_shown_mode переименован/инвертирован (diff_detects_shown_mode_change). Проверка: cargo test core::dialog:: зелёный
 - [x] Шаг 3: src/core/mod.rs: dialog_save применяет шаг ActiveMode из плана — change_state(Origin::User, ActiveMode(m)), тот же путь, что и текущий select_mode главного окна/бейджа устройства. Проверка: cargo check; cargo test core:: зелёный
-- [>] **Шаг 4: src/core/testing.rs: тесты уровня AppCore — смена shown_mode без других правок разблокирует «Сохранить»; «Сохранить» меняет активный режим и закрывает диалог; «Отмена» — активный режим прежний (переписать тесты ~3960-3977). Проверка: cargo test core:: зелёный**
-- [ ] Шаг 5: ЧЕКПОИНТ: полный cargo test + cargo clippy зелёные (шаги 2-4)
+- [x] Шаг 4: src/core/testing.rs: тесты уровня AppCore — смена shown_mode без других правок разблокирует «Сохранить»; «Сохранить» меняет активный режим и закрывает диалог; «Отмена» — активный режим прежний (переписать тесты ~3960-3977). Проверка: cargo test core:: зелёный
+- [>] **Шаг 5: ЧЕКПОИНТ: полный cargo test + cargo clippy зелёные (шаги 2-4)**
 - [ ] Шаг 6: ui/top_panel.slint: бейдж активного режима в MenuBarTrailing рядом с бейджем устройства (ярлык режима + попап-меню из трёх режимов, недоступные неактивны, ТЗ-111), по образцу device-label/lock-kind. Проверка: cargo check (slint build)
 - [ ] Шаг 7: src/app/mod.rs или src/app/ui_manager.rs (один файл, уточнить при реализации): колбэк бейджа режима подключён к существующему обработчику select_mode (применяется сразу, как раньше из главного окна); бейдж обновляется после dialog_save. Проверка: cargo check; ручной сценарий позже
 - [ ] Шаг 8: ЧЕКПОИНТ: полный cargo test + cargo clippy зелёные (шаги 6-7)
@@ -31,8 +31,8 @@
 
 Легенда: [x] сделано · [>] текущий шаг · [ ] не начато
 
-- **Текущий шаг (current_step):** Шаг 4
-- **Следующий ход:** Шаг 4: src/core/testing.rs — переписать dialog_mode_selector_does_not_switch_mode в dialog_save_switches_active_mode (смена shown_mode без прочих правок разблокирует Сохранить; Сохранить меняет активный режим и закрывает диалог; Отмена — активный режим прежний); cargo test --quiet core:: зелёный, clippy 0
+- **Текущий шаг (current_step):** Шаг 5
+- **Следующий ход:** ЧЕКПОИНТ: полный cargo test + cargo clippy зелёные (шаги 2-4)
 - **Счетчик безуспешных компиляций:** 0/3
 - **Состояние:** in_progress
 

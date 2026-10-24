@@ -3940,63 +3940,63 @@ mod tests {
         assert_eq!(h.engine_cmds(), engine, "0 команд движку");
     }
 
-    /// Выбор режима в диалоге не переключает активный режим (ТЗ-30, §6.9,
-    /// §7.2): при активном Совместимом показан Строгий — отличий нет, кнопка
-    /// неактивна, `dialog_save` возвращает `None`; после «Отмены» и нового
-    /// открытия Строгий показан вместе с правкой его параметра — «Сохранить»
-    /// пишет настройки один раз и шлёт ровно один `SetModeSettings`, 0
-    /// `SetActiveMode`; активный режим остаётся Совместимым.
+    /// Выбор режима в диалоге переключает активный режим по «Сохранить»
+    /// (ТЗ-30, §6.9, §5.2 ТЗ «Выбор режима в диалоге», §7.2, переименован и
+    /// инвертирован с `dialog_mode_selector_does_not_switch_mode`): при
+    /// активном Совместимом показан Строгий без прочих правок — само по себе
+    /// отличие, разблокирующее «Сохранить» (ТЗ-27, ТЗ-30); «Отмена» уничтожает
+    /// выбор без следа (ТЗ-26) — активный режим остаётся Совместимым, команд
+    /// движку нет; «Сохранить» переключает активный режим одной операцией —
+    /// план из одного шага `ActiveMode`, 0 `SetActiveMode`/других команд
+    /// движку (переоткрытие по этому шагу не делается — оно определяется
+    /// отдельным шагом `Engine`, только если изменились и параметры звука
+    /// режима, §5.2 ТЗ), `settings.toml` не пишется, активный режим меняется
+    /// в `state.toml`.
     #[test]
-    fn dialog_mode_selector_does_not_switch_mode() {
+    fn dialog_save_switches_active_mode() {
         let h = Harness::new();
         h.put_settings(b"");
         h.put_state(b"");
         let mut core = h.boot();
         assert_eq!(core.state().active_mode(), ModeKind::Compatible);
         let settings = core.settings().clone();
-        let state = core.state().clone();
 
+        // Выбор режима без других правок — отличие само по себе (ТЗ-30).
         core.dialog_open().expect("диалог открыт");
         assert_eq!(core.draft().map(|d| d.shown_mode), Some(ModeKind::Compatible));
         core.dialog_edit(|d| d.shown_mode = ModeKind::Strict);
         assert_eq!(
             core.save_button(),
-            SaveButton { enabled: false, tooltip: None },
-            "выбор режима без других изменений — не отличие"
+            SaveButton { enabled: true, tooltip: None },
+            "смена показанного режима без других правок разблокирует «Сохранить»"
         );
-        assert!(core.dialog_save().is_none());
-        assert!(core.draft().is_some(), "диалог остался открыт");
+
+        // «Отмена» — без следа: активный режим прежний, 0 команд движку.
         core.dialog_cancel();
+        assert_eq!(core.state().active_mode(), ModeKind::Compatible, "«Отмена» не меняет активный режим");
         assert_eq!(core.settings(), &settings);
-        assert_eq!(core.state(), &state);
         assert!(h.engine_cmds().is_empty(), "0 команд движку после «Отмены»");
 
+        // «Сохранить» переключает активный режим одной операцией.
         core.dialog_open().expect("диалог открыт снова");
         assert_eq!(core.draft().map(|d| d.shown_mode), Some(ModeKind::Compatible), "выбор режима не запомнен");
-        core.dialog_edit(|d| {
-            d.shown_mode = ModeKind::Strict;
-            d.settings.playback.strict.device_buffer = DeviceBuffer::Ms100;
-        });
-        assert_eq!(core.save_button(), SaveButton { enabled: true, tooltip: None });
-
+        core.dialog_edit(|d| d.shown_mode = ModeKind::Strict);
         let saved = core.dialog_save().expect("отличие есть — сохранено");
-        assert!(matches!(&saved.plan[..], [ApplyStep::Engine(_)]), "план: {:?}", saved.plan);
-        assert!(saved.write.is_none());
-        assert!(core.draft().is_none());
+        assert!(matches!(&saved.plan[..], [ApplyStep::ActiveMode(ModeKind::Strict)]), "план: {:?}", saved.plan);
+        assert!(saved.write.is_none(), "settings.toml не пишется — изменился только активный режим (ТЗ-30)");
+        assert!(core.draft().is_none(), "диалог закрыт");
         assert!(!core.gate().window_blocked());
 
-        assert_eq!(core.state().active_mode(), ModeKind::Compatible, "активный режим не переключён");
-        assert_eq!(core.state(), &state, "состояние сессии не тронуто");
-        assert_eq!(core.settings().playback.strict.device_buffer, DeviceBuffer::Ms100);
-        assert_eq!(engine_cmd_count(&h, "SetActiveMode"), 0);
-        assert_eq!(engine_cmd_count(&h, "SetModeSettings"), 1);
-        assert_eq!(h.engine_cmds().len(), 1, "других команд движку нет");
+        assert_eq!(core.state().active_mode(), ModeKind::Strict, "активный режим переключён");
+        assert_eq!(core.settings(), &settings, "settings.toml не тронут");
+        assert_eq!(engine_cmd_count(&h, "SetActiveMode"), 0, "dialog_save не шлёт SetActiveMode (§5.2 ТЗ)");
+        assert!(h.engine_cmds().is_empty(), "других команд движку нет");
 
         h.settle(&mut core);
         h.advance(&mut core, Duration::from_secs(600));
         h.settle(&mut core);
-        assert_eq!(h.writes(WorkFile::Settings), 1);
-        assert_eq!(h.writes(WorkFile::State), 0, "состояние сессии не менялось");
+        assert_eq!(h.writes(WorkFile::Settings), 0, "settings.toml не менялся");
+        assert_eq!(h.writes(WorkFile::State), 1, "активный режим — отложенная запись в state.toml");
     }
 
     /// «Сохранить» не откатывает состояние сессии к моменту открытия диалога
