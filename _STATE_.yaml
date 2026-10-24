@@ -35,7 +35,7 @@ steps:
     done: true
   - id: 6
     description: "ЧЕКПОИНТ: полный cargo test + cargo clippy по движку и бэкенду (шаги 1–5) перед переходом к UI-слою."
-    done: false
+    done: true
   - id: 7
     description: "src/app/ui_audio_state.rs: кэш hw_caps различает «caps известны»/«занято» (новый тип записи вместо голого Arc<DeviceCaps>), обработка нового события(ий) из шага 4, сохранение правила вытеснения записи при исчезновении устройства из каталога. Проверка: cargo test (кэш/вытеснение/занято)."
     done: false
@@ -48,8 +48,8 @@ steps:
   - id: 10
     description: "ЧЕКПОИНТ перед закрытием: полный cargo test + cargo clippy по всему вайтлисту."
     done: false
-current_step: 6
-next_action: "ЧЕКПОИНТ: полный cargo test + cargo clippy по движку и бэкенду (шаги 1–5) перед переходом к UI-слою"
+current_step: 7
+next_action: "src/app/ui_audio_state.rs: кэш hw_caps различает «caps известны»/«занято» (новый тип записи вместо голого Arc<DeviceCaps>), обработка нового события(ий) из шага 4, сохранение правила вытеснения записи при исчезновении устройства из каталога"
 fail_counter: 0
 fail_counter_max: 3
 failed_attempts: []
