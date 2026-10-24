@@ -3377,6 +3377,16 @@ impl MusicApp {
         if needs_hw_listing_refresh(shown_mode, hw_listing_dirty) {
             self.apply_audio_device_listing();
         }
+
+        // Блок «Аудио» диалога настроек (DeviceInfoView, AM1.0-B30, §8 С11)
+        // держится в синхроне с движком на каждом тике, пока диалог открыт:
+        // поводов обновиться несколько (выбор режима/устройства в диалоге,
+        // `DeviceCapsCached`, `Devices`, путь/замок) и разводить их по
+        // отдельным «грязным» флагам дороже, чем раз в тик пересобрать
+        // несколько строк текста.
+        if self.core.draft().is_some() {
+            self.sync_device_info_to_ui();
+        }
     }
 
     /// Раздать принятое событие движка (кроме `Opened`, обработанного в

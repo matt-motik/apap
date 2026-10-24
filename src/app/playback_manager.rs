@@ -664,7 +664,9 @@ impl MusicApp {
     /// командой `ApplyStep::Engine` плана применения диалога настроек (§6.18,
     /// §6.27, ТЗ-41, ТЗ-83) на пути «Сохранить» — этот метод не трогает
     /// движок напрямую (`EngineCmd::SetDevice` сюда не шлётся), только
-    /// обновляет `active_device`, метку в диалоге и трей. `name` — ""
+    /// обновляет `active_device` и трей; блок «Аудио» диалога настроек
+    /// читает `active_device` сам, по тику (AM1.0-B30, `sync_device_info_to_ui`,
+    /// `drain_engine_events`), а не через прямую запись отсюда. `name` — ""
     /// означает системное устройство по умолчанию (`ModeSettings::device`).
     pub(super) fn set_output_device(&mut self, name: String) {
         let human = self
@@ -672,9 +674,8 @@ impl MusicApp {
             .unwrap_or_else(|| if name.is_empty() { "default".to_string() } else { name.clone() });
         self.audio_ready = true;
         self.audio_error = None;
-        self.active_device = human.clone();
+        self.active_device = human;
         if let Some(ui) = self.try_ui() {
-            ui.set_settings_active_device(human.into());
             ui.set_settings_active_error(String::new().into());
         }
         self.emit(AppEvent::DeviceChanged);

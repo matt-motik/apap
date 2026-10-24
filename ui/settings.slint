@@ -60,8 +60,16 @@ export component Settings inherits Rectangle {
     in property <string> save-notice: "";
     in property <[string]> audio-devices: [];
     in-out property <int> audio-device-idx: -1;
-    in property <string> active-device: "";
-    in property <string> codec-info: "";
+    // AM1.0-B30 (§8 С11): вид DeviceInfoView — «Сейчас: …» + возможности
+    // устройства, выбранного в редактируемом режиме (Оптимальный/Строгий:
+    // частоты/разрядность/DSD) либо формат микшера сервера (Совместимый).
+    // Пустая строка — строка не относится к текущему режиму/состоянию и не
+    // показывается.
+    in property <string> device-now-line: "";
+    in property <string> device-rates-line: "";
+    in property <string> device-bits-line: "";
+    in property <string> device-dsd-line: "";
+    in property <string> device-mixer-line: "";
     in property <string> active-error: "";
     // §6.18, §6.27, ТЗ-41, ТЗ-94: панель построчных настроек режима.
     in property <int> mode-edit-mode: 0;
@@ -407,17 +415,19 @@ export component Settings inherits Rectangle {
                                         }
                                     }
 
+                                    // AM1.0-B30 (§8 С11): «Сейчас: …» — заметно, затем
+                                    // возможности устройства (Оптимальный/Строгий) либо формат
+                                    // микшера сервера (Совместимый); отсутствующая строка
+                                    // (`""`) скрыта целиком — без пустых промежутков.
                                     HorizontalLayout {
                                         padding-left: 8px;
                                         padding-right: 8px;
                                         spacing: 4px;
+                                        visible: root.device-now-line != "";
                                         RowLabel {
-                                            text: "Active:";
-                                        }
-
-                                        RowLabel {
-                                            text: root.active-device;
+                                            text: root.device-now-line;
                                             text-color: Colors.text-primary;
+                                            font-weight: 600;
                                         }
 
                                         Rectangle {
@@ -428,13 +438,48 @@ export component Settings inherits Rectangle {
                                     HorizontalLayout {
                                         padding-left: 8px;
                                         padding-right: 8px;
-                                        spacing: 4px;
+                                        visible: root.device-rates-line != "";
                                         RowLabel {
-                                            text: "Codec info:";
+                                            text: root.device-rates-line;
                                         }
 
+                                        Rectangle {
+                                            horizontal-stretch: 1;
+                                        }
+                                    }
+
+                                    HorizontalLayout {
+                                        padding-left: 8px;
+                                        padding-right: 8px;
+                                        visible: root.device-bits-line != "";
                                         RowLabel {
-                                            text: root.codec-info;
+                                            text: root.device-bits-line;
+                                        }
+
+                                        Rectangle {
+                                            horizontal-stretch: 1;
+                                        }
+                                    }
+
+                                    HorizontalLayout {
+                                        padding-left: 8px;
+                                        padding-right: 8px;
+                                        visible: root.device-dsd-line != "";
+                                        RowLabel {
+                                            text: root.device-dsd-line;
+                                        }
+
+                                        Rectangle {
+                                            horizontal-stretch: 1;
+                                        }
+                                    }
+
+                                    HorizontalLayout {
+                                        padding-left: 8px;
+                                        padding-right: 8px;
+                                        visible: root.device-mixer-line != "";
+                                        RowLabel {
+                                            text: root.device-mixer-line;
                                         }
 
                                         Rectangle {

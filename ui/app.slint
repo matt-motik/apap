@@ -311,8 +311,14 @@ export component AppWindow inherits Window {
     in property <string> settings-save-notice: "";
     in property <[string]> settings-devices: [];
     in-out property <int> settings-device-idx: -1;
-    in property <string> settings-active-device: "";
-    in property <string> settings-codec-info: "";
+    // AM1.0-B30 (§8 С11): вид возможностей устройства, редактируемого в
+    // диалоге настроек (DeviceInfoView) — заменяет always-empty codec-info
+    // и устаревающую метку active-device прежнего блока.
+    in property <string> settings-device-now-line: "";
+    in property <string> settings-device-rates-line: "";
+    in property <string> settings-device-bits-line: "";
+    in property <string> settings-device-dsd-line: "";
+    in property <string> settings-device-mixer-line: "";
     in property <string> settings-active-error: "";
     // §6.18, §6.27, ТЗ-41, ТЗ-94: панель построчных настроек режима.
     in property <int> settings-mode-edit-mode: 0;
@@ -904,8 +910,11 @@ export component AppWindow inherits Window {
         save-tooltip: root.settings-save-tooltip;
         audio-devices: root.settings-devices;
         audio-device-idx <=> root.settings-device-idx;
-        active-device: root.settings-active-device;
-        codec-info: root.settings-codec-info;
+        device-now-line: root.settings-device-now-line;
+        device-rates-line: root.settings-device-rates-line;
+        device-bits-line: root.settings-device-bits-line;
+        device-dsd-line: root.settings-device-dsd-line;
+        device-mixer-line: root.settings-device-mixer-line;
         active-error: root.settings-active-error;
         mode-edit-mode: root.settings-mode-edit-mode;
         mode-rows: root.settings-mode-rows;

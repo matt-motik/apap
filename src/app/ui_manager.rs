@@ -6,7 +6,9 @@ use super::*;
 use std::collections::HashMap;
 
 use music_player_rs::audio::backend::catalog::DeviceCatalog;
+use music_player_rs::audio::backend::DeviceCaps;
 use music_player_rs::audio::output::DeviceCategory;
+use music_player_rs::audio::path::OsStage;
 use music_player_rs::persist::state_file::{
     effective_width_pct, Origin, PhysPos, PhysSize, SizeUnits, StateChange,
     WindowGeometry,
@@ -257,15 +259,18 @@ impl MusicApp {
 
     /// Kick off an asynchronous enumeration of output devices for the Audio tab.
     ///
-    /// The active device / error fields are updated immediately (they do not
-    /// depend on the listing); the combo-box model is filled once the worker
-    /// thread hands back the device names (see [`drain_audio_devices`]) so
-    /// opening the dialog never blocks the UI thread.
+    /// The error field is updated immediately (it does not depend on the
+    /// listing); the combo-box model is filled once the worker thread hands
+    /// back the device names (see [`drain_audio_devices`]) so opening the
+    /// dialog never blocks the UI thread. The device-info block
+    /// (`DeviceInfoView`, AM1.0-B30) is not built here — it is kept in sync
+    /// by `sync_device_info_to_ui`, called every tick while the dialog is
+    /// open (`drain_engine_events`), since it also reacts to engine events
+    /// (`DeviceCapsCached`, `Devices`, path/lock) that this function does
+    /// not see.
     pub(super) fn sync_audio_devices(&mut self) {
-        let active = self.active_device.clone();
         let ui = self.try_ui();
         if let Some(ui) = &ui {
-            ui.set_settings_active_device(active.into());
             let err = self.audio_error.clone().unwrap_or_default();
             ui.set_settings_active_error(err.into());
         }
@@ -495,6 +500,65 @@ impl MusicApp {
                     .unwrap_or(label)
                     .to_string()
             })
+    }
+
+    /// Возможности устройства, выбранного в РЕДАКТИРУЕМОЙ панели режима
+    /// диалога настроек (черновик `dialog_cfg().playback.device(mode)`), из
+    /// кэша `UiAudioState::hw_caps` — без повторного опроса/открытия
+    /// устройства (AM1.0-B30, решение 2026-10-24). `None` для Совместимого
+    /// режима (нет аппаратных caps устройства — есть только формат микшера
+    /// сервера, `OsStage`), а также если устройство ещё не выбрано, каталог
+    /// ещё не пришёл от движка или устройство не кэшировано (блок «Аудио»
+    /// покажет `NOT_CACHED` в каждой строке).
+    fn hw_caps_for_mode(&self, mode: ModeKind) -> Option<&DeviceCaps> {
+        if mode == ModeKind::Compatible {
+            return None;
+        }
+        let saved = self.dialog_cfg().playback.device(mode)?;
+        let catalog = self.audio().devices()?;
+        let (_, selected) = hw_device_pairs_and_selected(catalog, Some(saved));
+        let dev = catalog.hw.get(selected?)?;
+        self.audio().hw_caps(&dev.id)
+    }
+
+    /// Перестраивает `DeviceInfoView` (AM1.0-B30, §8 С11) для режима,
+    /// показанного в диалоге настроек (черновик `shown_mode`, иначе
+    /// активный режим — диалог закрыт), и пишет его поля в Slint.
+    ///
+    /// Источники: `opened`/`audio_ready` — фактически открытое устройство
+    /// (может отличаться от редактируемого в диалоге режима до
+    /// «Сохранить», §2.4, ТЗ-94: `active_device` отражает активный режим
+    /// воспроизведения, не `shown_mode`); `caps` — кэш возможностей
+    /// устройства, выбранного в черновике (`hw_caps_for_mode`); `os` —
+    /// этап ОС текущего `SignalPath` (`OsStage::Unknown`, если путь не
+    /// построен/открытие не удалось).
+    ///
+    /// Вызывается из `drain_engine_events` каждый тик, пока диалог открыт
+    /// (`mod.rs`), — дешёво (только форматирование строк и запись в Slint),
+    /// а повод обновиться может прийти от самого диалога (смена режима,
+    /// выбора устройства) или от движка (`DeviceCapsCached`, `Devices`,
+    /// путь/замок), без отдельного учёта «грязных» флагов на каждый повод.
+    pub(super) fn sync_device_info_to_ui(&self) {
+        let Some(ui) = self.try_ui() else { return };
+
+        let mode = self
+            .core
+            .draft()
+            .map(|d| d.shown_mode)
+            .unwrap_or_else(|| self.core.state().active_mode());
+
+        let opened =
+            self.audio_ready.then(|| device_info_view::OpenedDevice { label: &self.active_device });
+        let caps = self.hw_caps_for_mode(mode);
+        let os = self.audio().path().map(|p| p.os.clone()).unwrap_or(OsStage::Unknown);
+
+        let view = device_info_view::device_info_view(mode, opened, caps, &os);
+
+        ui.set_settings_device_now_line(view.now_line.into());
+        ui.set_settings_device_rates_line(view.rates_line.unwrap_or_default().into());
+        ui.set_settings_device_bits_line(view.bits_line.unwrap_or_default().into());
+        ui.set_settings_device_dsd_line(view.dsd_line.unwrap_or_default().into());
+        ui.set_settings_device_mixer_line(view.mixer_line.unwrap_or_default().into());
     }
 
     pub(super) fn apply_theme(&self, theme: &ThemeData) {
