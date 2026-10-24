@@ -2,15 +2,52 @@
 # _STATE_.md генерируется из этого файла — не редактировать его руками.
 # Редактируйте этот файл, затем: python tools/state_tool.py render
 
-status: done
+status: in_progress
 task:
-  roadmap_id: null
-  title: null
-whitelist: []
-dod: null
-steps: []
-current_step: null
-next_action: null
+  roadmap_id: AM1.0-B37
+  title: "Совместимый: отдельный выход аудиосервера на каждую карту (pw-dump, pipewire:NODE=)"
+whitelist:
+  - docs/01_audio_modes_v1.0/03_spec.md
+  - docs/00_workflow_v1.0/architecture.md
+  - src/audio/backend/pw_dump.rs
+  - src/audio/backend/shared.rs
+  - src/audio/output.rs
+  - src/settings/playback_dto.rs
+  - src/app/ui_manager.rs
+dod: "Совместимый режим на Linux с PipeWire показывает «Системное по умолчанию (PipeWire)» + по одной записи на каждый узел Audio/Sink из pw-dump; выбор открывается через alsa crate как pipewire:NODE=<node.name>; pw-dump недоступен/не разобрался → только «Системное по умолчанию» + запись в журнал; пропавший узел при загрузке настроек мигрирует на SystemDefault с уведомлением; cargo test + clippy зелёные"
+steps:
+  - id: 1
+    description: "ADR-07: новая формулировка — перечень per-sink узлов через pw-dump, открытие через alsa crate по pipewire:NODE=<node.name>, идентификатор — node.name, подпись через hw_device_label при соответствии карте ALSA, иначе node.description, фоллбэк на «Системное по умолчанию» без pw-dump (docs/01_audio_modes_v1.0/03_spec.md#adr-07-бэкенды-вывода). Проверка: python tools/state_tool.py check; python tools/traceability_tool.py check"
+    done: false
+  - id: 2
+    description: "Чистая функция разбора pw-dump JSON → список узлов Audio/Sink (id/node.name/node.description/alsa.card_name/alsa.name) + тесты с фикстурой JSON (новый файл src/audio/backend/pw_dump.rs; регистрация в docs/00_workflow_v1.0/architecture.md). Проверка: cargo test pw_dump::"
+    done: false
+  - id: 3
+    description: "Запуск pw-dump с таймаутом (паттерн run_pw_metadata, os_probe.rs) вне UI-потока, кэш в DeviceCatalog, обновление по DeviceWatcher/«Обновить»; сборка SharedDeviceInfo для per-sink узлов (src/audio/backend/pw_dump.rs, src/audio/backend/shared.rs). Проверка: cargo check"
+    done: false
+  - id: 4
+    description: "ЧЕКПОИНТ: полный cargo test + cargo clippy зелёные"
+    done: false
+  - id: 5
+    description: "Открытие Shared-потока на выбранном per-sink узле напрямую крейтом alsa по имени pipewire:NODE=<node.name>, в обход cpal (src/audio/backend/shared.rs). Проверка: cargo check"
+    done: false
+  - id: 6
+    description: "is_server_routed_pcm принимает форму pipewire:NODE=… как легитимный выход аудиосервера (src/audio/output.rs). Проверка: cargo test output::"
+    done: false
+  - id: 7
+    description: "Миграция пропавшего при загрузке настроек узла на SystemDefault с уведомлением Adjusted, тем же способом, что устаревшие hw:/plughw: (src/settings/playback_dto.rs). Проверка: cargo test playback_dto::"
+    done: false
+  - id: 8
+    description: "ЧЕКПОИНТ: полный cargo test + cargo clippy зелёные"
+    done: false
+  - id: 9
+    description: "UI: список устройств Совместимого на Linux показывает per-sink записи из DeviceCatalog (src/app/ui_manager.rs). Проверка: cargo check"
+    done: false
+  - id: 10
+    description: "ЧЕКПОИНТ финальный перед закрытием: полный cargo test + cargo clippy зелёные"
+    done: false
+current_step: 1
+next_action: "Записать коммит docs(am): ADR-07 per-sink server outputs via pw-dump (AM1.0-B37, step 1), затем отметить шаг 1 done"
 fail_counter: 0
 fail_counter_max: 3
 failed_attempts: []
