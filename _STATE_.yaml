@@ -32,7 +32,7 @@ steps:
     done: true
   - id: 4
     description: "ЧЕКПОИНТ: полный cargo test + cargo clippy зелёные"
-    done: false
+    done: true
   - id: 5
     description: "Открытие Shared-потока на выбранном per-sink узле напрямую крейтом alsa по имени pipewire:NODE=<node.name>, в обход cpal (src/audio/backend/shared.rs). Проверка: cargo check"
     done: false
@@ -51,8 +51,8 @@ steps:
   - id: 10
     description: "ЧЕКПОИНТ финальный перед закрытием: полный cargo test + cargo clippy зелёные"
     done: false
-current_step: 4
-next_action: "ЧЕКПОИНТ: полный cargo test + cargo clippy зелёные"
+current_step: 5
+next_action: "Открытие Shared-потока на выбранном per-sink узле напрямую крейтом alsa по имени pipewire:NODE=<node.name>, в обход cpal (src/audio/backend/shared.rs). Проверка: cargo check"
 fail_counter: 0
 fail_counter_max: 3
 failed_attempts: []

@@ -23,8 +23,8 @@
 - [x] Шаг 11: ТЗ (02_tz.md, определение Shared, ~строка 89): буквальное восстановление новой формулировки ADR-07 — per-sink узлы PipeWire Audio/Sink наравне с алиасами default/pipewire/pulse, открываемые по имени pipewire:NODE=<node.name> (правка docs по разрешению пользователя — точное отражение ADR-07, без новых требований). Проверка: python tools/state_tool.py check; python tools/traceability_tool.py check
 - [x] Шаг 2: Чистая функция разбора pw-dump JSON → список узлов Audio/Sink (id/node.name/node.description/alsa.card_name/alsa.name) + тесты с фикстурой JSON (новый файл src/audio/backend/pw_dump.rs; регистрация в docs/00_workflow_v1.0/architecture.md). Проверка: cargo test pw_dump::
 - [x] Шаг 3: Запуск pw-dump с таймаутом (паттерн run_pw_metadata, os_probe.rs) вне UI-потока, кэш в DeviceCatalog, обновление по DeviceWatcher/«Обновить»; сборка SharedDeviceInfo для per-sink узлов (src/audio/backend/pw_dump.rs, src/audio/backend/shared.rs). Проверка: cargo check
-- [>] **Шаг 4: ЧЕКПОИНТ: полный cargo test + cargo clippy зелёные**
-- [ ] Шаг 5: Открытие Shared-потока на выбранном per-sink узле напрямую крейтом alsa по имени pipewire:NODE=<node.name>, в обход cpal (src/audio/backend/shared.rs). Проверка: cargo check
+- [x] Шаг 4: ЧЕКПОИНТ: полный cargo test + cargo clippy зелёные
+- [>] **Шаг 5: Открытие Shared-потока на выбранном per-sink узле напрямую крейтом alsa по имени pipewire:NODE=<node.name>, в обход cpal (src/audio/backend/shared.rs). Проверка: cargo check**
 - [ ] Шаг 6: is_server_routed_pcm принимает форму pipewire:NODE=… как легитимный выход аудиосервера (src/audio/output.rs). Проверка: cargo test output::
 - [ ] Шаг 7: Миграция пропавшего при загрузке настроек узла на SystemDefault с уведомлением Adjusted, тем же способом, что устаревшие hw:/plughw: (src/settings/playback_dto.rs). Проверка: cargo test playback_dto::
 - [ ] Шаг 8: ЧЕКПОИНТ: полный cargo test + cargo clippy зелёные
@@ -33,8 +33,8 @@
 
 Легенда: [x] сделано · [>] текущий шаг · [ ] не начато
 
-- **Текущий шаг (current_step):** Шаг 4
-- **Следующий ход:** ЧЕКПОИНТ: полный cargo test + cargo clippy зелёные
+- **Текущий шаг (current_step):** Шаг 5
+- **Следующий ход:** Открытие Shared-потока на выбранном per-sink узле напрямую крейтом alsa по имени pipewire:NODE=<node.name>, в обход cpal (src/audio/backend/shared.rs). Проверка: cargo check
 - **Счетчик безуспешных компиляций:** 0/3
 - **Состояние:** in_progress
 
