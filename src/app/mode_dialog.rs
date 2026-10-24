@@ -9,10 +9,14 @@
 //! пояснением «пока не реализовано». Пункты «Крутой, короткая задержка» и
 //! «Медленный, короткая задержка» списка `SrcFilter`, а также «Ремодуляция»
 //! у `DsdAboveDac`, непредставимы в типах `playback.rs` и синтезируются
-//! здесь как доп. `NotImplemented`-варианты (И-Т19, ТЗ-34, ТЗ-130). Список
-//! «Буфер устройства» дисквалифицирует значения, не проходящие
-//! `buffers_allowed` с текущим буфером плеера режима, подсказкой «увеличьте
-//! буфер плеера до {N} мс» (ТЗ-94, ТЗ-131).
+//! здесь как доп. `NotImplemented`-варианты (И-Т19, ТЗ-34, ТЗ-130). Пара
+//! «Буфер устройства» / «Буфер декодирование→вывод» не отказывает
+//! недопустимому сочетанию, а связывается автоподъёмом: повышение буфера
+//! устройства поднимает черновой буфер плеера до `buffer_floor_ms`
+//! (`raise_buffer_for_device`), а значение буфера плеера ниже этой границы
+//! клампится до неё — связь односторонняя, уменьшение буфера устройства
+//! назад не опускает (ТЗ-94, ТЗ-131, §6.27, решение пользователя
+//! 2026-10-24).
 //!
 //! Построенные строки отображаются панелью настроек режима в Slint
 //! (`ui/mode_params.slint`, `ModeParamRow`): `to_param_row` переводит одну
@@ -22,8 +26,8 @@
 use music_player_rs::i18n;
 use music_player_rs::settings::params::{param_label, Availability, ParamDescriptor, ParamId, PARAMS};
 use music_player_rs::settings::playback::{
-    buffer_floor_blocker, buffer_floor_ms, buffers_allowed, BufferMs, DeviceBuffer, DeviceOpts, Dither, DsdAboveDac,
-    DsdFilter, ModeKind, ModeSettings, RateFallbackRule, SrcFilter, ValueBlocker,
+    buffer_floor_ms, raise_buffer_for_device, BufferMs, DeviceBuffer, DeviceOpts, Dither, DsdAboveDac, DsdFilter,
+    ModeKind, ModeSettings, RateFallbackRule, SrcFilter, ValueBlocker,
 };
 use slint::{ModelRc, SharedString};
 
@@ -233,15 +237,20 @@ fn row_src_filter(mode: ModeKind, settings: &ModeSettings, label: &'static str) 
 const DEVICE_BUFFER_OPTIONS: &[DeviceBuffer] =
     &[DeviceBuffer::Ms20, DeviceBuffer::Ms40, DeviceBuffer::Ms100, DeviceBuffer::Ms200, DeviceBuffer::Ms400];
 
-/// Список «Буфер устройства»: пункт, не проходящий `buffers_allowed` с
-/// текущим буфером плеера режима, неактивен с подсказкой (ТЗ-94, ТЗ-131).
+/// Список «Буфер устройства»: пункт неактивен только если его граница
+/// (`buffer_floor_ms`) не представима в `BufferMs` (100..=10 000 мс) —
+/// резерв на будущее, при нынешних пяти значениях `DeviceBuffer` такого
+/// пункта нет (ТЗ-94, ТЗ-131, §6.27, решение пользователя 2026-10-24).
+/// Пункт больше не зависит от текущего чернового буфера плеера режима —
+/// несовпадение разрешается автоподъёмом в `apply_device_buffer`, а не
+/// отказом.
 fn row_device_buffer(mode: ModeKind, settings: &ModeSettings, label: &'static str) -> DialogRow {
     // `Compatible` не бывает `Configurable` для `DeviceBuffer` — сюда не
-    // попадает; запасная пара ничего не отображает (нет `unwrap`/`panic`).
-    let (buffer, device_buffer) = match mode {
-        ModeKind::Optimal => (settings.optimal.buffer, settings.optimal.device_buffer),
-        ModeKind::Strict => (settings.strict.buffer, settings.strict.device_buffer),
-        ModeKind::Compatible => (settings.optimal.buffer, settings.optimal.device_buffer),
+    // попадает; запасное значение ничего не отображает (нет `unwrap`/`panic`).
+    let device_buffer = match mode {
+        ModeKind::Optimal => settings.optimal.device_buffer,
+        ModeKind::Strict => settings.strict.device_buffer,
+        ModeKind::Compatible => DeviceBuffer::default(),
     };
     let mut options = Vec::with_capacity(DEVICE_BUFFER_OPTIONS.len());
     let mut selected = 0;
@@ -249,9 +258,9 @@ fn row_device_buffer(mode: ModeKind, settings: &ModeSettings, label: &'static st
         if *candidate == device_buffer {
             selected = i;
         }
-        let (enabled, hint) = match buffers_allowed(buffer, *candidate) {
-            Ok(()) => (true, String::new()),
-            Err(blocker) => (false, blocker.reason()),
+        let (enabled, hint) = match BufferMs::new(buffer_floor_ms(*candidate)) {
+            Some(_) => (true, String::new()),
+            None => (false, ValueBlocker::DeviceBufferTooLarge { max_ms: candidate.ms() }.reason()),
         };
         options.push(RowOption { label: device_buffer_label(*candidate), enabled, hint });
     }
@@ -339,14 +348,22 @@ fn row_volume_lock(mode: ModeKind, settings: &ModeSettings, label: &'static str)
     DialogRow { param: ParamId::VolumeLock, label, kind: RowKind::Toggle { on }, enabled: true, note: String::new() }
 }
 
-/// Ползунок «Буфер декодирование → вывод» в мс (ТЗ-131, §6.27). Нижняя
-/// граница в Оптимальном/Строгом — `buffer_floor_ms(device_buffer)`
-/// (`max(100, 2·device)`); в Совместимом `DeviceBuffer` не участвует —
-/// граница всегда 100. Если буфер устройства поднимает границу выше 100,
-/// строка несёт подсказку `buffer_floor_blocker` («уменьшите буфер
-/// устройства до {d} мс»). Текущее значение не подгоняется под новую
-/// границу — честно отображается как есть (недопустимая пара уже не
-/// сохранится — `apply_buffer`).
+/// Ползунок «Буфер декодирование → вывод» в мс (ТЗ-131, §6.27, решение
+/// пользователя 2026-10-24). Нижняя граница в Оптимальном/Строгом —
+/// `buffer_floor_ms(device_buffer)` (`max(100, 2·device)`); в Совместимом
+/// `DeviceBuffer` не участвует — граница всегда 100, без строки. Под
+/// ползунком Оптимального/Строгого режима постоянно видна строка текущей
+/// границы (`buffer_floor_note`) — не только у края шкалы, как раньше.
+/// Значение, ниже границы оказаться не может: `apply_buffer` и
+/// `apply_device_buffer` клампят/поднимают черновой буфер плеера до неё
+/// вместо отказа.
+///
+/// Вторая строка «Поднят автоматически до N мс» (ТЗ-131, §6.27) здесь не
+/// формируется: она требует флага «последняя правка списка «Буфер
+/// устройства» подняла буфер плеера» в состоянии диалога со сбросом при
+/// открытии/сохранении/отмене — это `DialogDraft` (`src/core/dialog.rs`) и
+/// точки сброса в `src/core/mod.rs`/`src/app/mod.rs`, вне вайтлиста этого
+/// шага (AM1.0-B35, step 3; см. отчёт шага).
 fn row_buffer(mode: ModeKind, settings: &ModeSettings, label: &'static str) -> DialogRow {
     let (buffer, device_buffer) = match mode {
         ModeKind::Compatible => (settings.compatible.buffer, None),
@@ -354,13 +371,27 @@ fn row_buffer(mode: ModeKind, settings: &ModeSettings, label: &'static str) -> D
         ModeKind::Strict => (settings.strict.buffer, Some(settings.strict.device_buffer)),
     };
     let min = device_buffer.map_or(100, buffer_floor_ms);
-    let note = device_buffer.and_then(buffer_floor_blocker).map(|blocker| blocker.reason()).unwrap_or_default();
+    let note = device_buffer.map(buffer_floor_note).unwrap_or_default();
     DialogRow {
         param: ParamId::Buffer,
         label,
         kind: RowKind::Slider { value: buffer.get(), min, max: 10_000 },
         enabled: true,
         note,
+    }
+}
+
+/// Текст нижней границы ползунка «Буфер декодирование → вывод», всегда
+/// видимый в Оптимальном/Строгом режиме (ТЗ-131, §6.27, решение
+/// пользователя 2026-10-24): «минимум {N} мс», и когда границу поднимает
+/// буфер устройства (`N > 100`) — пояснение «вдвое больше буфера устройства
+/// ({d} мс)».
+fn buffer_floor_note(device: DeviceBuffer) -> String {
+    let floor = buffer_floor_ms(device);
+    if floor > 100 {
+        format!("минимум {floor} мс — вдвое больше буфера устройства ({} мс)", device.ms())
+    } else {
+        format!("минимум {floor} мс")
     }
 }
 
@@ -475,11 +506,15 @@ pub(super) enum EditRejected {
     /// выбранный пункт отключён (синтетический `NotImplemented`-вариант,
     /// например минимальная фаза `SrcFilter` или «Ремодуляция»).
     BadValue,
-    /// ТЗ-94: итоговая пара (буфер декодирование → вывод, буфер устройства)
-    /// не проходит `buffers_allowed` — недопустимое сочетание не применяется.
-    /// Несёт причину отказа (`ValueBlocker`), чтобы обработчик мог показать
-    /// конкретный текст («увеличьте буфер плеера до N мс») вместо общей
-    /// формулировки (AM1.0-B33).
+    /// Резерв на будущее (ТЗ-94, ТЗ-131, §6.27, решение пользователя
+    /// 2026-10-24): граница `buffer_floor_ms` для правки вышла за допустимый
+    /// диапазон `BufferMs` (100..=10 000 мс) — `raise_buffer_for_device`
+    /// вернул `None`. Недостижимо при нынешних пяти значениях
+    /// `DeviceBuffer` (`buffer_floor_ms(Ms400) = 800`); пара буферов больше
+    /// не отказывает иначе — несовпадение разрешается автоподъёмом/клампом.
+    /// Несёт причину (`ValueBlocker::DeviceBufferTooLarge`), чтобы
+    /// обработчик мог показать конкретный текст вместо общей формулировки
+    /// (AM1.0-B33).
     BuffersNotAllowed(ValueBlocker),
 }
 
@@ -525,9 +560,15 @@ fn apply_src_filter(settings: &mut ModeSettings, mode: ModeKind, value: EditValu
     Ok(())
 }
 
-/// Правка списка «Буфер устройства» по `DEVICE_BUFFER_OPTIONS`: кандидат,
-/// не проходящий `buffers_allowed` с текущим буфером плеера режима,
-/// отклоняется без изменения `settings` (ТЗ-94, ТЗ-131).
+/// Правка списка «Буфер устройства» по `DEVICE_BUFFER_OPTIONS`: вместо
+/// отказа поднимает черновой буфер плеера режима до
+/// `buffer_floor_ms(candidate)`, если он ниже этой границы —
+/// `raise_buffer_for_device` (ТЗ-94, ТЗ-131, §6.27, решение пользователя
+/// 2026-10-24). Уменьшение буфера устройства уже поднятый буфер плеера
+/// назад не опускает — односторонняя связь реализована в
+/// `raise_buffer_for_device`. `BuffersNotAllowed` — резерв на будущее
+/// (граница вне диапазона `BufferMs`), недостижимо при нынешних пяти
+/// значениях `DeviceBuffer`.
 fn apply_device_buffer(settings: &mut ModeSettings, mode: ModeKind, value: EditValue) -> Result<(), EditRejected> {
     let EditValue::Index(index) = value else { return Err(EditRejected::BadValue) };
     let candidate = *DEVICE_BUFFER_OPTIONS.get(index).ok_or(EditRejected::BadValue)?;
@@ -536,10 +577,17 @@ fn apply_device_buffer(settings: &mut ModeSettings, mode: ModeKind, value: EditV
         ModeKind::Strict => settings.strict.buffer,
         ModeKind::Compatible => return Err(EditRejected::NotEditable),
     };
-    buffers_allowed(buffer, candidate).map_err(EditRejected::BuffersNotAllowed)?;
+    let raised = raise_buffer_for_device(buffer, candidate)
+        .ok_or(EditRejected::BuffersNotAllowed(ValueBlocker::DeviceBufferTooLarge { max_ms: candidate.ms() }))?;
     match mode {
-        ModeKind::Optimal => settings.optimal.device_buffer = candidate,
-        ModeKind::Strict => settings.strict.device_buffer = candidate,
+        ModeKind::Optimal => {
+            settings.optimal.device_buffer = candidate;
+            settings.optimal.buffer = raised;
+        }
+        ModeKind::Strict => {
+            settings.strict.device_buffer = candidate;
+            settings.strict.buffer = raised;
+        }
         ModeKind::Compatible => return Err(EditRejected::NotEditable),
     }
     Ok(())
@@ -594,9 +642,12 @@ fn apply_volume_lock(settings: &mut ModeSettings, mode: ModeKind, value: EditVal
 }
 
 /// Правка ползунка «Буфер декодирование → вывод»: значение проверяется
-/// конструктором `BufferMs::new` (без `as`), затем — парой с буфером
-/// устройства режима через `buffers_allowed` там, где он есть (ТЗ-94,
-/// ТЗ-131).
+/// конструктором `BufferMs::new` (без `as`), затем — границей буфера
+/// устройства режима через `raise_buffer_for_device` там, где он есть:
+/// значение ниже границы клампится до неё, а не отклоняется (ТЗ-94,
+/// ТЗ-131, §6.27, решение пользователя 2026-10-24). `BuffersNotAllowed` —
+/// резерв на будущее (граница вне диапазона `BufferMs`), недостижимо при
+/// нынешних значениях `DeviceBuffer`.
 fn apply_buffer(settings: &mut ModeSettings, mode: ModeKind, value: EditValue) -> Result<(), EditRejected> {
     let EditValue::Slider(ms) = value else { return Err(EditRejected::BadValue) };
     let buffer = BufferMs::new(ms).ok_or(EditRejected::BadValue)?;
@@ -606,13 +657,15 @@ fn apply_buffer(settings: &mut ModeSettings, mode: ModeKind, value: EditValue) -
             Ok(())
         }
         ModeKind::Optimal => {
-            buffers_allowed(buffer, settings.optimal.device_buffer).map_err(EditRejected::BuffersNotAllowed)?;
-            settings.optimal.buffer = buffer;
+            let device_buffer = settings.optimal.device_buffer;
+            settings.optimal.buffer = raise_buffer_for_device(buffer, device_buffer)
+                .ok_or(EditRejected::BuffersNotAllowed(ValueBlocker::DeviceBufferTooLarge { max_ms: device_buffer.ms() }))?;
             Ok(())
         }
         ModeKind::Strict => {
-            buffers_allowed(buffer, settings.strict.device_buffer).map_err(EditRejected::BuffersNotAllowed)?;
-            settings.strict.buffer = buffer;
+            let device_buffer = settings.strict.device_buffer;
+            settings.strict.buffer = raise_buffer_for_device(buffer, device_buffer)
+                .ok_or(EditRejected::BuffersNotAllowed(ValueBlocker::DeviceBufferTooLarge { max_ms: device_buffer.ms() }))?;
             Ok(())
         }
     }
@@ -684,16 +737,17 @@ mod tests {
         assert!(access.note.contains("задано режимом"));
     }
 
+    /// ТЗ-131, §6.27, решение пользователя 2026-10-24: пункты списка «Буфер
+    /// устройства» не зависят от текущего чернового буфера плеера — пара
+    /// больше не отказывает, несовпадение разрешается автоподъёмом.
     #[test]
-    fn device_buffer_option_disallowed_by_buffers_allowed_is_disabled_with_hint() {
+    fn device_buffer_options_all_enabled_regardless_of_draft_buffer() {
         let mut settings = ModeSettings::default();
         settings.optimal.buffer = BufferMsForTest::ms100();
         let rows = build_rows(ModeKind::Optimal, &settings);
         let row = rows.iter().find(|r| r.param == ParamId::DeviceBuffer).expect("DeviceBuffer row must exist");
         let RowKind::List { options, .. } = &row.kind else { panic!("expected List") };
-        let ms400 = options.iter().find(|o| o.label == i18n::DEVICE_BUFFER_400MS).expect("400 мс option must exist");
-        assert!(!ms400.enabled);
-        assert!(ms400.hint.contains("буфер плеера"));
+        assert!(options.iter().all(|o| o.enabled), "все пункты должны быть активны: {options:?}");
     }
 
     #[test]
@@ -735,9 +789,9 @@ mod tests {
         assert!(!strict_row.enabled);
     }
 
-    /// Вспомогательный конструктор буфера плеера для теста: 100 мс
-    /// попадают в допустимый диапазон `BufferMs` и не проходят
-    /// `buffers_allowed` с `DeviceBuffer::Ms400` (нужны >= 800 мс).
+    /// Вспомогательный конструктор буфера плеера для теста: 100 мс попадают
+    /// в допустимый диапазон `BufferMs`, но ниже `buffer_floor_ms(Ms400)`
+    /// (800 мс) — стартовое значение для проверки автоподъёма/клампа.
     struct BufferMsForTest;
     impl BufferMsForTest {
         fn ms100() -> music_player_rs::settings::playback::BufferMs {
@@ -761,18 +815,51 @@ mod tests {
         assert_eq!(*selected, 2);
     }
 
-    /// ТЗ-94: буфер устройства, не проходящий `buffers_allowed` с текущим
-    /// буфером плеера, отклоняется, `settings` не меняется.
+    /// ТЗ-131, §6.27, решение пользователя 2026-10-24: повышение «Буфера
+    /// устройства» до значения с более высокой границей поднимает черновой
+    /// буфер плеера ровно до этой границы вместо отказа.
     #[test]
-    fn disallowed_device_buffer_edit_is_rejected_and_unchanged() {
+    fn device_buffer_edit_raises_draft_buffer_to_floor() {
         let mut settings = ModeSettings::default();
         settings.optimal.buffer = BufferMsForTest::ms100();
-        let before = settings.clone();
 
-        let result = apply_edit(&mut settings, ModeKind::Optimal, ParamId::DeviceBuffer, EditValue::Index(4));
+        apply_edit(&mut settings, ModeKind::Optimal, ParamId::DeviceBuffer, EditValue::Index(4))
+            .expect("Index(4) = Ms400 — автоподъём, допустимая правка");
 
-        assert_eq!(result, Err(EditRejected::BuffersNotAllowed(ValueBlocker::PlayerBufferTooSmall { need_ms: 800 })));
-        assert_eq!(settings, before);
+        assert_eq!(settings.optimal.device_buffer, DeviceBuffer::Ms400);
+        assert_eq!(settings.optimal.buffer.get(), 800);
+    }
+
+    /// ТЗ-131, §6.27: значение ползунка «Буфер декодирование → вывод» ниже
+    /// границы текущего буфера устройства клампится до неё, а не
+    /// отклоняется.
+    #[test]
+    fn buffer_slider_edit_below_floor_clamps_to_floor() {
+        let mut settings = ModeSettings::default();
+        settings.optimal.device_buffer = DeviceBuffer::Ms200; // floor = 400 мс
+
+        apply_edit(&mut settings, ModeKind::Optimal, ParamId::Buffer, EditValue::Slider(100))
+            .expect("значение ниже границы клампится, не отклоняется");
+
+        assert_eq!(settings.optimal.buffer.get(), 400);
+    }
+
+    /// Решение пользователя 2026-10-24 (ТЗ-131): связь односторонняя — буфер
+    /// плеера, уже поднятый автоподъёмом, последующее уменьшение буфера
+    /// устройства назад не опускает.
+    #[test]
+    fn device_buffer_decrease_does_not_lower_already_raised_buffer() {
+        let mut settings = ModeSettings::default();
+        settings.optimal.buffer = BufferMsForTest::ms100();
+        apply_edit(&mut settings, ModeKind::Optimal, ParamId::DeviceBuffer, EditValue::Index(4))
+            .expect("Ms400 — допустимая правка");
+        assert_eq!(settings.optimal.buffer.get(), 800);
+
+        apply_edit(&mut settings, ModeKind::Optimal, ParamId::DeviceBuffer, EditValue::Index(0))
+            .expect("Ms20 — допустимая правка");
+
+        assert_eq!(settings.optimal.device_buffer, DeviceBuffer::Ms20);
+        assert_eq!(settings.optimal.buffer.get(), 800);
     }
 
     /// §6.27: синтетический `NotImplemented`-пункт («Крутой, короткая
@@ -832,20 +919,31 @@ mod tests {
     }
 
     /// ТЗ-131, §6.27: буфер устройства `Ms100` поднимает нижнюю границу
-    /// ползунка «Буфер декодирование → вывод» до 200 мс и несёт подсказку
-    /// «уменьшите буфер устройства до 40 мс».
+    /// ползунка «Буфер декодирование → вывод» до 200 мс, строка границы
+    /// всегда видна и называет буфер устройства, поднявший её.
     #[test]
-    fn row_buffer_floor_raised_by_device_buffer_with_hint() {
+    fn row_buffer_floor_raised_by_device_buffer_shows_boundary_note() {
         let mut settings = ModeSettings::default();
         settings.optimal.device_buffer = DeviceBuffer::Ms100;
         let rows = build_rows(ModeKind::Optimal, &settings);
         let row = rows.iter().find(|r| r.param == ParamId::Buffer).expect("Buffer row must exist");
         assert_eq!(row.kind, RowKind::Slider { value: row_value(row), min: 200, max: 10_000 });
-        assert!(row.note.contains("уменьшите буфер устройства до 40 мс"));
+        assert_eq!(row.note, "минимум 200 мс — вдвое больше буфера устройства (100 мс)");
+    }
+
+    /// ТЗ-131, §6.27: когда граница равна абсолютному минимуму (`Ms20`/
+    /// `Ms40`, 100 мс), строка границы всё равно видна постоянно, но без
+    /// упоминания буфера устройства.
+    #[test]
+    fn row_buffer_floor_at_absolute_minimum_shows_plain_boundary_note() {
+        let settings = ModeSettings::default(); // optimal.device_buffer == Ms40 → floor 100
+        let rows = build_rows(ModeKind::Optimal, &settings);
+        let row = rows.iter().find(|r| r.param == ParamId::Buffer).expect("Buffer row must exist");
+        assert_eq!(row.note, "минимум 100 мс");
     }
 
     /// ТЗ-131, §6.27: в Совместимом режиме `DeviceBuffer` не применяется —
-    /// нижняя граница ползунка всегда 100 мс без подсказки.
+    /// нижняя граница ползунка всегда 100 мс без строки границы.
     #[test]
     fn row_buffer_floor_is_100_in_compatible_mode() {
         let settings = ModeSettings::default();
