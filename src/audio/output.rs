@@ -977,7 +977,7 @@ fn collapse_to_system_default(
 #[cfg(target_os = "linux")]
 fn system_default_label() -> String {
     match crate::audio::reservation::dbus::active_server_name() {
-        Some(server) => crate::i18n::audio::system_default_label_with_server(&server),
+        Some(server) => crate::i18n::audio::system_default_label_with_server(server),
         None => crate::i18n::audio::SYSTEM_DEFAULT_LABEL.to_owned(),
     }
 }

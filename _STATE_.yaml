@@ -100,9 +100,9 @@ steps:
     done: true
   - id: 20
     description: "ЧЕКПОИНТ (финальный, перед закрытием задачи): полный cargo test + cargo clippy + tools/check_rt_imports.py + tools/traceability_tool.py check — все зелёные; выборочная сверка, что перенесённые строки байт-в-байт совпадают с прежними (diff литералов)"
-    done: false
+    done: true
 current_step: 20
-next_action: "Шаг 20: финальный ЧЕКПОИНТ"
+next_action: "Закрытие T1.0-B8 (closing.md)"
 fail_counter: 0
 fail_counter_max: 3
 failed_attempts: []
