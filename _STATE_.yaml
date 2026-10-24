@@ -2,15 +2,35 @@
 # _STATE_.md генерируется из этого файла — не редактировать его руками.
 # Редактируйте этот файл, затем: python tools/state_tool.py render
 
-status: done
+status: in_progress
 task:
-  roadmap_id: null
-  title: null
-whitelist: []
-dod: null
-steps: []
-current_step: null
-next_action: null
+  roadmap_id: AM1.0-B35
+  title: "Буфер устройства/буфер плеера: автоподъём вместо неактивных пунктов"
+whitelist:
+  - docs/01_audio_modes_v1.0/02_tz.md
+  - docs/01_audio_modes_v1.0/03_spec.md
+  - src/settings/playback.rs
+  - src/app/mode_dialog.rs
+  - ui/mode_params.slint
+dod: "Пара «Буфер устройства»/буфер плеера (ТЗ-131, §6.27) связана автоподъёмом: повышение буфера устройства поднимает черновой буфер плеера до max(100, 2·D), понижение не опускает обратно; под ползунком буфера плеера всегда видна строка границы, при автоподъёме — вторая строка «Поднят автоматически до N мс»; cargo test и clippy зелёные"
+steps:
+  - id: 1
+    description: "Docs: ТЗ-131 (исключение для пары буферов, 02_tz.md) и §6.27 (03_spec.md) — автоподъём вместо неактивных пунктов, постоянная подсказка-граница под ползунком. Проверка: текст не противоречит коду шагов 2-4"
+    done: false
+  - id: 2
+    description: "src/settings/playback.rs: функция автоподъёма чернового BufferMs по DeviceBuffer на основе buffer_floor_ms + юнит-тесты (подъём, не опускает обратно при уменьшении, границы диапазона BufferMs). Проверка: cargo test settings::playback:: зелёный"
+    done: false
+  - id: 3
+    description: "src/app/mode_dialog.rs: apply_device_buffer применяет автоподъём к draft ModeSettings вместо отказа buffers_allowed; row_buffer формирует note с постоянной строкой границы и строкой автоподъёма, когда он сработал. Проверка: cargo test app::mode_dialog:: зелёный"
+    done: false
+  - id: 4
+    description: "ui/mode_params.slint: проверить/поправить отображение многострочной note под ползунком буфера плеера (граница + строка автоподъёма). Проверка: cargo check зелёный"
+    done: false
+  - id: 5
+    description: "ЧЕКПОИНТ: full cargo test + cargo clippy по всему workspace зелёные"
+    done: false
+current_step: 1
+next_action: "Шаг 1: править docs/01_audio_modes_v1.0/02_tz.md (ТЗ-131) и 03_spec.md (§6.27) — исключение для пары буферов"
 fail_counter: 0
 fail_counter_max: 3
 failed_attempts: []
