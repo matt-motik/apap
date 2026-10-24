@@ -2,15 +2,27 @@
 # _STATE_.md генерируется из этого файла — не редактировать его руками.
 # Редактируйте этот файл, затем: python tools/state_tool.py render
 
-status: done
+status: in_progress
 task:
-  roadmap_id: null
-  title: null
-whitelist: []
-dod: null
-steps: []
-current_step: null
-next_action: null
+  roadmap_id: T1.0-B5
+  title: "Русские дефолты подписей панели информации"
+whitelist:
+  - src/i18n/mod.rs
+  - src/settings.rs
+  - src/persist/settings_file.rs
+dod: "default_info_labels() отдаёт русские подписи (порядок INFO_LABEL_KEYS = ui/app.slint info-labels) через src/i18n/; значение info_labels.<key>, сохранённое в файле настроек и равное старому английскому дефолту, на загрузке заменяется русским дефолтом (не считается переопределением); пользовательские значения не трогаются; cargo test + clippy зелёные"
+steps:
+  - id: 1
+    description: "Добавить info_label_default(key) в src/i18n/mod.rs (русские подписи в порядке INFO_LABEL_KEYS/ui/app.slint info-labels) и переключить Settings::default_info_labels() (src/settings.rs) на вызов этой функции. Проверка: cargo check"
+    done: false
+  - id: 2
+    description: "В src/persist/settings_file.rs добавить приватный список OLD_ENGLISH_INFO_LABEL_DEFAULTS (английские дефолты до перевода, с doc-комментарием) и логику в Settings::info_label(): хранимое значение, равное старому английскому дефолту для этого ключа, не считается переопределением — показывается новый (русский) дефолт; обновить/добавить unit-тесты (свежий дефолт, старое английское значение → русский, пользовательское значение → сохранено). Проверка: cargo test persist::settings_file::"
+    done: false
+  - id: 3
+    description: "ЧЕКПОИНТ: полный cargo test + cargo clippy без новых предупреждений по файлам вайтлиста"
+    done: false
+current_step: 1
+next_action: "Добавить info_label_default(key) в src/i18n/mod.rs"
 fail_counter: 0
 fail_counter_max: 3
 failed_attempts: []
