@@ -2,15 +2,29 @@
 # _STATE_.md генерируется из этого файла — не редактировать его руками.
 # Редактируйте этот файл, затем: python tools/state_tool.py render
 
-status: done
+status: in_progress
 task:
-  roadmap_id: null
-  title: null
-whitelist: []
-dod: null
-steps: []
-current_step: null
-next_action: null
+  roadmap_id: T1.0-B7
+  title: "Перенос оставшихся пользовательских строк Rust (messages.rs, CoverSource::label()) в src/i18n/"
+whitelist:
+  - src/i18n/mod.rs
+  - src/i18n/messages.rs
+  - src/core/messages.rs
+  - src/settings.rs
+  - src/app/ui_manager.rs
+dod: "cargo test зелёный; тексты кнопок/заголовка окон сообщений и подписи источников обложки — те же строки (кнопки/заголовок — байт-в-байт, подписи обложек — перевод на русский), заданные через src/i18n/"
+steps:
+  - id: 1
+    description: "src/i18n/messages.rs: функция message_action_label(MessageAction) и константа WRITE_ERRORS_TITLE (ТЗ-46, §6.8, byte-identical текст) + регистрация pub mod messages в src/i18n/mod.rs; src/core/messages.rs::MessageAction::label() и write_errors_text() переключены на них. Проверка: cargo check; cargo test core::messages:: i18n:: — зелёные"
+    done: false
+  - id: 2
+    description: "src/i18n/mod.rs: функция cover_source_label(CoverSource) с переводом (Из папки/Встроенная в файл/Из интернета); src/settings.rs::CoverSource::label() удалён; src/app/ui_manager.rs::sync_cover_settings_to_ui вызывает i18n::cover_source_label напрямую. Проверка: cargo check (lib + bin)"
+    done: false
+  - id: 3
+    description: "ЧЕКПОИНТ: полный cargo test + cargo clippy без новых предупреждений по файлам вайтлиста"
+    done: false
+current_step: 1
+next_action: "Создать src/i18n/messages.rs с message_action_label и WRITE_ERRORS_TITLE, подключить в src/core/messages.rs"
 fail_counter: 0
 fail_counter_max: 3
 failed_attempts: []
