@@ -245,7 +245,7 @@ impl MusicApp {
             .enumerate()
             .map(|(i, c)| {
                 CoverSetting {
-                    label: c.label().into(),
+                    label: music_player_rs::i18n::cover_source_label(*c).into(),
                     pos: i as i32,
                 }
             })

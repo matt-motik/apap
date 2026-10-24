@@ -19,12 +19,12 @@ steps:
     done: true
   - id: 2
     description: "src/i18n/mod.rs: функция cover_source_label(CoverSource) с переводом (Из папки/Встроенная в файл/Из интернета); src/settings.rs::CoverSource::label() удалён; src/app/ui_manager.rs::sync_cover_settings_to_ui вызывает i18n::cover_source_label напрямую. Проверка: cargo check (lib + bin)"
-    done: false
+    done: true
   - id: 3
     description: "ЧЕКПОИНТ: полный cargo test + cargo clippy без новых предупреждений по файлам вайтлиста"
     done: false
-current_step: 2
-next_action: "src/i18n/mod.rs: добавить cover_source_label; src/settings.rs убрать CoverSource::label(); обновить ui_manager.rs"
+current_step: 3
+next_action: "ЧЕКПОИНТ: полный cargo test + cargo clippy"
 fail_counter: 0
 fail_counter_max: 3
 failed_attempts: []

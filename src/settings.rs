@@ -182,14 +182,6 @@ impl CoverSource {
         }
     }
 
-    pub fn label(self) -> &'static str {
-        match self {
-            CoverSource::Folder => "From folder (cover.jpg, ...)",
-            CoverSource::Embedded => "Embedded in file (APIC)",
-            CoverSource::Internet => "From internet (iTunes)",
-        }
-    }
-
     pub fn from_key(key: &str) -> Option<CoverSource> {
         CoverSource::ALL.iter().copied().find(|c| c.key() == key)
     }

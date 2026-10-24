@@ -390,6 +390,17 @@ pub const VIZ_ERROR_FREQ_MAX: &str = "freq_max: целое 1..22050 и стро�
 /// T1.0-B2).
 pub const VIZ_ERROR_BANDS: &str = "bands: целое 4..128";
 
+/// Подпись источника обложки в списке «Приоритет источников обложки»
+/// вкладки «Обложки» (T1.0-B7; перенесено из
+/// `src/settings.rs::CoverSource::label()`, было на английском).
+pub fn cover_source_label(source: CoverSource) -> &'static str {
+    match source {
+        CoverSource::Folder => "Из папки (cover.jpg, …)",
+        CoverSource::Embedded => "Встроенная в файл (APIC)",
+        CoverSource::Internet => "Из интернета (iTunes)",
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -657,5 +668,17 @@ mod tests {
     #[test]
     fn mode_dialog_fixed_by_mode_substitutes_shown_value() {
         assert_eq!(mode_dialog_fixed_by_mode("Exclusive"), "Exclusive — задано режимом");
+    }
+
+    #[test]
+    fn cover_source_label_covers_all_variants() {
+        let cases = [
+            (CoverSource::Folder, "Из папки (cover.jpg, …)"),
+            (CoverSource::Embedded, "Встроенная в файл (APIC)"),
+            (CoverSource::Internet, "Из интернета (iTunes)"),
+        ];
+        for (source, label) in cases {
+            assert_eq!(cover_source_label(source), label, "source={source:?}");
+        }
     }
 }
