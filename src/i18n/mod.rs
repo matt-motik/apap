@@ -37,6 +37,78 @@ pub fn format_named(template: &str, pairs: &[(&str, &str)]) -> String {
     result
 }
 
+/// Склонение существительного под число по правилам русского языка
+/// (T1.0-B2): единственная форма для 1, 21, 31… («1 трек»), счётная для
+/// 2–4, 22–24… («3 трека»), множественная для 0, 5–20, 25–30… включая
+/// 11–14 («0 треков», «11 треков», «25 треков»). Возвращает только форму
+/// слова — число форматирует вызывающий код: `format!("{n} {}", plural_ru(n,
+/// "трек", "трека", "треков"))`.
+pub fn plural_ru<'a>(n: u64, one: &'a str, few: &'a str, many: &'a str) -> &'a str {
+    let rem100 = n % 100;
+    let rem10 = n % 10;
+    if (11..=14).contains(&rem100) {
+        many
+    } else if rem10 == 1 {
+        one
+    } else if (2..=4).contains(&rem10) {
+        few
+    } else {
+        many
+    }
+}
+
+/// Общая часть числовых форматтеров (T1.0-B2): десятичная точка меняется на
+/// запятую, знак «минус» — на типографский «−» (U+2212), ноль (в том числе
+/// «-0,0» после округления) всегда без знака. `trim_trailing_zeros`
+/// управляет тем, остаётся ли дробная часть, состоящая только из нулей
+/// (`format_khz`/`format_ms` её убирают, `format_decimal`/`format_db` — нет,
+/// у них фиксированное число знаков после запятой).
+fn decimal_with_comma(value: f64, decimals: usize, trim_trailing_zeros: bool) -> String {
+    let raw = format!("{value:.decimals$}");
+    let unsigned = raw.strip_prefix('-').unwrap_or(raw.as_str());
+    let is_zero = unsigned.chars().all(|c| c == '0' || c == '.');
+    let sign = if raw.starts_with('-') && !is_zero { "\u{2212}" } else { "" };
+    let digits = if trim_trailing_zeros && unsigned.contains('.') {
+        unsigned.trim_end_matches('0').trim_end_matches('.')
+    } else {
+        unsigned
+    };
+    format!("{sign}{}", digits.replace('.', ","))
+}
+
+/// Вещественное число с десятичной запятой и фиксированным числом знаков
+/// после неё (T1.0-B2): `format_decimal(-3.0, 1)` → `"−3,0"`. Для единиц с
+/// обрезкой лишних нулей — `format_khz`/`format_ms`.
+pub fn format_decimal(value: f64, decimals: usize) -> String {
+    decimal_with_comma(value, decimals, false)
+}
+
+/// Частота в кГц с десятичной запятой без лишних нулей (T1.0-B2): принимает
+/// значение уже в кГц (не Гц). `format_khz(44.1)` → `"44,1 кГц"`,
+/// `format_khz(48.0)` → `"48 кГц"`.
+pub fn format_khz(value_khz: f64) -> String {
+    format!("{} кГц", decimal_with_comma(value_khz, 2, true))
+}
+
+/// Длительность в миллисекундах без лишних нулей в дробной части
+/// (T1.0-B2): `format_ms(12.0)` → `"12 мс"`, `format_ms(0.5)` → `"0,5 мс"`.
+pub fn format_ms(value_ms: f64) -> String {
+    format!("{} мс", decimal_with_comma(value_ms, 2, true))
+}
+
+/// Уровень в децибелах с фиксированным одним знаком после запятой
+/// (T1.0-B2): `format_db(-3.0)` → `"−3,0 дБ"`.
+pub fn format_db(value_db: f64) -> String {
+    format!("{} дБ", decimal_with_comma(value_db, 1, false))
+}
+
+/// Глубина сигнала в битах (T1.0-B2): `format_bits(24)` → `"24 бит"` —
+/// единица не склоняется (устоявшийся технический оборот, решение
+/// пользователя 2026-10-23, ROADMAP.md T1.0-B2).
+pub fn format_bits(bits: u32) -> String {
+    format!("{bits} бит")
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -85,5 +157,83 @@ mod tests {
     #[test]
     fn format_named_no_pairs_returns_template_unchanged() {
         assert_eq!(format_named("Статика без плейсхолдеров", &[]), "Статика без плейсхолдеров");
+    }
+
+    #[test]
+    fn plural_ru_one_for_1_21_31() {
+        for n in [1, 21, 31, 101] {
+            assert_eq!(plural_ru(n, "трек", "трека", "треков"), "трек", "n={n}");
+        }
+    }
+
+    #[test]
+    fn plural_ru_few_for_2_3_4() {
+        for n in [2, 3, 4, 22, 24, 102] {
+            assert_eq!(plural_ru(n, "трек", "трека", "треков"), "трека", "n={n}");
+        }
+    }
+
+    #[test]
+    fn plural_ru_many_for_0_5_11_14_25() {
+        for n in [0, 5, 11, 12, 13, 14, 20, 25, 100, 111, 114] {
+            assert_eq!(plural_ru(n, "трек", "трека", "треков"), "треков", "n={n}");
+        }
+    }
+
+    #[test]
+    fn format_decimal_keeps_trailing_zero() {
+        assert_eq!(format_decimal(3.0, 1), "3,0");
+    }
+
+    #[test]
+    fn format_decimal_negative_uses_typographic_minus() {
+        assert_eq!(format_decimal(-3.0, 1), "\u{2212}3,0");
+    }
+
+    #[test]
+    fn format_decimal_rounds_to_zero_drops_sign() {
+        assert_eq!(format_decimal(-0.04, 1), "0,0");
+    }
+
+    #[test]
+    fn format_decimal_fractional_rounds() {
+        assert_eq!(format_decimal(3.14728, 2), "3,15");
+    }
+
+    #[test]
+    fn format_khz_fractional_value() {
+        assert_eq!(format_khz(44.1), "44,1 кГц");
+    }
+
+    #[test]
+    fn format_khz_whole_value_has_no_trailing_zero() {
+        assert_eq!(format_khz(48.0), "48 кГц");
+    }
+
+    #[test]
+    fn format_khz_two_decimal_digits() {
+        assert_eq!(format_khz(22.05), "22,05 кГц");
+    }
+
+    #[test]
+    fn format_ms_whole_value_has_no_trailing_zero() {
+        assert_eq!(format_ms(12.0), "12 мс");
+    }
+
+    #[test]
+    fn format_ms_fractional_value() {
+        assert_eq!(format_ms(0.5), "0,5 мс");
+    }
+
+    #[test]
+    fn format_db_keeps_fixed_one_decimal() {
+        assert_eq!(format_db(-3.0), "\u{2212}3,0 дБ");
+        assert_eq!(format_db(0.0), "0,0 дБ");
+    }
+
+    #[test]
+    fn format_bits_is_not_declined() {
+        assert_eq!(format_bits(24), "24 бит");
+        assert_eq!(format_bits(1), "1 бит");
     }
 }
