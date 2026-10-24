@@ -18,7 +18,7 @@ dod: "Совместимый режим на Linux с PipeWire показыва�
 steps:
   - id: 1
     description: "ADR-07: новая формулировка — перечень per-sink узлов через pw-dump, открытие через alsa crate по pipewire:NODE=<node.name>, идентификатор — node.name, подпись через hw_device_label при соответствии карте ALSA, иначе node.description, фоллбэк на «Системное по умолчанию» без pw-dump (docs/01_audio_modes_v1.0/03_spec.md#adr-07-бэкенды-вывода). Проверка: python tools/state_tool.py check; python tools/traceability_tool.py check"
-    done: false
+    done: true
   - id: 2
     description: "Чистая функция разбора pw-dump JSON → список узлов Audio/Sink (id/node.name/node.description/alsa.card_name/alsa.name) + тесты с фикстурой JSON (новый файл src/audio/backend/pw_dump.rs; регистрация в docs/00_workflow_v1.0/architecture.md). Проверка: cargo test pw_dump::"
     done: false
@@ -46,8 +46,8 @@ steps:
   - id: 10
     description: "ЧЕКПОИНТ финальный перед закрытием: полный cargo test + cargo clippy зелёные"
     done: false
-current_step: 1
-next_action: "Записать коммит docs(am): ADR-07 per-sink server outputs via pw-dump (AM1.0-B37, step 1), затем отметить шаг 1 done"
+current_step: 2
+next_action: "Шаг 2: чистая функция разбора pw-dump JSON в src/audio/backend/pw_dump.rs + тесты с фикстурой JSON"
 fail_counter: 0
 fail_counter_max: 3
 failed_attempts: []
