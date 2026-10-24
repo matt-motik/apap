@@ -44,15 +44,15 @@ steps:
     done: true
   - id: 8
     description: "ЧЕКПОИНТ: полный cargo test + cargo clippy зелёные (шаги 6-7)"
-    done: false
+    done: true
   - id: 9
     description: "ui/top_panel.slint (+ Rust-обработчик select-mode, если меняется сигнатура): убрать или оставить старый ряд ModeButton в главном окне — решить по ТЗ-18, ТЗ-109…ТЗ-111 (переключатель «постоянно виден в главном окне» уже удовлетворяется бейджем в строке меню, AM1.0-B4 решение пользователя 2026-10-10/23); убрать, если спека не требует отдельного ряда, иначе оставить с заметкой. Проверка: cargo check"
     done: false
   - id: 10
     description: "ЧЕКПОИНТ перед закрытием: полный cargo test + cargo clippy зелёные; ручные проверки — в заметку плана AM1.0-B4 при закрытии (closing.md §2)"
     done: false
-current_step: 8
-next_action: "ЧЕКПОИНТ: полный cargo test + cargo clippy зелёные (шаги 6-7)"
+current_step: 9
+next_action: "ui/top_panel.slint (+ Rust-обработчик select-mode, если меняется сигнатура): убрать или оставить старый ряд ModeButton в главном окне"
 fail_counter: 0
 fail_counter_max: 3
 failed_attempts: []
