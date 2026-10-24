@@ -496,7 +496,7 @@ impl MusicApp {
             .find(|(raw, _)| raw == id)
             .map(|(_, label)| {
                 label
-                    .strip_suffix(music_player_rs::audio::output::SERVER_NODE_SUFFIX)
+                    .strip_suffix(music_player_rs::i18n::audio::SERVER_NODE_SUFFIX)
                     .unwrap_or(label)
                     .to_string()
             })
@@ -874,8 +874,8 @@ pub(super) fn audio_filter_matches(
 
 /// Index of the pair matching `want` within an *arbitrary* `(id, label)` list.
 /// `want` is either a stable device id or a human-readable name; for server
-/// nodes the name matches the label with the "software, resamples" suffix
-/// stripped.
+/// nodes the name matches the label with the
+/// [`music_player_rs::i18n::audio::SERVER_NODE_SUFFIX`] suffix stripped.
 pub(super) fn find_device_index_in(pairs: &[(String, String)], want: &str) -> Option<usize> {
     pairs
         .iter()
@@ -884,7 +884,7 @@ pub(super) fn find_device_index_in(pairs: &[(String, String)], want: &str) -> Op
         .or_else(|| {
             pairs.iter().position(|(_, label)| {
                 label
-                    .strip_suffix(music_player_rs::audio::output::SERVER_NODE_SUFFIX)
+                    .strip_suffix(music_player_rs::i18n::audio::SERVER_NODE_SUFFIX)
                     .is_some_and(|stripped| stripped == want)
             })
         })
