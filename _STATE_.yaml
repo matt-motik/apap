@@ -129,7 +129,7 @@ steps:
     done: true
   - id: 19
     description: "ЧЕКПОИНТ: полный cargo test + cargo clippy зелёные (трей, диалоги выбора файлов)."
-    done: false
+    done: true
   - id: 20
     description: >
       src/app/mod.rs: перевод реальных пользовательских строк (напр. статус «Audio: {name} ready»)
@@ -183,8 +183,8 @@ steps:
       check зелёные; готовность к closing.md (ручная проверка пользователем — обрезка длинных
       русских подписей на всех экранах).
     done: false
-current_step: 19
-next_action: "ЧЕКПОИНТ: полный cargo test + cargo clippy зелёные (трей, диалоги выбора файлов)."
+current_step: 20
+next_action: "src/app/mod.rs: перевод реальных пользовательских строк (напр. статус «Audio: {name} ready») через src/i18n/; тестовые фикстуры (Title/Artist/FLAC/Intel HDA и пр.) не переводятся — не пользовательский текст."
 fail_counter: 0
 fail_counter_max: 3
 failed_attempts: []
