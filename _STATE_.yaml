@@ -108,7 +108,7 @@ steps:
     done: true
   - id: 14
     description: "ui/app.slint: @tr + перевод оставшихся английских строк (статус, «No tracks» и пр.)."
-    done: false
+    done: true
   - id: 15
     description: >
       ui/top_panel.slint + ui/status.slint + ui/playlist.slint: @tr + перевод мелких строк
@@ -183,8 +183,8 @@ steps:
       check зелёные; готовность к closing.md (ручная проверка пользователем — обрезка длинных
       русских подписей на всех экранах).
     done: false
-current_step: 14
-next_action: "ui/app.slint: @tr + перевод оставшихся английских строк (статус, «No tracks» и пр.)."
+current_step: 15
+next_action: "ui/top_panel.slint + ui/status.slint + ui/playlist.slint: @tr + перевод мелких строк («Album Art», «No tracks», «Stopped»)."
 fail_counter: 0
 fail_counter_max: 3
 failed_attempts: []
@@ -236,3 +236,4 @@ plan:
         - "Текст ТЗ-34 «Удалить текущий трек» расходится с реализацией (удаляется выделенный, SP1.0-B6) — правка docs по разрешению пользователя."
         - "На Windows-ноутбуке: проверить cargo build (Windows/macOS проверены только ревью)."
         - "На С12: ручной strace ТЗ-19."
+        - "T1.0-B2 шаг 14: окно AppWindow (ui/app.slint) имеет статический title: \"APAP\" — src/i18n/mod.rs::window_title()/APP_NAME (шаг 1) нигде не вызывается, заголовок не обновляется на «APAP — <трек>» при смене трека. Нужно завести in-property window-title в app.slint и дёргать window_title() из mod.rs/ui_manager.rs при обновлении трека — при следующей работе с этими файлами (шаг 20/21) или отдельным шагом до закрытия T1.0-B2."

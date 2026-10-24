@@ -57,9 +57,9 @@
 - [x] Шаг 12: ЧЕКПОИНТ: полный cargo test + cargo clippy зелёные (settings.slint Covers/Visualization).
 - [x] Шаг 13: ui/settings.slint — вкладка Cache (~строки 1532–1736) + диалоговая обвязка вне вкладок (заголовки, кнопки Cancel/Save/Reset/Refresh, ~строки 1–246): @tr + перевод.
 
-- [>] **Шаг 14: ui/app.slint: @tr + перевод оставшихся английских строк (статус, «No tracks» и пр.).**
-- [ ] Шаг 15: ui/top_panel.slint + ui/status.slint + ui/playlist.slint: @tr + перевод мелких строк («Album Art», «No tracks», «Stopped»).
-
+- [x] Шаг 14: ui/app.slint: @tr + перевод оставшихся английских строк (статус, «No tracks» и пр.).
+- [>] **Шаг 15: ui/top_panel.slint + ui/status.slint + ui/playlist.slint: @tr + перевод мелких строк («Album Art», «No tracks», «Stopped»).
+**
 - [ ] Шаг 16: ЧЕКПОИНТ: полный cargo test + cargo clippy зелёные (app.slint, top_panel/status/playlist.slint).
 - [ ] Шаг 17: src/platform/tray/mod.rs: перевод меню (Play/Pause, Stop, Previous, Next, Show/Hide, Quit) и тултипов на русский через src/i18n/; заголовок трея — APP_NAME.
 
@@ -88,8 +88,8 @@
 
 Легенда: [x] сделано · [>] текущий шаг · [ ] не начато
 
-- **Текущий шаг (current_step):** Шаг 14
-- **Следующий ход:** ui/app.slint: @tr + перевод оставшихся английских строк (статус, «No tracks» и пр.).
+- **Текущий шаг (current_step):** Шаг 15
+- **Следующий ход:** ui/top_panel.slint + ui/status.slint + ui/playlist.slint: @tr + перевод мелких строк («Album Art», «No tracks», «Stopped»).
 - **Счетчик безуспешных компиляций:** 0/3
 - **Состояние:** in_progress
 
@@ -132,5 +132,6 @@ _Источник: чат с пользователем (ноутбук), нач
   - Текст ТЗ-34 «Удалить текущий трек» расходится с реализацией (удаляется выделенный, SP1.0-B6) — правка docs по разрешению пользователя.
   - На Windows-ноутбуке: проверить cargo build (Windows/macOS проверены только ревью).
   - На С12: ручной strace ТЗ-19.
+  - T1.0-B2 шаг 14: окно AppWindow (ui/app.slint) имеет статический title: "APAP" — src/i18n/mod.rs::window_title()/APP_NAME (шаг 1) нигде не вызывается, заголовок не обновляется на «APAP — <трек>» при смене трека. Нужно завести in-property window-title в app.slint и дёргать window_title() из mod.rs/ui_manager.rs при обновлении трека — при следующей работе с этими файлами (шаг 20/21) или отдельным шагом до закрытия T1.0-B2.
 
 Легенда: [x] сделано · [~] частично · [>] в работе · [ ] не начато · [-] отменено

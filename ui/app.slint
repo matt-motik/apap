@@ -35,7 +35,7 @@ export struct PathRecItem {
 }
 
 export component AppWindow inherits Window {
-    title: "Music Player";
+    title: "APAP";
     background: Colors.bg-window;
     max-width: 100000px;
     // Предпочтительная ширина = сохранённая ширина окна (ADR-22, §6.17,
@@ -214,9 +214,9 @@ export component AppWindow inherits Window {
     in property <string> pos: "0:00";
     in property <string> dur: "0:00";
 
-    in property <string> status-text: "Stopped";
+    in property <string> status-text: @tr("Остановлено");
     in property <string> track-info: "";
-    in property <string> track-count: "0 tracks";
+    in property <string> track-count: @tr("0 треков");
     in property <bool> busy: false;
 
     // ADR-06, ТЗ-52, ТЗ-56: модель бейджа тракта (BadgeState).
@@ -244,19 +244,19 @@ export component AppWindow inherits Window {
     in property <string> info-channels: "—";
 
     in property <[string]> info-labels: [
-        "Artist",
-        "Track",
-        "Title",
-        "Duration",
-        "Year",
-        "Album",
-        "Disc",
-        "Genre",
-        "Format",
-        "Bitrate",
-        "Bit depth",
-        "Sample rate",
-        "Channels"
+        @tr("Исполнитель"),
+        @tr("Трек"),
+        @tr("Название"),
+        @tr("Длительность"),
+        @tr("Год"),
+        @tr("Альбом"),
+        @tr("Диск"),
+        @tr("Жанр"),
+        @tr("Формат"),
+        @tr("Битрейт"),
+        @tr("Разрядность"),
+        @tr("Частота дискретизации"),
+        @tr("Каналы")
     ];
 
     in property <int> viz-mode: 0;
@@ -271,8 +271,8 @@ export component AppWindow inherits Window {
     in property <float> bar-radius: 2;
     in property <bool> gradient: true;
 
-    in property <[[StandardListViewItem]]> playlist-rows: [[{ text: "No tracks" }]];
-    in-out property <[TableColumn]> playlist-cols: [{ title: "Title", width: 200px }];
+    in property <[[StandardListViewItem]]> playlist-rows: [[{ text: @tr("Нет треков") }]];
+    in-out property <[TableColumn]> playlist-cols: [{ title: @tr("Название"), width: 200px }];
     in property <int> current-row: -1;
     out property <length> playlist-view-width: playlist_view_width.view-width;
 
