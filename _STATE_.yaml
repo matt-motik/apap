@@ -22,7 +22,7 @@ steps:
     done: true
   - id: 2
     description: "src/core/dialog.rs: shown_mode входит в SettingsDiff (поле mode: Option<ModeKind>), apply_plan — шаг ActiveMode; validate не меняется; тест diff_ignores_shown_mode переименован/инвертирован (diff_detects_shown_mode_change). Проверка: cargo test core::dialog:: зелёный"
-    done: false
+    done: true
   - id: 3
     description: "src/core/mod.rs: dialog_save применяет шаг ActiveMode из плана — change_state(Origin::User, ActiveMode(m)), тот же путь, что и текущий select_mode главного окна/бейджа устройства. Проверка: cargo check; cargo test core:: зелёный"
     done: false
@@ -47,8 +47,8 @@ steps:
   - id: 10
     description: "ЧЕКПОИНТ перед закрытием: полный cargo test + cargo clippy зелёные; ручные проверки — в заметку плана AM1.0-B4 при закрытии (closing.md §2)"
     done: false
-current_step: 2
-next_action: "Шаг 2: src/core/dialog.rs — shown_mode входит в SettingsDiff, apply_plan получает шаг ActiveMode"
+current_step: 3
+next_action: "Шаг 3: src/core/mod.rs — dialog_save уже получил шаг ActiveMode (change_state(Origin::User, ActiveMode(m))), добавлен при шаге 2 для компиляции после нового варианта ApplyStep; подтвердить/дооформить и перейти к шагу 4 (src/core/testing.rs: переписать тесты диалога под ТЗ-30)"
 fail_counter: 0
 fail_counter_max: 3
 failed_attempts: []

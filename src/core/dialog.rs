@@ -61,13 +61,22 @@ pub struct SettingsDiff {
     pub viz_mode: Option<VisualizationMode>,
     /// «Сбросить ширины» нажата (Т-2).
     pub reset_widths: bool,
+    /// Режим, выбранный в диалоге (`draft.shown_mode`), если он отличается от
+    /// действующего активного режима; None — режим в диалоге не менялся
+    /// (ТЗ-30, уточнение пользователя 2026-10-23, вариант А). Разблокирует
+    /// «Сохранить» само по себе, даже без прочих отличий.
+    pub mode: Option<ModeKind>,
 }
 
 impl SettingsDiff {
     /// Отличий нет (ТЗ-27): кнопка «Сохранить» неактивна, запись и
     /// применение не выполняются (ТЗ-28, ТЗ-29).
     pub fn is_empty(&self) -> bool {
-        self.fields.is_empty() && self.modes.is_none() && self.viz_mode.is_none() && !self.reset_widths
+        self.fields.is_empty()
+            && self.modes.is_none()
+            && self.viz_mode.is_none()
+            && !self.reset_widths
+            && self.mode.is_none()
     }
 }
 
@@ -155,8 +164,11 @@ pub fn diff(cur: &Settings, state: &SessionState, draft: &DialogDraft) -> Settin
     let viz_mode = (draft.viz_mode != state.viz_mode()).then_some(draft.viz_mode);
     // Сброс пустого набора ширин отличием не является (§6.9, Т-2).
     let reset_widths = draft.reset_widths && !state.column_widths().is_empty();
+    // Режим, выбранный в диалоге, сравнивается с действующим активным режимом
+    // (§6.9, ТЗ-30): отличие разблокирует «Сохранить» само по себе.
+    let mode = (draft.shown_mode != state.active_mode()).then_some(draft.shown_mode);
 
-    SettingsDiff { fields, modes, viz_mode, reset_widths }
+    SettingsDiff { fields, modes, viz_mode, reset_widths, mode }
 }
 
 /// Перебазирование черновика при изменении действующих настроек в обход
@@ -407,6 +419,10 @@ pub enum ApplyStep {
     /// Опции режимов — `EngineCmd::SetModeSettings`; способ применения в
     /// тракте выбирает движок по `ApplyKind` (ТЗ-137 (01_audio_modes)).
     Engine(ModeSettingsUpdate),
+    /// Режим, выбранный в диалоге, становится активным — действующее
+    /// состояние с `Origin::User` → `state.toml`; бейдж режима в строке меню
+    /// обновляется (ТЗ-30, уточнение пользователя 2026-10-23, вариант А).
+    ActiveMode(ModeKind),
 }
 
 /// План применения отличий (§2.10, §6.9, ТЗ-29, §5.2 ТЗ): шаг строится только
@@ -458,6 +474,10 @@ pub fn apply_plan(diff: &SettingsDiff, draft: &DialogDraft) -> Vec<ApplyStep> {
             settings: draft.settings.playback.clone(),
             diff: Some(modes.clone()),
         }));
+    }
+    // Смена активного режима — последним шагом (§6.9, ТЗ-30).
+    if let Some(mode) = diff.mode {
+        plan.push(ApplyStep::ActiveMode(mode));
     }
 
     plan
@@ -588,13 +608,30 @@ mod tests {
         assert!(d.fields.is_empty() && d.modes.is_none() && d.viz_mode.is_none());
     }
 
+    /// Выбор режима в диалоге — отличие само по себе (§6.9, ТЗ-30, уточнение
+    /// пользователя 2026-10-23, вариант А): разблокирует «Сохранить» даже без
+    /// прочих изменений; режим, равный действующему активному, отличия не
+    /// даёт.
     #[test]
-    fn diff_ignores_shown_mode() {
+    fn diff_detects_shown_mode_change() {
         let (cur, state) = (Settings::default(), SessionState::default());
+        let active = state.active_mode();
+        let mut draft = draft_of(&cur, &state);
+
+        // Диалог открыт с активным режимом — отличия нет.
+        assert!(diff(&cur, &state, &draft).is_empty());
+
         for shown in [ModeKind::Compatible, ModeKind::Optimal, ModeKind::Strict] {
-            let mut draft = draft_of(&cur, &state);
             draft.shown_mode = shown;
-            assert!(diff(&cur, &state, &draft).is_empty());
+            let d = diff(&cur, &state, &draft);
+            if shown == active {
+                assert!(d.is_empty());
+                assert_eq!(d.mode, None);
+            } else {
+                assert_eq!(d.mode, Some(shown));
+                assert!(!d.is_empty());
+                assert!(d.fields.is_empty() && d.modes.is_none() && d.viz_mode.is_none() && !d.reset_widths);
+            }
         }
     }
 

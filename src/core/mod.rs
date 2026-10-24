@@ -468,6 +468,11 @@ impl AppCore {
                         deps.engine.send(EngineCmd::SetModeSettings(u.clone()));
                     }
                 }
+                // Режим, выбранный в диалоге, становится активным — тот же
+                // путь, что и текущий `select_mode` главного окна/бейджа
+                // устройства (§6.9, ТЗ-30); бейдж режима строки меню обновляет
+                // слой UI по возвращённому плану.
+                ApplyStep::ActiveMode(m) => self.change_state(Origin::User, StateChange::ActiveMode(*m)),
                 // Шаги отображения исполняет слой UI по возвращённому плану.
                 ApplyStep::Theme(_)
                 | ApplyStep::Columns { .. }
