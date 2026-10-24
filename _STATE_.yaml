@@ -25,7 +25,7 @@ steps:
     done: true
   - id: 3
     description: "src/core/mod.rs: dialog_save применяет шаг ActiveMode из плана — change_state(Origin::User, ActiveMode(m)), тот же путь, что и текущий select_mode главного окна/бейджа устройства. Проверка: cargo check; cargo test core:: зелёный"
-    done: false
+    done: true
   - id: 4
     description: "src/core/testing.rs: тесты уровня AppCore — смена shown_mode без других правок разблокирует «Сохранить»; «Сохранить» меняет активный режим и закрывает диалог; «Отмена» — активный режим прежний (переписать тесты ~3960-3977). Проверка: cargo test core:: зелёный"
     done: false
@@ -47,8 +47,8 @@ steps:
   - id: 10
     description: "ЧЕКПОИНТ перед закрытием: полный cargo test + cargo clippy зелёные; ручные проверки — в заметку плана AM1.0-B4 при закрытии (closing.md §2)"
     done: false
-current_step: 3
-next_action: "Шаг 3: src/core/mod.rs — dialog_save уже получил шаг ActiveMode (change_state(Origin::User, ActiveMode(m))), добавлен при шаге 2 для компиляции после нового варианта ApplyStep; подтвердить/дооформить и перейти к шагу 4 (src/core/testing.rs: переписать тесты диалога под ТЗ-30)"
+current_step: 4
+next_action: "Шаг 4: src/core/testing.rs — переписать dialog_mode_selector_does_not_switch_mode в dialog_save_switches_active_mode (смена shown_mode без прочих правок разблокирует Сохранить; Сохранить меняет активный режим и закрывает диалог; Отмена — активный режим прежний); cargo test --quiet core:: зелёный, clippy 0"
 fail_counter: 0
 fail_counter_max: 3
 failed_attempts: []
