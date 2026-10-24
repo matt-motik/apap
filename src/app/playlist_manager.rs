@@ -18,7 +18,7 @@ impl MusicApp {
         }
         let (tx, rx): (std::sync::mpsc::Sender<ScanMsg>, Receiver<ScanMsg>) = channel();
         self.scan_rx = Some(rx);
-        self.status = format!("Adding tracks\u{2026} {} item(s)", paths.len()).into();
+        self.status = music_player_rs::i18n::status_adding_tracks(paths.len()).into();
         if let Some(ui) = self.try_ui() {
             ui.set_busy(true);
         }
@@ -46,7 +46,7 @@ impl MusicApp {
                             // User-visible progress only; the model stays
                             // untouched until the whole batch has been scanned.
                             self.status =
-                                format!("Scanning\u{2026} {} tracks", self.scan_pending.len()).into();
+                                music_player_rs::i18n::status_scanning(self.scan_pending.len()).into();
                         }
                     }
                     ScanMsg::Done(total) => {
@@ -69,7 +69,8 @@ impl MusicApp {
                             // Успешное добавление — результат виден в таблице
                             // плейлиста, сообщение не требуется (ТЗ-52, ОВ-7).
                         } else {
-                            self.status = format!("Scan finished: nothing new ({total} found)").into();
+                            self.status =
+                                music_player_rs::i18n::status_scan_finished_nothing_new(total).into();
                         }
                         finished = true;
                     }

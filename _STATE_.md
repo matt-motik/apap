@@ -75,10 +75,10 @@
 
 - [x] Шаг 24: src/app/lock_view.rs + src/app/ui_audio_state.rs: перевод причин отказа захвата устройства (AM1.0 ТЗ-88/119/122/144) и подписей состояния аудио через src/i18n/; сверить с открытой заметкой плана (п. 16, шаг 67) про LockKind.
 
-- [>] **Шаг 25: src/app/fulltrack_manager.rs + src/app/playlist_manager.rs: перевод сообщений сканирования/теста плейлиста («Adding tracks», «Scanning», «Scan finished») через src/i18n/.
-**
-- [ ] Шаг 26: ЧЕКПОИНТ: полный cargo test + cargo clippy зелёные (device_info_view/path_view/lock_view/ ui_audio_state/fulltrack_manager/playlist_manager).
+- [x] Шаг 25: src/app/fulltrack_manager.rs + src/app/playlist_manager.rs: перевод сообщений сканирования/теста плейлиста («Adding tracks», «Scanning», «Scan finished») через src/i18n/.
 
+- [>] **Шаг 26: ЧЕКПОИНТ: полный cargo test + cargo clippy зелёные (device_info_view/path_view/lock_view/ ui_audio_state/fulltrack_manager/playlist_manager).
+**
 - [ ] Шаг 27: src/app/badge_view.rs + src/app/visualizer_manager.rs + src/app/viz_settings_manager.rs + src/app/engine_sink.rs + src/app/mode_dialog.rs: зачистка оставшихся пользовательских английских строк через src/i18n/ (events.rs — проверить, вероятно пусто).
 
 - [ ] Шаг 28: Финальный сквозной grep по ui/*.slint, src/app/*, tray, rfd на оставшийся английский пользовательский текст; найденное вне описи T1.0-B2 — новой B-строкой (⬜ открыто, без сессии), не молча.
@@ -88,8 +88,8 @@
 
 Легенда: [x] сделано · [>] текущий шаг · [ ] не начато
 
-- **Текущий шаг (current_step):** Шаг 25
-- **Следующий ход:** src/app/fulltrack_manager.rs + src/app/playlist_manager.rs: перевод сообщений сканирования/теста плейлиста («Adding tracks», «Scanning», «Scan finished») через src/i18n/.
+- **Текущий шаг (current_step):** Шаг 26
+- **Следующий ход:** ЧЕКПОИНТ: полный cargo test + cargo clippy зелёные (device_info_view/path_view/lock_view/ui_audio_state/fulltrack_manager/playlist_manager).
 - **Счетчик безуспешных компиляций:** 0/3
 - **Состояние:** in_progress
 

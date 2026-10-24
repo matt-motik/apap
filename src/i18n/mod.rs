@@ -170,6 +170,32 @@ pub fn status_audio_ready(name: &str) -> String {
     format_named("Аудио: {name} готово", &[("name", name)])
 }
 
+/// Статус окна на старте фонового сканирования/импорта («Add Files»/«Add
+/// Folder») (T1.0-B2): `items` — число выбранных путей (файлов и/или папок),
+/// не треков — их число пока не известно.
+pub fn status_adding_tracks(items: usize) -> String {
+    format!(
+        "Добавление треков\u{2026} {items} {}",
+        plural_ru(items as u64, "элемент", "элемента", "элементов")
+    )
+}
+
+/// Статус окна во время сканирования, на каждую пачку найденных треков
+/// (T1.0-B2): `count` — число треков, накопленных сканированием на данный
+/// момент.
+pub fn status_scanning(count: usize) -> String {
+    format!("Сканирование\u{2026} {}", format_track_count(count as u64))
+}
+
+/// Статус окна по завершении сканирования без новых треков (T1.0-B2):
+/// `total` — всего найдено сканированием (уже известных путей).
+pub fn status_scan_finished_nothing_new(total: usize) -> String {
+    format!(
+        "Сканирование завершено: новых нет (найдено {})",
+        format_track_count(total as u64)
+    )
+}
+
 /// Фильтр диалога выбора аудиофайлов (`PickRequest::AddFiles`) (T1.0-B2,
 /// ADR-10, ТЗ-53).
 pub const PICKER_FILTER_AUDIO: &str = "Аудио";
@@ -345,6 +371,31 @@ mod tests {
         assert_eq!(
             tray_tooltip_unavailable("device missing"),
             "Воспроизведение недоступно: device missing"
+        );
+    }
+
+    #[test]
+    fn status_adding_tracks_declines_items() {
+        assert_eq!(status_adding_tracks(1), "Добавление треков\u{2026} 1 элемент");
+        assert_eq!(status_adding_tracks(3), "Добавление треков\u{2026} 3 элемента");
+        assert_eq!(status_adding_tracks(5), "Добавление треков\u{2026} 5 элементов");
+    }
+
+    #[test]
+    fn status_scanning_declines_tracks() {
+        assert_eq!(status_scanning(1), "Сканирование\u{2026} 1 трек");
+        assert_eq!(status_scanning(5), "Сканирование\u{2026} 5 треков");
+    }
+
+    #[test]
+    fn status_scan_finished_nothing_new_declines_total() {
+        assert_eq!(
+            status_scan_finished_nothing_new(0),
+            "Сканирование завершено: новых нет (найдено 0 треков)"
+        );
+        assert_eq!(
+            status_scan_finished_nothing_new(5),
+            "Сканирование завершено: новых нет (найдено 5 треков)"
         );
     }
 }

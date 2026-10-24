@@ -159,7 +159,7 @@ steps:
     description: >
       src/app/fulltrack_manager.rs + src/app/playlist_manager.rs: перевод сообщений
       сканирования/теста плейлиста («Adding tracks», «Scanning», «Scan finished») через src/i18n/.
-    done: false
+    done: true
   - id: 26
     description: >
       ЧЕКПОИНТ: полный cargo test + cargo clippy зелёные (device_info_view/path_view/lock_view/
@@ -183,8 +183,8 @@ steps:
       check зелёные; готовность к closing.md (ручная проверка пользователем — обрезка длинных
       русских подписей на всех экранах).
     done: false
-current_step: 25
-next_action: "src/app/fulltrack_manager.rs + src/app/playlist_manager.rs: перевод сообщений сканирования/теста плейлиста («Adding tracks», «Scanning», «Scan finished») через src/i18n/."
+current_step: 26
+next_action: "ЧЕКПОИНТ: полный cargo test + cargo clippy зелёные (device_info_view/path_view/lock_view/ui_audio_state/fulltrack_manager/playlist_manager)."
 fail_counter: 0
 fail_counter_max: 3
 failed_attempts: []
