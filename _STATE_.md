@@ -2,10 +2,26 @@
      Source of truth: _STATE_.yaml — edit that, then run:
      python tools/state_tool.py render -->
 
-# Состояние сессии
 
-- **Текущая задача:** Нет (все шаги завершены)
-- **Состояние:** done
+# Текущая микро-сессия
+
+- **Задача из ROADMAP:** T1.0-B4 — Тема: ComboBox не привязывает current-index — в раскрытом списке выделен не тот пункт
+- **Вайтлист файлов в работе (Изменяемые файлы):**
+  - ui/settings.slint
+  - ui/app.slint
+  - src/app/mod.rs
+- **Критерий успеха (Definition of Done):** ComboBox темы: current-index <=> до AppWindow, индекс считается от theme-current в списке entries и ставится в apply_theme_list; попап подсвечивает выбранную тему, а не индекс 0; полный cargo test и clippy зелёные
+
+## Итерационный трекер
+- [>] **Шаг 1: ui/settings.slint + ui/app.slint: in-out property theme-current-index, ComboBox { current-index <=> root.theme-current-index }, проводка Settings<=>AppWindow; src/app/mod.rs apply_theme_list: индекс текущей темы в entries -> ui.set_theme_current_index (не найдена -> -1) (T1.0 §5.1). Проверка: cargo check; cargo test --lib app::; cargo clippy без новых предупреждений**
+- [ ] Шаг 2: ЧЕКПОИНТ: полный cargo test + cargo clippy
+
+Легенда: [x] сделано · [>] текущий шаг · [ ] не начато
+
+- **Текущий шаг (current_step):** Шаг 1
+- **Следующий ход:** Добавить theme-current-index и привязать current-index ComboBox темы
+- **Счетчик безуспешных компиляций:** 0/3
+- **Состояние:** in_progress
 
 ## План: Executable workflow: правила AGENTS.md → исполняемые механизмы
 _Источник: чат с пользователем (ноутбук), начат в 67686ce; перенесён в репо 2026-09-22_
