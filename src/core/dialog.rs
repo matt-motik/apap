@@ -6,6 +6,10 @@ use std::collections::{BTreeMap, BTreeSet};
 use std::sync::Arc;
 
 use crate::audio::visualizer::{VisualizationMode, VizSettings};
+use crate::i18n::{
+    DIALOG_INVALID_PARAM_DEVICE_BUFFER_OPTIMAL, DIALOG_INVALID_PARAM_DEVICE_BUFFER_STRICT, DIALOG_INVALID_PARAM_THEME,
+    DIALOG_THEME_LOADING_REASON,
+};
 use crate::persist::settings_file::{ColumnDef, SaveInterval, Settings};
 use crate::persist::state_file::SessionState;
 use crate::settings::ColumnId;
@@ -355,13 +359,6 @@ fn rebase_strict(draft: &mut StrictOpts, old: &StrictOpts, new: &StrictOpts) {
     rebase_field(&mut draft.device_buffer, old_device_buffer, new_device_buffer);
 }
 
-/// Подпись темы в подсказке «Сохранить» (§6.9, ТЗ-27).
-const PARAM_THEME: &str = "Тема";
-/// Подписи буфера устройства по режимам: подпись параметра из диалога режима
-/// и режим, в котором сочетание недопустимо (§6.9, ТЗ-27, ТЗ-131).
-const PARAM_DEVICE_BUFFER_OPTIMAL: &str = "Буфер устройства (Оптимальный режим)";
-const PARAM_DEVICE_BUFFER_STRICT: &str = "Буфер устройства (Строгий режим)";
-
 /// Недопустимые значения черновика (§2.10, §6.9, ТЗ-27): пока список не пуст,
 /// «Сохранить» неактивна, а подсказка — первый элемент в виде
 /// «<param>: <reason>». Порядок: тема, затем режимы в порядке объявления.
@@ -374,10 +371,10 @@ pub fn validate(draft: &DialogDraft) -> Vec<Invalid> {
     match &draft.theme {
         ThemeLoad::Unchanged | ThemeLoad::Ready(_) => {}
         ThemeLoad::Loading { .. } => {
-            invalid.push(Invalid { param: PARAM_THEME, reason: "тема загружается".into() });
+            invalid.push(Invalid { param: DIALOG_INVALID_PARAM_THEME, reason: DIALOG_THEME_LOADING_REASON.into() });
         }
         ThemeLoad::Invalid { reason } => {
-            invalid.push(Invalid { param: PARAM_THEME, reason: reason.clone() });
+            invalid.push(Invalid { param: DIALOG_INVALID_PARAM_THEME, reason: reason.clone() });
         }
     }
 
@@ -385,8 +382,8 @@ pub fn validate(draft: &DialogDraft) -> Vec<Invalid> {
     // У Совместимого режима буфера устройства нет (ТЗ-131).
     let ModeSettings { compatible: _, optimal, strict, devices: _ } = &draft.settings.playback;
     let pairs = [
-        (PARAM_DEVICE_BUFFER_OPTIMAL, optimal.buffer, optimal.device_buffer),
-        (PARAM_DEVICE_BUFFER_STRICT, strict.buffer, strict.device_buffer),
+        (DIALOG_INVALID_PARAM_DEVICE_BUFFER_OPTIMAL, optimal.buffer, optimal.device_buffer),
+        (DIALOG_INVALID_PARAM_DEVICE_BUFFER_STRICT, strict.buffer, strict.device_buffer),
     ];
     for (param, buffer, device_buffer) in pairs {
         if let Err(blocker) = buffers_allowed(buffer, device_buffer) {

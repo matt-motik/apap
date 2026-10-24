@@ -50,8 +50,8 @@
 - [x] Шаг 11: src/app/playback_manager.rs (5 строк — «Захват устройства…», «Воспроизведение: {artist}—{title}», «Замок открыт» и тело, «Не удалось воспроизвести трек») + src/playlist/load.rs (4 строки — os_text «невалидный UTF-8», «строка N: не абсолютный путь» и др.) → src/i18n/. Проверка: cargo check без ошибок
 - [x] Шаг 12: ЧЕКПОИНТ: cargo test, cargo clippy, tools/check_rt_imports.py, tools/traceability_tool.py check — все зелёные
 - [x] Шаг 13: src/platform/fs/mod.rs (4 строки — WriteErrorClass::text(), «нет места на диске» и др., доходит до пользователя через core/messages.rs::write_failed) + src/engine/exclusive_path.rs (4 строки — Display ExclusiveOpenReason, деталь отказа захвата) → src/i18n/. Проверка: cargo check без ошибок
-- [>] **Шаг 14: src/core/dialog.rs (4 строки — PARAM_THEME/PARAM_DEVICE_BUFFER_* и причина «тема загружается», валидация диалога настроек) + src/core/volume.rs (2 строки — «Громкость недоступна в Строгом режиме» и т. п.) → src/i18n/. Проверка: cargo check без ошибок**
-- [ ] Шаг 15: ЧЕКПОИНТ: cargo test, cargo clippy, tools/check_rt_imports.py, tools/traceability_tool.py check — все зелёные
+- [x] Шаг 14: src/core/dialog.rs (4 строки — PARAM_THEME/PARAM_DEVICE_BUFFER_* и причина «тема загружается», валидация диалога настроек) + src/core/volume.rs (2 строки — «Громкость недоступна в Строгом режиме» и т. п.) → src/i18n/. Проверка: cargo check без ошибок
+- [>] **Шаг 15: ЧЕКПОИНТ: cargo test, cargo clippy, tools/check_rt_imports.py, tools/traceability_tool.py check — все зелёные**
 - [ ] Шаг 16: src/core/mod.rs (3 из 4 строк — title/body/hint сообщения «Файл настроек не прочитан»; строку reason=«модуль ввода не подключён» (журнал, AttachOutcome::DefaultRuleOnly) НЕ трогать) + src/settings/playback.rs (2 строки — подсказки ValueBlocker «увеличьте буфер плеера…»/«уменьшите буфер устройства…») → src/i18n/. Проверка: cargo check без ошибок
 - [ ] Шаг 17: src/theme.rs (2 строки — description тем «Системная тёмная/светлая тема», используется в ui.set_theme_description) + src/app/fulltrack_manager.rs (4 строки — подписи «Спектрограмма»/«Осциллограмма» и причины отказа построения) → src/i18n/. Проверка: cargo check без ошибок
 - [ ] Шаг 18: ЧЕКПОИНТ: cargo test, cargo clippy, tools/check_rt_imports.py, tools/traceability_tool.py check — все зелёные
@@ -60,8 +60,8 @@
 
 Легенда: [x] сделано · [>] текущий шаг · [ ] не начато
 
-- **Текущий шаг (current_step):** Шаг 14
-- **Следующий ход:** Шаг 14: src/core/dialog.rs + src/core/volume.rs → src/i18n/
+- **Текущий шаг (current_step):** Шаг 15
+- **Следующий ход:** Шаг 15: ЧЕКПОИНТ — полный cargo test + clippy + check_rt_imports + traceability
 - **Счетчик безуспешных компиляций:** 0/3
 - **Состояние:** in_progress
 

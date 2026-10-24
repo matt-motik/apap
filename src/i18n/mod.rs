@@ -459,6 +459,32 @@ pub fn cover_source_label(source: CoverSource) -> &'static str {
     }
 }
 
+/// Подпись темы в подсказке «Сохранить» диалога настроек (§6.9, ТЗ-27,
+/// T1.0-B8; перенесено из `src/core/dialog.rs::PARAM_THEME` байт-в-байт).
+pub const DIALOG_INVALID_PARAM_THEME: &str = "Тема";
+/// Причина недопустимости темы в подсказке «Сохранить», пока тема ещё
+/// читается (§6.9, ТЗ-27, T1.0-B8; перенесено из `src/core/dialog.rs::validate`
+/// байт-в-байт).
+pub const DIALOG_THEME_LOADING_REASON: &str = "тема загружается";
+/// Подписи буфера устройства по режимам в подсказке «Сохранить»: подпись
+/// параметра из диалога режима и режим, в котором сочетание недопустимо
+/// (§6.9, ТЗ-27, ТЗ-131, T1.0-B8; перенесено из
+/// `src/core/dialog.rs::PARAM_DEVICE_BUFFER_OPTIMAL` байт-в-байт).
+pub const DIALOG_INVALID_PARAM_DEVICE_BUFFER_OPTIMAL: &str = "Буфер устройства (Оптимальный режим)";
+/// Та же подпись для Строгого режима, см.
+/// [`DIALOG_INVALID_PARAM_DEVICE_BUFFER_OPTIMAL`] (перенесено из
+/// `src/core/dialog.rs::PARAM_DEVICE_BUFFER_STRICT` байт-в-байт).
+pub const DIALOG_INVALID_PARAM_DEVICE_BUFFER_STRICT: &str = "Буфер устройства (Строгий режим)";
+
+/// Подсказка недоступного регулятора громкости в Строгом режиме (ТЗ-39,
+/// §2.13, T1.0-B8; перенесено из
+/// `src/core/volume.rs::VolumeBlock::tooltip` байт-в-байт).
+pub const VOLUME_BLOCK_TOOLTIP_STRICT_MODE: &str = "Громкость недоступна в Строгом режиме";
+/// Подсказка недоступного регулятора громкости при «Фиксировать громкость на
+/// 100 %» Оптимального режима (ТЗ-39, §2.13, T1.0-B8; перенесено из
+/// `src/core/volume.rs::VolumeBlock::tooltip` байт-в-байт).
+pub const VOLUME_BLOCK_TOOLTIP_LOCKED: &str = "Громкость зафиксирована на 100 % в настройках Оптимального режима";
+
 /// Заголовки колонок плейлиста по умолчанию (T1.0-B8; перенесено из
 /// `src/settings.rs::default_columns()` байт-в-байт). Заголовки
 /// `ColumnId::NowPlaying`/`TrackNumber` — символы «▶»/«№» без русских букв,
@@ -799,6 +825,23 @@ mod tests {
         for (source, label) in cases {
             assert_eq!(cover_source_label(source), label, "source={source:?}");
         }
+    }
+
+    #[test]
+    fn dialog_invalid_param_constants_are_russian() {
+        assert_eq!(DIALOG_INVALID_PARAM_THEME, "Тема");
+        assert_eq!(DIALOG_THEME_LOADING_REASON, "тема загружается");
+        assert_eq!(DIALOG_INVALID_PARAM_DEVICE_BUFFER_OPTIMAL, "Буфер устройства (Оптимальный режим)");
+        assert_eq!(DIALOG_INVALID_PARAM_DEVICE_BUFFER_STRICT, "Буфер устройства (Строгий режим)");
+    }
+
+    #[test]
+    fn volume_block_tooltip_constants_are_russian() {
+        assert_eq!(VOLUME_BLOCK_TOOLTIP_STRICT_MODE, "Громкость недоступна в Строгом режиме");
+        assert_eq!(
+            VOLUME_BLOCK_TOOLTIP_LOCKED,
+            "Громкость зафиксирована на 100 % в настройках Оптимального режима"
+        );
     }
 
     #[test]

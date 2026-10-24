@@ -3,6 +3,7 @@
 //! Модуль чистый: функции только вычисляют итог команды по снимку состояния
 //! и настроек режимов; состояние изменяет вызывающий код.
 
+use crate::i18n::{VOLUME_BLOCK_TOOLTIP_LOCKED, VOLUME_BLOCK_TOOLTIP_STRICT_MODE};
 use crate::settings::playback::{ModeKind, ModeSettings, PlaybackState, Volume};
 
 // Тип определён в модуле ввода (§2.8); реэкспорт — для команды громкости
@@ -52,12 +53,10 @@ pub const VOLUME_STEP_PCT: i32 = 2;
 
 impl VolumeBlock {
     /// Текст подсказки недоступного регулятора громкости (ТЗ-39, §2.13).
-    pub const fn tooltip(self) -> &'static str {
+    pub fn tooltip(self) -> &'static str {
         match self {
-            VolumeBlock::StrictMode => "Громкость недоступна в Строгом режиме",
-            VolumeBlock::Locked => {
-                "Громкость зафиксирована на 100 % в настройках Оптимального режима"
-            }
+            VolumeBlock::StrictMode => VOLUME_BLOCK_TOOLTIP_STRICT_MODE,
+            VolumeBlock::Locked => VOLUME_BLOCK_TOOLTIP_LOCKED,
         }
     }
 }
