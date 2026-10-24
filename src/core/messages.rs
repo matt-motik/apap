@@ -8,6 +8,7 @@
 use std::collections::{BTreeMap, VecDeque};
 
 use crate::audio::error::CaptureFailure;
+use crate::i18n::messages::{message_action_label, WRITE_ERRORS_TITLE};
 use crate::persist::WorkFile;
 use crate::platform::fs::WriteErrorClass;
 use crate::platform::lifecycle::PlatformCaps;
@@ -55,17 +56,9 @@ pub enum MessageAction {
 }
 
 impl MessageAction {
-    /// Русская подпись кнопки (ТЗ-46).
+    /// Русская подпись кнопки (ТЗ-46; текст — `src/i18n/messages.rs`, T1.0-B7).
     pub fn label(self) -> &'static str {
-        match self {
-            MessageAction::RetryCapture => "Повторить захват",
-            MessageAction::OpenAudioSettings => "Настройки аудио",
-            MessageAction::SwitchToCompatible => "В Совместимый",
-            MessageAction::Cancel => "Отмена",
-            MessageAction::Ok => "OK",
-            MessageAction::Retry => "Повторить",
-            MessageAction::CaptureAndPlay => "Захватить и играть",
-        }
+        message_action_label(self)
     }
 }
 
@@ -343,7 +336,7 @@ impl MessageCenter {
             .join("\n");
         Message {
             level: MessageLevel::Error,
-            title: "Не удалось сохранить данные".into(),
+            title: WRITE_ERRORS_TITLE.into(),
             body: body.into(),
             actions: vec![MessageAction::Retry, MessageAction::Ok],
         }

@@ -12,9 +12,11 @@
 
 pub mod audio;
 pub mod errors;
+pub mod messages;
 
 use crate::audio::test_run::{IncompleteWhy, TestBlocker};
 use crate::audio::verdict::NbpReason;
+use crate::settings::CoverSource;
 
 /// Имя приложения — единая точка правки, если рабочее название сменится.
 pub const APP_NAME: &str = "APAP";
