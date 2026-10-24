@@ -243,7 +243,7 @@ impl Spectrogram {
         let fft_size = fraw.next_power_of_two().clamp(512, 8192) as usize;
         let (hop, columns) = adaptive_plan(total_frames, cfg.fft_size, cfg.max_frames);
         if columns == 0 {
-            return Err("пустой трек (0 кадров)".into());
+            return Err(crate::i18n::messages::SPECTROGRAM_FAIL_SHORT_TRACK.into());
         }
         let dst_ch = dst_ch.max(1);
         let mut planner = FftPlanner::<f32>::new();

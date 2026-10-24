@@ -12,12 +12,12 @@
 - **Критерий успеха (Definition of Done):** Текст «пустой трек (0 кадров)» — константа SPECTROGRAM_FAIL_SHORT_TRACK в src/i18n/messages.rs, Spectrogram::new использует её байт-в-байт (отдельная от FULLTRACK_FAIL_ZERO_LENGTH — разный смысл); cargo test + clippy --all-targets зелёные
 
 ## Итерационный трекер
-- [>] **Шаг 1: Добавить константу SPECTROGRAM_FAIL_SHORT_TRACK в src/i18n/messages.rs (byte-identical «пустой трек (0 кадров)»), Spectrogram::new (src/audio/spectrogram.rs:246) использует её вместо литерала; тип ошибки (String) не менять. Проверка: ЧЕКПОИНТ — cargo test + cargo clippy --all-targets + check_rt_imports.py**
+- [x] Шаг 1: Добавить константу SPECTROGRAM_FAIL_SHORT_TRACK в src/i18n/messages.rs (byte-identical «пустой трек (0 кадров)»), Spectrogram::new (src/audio/spectrogram.rs:246) использует её вместо литерала; тип ошибки (String) не менять. Проверка: ЧЕКПОИНТ — cargo test + cargo clippy --all-targets + check_rt_imports.py
 
 Легенда: [x] сделано · [>] текущий шаг · [ ] не начато
 
 - **Текущий шаг (current_step):** Шаг 1
-- **Следующий ход:** Проверить cargo check после правки spectrogram.rs/messages.rs, затем полный ЧЕКПОИНТ
+- **Следующий ход:** закрытие по closing.md
 - **Счетчик безуспешных компиляций:** 0/3
 - **Состояние:** in_progress
 

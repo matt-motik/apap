@@ -242,6 +242,13 @@ pub fn fulltrack_disabled_for_dsd(label: &str) -> String {
 /// два места вызова `fail()`).
 pub const FULLTRACK_FAIL_ZERO_LENGTH: &str = "не удалось определить длину трека (num_frames == 0)";
 
+/// Причина отказа построения спектрограммы: `adaptive_plan` даёт `columns ==
+/// 0` для короткого трека с ненулевым числом кадров (T1.0-B10; отдельная
+/// ветка от [`FULLTRACK_FAIL_ZERO_LENGTH`], который проверяет только
+/// `num_frames == 0`; перенесено из `src/audio/spectrogram.rs::Spectrogram::new`
+/// байт-в-байт, без изменения содержания).
+pub const SPECTROGRAM_FAIL_SHORT_TRACK: &str = "пустой трек (0 кадров)";
+
 /// `description` встроенной тёмной темы, используется в
 /// `ui.set_theme_description` (T1.0-B8; перенесено из
 /// `src/theme.rs::DEFAULT_DARK_TOML` байт-в-байт), см.
@@ -388,6 +395,11 @@ mod tests {
     #[test]
     fn fulltrack_fail_zero_length_is_russian() {
         assert_eq!(FULLTRACK_FAIL_ZERO_LENGTH, "не удалось определить длину трека (num_frames == 0)");
+    }
+
+    #[test]
+    fn spectrogram_fail_short_track_is_russian() {
+        assert_eq!(SPECTROGRAM_FAIL_SHORT_TRACK, "пустой трек (0 кадров)");
     }
 
     #[test]
