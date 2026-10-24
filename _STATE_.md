@@ -70,9 +70,9 @@
 
 - [x] Шаг 21: src/app/playback_manager.rs + src/app/ui_manager.rs: перевод пользовательских строк (метаданные трека, единицы kbps/Hz/ch, подписи устройств) через src/i18n/.
 
-- [>] **Шаг 22: ЧЕКПОИНТ: полный cargo test + cargo clippy зелёные (app/mod.rs, playback_manager.rs, ui_manager.rs).**
-- [ ] Шаг 23: src/app/device_info_view.rs + src/app/path_view.rs: перевод подписей возможностей устройства и пути сигнала через src/i18n/.
-
+- [x] Шаг 22: ЧЕКПОИНТ: полный cargo test + cargo clippy зелёные (app/mod.rs, playback_manager.rs, ui_manager.rs).
+- [>] **Шаг 23: src/app/device_info_view.rs + src/app/path_view.rs: перевод подписей возможностей устройства и пути сигнала через src/i18n/.
+**
 - [ ] Шаг 24: src/app/lock_view.rs + src/app/ui_audio_state.rs: перевод причин отказа захвата устройства (AM1.0 ТЗ-88/119/122/144) и подписей состояния аудио через src/i18n/; сверить с открытой заметкой плана (п. 16, шаг 67) про LockKind.
 
 - [ ] Шаг 25: src/app/fulltrack_manager.rs + src/app/playlist_manager.rs: перевод сообщений сканирования/теста плейлиста («Adding tracks», «Scanning», «Scan finished») через src/i18n/.
@@ -88,8 +88,8 @@
 
 Легенда: [x] сделано · [>] текущий шаг · [ ] не начато
 
-- **Текущий шаг (current_step):** Шаг 22
-- **Следующий ход:** ЧЕКПОИНТ: полный cargo test + cargo clippy зелёные (app/mod.rs, playback_manager.rs, ui_manager.rs).
+- **Текущий шаг (current_step):** Шаг 23
+- **Следующий ход:** src/app/device_info_view.rs + src/app/path_view.rs: перевод подписей возможностей устройства и пути сигнала через src/i18n/.
 - **Счетчик безуспешных компиляций:** 0/3
 - **Состояние:** in_progress
 

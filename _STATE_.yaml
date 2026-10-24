@@ -143,7 +143,7 @@ steps:
     done: true
   - id: 22
     description: "ЧЕКПОИНТ: полный cargo test + cargo clippy зелёные (app/mod.rs, playback_manager.rs, ui_manager.rs)."
-    done: false
+    done: true
   - id: 23
     description: >
       src/app/device_info_view.rs + src/app/path_view.rs: перевод подписей возможностей устройства
@@ -183,8 +183,8 @@ steps:
       check зелёные; готовность к closing.md (ручная проверка пользователем — обрезка длинных
       русских подписей на всех экранах).
     done: false
-current_step: 22
-next_action: "ЧЕКПОИНТ: полный cargo test + cargo clippy зелёные (app/mod.rs, playback_manager.rs, ui_manager.rs)."
+current_step: 23
+next_action: "src/app/device_info_view.rs + src/app/path_view.rs: перевод подписей возможностей устройства и пути сигнала через src/i18n/."
 fail_counter: 0
 fail_counter_max: 3
 failed_attempts: []
