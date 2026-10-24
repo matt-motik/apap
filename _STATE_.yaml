@@ -33,12 +33,12 @@ steps:
     done: true
   - id: 4
     description: "ui/mode_params.slint: проверить/поправить отображение многострочной note под ползунком буфера плеера (граница + строка автоподъёма). Проверка: cargo check зелёный"
-    done: false
+    done: true
   - id: 5
     description: "ЧЕКПОИНТ: full cargo test + cargo clippy по всему workspace зелёные"
     done: false
-current_step: 4
-next_action: "Шаг 4: ui/mode_params.slint — проверить/поправить отображение многострочной note под ползунком буфера плеера"
+current_step: 5
+next_action: "ЧЕКПОИНТ: full cargo test + cargo clippy по всему workspace"
 fail_counter: 0
 fail_counter_max: 3
 failed_attempts: []
