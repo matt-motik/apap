@@ -13,9 +13,9 @@ dod: "Тексты Mute/SilenceGate/Dither(Tpdf/Off) — константы в s
 steps:
   - id: 1
     description: "Перенести 4 литерала TransformKind::{Mute,SilenceGate,Dither(Tpdf),Dither(Off)} в src/i18n/report.rs как константы (по образцу TRANSFORM_MONO_TO_STEREO), transform.rs::describe() использует их байт-в-байт. Проверка: ЧЕКПОИНТ — cargo test + cargo clippy --all-targets"
-    done: false
+    done: true
 current_step: 1
-next_action: "Добавить константы TRANSFORM_MUTE/TRANSFORM_SILENCE_GATE/TRANSFORM_DITHER_TPDF/TRANSFORM_DITHER_OFF в src/i18n/report.rs и использовать их в src/audio/path/transform.rs::describe()"
+next_action: "закрытие по closing.md"
 fail_counter: 0
 fail_counter_max: 3
 failed_attempts: []

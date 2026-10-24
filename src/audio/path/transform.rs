@@ -338,11 +338,11 @@ impl TransformKind {
                 )
             }
             TransformKind::Volume(v) => i18n_report::transform_volume_note(v.get()),
-            TransformKind::Mute => "Mute: усиление 0".to_owned(),
-            TransformKind::SilenceGate => "Mute: подмена тишиной, без пересчёта сэмплов".to_owned(),
+            TransformKind::Mute => i18n_report::TRANSFORM_MUTE.to_owned(),
+            TransformKind::SilenceGate => i18n_report::TRANSFORM_SILENCE_GATE.to_owned(),
             TransformKind::Dither(d) => match d {
-                Dither::Tpdf => "Дизеринг TPDF".to_owned(),
-                Dither::Off => "Переквантование без дизеринга".to_owned(),
+                Dither::Tpdf => i18n_report::TRANSFORM_DITHER_TPDF.to_owned(),
+                Dither::Off => i18n_report::TRANSFORM_DITHER_OFF.to_owned(),
             },
         };
         Description(text)

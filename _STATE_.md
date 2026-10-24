@@ -12,12 +12,12 @@
 - **Критерий успеха (Definition of Done):** Тексты Mute/SilenceGate/Dither(Tpdf/Off) — константы в src/i18n/report.rs, transform.rs их использует байт-в-байт; cargo test + clippy --all-targets зелёные
 
 ## Итерационный трекер
-- [>] **Шаг 1: Перенести 4 литерала TransformKind::{Mute,SilenceGate,Dither(Tpdf),Dither(Off)} в src/i18n/report.rs как константы (по образцу TRANSFORM_MONO_TO_STEREO), transform.rs::describe() использует их байт-в-байт. Проверка: ЧЕКПОИНТ — cargo test + cargo clippy --all-targets**
+- [x] Шаг 1: Перенести 4 литерала TransformKind::{Mute,SilenceGate,Dither(Tpdf),Dither(Off)} в src/i18n/report.rs как константы (по образцу TRANSFORM_MONO_TO_STEREO), transform.rs::describe() использует их байт-в-байт. Проверка: ЧЕКПОИНТ — cargo test + cargo clippy --all-targets
 
 Легенда: [x] сделано · [>] текущий шаг · [ ] не начато
 
 - **Текущий шаг (current_step):** Шаг 1
-- **Следующий ход:** Добавить константы TRANSFORM_MUTE/TRANSFORM_SILENCE_GATE/TRANSFORM_DITHER_TPDF/TRANSFORM_DITHER_OFF в src/i18n/report.rs и использовать их в src/audio/path/transform.rs::describe()
+- **Следующий ход:** закрытие по closing.md
 - **Счетчик безуспешных компиляций:** 0/3
 - **Состояние:** in_progress
 

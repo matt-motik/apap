@@ -424,3 +424,32 @@ pub const TRANSFORM_MONO_TO_STEREO: &str = "Моно → 2 канала, дуб�
 pub fn transform_volume_note(pct: u8) -> String {
     format!("Громкость {pct} %")
 }
+
+/// Текст преобразования `Mute` — стадия AtomicGain, усиление 0 (T1.0-B9;
+/// перенесено из `src/audio/path/transform.rs::describe` байт-в-байт,
+/// пропущено шагом 10 T1.0-B8).
+pub const TRANSFORM_MUTE: &str = "Mute: усиление 0";
+
+/// Текст преобразования `SilenceGate` — подмена тишиной без пересчёта
+/// сэмплов (NoGain/DopRender; ОВС-18), без потерь, см. [`TRANSFORM_MUTE`].
+pub const TRANSFORM_SILENCE_GATE: &str = "Mute: подмена тишиной, без пересчёта сэмплов";
+
+/// Тексты преобразования `Dither`: TPDF-дизеринг и переквантование без
+/// дизеринга, см. [`TRANSFORM_MUTE`].
+pub const TRANSFORM_DITHER_TPDF: &str = "Дизеринг TPDF";
+pub const TRANSFORM_DITHER_OFF: &str = "Переквантование без дизеринга";
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// T1.0-B9: байт-в-байт перенос из `transform.rs::describe` (шаг 10
+    /// T1.0-B8 перенёс только соседние варианты).
+    #[test]
+    fn transform_mute_silence_dither_are_russian() {
+        assert_eq!(TRANSFORM_MUTE, "Mute: усиление 0");
+        assert_eq!(TRANSFORM_SILENCE_GATE, "Mute: подмена тишиной, без пересчёта сэмплов");
+        assert_eq!(TRANSFORM_DITHER_TPDF, "Дизеринг TPDF");
+        assert_eq!(TRANSFORM_DITHER_OFF, "Переквантование без дизеринга");
+    }
+}
