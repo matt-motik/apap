@@ -110,6 +110,34 @@ pub fn format_bits(bits: u32) -> String {
     format!("{bits} бит")
 }
 
+/// Пункт меню трея «Play / Pause» (T1.0-B2, ADR-6).
+pub const TRAY_MENU_PLAY_PAUSE: &str = "Воспроизведение / Пауза";
+/// Пункт меню трея «Stop» (T1.0-B2, ADR-6).
+pub const TRAY_MENU_STOP: &str = "Стоп";
+/// Пункт меню трея «Previous» (T1.0-B2, ADR-6).
+pub const TRAY_MENU_PREVIOUS: &str = "Предыдущий";
+/// Пункт меню трея «Next» (T1.0-B2, ADR-6).
+pub const TRAY_MENU_NEXT: &str = "Следующий";
+/// Пункт меню трея «Show / Hide window» (T1.0-B2, ADR-6).
+pub const TRAY_MENU_SHOW_HIDE: &str = "Показать / Скрыть окно";
+/// Пункт меню трея «Quit» (T1.0-B2, ADR-6).
+pub const TRAY_MENU_QUIT: &str = "Выход";
+
+/// Тултип трея во время воспроизведения в bit-perfect (T1.0-B2, ADR-9,
+/// §8.1): «bit-perfect» не переводится — технический термин (AGENTS.md).
+pub const TRAY_TOOLTIP_BIT_PERFECT: &str =
+    "Воспроизведение — Bit-perfect (прямой вывод, громкость на ЦАП)";
+/// Тултип трея во время обычного воспроизведения (T1.0-B2, ADR-9, §8.1).
+pub const TRAY_TOOLTIP_PLAYING: &str = "Воспроизведение";
+/// Тултип трея на паузе (T1.0-B2, ADR-9, §8.1).
+pub const TRAY_TOOLTIP_PAUSED: &str = "Пауза";
+
+/// Тултип трея, когда звук недоступен (T1.0-B2, ADR-9, §8.1): `error` —
+/// причина, пришедшая из аудио-подсистемы как есть (не переводится).
+pub fn tray_tooltip_unavailable(error: &str) -> String {
+    format_named("Воспроизведение недоступно: {error}", &[("error", error)])
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -236,5 +264,13 @@ mod tests {
     fn format_bits_is_not_declined() {
         assert_eq!(format_bits(24), "24 бит");
         assert_eq!(format_bits(1), "1 бит");
+    }
+
+    #[test]
+    fn tray_tooltip_unavailable_substitutes_error() {
+        assert_eq!(
+            tray_tooltip_unavailable("device missing"),
+            "Воспроизведение недоступно: device missing"
+        );
     }
 }

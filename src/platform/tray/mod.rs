@@ -77,27 +77,29 @@ mod linux {
 
         fn title(&self) -> String {
             if self.state.now_playing.is_empty() {
-                "Music Player".into()
+                crate::i18n::APP_NAME.into()
             } else {
                 self.state.now_playing.clone()
             }
         }
 
         fn tool_tip(&self) -> ksni::ToolTip {
+            use crate::i18n::{
+                tray_tooltip_unavailable, TRAY_TOOLTIP_BIT_PERFECT, TRAY_TOOLTIP_PAUSED,
+                TRAY_TOOLTIP_PLAYING,
+            };
             // Сообщения идут через `Notifier`, не через тултип (ADR-9, §8.1).
             let description = match &self.state.error {
-                Some(e) => format!("Playback unavailable: {e}"),
-                None if self.state.bit_perfect => {
-                    "Playing \u{2014} Bit-perfect (Direct Output, volume on DAC)".into()
-                }
-                None if self.state.playing => "Playing".into(),
-                None => "Paused".into(),
+                Some(e) => tray_tooltip_unavailable(e),
+                None if self.state.bit_perfect => TRAY_TOOLTIP_BIT_PERFECT.into(),
+                None if self.state.playing => TRAY_TOOLTIP_PLAYING.into(),
+                None => TRAY_TOOLTIP_PAUSED.into(),
             };
             ksni::ToolTip {
                 icon_name: "multimedia-player".into(),
                 icon_pixmap: Vec::new(),
                 title: if self.state.now_playing.is_empty() {
-                    "Music Player".into()
+                    crate::i18n::APP_NAME.into()
                 } else {
                     self.state.now_playing.clone()
                 },
@@ -106,19 +108,23 @@ mod linux {
         }
 
         fn menu(&self) -> Vec<MenuItem<Self>> {
+            use crate::i18n::{
+                TRAY_MENU_NEXT, TRAY_MENU_PLAY_PAUSE, TRAY_MENU_PREVIOUS, TRAY_MENU_QUIT,
+                TRAY_MENU_SHOW_HIDE, TRAY_MENU_STOP,
+            };
             vec![
                 self.item(
-                    "Play / Pause",
+                    TRAY_MENU_PLAY_PAUSE,
                     "media-playback-start",
                     TrayEvent::TogglePlay,
                 ),
-                self.item("Stop", "media-playback-stop", TrayEvent::Stop),
-                self.item("Previous", "media-skip-backward", TrayEvent::Prev),
-                self.item("Next", "media-skip-forward", TrayEvent::Next),
+                self.item(TRAY_MENU_STOP, "media-playback-stop", TrayEvent::Stop),
+                self.item(TRAY_MENU_PREVIOUS, "media-skip-backward", TrayEvent::Prev),
+                self.item(TRAY_MENU_NEXT, "media-skip-forward", TrayEvent::Next),
                 MenuItem::Separator,
-                self.item("Show / Hide window", "view-restore", TrayEvent::ShowHide),
+                self.item(TRAY_MENU_SHOW_HIDE, "view-restore", TrayEvent::ShowHide),
                 MenuItem::Separator,
-                self.item("Quit", "application-exit", TrayEvent::Quit),
+                self.item(TRAY_MENU_QUIT, "application-exit", TrayEvent::Quit),
             ]
         }
     }
