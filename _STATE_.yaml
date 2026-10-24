@@ -34,12 +34,12 @@ steps:
     done: true
   - id: 7
     description: "src/app/mod.rs: тест sort_rows_text_formats_columns — ожидания Bitrate/SampleRate на русский вывод format_kbps/format_khz (\"1411 кбит/с\", \"96 кГц\" и т. п.). Проверка: cargo test --lib app::mod::tests::sort_rows_text_formats_columns"
-    done: false
+    done: true
   - id: 8
     description: "ЧЕКПОИНТ: полный cargo test + cargo clippy без новых предупреждений по файлам вайтлиста перед закрытием T1.0-B6"
     done: false
-current_step: 7
-next_action: "src/app/mod.rs: обновить ожидания sort_rows_text_formats_columns на русский вывод"
+current_step: 8
+next_action: "ЧЕКПОИНТ: полный cargo test + cargo clippy перед закрытием T1.0-B6"
 fail_counter: 0
 fail_counter_max: 3
 failed_attempts: []

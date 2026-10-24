@@ -21,13 +21,13 @@
 - [x] Шаг 4: src/app/mod.rs: тест find_device_index_in_strips_server_suffix — путь константы music_player_rs::i18n::audio::SERVER_NODE_SUFFIX. Проверка: cargo test --lib app::mod::tests::find_device_index_in_strips_server_suffix
 - [x] Шаг 5: src/audio/output.rs: убрать временный мост (pub use .. SERVER_NODE_SUFFIX) — больше не используется внешними вызывающими после шагов 3-4. Проверка: cargo check
 - [x] Шаг 6: src/playlist/mod.rs: sort_rows_text() — ColumnId::Bitrate через i18n::format_kbps(track.bitrate), ColumnId::SampleRate через i18n::format_khz(sample_rate/1000.0) вместо литералов "{} kbps"/"{} Hz". Проверка: cargo check
-- [>] **Шаг 7: src/app/mod.rs: тест sort_rows_text_formats_columns — ожидания Bitrate/SampleRate на русский вывод format_kbps/format_khz ("1411 кбит/с", "96 кГц" и т. п.). Проверка: cargo test --lib app::mod::tests::sort_rows_text_formats_columns**
-- [ ] Шаг 8: ЧЕКПОИНТ: полный cargo test + cargo clippy без новых предупреждений по файлам вайтлиста перед закрытием T1.0-B6
+- [x] Шаг 7: src/app/mod.rs: тест sort_rows_text_formats_columns — ожидания Bitrate/SampleRate на русский вывод format_kbps/format_khz ("1411 кбит/с", "96 кГц" и т. п.). Проверка: cargo test --lib app::mod::tests::sort_rows_text_formats_columns
+- [>] **Шаг 8: ЧЕКПОИНТ: полный cargo test + cargo clippy без новых предупреждений по файлам вайтлиста перед закрытием T1.0-B6**
 
 Легенда: [x] сделано · [>] текущий шаг · [ ] не начато
 
-- **Текущий шаг (current_step):** Шаг 7
-- **Следующий ход:** src/app/mod.rs: обновить ожидания sort_rows_text_formats_columns на русский вывод
+- **Текущий шаг (current_step):** Шаг 8
+- **Следующий ход:** ЧЕКПОИНТ: полный cargo test + cargo clippy перед закрытием T1.0-B6
 - **Счетчик безуспешных компиляций:** 0/3
 - **Состояние:** in_progress
 

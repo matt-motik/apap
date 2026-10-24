@@ -3813,9 +3813,9 @@ mod tests {
         assert_eq!(playlist::sort_rows_text(&t, ColumnId::TrackNumber), "3");
         assert_eq!(playlist::sort_rows_text(&t, ColumnId::Year), "2001");
         assert_eq!(playlist::sort_rows_text(&t, ColumnId::Format), "FLAC");
-        assert_eq!(playlist::sort_rows_text(&t, ColumnId::Bitrate), "1411 kbps");
+        assert_eq!(playlist::sort_rows_text(&t, ColumnId::Bitrate), "1411 кбит/с");
         assert_eq!(playlist::sort_rows_text(&t, ColumnId::BitDepth), "24 bit");
-        assert_eq!(playlist::sort_rows_text(&t, ColumnId::SampleRate), "96000 Hz");
+        assert_eq!(playlist::sort_rows_text(&t, ColumnId::SampleRate), "96 кГц");
         assert_eq!(playlist::sort_rows_text(&t, ColumnId::Duration), "3:06");
         assert_eq!(playlist::sort_rows_text(&t, ColumnId::FileName), "x.flac");
         assert_eq!(playlist::sort_rows_text(&t, ColumnId::FilePath), "/tmp/x.flac");
