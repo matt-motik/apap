@@ -113,7 +113,7 @@ steps:
     description: >
       ui/top_panel.slint + ui/status.slint + ui/playlist.slint: @tr + перевод мелких строк
       («Album Art», «No tracks», «Stopped»).
-    done: false
+    done: true
   - id: 16
     description: "ЧЕКПОИНТ: полный cargo test + cargo clippy зелёные (app.slint, top_panel/status/playlist.slint)."
     done: false
@@ -183,8 +183,8 @@ steps:
       check зелёные; готовность к closing.md (ручная проверка пользователем — обрезка длинных
       русских подписей на всех экранах).
     done: false
-current_step: 15
-next_action: "ui/top_panel.slint + ui/status.slint + ui/playlist.slint: @tr + перевод мелких строк («Album Art», «No tracks», «Stopped»)."
+current_step: 16
+next_action: "ЧЕКПОИНТ: полный cargo test + cargo clippy зелёные (app.slint, top_panel/status/playlist.slint)."
 fail_counter: 0
 fail_counter_max: 3
 failed_attempts: []

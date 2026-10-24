@@ -2,8 +2,8 @@ import { Colors } from "theme.slint";
 import { StandardTableView } from "./tableview_fork.slint";
 
 export component Playlist inherits Rectangle {
-    in property <[[StandardListViewItem]]> rows: [[{ text: "No tracks" }]];
-    in property <[TableColumn]> cols: [{ title: "Title", width: 200px }];
+    in property <[[StandardListViewItem]]> rows: [[{ text: @tr("Нет треков") }]];
+    in property <[TableColumn]> cols: [{ title: @tr("Название"), width: 200px }];
     in property <int> current-row: -1;
     out property <length> view-width <=> view.visible-width;
     // Выделенная строка таблицы (клик/стрелки) — для «Удалить выделенный трек» (ТЗ-34, SP1.0-B6).
@@ -61,7 +61,7 @@ export component Playlist inherits Rectangle {
             vertical-stretch: 1;
             alignment: center;
             Text {
-                text: "Нет активных колонок";
+                text: @tr("Нет активных колонок");
                 color: Colors.text-dim;
                 font-size: 16px;
             }

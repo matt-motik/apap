@@ -336,7 +336,7 @@ export component TopPanel inherits Rectangle {
     in property <int> active-mode: 0;
     in property <[bool]> mode-available: [true, true, true];
     in property <[string]> mode-unavailable-reason: ["", "", ""];
-    private property <[string]> mode-labels: ["Совместимый", "Оптимальный", "Строгий"];
+    private property <[string]> mode-labels: [@tr("Совместимый"), @tr("Оптимальный"), @tr("Строгий")];
     callback select-mode(int);
     // Bit-perfect (Direct Output): программные ползунки громкости/мьюта
     // блокируются, тракт идёт в ЦАП без пересчёта сэмплов.
@@ -384,19 +384,19 @@ export component TopPanel inherits Rectangle {
     in property <string> info-sample-rate: "—";
     in property <string> info-channels: "—";
     in property <[string]> info-labels: [
-        "Artist",
-        "Track",
-        "Title",
-        "Duration",
-        "Year",
-        "Album",
-        "Disc",
-        "Genre",
-        "Format",
-        "Bitrate",
-        "Bit depth",
-        "Sample rate",
-        "Channels"
+        @tr("Исполнитель"),
+        @tr("Трек"),
+        @tr("Название"),
+        @tr("Длительность"),
+        @tr("Год"),
+        @tr("Альбом"),
+        @tr("Диск"),
+        @tr("Жанр"),
+        @tr("Формат"),
+        @tr("Битрейт"),
+        @tr("Разрядность"),
+        @tr("Частота дискретизации"),
+        @tr("Каналы")
     ];
 
     in property <int> viz-mode: 0;
@@ -496,7 +496,7 @@ export component TopPanel inherits Rectangle {
 
                     // Placeholder, shown while no cover is available.
                     Text {
-                        text: "Album Art";
+                        text: @tr("Обложка альбома");
                         color: Colors.text-tertiary;
                         font-size: 14px;
                         horizontal-alignment: center;

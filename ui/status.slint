@@ -12,9 +12,9 @@ export enum BadgeKind {
 }
 
 export component StatusBar inherits Rectangle {
-    in property <string> status-text: "Stopped";
+    in property <string> status-text: @tr("Остановлено");
     in property <string> track-info: "";
-    in property <string> track-count: "0 tracks";
+    in property <string> track-count: @tr("0 треков");
     in property <bool> busy: false;
     callback bp-clicked();
 
