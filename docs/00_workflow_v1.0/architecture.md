@@ -131,7 +131,7 @@ tests/                 # интеграционные тесты
 |---|---|
 | AM1.0 (`docs/01_audio_modes_v1.0/`) | `src/audio/**`, `src/engine/**`, `src/platform/devwatch.rs`, `src/settings/params.rs`, `src/settings/playback.rs`, `src/app/{badge_view,lock_view,mode_dialog,path_view,ui_audio_state,engine_sink}.rs`, `ui/mode_params.slint`, `tests/{rt_zero_alloc,parsers_survive_mutations}.rs` |
 | SP1.0 (`docs/02_settings_persistence_v1.0/`) | `src/core/**`, `src/persist/**`, `src/platform/**` (кроме `devwatch.rs`), `src/journal.rs`, `ui/message_window.slint` |
-| T1.0 / V5.1 | `src/theme.rs` (T1.0); визуализация `src/audio/{analyzer,spectrogram,fulltrack,palettes,visualizer}.rs`, `src/app/{visualizer,fulltrack,viz_settings}_manager.rs`, `tests/{dsd512_playback_cpu_budget,fulltrack_memory_budget,live_worker_zero_alloc,perf_budgets}.rs` (V5.1 — исключение из строки AM1.0) |
+| T1.0 / V5.1 | `src/theme.rs`, `src/i18n/**` (T1.0); визуализация `src/audio/{analyzer,spectrogram,fulltrack,palettes,visualizer}.rs`, `src/app/{visualizer,fulltrack,viz_settings}_manager.rs`, `tests/{dsd512_playback_cpu_budget,fulltrack_memory_budget,live_worker_zero_alloc,perf_budgets}.rs` (V5.1 — исключение из строки AM1.0) |
 | смешанные — только с префиксом | `src/app/mod.rs` и прочие `src/app/*_manager.rs`, `src/main.rs`, `src/lib.rs`, `src/settings.rs`, `src/settings/playback_dto.rs`, `src/playlist/**`, `ui/*.slint` (кроме указанных) |
 
 Новый файл добавляется в таблицу тем же коммитом, что и сам файл

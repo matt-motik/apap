@@ -7,6 +7,7 @@ task:
   roadmap_id: "T1.0-B2"
   title: "Перевод интерфейса на русский (Slint — @tr, Rust — src/i18n/), задел под многоязычность"
 whitelist:
+  - "docs/00_workflow_v1.0/architecture.md"
   - "src/i18n/mod.rs"
   - "src/i18n/errors.rs"
   - "src/lib.rs"
@@ -50,7 +51,7 @@ steps:
       константа APP_NAME, форматтер заголовка окна «APAP — <трек>» / «APAP», хелпер строк с
       именованными подстановками ({name}-плейсхолдеры); юнит-тесты. Проверка: cargo check без
       ошибок, cargo test i18n:: зелёный.
-    done: false
+    done: true
   - id: 2
     description: >
       i18n фундамент, часть 2 (src/i18n/mod.rs): хелпер множественного числа (3 русские формы) и
@@ -182,8 +183,8 @@ steps:
       check зелёные; готовность к closing.md (ручная проверка пользователем — обрезка длинных
       русских подписей на всех экранах).
     done: false
-current_step: 1
-next_action: "Шаг 1: создать src/i18n/mod.rs — APP_NAME, форматтер заголовка окна, хелпер именованных подстановок; юнит-тесты."
+current_step: 2
+next_action: "Шаг 2: хелпер множественного числа (3 русские формы) и форматирование чисел/единиц в src/i18n/mod.rs; юнит-тесты на граничные случаи (1/2/5, дробные)."
 fail_counter: 0
 fail_counter_max: 3
 failed_attempts: []

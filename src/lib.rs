@@ -4,6 +4,7 @@ pub mod audio;
 pub mod core;
 pub mod cover;
 pub mod engine;
+pub mod i18n;
 pub mod journal;
 pub mod meta;
 pub mod persist;
