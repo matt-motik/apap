@@ -4057,7 +4057,7 @@ mod tests {
 
     #[test]
     fn find_device_index_in_strips_server_suffix() {
-        let suffix = music_player_rs::audio::output::SERVER_NODE_SUFFIX;
+        let suffix = music_player_rs::i18n::audio::SERVER_NODE_SUFFIX;
         let pairs = vec![(
             "default".into(),
             format!("default{suffix}"),

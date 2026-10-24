@@ -18,16 +18,16 @@
 - [x] Шаг 1: src/i18n/audio.rs: добавить pub const SERVER_NODE_SUFFIX (русский текст, формат « — (программный, с ресемплингом)») с doc-комментарием T1.0-B6 и юнит-тестом значения. Проверка: cargo check
 - [x] Шаг 2: src/audio/output.rs: убрать локальное определение SERVER_NODE_SUFFIX, label_device_names использует crate::i18n::audio::SERVER_NODE_SUFFIX; временный мост `pub use crate::i18n::audio::SERVER_NODE_SUFFIX;` на старом пути (убирается шагом 5 этой же задачи — внешние ссылки на 2-3 файла мигрируют по одной, planning.md §5); обновить 3 юнит-теста, сверяющих литерал "(software, resamples)", на SERVER_NODE_SUFFIX. Проверка: cargo test --lib audio::output::
 - [x] Шаг 3: src/app/ui_manager.rs: 2 вызова strip_suffix(music_player_rs::audio::output::SERVER_NODE_SUFFIX) → music_player_rs::i18n::audio::SERVER_NODE_SUFFIX; обновить doc-комментарий find_device_index_in, цитирующий старый английский текст суффикса. Проверка: cargo check
-- [>] **Шаг 4: src/app/mod.rs: тест find_device_index_in_strips_server_suffix — путь константы music_player_rs::i18n::audio::SERVER_NODE_SUFFIX. Проверка: cargo test --lib app::mod::tests::find_device_index_in_strips_server_suffix**
-- [ ] Шаг 5: src/audio/output.rs: убрать временный мост (pub use .. SERVER_NODE_SUFFIX) — больше не используется внешними вызывающими после шагов 3-4. Проверка: cargo check
+- [x] Шаг 4: src/app/mod.rs: тест find_device_index_in_strips_server_suffix — путь константы music_player_rs::i18n::audio::SERVER_NODE_SUFFIX. Проверка: cargo test --lib app::mod::tests::find_device_index_in_strips_server_suffix
+- [>] **Шаг 5: src/audio/output.rs: убрать временный мост (pub use .. SERVER_NODE_SUFFIX) — больше не используется внешними вызывающими после шагов 3-4. Проверка: cargo check**
 - [ ] Шаг 6: src/playlist/mod.rs: sort_rows_text() — ColumnId::Bitrate через i18n::format_kbps(track.bitrate), ColumnId::SampleRate через i18n::format_khz(sample_rate/1000.0) вместо литералов "{} kbps"/"{} Hz". Проверка: cargo check
 - [ ] Шаг 7: src/app/mod.rs: тест sort_rows_text_formats_columns — ожидания Bitrate/SampleRate на русский вывод format_kbps/format_khz ("1411 кбит/с", "96 кГц" и т. п.). Проверка: cargo test --lib app::mod::tests::sort_rows_text_formats_columns
 - [ ] Шаг 8: ЧЕКПОИНТ: полный cargo test + cargo clippy без новых предупреждений по файлам вайтлиста перед закрытием T1.0-B6
 
 Легенда: [x] сделано · [>] текущий шаг · [ ] не начато
 
-- **Текущий шаг (current_step):** Шаг 4
-- **Следующий ход:** src/app/mod.rs: тест find_device_index_in_strips_server_suffix на путь music_player_rs::i18n::audio::SERVER_NODE_SUFFIX
+- **Текущий шаг (current_step):** Шаг 5
+- **Следующий ход:** src/audio/output.rs: убрать временный мост pub use crate::i18n::audio::SERVER_NODE_SUFFIX
 - **Счетчик безуспешных компиляций:** 0/3
 - **Состояние:** in_progress
 
