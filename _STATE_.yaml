@@ -41,7 +41,7 @@ steps:
     done: true
   - id: 2
     description: "src/audio/path/report.rs часть 2 (оставшиеся ~37 строк): перенести остальные тексты отчёта в src/i18n/report.rs, вызовы в report.rs — через новый модуль. Проверка: cargo check без ошибок"
-    done: false
+    done: true
   - id: 3
     description: "ЧЕКПОИНТ: cargo test, cargo clippy, tools/check_rt_imports.py, tools/traceability_tool.py check — все зелёные"
     done: false
@@ -96,8 +96,8 @@ steps:
   - id: 20
     description: "ЧЕКПОИНТ (финальный, перед закрытием задачи): полный cargo test + cargo clippy + tools/check_rt_imports.py + tools/traceability_tool.py check — все зелёные; выборочная сверка, что перенесённые строки байт-в-байт совпадают с прежними (diff литералов)"
     done: false
-current_step: 2
-next_action: "Шаг 2: перенести оставшиеся тексты отчёта (mode_name/server_name/stage_name/status_text/confidence_text/рекомендации/Display) в src/i18n/report.rs, вызовы в report.rs — через новый модуль"
+current_step: 3
+next_action: "ЧЕКПОИНТ: cargo test, cargo clippy, tools/check_rt_imports.py, tools/traceability_tool.py check"
 fail_counter: 0
 fail_counter_max: 3
 failed_attempts: []

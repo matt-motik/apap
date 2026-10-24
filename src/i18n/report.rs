@@ -279,3 +279,133 @@ pub const SAMPLE_S24: &str = "24 бит (в 32)";
 
 /// Разрядность выходного формата S32 (ТЗ-76).
 pub const SAMPLE_S32: &str = "32 бит";
+
+// ---------------------------------------------------------------------------
+// Часть 2: названия режима/сервера, Display, рекомендации, советы (ТЗ-81,
+// ТЗ-84, §6.25).
+// ---------------------------------------------------------------------------
+
+/// Название режима воспроизведения (ТЗ-84).
+pub const MODE_COMPATIBLE: &str = "Совместимый режим";
+pub const MODE_OPTIMAL: &str = "Оптимальный режим";
+pub const MODE_STRICT: &str = "Строгий режим";
+
+/// «Уровень ОС» (ТЗ-77): микшер WASAPI (единственное имя сервера с русским словом).
+pub const SERVER_WASAPI_MIXER: &str = "микшер WASAPI";
+
+/// `Display` отчёта (ТЗ-84, §6.25): подписи блоков строки этапа.
+pub const CHANGES_LABEL: &str = "изменения";
+pub const CAUSES_LABEL: &str = "причины";
+pub const CONFIDENCE_LABEL: &str = "достоверность";
+pub const NOTES_LABEL: &str = "заметки";
+
+/// `Display` отчёта (§6.25): заголовок и пустой список рекомендаций.
+pub const RECOMMENDATIONS_HEADER: &str = "Рекомендации:";
+pub const NO_RECOMMENDATIONS: &str = "нет";
+
+/// `Display` отчёта (§6.25): названия трёх групп рекомендаций.
+pub const PLAYER_SETTINGS_GROUP: &str = "Настройки плеера";
+pub const OS_SETTINGS_GROUP: &str = "Настройки ОС";
+pub const HARDWARE_GROUP: &str = "Оборудование";
+
+/// `Display` отчёта (§6.25): версия плеера и ОС.
+pub const PLAYER_VERSION_LABEL: &str = "Версия плеера";
+pub const OS_LABEL: &str = "ОС";
+
+/// Текст рекомендации «смена режима» (ТЗ-81, ТЗ-84, §6.25).
+pub fn switch_mode_text(mode: &str, why: &str) -> String {
+    format_named("смена режима: {mode} ({why})", &[("mode", mode), ("why", why)])
+}
+
+/// Название этапа (ТЗ-71, ТЗ-84): для окна «Путь сигнала» и UI-презентера.
+pub const STAGE_SOURCE: &str = "Источник";
+pub const STAGE_DECODER: &str = "Декодер";
+pub const STAGE_PROCESSING: &str = "Обработка";
+pub const STAGE_OUTPUT: &str = "Вывод";
+pub const STAGE_OS_LEVEL: &str = "Уровень ОС";
+pub const STAGE_DEVICE: &str = "Устройство";
+
+/// Текст статуса этапа (ТЗ-71, ТЗ-84): значок + текст, не только цвет.
+pub const STATUS_UNCHANGED: &str = "✓ без изменений";
+pub const STATUS_LOSSLESS: &str = "≈ изменено без потерь";
+pub const STATUS_UNKNOWN: &str = "? неизвестно";
+pub const STATUS_LOSSY: &str = "✗ с потерями / несовместимо";
+
+/// Текст достоверности этапа (ТЗ-71, ТЗ-84): «подтверждено (…)» / «предположено».
+pub fn confirmed_text(by: &str) -> String {
+    format_named("подтверждено ({by})", &[("by", by)])
+}
+pub const ASSUMED_TEXT: &str = "предположено";
+
+/// Как подтверждена достоверность (ТЗ-71, ТЗ-84).
+pub const CONFIRMED_BY_DRIVER_HW_PARAMS: &str = "hw_params драйвера";
+pub const CONFIRMED_BY_RUNTIME_TEST: &str = "тест тракта";
+pub const CONFIRMED_BY_FILE_HEADER: &str = "заголовок файла";
+pub const CONFIRMED_BY_OS_QUERY: &str = "запрос к ОС";
+
+/// Текст действия рекомендации «Настройки плеера» (ТЗ-81, ТЗ-95, §6.25).
+pub const ACTION_SET_VOLUME_FULL: &str = "громкость → 100 %";
+pub const ACTION_UNMUTE: &str = "выключить mute";
+pub const ACTION_TURN_OFF: &str = "выключить";
+pub const ACTION_TURN_ON: &str = "включить";
+pub const ACTION_CHOOSE_QUALITY_FILTER: &str = "выбрать фильтр SRC «Качество»";
+pub const ACTION_INCREASE: &str = "увеличить";
+
+/// Тема рекомендации «Настройки ОС» (ТЗ-81, §6.25): русские темы WASAPI/RT;
+/// `PipeWire: allowed-rates`/`force-rate` без русских слов — не переводятся.
+pub const OS_TOPIC_WASAPI_SHARED_FORMAT: &str = "формат общего режима WASAPI";
+pub const OS_TOPIC_WASAPI_EXCLUSIVE_PERMISSION: &str = "разрешение на монопольный доступ WASAPI";
+pub const OS_TOPIC_REALTIME_PRIORITY: &str = "приоритет реального времени (rtkit, группа audio)";
+
+/// Совет «Оборудование» (ТЗ-80, ТЗ-81, §6.25, AM1.0-B29): требуемая частота/
+/// разрядность/каналы/DoP устройства.
+pub fn hw_need_rate(khz: &str) -> String {
+    format_named("ЦАП с поддержкой {khz}", &[("khz", khz)])
+}
+pub fn hw_need_bit_depth(bits: u8) -> String {
+    format!("ЦАП с поддержкой {bits} бит")
+}
+pub fn hw_need_channels(n: u8) -> String {
+    format!("ЦАП с поддержкой {n} каналов")
+}
+pub fn hw_need_dop_rate(dsd: &str, pcm_khz: &str) -> String {
+    format_named("ЦАП с поддержкой DoP {dsd} (PCM {pcm_khz})", &[("dsd", dsd), ("pcm_khz", pcm_khz)])
+}
+
+/// Совет «Оборудование» (§6.25, AM1.0-B29): дописывание «этот ЦАП: …» для
+/// DoP (скобка `base` уже открыта — «; ») и для прочих требований (новая скобка).
+pub fn hw_have_dop_suffix(base_without_paren: &str, have_text: &str) -> String {
+    format!("{base_without_paren}; этот ЦАП: {have_text})")
+}
+pub fn hw_have_suffix(base: &str, have_text: &str) -> String {
+    format!("{base} (этот ЦАП: {have_text})")
+}
+
+/// «этот ЦАП» (§6.25, AM1.0-B29): «до M бит, float» без ограничения по разрядности.
+pub const DAC_FLOAT_ONLY: &str = "до 24 бит, float";
+
+/// «этот ЦАП» (§6.25, AM1.0-B29): «до M бит».
+pub fn dac_max_bits(max_bits: u8) -> String {
+    format!("до {max_bits} бит")
+}
+
+/// «этот ЦАП» (§6.25, AM1.0-B29): список частот через « / », суффикс «кГц».
+pub fn rates_list_khz(nums_joined: &str) -> String {
+    format!("{nums_joined} кГц")
+}
+
+/// «этот ЦАП» (§6.25, AM1.0-B29): DoP до DSDm / без DoP.
+pub fn dac_dop_up_to(dsd: &str) -> String {
+    format_named("DoP до {dsd}", &[("dsd", dsd)])
+}
+pub const DAC_NO_DOP: &str = "без DoP";
+pub fn dac_dop_combined(dop: &str, max_khz: &str) -> String {
+    format_named("{dop}, до {max_khz}", &[("dop", dop), ("max_khz", max_khz)])
+}
+
+/// Причина смены режима (ТЗ-81): «ресемплинг»/«усечение разрядности»/
+/// «сведение каналов» — русские слова; `DSD→PCM`/`Exclusive` без русских
+/// слов остаются литералом в месте вызова.
+pub const SWITCH_WHY_RESAMPLE: &str = "ресемплинг";
+pub const SWITCH_WHY_TRUNCATE: &str = "усечение разрядности";
+pub const SWITCH_WHY_DOWNMIX: &str = "сведение каналов";

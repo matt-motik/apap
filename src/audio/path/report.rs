@@ -423,9 +423,9 @@ fn codec_name(codec: Codec) -> &'static str {
 
 fn mode_name(mode: ModeKind) -> &'static str {
     match mode {
-        ModeKind::Compatible => "Совместимый режим",
-        ModeKind::Optimal => "Оптимальный режим",
-        ModeKind::Strict => "Строгий режим",
+        ModeKind::Compatible => i18n_report::MODE_COMPATIBLE,
+        ModeKind::Optimal => i18n_report::MODE_OPTIMAL,
+        ModeKind::Strict => i18n_report::MODE_STRICT,
     }
 }
 
@@ -442,7 +442,7 @@ fn api_name(api: OutputApi, access: AccessKind) -> &'static str {
 
 fn server_name(server: OsServer) -> &'static str {
     match server {
-        OsServer::WasapiMixer => "микшер WASAPI",
+        OsServer::WasapiMixer => i18n_report::SERVER_WASAPI_MIXER,
         OsServer::PipeWire => "PipeWire",
         OsServer::PulseAudio => "PulseAudio",
     }
@@ -474,33 +474,33 @@ impl std::fmt::Display for PathReport {
             writeln!(f)?;
             writeln!(f, "{}: {}", stage_name(row.id), status_text(row.status))?;
             if !row.changes.is_empty() {
-                writeln!(f, "  изменения: {}", row.changes.join("; "))?;
+                writeln!(f, "  {}: {}", i18n_report::CHANGES_LABEL, row.changes.join("; "))?;
             }
             if !row.causes.is_empty() {
-                writeln!(f, "  причины: {}", row.causes.join("; "))?;
+                writeln!(f, "  {}: {}", i18n_report::CAUSES_LABEL, row.causes.join("; "))?;
             }
-            writeln!(f, "  достоверность: {}", confidence_text(row.confidence))?;
+            writeln!(f, "  {}: {}", i18n_report::CONFIDENCE_LABEL, confidence_text(row.confidence))?;
             if !row.notes.is_empty() {
-                writeln!(f, "  заметки: {}", row.notes.join("; "))?;
+                writeln!(f, "  {}: {}", i18n_report::NOTES_LABEL, row.notes.join("; "))?;
             }
         }
 
         let (player, os, hardware) = group_recommendations(&self.recommendations);
         writeln!(f)?;
-        writeln!(f, "Рекомендации:")?;
+        writeln!(f, "{}", i18n_report::RECOMMENDATIONS_HEADER)?;
         if player.is_empty() && os.is_empty() && hardware.is_empty() {
-            writeln!(f, "  нет")?;
+            writeln!(f, "  {}", i18n_report::NO_RECOMMENDATIONS)?;
         } else {
-            write_group(f, "Настройки плеера", &player)?;
-            write_group(f, "Настройки ОС", &os)?;
-            write_group(f, "Оборудование", &hardware)?;
+            write_group(f, i18n_report::PLAYER_SETTINGS_GROUP, &player)?;
+            write_group(f, i18n_report::OS_SETTINGS_GROUP, &os)?;
+            write_group(f, i18n_report::HARDWARE_GROUP, &hardware)?;
         }
 
         writeln!(f)?;
         writeln!(f, "{}", self.guarantee_boundary)?;
         writeln!(f)?;
-        writeln!(f, "Версия плеера: {}", self.player_version)?;
-        write!(f, "ОС: {}", self.os)
+        writeln!(f, "{}: {}", i18n_report::PLAYER_VERSION_LABEL, self.player_version)?;
+        write!(f, "{}: {}", i18n_report::OS_LABEL, self.os)
     }
 }
 
@@ -543,7 +543,7 @@ pub fn recommendation_text(rec: &Recommendation) -> String {
         Recommendation::Os { topic } => os_topic_text(*topic).to_owned(),
         Recommendation::Hardware { need, have } => hw_requirement_text(need, have.as_ref()),
         Recommendation::SwitchMode { to, why } => {
-            format!("смена режима: {} ({})", mode_name(*to), switch_why_text(*why))
+            i18n_report::switch_mode_text(mode_name(*to), switch_why_text(*why))
         }
     }
 }
@@ -570,39 +570,39 @@ fn group_recommendations(recs: &[Recommendation]) -> (Vec<String>, Vec<String>, 
 /// Название этапа (ТЗ-71, ТЗ-84): для окна «Путь сигнала» и UI-презентера.
 pub fn stage_name(id: StageId) -> &'static str {
     match id {
-        StageId::Source => "Источник",
-        StageId::Decoder => "Декодер",
-        StageId::Processing => "Обработка",
-        StageId::Output => "Вывод",
-        StageId::OsLevel => "Уровень ОС",
-        StageId::Device => "Устройство",
+        StageId::Source => i18n_report::STAGE_SOURCE,
+        StageId::Decoder => i18n_report::STAGE_DECODER,
+        StageId::Processing => i18n_report::STAGE_PROCESSING,
+        StageId::Output => i18n_report::STAGE_OUTPUT,
+        StageId::OsLevel => i18n_report::STAGE_OS_LEVEL,
+        StageId::Device => i18n_report::STAGE_DEVICE,
     }
 }
 
 /// Текст статуса этапа (ТЗ-71, ТЗ-84): значок + текст, не только цвет.
 pub fn status_text(status: StageStatus) -> &'static str {
     match status {
-        StageStatus::Unchanged => "✓ без изменений",
-        StageStatus::Lossless => "≈ изменено без потерь",
-        StageStatus::Unknown => "? неизвестно",
-        StageStatus::Lossy => "✗ с потерями / несовместимо",
+        StageStatus::Unchanged => i18n_report::STATUS_UNCHANGED,
+        StageStatus::Lossless => i18n_report::STATUS_LOSSLESS,
+        StageStatus::Unknown => i18n_report::STATUS_UNKNOWN,
+        StageStatus::Lossy => i18n_report::STATUS_LOSSY,
     }
 }
 
 /// Текст достоверности этапа (ТЗ-71, ТЗ-84): «подтверждено (…)» / «предположено».
 pub fn confidence_text(c: Confidence) -> String {
     match c {
-        Confidence::Confirmed(by) => format!("подтверждено ({})", confirmed_by_text(by)),
-        Confidence::Assumed => "предположено".to_owned(),
+        Confidence::Confirmed(by) => i18n_report::confirmed_text(confirmed_by_text(by)),
+        Confidence::Assumed => i18n_report::ASSUMED_TEXT.to_owned(),
     }
 }
 
 fn confirmed_by_text(by: ConfirmedBy) -> &'static str {
     match by {
-        ConfirmedBy::DriverHwParams => "hw_params драйвера",
-        ConfirmedBy::RuntimeTest => "тест тракта",
-        ConfirmedBy::FileHeader => "заголовок файла",
-        ConfirmedBy::OsQuery => "запрос к ОС",
+        ConfirmedBy::DriverHwParams => i18n_report::CONFIRMED_BY_DRIVER_HW_PARAMS,
+        ConfirmedBy::RuntimeTest => i18n_report::CONFIRMED_BY_RUNTIME_TEST,
+        ConfirmedBy::FileHeader => i18n_report::CONFIRMED_BY_FILE_HEADER,
+        ConfirmedBy::OsQuery => i18n_report::CONFIRMED_BY_OS_QUERY,
     }
 }
 
@@ -614,12 +614,12 @@ fn player_setting_text(rec: &PlayerSettingRec) -> String {
 
 fn rec_action_text(a: RecAction) -> &'static str {
     match a {
-        RecAction::SetVolumeFull => "громкость → 100 %",
-        RecAction::Unmute => "выключить mute",
-        RecAction::TurnOff => "выключить",
-        RecAction::TurnOn => "включить",
-        RecAction::ChooseQualityFilter => "выбрать фильтр SRC «Качество»",
-        RecAction::Increase => "увеличить",
+        RecAction::SetVolumeFull => i18n_report::ACTION_SET_VOLUME_FULL,
+        RecAction::Unmute => i18n_report::ACTION_UNMUTE,
+        RecAction::TurnOff => i18n_report::ACTION_TURN_OFF,
+        RecAction::TurnOn => i18n_report::ACTION_TURN_ON,
+        RecAction::ChooseQualityFilter => i18n_report::ACTION_CHOOSE_QUALITY_FILTER,
+        RecAction::Increase => i18n_report::ACTION_INCREASE,
     }
 }
 
@@ -627,9 +627,9 @@ fn os_topic_text(t: OsTopic) -> &'static str {
     match t {
         OsTopic::PipeWireAllowedRates => "PipeWire: allowed-rates",
         OsTopic::PipeWireForceRate => "PipeWire: force-rate",
-        OsTopic::WindowsSharedFormat => "формат общего режима WASAPI",
-        OsTopic::WindowsExclusivePermission => "разрешение на монопольный доступ WASAPI",
-        OsTopic::RealtimePriority => "приоритет реального времени (rtkit, группа audio)",
+        OsTopic::WindowsSharedFormat => i18n_report::OS_TOPIC_WASAPI_SHARED_FORMAT,
+        OsTopic::WindowsExclusivePermission => i18n_report::OS_TOPIC_WASAPI_EXCLUSIVE_PERMISSION,
+        OsTopic::RealtimePriority => i18n_report::OS_TOPIC_REALTIME_PRIORITY,
     }
 }
 
@@ -641,12 +641,10 @@ fn os_topic_text(t: OsTopic) -> &'static str {
 /// 0`), скобка тоже не добавляется.
 fn hw_requirement_text(need: &HwRequirement, have: Option<&DacCaps>) -> String {
     let base = match need {
-        HwRequirement::Rate(r) => format!("ЦАП с поддержкой {}", khz(r.hz())),
-        HwRequirement::BitDepth(b) => format!("ЦАП с поддержкой {} бит", b.bits()),
-        HwRequirement::Channels(n) => format!("ЦАП с поддержкой {n} каналов"),
-        HwRequirement::DopRate(d) => {
-            format!("ЦАП с поддержкой DoP {} (PCM {})", dsd_name(*d), khz(d.bit_rate_hz() / 16))
-        }
+        HwRequirement::Rate(r) => i18n_report::hw_need_rate(&khz(r.hz())),
+        HwRequirement::BitDepth(b) => i18n_report::hw_need_bit_depth(b.bits()),
+        HwRequirement::Channels(n) => i18n_report::hw_need_channels(*n),
+        HwRequirement::DopRate(d) => i18n_report::hw_need_dop_rate(dsd_name(*d), &khz(d.bit_rate_hz() / 16)),
     };
     let Some(caps) = have else {
         return base;
@@ -657,8 +655,8 @@ fn hw_requirement_text(need: &HwRequirement, have: Option<&DacCaps>) -> String {
     match need {
         // Текст уже заканчивается на «(PCM f кГц)» — «этот ЦАП» дописывается
         // в ту же скобку через «; ».
-        HwRequirement::DopRate(_) => format!("{}; этот ЦАП: {have_text})", base.trim_end_matches(')')),
-        _ => format!("{base} (этот ЦАП: {have_text})"),
+        HwRequirement::DopRate(_) => i18n_report::hw_have_dop_suffix(base.trim_end_matches(')'), &have_text),
+        _ => i18n_report::hw_have_suffix(&base, &have_text),
     }
 }
 
@@ -686,7 +684,7 @@ fn rates_have_text(rates: &RateSet) -> Option<String> {
                 return None;
             }
             let nums: Vec<String> = list.iter().map(|r| khz_num(r.hz())).collect();
-            Some(format!("{} кГц", nums.join(" / ")))
+            Some(i18n_report::rates_list_khz(&nums.join(" / ")))
         }
         RateSet::Range { min, max } => Some(format!("{}–{}", khz_num(min.hz()), khz(max.hz()))),
     }
@@ -695,12 +693,12 @@ fn rates_have_text(rates: &RateSet) -> Option<String> {
 /// «до M бит»/«до 24 бит, float».
 fn bit_depth_have_text(caps: &DacCaps) -> Option<String> {
     if caps.float_only {
-        return Some("до 24 бит, float".to_owned());
+        return Some(i18n_report::DAC_FLOAT_ONLY.to_owned());
     }
     if caps.max_bits == 0 {
         return None;
     }
-    Some(format!("до {} бит", caps.max_bits))
+    Some(i18n_report::dac_max_bits(caps.max_bits))
 }
 
 /// Список количеств каналов через « / ».
@@ -715,10 +713,10 @@ fn channels_have_text(channels: &[u8]) -> Option<String> {
 fn dop_have_text(caps: &DacCaps) -> Option<String> {
     let f = rates_max_khz(&caps.rates)?;
     let dop = match caps.max_dop {
-        Some(d) => format!("DoP до {}", dsd_name(d)),
-        None => "без DoP".to_owned(),
+        Some(d) => i18n_report::dac_dop_up_to(dsd_name(d)),
+        None => i18n_report::DAC_NO_DOP.to_owned(),
     };
-    Some(format!("{dop}, до {f}"))
+    Some(i18n_report::dac_dop_combined(&dop, &f))
 }
 
 /// Наибольшая частота сводки `RateSet` как текст `khz` (§6.25, AM1.0-B29).
@@ -731,9 +729,9 @@ fn rates_max_khz(rates: &RateSet) -> Option<String> {
 
 fn switch_why_text(why: SwitchWhy) -> &'static str {
     match why {
-        SwitchWhy::Resample => "ресемплинг",
-        SwitchWhy::Truncate => "усечение разрядности",
-        SwitchWhy::Downmix => "сведение каналов",
+        SwitchWhy::Resample => i18n_report::SWITCH_WHY_RESAMPLE,
+        SwitchWhy::Truncate => i18n_report::SWITCH_WHY_TRUNCATE,
+        SwitchWhy::Downmix => i18n_report::SWITCH_WHY_DOWNMIX,
         SwitchWhy::DsdToPcm => "DSD→PCM",
         SwitchWhy::Exclusive => "Exclusive",
     }

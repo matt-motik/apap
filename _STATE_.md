@@ -38,8 +38,8 @@
 
 ## Итерационный трекер
 - [x] Шаг 1: src/audio/path/report.rs часть 1 (~40 из 77 строк): создать src/i18n/report.rs, перенести константы/заглушки/первую половину текстов отчёта «Путь сигнала» (строки до функции с ModeKind/OsServer). Проверка: cargo check без ошибок
-- [>] **Шаг 2: src/audio/path/report.rs часть 2 (оставшиеся ~37 строк): перенести остальные тексты отчёта в src/i18n/report.rs, вызовы в report.rs — через новый модуль. Проверка: cargo check без ошибок**
-- [ ] Шаг 3: ЧЕКПОИНТ: cargo test, cargo clippy, tools/check_rt_imports.py, tools/traceability_tool.py check — все зелёные
+- [x] Шаг 2: src/audio/path/report.rs часть 2 (оставшиеся ~37 строк): перенести остальные тексты отчёта в src/i18n/report.rs, вызовы в report.rs — через новый модуль. Проверка: cargo check без ошибок
+- [>] **Шаг 3: ЧЕКПОИНТ: cargo test, cargo clippy, tools/check_rt_imports.py, tools/traceability_tool.py check — все зелёные**
 - [ ] Шаг 4: src/settings/params.rs (35 строк, подписи ParamId — «Доступ к устройству», «Устройство» и т. п.) → src/i18n/params.rs. Проверка: cargo check без ошибок
 - [ ] Шаг 5: src/settings.rs (12 строк, заголовки колонок плейлиста «Название»/«Исполнитель»/… в default_column_defs) + src/core/load.rs (8 строк, title/body сообщений о плейлисте — «Плейлист повреждён», «Не удалось загрузить плейлист» и др.) → src/i18n/. Проверка: cargo check без ошибок
 - [ ] Шаг 6: ЧЕКПОИНТ: cargo test, cargo clippy, tools/check_rt_imports.py, tools/traceability_tool.py check — все зелёные
@@ -60,8 +60,8 @@
 
 Легенда: [x] сделано · [>] текущий шаг · [ ] не начато
 
-- **Текущий шаг (current_step):** Шаг 2
-- **Следующий ход:** Шаг 2: перенести оставшиеся тексты отчёта (mode_name/server_name/stage_name/status_text/confidence_text/рекомендации/Display) в src/i18n/report.rs, вызовы в report.rs — через новый модуль
+- **Текущий шаг (current_step):** Шаг 3
+- **Следующий ход:** ЧЕКПОИНТ: cargo test, cargo clippy, tools/check_rt_imports.py, tools/traceability_tool.py check
 - **Счетчик безуспешных компиляций:** 0/3
 - **Состояние:** in_progress
 
