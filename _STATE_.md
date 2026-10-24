@@ -48,8 +48,8 @@
 - [x] Шаг 6: ui/settings.slint — вкладка Audio + под-секция «Настройки режима» (~строки 390–530): @tr + перевод; Exclusive/Shared/DoP/ASIO/WASAPI/ALSA/PipeWire и форматы S24_3LE… не переводятся.
 
 - [x] Шаг 7: ui/settings.slint — вкладка Columns (~строки 530–621): @tr + перевод.
-- [>] **Шаг 8: ЧЕКПОИНТ: полный cargo test + cargo clippy зелёные (settings.slint General/Audio/Columns).**
-- [ ] Шаг 9: ui/settings.slint — вкладка Covers (~строки 621–709): @tr + перевод.
+- [x] Шаг 8: ЧЕКПОИНТ: полный cargo test + cargo clippy зелёные (settings.slint General/Audio/Columns).
+- [>] **Шаг 9: ui/settings.slint — вкладка Covers (~строки 621–709): @tr + перевод.**
 - [ ] Шаг 10: ui/settings.slint — вкладка Visualization, под-секции «Осциллограмма» + «Спектрограмма» (~строки 709–1244): @tr + перевод; окна Hann/Hamming/Blackman и палитры Magma/Viridis/Plasma/Inferno не переводятся.
 
 - [ ] Шаг 11: ui/settings.slint — вкладка Visualization, под-секции «Анализатор спектра» + «Отключено» (~строки 1244–1532): @tr + перевод; Solid→«Сплошная», Gray→«Серая», Rainbow→«Радуга», Thermal→«Тепловая».
@@ -88,8 +88,8 @@
 
 Легенда: [x] сделано · [>] текущий шаг · [ ] не начато
 
-- **Текущий шаг (current_step):** Шаг 8
-- **Следующий ход:** ЧЕКПОИНТ: полный cargo test + cargo clippy зелёные (settings.slint General/Audio/Columns).
+- **Текущий шаг (current_step):** Шаг 9
+- **Следующий ход:** ui/settings.slint — вкладка Covers (~строки 621–709): @tr + перевод.
 - **Счетчик безуспешных компиляций:** 0/3
 - **Состояние:** in_progress
 
