@@ -39,6 +39,11 @@ export component Settings inherits Rectangle {
     in property <[string]> theme-list-model: [""];
     // Двусторонне: самоприсваивание ComboBox при смене модели не рвёт связь (T1.0-B3).
     in-out property <string> theme-current: "";
+    // Индекс theme-current в theme-list-model — без него попап ComboBox
+    // подсвечивает пункт 0, а не текущую тему (§5.1, T1.0-B4); ставится из
+    // Rust вместе с theme-current/theme-list-model (apply_theme_list), не
+    // текстом: current-value остаётся источником истины при смене модели.
+    in-out property <int> theme-current-index: 0;
     in property <string> theme-name: "";
     in property <string> theme-description: "";
     // Доступность «Сохранить»: в копии есть отличия и нет недопустимых значений (ТЗ-27, §6.9).
@@ -250,6 +255,7 @@ export component Settings inherits Rectangle {
                                             ComboBox {
                                                 model: root.theme-list-model;
                                                 current-value <=> root.theme-current;
+                                                current-index <=> root.theme-current-index;
                                                 selected(s) => { debug("settings: theme combo selected"); root.settings-theme-selected(s); }
                                             }
 

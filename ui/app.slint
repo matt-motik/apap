@@ -299,6 +299,8 @@ export component AppWindow inherits Window {
     // T1.0 §5: список тем и состояние UI выбора темы в диалоге.
     in property <[string]> theme-list-model: [""];
     in-out property <string> theme-current: "";
+    // Индекс theme-current в theme-list-model для подсветки попапа ComboBox (§5.1, T1.0-B4).
+    in-out property <int> theme-current-index: 0;
     in property <string> theme-name: "";
     in property <string> theme-description: "";
     // Доступность «Сохранить» и подсказка с причиной недоступности (ТЗ-27, §6.9).
@@ -916,6 +918,7 @@ export component AppWindow inherits Window {
         cover-online: root.settings-cover-online;
         theme-list-model: root.theme-list-model;
         theme-current <=> root.theme-current;
+        theme-current-index <=> root.theme-current-index;
         theme-name: root.theme-name;
         theme-description: root.theme-description;
         close => { root.settings-close(); }

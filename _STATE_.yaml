@@ -14,12 +14,12 @@ dod: "ComboBox темы: current-index <=> до AppWindow, индекс счит
 steps:
   - id: 1
     description: "ui/settings.slint + ui/app.slint: in-out property theme-current-index, ComboBox { current-index <=> root.theme-current-index }, проводка Settings<=>AppWindow; src/app/mod.rs apply_theme_list: индекс текущей темы в entries -> ui.set_theme_current_index (не найдена -> -1) (T1.0 §5.1). Проверка: cargo check; cargo test --lib app::; cargo clippy без новых предупреждений"
-    done: false
+    done: true
   - id: 2
     description: "ЧЕКПОИНТ: полный cargo test + cargo clippy"
     done: false
-current_step: 1
-next_action: "Добавить theme-current-index и привязать current-index ComboBox темы"
+current_step: 2
+next_action: "ЧЕКПОИНТ: полный cargo test + cargo clippy"
 fail_counter: 0
 fail_counter_max: 3
 failed_attempts: []

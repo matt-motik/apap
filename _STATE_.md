@@ -13,13 +13,13 @@
 - **Критерий успеха (Definition of Done):** ComboBox темы: current-index <=> до AppWindow, индекс считается от theme-current в списке entries и ставится в apply_theme_list; попап подсвечивает выбранную тему, а не индекс 0; полный cargo test и clippy зелёные
 
 ## Итерационный трекер
-- [>] **Шаг 1: ui/settings.slint + ui/app.slint: in-out property theme-current-index, ComboBox { current-index <=> root.theme-current-index }, проводка Settings<=>AppWindow; src/app/mod.rs apply_theme_list: индекс текущей темы в entries -> ui.set_theme_current_index (не найдена -> -1) (T1.0 §5.1). Проверка: cargo check; cargo test --lib app::; cargo clippy без новых предупреждений**
-- [ ] Шаг 2: ЧЕКПОИНТ: полный cargo test + cargo clippy
+- [x] Шаг 1: ui/settings.slint + ui/app.slint: in-out property theme-current-index, ComboBox { current-index <=> root.theme-current-index }, проводка Settings<=>AppWindow; src/app/mod.rs apply_theme_list: индекс текущей темы в entries -> ui.set_theme_current_index (не найдена -> -1) (T1.0 §5.1). Проверка: cargo check; cargo test --lib app::; cargo clippy без новых предупреждений
+- [>] **Шаг 2: ЧЕКПОИНТ: полный cargo test + cargo clippy**
 
 Легенда: [x] сделано · [>] текущий шаг · [ ] не начато
 
-- **Текущий шаг (current_step):** Шаг 1
-- **Следующий ход:** Добавить theme-current-index и привязать current-index ComboBox темы
+- **Текущий шаг (current_step):** Шаг 2
+- **Следующий ход:** ЧЕКПОИНТ: полный cargo test + cargo clippy
 - **Счетчик безуспешных компиляций:** 0/3
 - **Состояние:** in_progress
 

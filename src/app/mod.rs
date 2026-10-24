@@ -1719,11 +1719,23 @@ impl MusicApp {
     fn apply_theme_list(&mut self, entries: Vec<ThemeEntry>) {
         let names: Vec<SharedString> = entries.iter().map(|e| e.file_stem.clone().into()).collect();
         let current = self.core.settings().theme.as_str().to_string();
+        // Индекс current в entries, для подсветки попапа ComboBox (§5.1,
+        // T1.0-B4); -1, если тема удалена — ComboBox ничего не подсвечивает.
+        let current_index = entries
+            .iter()
+            .position(|e| e.file_stem == current)
+            .map(|i| i as i32)
+            .unwrap_or(-1);
         if let Some(ui) = self.try_ui() {
+            // Индекс ставится раньше модели: `changed model` в ComboBox
+            // (std-widgets) делает reset-current(), который клэмпит уже
+            // верный current-index, а не обнуляет его (как в
+            // sync_audio_devices, ui_manager.rs).
+            ui.set_theme_current_index(current_index);
             ui.set_theme_list_model(ModelRc::from(names.as_slice()));
             ui.set_theme_current(current.clone().into());
         }
-        let found = entries.iter().any(|e| e.file_stem == current);
+        let found = current_index >= 0;
         match found.then(|| ThemeName::new(current.clone())).flatten() {
             Some(name) => self.request_current_theme_meta(name),
             None => self.set_theme_meta(None),
