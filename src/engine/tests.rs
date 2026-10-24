@@ -58,7 +58,7 @@ fn build_deps(
     EngineDeps {
         shared,
         exclusive: Some(Box::new(FakeExclusiveBackend::new())),
-        server_probe: Box::new(FakeServerProbe::desktop()),
+        server_probe: Arc::new(FakeServerProbe::desktop()),
         watcher,
         sources,
         clock: Box::new(MonotonicClock::new()),

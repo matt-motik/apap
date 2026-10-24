@@ -34,7 +34,16 @@ pub struct EngineDeps {
     /// пока не реализован (§2.10, ADR-20).
     pub exclusive: Option<Box<dyn ExclusiveBackend>>,
     /// Наличие сессионной шины и аудиосервера для ОВ-35 (§2.10, ADR-20).
-    pub server_probe: Box<dyn AudioServerProbe>,
+    /// Автовыбор устройства режима (`resolve_device`/`resolve_from_sink_card`,
+    /// ADR-24, ТЗ-143) опрашивает системный выход через `default_sink_card`
+    /// (`wpctl inspect`, до 1 с) — движок больше не зовёт её синхронно в
+    /// своём цикле (AM1.0-B40): проба уходит в служебный поток
+    /// (`Engine::start_device_resolve`, `src/engine/run.rs`), которому нужен
+    /// общий доступ к пробнику — `Arc`, а не `Box`. `Mutex`, в отличие от
+    /// `os_probe` (AM1.0-B39), не нужен: `AudioServerProbe: Send + Sync`
+    /// (`src/audio/reservation/mod.rs`), а `default_sink_card` берёт только
+    /// `&self`.
+    pub server_probe: Arc<dyn AudioServerProbe>,
     pub watcher: Box<dyn DeviceWatcher>,
     /// Открытие файлов и предпроверка (§2.10).
     pub sources: Arc<dyn SourceOpener>,
@@ -82,9 +91,9 @@ impl EngineDeps {
             #[cfg(not(target_os = "linux"))]
             exclusive: None,
             #[cfg(target_os = "linux")]
-            server_probe: Box::new(SystemServerProbe),
+            server_probe: Arc::new(SystemServerProbe),
             #[cfg(not(target_os = "linux"))]
-            server_probe: Box::new(NoServerProbe),
+            server_probe: Arc::new(NoServerProbe),
             watcher: crate::platform::devwatch::system_device_watcher(),
             sources: Arc::new(SymphoniaSourceOpener),
             clock: Box::new(MonotonicClock::new()),
@@ -154,7 +163,7 @@ mod tests {
         let mut deps = EngineDeps {
             shared: Box::new(FakeSharedBackend::with_devices(Vec::new())),
             exclusive: Some(Box::new(FakeExclusiveBackend::new())),
-            server_probe: Box::new(FakeServerProbe::desktop()),
+            server_probe: Arc::new(FakeServerProbe::desktop()),
             watcher: Box::new(FakeDeviceWatcher::new()),
             sources: Arc::clone(&fake_source) as Arc<dyn SourceOpener>,
             clock: Box::new(MonotonicClock::new()),

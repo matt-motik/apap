@@ -170,8 +170,17 @@ pub enum Reservation {
 }
 
 /// Наличие сессионной шины и аудиосервера (ОВ-35, §2.3); автовыбор устройства
-/// по системному выходу (ADR-24, ТЗ-143).
-pub trait AudioServerProbe: Send {
+/// по системному выходу (ADR-24, ТЗ-143). `Sync` (не только `Send`, AM1.0-B40):
+/// `Engine::start_device_resolve` (`src/engine/run.rs`) вызывает
+/// `default_sink_card` (`wpctl inspect`, до 1 с) не в цикле движка, а в
+/// служебном потоке через общий `Arc<dyn AudioServerProbe>`
+/// (`EngineDeps.server_probe`) — доступ нужен из двух потоков одновременно
+/// без гонки, хоть и только на чтение (`&self`), поэтому `Mutex`, в отличие
+/// от `OsLevelProbe::probe` (AM1.0-B39, `&mut self`), не требуется. Все
+/// реализации (`SystemServerProbe`/`NoServerProbe` — пустые структуры,
+/// `ProbeSnapshot` — `Copy`-значения, `FakeServerProbe` — `AtomicUsize`)
+/// тривиально `Sync`.
+pub trait AudioServerProbe: Send + Sync {
     fn session_bus(&self) -> bool;
     fn server_running(&self) -> bool;
     /// Карта системного выхода для автовыбора устройства Оптимального/Строгого

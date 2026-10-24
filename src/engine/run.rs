@@ -2575,7 +2575,7 @@ mod tests {
         EngineDeps {
             shared,
             exclusive: Some(Box::new(FakeExclusiveBackend::new())),
-            server_probe: Box::new(FakeServerProbe::desktop()),
+            server_probe: Arc::new(FakeServerProbe::desktop()),
             watcher,
             sources: Arc::new(FakeSource::with_format(pcm_format())),
             clock: Box::new(MonotonicClock::new()),
@@ -3139,7 +3139,7 @@ mod tests {
             exclusive: Some(Box::new(
                 FakeExclusiveBackend::new().with_acquire(Err(CaptureFailure::BusyOutsideProtocol { owner: None })),
             )),
-            server_probe: Box::new(FakeServerProbe::desktop()),
+            server_probe: Arc::new(FakeServerProbe::desktop()),
             watcher: Box::new(FakeDeviceWatcher::new()),
             sources: Arc::new(FakeSource::with_format(pcm_format())),
             clock: Box::new(MonotonicClock::new()),
@@ -3186,7 +3186,7 @@ mod tests {
         let deps = EngineDeps {
             shared: Box::new(FakeSharedBackend::with_devices(Vec::new())),
             exclusive: Some(Box::new(FakeExclusiveBackend::new())),
-            server_probe: Box::new(
+            server_probe: Arc::new(
                 FakeServerProbe::desktop().with_sink_card(Some(crate::audio::reservation::SinkCard { card: 1, device: Some(0) })),
             ),
             watcher: Box::new(FakeDeviceWatcher::new()),
@@ -3370,7 +3370,7 @@ mod tests {
         let deps = EngineDeps {
             shared: Box::new(FakeSharedBackend::with_devices(Vec::new())),
             exclusive: Some(Box::new(backend)),
-            server_probe: Box::new(FakeServerProbe::desktop()),
+            server_probe: Arc::new(FakeServerProbe::desktop()),
             watcher: Box::new(FakeDeviceWatcher::new()),
             sources: Arc::new(FakeSource::with_format(float_format)),
             clock: Box::new(MonotonicClock::new()),
@@ -3518,7 +3518,7 @@ mod tests {
         let deps = EngineDeps {
             shared: Box::new(FakeSharedBackend::with_devices(Vec::new())),
             exclusive: Some(Box::new(backend)),
-            server_probe: Box::new(FakeServerProbe::desktop()),
+            server_probe: Arc::new(FakeServerProbe::desktop()),
             watcher: Box::new(FakeDeviceWatcher::new()),
             sources: Arc::new(FakeSource::with_format(float_format)),
             clock: Box::new(MonotonicClock::new()),
@@ -3582,7 +3582,7 @@ mod tests {
         let deps = EngineDeps {
             shared: Box::new(FakeSharedBackend::with_devices(Vec::new())),
             exclusive: Some(Box::new(backend)),
-            server_probe: Box::new(FakeServerProbe::desktop()),
+            server_probe: Arc::new(FakeServerProbe::desktop()),
             watcher: Box::new(FakeDeviceWatcher::new()),
             sources: Arc::new(FakeSource::with_format(float_format)),
             clock: Box::new(MonotonicClock::new()),
@@ -3640,7 +3640,7 @@ mod tests {
         let deps = EngineDeps {
             shared: Box::new(FakeSharedBackend::with_devices(Vec::new())),
             exclusive: Some(Box::new(backend)),
-            server_probe: Box::new(FakeServerProbe::desktop()),
+            server_probe: Arc::new(FakeServerProbe::desktop()),
             watcher: Box::new(FakeDeviceWatcher::new()),
             sources: Arc::new(FakeSource::with_format(float_format)),
             clock: Box::new(MonotonicClock::new()),
@@ -4340,7 +4340,7 @@ mod tests {
         let deps = EngineDeps {
             shared: Box::new(FakeSharedBackend::with_devices(Vec::new())),
             exclusive: Some(Box::new(backend)),
-            server_probe: Box::new(FakeServerProbe::desktop()),
+            server_probe: Arc::new(FakeServerProbe::desktop()),
             watcher: Box::new(FakeDeviceWatcher::new()),
             sources: Arc::new(FakeSource::with_format(float_format)),
             clock: Box::new(MonotonicClock::new()),
@@ -4447,7 +4447,7 @@ mod tests {
         let deps = EngineDeps {
             shared: Box::new(FakeSharedBackend::with_devices(Vec::new())),
             exclusive: Some(Box::new(backend)),
-            server_probe: Box::new(FakeServerProbe::desktop()),
+            server_probe: Arc::new(FakeServerProbe::desktop()),
             watcher: Box::new(FakeDeviceWatcher::new()),
             sources: Arc::new(FakeSource::with_format(float_format)),
             clock: Box::new(clock.clone()),
@@ -4549,7 +4549,7 @@ mod tests {
         let deps = EngineDeps {
             shared: Box::new(FakeSharedBackend::with_devices(Vec::new())),
             exclusive: Some(Box::new(backend)),
-            server_probe: Box::new(FakeServerProbe::desktop()),
+            server_probe: Arc::new(FakeServerProbe::desktop()),
             watcher: Box::new(FakeDeviceWatcher::new()),
             sources: Arc::new(FakeSource::with_format(float_format)),
             clock: Box::new(clock.clone()),
@@ -4732,7 +4732,7 @@ mod tests {
         let deps = EngineDeps {
             shared: Box::new(FakeSharedBackend::with_devices(Vec::new())),
             exclusive: Some(Box::new(backend)),
-            server_probe: Box::new(FakeServerProbe::desktop()),
+            server_probe: Arc::new(FakeServerProbe::desktop()),
             watcher: Box::new(FakeDeviceWatcher::new()),
             sources: Arc::clone(&fake_source) as Arc<dyn crate::engine::source::SourceOpener>,
             clock: Box::new(MonotonicClock::new()),
@@ -4782,7 +4782,7 @@ mod tests {
         let deps = EngineDeps {
             shared: Box::new(FakeSharedBackend::with_devices(Vec::new())),
             exclusive: Some(Box::new(backend)),
-            server_probe: Box::new(FakeServerProbe::desktop()),
+            server_probe: Arc::new(FakeServerProbe::desktop()),
             watcher: Box::new(FakeDeviceWatcher::new()),
             sources: Arc::new(FakeSource::with_format(SourceFormat {
                 container: Container::Wav,
@@ -4837,7 +4837,7 @@ mod tests {
         let deps = EngineDeps {
             shared: Box::new(FakeSharedBackend::with_devices(Vec::new())),
             exclusive: Some(Box::new(backend)),
-            server_probe: Box::new(FakeServerProbe::desktop()),
+            server_probe: Arc::new(FakeServerProbe::desktop()),
             watcher: Box::new(FakeDeviceWatcher::new()),
             sources: Arc::new(FakeSource::with_format(SourceFormat {
                 container: Container::Wav,
@@ -4894,7 +4894,7 @@ mod tests {
         let deps = EngineDeps {
             shared: Box::new(FakeSharedBackend::with_devices(Vec::new())),
             exclusive: Some(Box::new(backend)),
-            server_probe: Box::new(FakeServerProbe::desktop()),
+            server_probe: Arc::new(FakeServerProbe::desktop()),
             watcher: Box::new(FakeDeviceWatcher::new()),
             sources: Arc::new(FakeSource::with_format(SourceFormat {
                 container: Container::Wav,
@@ -4953,7 +4953,7 @@ mod tests {
         let deps = EngineDeps {
             shared: Box::new(FakeSharedBackend::with_devices(Vec::new())),
             exclusive: Some(Box::new(backend)),
-            server_probe: Box::new(FakeServerProbe::desktop()),
+            server_probe: Arc::new(FakeServerProbe::desktop()),
             watcher: Box::new(FakeDeviceWatcher::new()),
             sources: Arc::new(FakeSource::with_format(SourceFormat {
                 container: Container::Wav,
@@ -5043,7 +5043,7 @@ mod tests {
         let deps = EngineDeps {
             shared: Box::new(FakeSharedBackend::with_devices(Vec::new())),
             exclusive: Some(Box::new(backend)),
-            server_probe: Box::new(FakeServerProbe::desktop()),
+            server_probe: Arc::new(FakeServerProbe::desktop()),
             watcher: Box::new(FakeDeviceWatcher::new()),
             sources: Arc::new(FakeSource::with_format(pcm_format())),
             clock: Box::new(MonotonicClock::new()),
@@ -5101,7 +5101,7 @@ mod tests {
         let deps = EngineDeps {
             shared: Box::new(FakeSharedBackend::with_devices(Vec::new())),
             exclusive: Some(Box::new(backend)),
-            server_probe: Box::new(FakeServerProbe::desktop()),
+            server_probe: Arc::new(FakeServerProbe::desktop()),
             watcher: Box::new(FakeDeviceWatcher::new()),
             sources: Arc::new(FakeSource::with_format(pcm_format())),
             clock: Box::new(MonotonicClock::new()),
@@ -5172,7 +5172,7 @@ mod tests {
         let deps = EngineDeps {
             shared: Box::new(FakeSharedBackend::with_devices(Vec::new())),
             exclusive: Some(Box::new(backend)),
-            server_probe: Box::new(FakeServerProbe::desktop()),
+            server_probe: Arc::new(FakeServerProbe::desktop()),
             watcher: Box::new(FakeDeviceWatcher::new()),
             sources: Arc::new(FakeSource::with_format(float_format)),
             clock: Box::new(MonotonicClock::new()),
@@ -5232,7 +5232,7 @@ mod tests {
         let deps = EngineDeps {
             shared: Box::new(FakeSharedBackend::with_devices(Vec::new())),
             exclusive: Some(Box::new(backend)),
-            server_probe: Box::new(FakeServerProbe::desktop()),
+            server_probe: Arc::new(FakeServerProbe::desktop()),
             watcher: Box::new(FakeDeviceWatcher::new()),
             sources: Arc::new(FakeSource::with_format(float_format)),
             clock: Box::new(MonotonicClock::new()),
@@ -5300,7 +5300,7 @@ mod tests {
         let deps = EngineDeps {
             shared: Box::new(FakeSharedBackend::with_devices(Vec::new())),
             exclusive: Some(Box::new(backend)),
-            server_probe: Box::new(FakeServerProbe::desktop()),
+            server_probe: Arc::new(FakeServerProbe::desktop()),
             watcher: Box::new(FakeDeviceWatcher::new()),
             sources: source,
             clock: Box::new(MonotonicClock::new()),
@@ -5378,7 +5378,7 @@ mod tests {
         let deps = EngineDeps {
             shared: Box::new(FakeSharedBackend::with_devices(Vec::new())),
             exclusive: Some(Box::new(backend)),
-            server_probe: Box::new(FakeServerProbe::desktop()),
+            server_probe: Arc::new(FakeServerProbe::desktop()),
             watcher: Box::new(FakeDeviceWatcher::new()),
             sources: source,
             clock: Box::new(MonotonicClock::new()),
@@ -5460,7 +5460,7 @@ mod tests {
         let deps = EngineDeps {
             shared: Box::new(FakeSharedBackend::with_devices(Vec::new())),
             exclusive: Some(Box::new(backend)),
-            server_probe: Box::new(FakeServerProbe::desktop()),
+            server_probe: Arc::new(FakeServerProbe::desktop()),
             watcher: Box::new(FakeDeviceWatcher::new()),
             sources: source,
             clock: Box::new(MonotonicClock::new()),
@@ -5549,7 +5549,7 @@ mod tests {
         EngineDeps {
             shared: Box::new(FakeSharedBackend::with_devices(Vec::new())),
             exclusive: Some(exclusive),
-            server_probe: Box::new(FakeServerProbe::desktop()),
+            server_probe: Arc::new(FakeServerProbe::desktop()),
             watcher: Box::new(FakeDeviceWatcher::new()),
             sources: Arc::new(FakeSource::with_format(pcm_format())),
             clock: Box::new(MonotonicClock::new()),
