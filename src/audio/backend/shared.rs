@@ -12,10 +12,11 @@ pub trait SharedBackend: Send {
     fn enumerate(&mut self) -> Result<Vec<SharedDeviceInfo>, BackendError>;
 }
 
-/// Shared-бэкенд поверх `AudioHost` (cpal). На Linux спецификация требует
-/// показывать в Shared только прокси сервера (default/PipeWire/Pulse) —
-/// фильтрация по категории добавится вместе с разделением Shared/Exclusive
-/// (ADR-07); пока, как и легаси-UI, список не фильтруется (мост С3).
+/// Shared-бэкенд поверх `AudioHost` (cpal). На Linux фильтрация до выходов
+/// аудиосервера (default/PipeWire/Pulse) реализована в `CpalHost::devices()`
+/// (ADR-07, AM1.0-B32, фаза 1): `enumerate` просто передаёт то, что вернул
+/// `AudioHost`, отдельного фильтра здесь не нужно. На Windows/macOS список
+/// остаётся нефильтрованным, как и легаси-UI (мост С3).
 pub struct CpalSharedBackend<H: AudioHost + Send = CpalHost> {
     host: H,
 }

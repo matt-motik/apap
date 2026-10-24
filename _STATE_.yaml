@@ -19,7 +19,7 @@ dod: "Список Совместимого на Linux — одна запись
 steps:
   - id: 1
     description: "Фильтр: `is_server_routed_pcm` (allow: точные `default`, `pipewire`, `pulse`; deny: hw:, plughw:, front:, surround*, dmix, dsnoop, iec958, hdmi, ресемплеры samplerate/speexrate/lavrate, jack, oss, upmix, vdownmix, usbstream, всё с `:CARD=`) в `CpalHost::devices()`; схлопнуть в одну запись «Системное по умолчанию» (подпись с сервером: «Системное по умолчанию (PipeWire)»), которая выбирается как SharedDeviceChoice::SystemDefault; убрать ставшую ненужной группировку hw-первым; cfg Windows/macOS не фильтровать (review). Тесты. Проверка: тесты output + clippy"
-    done: false
+    done: true
   - id: 2
     description: "Миграция: сохранённый Named(id) Совместимого, не прошедший is_server_routed_pcm → SystemDefault + одноразовое уведомление «Устройство было выбрано в обход аудиосервера — переключено на «Системное по умолчанию»» (по образцу существующих one-shot уведомлений); тест миграции. Проверка: тесты settings/app + clippy"
     done: false
@@ -29,8 +29,8 @@ steps:
   - id: 4
     description: "ЧЕКПОИНТ: полный cargo test + clippy"
     done: false
-current_step: 1
-next_action: "Добавить фильтр is_server_routed_pcm и схлопывание в «Системное по умолчанию» в CpalHost::devices (src/audio/output.rs)"
+current_step: 2
+next_action: "Миграция сохранённого Named(id) Совместимого, не прошедшего is_server_routed_pcm, на SystemDefault с одноразовым уведомлением"
 fail_counter: 0
 fail_counter_max: 3
 failed_attempts: []

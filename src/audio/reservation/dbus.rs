@@ -257,6 +257,21 @@ impl AudioServerProbe for SystemServerProbe {
     }
 }
 
+/// Имя активного аудиосервера по тем же сокетам `$XDG_RUNTIME_DIR`, что и
+/// [`SystemServerProbe::server_running`] (ОВ-35), — для подписи «Системное
+/// по умолчанию (…)» единственной записи списка Совместимого (ADR-07,
+/// AM1.0-B32, `src/audio/output.rs`). `None`, если не нашёлся ни один сокет.
+pub(crate) fn active_server_name() -> Option<&'static str> {
+    let dir = runtime_dir()?;
+    if socket_alive(&dir.join("pipewire-0")) {
+        Some("PipeWire")
+    } else if socket_alive(&dir.join("pulse/native")) {
+        Some("PulseAudio")
+    } else {
+        None
+    }
+}
+
 /// Номер карты ALSA для id устройства (`hw:CARD=4,DEV=0`, `hw:CARD=DX,DEV=0`,
 /// `hw:1,0`): числовой — как есть, символьный — по `/proc/asound/cards`.
 pub fn alsa_card_index(device_id: &str) -> Option<u32> {

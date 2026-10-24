@@ -18,15 +18,15 @@
 - **Критерий успеха (Definition of Done):** Список Совместимого на Linux — одна запись «Системное по умолчанию»; сохранённый hw-выбор мигрирует на неё с одноразовым уведомлением; cargo test audio:: app:: settings:: и clippy зелёные
 
 ## Итерационный трекер
-- [>] **Шаг 1: Фильтр: `is_server_routed_pcm` (allow: точные `default`, `pipewire`, `pulse`; deny: hw:, plughw:, front:, surround*, dmix, dsnoop, iec958, hdmi, ресемплеры samplerate/speexrate/lavrate, jack, oss, upmix, vdownmix, usbstream, всё с `:CARD=`) в `CpalHost::devices()`; схлопнуть в одну запись «Системное по умолчанию» (подпись с сервером: «Системное по умолчанию (PipeWire)»), которая выбирается как SharedDeviceChoice::SystemDefault; убрать ставшую ненужной группировку hw-первым; cfg Windows/macOS не фильтровать (review). Тесты. Проверка: тесты output + clippy**
-- [ ] Шаг 2: Миграция: сохранённый Named(id) Совместимого, не прошедший is_server_routed_pcm → SystemDefault + одноразовое уведомление «Устройство было выбрано в обход аудиосервера — переключено на «Системное по умолчанию»» (по образцу существующих one-shot уведомлений); тест миграции. Проверка: тесты settings/app + clippy
+- [x] Шаг 1: Фильтр: `is_server_routed_pcm` (allow: точные `default`, `pipewire`, `pulse`; deny: hw:, plughw:, front:, surround*, dmix, dsnoop, iec958, hdmi, ресемплеры samplerate/speexrate/lavrate, jack, oss, upmix, vdownmix, usbstream, всё с `:CARD=`) в `CpalHost::devices()`; схлопнуть в одну запись «Системное по умолчанию» (подпись с сервером: «Системное по умолчанию (PipeWire)»), которая выбирается как SharedDeviceChoice::SystemDefault; убрать ставшую ненужной группировку hw-первым; cfg Windows/macOS не фильтровать (review). Тесты. Проверка: тесты output + clippy
+- [>] **Шаг 2: Миграция: сохранённый Named(id) Совместимого, не прошедший is_server_routed_pcm → SystemDefault + одноразовое уведомление «Устройство было выбрано в обход аудиосервера — переключено на «Системное по умолчанию»» (по образцу существующих one-shot уведомлений); тест миграции. Проверка: тесты settings/app + clippy**
 - [ ] Шаг 3: Путь сигнала и смена default между треками: тест, что при SystemDefault этап «Уровень ОС» — Known{server}; тест, что между треками SystemDefault переразрешается в текущий default (choose_output). Проверка: тесты + clippy
 - [ ] Шаг 4: ЧЕКПОИНТ: полный cargo test + clippy
 
 Легенда: [x] сделано · [>] текущий шаг · [ ] не начато
 
-- **Текущий шаг (current_step):** Шаг 1
-- **Следующий ход:** Добавить фильтр is_server_routed_pcm и схлопывание в «Системное по умолчанию» в CpalHost::devices (src/audio/output.rs)
+- **Текущий шаг (current_step):** Шаг 2
+- **Следующий ход:** Миграция сохранённого Named(id) Совместимого, не прошедшего is_server_routed_pcm, на SystemDefault с одноразовым уведомлением
 - **Счетчик безуспешных компиляций:** 0/3
 - **Состояние:** in_progress
 

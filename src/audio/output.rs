@@ -687,15 +687,39 @@ impl AudioHost for CpalHost {
                 });
             }
         }
-        // cpal's ALSA backend exposes several handles with the same human name
-        // (raw `hw:*`, `plughw:*`, server proxies, format variants). Among them
-        // only the raw hardware node can deliver native rates / bit-exact
-        // output; keep exactly one entry per name, preferring `hw:*`.
-        collapse_same_name(out)
+        // На Linux Совместимый обязан показывать только выходы аудиосервера,
+        // а не голые ALSA-узлы (ADR-07, ТЗ-127, матрица AM1.0 ТЗ §5,
+        // AM1.0-B32, фаза 1): карта/формат/ресемплер-плагины схлопываются в
+        // одну запись «Системное по умолчанию» — старая hw-первая
+        // группировка `collapse_same_name` для них больше не нужна. На
+        // Windows/macOS (WASAPI/CoreAudio) понятия "голый ALSA-узел" нет —
+        // список остаётся как раньше (review).
+        #[cfg(target_os = "linux")]
+        {
+            collapse_to_system_default(out, &system_default_label())
+        }
+        #[cfg(not(target_os = "linux"))]
+        {
+            // cpal's ALSA backend exposes several handles with the same human name
+            // (raw `hw:*`, `plughw:*`, server proxies, format variants). Among them
+            // only the raw hardware node can deliver native rates / bit-exact
+            // output; keep exactly one entry per name, preferring `hw:*`.
+            collapse_same_name(out)
+        }
     }
 
     fn default_name(&self) -> Option<String> {
         let host = cpal::default_host();
+        #[cfg(target_os = "linux")]
+        {
+            // Подпись обязана совпадать байт-в-байт с той, что `devices()`
+            // ставит единственной записи «Системное по умолчанию» — иначе
+            // `choose_output`/`CpalSharedBackend::enumerate` не находят её по
+            // имени при `SharedDeviceChoice::SystemDefault` (ADR-07,
+            // AM1.0-B32).
+            host.default_output_device().map(|_| system_default_label())
+        }
+        #[cfg(not(target_os = "linux"))]
         host.default_output_device()
             .and_then(|d| d.description().ok())
             .map(|d| d.name().to_string())
@@ -799,6 +823,52 @@ fn collapse_same_name(infos: Vec<DeviceInfo>) -> Vec<DeviceInfo> {
         out.push(info);
     }
     out
+}
+
+/// True when the backend id names one of the three fixed ALSA aliases that
+/// always route through the desktop audio server (`default`/`pipewire`/
+/// `pulse`) — never a raw hardware node, a per-format/-rate ALSA plugin
+/// (`plughw:`/`front:`/`surround*`/`dmix`/`dsnoop`/`iec958`/`hdmi`), a
+/// resampler (`samplerate`/`speexrate`/`lavrate`) or an unrelated backend
+/// (`jack`/`oss`/`upmix`/`vdownmix`/`usbstream`). Совместимый режим обязан
+/// показывать только выходы аудиосервера (ADR-07, ТЗ-127, матрица AM1.0 ТЗ
+/// §5, AM1.0-B32) — все эти варианты, как и любой id с `:CARD=`, не являются
+/// фиксированным алиасом сервера и отбрасываются простым несовпадением.
+fn is_server_routed_pcm(id: &str) -> bool {
+    matches!(id.to_ascii_lowercase().as_str(), "default" | "pipewire" | "pulse")
+}
+
+/// Схлопывает полный cpal-список до одной записи с заданной подписью, если
+/// среди устройств есть хоть один выход аудиосервера ([`is_server_routed_pcm`]);
+/// иначе — старое поведение ([`collapse_same_name`]), чтобы список не
+/// опустел молча (AGENTS.md: честность сигнала важнее удобства). Чистая
+/// функция — платформенная проверка живёт в вызывающем коде (ADR-07,
+/// AM1.0-B32, фаза 1).
+fn collapse_to_system_default(infos: Vec<DeviceInfo>, label: &str) -> Vec<DeviceInfo> {
+    if !infos.iter().any(|d| is_server_routed_pcm(&d.id)) {
+        return collapse_same_name(infos);
+    }
+    // Любой из трёх алиасов ведёт на тот же сервер; порядок — просто
+    // предпочтение более информативного имени для представителя записи.
+    const PRIORITY: [&str; 3] = ["pipewire", "pulse", "default"];
+    let mut filtered: Vec<DeviceInfo> = infos.into_iter().filter(|d| is_server_routed_pcm(&d.id)).collect();
+    filtered.sort_by_key(|d| {
+        PRIORITY.iter().position(|p| *p == d.id.to_ascii_lowercase()).unwrap_or(PRIORITY.len())
+    });
+    let mut representative = filtered.swap_remove(0);
+    representative.name = label.to_owned();
+    vec![representative]
+}
+
+/// «Системное по умолчанию» — единственная запись списка Совместимого на
+/// Linux (ADR-07, AM1.0-B32): подпись дополняется определившимся активным
+/// аудиосервером ([`active_server_name`](crate::audio::reservation::dbus::active_server_name)).
+#[cfg(target_os = "linux")]
+fn system_default_label() -> String {
+    match crate::audio::reservation::dbus::active_server_name() {
+        Some(server) => format!("Системное по умолчанию ({server})"),
+        None => "Системное по умолчанию".to_owned(),
+    }
 }
 
 impl CpalHost {
@@ -1142,6 +1212,13 @@ pub fn select_output_for(req: &OutputRequest) -> Result<OutputSpec, String> {
 /// the settings dialog marks them clearly and lists them after the direct
 /// hardware nodes.
 pub fn is_server_node(name: &str) -> bool {
+    // «Системное по умолчанию» (ADR-07, AM1.0-B32) уже само обозначает себя
+    // как единственный выход аудиосервера, вплоть до подписи активного
+    // сервера в скобках; старый суффикс [`SERVER_NODE_SUFFIX`] здесь не
+    // нужен и не должен задваиваться с этой подписью.
+    if name.starts_with("Системное по умолчанию") {
+        return false;
+    }
     let n = name.to_ascii_lowercase();
     n.contains("pipewire")
         || n.contains("pulseaudio")
@@ -1802,6 +1879,76 @@ mod tests {
         assert!(is_server_node("Default ALSA Output (currently PulseAudio Sound Server)"));
         assert!(is_server_node("PulseAudio Sound Server"));
         assert!(!is_server_node("USB Audio"));
+    }
+
+    #[test]
+    fn is_server_node_excludes_system_default_label() {
+        // Единственная запись Совместимого (ADR-07, AM1.0-B32) уже сама
+        // называет сервер в скобках — старый суффикс не должен задваиваться.
+        assert!(!is_server_node("Системное по умолчанию"));
+        assert!(!is_server_node("Системное по умолчанию (PipeWire)"));
+        assert!(!is_server_node("Системное по умолчанию (PulseAudio)"));
+    }
+
+    #[test]
+    fn is_server_routed_pcm_allows_only_fixed_server_aliases() {
+        for allowed in ["default", "pipewire", "pulse", "DEFAULT", "PipeWire"] {
+            assert!(is_server_routed_pcm(allowed), "{allowed} must be allowed");
+        }
+        for denied in [
+            "hw:CARD=4,DEV=0",
+            "plughw:CARD=4,DEV=0",
+            "front:CARD=4,DEV=0",
+            "surround40:CARD=4,DEV=0",
+            "dmix",
+            "dmix:CARD=4,DEV=0",
+            "dsnoop:CARD=4,DEV=0",
+            "iec958:CARD=4,DEV=0",
+            "hdmi:CARD=4,DEV=0",
+            "samplerate",
+            "speexrate",
+            "lavrate",
+            "jack",
+            "oss",
+            "upmix:CARD=4,DEV=0",
+            "vdownmix:CARD=4,DEV=0",
+            "usbstream:CARD=4,DEV=0",
+            // Сам сервер, но с привязкой к карте — уже не фиксированный алиас.
+            "pipewire:CARD=4,DEV=0",
+            "",
+        ] {
+            assert!(!is_server_routed_pcm(denied), "{denied} must be denied");
+        }
+    }
+
+    #[test]
+    fn collapse_to_system_default_collapses_server_aliases_and_drops_hardware() {
+        let devs = vec![
+            mock_device_id("hw:CARD=4,DEV=0", "ADI-2 DAC, USB Audio", 2, 48000, &[(2, 48000, 48000)]),
+            mock_device_id("default", "Default Audio Device", 2, 48000, &[(2, 44100, 48000)]),
+            mock_device_id("pulse", "PulseAudio Sound Server", 2, 48000, &[(2, 44100, 48000)]),
+            mock_device_id("pipewire", "PipeWire Sound Server", 2, 48000, &[(2, 44100, 48000)]),
+        ];
+        let collapsed = collapse_to_system_default(devs, "Системное по умолчанию (PipeWire)");
+        assert_eq!(collapsed.len(), 1);
+        // pipewire — высший приоритет среди трёх алиасов сервера.
+        assert_eq!(collapsed[0].id, "pipewire");
+        assert_eq!(collapsed[0].name, "Системное по умолчанию (PipeWire)");
+    }
+
+    #[test]
+    fn collapse_to_system_default_falls_back_without_server_alias() {
+        // Нет ни одного фиксированного алиаса сервера — список не должен
+        // молча опустеть (AGENTS.md: честность сигнала), поведение как у
+        // старого `collapse_same_name`.
+        let devs = vec![
+            mock_device_id("hw:CARD=4,DEV=0", "ADI-2 DAC, USB Audio", 2, 48000, &[(2, 48000, 48000)]),
+            mock_device_id("plughw:CARD=4,DEV=0", "ADI-2 DAC, USB Audio", 2, 48000, &[(2, 4000, 4294967295)]),
+        ];
+        let expected = collapse_same_name(devs.clone());
+        let collapsed = collapse_to_system_default(devs, "Системное по умолчанию");
+        assert_eq!(collapsed.len(), expected.len());
+        assert_eq!(collapsed[0].id, expected[0].id);
     }
 
     #[test]
