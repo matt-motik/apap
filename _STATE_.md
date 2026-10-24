@@ -11,6 +11,7 @@
   - docs/01_audio_modes_v1.0/03_spec.md
   - src/settings/playback.rs
   - src/app/mode_dialog.rs
+  - src/app/mod.rs
   - ui/mode_params.slint
   - src/i18n/mod.rs
 - **Критерий успеха (Definition of Done):** Пара «Буфер устройства»/буфер плеера (ТЗ-131, §6.27) связана автоподъёмом: повышение буфера устройства поднимает черновой буфер плеера до max(100, 2·D), понижение не опускает обратно; под ползунком буфера плеера всегда видна строка границы, при автоподъёме — вторая строка «Поднят автоматически до N мс»; cargo test и clippy зелёные
@@ -20,6 +21,7 @@
 - [x] Шаг 2: src/settings/playback.rs: функция автоподъёма чернового BufferMs по DeviceBuffer на основе buffer_floor_ms + юнит-тесты (подъём, не опускает обратно при уменьшении, границы диапазона BufferMs). Проверка: cargo test settings::playback:: зелёный
 - [x] Шаг 3: src/app/mode_dialog.rs: apply_device_buffer применяет автоподъём к draft ModeSettings вместо отказа buffers_allowed; row_buffer формирует note с постоянной строкой границы и строкой автоподъёма, когда он сработал. Проверка: cargo test app::mode_dialog:: зелёный
 - [x] Шаг 6: Перенос строк подсказки буфера плеера (AM1.0-B35, §6.27, ТЗ-131) из src/app/mode_dialog.rs::buffer_floor_note в src/i18n/mod.rs (функция по образцу mode_dialog_fixed_by_mode) — «минимум N мс» и «минимум N мс — вдвое больше буфера устройства (D мс)»; mode_dialog.rs вызывает i18n-функцию вместо локального format!(). Строка автоподъёма «Поднят автоматически до N мс» (ТЗ-131) этим шагом не закрывается — остаётся открытой: признак «поднят автоподъёмом» выводится из сравнения draft/saved ModeSettings без флага (решение координатора), но требует передачи saved-настроек в mode_dialog::build_rows из src/app/mod.rs::sync_mode_dialog_to_ui (вызов `mode_dialog::build_rows(edit_mode, &draft.settings.playback)` — нужен второй аргумент `&self.core.settings().playback`), вне вайтлиста этой сессии — см. отчёт шага 3. Проверка: cargo check; cargo test --quiet app:: + i18n:: зелёный
+- [x] Шаг 7: src/app/mod.rs + src/app/mode_dialog.rs + src/i18n/mod.rs: build_rows принимает вторым аргументом сохранённые settings.playback (sync_mode_dialog_to_ui передаёт &self.core.settings().playback); row_buffer добавляет вторую строку note «Поднят автоматически до N мс» (i18n::mode_dialog_buffer_auto_raised), когда draft.device_buffer != saved.device_buffer && draft.buffer > saved.buffer && draft.buffer == buffer_floor_ms(draft.device_buffer); обе строки панели обновляются на месте через set_row_data (без пересборки ModelRc). Проверка: cargo test app::mode_dialog:: + i18n:: зелёный
 - [>] **Шаг 4: ui/mode_params.slint: проверить/поправить отображение многострочной note под ползунком буфера плеера (граница + строка автоподъёма). Проверка: cargo check зелёный**
 - [ ] Шаг 5: ЧЕКПОИНТ: full cargo test + cargo clippy по всему workspace зелёные
 

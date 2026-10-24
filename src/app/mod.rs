@@ -1564,10 +1564,16 @@ impl MusicApp {
     fn sync_mode_dialog_to_ui(&mut self) {
         let Some(draft) = self.core.draft() else { return };
         let edit_mode = draft.shown_mode;
-        let rows: Vec<ModeParamRow> = mode_dialog::build_rows(edit_mode, &draft.settings.playback)
-            .iter()
-            .map(mode_dialog::to_param_row)
-            .collect();
+        // `self.core.settings().playback` — сохранённые настройки (не
+        // черновик): `build_rows`/`row_buffer` сравнивают их с черновиком,
+        // чтобы показать «Поднят автоматически до N мс» только когда
+        // границу буфера плеера подняла сама правка «Буфера устройства»
+        // (ТЗ-131, §6.27, AM1.0-B35, step 7).
+        let rows: Vec<ModeParamRow> =
+            mode_dialog::build_rows(edit_mode, &draft.settings.playback, &self.core.settings().playback)
+                .iter()
+                .map(mode_dialog::to_param_row)
+                .collect();
         if self.mode_rows.row_count() == rows.len() {
             for (i, row) in rows.into_iter().enumerate() {
                 let changed = self.mode_rows.row_data(i).is_none_or(|old| mode_param_row_changed(&old, &row));

@@ -16,7 +16,11 @@
 //! (`raise_buffer_for_device`), а значение буфера плеера ниже этой границы
 //! клампится до неё — связь односторонняя, уменьшение буфера устройства
 //! назад не опускает (ТЗ-94, ТЗ-131, §6.27, решение пользователя
-//! 2026-10-24).
+//! 2026-10-24). `build_rows` принимает второй аргумент — сохранённые
+//! настройки (`saved`) — чтобы `row_buffer` отличила «буфер плеера поднят
+//! последней правкой буфера устройства» от «пользователь сам поставил его
+//! на границу или выше»: строка «Поднят автоматически до N мс» показывается
+//! только в первом случае (AM1.0-B35, step 7).
 //!
 //! Построенные строки отображаются панелью настроек режима в Slint
 //! (`ui/mode_params.slint`, `ModeParamRow`): `to_param_row` переводит одну
@@ -63,9 +67,13 @@ pub(super) struct RowOption {
 }
 
 /// Построить строки диалога настроек режима `mode` по таблице `PARAMS` и
-/// текущим значениям `settings` (§6.27, ТЗ-95).
-pub(super) fn build_rows(mode: ModeKind, settings: &ModeSettings) -> Vec<DialogRow> {
-    PARAMS.iter().map(|descriptor| build_row(descriptor, mode, settings)).collect()
+/// текущим черновым значениям `settings` (§6.27, ТЗ-95). `saved` —
+/// сохранённые настройки (не черновик): `row_buffer` сравнивает их с
+/// `settings`, чтобы показать строку «Поднят автоматически до N мс» только
+/// когда границу буфера плеера поднял сам диалог, а не пользователь
+/// (AM1.0-B35, step 7).
+pub(super) fn build_rows(mode: ModeKind, settings: &ModeSettings, saved: &ModeSettings) -> Vec<DialogRow> {
+    PARAMS.iter().map(|descriptor| build_row(descriptor, mode, settings, saved)).collect()
 }
 
 /// Индекс параметра в таблице `PARAMS` — единственный источник соответствия
@@ -136,10 +144,10 @@ fn option_label(opt: &RowOption) -> SharedString {
     }
 }
 
-fn build_row(descriptor: &ParamDescriptor, mode: ModeKind, settings: &ModeSettings) -> DialogRow {
+fn build_row(descriptor: &ParamDescriptor, mode: ModeKind, settings: &ModeSettings, saved: &ModeSettings) -> DialogRow {
     let label = param_label(descriptor.id);
     match (descriptor.availability)(mode) {
-        Availability::Configurable => build_configurable_row(descriptor.id, mode, settings, label),
+        Availability::Configurable => build_configurable_row(descriptor.id, mode, settings, saved, label),
         Availability::FixedByMode { shown } => DialogRow {
             param: descriptor.id,
             label,
@@ -169,7 +177,13 @@ fn build_row(descriptor: &ParamDescriptor, mode: ModeKind, settings: &ModeSettin
 /// (например, «Устройство», «Тест»), получают нейтральную `Info`-строку —
 /// их редактор появится отдельным шагом, когда для них будет каталог
 /// значений (устройства, действия).
-fn build_configurable_row(id: ParamId, mode: ModeKind, settings: &ModeSettings, label: &'static str) -> DialogRow {
+fn build_configurable_row(
+    id: ParamId,
+    mode: ModeKind,
+    settings: &ModeSettings,
+    saved: &ModeSettings,
+    label: &'static str,
+) -> DialogRow {
     match id {
         ParamId::SrcFilter => row_src_filter(mode, settings, label),
         ParamId::DeviceBuffer => row_device_buffer(mode, settings, label),
@@ -177,7 +191,7 @@ fn build_configurable_row(id: ParamId, mode: ModeKind, settings: &ModeSettings, 
         ParamId::DsdGainComp => row_dsd_gain_comp(mode, settings, label),
         ParamId::DitherKind => row_dither_kind(mode, settings, label),
         ParamId::VolumeLock => row_volume_lock(mode, settings, label),
-        ParamId::Buffer => row_buffer(mode, settings, label),
+        ParamId::Buffer => row_buffer(mode, settings, saved, label),
         ParamId::RateFallback => row_rate_fallback(mode, settings, label),
         ParamId::DsdAboveDac => row_dsd_above_dac(id, label),
         ParamId::DeviceDop => row_device_dop(mode, settings, label),
@@ -358,26 +372,44 @@ fn row_volume_lock(mode: ModeKind, settings: &ModeSettings, label: &'static str)
 /// `apply_device_buffer` клампят/поднимают черновой буфер плеера до неё
 /// вместо отказа.
 ///
-/// Вторая строка «Поднят автоматически до N мс» (ТЗ-131, §6.27) здесь не
-/// формируется: она требует флага «последняя правка списка «Буфер
-/// устройства» подняла буфер плеера» в состоянии диалога со сбросом при
-/// открытии/сохранении/отмене — это `DialogDraft` (`src/core/dialog.rs`) и
-/// точки сброса в `src/core/mod.rs`/`src/app/mod.rs`, вне вайтлиста этого
-/// шага (AM1.0-B35, step 3; см. отчёт шага).
-fn row_buffer(mode: ModeKind, settings: &ModeSettings, label: &'static str) -> DialogRow {
-    let (buffer, device_buffer) = match mode {
-        ModeKind::Compatible => (settings.compatible.buffer, None),
-        ModeKind::Optimal => (settings.optimal.buffer, Some(settings.optimal.device_buffer)),
-        ModeKind::Strict => (settings.strict.buffer, Some(settings.strict.device_buffer)),
-    };
+/// Вторая строка «Поднят автоматически до N мс» (ТЗ-131, §6.27,
+/// `i18n::mode_dialog_buffer_auto_raised`, AM1.0-B35, step 7) добавляется,
+/// когда текущее черновое значение равно границе `buffer_floor_ms`
+/// **из-за автоподъёма**, а не выбрано пользователем: вместо отдельного
+/// флага в `DialogDraft` признак выводится сравнением чернового `settings`
+/// с сохранённым `saved` для того же режима — буфер устройства изменился,
+/// буфер плеера выше сохранённого значения и равен текущей границе.
+fn row_buffer(mode: ModeKind, settings: &ModeSettings, saved: &ModeSettings, label: &'static str) -> DialogRow {
+    let (buffer, device_buffer) = buffer_and_device(mode, settings);
+    let (saved_buffer, saved_device_buffer) = buffer_and_device(mode, saved);
     let min = device_buffer.map_or(100, buffer_floor_ms);
-    let note = device_buffer.map(buffer_floor_note).unwrap_or_default();
+    let mut note = device_buffer.map(buffer_floor_note).unwrap_or_default();
+    if let (Some(device_buffer), Some(saved_device_buffer)) = (device_buffer, saved_device_buffer) {
+        let raised = device_buffer != saved_device_buffer
+            && buffer.get() > saved_buffer.get()
+            && buffer.get() == buffer_floor_ms(device_buffer);
+        if raised {
+            note.push('\n');
+            note.push_str(&i18n::mode_dialog_buffer_auto_raised(buffer.get()));
+        }
+    }
     DialogRow {
         param: ParamId::Buffer,
         label,
         kind: RowKind::Slider { value: buffer.get(), min, max: 10_000 },
         enabled: true,
         note,
+    }
+}
+
+/// Буфер плеера и (для Оптимального/Строгого) буфер устройства режима
+/// `mode` в `settings` — общий разбор для `row_buffer`, вызывается и для
+/// чернового, и для сохранённого `ModeSettings` (AM1.0-B35, step 7).
+fn buffer_and_device(mode: ModeKind, settings: &ModeSettings) -> (BufferMs, Option<DeviceBuffer>) {
+    match mode {
+        ModeKind::Compatible => (settings.compatible.buffer, None),
+        ModeKind::Optimal => (settings.optimal.buffer, Some(settings.optimal.device_buffer)),
+        ModeKind::Strict => (settings.strict.buffer, Some(settings.strict.device_buffer)),
     }
 }
 
@@ -731,7 +763,7 @@ mod tests {
     #[test]
     fn fixed_by_mode_row_is_disabled_with_note() {
         let settings = ModeSettings::default();
-        let rows = build_rows(ModeKind::Compatible, &settings);
+        let rows = build_rows(ModeKind::Compatible, &settings, &settings);
         let access = rows.iter().find(|r| r.param == ParamId::Access).expect("Access row must exist");
         assert!(!access.enabled);
         assert!(access.note.contains("задано режимом"));
@@ -744,7 +776,7 @@ mod tests {
     fn device_buffer_options_all_enabled_regardless_of_draft_buffer() {
         let mut settings = ModeSettings::default();
         settings.optimal.buffer = BufferMsForTest::ms100();
-        let rows = build_rows(ModeKind::Optimal, &settings);
+        let rows = build_rows(ModeKind::Optimal, &settings, &settings);
         let row = rows.iter().find(|r| r.param == ParamId::DeviceBuffer).expect("DeviceBuffer row must exist");
         let RowKind::List { options, .. } = &row.kind else { panic!("expected List") };
         assert!(options.iter().all(|o| o.enabled), "все пункты должны быть активны: {options:?}");
@@ -753,7 +785,7 @@ mod tests {
     #[test]
     fn not_implemented_src_filter_option_is_disabled() {
         let settings = ModeSettings::default();
-        let rows = build_rows(ModeKind::Compatible, &settings);
+        let rows = build_rows(ModeKind::Compatible, &settings, &settings);
         let row = rows.iter().find(|r| r.param == ParamId::SrcFilter).expect("SrcFilter row must exist");
         let RowKind::List { options, .. } = &row.kind else { panic!("expected List") };
         let short_latency = options
@@ -768,7 +800,7 @@ mod tests {
     fn editable_row_reflects_current_setting_value() {
         let mut settings = ModeSettings::default();
         settings.compatible.src_filter = SrcFilter::VerySlow;
-        let rows = build_rows(ModeKind::Compatible, &settings);
+        let rows = build_rows(ModeKind::Compatible, &settings, &settings);
         let row = rows.iter().find(|r| r.param == ParamId::SrcFilter).expect("SrcFilter row must exist");
         let RowKind::List { selected, .. } = &row.kind else { panic!("expected List") };
         assert_eq!(*selected, 2);
@@ -777,11 +809,11 @@ mod tests {
     #[test]
     fn strict_and_compatible_differ_in_availability_for_src_filter() {
         let settings = ModeSettings::default();
-        let compatible_row = build_rows(ModeKind::Compatible, &settings)
+        let compatible_row = build_rows(ModeKind::Compatible, &settings, &settings)
             .into_iter()
             .find(|r| r.param == ParamId::SrcFilter)
             .expect("SrcFilter row must exist");
-        let strict_row = build_rows(ModeKind::Strict, &settings)
+        let strict_row = build_rows(ModeKind::Strict, &settings, &settings)
             .into_iter()
             .find(|r| r.param == ParamId::SrcFilter)
             .expect("SrcFilter row must exist");
@@ -809,7 +841,7 @@ mod tests {
             .expect("Index(2) — пункт «Очень медленный», допустимая правка");
         assert_eq!(settings.compatible.src_filter, SrcFilter::VerySlow);
 
-        let rows = build_rows(ModeKind::Compatible, &settings);
+        let rows = build_rows(ModeKind::Compatible, &settings, &settings);
         let row = rows.iter().find(|r| r.param == ParamId::SrcFilter).expect("SrcFilter row must exist");
         let RowKind::List { selected, .. } = &row.kind else { panic!("expected List") };
         assert_eq!(*selected, 2);
@@ -905,7 +937,7 @@ mod tests {
     #[test]
     fn to_param_row_appends_hint_to_disabled_option_label() {
         let settings = ModeSettings::default();
-        let rows = build_rows(ModeKind::Compatible, &settings);
+        let rows = build_rows(ModeKind::Compatible, &settings, &settings);
         let row = rows.iter().find(|r| r.param == ParamId::SrcFilter).expect("SrcFilter row must exist");
         let param_row = to_param_row(row);
 
@@ -925,7 +957,7 @@ mod tests {
     fn row_buffer_floor_raised_by_device_buffer_shows_boundary_note() {
         let mut settings = ModeSettings::default();
         settings.optimal.device_buffer = DeviceBuffer::Ms100;
-        let rows = build_rows(ModeKind::Optimal, &settings);
+        let rows = build_rows(ModeKind::Optimal, &settings, &settings);
         let row = rows.iter().find(|r| r.param == ParamId::Buffer).expect("Buffer row must exist");
         assert_eq!(row.kind, RowKind::Slider { value: row_value(row), min: 200, max: 10_000 });
         assert_eq!(row.note, "минимум 200 мс — вдвое больше буфера устройства (100 мс)");
@@ -937,7 +969,7 @@ mod tests {
     #[test]
     fn row_buffer_floor_at_absolute_minimum_shows_plain_boundary_note() {
         let settings = ModeSettings::default(); // optimal.device_buffer == Ms40 → floor 100
-        let rows = build_rows(ModeKind::Optimal, &settings);
+        let rows = build_rows(ModeKind::Optimal, &settings, &settings);
         let row = rows.iter().find(|r| r.param == ParamId::Buffer).expect("Buffer row must exist");
         assert_eq!(row.note, "минимум 100 мс");
     }
@@ -947,7 +979,7 @@ mod tests {
     #[test]
     fn row_buffer_floor_is_100_in_compatible_mode() {
         let settings = ModeSettings::default();
-        let rows = build_rows(ModeKind::Compatible, &settings);
+        let rows = build_rows(ModeKind::Compatible, &settings, &settings);
         let row = rows.iter().find(|r| r.param == ParamId::Buffer).expect("Buffer row must exist");
         assert_eq!(row.kind, RowKind::Slider { value: row_value(row), min: 100, max: 10_000 });
         assert!(row.note.is_empty());
@@ -960,12 +992,69 @@ mod tests {
         *value
     }
 
+    /// ТЗ-131, §6.27, AM1.0-B35 (step 7): последняя правка списка «Буфер
+    /// устройства» подняла черновой буфер плеера до границы — строка
+    /// «Поднят автоматически до N мс» видна.
+    #[test]
+    fn row_buffer_note_shows_auto_raise_line_after_device_buffer_lift() {
+        let mut saved = ModeSettings::default();
+        saved.optimal.buffer = BufferMsForTest::ms100();
+        saved.optimal.device_buffer = DeviceBuffer::Ms20;
+        let mut draft = saved.clone();
+
+        apply_edit(&mut draft, ModeKind::Optimal, ParamId::DeviceBuffer, EditValue::Index(3))
+            .expect("Ms200 — допустимая правка");
+        assert_eq!(draft.optimal.buffer.get(), 400);
+
+        let rows = build_rows(ModeKind::Optimal, &draft, &saved);
+        let row = rows.iter().find(|r| r.param == ParamId::Buffer).expect("Buffer row must exist");
+        assert_eq!(row.note, "минимум 400 мс — вдвое больше буфера устройства (200 мс)\nПоднят автоматически до 400 мс");
+    }
+
+    /// ТЗ-131, §6.27, AM1.0-B35 (step 7): после «Сохранить» черновик и
+    /// сохранённые настройки совпадают — автоподъём уже применён, строка
+    /// не повторяется (устройство в draft/saved не отличается).
+    #[test]
+    fn row_buffer_note_hides_auto_raise_line_once_saved() {
+        let mut settings = ModeSettings::default();
+        settings.optimal.buffer = BufferMsForTest::ms100();
+        settings.optimal.device_buffer = DeviceBuffer::Ms20;
+        apply_edit(&mut settings, ModeKind::Optimal, ParamId::DeviceBuffer, EditValue::Index(3))
+            .expect("Ms200 — допустимая правка");
+        assert_eq!(settings.optimal.buffer.get(), 400);
+
+        let rows = build_rows(ModeKind::Optimal, &settings, &settings);
+        let row = rows.iter().find(|r| r.param == ParamId::Buffer).expect("Buffer row must exist");
+        assert!(!row.note.contains("Поднят автоматически"), "note: {}", row.note);
+    }
+
+    /// ТЗ-131, §6.27, AM1.0-B35 (step 7): пользователь сам поднимает буфер
+    /// плеера выше границы правкой ползунка — текущее значение больше не
+    /// равно границе, строка автоподъёма не показывается.
+    #[test]
+    fn row_buffer_note_not_shown_when_user_raises_above_floor_manually() {
+        let mut saved = ModeSettings::default();
+        saved.optimal.buffer = BufferMsForTest::ms100();
+        saved.optimal.device_buffer = DeviceBuffer::Ms20;
+        let mut draft = saved.clone();
+
+        apply_edit(&mut draft, ModeKind::Optimal, ParamId::DeviceBuffer, EditValue::Index(3))
+            .expect("Ms200 — допустимая правка");
+        assert_eq!(draft.optimal.buffer.get(), 400);
+        apply_edit(&mut draft, ModeKind::Optimal, ParamId::Buffer, EditValue::Slider(600))
+            .expect("600 мс выше границы — допустимая правка");
+
+        let rows = build_rows(ModeKind::Optimal, &draft, &saved);
+        let row = rows.iter().find(|r| r.param == ParamId::Buffer).expect("Buffer row must exist");
+        assert!(!row.note.contains("Поднят автоматически"), "note: {}", row.note);
+    }
+
     /// §6.27: `RowKind::Slider` → `kind == 2` с значением/границами, перенесёнными
     /// без потери точности (`f32::from(u16)`, без `as`).
     #[test]
     fn to_param_row_maps_slider_kind_and_bounds() {
         let settings = ModeSettings::default();
-        let rows = build_rows(ModeKind::Compatible, &settings);
+        let rows = build_rows(ModeKind::Compatible, &settings, &settings);
         let row = rows.iter().find(|r| r.param == ParamId::Buffer).expect("Buffer row must exist");
         let param_row = to_param_row(row);
 
@@ -983,7 +1072,7 @@ mod tests {
         };
         let mut settings = ModeSettings::default();
         settings.optimal.device = Some(device);
-        let rows = build_rows(ModeKind::Optimal, &settings);
+        let rows = build_rows(ModeKind::Optimal, &settings, &settings);
         let row = rows.iter().find(|r| r.param == ParamId::DeviceDop).expect("DeviceDop row must exist");
 
         assert!(row.enabled);
@@ -1000,7 +1089,7 @@ mod tests {
         let mut settings = ModeSettings::default();
         settings.strict.device = Some(device.clone());
         settings.devices.insert(device, DeviceOpts { dop: false });
-        let rows = build_rows(ModeKind::Strict, &settings);
+        let rows = build_rows(ModeKind::Strict, &settings, &settings);
         let row = rows.iter().find(|r| r.param == ParamId::DeviceDop).expect("DeviceDop row must exist");
 
         assert!(row.enabled);
@@ -1012,7 +1101,7 @@ mod tests {
     #[test]
     fn device_dop_row_disabled_without_device() {
         let settings = ModeSettings::default();
-        let rows = build_rows(ModeKind::Optimal, &settings);
+        let rows = build_rows(ModeKind::Optimal, &settings, &settings);
         let row = rows.iter().find(|r| r.param == ParamId::DeviceDop).expect("DeviceDop row must exist");
 
         assert!(!row.enabled);

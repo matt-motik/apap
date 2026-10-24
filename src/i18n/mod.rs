@@ -349,6 +349,15 @@ pub fn mode_dialog_buffer_floor_raised(floor_ms: u16, device_ms: u16) -> String 
     )
 }
 
+/// Вторая строка под ползунком «Буфер декодирование → вывод» (AM1.0-B35,
+/// §6.27, ТЗ-131, решение пользователя 2026-10-24): показывается, когда
+/// последняя правка списка «Буфер устройства» подняла черновой буфер плеера
+/// до границы (`src/app/mode_dialog.rs::row_buffer`, сравнение
+/// draft/saved `ModeSettings`) — «Поднят автоматически до {N} мс».
+pub fn mode_dialog_buffer_auto_raised(raised_to_ms: u16) -> String {
+    format_named("Поднят автоматически до {raised_to_ms} мс", &[("raised_to_ms", raised_to_ms.to_string().as_str())])
+}
+
 /// Пояснение/значение строки или пункта списка диалога настроек режима, пока
 /// не реализованного (T1.0-B2; перенесено из `src/app/mode_dialog.rs`,
 /// И-Т19, ТЗ-130, §6.27).
@@ -715,6 +724,11 @@ mod tests {
     #[test]
     fn mode_dialog_fixed_by_mode_substitutes_shown_value() {
         assert_eq!(mode_dialog_fixed_by_mode("Exclusive"), "Exclusive — задано режимом");
+    }
+
+    #[test]
+    fn mode_dialog_buffer_auto_raised_names_value() {
+        assert_eq!(mode_dialog_buffer_auto_raised(400), "Поднят автоматически до 400 мс");
     }
 
     #[test]
