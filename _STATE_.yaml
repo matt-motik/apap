@@ -71,7 +71,7 @@ steps:
     done: true
   - id: 12
     description: "ЧЕКПОИНТ: cargo test, cargo clippy, tools/check_rt_imports.py, tools/traceability_tool.py check — все зелёные"
-    done: false
+    done: true
   - id: 13
     description: "src/platform/fs/mod.rs (4 строки — WriteErrorClass::text(), «нет места на диске» и др., доходит до пользователя через core/messages.rs::write_failed) + src/engine/exclusive_path.rs (4 строки — Display ExclusiveOpenReason, деталь отказа захвата) → src/i18n/. Проверка: cargo check без ошибок"
     done: false
@@ -96,8 +96,8 @@ steps:
   - id: 20
     description: "ЧЕКПОИНТ (финальный, перед закрытием задачи): полный cargo test + cargo clippy + tools/check_rt_imports.py + tools/traceability_tool.py check — все зелёные; выборочная сверка, что перенесённые строки байт-в-байт совпадают с прежними (diff литералов)"
     done: false
-current_step: 12
-next_action: "Шаг 12: ЧЕКПОИНТ — cargo test, cargo clippy, check_rt_imports, traceability"
+current_step: 13
+next_action: "Шаг 13: src/platform/fs/mod.rs + src/engine/exclusive_path.rs → src/i18n/"
 fail_counter: 0
 fail_counter_max: 3
 failed_attempts: []
