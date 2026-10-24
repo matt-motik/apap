@@ -28,7 +28,7 @@ steps:
     done: true
   - id: 5
     description: "src/audio/output.rs: убрать временный мост (pub use .. SERVER_NODE_SUFFIX) — больше не используется внешними вызывающими после шагов 3-4. Проверка: cargo check"
-    done: false
+    done: true
   - id: 6
     description: "src/playlist/mod.rs: sort_rows_text() — ColumnId::Bitrate через i18n::format_kbps(track.bitrate), ColumnId::SampleRate через i18n::format_khz(sample_rate/1000.0) вместо литералов \"{} kbps\"/\"{} Hz\". Проверка: cargo check"
     done: false
@@ -38,8 +38,8 @@ steps:
   - id: 8
     description: "ЧЕКПОИНТ: полный cargo test + cargo clippy без новых предупреждений по файлам вайтлиста перед закрытием T1.0-B6"
     done: false
-current_step: 5
-next_action: "src/audio/output.rs: убрать временный мост pub use crate::i18n::audio::SERVER_NODE_SUFFIX"
+current_step: 6
+next_action: "src/playlist/mod.rs: sort_rows_text() через i18n::format_kbps/format_khz"
 fail_counter: 0
 fail_counter_max: 3
 failed_attempts: []

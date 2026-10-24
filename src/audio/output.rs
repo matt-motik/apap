@@ -1281,13 +1281,6 @@ pub fn is_server_node(name: &str) -> bool {
         || n == "default audio device"
 }
 
-/// Временный мост T1.0-B6 (убирается шагом 5 этой задачи): строка переехала
-/// в [`crate::i18n::audio::SERVER_NODE_SUFFIX`], но внешние вызывающие
-/// (`app::ui_manager`, тесты `app::mod`) ещё ссылаются на старый путь
-/// `audio::output::SERVER_NODE_SUFFIX` — реэкспорт держит крейт собираемым
-/// на промежуточных шагах миграции.
-pub use crate::i18n::audio::SERVER_NODE_SUFFIX;
-
 /// Build the settings-dialog device list as `(raw_name, label)` pairs.
 ///
 /// 1. Deduplicates repeated names (cpal's ALSA backend exposes several
