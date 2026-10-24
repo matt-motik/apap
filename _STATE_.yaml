@@ -2,15 +2,20 @@
 # _STATE_.md генерируется из этого файла — не редактировать его руками.
 # Редактируйте этот файл, затем: python tools/state_tool.py render
 
-status: done
+status: in_progress
 task:
-  roadmap_id: null
-  title: null
-whitelist: []
-dod: null
-steps: []
-current_step: null
-next_action: null
+  roadmap_id: AM1.0-B41
+  title: "Shutdown во время асинхронной резолюции устройства обходит Stop+Release"
+whitelist:
+  - src/engine/lock.rs
+  - src/engine/run.rs
+dod: "lock_step(Shutdown) всегда даёт StopPlayback+Release независимо от mode (Compatible -> NotApplicable, Optimal/Strict -> Open, как раньше); Engine::shutdown сбрасывает device_resolve_pending, запоздавший DeviceResolveDone после него игнорируется; существующие тесты lock.rs/run.rs зелёные; новые тесты покрывают оба случая; cargo test + clippy --all-targets 0 + check_rt_imports зелёные"
+steps:
+  - id: 1
+    description: "lock.rs: обрабатывать LockInput::Shutdown до ветки mode==Compatible (всегда StopPlayback+Release; состояние NotApplicable для Compatible, Open для Optimal/Strict) + поправить/добавить тесты (убрать Shutdown из compatible_mode_gives_not_applicable, новый тест shutdown-ветки). run.rs: Engine::shutdown сбрасывает device_resolve_pending; новые тесты — lock_input(Shutdown) во время pending-резолюции даёт верные эффекты, и запоздавший DeviceResolveDone после shutdown() игнорируется. Проверка: ЧЕКПОИНТ — полный cargo test + cargo clippy --all-targets (0 новых предупреждений в lock.rs/run.rs) + tools/check_rt_imports.py"
+    done: false
+current_step: 1
+next_action: "Править src/engine/lock.rs: вынести LockInput::Shutdown до проверки mode перед остальной веткой lock_step"
 fail_counter: 0
 fail_counter_max: 3
 failed_attempts: []
