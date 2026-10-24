@@ -35,7 +35,11 @@ export struct PathRecItem {
 }
 
 export component AppWindow inherits Window {
-    title: "APAP";
+    // Заголовок окна «APAP — <трек>» / «APAP» (T1.0-B2, решение пользователя
+    // 2026-10-23): по умолчанию без трека, обновляется из Rust при смене
+    // текущего трека через music_player_rs::i18n::window_title() (src/app/mod.rs::sync_window_title).
+    in property <string> window-title: "APAP";
+    title: root.window-title;
     background: Colors.bg-window;
     max-width: 100000px;
     // Предпочтительная ширина = сохранённая ширина окна (ADR-22, §6.17,

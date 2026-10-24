@@ -138,6 +138,17 @@ pub fn tray_tooltip_unavailable(error: &str) -> String {
     format_named("Воспроизведение недоступно: {error}", &[("error", error)])
 }
 
+/// Статус окна при запуске, до первого ответа движка об устройстве
+/// (T1.0-B2, ТЗ-104): первое подтверждение устройства заменяет его на
+/// [`status_audio_ready`].
+pub const STATUS_AUDIO_CHECKING: &str = "Аудио: проверка устройства\u{2026}";
+
+/// Статус окна после первого подтверждения устройства движком (T1.0-B2,
+/// ТЗ-104): `name` — имя устройства как есть, не переводится.
+pub fn status_audio_ready(name: &str) -> String {
+    format_named("Аудио: {name} готово", &[("name", name)])
+}
+
 /// Фильтр диалога выбора аудиофайлов (`PickRequest::AddFiles`) (T1.0-B2,
 /// ADR-10, ТЗ-53).
 pub const PICKER_FILTER_AUDIO: &str = "Аудио";
@@ -281,6 +292,11 @@ mod tests {
     fn format_bits_is_not_declined() {
         assert_eq!(format_bits(24), "24 бит");
         assert_eq!(format_bits(1), "1 бит");
+    }
+
+    #[test]
+    fn status_audio_ready_substitutes_name() {
+        assert_eq!(status_audio_ready("Motu M2 (USB Audio)"), "Аудио: Motu M2 (USB Audio) готово");
     }
 
     #[test]

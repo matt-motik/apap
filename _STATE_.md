@@ -66,10 +66,10 @@
 - [x] Шаг 18: src/platform/pick/rfd.rs: перевод фильтров диалогов выбора файлов (Audio/Playlist/Theme) на русский через src/i18n/.
 
 - [x] Шаг 19: ЧЕКПОИНТ: полный cargo test + cargo clippy зелёные (трей, диалоги выбора файлов).
-- [>] **Шаг 20: src/app/mod.rs: перевод реальных пользовательских строк (напр. статус «Audio: {name} ready») через src/i18n/; тестовые фикстуры (Title/Artist/FLAC/Intel HDA и пр.) не переводятся — не пользовательский текст.
-**
-- [ ] Шаг 21: src/app/playback_manager.rs + src/app/ui_manager.rs: перевод пользовательских строк (метаданные трека, единицы kbps/Hz/ch, подписи устройств) через src/i18n/.
+- [x] Шаг 20: src/app/mod.rs: перевод реальных пользовательских строк (напр. статус «Audio: {name} ready») через src/i18n/; тестовые фикстуры (Title/Artist/FLAC/Intel HDA и пр.) не переводятся — не пользовательский текст.
 
+- [>] **Шаг 21: src/app/playback_manager.rs + src/app/ui_manager.rs: перевод пользовательских строк (метаданные трека, единицы kbps/Hz/ch, подписи устройств) через src/i18n/.
+**
 - [ ] Шаг 22: ЧЕКПОИНТ: полный cargo test + cargo clippy зелёные (app/mod.rs, playback_manager.rs, ui_manager.rs).
 - [ ] Шаг 23: src/app/device_info_view.rs + src/app/path_view.rs: перевод подписей возможностей устройства и пути сигнала через src/i18n/.
 
@@ -88,8 +88,8 @@
 
 Легенда: [x] сделано · [>] текущий шаг · [ ] не начато
 
-- **Текущий шаг (current_step):** Шаг 20
-- **Следующий ход:** src/app/mod.rs: перевод реальных пользовательских строк (напр. статус «Audio: {name} ready») через src/i18n/; тестовые фикстуры (Title/Artist/FLAC/Intel HDA и пр.) не переводятся — не пользовательский текст.
+- **Текущий шаг (current_step):** Шаг 21
+- **Следующий ход:** src/app/playback_manager.rs + src/app/ui_manager.rs: перевод пользовательских строк (метаданные трека, единицы kbps/Hz/ch, подписи устройств) через src/i18n/.
 - **Счетчик безуспешных компиляций:** 0/3
 - **Состояние:** in_progress
 

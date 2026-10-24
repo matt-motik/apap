@@ -507,6 +507,11 @@ pub struct MusicApp {
     /// 3) — `None` до первой записи, `Some("")` — бейдж скрыт (ничего не
     /// открыто). Пишет в Slint только при изменении (`sync_device_badge`).
     last_device_badge: Option<String>,
+    /// Имя трека, по которому последний раз выставлялся заголовок окна
+    /// (T1.0-B2, решение пользователя 2026-10-23): `None` — заголовок
+    /// «APAP» (ничего не играет). Пишет в Slint только при изменении
+    /// (`sync_window_title`).
+    last_window_title: Option<String>,
     events_tx: std::sync::mpsc::Sender<AppEvent>,
     events_rx: std::sync::mpsc::Receiver<AppEvent>,
     /// Delta-synced playback values last pushed to the UI.
@@ -783,7 +788,7 @@ impl MusicApp {
         } else {
             saved_device.clone()
         };
-        let startup_status = String::from("Audio: checking device\u{2026}");
+        let startup_status = String::from(music_player_rs::i18n::STATUS_AUDIO_CHECKING);
 
         // Visualization tap (ТЗ §16.2): кольцо PCM для анализатора, consumer
         // уходит в LiveWorker, producer — в audio-callback плеера.
@@ -833,6 +838,7 @@ impl MusicApp {
             audio_device_infos: Vec::new(),
             last_device_info_view: None,
             last_device_badge: None,
+            last_window_title: None,
             events_tx,
             events_rx,
             last_ui: UiState::default(),
@@ -3352,8 +3358,8 @@ impl MusicApp {
 
         if let Some(name) = ready_device {
             if !self.audio_ready {
-                // Первое подтверждение устройства заменяет стартовое «checking device…» (ТЗ-104).
-                self.status = format!("Audio: {name} ready").into();
+                // Первое подтверждение устройства заменяет стартовый STATUS_AUDIO_CHECKING (ТЗ-104).
+                self.status = music_player_rs::i18n::status_audio_ready(&name).into();
             }
             self.audio_ready = true;
             self.audio_error = None;
@@ -3404,6 +3410,29 @@ impl MusicApp {
         // дёшево проверить каждый тик, пишет в Slint только при изменении
         // (`sync_device_badge`).
         self.sync_device_badge();
+
+        // Заголовок окна «APAP — <трек>» / «APAP» (T1.0-B2) — та же схема:
+        // дёшево пересчитать каждый тик, пишет в Slint только при смене
+        // текущего трека.
+        self.sync_window_title();
+    }
+
+    /// Заголовок окна «APAP — <трек>» / «APAP» (T1.0-B2, решение
+    /// пользователя 2026-10-23): имя трека — заголовок/исполнитель тем же
+    /// способом, что `tray_state().now_playing`; текст строит
+    /// `music_player_rs::i18n::window_title`. Пишет в Slint только при изменении
+    /// (ui/app.slint::window-title).
+    fn sync_window_title(&mut self) {
+        let name = self.current.and_then(|i| self.track_at(i)).map(|t| match &t.artist {
+            Some(a) if !a.is_empty() => format!("{} \u{2014} {}", t.title, a),
+            _ => t.title.clone(),
+        });
+        if self.last_window_title == name {
+            return;
+        }
+        let Some(ui) = self.try_ui() else { return };
+        ui.set_window_title(music_player_rs::i18n::window_title(name.as_deref()).into());
+        self.last_window_title = name;
     }
 
     /// Раздать принятое событие движка (кроме `Opened`, обработанного в
@@ -3651,7 +3680,10 @@ fn describe_open_error(err: &OpenError) -> String {
         OpenError::Capture(_) => String::new(),
         OpenError::DeviceLost => "устройство вывода потеряно".to_string(),
         OpenError::File(file_err) => describe_file_error(file_err),
-        OpenError::Internal(fault) => format!("внутренняя ошибка движка: {fault:?}"),
+        OpenError::Internal(fault) => {
+            let (_, text) = music_player_rs::i18n::errors::engine_fault_text(fault);
+            music_player_rs::i18n::format_named("внутренняя ошибка движка: {text}", &[("text", &text)])
+        }
         // ТЗ-111, §6.18 п. 2: сохранённый режим недоступен на платформе.
         OpenError::ModeUnavailable(mode) => format!("режим {mode:?} недоступен на этой платформе"),
     }
@@ -3660,11 +3692,23 @@ fn describe_open_error(err: &OpenError) -> String {
 /// Короткий русский текст ошибки файла (ТЗ-86, ТЗ-87).
 fn describe_file_error(err: &FileError) -> String {
     match err {
-        FileError::Corrupt(kind) => format!("файл повреждён ({kind:?})"),
-        FileError::Unsupported { codec } => format!("неподдерживаемый формат: {codec}"),
-        FileError::Io(kind) => format!("ошибка чтения: {kind:?}"),
+        FileError::Corrupt(kind) => {
+            let (_, text) = music_player_rs::i18n::errors::corrupt_kind_text(kind);
+            music_player_rs::i18n::format_named("файл повреждён: {text}", &[("text", text)])
+        }
+        FileError::Unsupported { codec } => {
+            music_player_rs::i18n::format_named("неподдерживаемый формат: {codec}", &[("codec", codec)])
+        }
+        FileError::Io(kind) => {
+            let text = music_player_rs::i18n::errors::describe_io_error(*kind);
+            music_player_rs::i18n::format_named("ошибка чтения: {text}", &[("text", &text)])
+        }
         FileError::ReadDuringPlayback { at_frame, kind } => {
-            format!("ошибка чтения на кадре {at_frame}: {kind:?}")
+            let text = music_player_rs::i18n::errors::describe_io_error(*kind);
+            music_player_rs::i18n::format_named(
+                "ошибка чтения на кадре {frame}: {text}",
+                &[("frame", &at_frame.to_string()), ("text", &text)],
+            )
         }
     }
 }
