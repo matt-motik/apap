@@ -211,7 +211,7 @@ mod tests {
     fn core_io_reads_theme() {
         let paths = temp_paths("read_theme");
         fs::create_dir_all(&paths.themes).expect("create themes dir");
-        fs::write(paths.themes.join("dark.toml"), crate::theme::DEFAULT_DARK_TOML)
+        fs::write(paths.themes.join("dark.toml"), crate::theme::default_dark_toml())
             .expect("write theme file");
         let name = ThemeName::new("dark").expect("valid theme name");
 
@@ -240,9 +240,9 @@ mod tests {
     fn core_io_lists_themes() {
         let paths = temp_paths("list_themes");
         fs::create_dir_all(&paths.themes).expect("create themes dir");
-        fs::write(paths.themes.join("dark.toml"), crate::theme::DEFAULT_DARK_TOML)
+        fs::write(paths.themes.join("dark.toml"), crate::theme::default_dark_toml())
             .expect("write dark theme");
-        fs::write(paths.themes.join("light.toml"), crate::theme::DEFAULT_LIGHT_TOML)
+        fs::write(paths.themes.join("light.toml"), crate::theme::default_light_toml())
             .expect("write light theme");
 
         let done = handle(&paths, IoJob::ListThemes { gen: 3 });

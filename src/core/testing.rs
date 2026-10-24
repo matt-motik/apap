@@ -3832,7 +3832,7 @@ mod tests {
             Some(ThemeLoad::Loading { gen }) => *gen,
             other => panic!("ожидалось чтение темы (Loading), получено {other:?}"),
         };
-        let parsed: ThemeData = toml::from_str(crate::theme::DEFAULT_DARK_TOML).expect("built-in theme parses");
+        let parsed: ThemeData = toml::from_str(&crate::theme::default_dark_toml()).expect("built-in theme parses");
         let data = Arc::new(parsed);
         assert!(core.dialog_theme_loaded(gen, Ok(Arc::clone(&data))), "ответ ожидаемого поколения принят");
         (name, data)
@@ -3882,7 +3882,7 @@ mod tests {
         assert!(!loading.enabled, "пока тема читается, кнопка неактивна");
         assert!(loading.tooltip.is_some_and(|t| t.contains("Тема")), "подсказка называет параметр");
 
-        let parsed: ThemeData = toml::from_str(crate::theme::DEFAULT_DARK_TOML).expect("built-in theme parses");
+        let parsed: ThemeData = toml::from_str(&crate::theme::default_dark_toml()).expect("built-in theme parses");
         assert!(core.dialog_theme_loaded(gen, Ok(Arc::new(parsed))));
         assert_eq!(core.save_button(), SaveButton { enabled: true, tooltip: None }, "тема изменена");
 

@@ -58,7 +58,7 @@ use music_player_rs::settings::params::ModeSettingsUpdate;
 use music_player_rs::settings::playback::{ModeSettings, SharedDeviceChoice, Volume};
 use music_player_rs::settings::{ColumnId, ModeKind, RepeatMode};
 use music_player_rs::theme::{
-    ColorsData, ThemeData, ThemeEntry, ThemeError, DEFAULT_LIGHT_TOML, parse_hex,
+    default_light_toml, parse_hex, ColorsData, ThemeData, ThemeEntry, ThemeError,
 };
 use music_player_rs::platform::lifecycle::TrayEvent;
 use music_player_rs::platform::tray;
@@ -312,7 +312,7 @@ fn save_button_view(button: SaveButton, theme: Option<&ThemeLoad>) -> (bool, Str
 /// Разрешает стартовую тему без GUI (§8.2/§6.1).
 ///
 /// Цепочка fallback: `<name>.toml` (структура + HEX) → `light.toml` →
-/// `DEFAULT_LIGHT_TOML`. Возвращает `(данные_темы, was_fallback)`; `None` —
+/// `default_light_toml()`. Возвращает `(данные_темы, was_fallback)`; `None` —
 /// не разобралась даже встроенная тема (тогда остаётся палитра по умолчанию
 /// из `theme.slint`, без паники, ТЗ-101).
 /// `settings.toml` не пишет — намерение пользователя сохраняется.
@@ -333,7 +333,7 @@ fn resolve_startup_theme(name: &str, themes_dir: &std::path::Path) -> Option<(Th
     match try_file(&themes_dir.join("light.toml")) {
         Some(data) => Some((data, true)),
         // Константа покрыта test_load_default_light.
-        None => toml::from_str(DEFAULT_LIGHT_TOML).ok().map(|data| (data, true)),
+        None => toml::from_str(&default_light_toml()).ok().map(|data| (data, true)),
     }
 }
 
@@ -4083,13 +4083,13 @@ mod tests {
 
     #[test]
     fn test_validate_colors_ok() {
-        let data: ThemeData = toml::from_str(music_player_rs::theme::DEFAULT_DARK_TOML).unwrap();
+        let data: ThemeData = toml::from_str(&music_player_rs::theme::default_dark_toml()).unwrap();
         assert!(validate_colors(&data.colors).is_ok());
     }
 
     #[test]
     fn test_validate_colors_bad_hex() {
-        let mut data: ThemeData = toml::from_str(music_player_rs::theme::DEFAULT_DARK_TOML).unwrap();
+        let mut data: ThemeData = toml::from_str(&music_player_rs::theme::default_dark_toml()).unwrap();
         data.colors.viz_3 = "zzzzzz".to_string();
         let err = validate_colors(&data.colors).unwrap_err();
         assert!(err.to_string().contains("viz_3"), "ошибка: {err}");
@@ -4119,7 +4119,7 @@ mod tests {
     /// если она есть, имеет приоритет.
     #[test]
     fn save_button_view_blocks_ready_theme_with_bad_hex() {
-        let mut data: ThemeData = toml::from_str(music_player_rs::theme::DEFAULT_DARK_TOML).unwrap();
+        let mut data: ThemeData = toml::from_str(&music_player_rs::theme::default_dark_toml()).unwrap();
         data.colors.viz_3 = "zzzzzz".to_string();
         let theme = ThemeLoad::Ready(Arc::new(data));
 
@@ -4135,7 +4135,7 @@ mod tests {
     /// ТЗ-27, §6.9: прочитанная тема с допустимыми цветами ответ ядра не меняет.
     #[test]
     fn save_button_view_ready_theme_with_valid_colors() {
-        let data: ThemeData = toml::from_str(music_player_rs::theme::DEFAULT_DARK_TOML).unwrap();
+        let data: ThemeData = toml::from_str(&music_player_rs::theme::default_dark_toml()).unwrap();
         let theme = ThemeLoad::Ready(Arc::new(data));
         assert_eq!(
             save_button_view(SaveButton { enabled: true, tooltip: None }, Some(&theme)),

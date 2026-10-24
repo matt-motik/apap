@@ -242,6 +242,15 @@ pub fn fulltrack_disabled_for_dsd(label: &str) -> String {
 /// два места вызова `fail()`).
 pub const FULLTRACK_FAIL_ZERO_LENGTH: &str = "не удалось определить длину трека (num_frames == 0)";
 
+/// `description` встроенной тёмной темы, используется в
+/// `ui.set_theme_description` (T1.0-B8; перенесено из
+/// `src/theme.rs::DEFAULT_DARK_TOML` байт-в-байт), см.
+/// [`crate::theme::default_dark_toml`].
+pub const THEME_DESCRIPTION_DARK: &str = "Системная тёмная тема";
+/// `description` встроенной светлой темы, см. [`THEME_DESCRIPTION_DARK`] и
+/// [`crate::theme::default_light_toml`].
+pub const THEME_DESCRIPTION_LIGHT: &str = "Системная светлая тема";
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -379,5 +388,11 @@ mod tests {
     #[test]
     fn fulltrack_fail_zero_length_is_russian() {
         assert_eq!(FULLTRACK_FAIL_ZERO_LENGTH, "не удалось определить длину трека (num_frames == 0)");
+    }
+
+    #[test]
+    fn theme_description_constants_are_russian() {
+        assert_eq!(THEME_DESCRIPTION_DARK, "Системная тёмная тема");
+        assert_eq!(THEME_DESCRIPTION_LIGHT, "Системная светлая тема");
     }
 }

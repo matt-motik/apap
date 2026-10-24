@@ -666,7 +666,7 @@ mod tests {
         assert!(validate(&draft).is_empty());
 
         // Прочитанная тема допустима (ТЗ-29).
-        let theme: ThemeData = toml::from_str(crate::theme::DEFAULT_DARK_TOML).expect("built-in theme parses");
+        let theme: ThemeData = toml::from_str(&crate::theme::default_dark_toml()).expect("built-in theme parses");
         draft.theme = ThemeLoad::Ready(Arc::new(theme));
         assert!(validate(&draft).is_empty());
     }
@@ -723,7 +723,7 @@ mod tests {
         let (cur, state) = (Settings::default(), SessionState::default());
         let mut draft = draft_of(&cur, &state);
         draft.settings.theme = ThemeName::new("dark").expect("valid theme name");
-        let theme: ThemeData = toml::from_str(crate::theme::DEFAULT_DARK_TOML).expect("built-in theme parses");
+        let theme: ThemeData = toml::from_str(&crate::theme::default_dark_toml()).expect("built-in theme parses");
         let data = Arc::new(theme);
         draft.theme = ThemeLoad::Ready(Arc::clone(&data));
         let d = diff(&cur, &state, &draft);

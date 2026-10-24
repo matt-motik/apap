@@ -144,9 +144,14 @@ pub fn parse_hex(hex: &str) -> Option<(u8, u8, u8, u8)> {
 }
 
 /// Дефолтный шаблон тёмной темы (значения из текущей dark-ветки
-/// `apply_theme()`).
-pub const DEFAULT_DARK_TOML: &str = r##"name = "Dark"
-description = "Системная тёмная тема"
+/// `apply_theme()`); функция, не `const` (T1.0-B8): `description` — русский
+/// текст из [`crate::i18n::messages::THEME_DESCRIPTION_DARK`], а
+/// `concat!`/`r##"..."##`-литерал не принимает путь к стороннему `const` на
+/// этапе компиляции (только литералы).
+pub fn default_dark_toml() -> String {
+    format!(
+        r##"name = "Dark"
+description = "{desc}"
 standard_palette = "dark"
 
 [colors]
@@ -172,12 +177,17 @@ surface_selected = "#2d2a38"
 viz_1 = "#d35400"
 viz_2 = "#f1c40f"
 viz_3 = "#e74c3c"
-"##;
+"##,
+        desc = crate::i18n::messages::THEME_DESCRIPTION_DARK
+    )
+}
 
 /// Дефолтный шаблон светлой темы (значения из текущей light-ветки
-/// `apply_theme()`).
-pub const DEFAULT_LIGHT_TOML: &str = r##"name = "Light"
-description = "Системная светлая тема"
+/// `apply_theme()`), см. [`default_dark_toml`].
+pub fn default_light_toml() -> String {
+    format!(
+        r##"name = "Light"
+description = "{desc}"
 standard_palette = "light"
 
 [colors]
@@ -203,15 +213,18 @@ surface_selected = "#e4dde8"
 viz_1 = "#b14a00"
 viz_2 = "#c4a00a"
 viz_3 = "#c0392b"
-"##;
+"##,
+        desc = crate::i18n::messages::THEME_DESCRIPTION_LIGHT
+    )
+}
 
 /// Создаёт каталог `themes/` и файлы `dark.toml`/`light.toml`, если их нет.
 /// Существующие файлы никогда не перезаписываются (§1, §3).
 pub fn create_default_themes(dir: &Path) -> std::io::Result<()> {
     fs::create_dir_all(dir)?;
     for (name, content) in [
-        ("dark.toml", DEFAULT_DARK_TOML),
-        ("light.toml", DEFAULT_LIGHT_TOML),
+        ("dark.toml", default_dark_toml()),
+        ("light.toml", default_light_toml()),
     ] {
         let path = dir.join(name);
         if !path.exists() {
@@ -300,7 +313,7 @@ mod tests {
     fn test_missing_color_field() {
         let dir = temp_dir("missing_field");
         fs::create_dir_all(&dir).unwrap();
-        let broken = DEFAULT_LIGHT_TOML.replace("viz_3 = \"#c0392b\"\n", "");
+        let broken = default_light_toml().replace("viz_3 = \"#c0392b\"\n", "");
         fs::write(dir.join("broken.toml"), broken).unwrap();
         assert!(ThemeData::load_from_file(&dir.join("broken.toml")).is_err());
     }
@@ -309,10 +322,10 @@ mod tests {
     fn test_scan_themes_dir_ignores_subdirs() {
         let dir = temp_dir("scan");
         create_default_themes(&dir).unwrap();
-        fs::write(dir.join("custom.toml"), DEFAULT_LIGHT_TOML).unwrap();
+        fs::write(dir.join("custom.toml"), default_light_toml()).unwrap();
         fs::write(dir.join("readme.txt"), "not a theme").unwrap();
         fs::create_dir_all(dir.join("nested")).unwrap();
-        fs::write(dir.join("nested").join("hidden.toml"), DEFAULT_DARK_TOML).unwrap();
+        fs::write(dir.join("nested").join("hidden.toml"), default_dark_toml()).unwrap();
 
         let entries = scan_themes_dir(&dir);
         let stems: Vec<&str> = entries.iter().map(|e| e.file_stem.as_str()).collect();
