@@ -1531,7 +1531,7 @@ export component Settings inherits Rectangle {
 
                         // ===== Cache (§10.5) =====
                         Tab {
-                            title: "Cache";
+                            title: @tr("Кэш");
                             ScrollView {
                                 VerticalLayout {
                                     spacing: 10px;
@@ -1541,7 +1541,7 @@ export component Settings inherits Rectangle {
                                         padding-right: 8px;
                                         spacing: 4px;
                                         RowLabel {
-                                            text: "RAM-кэш визуализации";
+                                            text: @tr("RAM-кэш визуализации");
                                         }
 
                                         RowLabel {
@@ -1559,7 +1559,7 @@ export component Settings inherits Rectangle {
                                         padding-right: 8px;
                                         spacing: 4px;
                                         RowLabel {
-                                            text: "Кэш визуализации (диск)";
+                                            text: @tr("Кэш визуализации (диск)");
                                         }
 
                                         RowLabel {
@@ -1577,7 +1577,7 @@ export component Settings inherits Rectangle {
                                         padding-right: 8px;
                                         spacing: 4px;
                                         RowLabel {
-                                            text: "Кэш обложек";
+                                            text: @tr("Кэш обложек");
                                         }
 
                                         RowLabel {
@@ -1600,19 +1600,19 @@ export component Settings inherits Rectangle {
                                         }
 
                                         Button {
-                                            text: "Очистить кэш визуализации";
+                                            text: @tr("Очистить кэш визуализации");
                                             preferred-height: 28px;
                                             clicked => { root.clear-viz-cache(); }
                                         }
 
                                         Button {
-                                            text: "Очистить кэш обложек";
+                                            text: @tr("Очистить кэш обложек");
                                             preferred-height: 28px;
                                             clicked => { root.clear-cover-cache(); }
                                         }
 
                                         Button {
-                                            text: "Очистить всё";
+                                            text: @tr("Очистить всё");
                                             preferred-height: 28px;
                                             clicked => { root.clear-all-cache(); }
                                         }
@@ -1624,7 +1624,7 @@ export component Settings inherits Rectangle {
                                         padding-left: 8px;
                                         padding-right: 8px;
                                         Text {
-                                            text: "Очистка выполняется сразу и не отменяется кнопкой „Отмена“";
+                                            text: @tr("Очистка выполняется сразу и не отменяется кнопкой „Отмена“");
                                             color: Colors.text-secondary;
                                             font-size: 11px;
                                             wrap: word-wrap;
@@ -1653,7 +1653,7 @@ export component Settings inherits Rectangle {
                         }
 
                         Button {
-                            text: "Cancel";
+                            text: @tr("Отмена");
                             preferred-height: 28px;
                             clicked => { root.close(); }
                         }
@@ -1666,7 +1666,7 @@ export component Settings inherits Rectangle {
 
                             HorizontalLayout {
                                 Button {
-                                    text: "Save";
+                                    text: @tr("Сохранить");
                                     preferred-height: 28px;
                                     enabled: root.save-enabled;
                                     clicked => { root.save-settings(); }

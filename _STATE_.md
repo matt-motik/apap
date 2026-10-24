@@ -55,9 +55,9 @@
 - [x] Шаг 11: ui/settings.slint — вкладка Visualization, под-секции «Анализатор спектра» + «Отключено» (~строки 1244–1532): @tr + перевод; Solid→«Сплошная», Gray→«Серая», Rainbow→«Радуга», Thermal→«Тепловая».
 
 - [x] Шаг 12: ЧЕКПОИНТ: полный cargo test + cargo clippy зелёные (settings.slint Covers/Visualization).
-- [>] **Шаг 13: ui/settings.slint — вкладка Cache (~строки 1532–1736) + диалоговая обвязка вне вкладок (заголовки, кнопки Cancel/Save/Reset/Refresh, ~строки 1–246): @tr + перевод.
-**
-- [ ] Шаг 14: ui/app.slint: @tr + перевод оставшихся английских строк (статус, «No tracks» и пр.).
+- [x] Шаг 13: ui/settings.slint — вкладка Cache (~строки 1532–1736) + диалоговая обвязка вне вкладок (заголовки, кнопки Cancel/Save/Reset/Refresh, ~строки 1–246): @tr + перевод.
+
+- [>] **Шаг 14: ui/app.slint: @tr + перевод оставшихся английских строк (статус, «No tracks» и пр.).**
 - [ ] Шаг 15: ui/top_panel.slint + ui/status.slint + ui/playlist.slint: @tr + перевод мелких строк («Album Art», «No tracks», «Stopped»).
 
 - [ ] Шаг 16: ЧЕКПОИНТ: полный cargo test + cargo clippy зелёные (app.slint, top_panel/status/playlist.slint).
@@ -88,8 +88,8 @@
 
 Легенда: [x] сделано · [>] текущий шаг · [ ] не начато
 
-- **Текущий шаг (current_step):** Шаг 13
-- **Следующий ход:** ui/settings.slint — вкладка Cache (~строки 1532–1736) + диалоговая обвязка вне вкладок (заголовки, кнопки Cancel/Save/Reset/Refresh, ~строки 1–246): @tr + перевод.
+- **Текущий шаг (current_step):** Шаг 14
+- **Следующий ход:** ui/app.slint: @tr + перевод оставшихся английских строк (статус, «No tracks» и пр.).
 - **Счетчик безуспешных компиляций:** 0/3
 - **Состояние:** in_progress
 
