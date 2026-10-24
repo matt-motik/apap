@@ -38,12 +38,12 @@
 - [x] Шаг 13: Рантайм-фоллбэк пропавшего per-sink узла PipeWire Совместимого режима (ADR-07 «Уточнение», завершает пробел шага 7): (a) по приходу/обновлению каталога (InternalMsg::SharedEnumerateDone) и (b) непосредственно перед применением устройства к легаси-Player (apply_active_mode/store_active_mode/SetModeSettings SwitchDevice) — Engine::migrate_vanished_compatible_device переключает mode_settings.compatible.device на SystemDefault и шлёт Notice::CompatibleDeviceMigrated (src/engine/run.rs, src/engine/messages.rs); предикат shared_node_vanished вынесен pub(crate) в src/settings/playback_dto.rs (общее ядро с migrate_missing_shared_node); приложение показывает одноразовое уведомление (текст — src/i18n/audio.rs::COMPATIBLE_DEVICE_MIGRATED_TITLE/BODY, общий с AM1.0-B32 шаг 7) и перезаписывает settings.toml обычным путём сохранения (save_compatible_device_migrated, src/app/mod.rs, по образцу save_auto_selected_device). (c) каталог «неизвестен» (pw-dump этого раунда отказал, shared_catalog_known=false) — миграция не выполняется, список без узла не трактуется как «узел пропал». Тесты с фейками на a/b/c (src/engine/tests.rs). Проверка: cargo test --quiet engine:: + playback_dto:: + app:: + i18n::audio::; cargo check
 - [x] Шаг 8: ЧЕКПОИНТ: полный cargo test + cargo clippy зелёные
 - [x] Шаг 9: UI: список устройств Совместимого на Linux показывает per-sink записи из DeviceCatalog (src/app/ui_manager.rs). Проверка: cargo check
-- [>] **Шаг 10: ЧЕКПОИНТ финальный перед закрытием: полный cargo test + cargo clippy зелёные**
+- [x] Шаг 10: ЧЕКПОИНТ финальный перед закрытием: полный cargo test + cargo clippy зелёные
 
 Легенда: [x] сделано · [>] текущий шаг · [ ] не начато
 
 - **Текущий шаг (current_step):** Шаг 10
-- **Следующий ход:** ЧЕКПОИНТ финальный перед закрытием: полный cargo test + cargo clippy зелёные
+- **Следующий ход:** закрытие по closing.md
 - **Счетчик безуспешных компиляций:** 0/3
 - **Состояние:** in_progress
 
