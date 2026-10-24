@@ -94,15 +94,15 @@ steps:
     done: true
   - id: 18
     description: "ЧЕКПОИНТ: cargo test, cargo clippy, tools/check_rt_imports.py, tools/traceability_tool.py check — все зелёные"
-    done: false
+    done: true
   - id: 19
     description: "src/audio/session_build.rs (2 строки — Display ошибок несовпадения формата/источника при построении сессии) + src/audio/output.rs (3 строки — «Системное по умолчанию ({server})»/«Системное по умолчанию»; строку-комментарий 634 НЕ трогать) → src/i18n/. Проверка: cargo check без ошибок"
     done: false
   - id: 20
     description: "ЧЕКПОИНТ (финальный, перед закрытием задачи): полный cargo test + cargo clippy + tools/check_rt_imports.py + tools/traceability_tool.py check — все зелёные; выборочная сверка, что перенесённые строки байт-в-байт совпадают с прежними (diff литералов)"
     done: false
-current_step: 18
-next_action: "ЧЕКПОИНТ: cargo test + clippy + check_rt_imports + traceability"
+current_step: 19
+next_action: "Шаг 19: src/audio/session_build.rs + src/audio/output.rs -> i18n"
 fail_counter: 0
 fail_counter_max: 3
 failed_attempts: []
