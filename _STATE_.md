@@ -2,10 +2,31 @@
      Source of truth: _STATE_.yaml — edit that, then run:
      python tools/state_tool.py render -->
 
-# Состояние сессии
 
-- **Текущая задача:** Нет (все шаги завершены)
-- **Состояние:** done
+# Текущая микро-сессия
+
+- **Задача из ROADMAP:** AM1.0-B40 — Engine::lock_input — resolve_device/wpctl inspect без блокировки цикла движка
+- **Вайтлист файлов в работе (Изменяемые файлы):**
+  - src/audio/reservation/mod.rs
+  - src/engine/deps.rs
+  - src/engine/lock.rs
+  - src/engine/messages.rs
+  - src/engine/run.rs
+- **Критерий успеха (Definition of Done):** EngineCmd::Lock/автовыбор устройства (Startup/ModeSelected/UserClose/CaptureAndPlay/RetryCapture без устройства в настройках режима) не вызывает probe.default_sink_card() (wpctl inspect, до 1 с) синхронно в цикле движка — проба уходит в служебный поток (deps.spawner), замок показывает Acquiring на время ожидания, лock_step довыполняется по InternalMsg::DeviceResolveDone; коалесинг и устаревший итог (отмена/смена режима) отбрасываются; пауза/перемотка не ждут пробы; полный cargo test + clippy 0 + check_rt_imports + traceability зелёные
+
+## Итерационный трекер
+- [>] **Шаг 1: EngineDeps.server_probe: Box<dyn AudioServerProbe> → Arc<dyn AudioServerProbe> (AudioServerProbe: Send + Sync, src/audio/reservation/mod.rs) — доступ из служебного потока без Mutex (default_sink_card берёт &self). Правка конструкторов (src/engine/deps.rs) и тестовых литералов EngineDeps (src/engine/run.rs, Box::new(FakeServerProbe...) → Arc::new(...)). Проверка: cargo test (EngineDeps — общий тип, полный прогон)**
+- [ ] Шаг 2: src/engine/lock.rs: вынести resolve_from_sink_card(card: Option<SinkCard>, catalog: &DeviceCatalog) -> Resolved из resolve_device (ветка без opts_device) — чистая функция для совместного использования синхронной (opts_device выбран) и асинхронной (AM1.0-B40) веток; resolve_device делегирует ей. Проверка: cargo test engine::lock::
+- [ ] Шаг 3: src/engine/messages.rs + src/engine/run.rs: InternalMsg::DeviceResolveDone { attempt: u64, card: Option<SinkCard> } (Debug-ветка); Engine: поля device_resolve_pending: Option<DeviceResolvePending> { attempt, input: LockInput, device_mode: ModeKind, state_before: LockState } и device_resolve_attempt: u64; lock_input разбит на диспетчер + finish_lock_input(input, device_mode, state_before, Resolved) (та же логика, что раньше шла сразу) + start_device_resolve(input, device_mode) (служебный поток deps.spawner зовёт только probe.default_sink_card(), ставит LockState::Acquiring сразу, коалесинг по device_resolve_pending.is_some()); needs_resolution-входы, пока device_resolve_pending занят, — no-op (Acquiring и так их игнорирует по §6.19, явная проверка нужна из-за ветки Совместимого режима lock_step, не смотрящей на state); handle_internal на DeviceResolveDone сверяет attempt, иначе отбрасывает, иначе resolve_from_sink_card + finish_lock_input со снятым pending; в конце finish_lock_input — если lock вышел из Acquiring, device_resolve_pending сбрасывается (устаревший итог отменённой попытки отбрасывается). Обновить 3 существующих теста (lock_input_auto_selects_device_from_server_probe, lock_input_without_resolved_device_fails_without_claim, lock_input_with_selected_device_skips_auto_select_event) на асинхронный помпаж (internal_rx.recv + handle_internal), как start_os_probe_*. Проверка: cargo test
+- [ ] Шаг 4: src/engine/run.rs: новые тесты — без блокировки (start_device_resolve уходит в служебный поток, цикл не ждёт), коалесинг (второй needs_resolution-вход, пока проба не вернулась, — no-op), устаревший итог отбрасывается (отмена ModeSelected(Compatible) во время ожидания → поздний DeviceResolveDone не ломает NotApplicable), отказ (нет SinkCard) → Failed(NoDeviceSelected), как раньше. Проверка: cargo test engine::
+- [ ] Шаг 5: ЧЕКПОИНТ: полный cargo test, cargo clippy (0 новых предупреждений), tools/check_rt_imports.py, tools/traceability_tool.py check
+
+Легенда: [x] сделано · [>] текущий шаг · [ ] не начато
+
+- **Текущий шаг (current_step):** Шаг 1
+- **Следующий ход:** AudioServerProbe: Send + Sync; EngineDeps.server_probe: Box → Arc (src/audio/reservation/mod.rs, src/engine/deps.rs, src/engine/run.rs)
+- **Счетчик безуспешных компиляций:** 0/3
+- **Состояние:** in_progress
 
 ## План: Executable workflow: правила AGENTS.md → исполняемые механизмы
 _Источник: чат с пользователем (ноутбук), начат в 67686ce; перенесён в репо 2026-09-22_
