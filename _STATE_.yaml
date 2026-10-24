@@ -29,7 +29,7 @@ steps:
     done: true
   - id: 4
     description: "src/engine/run.rs, часть 2: приём результата воркера (InternalMsg от шага 3) — эмит EngineEvent успеха/«занято»/ошибки пробы. Проверка: cargo test (debounce, guard активного устройства, успех, EBUSY — ≤5 тестов)."
-    done: false
+    done: true
   - id: 5
     description: "Журнал пробы caps: новый вариант JournalRecord (устройство + исход) в src/journal.rs и вызов записи в точках эмита события (src/engine/run.rs), по аналогии с DeviceEnumerate/DeviceReacquireLookup. Проверка: cargo test (журнал пишет строку на каждый исход)."
     done: false
@@ -48,8 +48,8 @@ steps:
   - id: 10
     description: "ЧЕКПОИНТ перед закрытием: полный cargo test + cargo clippy по всему вайтлисту."
     done: false
-current_step: 4
-next_action: "src/engine/run.rs, часть 2: приём InternalMsg::ProbeDone — эмит EngineEvent::DeviceCapsProbed (успех/Busy/ошибка), снятие probe_in_flight, запуск отложенного probe_pending"
+current_step: 5
+next_action: "Журнал пробы caps: новый вариант JournalRecord (устройство + исход) в src/journal.rs и вызов записи в точке эмита EngineEvent::DeviceCapsProbed (src/engine/run.rs), по аналогии с DeviceEnumerate/DeviceReacquireLookup"
 fail_counter: 0
 fail_counter_max: 3
 failed_attempts: []

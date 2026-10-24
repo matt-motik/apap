@@ -397,13 +397,16 @@ struct Engine {
     claim_device: Option<HwDeviceId>,
     /// Устройство, чей фоновый опрос caps (`EngineCmd::ProbeDeviceCaps`,
     /// §2.3, AM1.0-B38) сейчас выполняется служебным потоком — `None`, пока
-    /// опроса нет. Сбрасывается итогом `InternalMsg::ProbeDone` (шаг 4).
+    /// опроса нет. Сбрасывается итогом `InternalMsg::ProbeDone`
+    /// (`handle_internal`).
     probe_in_flight: Option<HwDeviceId>,
     /// Отложенный запрос опроса caps (§2.3, AM1.0-B38): заполняется, когда
     /// `EngineCmd::ProbeDeviceCaps` приходит, пока опрос другого устройства
     /// уже выполняется — не более одного опроса одновременно (дебаунс),
     /// последний запрос вытесняет прежний. Забирается и запускается итогом
-    /// `InternalMsg::ProbeDone` (шаг 4).
+    /// `InternalMsg::ProbeDone` (`handle_internal`); снимается явно и
+    /// `start_claim`, если захват начался на то же устройство, что ждёт в
+    /// очереди.
     probe_pending: Option<HwDeviceId>,
     /// Точка повторного захвата (§6.20 п. 2, ТЗ-51, ТЗ-126): заполняется
     /// движком (`save_reacquire_point`) до `lock_input(DeviceLost)`, пока
@@ -632,11 +635,27 @@ impl Engine {
                 };
                 self.emit_dynamics_if_changed();
             }
-            // Заглушка до шага 4 (AM1.0-B38): эмит `EngineEvent::
-            // DeviceCapsProbed` по исходу (успех/`Busy`/ошибка) появится
-            // там — здесь сообщение пока отбрасывается, чтобы
-            // `InternalMsg` оставался исчерпывающим.
-            InternalMsg::ProbeDone { device: _, result: _ } => {}
+            // Итог фонового опроса (§2.3, AM1.0-B38): устаревший ответ (нет
+            // текущего опроса или он уже о другом устройстве — например,
+            // пришёл после отмены/повторного задания) отбрасывается молча,
+            // как и `ClaimDone`/`RtPriority` выше. Иначе — снятие
+            // `probe_in_flight`, эмит `EngineEvent::DeviceCapsProbed` (`caps`
+            // оборачивается в `Arc`, как у `DeviceCapsCached`) и запуск
+            // отложенного запроса из `probe_pending`, если он есть — тем же
+            // `probe_device_caps`, который сам заново проверит гварды
+            // (`claim_device` мог измениться за время этого опроса).
+            InternalMsg::ProbeDone { device, result } => {
+                if self.probe_in_flight.as_ref() != Some(&device) {
+                    return;
+                }
+                self.probe_in_flight = None;
+                self.deps
+                    .events
+                    .emit(EngineEvent::DeviceCapsProbed { device, result: result.map(Arc::new) });
+                if let Some(pending) = self.probe_pending.take() {
+                    self.probe_device_caps(pending);
+                }
+            }
         }
     }
 
@@ -1050,6 +1069,16 @@ impl Engine {
         // AM1.0-B38: с этого момента `canonical_dev` — активное/захватываемое
         // устройство режима, `probe_device_caps` не должен его трогать.
         self.claim_device = Some(canonical_dev.clone());
+        // AM1.0-B38: открытие на то же устройство начинается прямо сейчас —
+        // если его опрос только отложен (воркер `probe_device_caps` для него
+        // ещё не запущен, устройство ждёт своей очереди в `probe_pending`),
+        // он снимается явно, не дожидаясь своего бы-запуска из
+        // `InternalMsg::ProbeDone` (который его и так отбросил бы по гварду
+        // `claim_device` выше, но до этого момента он иначе остался бы
+        // висеть в очереди на устройство, которое уже не свободно).
+        if self.probe_pending.as_ref() == Some(&canonical_dev) {
+            self.probe_pending = None;
+        }
 
         let lost_tx = self.internal_tx.clone();
         let on_lost: LostNotify = Box::new(move || {
@@ -1071,9 +1100,9 @@ impl Engine {
     }
 
     /// Обработчик `EngineCmd::ProbeDeviceCaps` (§2.3, AM1.0-B38), часть 1 —
-    /// защита и запуск; приём итога (`InternalMsg::ProbeDone`) — шаг 4, где
-    /// `probe_in_flight` снимается и `probe_pending` (если есть) запускается
-    /// этим же методом.
+    /// защита и запуск; приём итога (`InternalMsg::ProbeDone`) —
+    /// `handle_internal`, где `probe_in_flight` снимается и `probe_pending`
+    /// (если есть) запускается этим же методом.
     ///
     /// Без Эксклюзивного бэкенда (не Linux) опрос недоступен — тихий no-op,
     /// как и `start_claim` в этом случае (§2.10, ADR-20): для команды без
@@ -5191,8 +5220,7 @@ mod tests {
     /// `ExclusiveBackend::probe_caps` выполняется в спавненном потоке (не на
     /// цикле движка, не синхронно в `handle`), а его результат (здесь —
     /// `ProbeError::Busy`) — в `InternalMsg::ProbeDone` с тем же устройством.
-    /// Приём (`handle_internal`) — заглушка до шага 4: `probe_in_flight` им
-    /// пока не снимается.
+    /// Обработка самого сообщения — тесты `probe_done_*` ниже.
     #[test]
     fn probe_device_caps_worker_result_is_routed_to_internal_channel() {
         let sink = VecSink::new();
@@ -5214,9 +5242,146 @@ mod tests {
             other => panic!("expected ProbeDone, got {other:?}"),
         }
         assert_eq!(*calls.lock().expect("calls lock"), vec![crate::audio::testing::ExclusiveCall::Probe(dev.clone())]);
+    }
 
-        // Заглушка до шага 4 (AM1.0-B38): обработка не снимает `probe_in_flight`.
+    /// `InternalMsg::ProbeDone` успеха (AM1.0-B38, шаг 4): `probe_in_flight`
+    /// снимается и в `EventSink` уходит `EngineEvent::DeviceCapsProbed` с
+    /// теми же caps, обёрнутыми в `Arc`.
+    #[test]
+    fn probe_done_success_clears_in_flight_and_emits_caps() {
+        let sink = VecSink::new();
+        let backend = FakeExclusiveBackend::new();
+        let dev: HwDeviceId = "hw:CARD=RU3,DEV=0".parse().expect("hw id");
+        let deps = fake_deps_with_exclusive(Box::new(sink.clone()), Box::new(backend));
+        let mut engine = Engine::new(deps, BackendCaps::current());
+
+        engine.handle(EngineCmd::ProbeDeviceCaps { device: dev.clone() });
+        let msg = engine.internal_rx.recv().expect("probe done");
+        let expected_caps = match &msg {
+            InternalMsg::ProbeDone { result: Ok(caps), .. } => caps.clone(),
+            other => panic!("expected successful ProbeDone, got {other:?}"),
+        };
+
         engine.handle_internal(msg);
-        assert_eq!(engine.probe_in_flight, Some(dev));
+
+        assert!(engine.probe_in_flight.is_none());
+        let events = sink.take();
+        assert!(events.iter().any(|e| matches!(
+            e,
+            EngineEvent::DeviceCapsProbed { device, result: Ok(c) }
+                if *device == dev && **c == expected_caps
+        )));
+    }
+
+    /// `InternalMsg::ProbeDone` с `ProbeError::Busy` (AM1.0-B38, шаг 4, dod):
+    /// устройство, занятое другим приложением, отдаёт `Err(Busy)` в событии,
+    /// а не молчание.
+    #[test]
+    fn probe_done_busy_emits_busy_event() {
+        let sink = VecSink::new();
+        let deps = fake_deps(Box::new(sink.clone()), Arc::new(StdSpawner));
+        let mut engine = Engine::new(deps, BackendCaps::current());
+        let dev: HwDeviceId = "hw:CARD=RU3,DEV=0".parse().expect("hw id");
+        engine.probe_in_flight = Some(dev.clone());
+
+        engine.handle_internal(InternalMsg::ProbeDone { device: dev.clone(), result: Err(ProbeError::Busy) });
+
+        assert!(engine.probe_in_flight.is_none());
+        let events = sink.take();
+        assert!(events.iter().any(|e| matches!(
+            e,
+            EngineEvent::DeviceCapsProbed { device, result: Err(ProbeError::Busy) } if *device == dev
+        )));
+    }
+
+    /// Устаревший/чужой ответ (`device` не совпадает с `probe_in_flight`,
+    /// §6.19-приём по аналогии с `ClaimDone`) отбрасывается молча: ни
+    /// событие, ни снятие `probe_in_flight` другого устройства.
+    #[test]
+    fn probe_done_mismatched_device_is_ignored() {
+        let sink = VecSink::new();
+        let deps = fake_deps(Box::new(sink.clone()), Arc::new(StdSpawner));
+        let mut engine = Engine::new(deps, BackendCaps::current());
+        let in_flight: HwDeviceId = "hw:CARD=RU3,DEV=0".parse().expect("hw id");
+        let stale: HwDeviceId = "hw:CARD=DX,DEV=0".parse().expect("hw id");
+        engine.probe_in_flight = Some(in_flight.clone());
+
+        engine.handle_internal(InternalMsg::ProbeDone { device: stale, result: Err(ProbeError::Busy) });
+
+        assert_eq!(engine.probe_in_flight, Some(in_flight));
+        assert!(sink.take().is_empty());
+    }
+
+    /// Запуск отложенного запроса из очереди (AM1.0-B38, шаг 4): итог первого
+    /// опроса запускает воркер для `probe_pending`, а не оставляет его
+    /// висеть — приходит второе сообщение `ProbeDone`, на этот раз для
+    /// очередного устройства.
+    #[test]
+    fn probe_done_starts_queued_pending_probe() {
+        let sink = VecSink::new();
+        let deps = fake_deps(Box::new(sink), Arc::new(StdSpawner));
+        let mut engine = Engine::new(deps, BackendCaps::current());
+        let dev_a: HwDeviceId = "hw:CARD=RU3,DEV=0".parse().expect("hw id");
+        let dev_b: HwDeviceId = "hw:CARD=DX,DEV=0".parse().expect("hw id");
+
+        engine.handle(EngineCmd::ProbeDeviceCaps { device: dev_a.clone() });
+        engine.handle(EngineCmd::ProbeDeviceCaps { device: dev_b.clone() });
+        assert_eq!(engine.probe_pending, Some(dev_b.clone()));
+
+        let msg_a = engine.internal_rx.recv().expect("probe done for dev_a");
+        engine.handle_internal(msg_a);
+
+        assert!(engine.probe_pending.is_none());
+        assert_eq!(engine.probe_in_flight, Some(dev_b.clone()));
+        let msg_b = engine.internal_rx.recv().expect("probe done for dev_b");
+        assert!(matches!(&msg_b, InternalMsg::ProbeDone { device, .. } if *device == dev_b));
+    }
+
+    /// AM1.0-B38, шаг 4 (явный drop отложенного опроса): захват устройства,
+    /// которое ждёт своего опроса в `probe_pending` (воркер для него ещё не
+    /// запущен), снимает его из очереди — опрос того же устройства, что
+    /// сейчас открывается для воспроизведения, не должен начаться даже
+    /// позже, из `InternalMsg::ProbeDone` первого опроса.
+    #[test]
+    fn start_claim_drops_matching_pending_probe() {
+        let sink = VecSink::new();
+        let backend = FakeExclusiveBackend::new();
+        let calls = backend.calls_handle();
+        let deps = fake_deps_with_exclusive(Box::new(sink), Box::new(backend));
+        let mut engine = Engine::new(deps, BackendCaps::current());
+        let dev_a: HwDeviceId = "hw:CARD=RU3,DEV=0".parse().expect("hw id");
+        let dev_b: HwDeviceId = "hw:CARD=DX,DEV=0".parse().expect("hw id");
+        engine.catalog.hw =
+            vec![crate::audio::backend::catalog::HwDeviceInfo { id: dev_b.clone(), card: 2, device: 0, name: "DX".to_string() }];
+
+        // dev_a в полёте, dev_b ждёт в очереди — воркер для него ещё не
+        // запущен (`probe_in_flight` занят dev_a).
+        engine.handle(EngineCmd::ProbeDeviceCaps { device: dev_a.clone() });
+        engine.handle(EngineCmd::ProbeDeviceCaps { device: dev_b.clone() });
+        assert_eq!(engine.probe_pending, Some(dev_b.clone()));
+
+        // Захват того же устройства (например, смена выбора в режиме)
+        // снимает его из `probe_pending` сразу, не дожидаясь первого
+        // `ProbeDone`. `probe_pending` снимается синхронно в `start_claim`
+        // самим, без ожидания служебного потока — проверяется сразу.
+        engine.start_claim(dev_b.clone());
+        assert!(engine.probe_pending.is_none());
+        assert_eq!(engine.claim_device, Some(dev_b));
+
+        // Оба служебных потока (опрос `dev_a` и захват `dev_b`) асинхронные —
+        // дожидаемся обоих итогов (порядок между ними не определён), чтобы
+        // синхронизироваться с записью в `calls` перед проверкой: воркер
+        // фактически запущен только на `dev_a`, опрос снятого из очереди
+        // `dev_b` так и не был запущен бэкендом.
+        let _ = engine.internal_rx.recv().expect("first worker result");
+        let _ = engine.internal_rx.recv().expect("second worker result");
+        let probe_calls: Vec<_> = calls
+            .lock()
+            .expect("calls lock")
+            .iter()
+            .filter(|c| matches!(c, crate::audio::testing::ExclusiveCall::Probe(_)))
+            .cloned()
+            .collect();
+        assert_eq!(probe_calls, vec![crate::audio::testing::ExclusiveCall::Probe(dev_a)]);
     }
 }
