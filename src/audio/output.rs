@@ -1707,6 +1707,29 @@ mod tests {
         assert_eq!(chosen.config.sample_rate, 48000);
     }
 
+    /// AM1.0-B32 (фаза 2, шаг 3): Совместимый `SharedDeviceChoice::SystemDefault`
+    /// маппится в `OutputRequest.preferred_device = None`
+    /// (`ModeSettings::device`, §2.4) — значит `choose_output` на каждом
+    /// открытии (новый трек — новый вызов `select_output_for` с живым
+    /// `host.default_name()`) берёт ТЕКУЩИЙ default хоста, а не «запоминает»
+    /// устройство прошлого трека. Смена системного sink между треками
+    /// переразрешается на новое устройство.
+    #[test]
+    fn choose_output_system_default_reresolves_when_host_default_changes_between_tracks() {
+        let dac = mock_device("DAC", 2, 44100, &[(2, 44100, 192000)]);
+        let speakers = mock_device("Speakers", 2, 44100, &[(2, 44100, 192000)]);
+        let devices = [dac, speakers];
+        // SystemDefault → preferred_device = None на обоих треках.
+        let req = req_defaults(44100, 2, None);
+
+        let first_track = choose_output(&devices, Some("DAC"), &req).expect("первый трек");
+        assert_eq!(first_track.device_id, "DAC");
+
+        // Пользователь сменил системный микшерный sink между треками.
+        let second_track = choose_output(&devices, Some("Speakers"), &req).expect("второй трек");
+        assert_eq!(second_track.device_id, "Speakers");
+    }
+
     #[test]
     fn choose_output_unknown_preferred_errors() {
         let device = mock_device("Speakers", 2, 48000, &[(2, 44100, 48000)]);

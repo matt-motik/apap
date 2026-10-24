@@ -819,6 +819,19 @@ mod tests {
         }
     }
 
+    /// Shared/PipeWire-устройство Совместимого режима (в отличие от
+    /// `exclusive()` — Оптимального/Строгого на `AlsaHw`).
+    fn shared(rates: &[u32], formats: &[OutputSampleFormat]) -> DeviceCaps {
+        DeviceCaps {
+            api: OutputApi::PipeWire,
+            access: AccessKind::Shared,
+            name: "test".to_owned(),
+            rates: RateSet::Discrete(rates.iter().map(|&h| sr(h)).collect()),
+            formats: SmallVec::from_slice(formats),
+            channels: SmallVec::from_slice(&[2]),
+        }
+    }
+
     fn opened(p: PathPlan) -> SignalPath {
         let facts = OpenedFacts {
             access: AccessKind::Exclusive,
@@ -989,6 +1002,43 @@ mod tests {
         assert!(!has(&out_shared.notes, "Xrun"), "{:?}", out_shared.notes);
         assert!(has(&out_shared.notes, "приоритет реального времени: не получен"), "{:?}", out_shared.notes);
         assert_eq!(out_shared.status, StageStatus::Unchanged);
+    }
+
+    /// AM1.0-B32 (фаза 2, шаг 3): при `SharedDeviceChoice::SystemDefault`
+    /// (умолчание Совместимого, ADR-07) этап «Уровень ОС» — `Known{server}`
+    /// c текстом вида «PipeWire: …; не контролируется плеером» (§6.26,
+    /// ТЗ-77), а не `NotInvolved`/`Unknown`: `OsLevelProbe::probe` не
+    /// завязан на конкретный id устройства (`os_probe.rs`, параметр `_dev`)
+    /// — успешный опрос `pw-metadata` всегда даёт `Known` для
+    /// server-routed Совместимого, независимо от того, что выбрано.
+    #[test]
+    fn report_compatible_system_default_os_stage_known_pipewire() {
+        use crate::settings::playback::SharedDeviceChoice;
+
+        let s = ModeSettings::default();
+        assert_eq!(s.compatible.device, SharedDeviceChoice::SystemDefault);
+
+        let caps = shared(&[44_100], &[OutputSampleFormat::F32]);
+        let plan_ok = plan(&flac(16, 44_100), &caps, PathPolicy::Compatible(&s.compatible)).unwrap();
+        let facts = OpenedFacts {
+            access: AccessKind::Shared,
+            api: OutputApi::PipeWire,
+            device_name: "test".to_owned(),
+            driver: DriverFormat::Confirmed(plan_ok.target),
+            reservation: ReservationView::NotApplicable,
+            os: OsStage::Known {
+                server: OsServer::PipeWire,
+                rate: Some(sr(44_100)),
+                format: None,
+                confidence: Confidence::Confirmed(ConfirmedBy::OsQuery),
+            },
+            device_buffer: None,
+        };
+        let path = SignalPath::from_opened(plan_ok, facts, 1);
+        let r = build_report(PathSubject::Opened(&path), &DynamicPathState::default(), &s);
+        let os_row = row(&r, StageId::OsLevel);
+        assert!(has(&os_row.notes, "PipeWire"), "{:?}", os_row.notes);
+        assert!(has(&os_row.notes, "не контролируется плеером"), "{:?}", os_row.notes);
     }
 
     /// §7.2 `report_clip_notes` (ТЗ-75, ТЗ-129, ОВС-11): «ограничено N сэмплов»

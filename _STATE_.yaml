@@ -26,12 +26,12 @@ steps:
     done: true
   - id: 3
     description: "Путь сигнала и смена default между треками: тест, что при SystemDefault этап «Уровень ОС» — Known{server}; тест, что между треками SystemDefault переразрешается в текущий default (choose_output). Проверка: тесты + clippy"
-    done: false
+    done: true
   - id: 4
     description: "ЧЕКПОИНТ: полный cargo test + clippy"
     done: false
-current_step: 3
-next_action: "Путь сигнала и смена default между треками: тест, что при SystemDefault этап «Уровень ОС» — Known{server}; тест, что между треками SystemDefault переразрешается в текущий default (choose_output). Проверка: тесты + clippy"
+current_step: 4
+next_action: "ЧЕКПОИНТ: полный cargo test + clippy"
 fail_counter: 0
 fail_counter_max: 3
 failed_attempts: []
