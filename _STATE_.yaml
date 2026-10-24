@@ -20,7 +20,7 @@ steps:
     done: true
   - id: 2
     description: "src/engine/lock.rs: вынести resolve_from_sink_card(card: Option<SinkCard>, catalog: &DeviceCatalog) -> Resolved из resolve_device (ветка без opts_device) — чистая функция для совместного использования синхронной (opts_device выбран) и асинхронной (AM1.0-B40) веток; resolve_device делегирует ей. Проверка: cargo test engine::lock::"
-    done: false
+    done: true
   - id: 3
     description: "src/engine/messages.rs + src/engine/run.rs: InternalMsg::DeviceResolveDone { attempt: u64, card: Option<SinkCard> } (Debug-ветка); Engine: поля device_resolve_pending: Option<DeviceResolvePending> { attempt, input: LockInput, device_mode: ModeKind, state_before: LockState } и device_resolve_attempt: u64; lock_input разбит на диспетчер + finish_lock_input(input, device_mode, state_before, Resolved) (та же логика, что раньше шла сразу) + start_device_resolve(input, device_mode) (служебный поток deps.spawner зовёт только probe.default_sink_card(), ставит LockState::Acquiring сразу, коалесинг по device_resolve_pending.is_some()); needs_resolution-входы, пока device_resolve_pending занят, — no-op (Acquiring и так их игнорирует по §6.19, явная проверка нужна из-за ветки Совместимого режима lock_step, не смотрящей на state); handle_internal на DeviceResolveDone сверяет attempt, иначе отбрасывает, иначе resolve_from_sink_card + finish_lock_input со снятым pending; в конце finish_lock_input — если lock вышел из Acquiring, device_resolve_pending сбрасывается (устаревший итог отменённой попытки отбрасывается). Обновить 3 существующих теста (lock_input_auto_selects_device_from_server_probe, lock_input_without_resolved_device_fails_without_claim, lock_input_with_selected_device_skips_auto_select_event) на асинхронный помпаж (internal_rx.recv + handle_internal), как start_os_probe_*. Проверка: cargo test"
     done: false
@@ -30,8 +30,8 @@ steps:
   - id: 5
     description: "ЧЕКПОИНТ: полный cargo test, cargo clippy (0 новых предупреждений), tools/check_rt_imports.py, tools/traceability_tool.py check"
     done: false
-current_step: 2
-next_action: "resolve_from_sink_card в lock.rs"
+current_step: 3
+next_action: "InternalMsg::DeviceResolveDone + Engine.start_device_resolve/finish_lock_input (messages.rs, run.rs)"
 fail_counter: 0
 fail_counter_max: 3
 failed_attempts: []

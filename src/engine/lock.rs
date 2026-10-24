@@ -11,7 +11,7 @@ use crate::audio::backend::exclusive::ClaimInfo;
 use crate::audio::backend::HwDeviceId;
 use crate::audio::clock::ClockInstant;
 use crate::audio::error::CaptureFailure;
-use crate::audio::reservation::AudioServerProbe;
+use crate::audio::reservation::{AudioServerProbe, SinkCard};
 use crate::engine::messages::TrackRef;
 use crate::settings::playback::ModeKind;
 
@@ -111,7 +111,18 @@ pub fn resolve_device(
     if let Some(d) = opts_device {
         return Resolved::Selected(d.clone());
     }
-    let Some(card) = probe.default_sink_card() else {
+    resolve_from_sink_card(probe.default_sink_card(), catalog)
+}
+
+/// Часть [`resolve_device`] без опроса системного выхода (ADR-24, ТЗ-143,
+/// AM1.0-B40): берёт уже готовую карту (`probe.default_sink_card()`,
+/// `wpctl inspect`, до 1 с) и ищет её в каталоге. Выделена отдельно, чтобы
+/// движок мог вызвать блокирующий опрос в служебном потоке
+/// (`Engine::start_device_resolve`, `src/engine/run.rs`) и довести
+/// авто-выбор до конца здесь же, на своём цикле, по готовому `SinkCard` —
+/// без повторного обращения к `probe`.
+pub fn resolve_from_sink_card(card: Option<SinkCard>, catalog: &DeviceCatalog) -> Resolved {
+    let Some(card) = card else {
         return Resolved::None;
     };
     match catalog.hw_for_sink(card) {
