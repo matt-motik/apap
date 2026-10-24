@@ -1,13 +1,18 @@
-//! Чистый разбор вывода `pw-dump` в список узлов PipeWire `Audio/Sink`
-//! (AM1.0-B37, ADR-07 «Уточнение», `docs/01_audio_modes_v1.0/03_spec.md
-//! #adr-07-бэкенды-вывода»). Без I/O: функция работает над уже прочитанным
-//! текстом. Запуск самого `pw-dump` с таймаутом (паттерн `run_pw_metadata`,
-//! `src/audio/backend/os_probe.rs`) и сборка `SharedDeviceInfo` для этих
-//! узлов — следующий шаг сессии, не этот файл.
+//! Разбор вывода `pw-dump` в список узлов PipeWire `Audio/Sink` и запуск
+//! самого процесса с таймаутом (AM1.0-B37, ADR-07 «Уточнение»,
+//! `docs/01_audio_modes_v1.0/03_spec.md#adr-07-бэкенды-вывода»). `parse_sinks`
+//! — чистая функция без I/O; `enumerate_pipewire_sinks` запускает `pw-dump`
+//! (паттерн `run_pw_metadata`, `src/audio/backend/os_probe.rs`) и разбирает
+//! его вывод. Сборка `SharedDeviceInfo` для этих узлов и решение «запускать
+//! только когда сервер — PipeWire» — у вызывающей стороны
+//! (`src/audio/backend/shared.rs`), не здесь: этот файл не знает о
+//! `SharedDeviceInfo` и об активном аудиосервере.
 #![deny(clippy::unwrap_used, clippy::expect_used, clippy::unreachable)]
 
 use std::collections::HashMap;
 use std::fmt;
+use std::process::{Command, Stdio};
+use std::time::{Duration, Instant};
 
 use serde::Deserialize;
 use serde_json::Value;
@@ -142,6 +147,174 @@ pub fn parse_sinks(json: &str) -> Result<Vec<PwSink>, PwDumpError> {
 /// Строковое значение свойства узла, если оно есть и правда строка.
 fn prop_str<'a>(props: &'a HashMap<String, Value>, key: &str) -> Option<&'a str> {
     props.get(key).and_then(Value::as_str)
+}
+
+/// Таймаут ожидания `pw-dump`: тот же порог, что и `pw-metadata`
+/// (`PW_METADATA_TIMEOUT`, `src/audio/backend/os_probe.rs`, §6.26) — ADR-07
+/// «Уточнение» требует одинаковую реакцию на оба отказа (список Совместимого
+/// — только «Системное по умолчанию» + запись в журнал).
+const PW_DUMP_TIMEOUT: Duration = Duration::from_millis(500);
+
+/// Причина, по которой `pw-dump` не вернул текст (ADR-07 «Уточнение»,
+/// AM1.0-B37): бинарь не найден/не запустился, процесс не ответил за
+/// `PW_DUMP_TIMEOUT` и был убит, завершился с ненулевым кодом выхода, или
+/// его вывод не разобрался как UTF-8. Разбор уже прочитанного текста в узлы
+/// — отдельная ошибка (`PwDumpError`, выше): здесь только об исполнении
+/// самого процесса.
+#[derive(Debug)]
+pub enum PwDumpRunError {
+    /// `Command::spawn` вернул ошибку — обычный случай десктопа без
+    /// установленного `pipewire-utils`/`pw-dump`.
+    Spawn,
+    /// Процесс не ответил за `PW_DUMP_TIMEOUT` (или опрос `try_wait` сам
+    /// вернул ошибку ОС — редкий случай, реакция та же).
+    Timeout,
+    /// Процесс завершился, но с ненулевым кодом выхода.
+    ExitFailure,
+    /// Вывод процесса не в UTF-8.
+    NotUtf8,
+}
+
+impl fmt::Display for PwDumpRunError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        let text = match self {
+            PwDumpRunError::Spawn => "pw-dump did not start",
+            PwDumpRunError::Timeout => "pw-dump did not respond in time",
+            PwDumpRunError::ExitFailure => "pw-dump exited with a non-zero status",
+            PwDumpRunError::NotUtf8 => "pw-dump output was not UTF-8",
+        };
+        write!(f, "{text}")
+    }
+}
+
+impl std::error::Error for PwDumpRunError {}
+
+/// Отказ перечисления per-sink узлов PipeWire — на этапе запуска процесса
+/// или на этапе разбора его вывода (ADR-07 «Уточнение», AM1.0-B37).
+#[derive(Debug)]
+pub enum PwDumpSinkError {
+    Run(PwDumpRunError),
+    Parse(PwDumpError),
+}
+
+impl fmt::Display for PwDumpSinkError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            PwDumpSinkError::Run(err) => write!(f, "{err}"),
+            PwDumpSinkError::Parse(err) => write!(f, "{err}"),
+        }
+    }
+}
+
+impl std::error::Error for PwDumpSinkError {}
+
+/// Абстракция над процессом для чистого тестирования цикла ожидания с
+/// таймаутом (AM1.0-B37, шаг 3): `poll` — аналог `Child::try_wait` (`Ok(true)`
+/// — завершился, `Ok(false)` — ещё работает, `Err` — опрос сам отказал),
+/// `kill` — аналог `Child::kill`, `elapsed`/`sleep_tick` внедряются, чтобы
+/// тест промотал время без реального `thread::sleep` и не ждал его.
+trait TimedProcess {
+    fn poll(&mut self) -> Result<bool, ()>;
+    fn kill(&mut self);
+    fn elapsed(&self) -> Duration;
+    fn sleep_tick(&mut self);
+}
+
+/// Чистый цикл «жди, пока процесс не завершится, или не истечёт `timeout`»
+/// (паттерн `run_pw_metadata`, `src/audio/backend/os_probe.rs`): убивает
+/// процесс при превышении таймаута. `true` — процесс завершился сам за
+/// отведённое время; `false` — таймаут (с убийством процесса) или ошибка
+/// опроса — в обоих случаях вызывающая сторона не читает вывод.
+fn wait_for_exit(process: &mut dyn TimedProcess, timeout: Duration) -> bool {
+    loop {
+        match process.poll() {
+            Ok(true) => return true,
+            Ok(false) => {
+                if process.elapsed() >= timeout {
+                    process.kill();
+                    return false;
+                }
+                process.sleep_tick();
+            }
+            Err(()) => return false,
+        }
+    }
+}
+
+/// Боевой `TimedProcess` поверх `std::process::Child` (AM1.0-B37, шаг 3).
+struct ChildProcess<'a> {
+    child: &'a mut std::process::Child,
+    start: Instant,
+}
+
+impl TimedProcess for ChildProcess<'_> {
+    fn poll(&mut self) -> Result<bool, ()> {
+        match self.child.try_wait() {
+            Ok(Some(_status)) => Ok(true),
+            Ok(None) => Ok(false),
+            Err(_) => Err(()),
+        }
+    }
+
+    fn kill(&mut self) {
+        let _ = self.child.kill();
+        let _ = self.child.wait();
+    }
+
+    fn elapsed(&self) -> Duration {
+        self.start.elapsed()
+    }
+
+    fn sleep_tick(&mut self) {
+        std::thread::sleep(Duration::from_millis(10));
+    }
+}
+
+/// Запуск `pw-dump` с таймаутом `PW_DUMP_TIMEOUT`, вне UI-потока (вызывающая
+/// сторона — перечисление Shared-устройств в движке/воркере, не UI, ADR-07
+/// «Уточнение»). Паттерн таймаута — `run_pw_metadata` (`os_probe.rs`); сам
+/// цикл ожидания — чистая `wait_for_exit` выше, протестированная без
+/// реального процесса (AM1.0-B37, шаг 3).
+fn run_pw_dump() -> Result<String, PwDumpRunError> {
+    let mut child = Command::new("pw-dump")
+        .stdin(Stdio::null())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::null())
+        .spawn()
+        .map_err(|_| PwDumpRunError::Spawn)?;
+
+    let start = Instant::now();
+    let mut process = ChildProcess { child: &mut child, start };
+    if !wait_for_exit(&mut process, PW_DUMP_TIMEOUT) {
+        return Err(PwDumpRunError::Timeout);
+    }
+
+    let output = child.wait_with_output().map_err(|_| PwDumpRunError::Spawn)?;
+    if !output.status.success() {
+        return Err(PwDumpRunError::ExitFailure);
+    }
+    String::from_utf8(output.stdout).map_err(|_| PwDumpRunError::NotUtf8)
+}
+
+/// Запуск `run` (боевой — `run_pw_dump`, в тестах — фейковый замыкание) и
+/// разбор его вывода в список узлов `Audio/Sink` одной функцией (AM1.0-B37,
+/// шаг 3): отдельно от `enumerate_pipewire_sinks`, чтобы связку «ошибка
+/// запуска» / «ошибка разбора» можно было протестировать без реального
+/// процесса.
+fn enumerate_pipewire_sinks_with(
+    run: impl FnOnce() -> Result<String, PwDumpRunError>,
+) -> Result<Vec<PwSink>, PwDumpSinkError> {
+    let text = run().map_err(PwDumpSinkError::Run)?;
+    parse_sinks(&text).map_err(PwDumpSinkError::Parse)
+}
+
+/// Перечисление per-sink узлов PipeWire `Audio/Sink` через `pw-dump`: запуск
+/// процесса с таймаутом + разбор вывода, одной функцией для вызывающего
+/// (`src/audio/backend/shared.rs`, ADR-07 «Уточнение», AM1.0-B37). Решение
+/// «запускать только когда активный сервер — PipeWire» — у вызывающей
+/// стороны (этот файл не знает про `active_server_name`).
+pub fn enumerate_pipewire_sinks() -> Result<Vec<PwSink>, PwDumpSinkError> {
+    enumerate_pipewire_sinks_with(run_pw_dump)
 }
 
 #[cfg(test)]
@@ -336,5 +509,124 @@ mod tests {
         // значит и весь разбор (см. doc-комментарий `parse_sinks`).
         let json = r#"[{"type": 123, "info": {"props": {"media.class": "Audio/Sink", "node.name": "x"}}}]"#;
         assert!(parse_sinks(json).is_err());
+    }
+
+    /// Фейковый `TimedProcess` (AM1.0-B37, шаг 3): очередь ответов `poll` и
+    /// очередь значений `elapsed`, которую двигает только `sleep_tick` — так
+    /// тест различает «ушло время между двумя опросами» от «секундомер не
+    /// сдвинулся», без реального `thread::sleep`.
+    #[derive(Default)]
+    struct FakeTimedProcess {
+        poll_results: std::collections::VecDeque<Result<bool, ()>>,
+        elapsed_ticks: std::collections::VecDeque<Duration>,
+        killed: bool,
+        sleeps: usize,
+    }
+
+    impl TimedProcess for FakeTimedProcess {
+        fn poll(&mut self) -> Result<bool, ()> {
+            self.poll_results.pop_front().unwrap_or(Ok(true))
+        }
+
+        fn kill(&mut self) {
+            self.killed = true;
+        }
+
+        fn elapsed(&self) -> Duration {
+            self.elapsed_ticks.front().copied().unwrap_or(Duration::ZERO)
+        }
+
+        fn sleep_tick(&mut self) {
+            self.sleeps += 1;
+            self.elapsed_ticks.pop_front();
+        }
+    }
+
+    #[test]
+    fn wait_for_exit_true_when_process_exits_immediately() {
+        let mut process = FakeTimedProcess { poll_results: [Ok(true)].into(), ..Default::default() };
+        assert!(wait_for_exit(&mut process, Duration::from_millis(500)));
+        assert!(!process.killed);
+        assert_eq!(process.sleeps, 0);
+    }
+
+    #[test]
+    fn wait_for_exit_kills_and_returns_false_on_timeout() {
+        let mut process = FakeTimedProcess {
+            poll_results: [Ok(false)].into(),
+            elapsed_ticks: [Duration::from_millis(600)].into(),
+            ..Default::default()
+        };
+        assert!(!wait_for_exit(&mut process, Duration::from_millis(500)));
+        assert!(process.killed);
+        assert_eq!(process.sleeps, 0, "elapsed >= timeout must kill before sleeping again");
+    }
+
+    #[test]
+    fn wait_for_exit_true_after_a_few_not_yet_timed_out_polls() {
+        let mut process = FakeTimedProcess {
+            poll_results: [Ok(false), Ok(false), Ok(true)].into(),
+            elapsed_ticks: [Duration::from_millis(100), Duration::from_millis(200)].into(),
+            ..Default::default()
+        };
+        assert!(wait_for_exit(&mut process, Duration::from_millis(500)));
+        assert!(!process.killed);
+        assert_eq!(process.sleeps, 2);
+    }
+
+    #[test]
+    fn wait_for_exit_false_on_poll_error_without_killing() {
+        // Ошибка самого опроса (`try_wait` вернул `Err`) — не таймаут, убивать
+        // уже неотвечающий дескриптор процесса нечем (см. doc-комментарий
+        // `TimedProcess::poll`); вызывающая сторона просто не читает вывод.
+        let mut process = FakeTimedProcess { poll_results: [Err(())].into(), ..Default::default() };
+        assert!(!wait_for_exit(&mut process, Duration::from_millis(500)));
+        assert!(!process.killed);
+    }
+
+    #[test]
+    fn enumerate_pipewire_sinks_with_propagates_run_error() {
+        let result = enumerate_pipewire_sinks_with(|| Err(PwDumpRunError::Timeout));
+        match result {
+            Err(PwDumpSinkError::Run(PwDumpRunError::Timeout)) => {}
+            other => panic!("expected Run(Timeout), got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn enumerate_pipewire_sinks_with_propagates_parse_error() {
+        let result = enumerate_pipewire_sinks_with(|| Ok("not json".to_string()));
+        match result {
+            Err(PwDumpSinkError::Parse(_)) => {}
+            other => panic!("expected Parse error, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn enumerate_pipewire_sinks_with_returns_parsed_sinks_on_success() {
+        let result = enumerate_pipewire_sinks_with(|| Ok(FIXTURE.to_string()));
+        let sinks = result.expect("run + parse ok");
+        assert_eq!(sinks.len(), 4);
+    }
+
+    #[test]
+    fn pw_dump_run_error_display_is_not_empty() {
+        for err in [
+            PwDumpRunError::Spawn,
+            PwDumpRunError::Timeout,
+            PwDumpRunError::ExitFailure,
+            PwDumpRunError::NotUtf8,
+        ] {
+            assert!(!err.to_string().is_empty());
+        }
+    }
+
+    #[cfg(target_os = "linux")]
+    #[test]
+    fn run_pw_dump_never_panics() {
+        // Не проверяет содержимое (зависит от того, установлен ли `pw-dump`
+        // на машине теста) — только что вызов не паникует и укладывается в
+        // обычное время теста (AM1.0-B37, шаг 3; `PW_DUMP_TIMEOUT` = 500 мс).
+        let _ = run_pw_dump();
     }
 }
