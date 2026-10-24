@@ -20,12 +20,12 @@
 - [x] Шаг 2: src/engine/lock.rs: вынести resolve_from_sink_card(card: Option<SinkCard>, catalog: &DeviceCatalog) -> Resolved из resolve_device (ветка без opts_device) — чистая функция для совместного использования синхронной (opts_device выбран) и асинхронной (AM1.0-B40) веток; resolve_device делегирует ей. Проверка: cargo test engine::lock::
 - [x] Шаг 3: src/engine/messages.rs + src/engine/run.rs: InternalMsg::DeviceResolveDone { attempt: u64, card: Option<SinkCard> } (Debug-ветка); Engine: поля device_resolve_pending: Option<DeviceResolvePending> { attempt, input: LockInput, device_mode: ModeKind, state_before: LockState } и device_resolve_attempt: u64; lock_input разбит на диспетчер + finish_lock_input(input, device_mode, state_before, Resolved) (та же логика, что раньше шла сразу) + start_device_resolve(input, device_mode) (служебный поток deps.spawner зовёт только probe.default_sink_card(), ставит LockState::Acquiring сразу, коалесинг по device_resolve_pending.is_some()); needs_resolution-входы, пока device_resolve_pending занят, — no-op (Acquiring и так их игнорирует по §6.19, явная проверка нужна из-за ветки Совместимого режима lock_step, не смотрящей на state); handle_internal на DeviceResolveDone сверяет attempt, иначе отбрасывает, иначе resolve_from_sink_card + finish_lock_input со снятым pending; в конце finish_lock_input — если lock вышел из Acquiring, device_resolve_pending сбрасывается (устаревший итог отменённой попытки отбрасывается). Обновить 3 существующих теста (lock_input_auto_selects_device_from_server_probe, lock_input_without_resolved_device_fails_without_claim, lock_input_with_selected_device_skips_auto_select_event) на асинхронный помпаж (internal_rx.recv + handle_internal), как start_os_probe_*. Проверка: cargo test
 - [x] Шаг 4: src/engine/run.rs: новые тесты — без блокировки (start_device_resolve уходит в служебный поток, цикл не ждёт), коалесинг (второй needs_resolution-вход, пока проба не вернулась, — no-op), устаревший итог отбрасывается (отмена ModeSelected(Compatible) во время ожидания → поздний DeviceResolveDone не ломает NotApplicable), отказ (нет SinkCard) → Failed(NoDeviceSelected), как раньше. Проверка: cargo test engine::
-- [>] **Шаг 5: ЧЕКПОИНТ: полный cargo test, cargo clippy (0 новых предупреждений), tools/check_rt_imports.py, tools/traceability_tool.py check**
+- [x] Шаг 5: ЧЕКПОИНТ: полный cargo test, cargo clippy (0 новых предупреждений), tools/check_rt_imports.py, tools/traceability_tool.py check
 
 Легенда: [x] сделано · [>] текущий шаг · [ ] не начато
 
 - **Текущий шаг (current_step):** Шаг 5
-- **Следующий ход:** ЧЕКПОИНТ: cargo test + clippy + check_rt_imports + traceability
+- **Следующий ход:** закрытие по closing.md
 - **Счетчик безуспешных компиляций:** 0/3
 - **Состояние:** in_progress
 
