@@ -2,15 +2,20 @@
 # _STATE_.md генерируется из этого файла — не редактировать его руками.
 # Редактируйте этот файл, затем: python tools/state_tool.py render
 
-status: done
+status: in_progress
 task:
-  roadmap_id: null
-  title: null
-whitelist: []
-dod: null
-steps: []
-current_step: null
-next_action: null
+  roadmap_id: WF1.0-B11
+  title: "state_tool.py close-bug: регекс dod не переживает блочный скаляр"
+whitelist:
+  - tools/state_tool.py
+  - tools/test_state_tool.py
+dod: "python tools/test_state_tool.py зелёный; python tools/state_tool.py close-bug WF1.0-B11 <hash> не падает на реальном _STATE_.yaml"
+steps:
+  - id: 1
+    description: "Привести regex dod: в cmd_close_bug к тому же DOTALL-блочному виду, что whitelist/steps/failed_attempts; добавить tools/test_state_tool.py с регрессией на блочный скаляр dod: > и многострочный steps[].description. Проверка: python tools/test_state_tool.py"
+    done: false
+current_step: 1
+next_action: "Запустить python tools/test_state_tool.py, затем полный прогон"
 fail_counter: 0
 fail_counter_max: 3
 failed_attempts: []
