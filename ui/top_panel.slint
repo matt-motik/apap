@@ -244,11 +244,30 @@ export component MenuBarTrailing inherits HorizontalLayout {
     in property <string> lock-text: "";
     in property <string> lock-hint: "";
     in property <int> theme-palette: 0;
+    // AM1.0-B30 шаг 3: ярлык фактически открытого устройства — та же
+    // подпись, что в DeviceInfoView.now_line (src/app/device_info_view.rs),
+    // без приставки «Сейчас: ● … —»; "" — ничего не открыто, бейдж скрыт
+    // целиком (без «—», решение шага). Будущий бейдж режима (AM1.0-B4)
+    // встаёт здесь же, перед DeviceBadge (слева от него).
+    in property <string> device-label: "";
     callback lock-close();
     callback lock-open();
 
     alignment: end;
     spacing: 8px;
+
+    if root.device-label != "": Text {
+        text: root.device-label;
+        color: Colors.text-tertiary;
+        font-size: 11px;
+        vertical-alignment: center;
+        overflow: elide;
+        max-width: 240px;
+
+        Tooltip {
+            text: @markdown("\{root.device-label}");
+        }
+    }
 
     LockButton {
         kind: root.lock-kind;
@@ -331,6 +350,9 @@ export component TopPanel inherits Rectangle {
     in property <LockKind> lock-kind: LockKind.not-applicable;
     in property <string> lock-text: "";
     in property <string> lock-hint: "";
+    // AM1.0-B30 шаг 3: ярлык бейджа открытого устройства (MenuBarTrailing) —
+    // проброс дальше, сам TopPanel текст не строит.
+    in property <string> device-label: "";
     callback lock-close();
     callback lock-open();
     // AM1.0-B14 шаг 8: true — строка меню встроена в окно (Linux/Windows,
@@ -439,6 +461,7 @@ export component TopPanel inherits Rectangle {
                 lock-text: root.lock-text;
                 lock-hint: root.lock-hint;
                 theme-palette: root.theme-palette;
+                device-label: root.device-label;
                 lock-close => { root.lock-close(); }
                 lock-open => { root.lock-open(); }
             }

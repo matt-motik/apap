@@ -498,6 +498,15 @@ pub struct MusicApp {
     /// toggles so the dialog never re-queries the backend for a filter preview,
     /// ТЗ A3.0 §8.1). Consumed by capabilities/validation sync.
     audio_device_infos: Vec<DeviceInfo>,
+    /// Последний `DeviceInfoView`, записанный в Slint (AM1.0-B30, шаг 3,
+    /// пункт A): `sync_device_info_to_ui` вызывается каждый тик, пока диалог
+    /// настроек открыт, но пишет 5 свойств UI только когда вид реально
+    /// изменился — `DeviceInfoView` дёшево сравнить (`derive(PartialEq)`).
+    last_device_info_view: Option<device_info_view::DeviceInfoView>,
+    /// Последний текст бейджа устройства в MenuBarTrailing (AM1.0-B30, шаг
+    /// 3) — `None` до первой записи, `Some("")` — бейдж скрыт (ничего не
+    /// открыто). Пишет в Slint только при изменении (`sync_device_badge`).
+    last_device_badge: Option<String>,
     events_tx: std::sync::mpsc::Sender<AppEvent>,
     events_rx: std::sync::mpsc::Receiver<AppEvent>,
     /// Delta-synced playback values last pushed to the UI.
@@ -822,6 +831,8 @@ impl MusicApp {
             audio_devices_rx: None,
             audio_devices_pairs: Vec::new(),
             audio_device_infos: Vec::new(),
+            last_device_info_view: None,
+            last_device_badge: None,
             events_tx,
             events_rx,
             last_ui: UiState::default(),
@@ -3387,6 +3398,12 @@ impl MusicApp {
         if self.core.draft().is_some() {
             self.sync_device_info_to_ui();
         }
+
+        // Бейдж устройства в MenuBarTrailing (AM1.0-B30, шаг 3) — всегда, не
+        // только при открытом диалоге настроек (виден в главном окне);
+        // дёшево проверить каждый тик, пишет в Slint только при изменении
+        // (`sync_device_badge`).
+        self.sync_device_badge();
     }
 
     /// Раздать принятое событие движка (кроме `Opened`, обработанного в

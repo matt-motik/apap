@@ -190,6 +190,12 @@ export component AppWindow inherits Window {
     in property <string> lock-hint: "";
     callback lock-close();
     callback lock-open();
+    // AM1.0-B30 шаг 3: ярлык бейджа фактически открытого устройства
+    // (MenuBarTrailing, ui/top_panel.slint) — тот же текст, что в
+    // DeviceInfoView.now_line (src/app/device_info_view.rs), без приставки;
+    // "" — ничего не открыто, бейдж скрыт целиком. Выставляет Rust
+    // (`sync_device_badge`, src/app/ui_manager.rs) только при изменении.
+    in property <string> device-label: "";
     // AM1.0-B14 шаг 8: true (Linux/Windows) — строка меню встроена в окно,
     // кнопка замка (MenuBarTrailing) накладывается оверлеем на её правый
     // край ниже; false (macOS, системный NSMenu) — та же группа встаёт у
@@ -522,6 +528,7 @@ export component AppWindow inherits Window {
                 lock-kind: root.lock-kind;
                 lock-text: root.lock-text;
                 lock-hint: root.lock-hint;
+                device-label: root.device-label;
                 menu-bar-in-window: root.menu-bar-in-window;
                 seek-fraction: root.seek-fraction;
                 pos: root.pos;
@@ -634,6 +641,7 @@ export component AppWindow inherits Window {
             lock-text: root.lock-text;
             lock-hint: root.lock-hint;
             theme-palette: root.theme-palette;
+            device-label: root.device-label;
             lock-close => { root.lock-close(); }
             lock-open => { root.lock-open(); }
         }

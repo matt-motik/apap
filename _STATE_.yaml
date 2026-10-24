@@ -30,12 +30,12 @@ steps:
     done: true
   - id: 3
     description: "Бейдж фактически открытого устройства в MenuBarTrailing (ui/top_panel.slint, перед LockButton) + проводка текста бейджа (ui/app.slint, src/app/ui_manager.rs): имя устройства из DeviceInfoView.now_line или «—», если не открыто. Проверка: cargo check"
-    done: false
+    done: true
   - id: 4
     description: "ЧЕКПОИНТ: cargo test + cargo clippy по всему крейту без новых предупреждений в файлах вайтлиста"
     done: false
-current_step: 3
-next_action: "Бейдж фактически открытого устройства в MenuBarTrailing (ui/top_panel.slint, перед LockButton) + проводка текста бейджа (ui/app.slint, src/app/ui_manager.rs): имя устройства из DeviceInfoView.now_line или «—», если не открыто. Проверка: cargo check"
+current_step: 4
+next_action: "ЧЕКПОИНТ: полный cargo test + clippy"
 fail_counter: 0
 fail_counter_max: 3
 failed_attempts: []

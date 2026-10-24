@@ -534,13 +534,15 @@ impl MusicApp {
     /// построен/открытие не удалось).
     ///
     /// Вызывается из `drain_engine_events` каждый тик, пока диалог открыт
-    /// (`mod.rs`), — дешёво (только форматирование строк и запись в Slint),
-    /// а повод обновиться может прийти от самого диалога (смена режима,
-    /// выбора устройства) или от движка (`DeviceCapsCached`, `Devices`,
-    /// путь/замок), без отдельного учёта «грязных» флагов на каждый повод.
-    pub(super) fn sync_device_info_to_ui(&self) {
-        let Some(ui) = self.try_ui() else { return };
-
+    /// (`mod.rs`), — повод обновиться может прийти от самого диалога (смена
+    /// режима, выбора устройства) или от движка (`DeviceCapsCached`,
+    /// `Devices`, путь/замок), без отдельного учёта «грязных» флагов на
+    /// каждый повод. Строки вида пересобираются каждый тик (дёшево —
+    /// несколько `format!`), но 5 свойств Slint пишутся только когда вид
+    /// реально изменился (AM1.0-B30, шаг 3, пункт A): `DeviceInfoView`
+    /// кэшируется в `last_device_info_view` и сравнивается через
+    /// `derive(PartialEq)`, а не переписывается в Slint вслепую каждый тик.
+    pub(super) fn sync_device_info_to_ui(&mut self) {
         let mode = self
             .core
             .draft()
@@ -554,11 +556,35 @@ impl MusicApp {
 
         let view = device_info_view::device_info_view(mode, opened, caps, &os);
 
-        ui.set_settings_device_now_line(view.now_line.into());
-        ui.set_settings_device_rates_line(view.rates_line.unwrap_or_default().into());
-        ui.set_settings_device_bits_line(view.bits_line.unwrap_or_default().into());
-        ui.set_settings_device_dsd_line(view.dsd_line.unwrap_or_default().into());
-        ui.set_settings_device_mixer_line(view.mixer_line.unwrap_or_default().into());
+        if self.last_device_info_view.as_ref() == Some(&view) {
+            return;
+        }
+        let Some(ui) = self.try_ui() else { return };
+
+        ui.set_settings_device_now_line(view.now_line.clone().into());
+        ui.set_settings_device_rates_line(view.rates_line.clone().unwrap_or_default().into());
+        ui.set_settings_device_bits_line(view.bits_line.clone().unwrap_or_default().into());
+        ui.set_settings_device_dsd_line(view.dsd_line.clone().unwrap_or_default().into());
+        ui.set_settings_device_mixer_line(view.mixer_line.clone().unwrap_or_default().into());
+        self.last_device_info_view = Some(view);
+    }
+
+    /// Бейдж фактически открытого устройства в `MenuBarTrailing`
+    /// (ui/top_panel.slint, AM1.0-B30, шаг 3): тот же ярлык, что в
+    /// `DeviceInfoView.now_line` (`active_device`), без приставки «Сейчас:
+    /// ● … —»; "" — ничего не открыто (`!audio_ready`), тогда Slint прячет
+    /// бейдж целиком (без «—», решение шага). Вызывается каждый тик из
+    /// `drain_engine_events` (как `sync_device_info_to_ui`) — дёшево сравнить
+    /// со старым значением, пишет в Slint только при изменении, поэтому
+    /// отдельный учёт поводов (`UiAudioState`/`Lock`/`Path`) не нужен.
+    pub(super) fn sync_device_badge(&mut self) {
+        let label: &str = if self.audio_ready { self.active_device.as_str() } else { "" };
+        if self.last_device_badge.as_deref() == Some(label) {
+            return;
+        }
+        let Some(ui) = self.try_ui() else { return };
+        ui.set_device_label(label.into());
+        self.last_device_badge = Some(label.to_string());
     }
 
     pub(super) fn apply_theme(&self, theme: &ThemeData) {
