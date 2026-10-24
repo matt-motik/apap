@@ -15,8 +15,8 @@
 - **Критерий успеха (Definition of Done):** SERVER_NODE_SUFFIX и sort_rows_text() выдают русский текст через src/i18n/ (без локальных английских литералов); cargo test зелёный; cargo clippy без новых предупреждений
 
 ## Итерационный трекер
-- [>] **Шаг 1: src/i18n/audio.rs: добавить pub const SERVER_NODE_SUFFIX (русский текст, формат « — (программный, с ресемплингом)») с doc-комментарием T1.0-B6 и юнит-тестом значения. Проверка: cargo check**
-- [ ] Шаг 2: src/audio/output.rs: убрать локальный SERVER_NODE_SUFFIX, label_device_names использует crate::i18n::audio::SERVER_NODE_SUFFIX; обновить 3 юнит-теста, сверяющих литерал "(software, resamples)", на SERVER_NODE_SUFFIX. Проверка: cargo test --lib audio::output::
+- [x] Шаг 1: src/i18n/audio.rs: добавить pub const SERVER_NODE_SUFFIX (русский текст, формат « — (программный, с ресемплингом)») с doc-комментарием T1.0-B6 и юнит-тестом значения. Проверка: cargo check
+- [>] **Шаг 2: src/audio/output.rs: убрать локальный SERVER_NODE_SUFFIX, label_device_names использует crate::i18n::audio::SERVER_NODE_SUFFIX; обновить 3 юнит-теста, сверяющих литерал "(software, resamples)", на SERVER_NODE_SUFFIX. Проверка: cargo test --lib audio::output::**
 - [ ] Шаг 3: src/app/ui_manager.rs: 2 вызова strip_suffix(music_player_rs::audio::output::SERVER_NODE_SUFFIX) → music_player_rs::i18n::audio::SERVER_NODE_SUFFIX; обновить doc-комментарий find_device_index_in, цитирующий старый английский текст суффикса. Проверка: cargo check
 - [ ] Шаг 4: src/app/mod.rs: тест find_device_index_in_strips_server_suffix — путь константы music_player_rs::i18n::audio::SERVER_NODE_SUFFIX. Проверка: cargo test --lib app::mod::tests::find_device_index_in_strips_server_suffix
 - [ ] Шаг 5: src/playlist/mod.rs: sort_rows_text() — ColumnId::Bitrate через i18n::format_kbps(track.bitrate), ColumnId::SampleRate через i18n::format_khz(sample_rate/1000.0) вместо литералов "{} kbps"/"{} Hz". Проверка: cargo check
@@ -25,8 +25,8 @@
 
 Легенда: [x] сделано · [>] текущий шаг · [ ] не начато
 
-- **Текущий шаг (current_step):** Шаг 1
-- **Следующий ход:** Добавить pub const SERVER_NODE_SUFFIX в src/i18n/audio.rs
+- **Текущий шаг (current_step):** Шаг 2
+- **Следующий ход:** src/audio/output.rs: убрать локальный SERVER_NODE_SUFFIX, использовать crate::i18n::audio::SERVER_NODE_SUFFIX
 - **Счетчик безуспешных компиляций:** 0/3
 - **Состояние:** in_progress
 

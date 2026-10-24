@@ -16,7 +16,7 @@ dod: "SERVER_NODE_SUFFIX и sort_rows_text() выдают русский тек�
 steps:
   - id: 1
     description: "src/i18n/audio.rs: добавить pub const SERVER_NODE_SUFFIX (русский текст, формат « — (программный, с ресемплингом)») с doc-комментарием T1.0-B6 и юнит-тестом значения. Проверка: cargo check"
-    done: false
+    done: true
   - id: 2
     description: "src/audio/output.rs: убрать локальный SERVER_NODE_SUFFIX, label_device_names использует crate::i18n::audio::SERVER_NODE_SUFFIX; обновить 3 юнит-теста, сверяющих литерал \"(software, resamples)\", на SERVER_NODE_SUFFIX. Проверка: cargo test --lib audio::output::"
     done: false
@@ -35,8 +35,8 @@ steps:
   - id: 7
     description: "ЧЕКПОИНТ: полный cargo test + cargo clippy без новых предупреждений по файлам вайтлиста перед закрытием T1.0-B6"
     done: false
-current_step: 1
-next_action: "Добавить pub const SERVER_NODE_SUFFIX в src/i18n/audio.rs"
+current_step: 2
+next_action: "src/audio/output.rs: убрать локальный SERVER_NODE_SUFFIX, использовать crate::i18n::audio::SERVER_NODE_SUFFIX"
 fail_counter: 0
 fail_counter_max: 3
 failed_attempts: []
