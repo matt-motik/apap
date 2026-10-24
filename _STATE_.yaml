@@ -52,9 +52,9 @@ steps:
     done: true
   - id: 10
     description: "ЧЕКПОИНТ перед закрытием: полный cargo test + cargo clippy по всему вайтлисту."
-    done: false
+    done: true
 current_step: 10
-next_action: "ЧЕКПОИНТ: full cargo test + cargo clippy over whitelist, then closing.md"
+next_action: "закрытие по closing.md"
 fail_counter: 0
 fail_counter_max: 3
 failed_attempts: []
