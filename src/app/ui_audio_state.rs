@@ -33,12 +33,20 @@
 //! но и сам принятый `LockState` — чтобы решить, что делает Play при
 //! открытом замке (шаг 75). Поле `lock` хранит последнее принятое
 //! состояние целиком; `lock_acquiring()` сведён к `matches!` по нему.
+//!
+//! Баг AM1.0-B38, шаг 7: `hw_caps` хранит `CapsEntry` вместо голого
+//! `Arc<DeviceCaps>` — различает «возможности известны» и «устройство
+//! занято другим приложением» (итог фонового опроса `probe_caps`,
+//! `EngineEvent::DeviceCapsProbed`). Запись, пришедшая из открытия устройства
+//! (`DeviceCapsCached`), не вытесняется опросом ни в одну сторону — у движка
+//! нет общего номера поколения между опросом и открытием.
 
 use std::collections::BTreeMap;
 use std::path::Path;
 use std::sync::Arc;
 
 use music_player_rs::audio::backend::catalog::DeviceCatalog;
+use music_player_rs::audio::backend::exclusive::ProbeError;
 use music_player_rs::audio::backend::{DeviceCaps, HwDeviceId};
 use music_player_rs::audio::decoder::TrackInfo;
 use music_player_rs::audio::error::{OpenError, Reaction, StreamFault};
@@ -146,6 +154,41 @@ impl PartialEq for PathSnapshot {
     }
 }
 
+/// Запись кэша `hw_caps` (AM1.0-B38, шаг 7): различает «возможности
+/// известны» и «устройство занято другим приложением», вместо голого
+/// `Arc<DeviceCaps>`.
+///
+/// `Known.opened` — истина, если запись пришла из `DeviceCapsCached`
+/// (устройство действительно было открыто этим приложением), и ложь, если
+/// запись пришла из фонового опроса (`DeviceCapsProbed`, AM1.0-B38). Открытое
+/// устройство — источник истины: более поздний по времени получения, но
+/// возникший из фонового опроса результат (запущенного до открытия и
+/// завершившегося после) не вытесняет такую запись — ни успехом, ни
+/// «занято», ни ошибкой драйвера. У движка нет общего номера поколения между
+/// `probe_caps` и открытием устройства, поэтому это единственный сигнал
+/// порядка, доступный в UI-потоке.
+#[derive(Clone, Debug, PartialEq)]
+enum CapsEntry {
+    Known { caps: Arc<DeviceCaps>, opened: bool },
+    /// Устройство занято другим приложением (`ProbeError::Busy`) — снимается
+    /// следующей принятой записью `Known` для того же устройства (открытием
+    /// или успешным опросом).
+    Busy,
+}
+
+impl CapsEntry {
+    fn caps(&self) -> Option<&DeviceCaps> {
+        match self {
+            Self::Known { caps, .. } => Some(caps),
+            Self::Busy => None,
+        }
+    }
+
+    fn is_opened(&self) -> bool {
+        matches!(self, Self::Known { opened: true, .. })
+    }
+}
+
 /// Результат `UiAudioState::apply` для событий, не сводимых к полю
 /// состояния: вызывающий код (шаг 28) решает, что с ними делать
 /// (сообщение, реакция на потерю устройства, завершение сессии).
@@ -216,7 +259,11 @@ pub struct UiAudioState {
     /// разных треков того же устройства и между перечислениями каталога,
     /// пока устройство остаётся в `DeviceCatalog.hw` (обрезается в
     /// `EngineEvent::Devices`, когда устройство пропадает из списка).
-    hw_caps: BTreeMap<HwDeviceId, Arc<DeviceCaps>>,
+    ///
+    /// Шаг 7 (AM1.0-B38): значение — `CapsEntry`, различающая «возможности
+    /// известны» (из открытия или фонового опроса) и «занято другим
+    /// приложением» (из опроса) вместо голого `Arc<DeviceCaps>`.
+    hw_caps: BTreeMap<HwDeviceId, CapsEntry>,
 }
 
 impl Default for UiAudioState {
@@ -365,14 +412,35 @@ impl UiAudioState {
             // перечислении каталога (AM1.0-B30, решение 2026-10-24) —
             // кэшируются сразу, отдельно от `Devices`.
             EngineEvent::DeviceCapsCached { device, caps } => {
-                self.hw_caps.insert(device, caps);
+                // Открытие — источник истины (ТЗ по AM1.0-B38, см. `CapsEntry`):
+                // запись всегда помечается `opened: true`, безусловно
+                // вытесняя всё, что в кэше было до неё (включая «занято» от
+                // опроса другого устройства, которое перед этим занимало
+                // слот — хотя открытое устройство опросу недоступно).
+                self.hw_caps.insert(device, CapsEntry::Known { caps, opened: true });
                 Applied::None
             }
-            // Заглушка до шага 7 (AM1.0-B38): различение «известно»/«занято»
-            // в `hw_caps` и правило вытеснения появятся там — здесь исход
-            // опроса пока отбрасывается, чтобы `EngineEvent` оставался
-            // исчерпывающим.
-            EngineEvent::DeviceCapsProbed { device: _, result: _ } => Applied::None,
+            // Фоновый опрос (AM1.0-B38, §2.3, шаг 7): открытая запись не
+            // вытесняется ни одним из исходов — она либо свежее (опрос
+            // открытого устройства не запускается), либо устарела (опрос
+            // начался раньше открытия и завершился позже). `Driver(_)` не
+            // меняет кэш вовсе — устройство остаётся «неизвестно», как и до
+            // опроса.
+            EngineEvent::DeviceCapsProbed { device, result } => {
+                if self.hw_caps.get(&device).is_some_and(CapsEntry::is_opened) {
+                    return Applied::None;
+                }
+                match result {
+                    Ok(caps) => {
+                        self.hw_caps.insert(device, CapsEntry::Known { caps, opened: false });
+                    }
+                    Err(ProbeError::Busy) => {
+                        self.hw_caps.insert(device, CapsEntry::Busy);
+                    }
+                    Err(ProbeError::Driver(_)) => {}
+                }
+                Applied::None
+            }
             // Автовыбор сохраняется приложением в настройках (ТЗ-143,
             // ТЗ-134, ADR-24, шаг 38) — одним снимком `settings.toml`, без
             // `EngineCmd::SetModeSettings` (у движка уже есть это значение,
@@ -426,7 +494,22 @@ impl UiAudioState {
     // Вызывающая сторона (`ui_manager.rs`) подключается следующим шагом
     // (AM1.0-B30 step 2) — метод уже покрыт тестами кэша ниже.
     pub fn hw_caps(&self, id: &HwDeviceId) -> Option<&DeviceCaps> {
-        self.hw_caps.get(id).map(Arc::as_ref)
+        self.hw_caps.get(id).and_then(CapsEntry::caps)
+    }
+
+    /// Истина, если устройство `id` помечено занятым другим приложением
+    /// фоновым опросом (AM1.0-B38, шаг 7, `ProbeError::Busy`) — блок «Аудио»
+    /// (шаг 8) показывает для него «неизвестно — устройство занято» вместо
+    /// обычного «неизвестно». Снимается следующей принятой записью
+    /// `CapsEntry::Known` для того же устройства (открытием или успешным
+    /// повторным опросом).
+    // Подключение вызывающей стороны (`ui_manager.rs::sync_device_info_to_ui`
+    // → `device_info_view::device_info_view_with_busy`) — отдельный шаг, вне
+    // белого списка этой сессии (AM1.0-B38); метод уже покрыт тестами кэша
+    // ниже.
+    #[allow(dead_code)]
+    pub fn device_busy(&self, id: &HwDeviceId) -> bool {
+        matches!(self.hw_caps.get(id), Some(CapsEntry::Busy))
     }
 
     /// Истина после принятого `Ended`, пока не снята `clear_end` (ТЗ-56,
@@ -1112,5 +1195,105 @@ mod tests {
 
         state.apply(EngineEvent::Devices(fake_hw_catalog(&[&other])));
         assert!(state.hw_caps(&device).is_none());
+    }
+
+    fn other_caps() -> DeviceCaps {
+        use music_player_rs::audio::backend::{AccessKind, OutputApi, RateSet};
+        use music_player_rs::audio::format::{OutputSampleFormat, SampleRate};
+        use smallvec::SmallVec;
+
+        DeviceCaps {
+            api: OutputApi::AlsaHw,
+            access: AccessKind::Exclusive,
+            name: "other".to_owned(),
+            rates: RateSet::Discrete(SmallVec::from_slice(&[SampleRate::new(48_000).expect("48000 валидна")])),
+            formats: SmallVec::from_slice(&[OutputSampleFormat::S32Le]),
+            channels: SmallVec::from_slice(&[2]),
+        }
+    }
+
+    /// AM1.0-B38, шаг 7: успешный фоновый опрос кэширует возможности тем же
+    /// `hw_caps`, что и открытие устройства (DoD задачи).
+    #[test]
+    fn probed_ok_caches_caps() {
+        let mut state = UiAudioState::new();
+        let device: HwDeviceId = "hw:CARD=RU3,DEV=0".parse().expect("валидный HwDeviceId");
+        assert!(state.hw_caps(&device).is_none());
+
+        state.apply(EngineEvent::DeviceCapsProbed { device: device.clone(), result: Ok(Arc::new(fake_hw_caps())) });
+        assert_eq!(state.hw_caps(&device), Some(&fake_hw_caps()));
+        assert!(!state.device_busy(&device));
+    }
+
+    /// AM1.0-B38, шаг 7: `ProbeError::Busy` помечает устройство занятым,
+    /// `device_busy` — истина, `hw_caps` остаётся `None`.
+    #[test]
+    fn probed_busy_marks_device_busy() {
+        let mut state = UiAudioState::new();
+        let device: HwDeviceId = "hw:CARD=RU3,DEV=0".parse().expect("валидный HwDeviceId");
+
+        state.apply(EngineEvent::DeviceCapsProbed { device: device.clone(), result: Err(ProbeError::Busy) });
+        assert!(state.device_busy(&device));
+        assert!(state.hw_caps(&device).is_none());
+    }
+
+    /// AM1.0-B38, шаг 7: занятая запись снимается следующим успешным
+    /// исходом (повторный опрос или открытие устройства).
+    #[test]
+    fn busy_cleared_when_caps_arrive() {
+        let mut state = UiAudioState::new();
+        let device: HwDeviceId = "hw:CARD=RU3,DEV=0".parse().expect("валидный HwDeviceId");
+        state.apply(EngineEvent::DeviceCapsProbed { device: device.clone(), result: Err(ProbeError::Busy) });
+        assert!(state.device_busy(&device));
+
+        state.apply(EngineEvent::DeviceCapsProbed { device: device.clone(), result: Ok(Arc::new(fake_hw_caps())) });
+        assert!(!state.device_busy(&device));
+        assert_eq!(state.hw_caps(&device), Some(&fake_hw_caps()));
+    }
+
+    /// AM1.0-B38, шаг 7: `ProbeError::Driver(_)` не меняет кэш — устройство
+    /// остаётся «неизвестно», не «занято».
+    #[test]
+    fn probed_driver_error_leaves_unknown() {
+        let mut state = UiAudioState::new();
+        let device: HwDeviceId = "hw:CARD=RU3,DEV=0".parse().expect("валидный HwDeviceId");
+
+        state.apply(EngineEvent::DeviceCapsProbed {
+            device: device.clone(),
+            result: Err(ProbeError::Driver("boom".to_owned())),
+        });
+        assert!(state.hw_caps(&device).is_none());
+        assert!(!state.device_busy(&device));
+    }
+
+    /// AM1.0-B38, шаг 7, DoD: открытая запись (`DeviceCapsCached`) — источник
+    /// истины; более поздний по приходу, но устаревший по сути результат
+    /// фонового опроса (успех, «занято» или ошибка драйвера) её не вытесняет.
+    #[test]
+    fn opened_caps_not_overwritten_by_stale_probe() {
+        let mut state = UiAudioState::new();
+        let device: HwDeviceId = "hw:CARD=RU3,DEV=0".parse().expect("валидный HwDeviceId");
+        state.apply(EngineEvent::DeviceCapsCached { device: device.clone(), caps: Arc::new(fake_hw_caps()) });
+
+        state.apply(EngineEvent::DeviceCapsProbed { device: device.clone(), result: Ok(Arc::new(other_caps())) });
+        assert_eq!(state.hw_caps(&device), Some(&fake_hw_caps()));
+
+        state.apply(EngineEvent::DeviceCapsProbed { device: device.clone(), result: Err(ProbeError::Busy) });
+        assert_eq!(state.hw_caps(&device), Some(&fake_hw_caps()));
+        assert!(!state.device_busy(&device));
+    }
+
+    /// AM1.0-B38, шаг 7: открытие вытесняет «занято», принятое от опроса
+    /// другого устройства, занявшего слот до открытия.
+    #[test]
+    fn opened_overwrites_busy_entry() {
+        let mut state = UiAudioState::new();
+        let device: HwDeviceId = "hw:CARD=RU3,DEV=0".parse().expect("валидный HwDeviceId");
+        state.apply(EngineEvent::DeviceCapsProbed { device: device.clone(), result: Err(ProbeError::Busy) });
+        assert!(state.device_busy(&device));
+
+        state.apply(EngineEvent::DeviceCapsCached { device: device.clone(), caps: Arc::new(fake_hw_caps()) });
+        assert!(!state.device_busy(&device));
+        assert_eq!(state.hw_caps(&device), Some(&fake_hw_caps()));
     }
 }

@@ -38,7 +38,7 @@ steps:
     done: true
   - id: 7
     description: "src/app/ui_audio_state.rs: кэш hw_caps различает «caps известны»/«занято» (новый тип записи вместо голого Arc<DeviceCaps>), обработка нового события(ий) из шага 4, сохранение правила вытеснения записи при исчезновении устройства из каталога. Проверка: cargo test (кэш/вытеснение/занято)."
-    done: false
+    done: true
   - id: 8
     description: "src/app/device_info_view.rs: текстовая ветка «неизвестно — устройство занято» для записи «занято» из шага 7 (рядом с существующей NOT_CACHED, тот же стиль — локальная константа, не i18n, как у неё). Проверка: cargo test (rates/bits/dsd_line на занятом устройстве)."
     done: false
@@ -48,8 +48,8 @@ steps:
   - id: 10
     description: "ЧЕКПОИНТ перед закрытием: полный cargo test + cargo clippy по всему вайтлисту."
     done: false
-current_step: 7
-next_action: "src/app/ui_audio_state.rs: кэш hw_caps различает «caps известны»/«занято» (новый тип записи вместо голого Arc<DeviceCaps>), обработка нового события(ий) из шага 4, сохранение правила вытеснения записи при исчезновении устройства из каталога"
+current_step: 8
+next_action: "src/app/device_info_view.rs: busy hint text for the audio block"
 fail_counter: 0
 fail_counter_max: 3
 failed_attempts: []
