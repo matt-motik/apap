@@ -8,7 +8,7 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::mpsc::{self, Receiver, RecvTimeoutError};
 use std::sync::Arc;
 use std::thread::JoinHandle;
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 use crate::audio::backend::exclusive::DeviceClaim;
 use crate::audio::backend::catalog::DeviceCatalog;
@@ -30,7 +30,7 @@ use crate::engine::lock::{lock_step, resolve_device, LockEffect, LockInput, Lock
 use crate::engine::messages::{
     EngineCmd, EngineEvent, InternalMsg, LegacyAudio, Notice, SkipReason, TrackRef, TransportState,
 };
-use crate::journal::{backend_error_text, JournalRecord};
+use crate::journal::{backend_error_text, probe_outcome_text, JournalRecord};
 use crate::persist::state_file::LegacyPlaybackState;
 use crate::settings::params::{ApplyKind, ModeSettingsDiff};
 use crate::settings::playback::{Dither, ModeKind, ModeSettings, PathPolicy, Volume};
@@ -638,17 +638,24 @@ impl Engine {
             // Итог фонового опроса (§2.3, AM1.0-B38): устаревший ответ (нет
             // текущего опроса или он уже о другом устройстве — например,
             // пришёл после отмены/повторного задания) отбрасывается молча,
-            // как и `ClaimDone`/`RtPriority` выше. Иначе — снятие
-            // `probe_in_flight`, эмит `EngineEvent::DeviceCapsProbed` (`caps`
-            // оборачивается в `Arc`, как у `DeviceCapsCached`) и запуск
-            // отложенного запроса из `probe_pending`, если он есть — тем же
-            // `probe_device_caps`, который сам заново проверит гварды
+            // как и `ClaimDone`/`RtPriority` выше. Иначе — журнал
+            // (`JournalRecord::DeviceCapsProbe`, §2.9; исход берётся из
+            // `&result` до его перемещения, запись не владеет `DeviceCaps`),
+            // снятие `probe_in_flight`, эмит `EngineEvent::DeviceCapsProbed`
+            // (`caps` оборачивается в `Arc`, как у `DeviceCapsCached`) и
+            // запуск отложенного запроса из `probe_pending`, если он есть —
+            // тем же `probe_device_caps`, который сам заново проверит гварды
             // (`claim_device` мог измениться за время этого опроса).
-            InternalMsg::ProbeDone { device, result } => {
+            InternalMsg::ProbeDone { device, result, duration } => {
                 if self.probe_in_flight.as_ref() != Some(&device) {
                     return;
                 }
                 self.probe_in_flight = None;
+                self.deps.journal.record(JournalRecord::DeviceCapsProbe {
+                    device: device.clone(),
+                    outcome: probe_outcome_text(&result),
+                    duration,
+                });
                 self.deps
                     .events
                     .emit(EngineEvent::DeviceCapsProbed { device, result: result.map(Arc::new) });
@@ -1150,8 +1157,13 @@ impl Engine {
         let spawned = self.deps.spawner.spawn(
             "apap-probe",
             Box::new(move || {
+                // Длительность самого задания (open NONBLOCK → hw_params
+                // refine → close) — для журнала (§2.9, AM1.0-B38); `Instant`
+                // здесь безопасен: это обычный служебный поток, не RT-колбэк.
+                let started = Instant::now();
                 let result = job();
-                let _ = done_tx.send(InternalMsg::ProbeDone { device: probe_device, result });
+                let duration = started.elapsed();
+                let _ = done_tx.send(InternalMsg::ProbeDone { device: probe_device, result, duration });
             }),
         );
         // Отказ планировщика (`SpawnFailed`) — тихий no-op, как и у отказа
@@ -5235,7 +5247,7 @@ mod tests {
 
         let msg = engine.internal_rx.recv().expect("probe done");
         match &msg {
-            InternalMsg::ProbeDone { device, result } => {
+            InternalMsg::ProbeDone { device, result, .. } => {
                 assert_eq!(*device, dev);
                 assert_eq!(*result, Err(ProbeError::Busy));
             }
@@ -5284,7 +5296,11 @@ mod tests {
         let dev: HwDeviceId = "hw:CARD=RU3,DEV=0".parse().expect("hw id");
         engine.probe_in_flight = Some(dev.clone());
 
-        engine.handle_internal(InternalMsg::ProbeDone { device: dev.clone(), result: Err(ProbeError::Busy) });
+        engine.handle_internal(InternalMsg::ProbeDone {
+            device: dev.clone(),
+            result: Err(ProbeError::Busy),
+            duration: Duration::from_millis(5),
+        });
 
         assert!(engine.probe_in_flight.is_none());
         let events = sink.take();
@@ -5306,7 +5322,11 @@ mod tests {
         let stale: HwDeviceId = "hw:CARD=DX,DEV=0".parse().expect("hw id");
         engine.probe_in_flight = Some(in_flight.clone());
 
-        engine.handle_internal(InternalMsg::ProbeDone { device: stale, result: Err(ProbeError::Busy) });
+        engine.handle_internal(InternalMsg::ProbeDone {
+            device: stale,
+            result: Err(ProbeError::Busy),
+            duration: Duration::from_millis(5),
+        });
 
         assert_eq!(engine.probe_in_flight, Some(in_flight));
         assert!(sink.take().is_empty());

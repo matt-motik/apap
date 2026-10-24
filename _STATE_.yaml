@@ -32,7 +32,7 @@ steps:
     done: true
   - id: 5
     description: "Журнал пробы caps: новый вариант JournalRecord (устройство + исход) в src/journal.rs и вызов записи в точках эмита события (src/engine/run.rs), по аналогии с DeviceEnumerate/DeviceReacquireLookup. Проверка: cargo test (журнал пишет строку на каждый исход)."
-    done: false
+    done: true
   - id: 6
     description: "ЧЕКПОИНТ: полный cargo test + cargo clippy по движку и бэкенду (шаги 1–5) перед переходом к UI-слою."
     done: false
@@ -48,8 +48,8 @@ steps:
   - id: 10
     description: "ЧЕКПОИНТ перед закрытием: полный cargo test + cargo clippy по всему вайтлисту."
     done: false
-current_step: 5
-next_action: "Журнал пробы caps: новый вариант JournalRecord (устройство + исход) в src/journal.rs и вызов записи в точке эмита EngineEvent::DeviceCapsProbed (src/engine/run.rs), по аналогии с DeviceEnumerate/DeviceReacquireLookup"
+current_step: 6
+next_action: "ЧЕКПОИНТ: полный cargo test + cargo clippy по движку и бэкенду (шаги 1–5) перед переходом к UI-слою"
 fail_counter: 0
 fail_counter_max: 3
 failed_attempts: []

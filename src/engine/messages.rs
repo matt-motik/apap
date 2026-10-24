@@ -5,6 +5,7 @@
 
 use std::path::Path;
 use std::sync::Arc;
+use std::time::Duration;
 
 use crate::audio::backend::catalog::DeviceCatalog;
 use crate::audio::backend::exclusive::{DeviceClaim, ProbeError};
@@ -240,7 +241,10 @@ pub enum InternalMsg {
     RtPriority { session: u64, granted: Option<u32> },
     /// Итог `ExclusiveBackend::probe_caps` — поступает служебным потоком
     /// фонового опроса (§2.3, AM1.0-B38), без резервирования устройства.
-    ProbeDone { device: HwDeviceId, result: Result<DeviceCaps, ProbeError> },
+    /// `duration` — время самого задания (open NONBLOCK → hw_params refine →
+    /// close), засечённое в потоке `apap-probe` (`Instant`, вне RT-пути) —
+    /// идёт в журнал (`JournalRecord::DeviceCapsProbe`, `src/engine/run.rs`).
+    ProbeDone { device: HwDeviceId, result: Result<DeviceCaps, ProbeError>, duration: Duration },
 }
 
 impl std::fmt::Debug for InternalMsg {
@@ -259,10 +263,11 @@ impl std::fmt::Debug for InternalMsg {
                 .field("session", session)
                 .field("granted", granted)
                 .finish(),
-            InternalMsg::ProbeDone { device, result } => f
+            InternalMsg::ProbeDone { device, result, duration } => f
                 .debug_struct("ProbeDone")
                 .field("device", device)
                 .field("result", result)
+                .field("duration", duration)
                 .finish(),
         }
     }

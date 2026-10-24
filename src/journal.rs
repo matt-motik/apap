@@ -2,7 +2,8 @@
 //! Реализация по умолчанию — `FileJournal` (stderr + `apap.log`), подмена для
 //! автотестов — `VecJournal`. В аудио-колбэке журнал не используется.
 
-use crate::audio::backend::{BackendError, HwDeviceId};
+use crate::audio::backend::exclusive::ProbeError;
+use crate::audio::backend::{BackendError, DeviceCaps, HwDeviceId, RateSet};
 use crate::core::exit::{ExitReason, ExitReport, TermSignal};
 use crate::persist::keys::{LoadNote, LoadNoteKind};
 use crate::persist::{ConfigFile, WorkFile};
@@ -76,6 +77,29 @@ pub enum JournalRecord {
     /// (`LockInput::DeviceReappeared`, `src/engine/lock.rs`); `false` — пока
     /// не нашлось, решение `lock_step` не запрашивалось.
     DeviceReacquireLookup { device: HwDeviceId, found: bool },
+    /// Фоновый опрос caps устройства по выбору в списке вкладки «Аудио»
+    /// (`EngineCmd::ProbeDeviceCaps`, §2.3, AM1.0-B38,
+    /// `src/engine/run.rs::handle_internal`): устройство, исход
+    /// (`ProbeOutcomeText::text` — текст готовится вызывающим через
+    /// [`probe_outcome_text`], запись не владеет `DeviceCaps`) и
+    /// длительность самого задания (open NONBLOCK → hw_params refine →
+    /// close), засечённая служебным потоком `apap-probe` вне RT-пути.
+    DeviceCapsProbe { device: HwDeviceId, outcome: ProbeOutcomeText, duration: Duration },
+}
+
+/// Исход опроса caps для строки журнала (ADR-21, §2.9, AM1.0-B38):
+/// подготавливается [`probe_outcome_text`] из `&Result<DeviceCaps,
+/// ProbeError>` до того, как вызывающий (`src/engine/run.rs`) передаст сам
+/// результат дальше в `EngineEvent::DeviceCapsProbed` — запись журнала не
+/// владеет `DeviceCaps` и не дублирует его клоном.
+#[derive(Clone, PartialEq, Eq, Debug)]
+pub enum ProbeOutcomeText {
+    /// Сводка возможностей: частоты, число форматов, максимум каналов.
+    Caps(Box<str>),
+    /// Устройство занято другим приложением (`ProbeError::Busy`).
+    Busy,
+    /// Прочий отказ ALSA при опросе (`ProbeError::Driver`), текст хоста.
+    Driver(Box<str>),
 }
 
 /// Что записывалось (§2.9).
@@ -117,6 +141,7 @@ impl JournalRecord {
             JournalRecord::RtPriorityDenied { .. } => "приоритет реального времени не получен",
             JournalRecord::DeviceEnumerate { .. } => "перечисление устройств",
             JournalRecord::DeviceReacquireLookup { .. } => "поиск устройства повторного захвата",
+            JournalRecord::DeviceCapsProbe { .. } => "опрос caps устройства",
         }
     }
 
@@ -192,6 +217,14 @@ impl JournalRecord {
                     format!("{device}: не найдено в перечислении, lock_step не запрошен")
                 }
             }
+            JournalRecord::DeviceCapsProbe { device, outcome, duration } => {
+                let outcome = match outcome {
+                    ProbeOutcomeText::Caps(summary) => format!("получены ({summary})"),
+                    ProbeOutcomeText::Busy => "занято другим приложением".to_string(),
+                    ProbeOutcomeText::Driver(err) => format!("ошибка драйвера: {err}"),
+                };
+                format!("{device}: {outcome}; {} мс", duration.as_millis())
+            }
         }
     }
 }
@@ -203,6 +236,32 @@ pub fn backend_error_text(err: &BackendError) -> Box<str> {
     match err {
         BackendError::Unavailable(msg) => msg.as_str().into(),
     }
+}
+
+/// Исход опроса caps для `JournalRecord::DeviceCapsProbe` (§2.9, AM1.0-B38)
+/// — используется движком (`src/engine/run.rs::handle_internal`) из
+/// `&Result<DeviceCaps, ProbeError>` до передачи самого результата в
+/// `EngineEvent::DeviceCapsProbed`, чтобы запись журнала не владела
+/// `DeviceCaps` и не требовала его клона.
+pub fn probe_outcome_text(result: &Result<DeviceCaps, ProbeError>) -> ProbeOutcomeText {
+    match result {
+        Ok(caps) => ProbeOutcomeText::Caps(caps_summary_text(caps).into()),
+        Err(ProbeError::Busy) => ProbeOutcomeText::Busy,
+        Err(ProbeError::Driver(err)) => ProbeOutcomeText::Driver(err.as_str().into()),
+    }
+}
+
+/// Короткая сводка возможностей устройства для строки журнала (§2.9,
+/// AM1.0-B38): частоты (диапазон или число дискретных значений), число
+/// форматов, максимум каналов — не полный список, как в UI
+/// (`src/app/device_info_view.rs`), а именно сводка для одной строки.
+fn caps_summary_text(caps: &DeviceCaps) -> String {
+    let rates = match &caps.rates {
+        RateSet::Discrete(rates) => format!("{} частот", rates.len()),
+        RateSet::Range { min, max } => format!("{}..{} Гц", min.hz(), max.hz()),
+    };
+    let channels = caps.channels.iter().copied().max().unwrap_or(0);
+    format!("{rates}, форматов {}, каналов до {channels}", caps.formats.len())
 }
 
 /// Название хоста трея для строки журнала (§2.9, ADR-8).
@@ -649,6 +708,59 @@ mod tests {
         assert_eq!(
             format_line(&missing, UNIX_EPOCH),
             "1970-01-01T00:00:00.000Z поиск устройства повторного захвата: hw:CARD=RU3,DEV=0: не найдено в перечислении, lock_step не запрошен"
+        );
+    }
+
+    #[test]
+    fn journal_device_caps_probe_line_has_outcome_and_duration() {
+        use crate::audio::backend::{AccessKind, OutputApi};
+        use crate::audio::format::OutputSampleFormat;
+        use smallvec::SmallVec;
+
+        let device: HwDeviceId = "hw:CARD=RU3,DEV=0".parse().expect("hw id");
+        let caps = DeviceCaps {
+            api: OutputApi::AlsaHw,
+            access: AccessKind::Exclusive,
+            name: "Cayin RU3".into(),
+            rates: RateSet::Range {
+                min: crate::audio::format::SampleRate::new(44_100).expect("rate"),
+                max: crate::audio::format::SampleRate::new(192_000).expect("rate"),
+            },
+            formats: SmallVec::from_slice(&[OutputSampleFormat::S24Le, OutputSampleFormat::F32]),
+            channels: SmallVec::from_slice(&[2]),
+        };
+
+        let ok = JournalRecord::DeviceCapsProbe {
+            device: device.clone(),
+            outcome: probe_outcome_text(&Ok(caps)),
+            duration: Duration::from_millis(37),
+        };
+        assert_eq!(ok.kind(), "опрос caps устройства");
+        assert_eq!(
+            format_line(&ok, UNIX_EPOCH),
+            "1970-01-01T00:00:00.000Z опрос caps устройства: hw:CARD=RU3,DEV=0: получены (44100..192000 Гц, \
+             форматов 2, каналов до 2); 37 мс"
+        );
+
+        let busy = JournalRecord::DeviceCapsProbe {
+            device: device.clone(),
+            outcome: probe_outcome_text(&Err(ProbeError::Busy)),
+            duration: Duration::from_millis(5),
+        };
+        assert_eq!(
+            format_line(&busy, UNIX_EPOCH),
+            "1970-01-01T00:00:00.000Z опрос caps устройства: hw:CARD=RU3,DEV=0: занято другим приложением; 5 мс"
+        );
+
+        let driver = JournalRecord::DeviceCapsProbe {
+            device,
+            outcome: probe_outcome_text(&Err(ProbeError::Driver("no such device".into()))),
+            duration: Duration::from_millis(12),
+        };
+        assert_eq!(
+            format_line(&driver, UNIX_EPOCH),
+            "1970-01-01T00:00:00.000Z опрос caps устройства: hw:CARD=RU3,DEV=0: ошибка драйвера: no such \
+             device; 12 мс"
         );
     }
 
