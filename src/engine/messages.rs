@@ -16,6 +16,7 @@ use crate::audio::error::{CaptureFailure, FileError, OpenError, Reaction, Stream
 use crate::audio::format::StreamFormat;
 use crate::audio::path::signal::{DynamicPathState, SignalPath};
 use crate::audio::path::{Blocked, OsStage};
+use crate::audio::reservation::SinkCard;
 use crate::audio::verdict::BadgeState;
 use crate::engine::lock::{LockInput, LockState};
 use crate::playlist::model::TrackId;
@@ -274,6 +275,17 @@ pub enum InternalMsg {
     /// через это сообщение, которое освежает `Engine::os_stage_cache` для
     /// следующего открытия.
     OsProbeDone { stage: OsStage },
+    /// Итог фоновой пробы системного выхода для автовыбора устройства
+    /// режима (ADR-24, ТЗ-143, AM1.0-B40) — поступает служебным потоком
+    /// `apap-device-resolve` (`Engine::start_device_resolve`,
+    /// `src/engine/run.rs`): `AudioServerProbe::default_sink_card` на Linux
+    /// запускает `wpctl inspect` с таймаутом до 1 с
+    /// (`src/audio/reservation/mod.rs`), поэтому движок больше не вызывает
+    /// её синхронно внутри `Engine::lock_input` — только через это
+    /// сообщение. `attempt` — тот же приём, что `ClaimDone`/`attempt`
+    /// (§6.19, ТЗ-123): устаревший итог отменённой или перекрытой новым
+    /// запросом попытки отбрасывается.
+    DeviceResolveDone { attempt: u64, card: Option<SinkCard> },
 }
 
 impl std::fmt::Debug for InternalMsg {
@@ -303,6 +315,11 @@ impl std::fmt::Debug for InternalMsg {
                 .field("result", &result.as_ref().map(|_| "<enumerate>"))
                 .finish(),
             InternalMsg::OsProbeDone { stage } => f.debug_struct("OsProbeDone").field("stage", stage).finish(),
+            InternalMsg::DeviceResolveDone { attempt, card } => f
+                .debug_struct("DeviceResolveDone")
+                .field("attempt", attempt)
+                .field("card", card)
+                .finish(),
         }
     }
 }

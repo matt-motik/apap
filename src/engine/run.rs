@@ -26,7 +26,7 @@ use crate::audio::verdict::{verdict, BadgeState, GainState};
 use crate::engine::deps::EngineDeps;
 use crate::engine::exclusive_path::{self, ExclusiveOpenReason, ExclusivePath};
 use crate::engine::legacy_path::{legacy_audio, opened_facts_from_desc, shared_caps_from_desc, stream_format_from_desc};
-use crate::engine::lock::{lock_step, resolve_device, LockEffect, LockInput, LockState, ReacquirePoint, Resolved};
+use crate::engine::lock::{lock_step, resolve_from_sink_card, LockEffect, LockInput, LockState, ReacquirePoint, Resolved};
 use crate::engine::messages::{
     EngineCmd, EngineEvent, InternalMsg, LegacyAudio, Notice, SkipReason, TrackRef, TransportState,
 };
@@ -154,6 +154,20 @@ struct DeferredOpen {
     src: SourceFormat,
     start_secs: f64,
     autoplay: bool,
+}
+
+/// Контекст отложенного разрешения устройства режима (§6.18, §6.19, ADR-24,
+/// ТЗ-143, AM1.0-B40): `Engine::start_device_resolve` запоминает здесь всё,
+/// что нужно `finish_lock_input`, чтобы довершить переход, когда
+/// `InternalMsg::DeviceResolveDone` вернётся из служебного потока
+/// `apap-device-resolve`. `state_before` — состояние замка ДО того, как
+/// `start_device_resolve` поставил видимый `Acquiring` ожидания (таблице
+/// §6.19 нужно исходное состояние, не этот сигнал).
+struct DeviceResolvePending {
+    attempt: u64,
+    input: LockInput,
+    device_mode: ModeKind,
+    state_before: LockState,
 }
 
 /// Строит `SignalPath` Совместимого режима из уже открытого `StreamDesc`
@@ -464,6 +478,22 @@ struct Engine {
     /// прошлая не вернулась, no-op (следующий `Open` всё равно её запросит
     /// снова). Снимается итогом `InternalMsg::OsProbeDone`.
     os_probe_in_flight: bool,
+    /// Отложенная фоновая проба системного выхода для автовыбора устройства
+    /// режима (§6.18, §6.19, ADR-24, ТЗ-143, AM1.0-B40), запущенная
+    /// `start_device_resolve`: `None`, пока проба не идёт. Присутствие поля
+    /// — сигнал коалесинга в `lock_input` (не более одной пробы
+    /// одновременно, по образцу `shared_enumerate_in_flight`/
+    /// `os_probe_in_flight`) и единственный источник правды для
+    /// `finish_lock_input`, довершающего переход по `InternalMsg::
+    /// DeviceResolveDone` (`handle_internal`). Сбрасывается там же (по
+    /// совпавшему `attempt`) и в конце `finish_lock_input`, если замок
+    /// покинул `Acquiring` раньше (устаревшая попытка, см. её доккомент).
+    device_resolve_pending: Option<DeviceResolvePending>,
+    /// Монотонный номер попытки разрешения устройства (§2.3, AM1.0-B40, по
+    /// образцу `claim_attempt`): увеличивается в каждом `start_device_resolve`,
+    /// сверяется в `InternalMsg::DeviceResolveDone`, чтобы устаревший итог
+    /// (перекрытый новым запросом) не довершил переход чужими данными.
+    device_resolve_attempt: u64,
     /// Точка повторного захвата (§6.20 п. 2, ТЗ-51, ТЗ-126): заполняется
     /// движком (`save_reacquire_point`) до `lock_input(DeviceLost)`, пока
     /// `self.claim`/`self.exclusive_path` ещё не очищены эффектами
@@ -545,6 +575,8 @@ impl Engine {
             shared_enumerate_force_emit: false,
             os_stage_cache: OsStage::Unknown,
             os_probe_in_flight: false,
+            device_resolve_pending: None,
+            device_resolve_attempt: 0,
             reacquire: None,
             reacquire_retry: None,
             deferred_open: None,
@@ -790,6 +822,29 @@ impl Engine {
                 self.os_probe_in_flight = false;
                 self.os_stage_cache = stage;
             }
+            // Итог фоновой пробы системного выхода для автовыбора устройства
+            // режима (§6.18, §6.19, ADR-24, ТЗ-143, AM1.0-B40,
+            // `start_device_resolve`): `attempt`, не совпавший с
+            // `device_resolve_pending` (устаревшая или перекрытая новым
+            // запросом попытка — например, пользователь успел отменить
+            // переключение режима, `finish_lock_input` уже сбросил поле),
+            // отбрасывается молча, как и `ClaimDone` на отменённую попытку
+            // (§6.19, ТЗ-123). Иначе — каталог ищет найденную `wpctl` карту
+            // (`resolve_from_sink_card`, без повторного опроса) и переход
+            // довершается `finish_lock_input` по снимку `state_before`,
+            // сделанному до того, как замок встал в `Acquiring` ожидания.
+            InternalMsg::DeviceResolveDone { attempt, card } => {
+                let matches_pending = self.device_resolve_pending.as_ref().is_some_and(|p| p.attempt == attempt);
+                if !matches_pending {
+                    return;
+                }
+                let pending = match self.device_resolve_pending.take() {
+                    Some(p) => p,
+                    None => return,
+                };
+                let resolved = resolve_from_sink_card(card, &self.catalog);
+                self.finish_lock_input(pending.input, pending.device_mode, pending.state_before, resolved);
+            }
         }
     }
 
@@ -849,33 +904,23 @@ impl Engine {
     }
 
     /// Шаг состояния замка устройства режима (§6.19, ТЗ-118, ADR-01):
-    /// применяет чистую `lock_step`, подставляя реальное время начала
-    /// попытки (`lock_step` заполняет `Acquiring.started` плейсхолдером
-    /// `ClockInstant::START` — здесь он переписывается `deps.clock.now()`,
-    /// как `poll_session` берёт `now` для `Position`), затем выполняет
-    /// эффекты. Устройство режима резолвится до `lock_step` (ADR-24, ТЗ-143,
-    /// ТЗ-144, §6.18): для `ModeSelected(m)` целевой режим — `m`, устройство
-    /// берётся из его настроек (а не из `self.active_mode`, который на этот
-    /// момент ещё не сменился), для прочих входов — из настроек текущего
-    /// `self.active_mode`.
+    /// определяет, нужно ли разрешение устройства режима (ADR-24, ТЗ-143,
+    /// ТЗ-144, §6.18), и ведёт его либо сразу (устройство уже выбрано в
+    /// настройках, либо вход всё равно его не использует), либо через
+    /// фоновую пробу системного выхода (`start_device_resolve`, AM1.0-B40) —
+    /// опрос `AudioServerProbe::default_sink_card` (`wpctl inspect`, до 1 с)
+    /// больше не выполняется синхронно здесь, как раньше (до AM1.0-B40 этот
+    /// метод сам вызывал `resolve_device`, блокируя цикл движка). Довершение
+    /// перехода (сама `lock_step` и её эффекты) — общий метод
+    /// `finish_lock_input`, который вызывается либо отсюда немедленно, либо
+    /// из `handle_internal` по `InternalMsg::DeviceResolveDone`.
     ///
-    /// Для `ModeSelected(m)` сам переход `lock_step` считается ещё при
-    /// старом `self.active_mode` (нужно для AM1.0-B13 — см. комментарий у
-    /// `EngineCmd::SetActiveMode`), но ПЕРЕД выполнением его эффектов поле
-    /// `self.active_mode` переставляется на `m` (AM1.0-B15, §6.19, ТЗ-118):
-    /// эффект `Acquire(dev)` (`start_claim`) может синхронно, тем же стеком
-    /// вызовов, вернуть `LockInput::CaptureResult` (бэкенд недоступен,
-    /// устройство пропало из каталога, отказ `spawner.spawn`) — этот
-    /// рекурсивный вызов `lock_input` обязан увидеть уже целевой режим,
-    /// иначе он попал бы в ветку `lock_step` для Совместимого режима
-    /// («любой вход → `NotApplicable`») и терял бы настоящий переход
-    /// `Acquiring → Failed`/`Held`.
+    /// Для `ModeSelected(m)` целевой режим для разрешения устройства — `m`
+    /// (а не `self.active_mode`, который на этот момент ещё не сменился),
+    /// для прочих входов — текущий активный режим (ADR-24); `finish_lock_input`
+    /// переставляет `self.active_mode` на целевой режим ДО эффектов перехода
+    /// (AM1.0-B15, §6.19, ТЗ-118, см. её доккомент) — это не меняется.
     fn lock_input(&mut self, input: LockInput) {
-        // AM1.0-B15 (§6.19, ТЗ-118): запоминается здесь, а не после
-        // `lock_step` ниже — `input` туда уходит по значению (не `Copy`,
-        // в отличие от `ModeKind`), повторно сматчить его после вызова
-        // нельзя.
-        let mode_selected = matches!(input, LockInput::ModeSelected(_));
         // Режим, чьё устройство нужно разрешить: для `ModeSelected(m)` —
         // целевой `m` (устройство режима, в который переключаются), иначе —
         // текущий активный режим (ADR-24).
@@ -883,10 +928,9 @@ impl Engine {
             LockInput::ModeSelected(m) => m,
             _ => self.active_mode,
         };
-        // Разрешение (и тем самым опрос системного выхода в `resolve_device`)
-        // выполняется только для входов, которые по таблице §6.19 вообще
-        // могут дать эффект `Acquire(dev)` с этим `dev` — остальные
-        // (`Shutdown`, `CaptureResult`, `UserOpen`, `DeviceLost`,
+        // Разрешение выполняется только для входов, которые по таблице
+        // §6.19 вообще могут дать эффект `Acquire(dev)` с этим `dev` —
+        // остальные (`Shutdown`, `CaptureResult`, `UserOpen`, `DeviceLost`,
         // `DeviceSelected`, `DeviceReappeared`, …) либо не захватывают,
         // либо несут собственное устройство во входе, минуя `dev` (ТЗ-32):
         // опрос для них был бы лишним обращением к системному аудиосерверу.
@@ -899,30 +943,132 @@ impl Engine {
                 LockInput::Startup | LockInput::UserClose | LockInput::CaptureAndPlay | LockInput::RetryCapture
             ));
 
+        let opts_device = match device_mode {
+            ModeKind::Compatible => None,
+            ModeKind::Optimal => self.mode_settings.optimal.device.clone(),
+            ModeKind::Strict => self.mode_settings.strict.device.clone(),
+        };
+
+        // AM1.0-B40 (§6.18, §6.19, ADR-24, ТЗ-143, ТЗ-144): устройство не
+        // выбрано в настройках режима — нужен автовыбор по системному
+        // выходу, т. е. блокирующий `probe.default_sink_card()`. Опрос
+        // уходит в служебный поток (`start_device_resolve`); до его возврата
+        // этот метод не ждёт.
+        if needs_resolution && opts_device.is_none() {
+            // Пока прошлый такой запрос не вернулся — новый тихо
+            // отбрасывается (коалесинг, как у `start_os_probe`/
+            // `start_shared_enumerate`/`probe_device_caps`): замок уже
+            // показывает `Acquiring` ожидания, второй опрос не добавил бы
+            // ничего нового. Без этой проверки вход мог бы попасть в ветку
+            // Совместимого режима `lock_step` (она не смотрит на состояние
+            // вовсе, только на `input`/`mode`) по старому `self.active_mode`
+            // (переключается только в `finish_lock_input`) и спутать уже
+            // идущее ожидание.
+            if self.device_resolve_pending.is_some() {
+                return;
+            }
+            // Та же чистая `lock_step`, но с `dev: None` — не ради итога (он
+            // отбрасывается), а чтобы узнать, использует ли ЭТА пара
+            // «состояние × вход × режим» устройство вообще: таблица §6.19
+            // для большинства состояний (`Held`/`Acquiring`/`NotApplicable`)
+            // переводит входы из `needs_resolution` в no-op независимо от
+            // `dev` — опрашивать системный выход ради заведомо отброшенного
+            // результата незачем.
+            let (probe_state, probe_effects) = lock_step(&self.lock, input.clone(), self.active_mode, None);
+            let dev_matters = probe_state != self.lock || !probe_effects.is_empty();
+            if !dev_matters {
+                self.finish_lock_input(input, device_mode, self.lock.clone(), Resolved::None);
+                return;
+            }
+            self.start_device_resolve(input, device_mode);
+            return;
+        }
+
+        // Устройство либо выбрано в настройках режима (без автовыбора), либо
+        // резолюция этому входу не нужна вовсе — оба случая без обращения к
+        // системному аудиосерверу, переход довершается немедленно.
+        let resolved = match opts_device {
+            Some(d) => Resolved::Selected(d),
+            None => Resolved::None,
+        };
+        self.finish_lock_input(input, device_mode, self.lock.clone(), resolved);
+    }
+
+    /// Запускает фоновую пробу системного выхода для автовыбора устройства
+    /// режима (§6.18, §6.19, ADR-24, ТЗ-143, AM1.0-B40): `AudioServerProbe::
+    /// default_sink_card` (`wpctl inspect`, до 1 с, `src/audio/reservation/
+    /// mod.rs`) уходит в служебный поток `apap-device-resolve` — цикл
+    /// движка не ждёт. Замок сразу встаёт в `Acquiring` (тот же визуальный
+    /// индикатор ожидания, что и у настоящего захвата: песочные часы, не
+    /// зависший интерфейс); пауза/перемотка и прочие команды, не идущие
+    /// через `lock_input`, продолжают отвечать сразу — блокировался только
+    /// цикл движка внутри самого `lock_input`.
+    ///
+    /// Итог приходит `InternalMsg::DeviceResolveDone` (`handle_internal`),
+    /// который сверяет `attempt` (тот же приём, что `start_claim`/
+    /// `claim_attempt`, §6.19, ТЗ-123) и довершает переход
+    /// `finish_lock_input` по снимку `state_before`, сделанному здесь, — не
+    /// по текущему `self.lock` на момент возврата: это уже собственный
+    /// `Acquiring`-сигнал ожидания, который `lock_step` принял бы за «уже
+    /// идёт», а не за исходное `Open`/`Failed`/`NotApplicable`.
+    fn start_device_resolve(&mut self, input: LockInput, device_mode: ModeKind) {
+        self.device_resolve_attempt = self.device_resolve_attempt.wrapping_add(1);
+        let attempt = self.device_resolve_attempt;
+        let state_before = self.lock.clone();
+        self.lock = LockState::Acquiring { started: self.deps.clock.now() };
+        self.deps.events.emit(EngineEvent::Lock(self.lock.clone()));
+        self.device_resolve_pending = Some(DeviceResolvePending {
+            attempt,
+            input: input.clone(),
+            device_mode,
+            state_before: state_before.clone(),
+        });
+
+        let probe = Arc::clone(&self.deps.server_probe);
+        let done_tx = self.internal_tx.clone();
+        let spawned = self.deps.spawner.spawn(
+            "apap-device-resolve",
+            Box::new(move || {
+                let card = probe.default_sink_card();
+                let _ = done_tx.send(InternalMsg::DeviceResolveDone { attempt, card });
+            }),
+        );
+        if let Err(EngineFault::SpawnFailed { .. }) = spawned {
+            // Отказ планировщика — устройство считается не найденным, как и
+            // при отказе `wpctl` (ADR-24, ТЗ-144): служебный поток не
+            // запущен, ответа не будет, переход довершается сразу же.
+            self.device_resolve_pending = None;
+            self.finish_lock_input(input, device_mode, state_before, Resolved::None);
+        }
+    }
+
+    /// Довершает `lock_input` по уже разрешённому устройству режима (ADR-24,
+    /// ТЗ-143, ТЗ-144, §6.18, §6.19, AM1.0-B40): общий хвост синхронной ветки
+    /// (устройство выбрано в настройках или резолюция не нужна) и
+    /// асинхронного завершения `start_device_resolve`
+    /// (`InternalMsg::DeviceResolveDone`, `handle_internal`). `state_before`
+    /// — состояние замка ДО решения о резолюции, а не обязательно текущее
+    /// `self.lock`: на момент довершения асинхронной ветки оно уже
+    /// `Acquiring`-сигнал ожидания, выставленный `start_device_resolve`, а
+    /// таблице §6.19 нужно исходное `Open`/`Failed`/`NotApplicable`, иначе
+    /// переход выродился бы в no-op.
+    fn finish_lock_input(&mut self, input: LockInput, device_mode: ModeKind, state_before: LockState, resolved: Resolved) {
+        // AM1.0-B15 (§6.19, ТЗ-118): запоминается здесь, а не после
+        // `lock_step` ниже — `input` туда уходит по значению (не `Copy`,
+        // в отличие от `ModeKind`), повторно сматчить его после вызова
+        // нельзя.
+        let mode_selected = matches!(input, LockInput::ModeSelected(_));
         // Автовыбор устройства для записи в копию опций режима и события
         // `DeviceAutoSelected`, но только если он действительно привёл к
         // захвату (ТЗ-143) — выставляется после вызова `lock_step` ниже.
         let mut auto_selected = None;
-        let device = if needs_resolution {
-            let opts_device = match device_mode {
-                ModeKind::Compatible => None,
-                ModeKind::Optimal => self.mode_settings.optimal.device.as_ref(),
-                ModeKind::Strict => self.mode_settings.strict.device.as_ref(),
-            };
-            match resolve_device(opts_device, &*self.deps.server_probe, &self.catalog) {
-                Resolved::Selected(d) => Some(d),
-                Resolved::AutoSelected(d) => {
-                    auto_selected = Some(d.clone());
-                    Some(d)
-                }
-                Resolved::None => None,
+        let device = match resolved {
+            Resolved::Selected(d) => Some(d),
+            Resolved::AutoSelected(d) => {
+                auto_selected = Some(d.clone());
+                Some(d)
             }
-        } else {
-            match device_mode {
-                ModeKind::Compatible => None,
-                ModeKind::Optimal => self.mode_settings.optimal.device.clone(),
-                ModeKind::Strict => self.mode_settings.strict.device.clone(),
-            }
+            Resolved::None => None,
         };
         // AM1.0-B16 (ADR-24, ТЗ-126): устройство, взятое именно из настроек
         // режима (`Resolved::Selected` либо ветка без разрешения выше), а не
@@ -970,7 +1116,7 @@ impl Engine {
             }
         }
 
-        let (mut state, effects) = lock_step(&self.lock, input, self.active_mode, device.as_ref());
+        let (mut state, effects) = lock_step(&state_before, input, self.active_mode, device.as_ref());
         if let LockState::Acquiring { .. } = state {
             state = LockState::Acquiring { started: self.deps.clock.now() };
         }
@@ -997,7 +1143,7 @@ impl Engine {
         }
 
         // AM1.0-B15 (§6.19, ТЗ-118): переставляется на целевой режим ДО
-        // выполнения эффектов — см. доккомент функции выше. `EngineCmd::
+        // выполнения эффектов — см. доккомент `lock_input` выше. `EngineCmd::
         // SetActiveMode` ниже присвоит `self.active_mode` то же значение
         // `m` ещё раз (идемпотентно) и вызовет `store_active_mode`/
         // `apply_gain` уже после всех входов замка этого перехода.
@@ -1031,6 +1177,17 @@ impl Engine {
                     self.reacquire_retry = None;
                 }
             }
+        }
+
+        // AM1.0-B40: отложенная проба системного выхода
+        // (`device_resolve_pending`) теряет смысл, как только замок покидает
+        // `Acquiring` — например, пользователь отменил переключение режима
+        // (`ModeSelected(Compatible)`) во время ожидания `wpctl`. Без этого
+        // сброса устаревший `InternalMsg::DeviceResolveDone`, пришедший уже
+        // после отмены, повторно применил бы неактуальный переход по старому
+        // `state_before`/`input` (см. `handle_internal`).
+        if self.device_resolve_pending.is_some() && !matches!(self.lock, LockState::Acquiring { .. }) {
+            self.device_resolve_pending = None;
         }
     }
 
@@ -3174,10 +3331,12 @@ mod tests {
         ));
     }
 
-    /// §6.18 (ADR-24, ТЗ-143, ТЗ-144): нет выбранного устройства режима, зонд
-    /// сообщает карту системного выхода, совпадающую с записью каталога —
-    /// `resolve_device` автовыбирает устройство, оно пишется в копию опций
-    /// режима и шлётся `DeviceAutoSelected`, захват уходит в `Acquiring`.
+    /// §6.18 (ADR-24, ТЗ-143, ТЗ-144, AM1.0-B40): нет выбранного устройства
+    /// режима — резолюция уходит в служебный поток (`start_device_resolve`,
+    /// замок сразу `Acquiring`); зонд сообщает карту системного выхода,
+    /// совпадающую с записью каталога — `InternalMsg::DeviceResolveDone`
+    /// довершает автовыбор устройства, оно пишется в копию опций режима и
+    /// шлётся `DeviceAutoSelected`, захват остаётся в `Acquiring`.
     #[test]
     fn lock_input_auto_selects_device_from_server_probe() {
         let sink = VecSink::new();
@@ -3207,6 +3366,14 @@ mod tests {
         engine.lock = LockState::Open;
 
         engine.lock_input(LockInput::Startup);
+        assert!(
+            matches!(engine.lock, LockState::Acquiring { .. }),
+            "резолюция ещё не вернулась — замок уже Acquiring, цикл движка не ждёт wpctl"
+        );
+
+        let msg = engine.internal_rx.recv().expect("device resolve done");
+        assert!(matches!(&msg, InternalMsg::DeviceResolveDone { .. }));
+        engine.handle_internal(msg);
 
         assert_eq!(engine.mode_settings.optimal.device, Some(dev.clone()));
         assert!(matches!(engine.lock, LockState::Acquiring { .. }));
@@ -3216,10 +3383,12 @@ mod tests {
         ));
     }
 
-    /// §6.18 (ADR-24, ТЗ-32): нет выбранного устройства режима, зонд не
-    /// сообщает карту системного выхода — `resolve_device` возвращает
-    /// `None`, замок падает в `Failed(NoDeviceSelected)` без захвата:
-    /// `start_claim` не вызывается, служебный поток не запускается.
+    /// §6.18 (ADR-24, ТЗ-32, AM1.0-B40): нет выбранного устройства режима —
+    /// резолюция уходит в служебный поток, замок сразу `Acquiring`; зонд не
+    /// сообщает карту системного выхода — `InternalMsg::DeviceResolveDone`
+    /// несёт `card: None`, `resolve_from_sink_card` даёт `Resolved::None`,
+    /// замок падает в `Failed(NoDeviceSelected)` без захвата: `start_claim`
+    /// не вызывается.
     #[test]
     fn lock_input_without_resolved_device_fails_without_claim() {
         let sink = VecSink::new();
@@ -3230,6 +3399,10 @@ mod tests {
         engine.lock = LockState::Open;
 
         engine.lock_input(LockInput::Startup);
+        assert!(matches!(engine.lock, LockState::Acquiring { .. }));
+
+        let msg = engine.internal_rx.recv().expect("device resolve done");
+        engine.handle_internal(msg);
 
         match &engine.lock {
             LockState::Failed(CaptureFailure::NoDeviceSelected) => {}
@@ -3241,8 +3414,11 @@ mod tests {
         assert!(!events.iter().any(|e| matches!(e, EngineEvent::DeviceAutoSelected { .. })));
     }
 
-    /// §6.18 (ADR-24, ТЗ-143): устройство режима уже выбрано — `resolve_device`
-    /// возвращает `Selected`, автовыбора нет и `DeviceAutoSelected` не шлётся.
+    /// §6.18 (ADR-24, ТЗ-143, AM1.0-B40): устройство режима уже выбрано в
+    /// настройках — `lock_input` не идёт в `start_device_resolve` вовсе
+    /// (`opts_device.is_some()`), переход довершается синхронно и сразу
+    /// (`Resolved::Selected`), автовыбора нет и `DeviceAutoSelected` не
+    /// шлётся.
     #[test]
     fn lock_input_with_selected_device_skips_auto_select_event() {
         let sink = VecSink::new();
