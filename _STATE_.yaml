@@ -13,9 +13,9 @@ dod: "python tools/test_state_tool.py зелёный; python tools/state_tool.py
 steps:
   - id: 1
     description: "Привести regex dod: в cmd_close_bug к тому же DOTALL-блочному виду, что whitelist/steps/failed_attempts; добавить tools/test_state_tool.py с регрессией на блочный скаляр dod: > и многострочный steps[].description. Проверка: python tools/test_state_tool.py"
-    done: false
+    done: true
 current_step: 1
-next_action: "Запустить python tools/test_state_tool.py, затем полный прогон"
+next_action: "закрытие по closing.md"
 fail_counter: 0
 fail_counter_max: 3
 failed_attempts: []

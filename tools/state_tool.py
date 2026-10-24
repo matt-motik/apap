@@ -581,9 +581,14 @@ def cmd_close_bug(args: list[str]) -> int:
     if n != 1:
         print("error: could not locate 'whitelist:' field", file=sys.stderr)
         return 1
-    head, n = re.subn(r"(?m)^dod: .*$", "dod: null", head, count=1)
+    # dod может быть однострочным ("dod: ...") или блочным скаляром
+    # ("dod: >" / "dod: |" с висящими строками-продолжением на следующих
+    # отступленных строках, WF1.0-B11) — съедаем всё до следующего поля
+    # верхнего уровня (следующая строка без отступа) или до конца текста,
+    # как whitelist/steps/failed_attempts ниже.
+    head, n = re.subn(r"(?ms)^dod:.*?(?=\n\S|\Z)", "dod: null", head, count=1)
     if n != 1:
-        print("error: could not locate 'dod:' line", file=sys.stderr)
+        print("error: could not locate 'dod:' field", file=sys.stderr)
         return 1
     head, n = re.subn(r"(?ms)^steps:.*?(?=\n\S|\Z)", "steps: []", head, count=1)
     if n != 1:

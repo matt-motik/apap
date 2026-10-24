@@ -12,12 +12,12 @@
 - **Критерий успеха (Definition of Done):** python tools/test_state_tool.py зелёный; python tools/state_tool.py close-bug WF1.0-B11 <hash> не падает на реальном _STATE_.yaml
 
 ## Итерационный трекер
-- [>] **Шаг 1: Привести regex dod: в cmd_close_bug к тому же DOTALL-блочному виду, что whitelist/steps/failed_attempts; добавить tools/test_state_tool.py с регрессией на блочный скаляр dod: > и многострочный steps[].description. Проверка: python tools/test_state_tool.py**
+- [x] Шаг 1: Привести regex dod: в cmd_close_bug к тому же DOTALL-блочному виду, что whitelist/steps/failed_attempts; добавить tools/test_state_tool.py с регрессией на блочный скаляр dod: > и многострочный steps[].description. Проверка: python tools/test_state_tool.py
 
 Легенда: [x] сделано · [>] текущий шаг · [ ] не начато
 
 - **Текущий шаг (current_step):** Шаг 1
-- **Следующий ход:** Запустить python tools/test_state_tool.py, затем полный прогон
+- **Следующий ход:** закрытие по closing.md
 - **Счетчик безуспешных компиляций:** 0/3
 - **Состояние:** in_progress
 
