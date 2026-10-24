@@ -2,10 +2,27 @@
      Source of truth: _STATE_.yaml — edit that, then run:
      python tools/state_tool.py render -->
 
-# Состояние сессии
 
-- **Текущая задача:** Нет (все шаги завершены)
-- **Состояние:** done
+# Текущая микро-сессия
+
+- **Задача из ROADMAP:** AM1.0-B31 — Подпись устройства «Карта (вариант)», активное устройство — та же подпись каталога
+- **Вайтлист файлов в работе (Изменяемые файлы):**
+  - src/audio/backend/alsa.rs
+  - src/audio/backend/catalog.rs
+  - src/app/mod.rs
+- **Критерий успеха (Definition of Done):** cargo test green; hw_device_label("Motu M2","USB Audio") == "Motu M2 (USB Audio)"; hw_device_label("Asus Xonar","Multichannel")/("Digital") дают «Asus Xonar (Multichannel)»/«Asus Xonar (Digital)»; активное устройство в Оптимальном/Строгом берётся из DeviceCatalog.hw, не из DeviceCatalog.shared.default_device()
+
+## Итерационный трекер
+- [>] **Шаг 1: Карта (вариант): pure fn hw_device_label(card_name, pcm_name) в src/audio/backend/catalog.rs (+тесты M2/RU3/Xonar x2/дубликаты); alsa.rs::enumerate берёт card_info().get_name() и строит HwDeviceInfo.name через hw_device_label вместо голого pcm_info().get_name() (§6.6, ADR-24, ТЗ-143, AM1.0-B31). Проверка: cargo test audio::backend::**
+- [ ] Шаг 2: Активное устройство: drain_engine_events (src/app/mod.rs) для Оптимального/Строгого режима берёт ready_device из DeviceCatalog.hw (hw_device_pairs_and_selected по сохранённому HwDeviceId), не из catalog.default_device() — убирает «default audio device» на hw-режимах (ТЗ-76, ADR-24, AM1.0-B31). Проверка: cargo test app::
+- [ ] Шаг 3: ЧЕКПОИНТ: полный cargo test + cargo clippy без новых предупреждений
+
+Легенда: [x] сделано · [>] текущий шаг · [ ] не начато
+
+- **Текущий шаг (current_step):** Шаг 1
+- **Следующий ход:** Добавить hw_device_label в src/audio/backend/catalog.rs и использовать в alsa.rs::enumerate
+- **Счетчик безуспешных компиляций:** 0/3
+- **Состояние:** in_progress
 
 ## План: Executable workflow: правила AGENTS.md → исполняемые механизмы
 _Источник: чат с пользователем (ноутбук), начат в 67686ce; перенесён в репо 2026-09-22_

@@ -2,15 +2,27 @@
 # _STATE_.md генерируется из этого файла — не редактировать его руками.
 # Редактируйте этот файл, затем: python tools/state_tool.py render
 
-status: done
+status: in_progress
 task:
-  roadmap_id: null
-  title: null
-whitelist: []
-dod: null
-steps: []
-current_step: null
-next_action: null
+  roadmap_id: AM1.0-B31
+  title: "Подпись устройства «Карта (вариант)», активное устройство — та же подпись каталога"
+whitelist:
+  - src/audio/backend/alsa.rs
+  - src/audio/backend/catalog.rs
+  - src/app/mod.rs
+dod: "cargo test green; hw_device_label(\"Motu M2\",\"USB Audio\") == \"Motu M2 (USB Audio)\"; hw_device_label(\"Asus Xonar\",\"Multichannel\")/(\"Digital\") дают «Asus Xonar (Multichannel)»/«Asus Xonar (Digital)»; активное устройство в Оптимальном/Строгом берётся из DeviceCatalog.hw, не из DeviceCatalog.shared.default_device()"
+steps:
+  - id: 1
+    description: "Карта (вариант): pure fn hw_device_label(card_name, pcm_name) в src/audio/backend/catalog.rs (+тесты M2/RU3/Xonar x2/дубликаты); alsa.rs::enumerate берёт card_info().get_name() и строит HwDeviceInfo.name через hw_device_label вместо голого pcm_info().get_name() (§6.6, ADR-24, ТЗ-143, AM1.0-B31). Проверка: cargo test audio::backend::"
+    done: false
+  - id: 2
+    description: "Активное устройство: drain_engine_events (src/app/mod.rs) для Оптимального/Строгого режима берёт ready_device из DeviceCatalog.hw (hw_device_pairs_and_selected по сохранённому HwDeviceId), не из catalog.default_device() — убирает «default audio device» на hw-режимах (ТЗ-76, ADR-24, AM1.0-B31). Проверка: cargo test app::"
+    done: false
+  - id: 3
+    description: "ЧЕКПОИНТ: полный cargo test + cargo clippy без новых предупреждений"
+    done: false
+current_step: 1
+next_action: "Добавить hw_device_label в src/audio/backend/catalog.rs и использовать в alsa.rs::enumerate"
 fail_counter: 0
 fail_counter_max: 3
 failed_attempts: []
