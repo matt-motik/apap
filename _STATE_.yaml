@@ -16,7 +16,7 @@ dod: "Пара «Буфер устройства»/буфер плеера (ТЗ
 steps:
   - id: 1
     description: "Docs: ТЗ-131 (исключение для пары буферов, 02_tz.md) и §6.27 (03_spec.md) — автоподъём вместо неактивных пунктов, постоянная подсказка-граница под ползунком. Проверка: текст не противоречит коду шагов 2-4"
-    done: false
+    done: true
   - id: 2
     description: "src/settings/playback.rs: функция автоподъёма чернового BufferMs по DeviceBuffer на основе buffer_floor_ms + юнит-тесты (подъём, не опускает обратно при уменьшении, границы диапазона BufferMs). Проверка: cargo test settings::playback:: зелёный"
     done: false
@@ -29,8 +29,8 @@ steps:
   - id: 5
     description: "ЧЕКПОИНТ: full cargo test + cargo clippy по всему workspace зелёные"
     done: false
-current_step: 1
-next_action: "Шаг 1: править docs/01_audio_modes_v1.0/02_tz.md (ТЗ-131) и 03_spec.md (§6.27) — исключение для пары буферов"
+current_step: 2
+next_action: "Шаг 2: добавить в src/settings/playback.rs функцию автоподъёма BufferMs по DeviceBuffer и юнит-тесты"
 fail_counter: 0
 fail_counter_max: 3
 failed_attempts: []
