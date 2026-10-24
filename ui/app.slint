@@ -612,8 +612,9 @@ export component AppWindow inherits Window {
         }
     }
 
-    // AM1.0-B14 шаг 8: группа «режим ▾ · устройство · замок» (сейчас —
-    // только замок, MenuBarTrailing) оверлеем над правым краем встроенного
+    // AM1.0-B14 шаг 8, AM1.0-B4 шаг 7: группа «режим ▾ · устройство · замок»
+    // (MenuBarTrailing — бейдж режима, бейдж устройства, замок) оверлеем над
+    // правым краем встроенного
     // MenuBar (Linux/Windows, `menu-bar-in-window`). Slint лишает
     // встроенный MenuBar и весь остальной контент окна общего родителя
     // (компилятор превращает `Window { MenuBar{...} остальное }` в
@@ -641,11 +642,15 @@ export component AppWindow inherits Window {
         alignment: end;
 
         MenuBarTrailing {
+            active-mode: root.active-mode;
+            mode-available: root.mode-available;
+            mode-unavailable-reason: root.mode-unavailable-reason;
             lock-kind: root.lock-kind;
             lock-text: root.lock-text;
             lock-hint: root.lock-hint;
             theme-palette: root.theme-palette;
             device-label: root.device-label;
+            select-mode(i) => { root.select-mode(i); }
             lock-close => { root.lock-close(); }
             lock-open => { root.lock-open(); }
         }

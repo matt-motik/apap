@@ -228,6 +228,22 @@ pub fn rebase(draft: &mut DialogDraft, old: &Settings, new: &Settings) {
     rebase_playback(&mut draft.settings.playback, old_playback, new_playback);
 }
 
+/// Перебазирование `shown_mode` при смене активного режима в обход диалога
+/// (AM1.0-B4, ТЗ-30, §6.9, ADR-11, тот же приём SP1.0-B13, что `rebase`):
+/// бейдж режима строки меню/главного окна переключает активный режим сразу,
+/// даже когда диалог настроек открыт. Если пользователь ещё не выбрал в
+/// диалоге другой режим (`shown_mode` равен прежнему активному `old_active`),
+/// показанный режим следует новому активному `new_active` — иначе `diff`
+/// (ТЗ-30) принял бы устаревший `shown_mode` за отличие, которое пользователь
+/// не делал, и без правки разблокировал бы «Сохранить» или откатил бы по
+/// «Сохранить» активный режим назад на `old_active`. Выбор пользователя в
+/// диалоге (`shown_mode` уже отличается от `old_active`) внешняя смена не
+/// трогает — та же семантика `rebase_field`, которую эта функция использует
+/// напрямую (`ModeKind: Copy`). Вызывается только из `AppCore::change_state`.
+pub fn rebase_shown_mode(draft: &mut DialogDraft, old_active: ModeKind, new_active: ModeKind) {
+    rebase_field(&mut draft.shown_mode, &old_active, &new_active);
+}
+
 /// Одно значение черновика (§2.10, ADR-11): если пользователь его не
 /// редактировал (оно равно прежнему действующему `old`), оно следует новому
 /// действующему значению `new`; иначе остаётся как в черновике.
@@ -774,6 +790,28 @@ mod tests {
         assert_eq!(draft.settings.scroll_to_playing, user_value);
         // Поле, которое продолжало следовать действующему значению, обновилось.
         assert_eq!(draft.settings.minimize_to_tray, new2.minimize_to_tray);
+    }
+
+    /// `rebase_shown_mode` (AM1.0-B4, ТЗ-30): показанный в диалоге режим,
+    /// который пользователь не трогал, следует смене активного режима в
+    /// обход диалога (бейдж); режим, который пользователь уже выбрал в
+    /// диалоге, внешняя смена не перетирает.
+    #[test]
+    fn rebase_shown_mode_follows_unedited_keeps_edited() {
+        let cur = Settings::default();
+        let state = SessionState::default();
+        let mut draft = draft_of(&cur, &state);
+        assert_eq!(draft.shown_mode, ModeKind::Compatible);
+
+        // Не редактировался — следует новому активному.
+        rebase_shown_mode(&mut draft, ModeKind::Compatible, ModeKind::Optimal);
+        assert_eq!(draft.shown_mode, ModeKind::Optimal);
+
+        // Пользователь выбрал режим в диалоге — внешняя смена активного
+        // режима (ещё один клик бейджа) его не трогает.
+        draft.shown_mode = ModeKind::Strict;
+        rebase_shown_mode(&mut draft, ModeKind::Optimal, ModeKind::Compatible);
+        assert_eq!(draft.shown_mode, ModeKind::Strict);
     }
 
     #[test]

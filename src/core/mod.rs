@@ -553,8 +553,25 @@ impl AppCore {
     /// `Origin::User` — `PersistTracker::on_state_changed` сам не взводит
     /// его для `Origin::Program` (ТЗ-11). Включение Shuffle (переход
     /// выключено -> включено) начинает новый проход `ShuffleState` (§3.4).
+    ///
+    /// `ActiveMode` — отдельно (AM1.0-B4, ТЗ-30, §6.9): смена активного
+    /// режима в обход диалога (бейдж строки меню/главного окна,
+    /// `select_active_mode`, `src/app/mod.rs`) перебазирует открытый черновик
+    /// (`dialog::rebase_shown_mode`), пока он ещё не забран — иначе
+    /// устаревший `draft.shown_mode` выглядел бы отличием, которое
+    /// пользователь не делал (`dialog::diff`, ТЗ-30), и «Сохранить»
+    /// разблокировалось бы или откатило режим назад само по себе. По пути
+    /// `dialog_save` черновик уже забран (`self.draft.take()` раньше по
+    /// плану) — там это условие пустое, своя семантика «Сохранить» не
+    /// затронута.
     pub fn change_state(&mut self, origin: Origin, ch: StateChange) {
         let starts_shuffle = matches!(ch, StateChange::Shuffle(true)) && !self.state.shuffle();
+        if let StateChange::ActiveMode(new_mode) = &ch {
+            let old_mode = self.state.active_mode();
+            if let Some(draft) = self.draft.as_mut() {
+                dialog::rebase_shown_mode(draft, old_mode, *new_mode);
+            }
+        }
         self.state.apply(ch);
         if starts_shuffle {
             self.shuffle = ShuffleState::new_pass(self.playlist.visible(), &mut self.rng);

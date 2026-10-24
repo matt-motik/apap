@@ -4001,6 +4001,58 @@ mod tests {
         assert_eq!(h.writes(WorkFile::State), 1, "активный режим — отложенная запись в state.toml");
     }
 
+    /// Бейдж режима строки меню переключает активный режим сразу, даже пока
+    /// диалог настроек открыт (AM1.0-B4, ТЗ-30, §6.9): тот же путь, что
+    /// `select_active_mode` (`src/app/mod.rs`) — на уровне `AppCore` это
+    /// `change_state(User, ActiveMode)` мимо `dialog_save`. Показанный в
+    /// диалоге режим, который пользователь не трогал, следует за бейджем —
+    /// «Сохранить» не видит отличия, которое пользователь не делал, и кнопка
+    /// остаётся неактивной. Выбор пользователя в диалоге бейдж не трогает —
+    /// «Сохранить» переключает на выбранный пользователем режим, не на тот,
+    /// что временно показал бейдж.
+    #[test]
+    fn badge_mode_change_rebases_unedited_dialog_shown_mode() {
+        let h = Harness::new();
+        h.put_settings(b"");
+        h.put_state(b"");
+        let mut core = h.boot();
+        assert_eq!(core.state().active_mode(), ModeKind::Compatible);
+
+        // Диалог открыт, показанный режим не редактировался — бейдж
+        // переключает активный режим в обход диалога.
+        core.dialog_open().expect("диалог открыт");
+        assert_eq!(core.draft().map(|d| d.shown_mode), Some(ModeKind::Compatible));
+        core.change_state(Origin::User, StateChange::ActiveMode(ModeKind::Optimal));
+        assert_eq!(core.state().active_mode(), ModeKind::Optimal, "бейдж переключает сразу");
+        assert_eq!(
+            core.draft().map(|d| d.shown_mode),
+            Some(ModeKind::Optimal),
+            "непотроганный shown_mode следует за бейджем"
+        );
+        assert_eq!(
+            core.save_button(),
+            SaveButton { enabled: false, tooltip: None },
+            "«Сохранить» не видит отличия, которое пользователь не делал"
+        );
+        core.dialog_cancel();
+
+        // Диалог открыт, пользователь уже выбрал режим в диалоге — бейдж его
+        // не трогает; «Сохранить» переключает на выбор пользователя, не на
+        // временный режим бейджа.
+        core.dialog_open().expect("диалог открыт снова");
+        core.dialog_edit(|d| d.shown_mode = ModeKind::Strict);
+        core.change_state(Origin::User, StateChange::ActiveMode(ModeKind::Compatible));
+        assert_eq!(core.state().active_mode(), ModeKind::Compatible, "бейдж переключил активный режим");
+        assert_eq!(
+            core.draft().map(|d| d.shown_mode),
+            Some(ModeKind::Strict),
+            "выбор пользователя в диалоге бейдж не перетирает"
+        );
+        let saved = core.dialog_save().expect("отличие есть — сохранено");
+        assert!(matches!(&saved.plan[..], [ApplyStep::ActiveMode(ModeKind::Strict)]), "план: {:?}", saved.plan);
+        assert_eq!(core.state().active_mode(), ModeKind::Strict, "«Сохранить» переключил на выбор пользователя");
+    }
+
     /// «Сохранить» не откатывает состояние сессии к моменту открытия диалога
     /// (ТЗ-25, ADR-11, §6.9, §7.2): пока диалог открыт, изменены размер окна
     /// и развёрнутость, ширины колонок и Repeat; в диалоге выбрана другая

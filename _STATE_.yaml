@@ -15,6 +15,7 @@ whitelist:
   - src/app/mod.rs
   - src/app/ui_manager.rs
   - ui/top_panel.slint
+  - ui/app.slint
 dod: "Выбор режима в диалоге без прочих правок разблокирует «Сохранить»; «Сохранить» переключает активный режим (state.toml) и обновляет бейдж режима в MenuBarTrailing; выбор режима из бейджа применяется сразу, как раньше из главного окна; cargo test и cargo clippy зелёные"
 steps:
   - id: 1
@@ -40,7 +41,7 @@ steps:
     done: true
   - id: 7
     description: "src/app/mod.rs или src/app/ui_manager.rs (один файл, уточнить при реализации): колбэк бейджа режима подключён к существующему обработчику select_mode (применяется сразу, как раньше из главного окна); бейдж обновляется после dialog_save. Проверка: cargo check; ручной сценарий позже"
-    done: false
+    done: true
   - id: 8
     description: "ЧЕКПОИНТ: полный cargo test + cargo clippy зелёные (шаги 6-7)"
     done: false
@@ -50,8 +51,8 @@ steps:
   - id: 10
     description: "ЧЕКПОИНТ перед закрытием: полный cargo test + cargo clippy зелёные; ручные проверки — в заметку плана AM1.0-B4 при закрытии (closing.md §2)"
     done: false
-current_step: 7
-next_action: "src/app/mod.rs или src/app/ui_manager.rs (один файл, уточнить при реализации): колбэк бейджа режима подключён к существующему обработчику select_mode (применяется сразу, как раньше из главного окна); бейдж обновляется после dialog_save. Проверка: cargo check; ручной сценарий позже"
+current_step: 8
+next_action: "ЧЕКПОИНТ: полный cargo test + cargo clippy зелёные (шаги 6-7)"
 fail_counter: 0
 fail_counter_max: 3
 failed_attempts: []
