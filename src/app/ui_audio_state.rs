@@ -40,7 +40,7 @@ use std::sync::Arc;
 use music_player_rs::audio::backend::catalog::DeviceCatalog;
 use music_player_rs::audio::backend::HwDeviceId;
 use music_player_rs::audio::decoder::TrackInfo;
-use music_player_rs::audio::error::{OpenError, Reaction};
+use music_player_rs::audio::error::{OpenError, Reaction, StreamFault};
 use music_player_rs::audio::path::signal::{DynamicPathState, SignalPath};
 use music_player_rs::audio::path::Blocked;
 use music_player_rs::audio::verdict::BadgeState;
@@ -157,7 +157,10 @@ pub enum Applied {
     OpenFailed { err: OpenError },
     /// Текущая сессия воспроизведения завершена.
     Ended,
-    DeviceLost(Reaction),
+    /// `fault` — код `StreamFault`, пронесённый из `EngineEvent::DeviceLost`
+    /// (AM1.0-B34, §6.20): `Some(StreamFault::Stalled)` различает «поток не
+    /// запустился» от общей потери устройства в `app/mod.rs`.
+    DeviceLost { reaction: Reaction, fault: Option<StreamFault> },
     /// Автовыбор устройства Оптимального/Строгого режима (ТЗ-143, ТЗ-134,
     /// ADR-24) — сохраняется в настройках вызывающей стороной (шаг 38).
     DeviceAutoSelected { mode: ModeKind, device: HwDeviceId },
@@ -335,7 +338,7 @@ impl UiAudioState {
                 self.lock = state;
                 Applied::None
             }
-            EngineEvent::DeviceLost { reaction } => Applied::DeviceLost(reaction),
+            EngineEvent::DeviceLost { reaction, fault } => Applied::DeviceLost { reaction, fault },
             EngineEvent::Devices(catalog) => {
                 self.devices.set(DeviceSnapshot(catalog));
                 Applied::None
@@ -632,6 +635,23 @@ mod tests {
         let applied = state.apply(EngineEvent::DeviceAutoSelected { mode: ModeKind::Optimal, device: device.clone() });
 
         assert_eq!(applied, Applied::DeviceAutoSelected { mode: ModeKind::Optimal, device });
+    }
+
+    /// AM1.0-B34 (шаг 4, §6.20): `fault` проходит через `apply` без фильтра
+    /// по `req_gen` — он относится к потоку вывода, а не к сессии открытия.
+    #[test]
+    fn device_lost_carries_fault_through() {
+        let mut state = UiAudioState::new();
+
+        let applied = state.apply(EngineEvent::DeviceLost {
+            reaction: Reaction::StopWithError,
+            fault: Some(StreamFault::Stalled),
+        });
+
+        assert_eq!(
+            applied,
+            Applied::DeviceLost { reaction: Reaction::StopWithError, fault: Some(StreamFault::Stalled) }
+        );
     }
 
     /// И-Р14: позиция для несуществующей сессии (до принятого `Opened`)

@@ -556,7 +556,11 @@ impl Engine {
                 }
                 self.save_reacquire_point();
                 self.lock_input(LockInput::DeviceLost);
-                self.deps.events.emit(EngineEvent::DeviceLost { reaction: Reaction::StopWithError });
+                // Потеря имени `ReserveDevice1`, а не `StreamFault` потока
+                // вывода — `fault: None` (AM1.0-B34, §6.20).
+                self.deps
+                    .events
+                    .emit(EngineEvent::DeviceLost { reaction: Reaction::StopWithError, fault: None });
             }
             // Ответ устаревшей (закрытой/переоткрытой) сессии отбрасывается
             // молча — как и `ClaimDone` на отменённую попытку (§6.8, ТЗ-99).
@@ -1893,7 +1897,12 @@ impl Engine {
             if fault != StreamFault::None {
                 self.save_reacquire_point();
                 self.lock_input(LockInput::DeviceLost);
-                self.deps.events.emit(EngineEvent::DeviceLost { reaction: Reaction::StopWithError });
+                // `fault` несёт конкретный `StreamFault` (AM1.0-B34, §6.20):
+                // приложение различает `Stalled` (поток не стартовал) от
+                // остальных кодов (`app/mod.rs::Applied::DeviceLost`).
+                self.deps
+                    .events
+                    .emit(EngineEvent::DeviceLost { reaction: Reaction::StopWithError, fault: Some(fault) });
             } else if ended {
                 if !self.session_failed {
                     if let Some((req_gen, _)) = &self.current {
@@ -3507,9 +3516,10 @@ mod tests {
         assert_eq!(engine.dynamics.underruns, 3);
         assert_eq!(engine.dynamics.xruns, 5);
         let events = sink.take();
-        assert!(events
-            .iter()
-            .any(|e| matches!(e, EngineEvent::DeviceLost { reaction: Reaction::StopWithError })));
+        assert!(events.iter().any(|e| matches!(
+            e,
+            EngineEvent::DeviceLost { reaction: Reaction::StopWithError, fault: Some(StreamFault::DeviceUnavailable) }
+        )));
         assert!(matches!(engine.lock, LockState::Failed(CaptureFailure::DeviceDisconnected)));
         assert!(engine.exclusive_path.is_none());
         assert_eq!(engine.last_transport, Some(TransportState::Stopped));
@@ -3517,6 +3527,30 @@ mod tests {
         assert_eq!(reacquire.device, dev);
         assert_eq!(reacquire.track.path.as_ref(), Path::new("/music/a.flac"));
         assert_eq!(reacquire.frame, u64::from(rate));
+    }
+
+    /// AM1.0-B34 (шаг 4, §6.7 п. 2, ТЗ-68): `StreamFault::Stalled` (поток
+    /// открыт, hw-указатель никогда не двинулся — сторож запуска) проходит
+    /// в `EngineEvent::DeviceLost` своим кодом, а не стирается до общего
+    /// `DeviceUnavailable`/`BackendError` — `app/mod.rs::Applied::DeviceLost`
+    /// показывает по нему отдельное сообщение, не «Устройство вывода
+    /// потеряно».
+    #[test]
+    fn poll_session_stalled_fault_reports_its_own_code() {
+        let sink = VecSink::new();
+        let mut engine = engine_with_exclusive_path_open(sink.clone(), true);
+        sink.take();
+        let shared = Arc::clone(engine.exclusive_path.as_ref().expect("exclusive path open").shared());
+        shared.set_fault(StreamFault::Stalled);
+
+        engine.poll_session();
+
+        let events = sink.take();
+        assert!(events.iter().any(|e| matches!(
+            e,
+            EngineEvent::DeviceLost { reaction: Reaction::StopWithError, fault: Some(StreamFault::Stalled) }
+        )));
+        assert!(engine.exclusive_path.is_none());
     }
 
     /// §6.20, ADR-08, И-Р20, ТЗ-123, ТЗ-126 (шаг 63): `InternalMsg::
@@ -3536,7 +3570,7 @@ mod tests {
         let events = sink.take();
         assert!(events
             .iter()
-            .any(|e| matches!(e, EngineEvent::DeviceLost { reaction: Reaction::StopWithError })));
+            .any(|e| matches!(e, EngineEvent::DeviceLost { reaction: Reaction::StopWithError, fault: None })));
         assert!(matches!(engine.lock, LockState::Failed(CaptureFailure::DeviceDisconnected)));
         assert!(engine.exclusive_path.is_none());
         let reacquire = engine.reacquire.as_ref().expect("reacquire point saved");

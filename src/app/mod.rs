@@ -13,7 +13,7 @@ use slint::language::{SortOrder, TableColumn};
 use music_player_rs::audio::analyzer::TAP_CAPACITY;
 use music_player_rs::audio::backend::{BackendError, HwDeviceId, SharedDeviceId};
 use music_player_rs::audio::decoder::TrackInfo;
-use music_player_rs::audio::error::{CaptureFailure, EngineFault, FileError, OpenError, Reaction};
+use music_player_rs::audio::error::{CaptureFailure, EngineFault, FileError, OpenError, Reaction, StreamFault};
 use music_player_rs::audio::output::{default_device_name, DeviceInfo};
 use music_player_rs::audio::path::report::PathReport;
 use music_player_rs::audio::visualizer::{
@@ -3417,7 +3417,37 @@ impl MusicApp {
             // следующий трек делает `handle_auto_advance` на тике — повторная
             // обработка здесь продублировала бы переход.
             Applied::Ended => {}
-            Applied::DeviceLost(reaction) => match reaction {
+            // AM1.0-B34 (шаг 4, §6.7 п. 2, §6.20): поток, который открылся,
+            // но hw-указатель так и не двинулся (сторож запуска, `alsa_out.
+            // rs::run_output_loop`), — честная, но другая по смыслу ошибка,
+            // чем реальная потеря уже игравшего устройства: тот же текст
+            // «Устройство вывода потеряно» был бы неверным (устройство не
+            // терялось — оно не стартовало). `fault` всегда идёт с
+            // `Reaction::StopWithError` на этом пути (`run.rs::poll_session`).
+            Applied::DeviceLost { reaction, fault: Some(StreamFault::Stalled) } => {
+                debug_assert_eq!(reaction, Reaction::StopWithError);
+                self.engine_send(EngineCmd::Stop);
+                self.emit(AppEvent::PlaybackStopped);
+                let body = self
+                    .audio()
+                    .path()
+                    .and_then(|p| p.output.device_buffer.map(|buf| (buf, p.output.requested)))
+                    .map(|(buf, fmt)| {
+                        let ms = u64::from(buf.buffer_frames) * 1000 / u64::from(fmt.rate.hz());
+                        format!(
+                            "Буфер устройства {ms} мс (период {} кадров) — драйвер не начал воспроизведение.",
+                            buf.period_frames
+                        )
+                    })
+                    .unwrap_or_else(|| "Драйвер не начал воспроизведение.".to_owned());
+                self.push_message(Message {
+                    level: MessageLevel::Error,
+                    title: "Устройство не запустило воспроизведение".into(),
+                    body: body.into(),
+                    actions: vec![MessageAction::OpenAudioSettings, MessageAction::Cancel],
+                });
+            }
+            Applied::DeviceLost { reaction, fault: _ } => match reaction {
                 Reaction::StopWithError | Reaction::LockFailed => {
                     self.engine_send(EngineCmd::Stop);
                     self.emit(AppEvent::PlaybackStopped);

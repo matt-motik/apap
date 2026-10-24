@@ -10,7 +10,7 @@ use crate::audio::backend::catalog::DeviceCatalog;
 use crate::audio::backend::exclusive::DeviceClaim;
 use crate::audio::backend::{BackendError, HwDeviceId};
 use crate::audio::decoder::TrackInfo;
-use crate::audio::error::{CaptureFailure, FileError, OpenError, Reaction};
+use crate::audio::error::{CaptureFailure, FileError, OpenError, Reaction, StreamFault};
 use crate::audio::format::StreamFormat;
 use crate::audio::path::signal::{DynamicPathState, SignalPath};
 use crate::audio::path::Blocked;
@@ -182,7 +182,19 @@ pub enum EngineEvent {
     /// у `Ended`/`OpenFailed` (мост С3: отдельного поколения Эксклюзивного
     /// пути в событиях пока нет).
     DynamicsChanged { session: u64, dynamics: DynamicPathState },
-    DeviceLost { reaction: Reaction },
+    /// `fault` — код `StreamFault`, который привёл к потере устройства на
+    /// Эксклюзивном пути (§6.20, ТЗ-51, ТЗ-76, AM1.0-B34): `None` для потерь
+    /// без `StreamFault` (например, `ReservationLost` — потеря имени
+    /// `ReserveDevice1`). `Some(StreamFault::Stalled)` — особый случай:
+    /// поток открыт, но hw-указатель никогда не двинулся (сторож запуска,
+    /// `alsa_out.rs::run_output_loop`) — приложение показывает отдельное
+    /// сообщение «Устройство не запустило воспроизведение» вместо общего
+    /// «Устройство вывода потеряно» (`app/mod.rs::Applied::DeviceLost`).
+    /// Если в будущем `StreamFault::Stalled` станет также означать
+    /// мид-трековый обрыв (не только недостигнутый старт), этот вариант
+    /// нужно развести на два отдельных кода `StreamFault`, иначе здесь
+    /// снова смешаются два разных по смыслу случая.
+    DeviceLost { reaction: Reaction, fault: Option<StreamFault> },
     /// Каталог устройств после перечисления (ТЗ-104, ТЗ-105, ADR-16, §6.2 п.3):
     /// шлётся при старте движка и затем только при изменении списка.
     Devices(Arc<DeviceCatalog>),

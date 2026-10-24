@@ -11,9 +11,11 @@ whitelist:
   - src/audio/backend/alsa_out.rs
   - src/engine/run.rs
   - src/engine/exclusive_path.rs
+  - src/engine/messages.rs
   - src/core/messages.rs
   - src/app/mod.rs
   - src/app/lock_view.rs
+  - src/app/ui_audio_state.rs
 dod: "44,1 кГц/20 мс и любые некратные буфер/период стартуют; порог старта = ⌊buffer/period⌋·period; неудачный запуск потока (нет движения hw-указателя за отведённое время) — окно ошибки с действиями, не тишина; тесты; полный cargo test + clippy"
 steps:
   - id: 1
@@ -24,12 +26,12 @@ steps:
     done: true
   - id: 4
     description: "Отдельное окно «Устройство не запустило воспроизведение» (заголовок/текст с буфером и периодом устройства, действия Настройки аудио/Отмена, Увеличить буфер устройства при буфере < 100 мс — опустить, если слишком большой объём и явно сказать об этом) требует различать StreamFault::Stalled на стороне app/mod.rs, а EngineEvent::DeviceLost{reaction} сейчас не несёт fault — нужно поле в EngineEvent (src/engine/messages.rs, НЕ в текущем whitelist) + обновить emit в run.rs и match в app/mod.rs. Перед началом: добавить src/engine/messages.rs в whitelist этой сессии. Пока это не сделано, Stalled показывает тот же общий текст, что DeviceUnavailable/BackendError (шаг 2) — не тишина, но не специфическое сообщение. Проверка: тесты + clippy"
-    done: false
+    done: true
   - id: 5
     description: "ЧЕКПОИНТ: полный cargo test + clippy"
     done: false
-current_step: 4
-next_action: "Добавить src/engine/messages.rs в whitelist, развести DeviceLost по fault, специфическое окно «Устройство не запустило воспроизведение»"
+current_step: 5
+next_action: "ЧЕКПОИНТ: полный cargo test + clippy"
 fail_counter: 0
 fail_counter_max: 3
 failed_attempts: []
