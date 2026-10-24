@@ -83,7 +83,7 @@ steps:
     done: true
   - id: 16
     description: "src/core/mod.rs (3 из 4 строк — title/body/hint сообщения «Файл настроек не прочитан»; строку reason=«модуль ввода не подключён» (журнал, AttachOutcome::DefaultRuleOnly) НЕ трогать) + src/settings/playback.rs (2 строки — подсказки ValueBlocker «увеличьте буфер плеера…»/«уменьшите буфер устройства…») → src/i18n/. Проверка: cargo check без ошибок"
-    done: false
+    done: true
   - id: 17
     description: "src/theme.rs (2 строки — description тем «Системная тёмная/светлая тема», используется в ui.set_theme_description) + src/app/fulltrack_manager.rs (4 строки — подписи «Спектрограмма»/«Осциллограмма» и причины отказа построения) → src/i18n/. Проверка: cargo check без ошибок"
     done: false
@@ -96,8 +96,8 @@ steps:
   - id: 20
     description: "ЧЕКПОИНТ (финальный, перед закрытием задачи): полный cargo test + cargo clippy + tools/check_rt_imports.py + tools/traceability_tool.py check — все зелёные; выборочная сверка, что перенесённые строки байт-в-байт совпадают с прежними (diff литералов)"
     done: false
-current_step: 16
-next_action: "Шаг 16: src/core/mod.rs + src/settings/playback.rs → src/i18n/"
+current_step: 17
+next_action: "Шаг 17: src/theme.rs + src/app/fulltrack_manager.rs → src/i18n/"
 fail_counter: 0
 fail_counter_max: 3
 failed_attempts: []

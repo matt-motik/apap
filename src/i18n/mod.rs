@@ -360,6 +360,22 @@ pub fn mode_dialog_buffer_auto_raised(raised_to_ms: u16) -> String {
     format_named("Поднят автоматически до {raised_to_ms} мс", &[("raised_to_ms", raised_to_ms.to_string().as_str())])
 }
 
+/// Причина блокировки `ValueBlocker::PlayerBufferTooSmall` (T1.0-B8;
+/// перенесено из `src/settings/playback.rs::ValueBlocker::reason`, ТЗ-94,
+/// ТЗ-131, И-Р22, §6.27): общая формулировка для диалога режима и
+/// валидации диалога настроек.
+pub fn value_blocker_player_buffer_too_small(need_ms: u16) -> String {
+    format_named("увеличьте буфер плеера до {need_ms} мс", &[("need_ms", need_ms.to_string().as_str())])
+}
+
+/// Причина блокировки `ValueBlocker::DeviceBufferTooLarge`, см.
+/// [`value_blocker_player_buffer_too_small`] (T1.0-B8; перенесено из
+/// `src/settings/playback.rs::ValueBlocker::reason`, ТЗ-94, ТЗ-131, И-Р22,
+/// §6.27).
+pub fn value_blocker_device_buffer_too_large(max_ms: u16) -> String {
+    format_named("уменьшите буфер устройства до {max_ms} мс", &[("max_ms", max_ms.to_string().as_str())])
+}
+
 /// Пояснение/значение строки или пункта списка диалога настроек режима, пока
 /// не реализованного (T1.0-B2; перенесено из `src/app/mode_dialog.rs`,
 /// И-Т19, ТЗ-130, §6.27).

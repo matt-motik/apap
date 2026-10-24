@@ -790,14 +790,8 @@ impl AppCore {
         let err = self.settings_read_failed.as_ref()?;
         Some(Message {
             level: MessageLevel::Error,
-            title: "Файл настроек не прочитан".into(),
-            body: format!(
-                "Файл настроек не удалось прочитать ({}). Используются значения по умолчанию. \
-                 Автоматическое сохранение отключено до перезапуска. Кнопка «Сохранить» в окне \
-                 настроек заменит файл.",
-                err.os_text
-            )
-            .into(),
+            title: crate::i18n::messages::SETTINGS_READ_FAILED_TITLE.into(),
+            body: crate::i18n::messages::settings_read_failed_body(&err.os_text).into(),
             actions: vec![MessageAction::Ok],
         })
     }
@@ -805,9 +799,7 @@ impl AppCore {
     /// Постоянный текст рядом с «Сохранить» в диалоге настроек, пока
     /// действует запрет автозаписи `settings.toml` (ОВС-6 в, §2.13).
     pub fn settings_save_notice(&self) -> Option<&'static str> {
-        self.settings_file
-            .auto_forbidden
-            .then_some("Файл настроек не прочитан — «Сохранить» заменит его значениями из этого окна")
+        self.settings_file.auto_forbidden.then_some(crate::i18n::messages::SETTINGS_SAVE_NOTICE)
     }
 
     /// Один тик цикла приложения (ADR-3, ADR-22, §6.4): разбирает ответы

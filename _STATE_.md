@@ -52,16 +52,16 @@
 - [x] Шаг 13: src/platform/fs/mod.rs (4 строки — WriteErrorClass::text(), «нет места на диске» и др., доходит до пользователя через core/messages.rs::write_failed) + src/engine/exclusive_path.rs (4 строки — Display ExclusiveOpenReason, деталь отказа захвата) → src/i18n/. Проверка: cargo check без ошибок
 - [x] Шаг 14: src/core/dialog.rs (4 строки — PARAM_THEME/PARAM_DEVICE_BUFFER_* и причина «тема загружается», валидация диалога настроек) + src/core/volume.rs (2 строки — «Громкость недоступна в Строгом режиме» и т. п.) → src/i18n/. Проверка: cargo check без ошибок
 - [x] Шаг 15: ЧЕКПОИНТ: cargo test, cargo clippy, tools/check_rt_imports.py, tools/traceability_tool.py check — все зелёные
-- [>] **Шаг 16: src/core/mod.rs (3 из 4 строк — title/body/hint сообщения «Файл настроек не прочитан»; строку reason=«модуль ввода не подключён» (журнал, AttachOutcome::DefaultRuleOnly) НЕ трогать) + src/settings/playback.rs (2 строки — подсказки ValueBlocker «увеличьте буфер плеера…»/«уменьшите буфер устройства…») → src/i18n/. Проверка: cargo check без ошибок**
-- [ ] Шаг 17: src/theme.rs (2 строки — description тем «Системная тёмная/светлая тема», используется в ui.set_theme_description) + src/app/fulltrack_manager.rs (4 строки — подписи «Спектрограмма»/«Осциллограмма» и причины отказа построения) → src/i18n/. Проверка: cargo check без ошибок
+- [x] Шаг 16: src/core/mod.rs (3 из 4 строк — title/body/hint сообщения «Файл настроек не прочитан»; строку reason=«модуль ввода не подключён» (журнал, AttachOutcome::DefaultRuleOnly) НЕ трогать) + src/settings/playback.rs (2 строки — подсказки ValueBlocker «увеличьте буфер плеера…»/«уменьшите буфер устройства…») → src/i18n/. Проверка: cargo check без ошибок
+- [>] **Шаг 17: src/theme.rs (2 строки — description тем «Системная тёмная/светлая тема», используется в ui.set_theme_description) + src/app/fulltrack_manager.rs (4 строки — подписи «Спектрограмма»/«Осциллограмма» и причины отказа построения) → src/i18n/. Проверка: cargo check без ошибок**
 - [ ] Шаг 18: ЧЕКПОИНТ: cargo test, cargo clippy, tools/check_rt_imports.py, tools/traceability_tool.py check — все зелёные
 - [ ] Шаг 19: src/audio/session_build.rs (2 строки — Display ошибок несовпадения формата/источника при построении сессии) + src/audio/output.rs (3 строки — «Системное по умолчанию ({server})»/«Системное по умолчанию»; строку-комментарий 634 НЕ трогать) → src/i18n/. Проверка: cargo check без ошибок
 - [ ] Шаг 20: ЧЕКПОИНТ (финальный, перед закрытием задачи): полный cargo test + cargo clippy + tools/check_rt_imports.py + tools/traceability_tool.py check — все зелёные; выборочная сверка, что перенесённые строки байт-в-байт совпадают с прежними (diff литералов)
 
 Легенда: [x] сделано · [>] текущий шаг · [ ] не начато
 
-- **Текущий шаг (current_step):** Шаг 16
-- **Следующий ход:** Шаг 16: src/core/mod.rs + src/settings/playback.rs → src/i18n/
+- **Текущий шаг (current_step):** Шаг 17
+- **Следующий ход:** Шаг 17: src/theme.rs + src/app/fulltrack_manager.rs → src/i18n/
 - **Счетчик безуспешных компиляций:** 0/3
 - **Состояние:** in_progress
 

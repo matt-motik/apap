@@ -151,10 +151,15 @@ impl ValueBlocker {
     /// Текст блокировки (ТЗ-94, ТЗ-131, И-Р22, §6.27): единая формулировка
     /// для диалога режима (`mode_dialog.rs`) и валидации диалога настроек
     /// (`core::dialog::blocker_reason`, SP1.0-B15 п.4) — раньше дублировалась.
+    /// Текст — `crate::i18n` (T1.0-B8).
     pub fn reason(self) -> String {
         match self {
-            ValueBlocker::PlayerBufferTooSmall { need_ms } => format!("увеличьте буфер плеера до {need_ms} мс"),
-            ValueBlocker::DeviceBufferTooLarge { max_ms } => format!("уменьшите буфер устройства до {max_ms} мс"),
+            ValueBlocker::PlayerBufferTooSmall { need_ms } => {
+                crate::i18n::value_blocker_player_buffer_too_small(need_ms)
+            }
+            ValueBlocker::DeviceBufferTooLarge { max_ms } => {
+                crate::i18n::value_blocker_device_buffer_too_large(max_ms)
+            }
         }
     }
 }

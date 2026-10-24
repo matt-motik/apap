@@ -202,6 +202,26 @@ pub const LOCK_OPEN_BLOCKS_PLAY_TITLE: &str = "Замок открыт";
 pub const LOCK_OPEN_BLOCKS_PLAY_BODY: &str =
     "устройство не захвачено; нажмите «Захватить и играть», чтобы захватить устройство и начать воспроизведение";
 
+/// Заголовок окна Error при непрочитанном `settings.toml` (ОВС-6 в, §2.13,
+/// T1.0-B8, `src/core/mod.rs::settings_read_failed_message`).
+pub const SETTINGS_READ_FAILED_TITLE: &str = "Файл настроек не прочитан";
+
+/// Тело того же окна, см. [`SETTINGS_READ_FAILED_TITLE`]; `os_text` —
+/// системный текст ошибки чтения.
+pub fn settings_read_failed_body(os_text: &str) -> String {
+    format!(
+        "Файл настроек не удалось прочитать ({os_text}). Используются значения по умолчанию. \
+         Автоматическое сохранение отключено до перезапуска. Кнопка «Сохранить» в окне \
+         настроек заменит файл."
+    )
+}
+
+/// Постоянный текст рядом с «Сохранить» в диалоге настроек, пока действует
+/// запрет автозаписи `settings.toml` (ОВС-6 в, §2.13, T1.0-B8,
+/// `src/core/mod.rs::settings_save_notice`).
+pub const SETTINGS_SAVE_NOTICE: &str =
+    "Файл настроек не прочитан — «Сохранить» заменит его значениями из этого окна";
+
 #[cfg(test)]
 mod tests {
     use super::*;
