@@ -148,7 +148,7 @@ steps:
     description: >
       src/app/device_info_view.rs + src/app/path_view.rs: перевод подписей возможностей устройства
       и пути сигнала через src/i18n/.
-    done: false
+    done: true
   - id: 24
     description: >
       src/app/lock_view.rs + src/app/ui_audio_state.rs: перевод причин отказа захвата устройства
@@ -183,8 +183,8 @@ steps:
       check зелёные; готовность к closing.md (ручная проверка пользователем — обрезка длинных
       русских подписей на всех экранах).
     done: false
-current_step: 23
-next_action: "src/app/device_info_view.rs + src/app/path_view.rs: перевод подписей возможностей устройства и пути сигнала через src/i18n/."
+current_step: 24
+next_action: "src/app/lock_view.rs + src/app/ui_audio_state.rs: перевод причин отказа захвата устройства (AM1.0 ТЗ-88/119/122/144) и подписей состояния аудио через src/i18n/; сверить с открытой заметкой плана (п. 16, шаг 67) про LockKind."
 fail_counter: 0
 fail_counter_max: 3
 failed_attempts: []
