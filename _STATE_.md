@@ -41,8 +41,8 @@
 - [x] Шаг 2: src/audio/path/report.rs часть 2 (оставшиеся ~37 строк): перенести остальные тексты отчёта в src/i18n/report.rs, вызовы в report.rs — через новый модуль. Проверка: cargo check без ошибок
 - [x] Шаг 3: ЧЕКПОИНТ: cargo test, cargo clippy, tools/check_rt_imports.py, tools/traceability_tool.py check — все зелёные
 - [x] Шаг 4: src/settings/params.rs (35 строк, подписи ParamId — «Доступ к устройству», «Устройство» и т. п.) → src/i18n/params.rs. Проверка: cargo check без ошибок
-- [>] **Шаг 5: src/settings.rs (12 строк, заголовки колонок плейлиста «Название»/«Исполнитель»/… в default_column_defs) + src/core/load.rs (8 строк, title/body сообщений о плейлисте — «Плейлист повреждён», «Не удалось загрузить плейлист» и др.) → src/i18n/. Проверка: cargo check без ошибок**
-- [ ] Шаг 6: ЧЕКПОИНТ: cargo test, cargo clippy, tools/check_rt_imports.py, tools/traceability_tool.py check — все зелёные
+- [x] Шаг 5: src/settings.rs (12 строк, заголовки колонок плейлиста «Название»/«Исполнитель»/… в default_column_defs) + src/core/load.rs (8 строк, title/body сообщений о плейлисте — «Плейлист повреждён», «Не удалось загрузить плейлист» и др.) → src/i18n/. Проверка: cargo check без ошибок
+- [>] **Шаг 6: ЧЕКПОИНТ: cargo test, cargo clippy, tools/check_rt_imports.py, tools/traceability_tool.py check — все зелёные**
 - [ ] Шаг 7: src/app/mod.rs (30 строк: title/body сообщений — «Аудио-движок не запущен», «Режим недоступен», «Тема не загружена», «Устройство вывода потеряно» и др., кнопки «Исправить»/«Открыть настройку», статус-бар «Пропущен трек…», «Все треки пропущены», тексты ошибок OpenError) → src/i18n/. Проверка: cargo check без ошибок
 - [ ] Шаг 8: src/audio/backend/alsa.rs (13 строк) + src/audio/backend/shared.rs (1 строка) — тексты StartError/ConfigureError при открытии ALSA Exclusive/Shared PCM, доходят до пользователя через OpenError → src/i18n/errors.rs. Проверка: cargo check без ошибок
 - [ ] Шаг 9: ЧЕКПОИНТ: cargo test, cargo clippy, tools/check_rt_imports.py, tools/traceability_tool.py check — все зелёные
@@ -60,8 +60,8 @@
 
 Легенда: [x] сделано · [>] текущий шаг · [ ] не начато
 
-- **Текущий шаг (current_step):** Шаг 5
-- **Следующий ход:** Шаг 5: src/settings.rs (заголовки колонок плейлиста) + src/core/load.rs (сообщения о плейлисте) → src/i18n/
+- **Текущий шаг (current_step):** Шаг 6
+- **Следующий ход:** Шаг 6: ЧЕКПОИНТ — cargo test, cargo clippy, tools/check_rt_imports.py, tools/traceability_tool.py check
 - **Счетчик безуспешных компиляций:** 0/3
 - **Состояние:** in_progress
 

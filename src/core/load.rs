@@ -252,13 +252,8 @@ impl AppCore {
 pub(super) fn quarantined_message(path: &Path) -> Message {
     Message {
         level: MessageLevel::Warning,
-        title: "Плейлист повреждён".into(),
-        body: format!(
-            "Файл плейлиста повреждён и не может быть прочитан. Копия повреждённого \
-             файла сохранена: {}. Плейлист пуст.",
-            path.display()
-        )
-        .into(),
+        title: crate::i18n::messages::PLAYLIST_QUARANTINED_TITLE.into(),
+        body: crate::i18n::messages::playlist_quarantined_body(path).into(),
         actions: vec![MessageAction::Ok],
     }
 }
@@ -270,15 +265,8 @@ pub(super) fn quarantined_message(path: &Path) -> Message {
 pub(super) fn playlist_unreadable_message(path: &Path, os_text: &str) -> Message {
     Message {
         level: MessageLevel::Error,
-        title: "Плейлист не прочитан".into(),
-        body: format!(
-            "Файл плейлиста {} не удалось прочитать ({}). Плейлист пуст. Файл \
-             playlist.m3u не будет записан в этом сеансе — следующий запуск повторит \
-             попытку.",
-            path.display(),
-            os_text
-        )
-        .into(),
+        title: crate::i18n::messages::PLAYLIST_UNREADABLE_TITLE.into(),
+        body: crate::i18n::messages::playlist_unreadable_body(path, os_text).into(),
         actions: vec![MessageAction::Ok],
     }
 }
@@ -289,13 +277,8 @@ pub(super) fn playlist_unreadable_message(path: &Path, os_text: &str) -> Message
 pub(super) fn command_unreadable_message(path: &Path, os_text: &str) -> Message {
     Message {
         level: MessageLevel::Error,
-        title: "Не удалось загрузить плейлист".into(),
-        body: format!(
-            "Файл {} не удалось прочитать ({}). Текущий плейлист не изменён.",
-            path.display(),
-            os_text
-        )
-        .into(),
+        title: crate::i18n::messages::COMMAND_LOAD_UNREADABLE_TITLE.into(),
+        body: crate::i18n::messages::command_load_unreadable_body(path, os_text).into(),
         actions: vec![MessageAction::Ok],
     }
 }
@@ -306,8 +289,8 @@ pub(super) fn command_unreadable_message(path: &Path, os_text: &str) -> Message 
 pub(super) fn export_failed_message(path: &Path, os_text: &str) -> Message {
     Message {
         level: MessageLevel::Error,
-        title: "Не удалось сохранить плейлист".into(),
-        body: format!("Файл {} не удалось записать ({}).", path.display(), os_text).into(),
+        title: crate::i18n::messages::PLAYLIST_EXPORT_FAILED_TITLE.into(),
+        body: crate::i18n::messages::playlist_export_failed_body(path, os_text).into(),
         actions: vec![MessageAction::Ok],
     }
 }

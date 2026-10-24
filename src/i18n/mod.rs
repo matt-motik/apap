@@ -459,6 +459,34 @@ pub fn cover_source_label(source: CoverSource) -> &'static str {
     }
 }
 
+/// Заголовки колонок плейлиста по умолчанию (T1.0-B8; перенесено из
+/// `src/settings.rs::default_columns()` байт-в-байт). Заголовки
+/// `ColumnId::NowPlaying`/`TrackNumber` — символы «▶»/«№» без русских букв,
+/// остаются литералами на месте.
+pub const PLAYLIST_COLUMN_TRACK_TITLE: &str = "Название";
+/// Заголовок колонки исполнителя (T1.0-B8).
+pub const PLAYLIST_COLUMN_ARTIST: &str = "Исполнитель";
+/// Заголовок колонки альбома (T1.0-B8).
+pub const PLAYLIST_COLUMN_ALBUM: &str = "Альбом";
+/// Заголовок колонки жанра (T1.0-B8).
+pub const PLAYLIST_COLUMN_GENRE: &str = "Жанр";
+/// Заголовок колонки года (T1.0-B8).
+pub const PLAYLIST_COLUMN_YEAR: &str = "Год";
+/// Заголовок колонки формата (T1.0-B8).
+pub const PLAYLIST_COLUMN_FORMAT: &str = "Формат";
+/// Заголовок колонки битрейта (T1.0-B8).
+pub const PLAYLIST_COLUMN_BITRATE: &str = "Битрейт";
+/// Заголовок колонки разрядности (T1.0-B8).
+pub const PLAYLIST_COLUMN_BIT_DEPTH: &str = "Глубина";
+/// Заголовок колонки частоты дискретизации (T1.0-B8).
+pub const PLAYLIST_COLUMN_SAMPLE_RATE: &str = "Частота";
+/// Заголовок колонки длительности (T1.0-B8).
+pub const PLAYLIST_COLUMN_DURATION: &str = "Длит.";
+/// Заголовок колонки имени файла (T1.0-B8).
+pub const PLAYLIST_COLUMN_FILE_NAME: &str = "Имя файла";
+/// Заголовок колонки пути к файлу (T1.0-B8).
+pub const PLAYLIST_COLUMN_FILE_PATH: &str = "Путь";
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -770,6 +798,27 @@ mod tests {
         ];
         for (source, label) in cases {
             assert_eq!(cover_source_label(source), label, "source={source:?}");
+        }
+    }
+
+    #[test]
+    fn playlist_column_titles_match_expected_text() {
+        let cases = [
+            (PLAYLIST_COLUMN_TRACK_TITLE, "Название"),
+            (PLAYLIST_COLUMN_ARTIST, "Исполнитель"),
+            (PLAYLIST_COLUMN_ALBUM, "Альбом"),
+            (PLAYLIST_COLUMN_GENRE, "Жанр"),
+            (PLAYLIST_COLUMN_YEAR, "Год"),
+            (PLAYLIST_COLUMN_FORMAT, "Формат"),
+            (PLAYLIST_COLUMN_BITRATE, "Битрейт"),
+            (PLAYLIST_COLUMN_BIT_DEPTH, "Глубина"),
+            (PLAYLIST_COLUMN_SAMPLE_RATE, "Частота"),
+            (PLAYLIST_COLUMN_DURATION, "Длит."),
+            (PLAYLIST_COLUMN_FILE_NAME, "Имя файла"),
+            (PLAYLIST_COLUMN_FILE_PATH, "Путь"),
+        ];
+        for (actual, expected) in cases {
+            assert_eq!(actual, expected);
         }
     }
 }

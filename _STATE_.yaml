@@ -50,7 +50,7 @@ steps:
     done: true
   - id: 5
     description: "src/settings.rs (12 строк, заголовки колонок плейлиста «Название»/«Исполнитель»/… в default_column_defs) + src/core/load.rs (8 строк, title/body сообщений о плейлисте — «Плейлист повреждён», «Не удалось загрузить плейлист» и др.) → src/i18n/. Проверка: cargo check без ошибок"
-    done: false
+    done: true
   - id: 6
     description: "ЧЕКПОИНТ: cargo test, cargo clippy, tools/check_rt_imports.py, tools/traceability_tool.py check — все зелёные"
     done: false
@@ -96,8 +96,8 @@ steps:
   - id: 20
     description: "ЧЕКПОИНТ (финальный, перед закрытием задачи): полный cargo test + cargo clippy + tools/check_rt_imports.py + tools/traceability_tool.py check — все зелёные; выборочная сверка, что перенесённые строки байт-в-байт совпадают с прежними (diff литералов)"
     done: false
-current_step: 5
-next_action: "Шаг 5: src/settings.rs (заголовки колонок плейлиста) + src/core/load.rs (сообщения о плейлисте) → src/i18n/"
+current_step: 6
+next_action: "Шаг 6: ЧЕКПОИНТ — cargo test, cargo clippy, tools/check_rt_imports.py, tools/traceability_tool.py check"
 fail_counter: 0
 fail_counter_max: 3
 failed_attempts: []
