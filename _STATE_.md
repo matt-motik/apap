@@ -79,8 +79,13 @@
 
 - [x] Шаг 26: ЧЕКПОИНТ: полный cargo test + cargo clippy зелёные (device_info_view/path_view/lock_view/ ui_audio_state/fulltrack_manager/playlist_manager).
 
-- [>] **Шаг 27: src/app/badge_view.rs + src/app/visualizer_manager.rs + src/app/viz_settings_manager.rs + src/app/engine_sink.rs + src/app/mode_dialog.rs: зачистка оставшихся пользовательских английских строк через src/i18n/ (events.rs — проверить, вероятно пусто).
-**
+- [x] Шаг 27: src/app/badge_view.rs + src/app/visualizer_manager.rs + src/app/viz_settings_manager.rs + src/app/engine_sink.rs: зачистка оставшихся пользовательских английских строк через src/i18n/ (events.rs — проверить, вероятно пусто).
+
+- [>] **Шаг 30: src/app/mode_dialog.rs — перенос пользовательских строк в src/i18n/.**
+- [ ] Шаг 31: src/app/device_info_view.rs + src/app/path_view.rs — перенос уже русских пользовательских строк в src/i18n/ дословно (решение: все строки Rust в одном модуле); текст, закреплённый спекой, без изменений.
+
+- [ ] Шаг 32: ЧЕКПОИНТ: полный cargo test + cargo clippy зелёные (mode_dialog.rs, device_info_view.rs, path_view.rs перенесены в src/i18n/).
+
 - [ ] Шаг 28: Финальный сквозной grep по ui/*.slint, src/app/*, tray, rfd на оставшийся английский пользовательский текст; найденное вне описи T1.0-B2 — новой B-строкой (⬜ открыто, без сессии), не молча.
 
 - [ ] Шаг 29: ЧЕКПОИНТ финальный: полный cargo test + cargo clippy + python tools/traceability_tool.py check зелёные; готовность к closing.md (ручная проверка пользователем — обрезка длинных русских подписей на всех экранах).
@@ -88,8 +93,8 @@
 
 Легенда: [x] сделано · [>] текущий шаг · [ ] не начато
 
-- **Текущий шаг (current_step):** Шаг 27
-- **Следующий ход:** src/app/badge_view.rs + src/app/visualizer_manager.rs + src/app/viz_settings_manager.rs + src/app/engine_sink.rs + src/app/mode_dialog.rs: зачистка оставшихся пользовательских английских строк через src/i18n/ (events.rs — проверить, вероятно пусто).
+- **Текущий шаг (current_step):** Шаг 30
+- **Следующий ход:** src/app/mode_dialog.rs — перенос пользовательских строк в src/i18n/.
 - **Счетчик безуспешных компиляций:** 0/3
 - **Состояние:** in_progress
 

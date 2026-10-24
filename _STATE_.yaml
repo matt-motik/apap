@@ -168,8 +168,22 @@ steps:
   - id: 27
     description: >
       src/app/badge_view.rs + src/app/visualizer_manager.rs + src/app/viz_settings_manager.rs +
-      src/app/engine_sink.rs + src/app/mode_dialog.rs: зачистка оставшихся пользовательских
-      английских строк через src/i18n/ (events.rs — проверить, вероятно пусто).
+      src/app/engine_sink.rs: зачистка оставшихся пользовательских английских строк через
+      src/i18n/ (events.rs — проверить, вероятно пусто).
+    done: true
+  - id: 30
+    description: "src/app/mode_dialog.rs — перенос пользовательских строк в src/i18n/."
+    done: false
+  - id: 31
+    description: >
+      src/app/device_info_view.rs + src/app/path_view.rs — перенос уже русских пользовательских
+      строк в src/i18n/ дословно (решение: все строки Rust в одном модуле); текст, закреплённый
+      спекой, без изменений.
+    done: false
+  - id: 32
+    description: >
+      ЧЕКПОИНТ: полный cargo test + cargo clippy зелёные (mode_dialog.rs, device_info_view.rs,
+      path_view.rs перенесены в src/i18n/).
     done: false
   - id: 28
     description: >
@@ -183,8 +197,8 @@ steps:
       check зелёные; готовность к closing.md (ручная проверка пользователем — обрезка длинных
       русских подписей на всех экранах).
     done: false
-current_step: 27
-next_action: "src/app/badge_view.rs + src/app/visualizer_manager.rs + src/app/viz_settings_manager.rs + src/app/engine_sink.rs + src/app/mode_dialog.rs: зачистка оставшихся пользовательских английских строк через src/i18n/ (events.rs — проверить, вероятно пусто)."
+current_step: 30
+next_action: "src/app/mode_dialog.rs — перенос пользовательских строк в src/i18n/."
 fail_counter: 0
 fail_counter_max: 3
 failed_attempts: []

@@ -4,36 +4,17 @@
 //! `ui_manager.rs` будет следующим шагом, поэтому пока не вызывается.
 #![allow(dead_code)]
 
-use music_player_rs::audio::test_run::{test_availability, IncompleteWhy, TestAvailability, TestBadge, TestBlocker};
-use music_player_rs::audio::verdict::{BadgeState, ExclusiveBadge, NbpReason, NbpSummary, SharedBadge};
+use music_player_rs::audio::test_run::{test_availability, TestAvailability, TestBadge};
+use music_player_rs::audio::verdict::{BadgeState, ExclusiveBadge, NbpSummary, SharedBadge};
+use music_player_rs::i18n;
 use music_player_rs::settings::ModeKind;
 
 use super::BadgeKind;
 
-/// Короткая подпись причины «Не bit-perfect» для бейджа (ТЗ-53).
-pub(super) fn nbp_reason_label(r: NbpReason) -> &'static str {
-    match r {
-        NbpReason::TestFailed => "тест не пройден",
-        NbpReason::DriverParamsUnconfirmed => "параметры драйвера не подтверждены",
-        NbpReason::DsdToPcm => "DSD→PCM",
-        NbpReason::Resample => "ресемплинг",
-        NbpReason::Downmix => "downmix",
-        NbpReason::Truncation => "усечение разрядности",
-        NbpReason::FloatToInt => "квантование float-источника",
-        NbpReason::Int32ToFloat => "int32 → float",
-        NbpReason::Mute => "mute",
-        NbpReason::Volume => "громкость",
-        NbpReason::Dither => "дизеринг",
-    }
-}
-
-/// Текст «Не bit-perfect: <причина> [+N]» (ТЗ-53).
+/// Текст «Не bit-perfect: <причина> [+N]» ([`i18n::badge_not_bit_perfect`],
+/// ТЗ-53, T1.0-B2).
 fn nbp_text(s: &NbpSummary) -> String {
-    let mut text = format!("Не bit-perfect: {}", nbp_reason_label(s.primary));
-    if s.more > 0 {
-        text.push_str(&format!(" +{}", s.more));
-    }
-    text
+    i18n::badge_not_bit_perfect(s.primary, s.more)
 }
 
 /// Вид бейджа тракта для Slint: `kind` выбирает цвет, `text` — подпись
@@ -44,12 +25,13 @@ pub(super) struct BadgeView {
     pub text: String,
 }
 
-/// Строит `BadgeView` из `BadgeState` (ADR-06).
+/// Строит `BadgeView` из `BadgeState` (ADR-06); тексты — `src/i18n/`
+/// (T1.0-B2).
 pub(super) fn badge_view(b: &BadgeState) -> BadgeView {
     match b {
-        BadgeState::NoStream => BadgeView { kind: BadgeKind::NoStream, text: "Нет потока".to_owned() },
+        BadgeState::NoStream => BadgeView { kind: BadgeKind::NoStream, text: i18n::BADGE_NO_STREAM.to_owned() },
         BadgeState::Shared(SharedBadge::Clean) => {
-            BadgeView { kind: BadgeKind::SharedClean, text: "Shared: без изменений до системы".to_owned() }
+            BadgeView { kind: BadgeKind::SharedClean, text: i18n::BADGE_SHARED_CLEAN.to_owned() }
         }
         BadgeState::Shared(SharedBadge::NotBitPerfect(s)) => {
             BadgeView { kind: BadgeKind::NotBitPerfect, text: nbp_text(s) }
@@ -58,40 +40,16 @@ pub(super) fn badge_view(b: &BadgeState) -> BadgeView {
             BadgeView { kind: BadgeKind::NotBitPerfect, text: nbp_text(s) }
         }
         BadgeState::Exclusive(ExclusiveBadge::BitPerfect(_)) => {
-            BadgeView { kind: BadgeKind::BitPerfect, text: "Bit-perfect".to_owned() }
+            BadgeView { kind: BadgeKind::BitPerfect, text: i18n::BADGE_BIT_PERFECT.to_owned() }
         }
-        BadgeState::Exclusive(ExclusiveBadge::Muted) => BadgeView { kind: BadgeKind::Muted, text: "Mute".to_owned() },
-    }
-}
-
-/// Короткая подпись причины незавершённого теста (ТЗ-67).
-fn incomplete_why_label(why: IncompleteWhy) -> &'static str {
-    match why {
-        IncompleteWhy::Underrun => "underrun",
-        IncompleteWhy::Xrun => "xrun",
-        IncompleteWhy::MirrorOverflow => "переполнение зеркала",
-        IncompleteWhy::Seek => "перемотка",
-        IncompleteWhy::TrackChanged => "смена трека",
-        IncompleteWhy::ModeChanged => "смена режима",
-        IncompleteWhy::DeviceChanged => "смена устройства",
-        IncompleteWhy::LockOpened => "открыт замок",
-    }
-}
-
-/// Подсказка блокировки кнопки «Тест» (ТЗ-61, ТЗ-62, ТЗ-65, ОВ-14, ОВ-20).
-fn blocker_hint(blocker: &TestBlocker) -> String {
-    match blocker {
-        TestBlocker::SharedMode => "Проверка недоступна в Shared".to_owned(),
-        TestBlocker::NoStream => "Запустите воспроизведение".to_owned(),
-        TestBlocker::Lossy(r) => format!("Мешает тесту: {} — см. «Путь сигнала»", nbp_reason_label(*r)),
-        TestBlocker::DriverParamsUnconfirmed => {
-            "Мешает тесту: параметры драйвера не подтверждены — см. «Путь сигнала»".to_owned()
+        BadgeState::Exclusive(ExclusiveBadge::Muted) => {
+            BadgeView { kind: BadgeKind::Muted, text: i18n::BADGE_MUTED.to_owned() }
         }
-        TestBlocker::Muted => "Выключите mute".to_owned(),
     }
 }
 
-/// Вид кнопки-бейджа «Тест» для Slint (ТЗ-61, ТЗ-62, ТЗ-65, ОВ-14, ОВ-20).
+/// Вид кнопки-бейджа «Тест» для Slint (ТЗ-61, ТЗ-62, ТЗ-65, ОВ-14, ОВ-20);
+/// тексты и подсказки — `src/i18n/` (T1.0-B2).
 #[derive(Clone, PartialEq, Debug)]
 pub(super) struct TestView {
     pub visible: bool,
@@ -106,20 +64,16 @@ pub(super) fn test_view(badge: &BadgeState, mode: ModeKind, test: Option<&TestBa
     let availability = test_availability(badge, mode);
     let enabled = matches!(availability, TestAvailability::Enabled);
     let text = match test {
-        Some(TestBadge::Passed { .. }) => "Тест ✓".to_owned(),
-        Some(TestBadge::Failed { .. }) => "Тест ✕".to_owned(),
-        Some(TestBadge::Unknown(_)) | None => "Тест ?".to_owned(),
-        Some(TestBadge::Running { elapsed, max }) => {
-            format!("Тест {} / {} с", elapsed.as_secs(), max.as_secs())
-        }
+        Some(TestBadge::Passed { .. }) => i18n::TEST_BADGE_PASSED.to_owned(),
+        Some(TestBadge::Failed { .. }) => i18n::TEST_BADGE_FAILED.to_owned(),
+        Some(TestBadge::Unknown(_)) | None => i18n::TEST_BADGE_UNKNOWN.to_owned(),
+        Some(TestBadge::Running { elapsed, max }) => i18n::test_badge_running(elapsed.as_secs(), max.as_secs()),
     };
     let hint = match &availability {
-        TestAvailability::Disabled(blocker) => blocker_hint(blocker),
+        TestAvailability::Disabled(blocker) => i18n::test_blocker_hint(blocker),
         TestAvailability::Enabled => match test {
-            Some(TestBadge::Unknown(Some(why))) => {
-                format!("Последний тест не завершён: {}", incomplete_why_label(*why))
-            }
-            _ => "Проверить bit-perfect тракт".to_owned(),
+            Some(TestBadge::Unknown(Some(why))) => i18n::test_hint_incomplete(*why),
+            _ => i18n::TEST_HINT_ENABLED.to_owned(),
         },
     };
     TestView { visible: true, enabled, text, hint }

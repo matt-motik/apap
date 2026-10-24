@@ -18,6 +18,8 @@ use std::rc::Rc;
 
 use slint::SharedString;
 
+use music_player_rs::i18n;
+
 use super::MusicApp;
 use music_player_rs::audio::visualizer::{
     ChannelMode, FreqScale, LevelScale, OscilloscopeCfg, Palette, SpectrogramCfg, SpectrumCfg,
@@ -276,13 +278,13 @@ impl MusicApp {
 
         let mut err = Vec::new();
         if fmin_invalid {
-            err.push("freq_min: целое 1..22050 и строго меньше freq_max");
+            err.push(i18n::VIZ_ERROR_FREQ_MIN);
         }
         if fmax_invalid {
-            err.push("freq_max: целое 1..22050 и строго больше freq_min");
+            err.push(i18n::VIZ_ERROR_FREQ_MAX);
         }
         if !bands_ok {
-            err.push("bands: целое 4..128");
+            err.push(i18n::VIZ_ERROR_BANDS);
         }
 
         // Применяем только валидные значения (запись в draft при открытом диалоге).

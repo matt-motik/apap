@@ -12,6 +12,9 @@
 
 pub mod errors;
 
+use crate::audio::test_run::{IncompleteWhy, TestBlocker};
+use crate::audio::verdict::NbpReason;
+
 /// Имя приложения — единая точка правки, если рабочее название сменится.
 pub const APP_NAME: &str = "APAP";
 
@@ -213,6 +216,119 @@ pub const PICKER_FILTER_PLAYLIST_M3U8: &str = "Плейлист (M3U8)";
 /// (T1.0-B2, ADR-10, ТЗ-53).
 pub const PICKER_FILTER_PLAYLIST_M3U: &str = "Плейлист (M3U)";
 
+/// Короткая подпись причины «Не bit-perfect» для бейджа тракта (ТЗ-53,
+/// T1.0-B2; перенесено из `src/app/badge_view.rs::nbp_reason_label`).
+pub fn nbp_reason_label(r: NbpReason) -> &'static str {
+    match r {
+        NbpReason::TestFailed => "тест не пройден",
+        NbpReason::DriverParamsUnconfirmed => "параметры драйвера не подтверждены",
+        NbpReason::DsdToPcm => "DSD→PCM",
+        NbpReason::Resample => "ресемплинг",
+        NbpReason::Downmix => "downmix",
+        NbpReason::Truncation => "усечение разрядности",
+        NbpReason::FloatToInt => "квантование float-источника",
+        NbpReason::Int32ToFloat => "int32 → float",
+        NbpReason::Mute => "mute",
+        NbpReason::Volume => "громкость",
+        NbpReason::Dither => "дизеринг",
+    }
+}
+
+/// Текст бейджа тракта «Не bit-perfect: <причина> [+N]» (ТЗ-53, T1.0-B2):
+/// `more` — число прочих причин сверх основной, суффикс `+N` опускается при
+/// `more == 0`.
+pub fn badge_not_bit_perfect(primary: NbpReason, more: u8) -> String {
+    let mut text = format_named("Не bit-perfect: {reason}", &[("reason", nbp_reason_label(primary))]);
+    if more > 0 {
+        text.push_str(&format!(" +{more}"));
+    }
+    text
+}
+
+/// Текст бейджа тракта «Нет потока» (ТЗ-56, ОВС-18, ADR-06, T1.0-B2).
+pub const BADGE_NO_STREAM: &str = "Нет потока";
+/// Текст бейджа тракта Shared без изменений до системы (ТЗ-54, ADR-06, T1.0-B2).
+pub const BADGE_SHARED_CLEAN: &str = "Shared: без изменений до системы";
+/// Текст бейджа тракта Exclusive bit-perfect (ТЗ-52, ADR-06, T1.0-B2).
+pub const BADGE_BIT_PERFECT: &str = "Bit-perfect";
+/// Текст бейджа тракта на mute (ОВС-18, ADR-06, T1.0-B2): «Mute» не
+/// переводится — устоявшееся обозначение рядом с «Bit-perfect».
+pub const BADGE_MUTED: &str = "Mute";
+
+/// Короткая подпись причины незавершённого теста (ТЗ-67, T1.0-B2; перенесено
+/// из `src/app/badge_view.rs::incomplete_why_label`).
+pub fn incomplete_why_label(why: IncompleteWhy) -> &'static str {
+    match why {
+        IncompleteWhy::Underrun => "underrun",
+        IncompleteWhy::Xrun => "xrun",
+        IncompleteWhy::MirrorOverflow => "переполнение зеркала",
+        IncompleteWhy::Seek => "перемотка",
+        IncompleteWhy::TrackChanged => "смена трека",
+        IncompleteWhy::ModeChanged => "смена режима",
+        IncompleteWhy::DeviceChanged => "смена устройства",
+        IncompleteWhy::LockOpened => "открыт замок",
+    }
+}
+
+/// Подсказка блокировки кнопки «Тест» (ТЗ-61, ТЗ-62, ТЗ-65, ОВ-14, ОВ-20,
+/// T1.0-B2; перенесено из `src/app/badge_view.rs::blocker_hint`).
+pub fn test_blocker_hint(blocker: &TestBlocker) -> String {
+    match blocker {
+        TestBlocker::SharedMode => BLOCKER_HINT_SHARED_MODE.to_string(),
+        TestBlocker::NoStream => BLOCKER_HINT_NO_STREAM.to_string(),
+        TestBlocker::Lossy(r) => {
+            format_named("Мешает тесту: {reason} — см. «Путь сигнала»", &[("reason", nbp_reason_label(*r))])
+        }
+        TestBlocker::DriverParamsUnconfirmed => BLOCKER_HINT_DRIVER_PARAMS_UNCONFIRMED.to_string(),
+        TestBlocker::Muted => BLOCKER_HINT_MUTED.to_string(),
+    }
+}
+
+/// Подсказка блокировки «Тест» в Совместимом режиме (ТЗ-62, T1.0-B2).
+pub const BLOCKER_HINT_SHARED_MODE: &str = "Проверка недоступна в Shared";
+/// Подсказка блокировки «Тест» без активного потока (ТЗ-65, T1.0-B2).
+pub const BLOCKER_HINT_NO_STREAM: &str = "Запустите воспроизведение";
+/// Подсказка блокировки «Тест» при неподтверждённых параметрах драйвера
+/// (ОВ-14, T1.0-B2).
+pub const BLOCKER_HINT_DRIVER_PARAMS_UNCONFIRMED: &str =
+    "Мешает тесту: параметры драйвера не подтверждены — см. «Путь сигнала»";
+/// Подсказка блокировки «Тест» на mute (T1.0-B2).
+pub const BLOCKER_HINT_MUTED: &str = "Выключите mute";
+
+/// Текст кнопки-бейджа «Тест»: пройден (ТЗ-61, T1.0-B2).
+pub const TEST_BADGE_PASSED: &str = "Тест ✓";
+/// Текст кнопки-бейджа «Тест»: провален (ТЗ-61, T1.0-B2).
+pub const TEST_BADGE_FAILED: &str = "Тест ✕";
+/// Текст кнопки-бейджа «Тест»: результат неизвестен (ТЗ-61, T1.0-B2).
+pub const TEST_BADGE_UNKNOWN: &str = "Тест ?";
+
+/// Текст кнопки-бейджа «Тест» во время прогона (ТЗ-61, T1.0-B2):
+/// `elapsed_secs`/`max_secs` — прошедшее и максимальное время в секундах.
+pub fn test_badge_running(elapsed_secs: u64, max_secs: u64) -> String {
+    format!("Тест {elapsed_secs} / {max_secs} с")
+}
+
+/// Подсказка «Тест» доступен, но последний прогон не завершён (ТЗ-61, ТЗ-65,
+/// ОВ-14, ОВ-20, T1.0-B2): `why` — причина незавершённости ([`incomplete_why_label`]).
+pub fn test_hint_incomplete(why: IncompleteWhy) -> String {
+    format_named("Последний тест не завершён: {why}", &[("why", incomplete_why_label(why))])
+}
+
+/// Подсказка «Тест» доступен и не завершён ничем (ТЗ-61, ТЗ-62, ТЗ-65,
+/// ОВ-14, ОВ-20, T1.0-B2).
+pub const TEST_HINT_ENABLED: &str = "Проверить bit-perfect тракт";
+
+/// Ошибка валидации поля `freq_min` вкладки Visualization → Spectrum
+/// (§9.3, T1.0-B2); `freq_min`/`freq_max`/`bands` — имена ключей настроек,
+/// не переводятся (AGENTS.md).
+pub const VIZ_ERROR_FREQ_MIN: &str = "freq_min: целое 1..22050 и строго меньше freq_max";
+/// Ошибка валидации поля `freq_max` вкладки Visualization → Spectrum
+/// (§9.3, T1.0-B2).
+pub const VIZ_ERROR_FREQ_MAX: &str = "freq_max: целое 1..22050 и строго больше freq_min";
+/// Ошибка валидации поля `bands` вкладки Visualization → Spectrum (§9.3,
+/// T1.0-B2).
+pub const VIZ_ERROR_BANDS: &str = "bands: целое 4..128";
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -397,5 +513,83 @@ mod tests {
             status_scan_finished_nothing_new(5),
             "Сканирование завершено: новых нет (найдено 5 треков)"
         );
+    }
+
+    #[test]
+    fn nbp_reason_label_covers_all_variants() {
+        let cases = [
+            (NbpReason::TestFailed, "тест не пройден"),
+            (NbpReason::DriverParamsUnconfirmed, "параметры драйвера не подтверждены"),
+            (NbpReason::DsdToPcm, "DSD→PCM"),
+            (NbpReason::Resample, "ресемплинг"),
+            (NbpReason::Downmix, "downmix"),
+            (NbpReason::Truncation, "усечение разрядности"),
+            (NbpReason::FloatToInt, "квантование float-источника"),
+            (NbpReason::Int32ToFloat, "int32 → float"),
+            (NbpReason::Mute, "mute"),
+            (NbpReason::Volume, "громкость"),
+            (NbpReason::Dither, "дизеринг"),
+        ];
+        for (reason, label) in cases {
+            assert_eq!(nbp_reason_label(reason), label, "reason={reason:?}");
+        }
+    }
+
+    #[test]
+    fn badge_not_bit_perfect_without_more() {
+        assert_eq!(badge_not_bit_perfect(NbpReason::Volume, 0), "Не bit-perfect: громкость");
+    }
+
+    #[test]
+    fn badge_not_bit_perfect_with_more_appends_plus_n() {
+        assert_eq!(badge_not_bit_perfect(NbpReason::Resample, 1), "Не bit-perfect: ресемплинг +1");
+    }
+
+    #[test]
+    fn incomplete_why_label_covers_all_variants() {
+        let cases = [
+            (IncompleteWhy::Underrun, "underrun"),
+            (IncompleteWhy::Xrun, "xrun"),
+            (IncompleteWhy::MirrorOverflow, "переполнение зеркала"),
+            (IncompleteWhy::Seek, "перемотка"),
+            (IncompleteWhy::TrackChanged, "смена трека"),
+            (IncompleteWhy::ModeChanged, "смена режима"),
+            (IncompleteWhy::DeviceChanged, "смена устройства"),
+            (IncompleteWhy::LockOpened, "открыт замок"),
+        ];
+        for (why, label) in cases {
+            assert_eq!(incomplete_why_label(why), label, "why={why:?}");
+        }
+    }
+
+    #[test]
+    fn test_blocker_hint_shared_mode_and_no_stream() {
+        assert_eq!(test_blocker_hint(&TestBlocker::SharedMode), "Проверка недоступна в Shared");
+        assert_eq!(test_blocker_hint(&TestBlocker::NoStream), "Запустите воспроизведение");
+    }
+
+    #[test]
+    fn test_blocker_hint_lossy_names_reason_and_links_signal_path() {
+        let hint = test_blocker_hint(&TestBlocker::Lossy(NbpReason::Volume));
+        assert_eq!(hint, "Мешает тесту: громкость — см. «Путь сигнала»");
+    }
+
+    #[test]
+    fn test_blocker_hint_driver_params_unconfirmed_and_muted() {
+        assert_eq!(
+            test_blocker_hint(&TestBlocker::DriverParamsUnconfirmed),
+            "Мешает тесту: параметры драйвера не подтверждены — см. «Путь сигнала»"
+        );
+        assert_eq!(test_blocker_hint(&TestBlocker::Muted), "Выключите mute");
+    }
+
+    #[test]
+    fn test_badge_running_formats_elapsed_over_max() {
+        assert_eq!(test_badge_running(3, 10), "Тест 3 / 10 с");
+    }
+
+    #[test]
+    fn test_hint_incomplete_names_reason() {
+        assert_eq!(test_hint_incomplete(IncompleteWhy::Seek), "Последний тест не завершён: перемотка");
     }
 }
