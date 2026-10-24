@@ -27,6 +27,7 @@ use crate::audio::format::{OutputSampleFormat, SampleRate, StreamFormat};
 use crate::audio::reservation::dbus::{alsa_card_index, DbusReserveBus, SystemServerProbe};
 use crate::audio::reservation::{self, LostNotify, Reservation, ReserveBus};
 use crate::audio::session::SessionShared;
+use crate::i18n::errors as i18n_errors;
 use crate::settings::playback::DeviceBuffer;
 
 /// Дедлайн ожидания `EBUSY` при открытии `hw:` от момента вызова OPEN (§6.6,
@@ -274,16 +275,13 @@ impl AlsaExclusiveBackend {
         buffer: DeviceBuffer,
     ) -> Result<(DriverFormat, Option<DeviceBufferActual>), ConfigureError> {
         if claim.pcm_mut().is_none() {
-            return Err(ConfigureError("configure вызван без открытого PCM (acquire не выполнен, §6.7)".to_string()));
+            return Err(ConfigureError(i18n_errors::ALSA_CONFIGURE_NO_PCM.to_string()));
         }
-        reset_to_open(claim).map_err(|e| {
-            ConfigureError(format!(
-                "не удалось переоткрыть PCM перед configure после предыдущего использования (§6.6, §6.7, ТЗ-49, ТЗ-109, AM1.0-B17): {e:?}"
-            ))
-        })?;
+        reset_to_open(claim)
+            .map_err(|e| ConfigureError(i18n_errors::alsa_reopen_before_configure_failed_text(&format!("{e:?}"))))?;
 
         let Some(handle) = claim.pcm_mut().as_ref() else {
-            return Err(ConfigureError("configure вызван без открытого PCM (acquire не выполнен, §6.7)".to_string()));
+            return Err(ConfigureError(i18n_errors::ALSA_CONFIGURE_NO_PCM.to_string()));
         };
         let pcm = handle.pcm();
         apply_hw_params(pcm, &fmt, buffer)?;
@@ -334,7 +332,7 @@ impl AlsaExclusiveBackend {
         {
             let Some(handle) = claim.pcm_mut().as_ref() else {
                 return Err(ReconfigureError::Configure(ConfigureError(
-                    "reconfigure вызван без открытого PCM (acquire не выполнен, §6.7)".to_string(),
+                    i18n_errors::ALSA_RECONFIGURE_NO_PCM.to_string(),
                 )));
             };
             handle.pcm().drop().map_err(|e| ReconfigureError::Configure(configure_refused(e)))?;
@@ -381,18 +379,16 @@ impl AlsaExclusiveBackend {
     ) -> Result<Box<dyn StreamHandle>, StartError> {
         let bytes_per_sample = bytes_per_sample(fmt.sample)?;
         let period_bytes = alsa_out::period_buffer_bytes(period_frames, bytes_per_sample, fmt.channels)
-            .ok_or_else(|| StartError("размер периода переполняет буфер (§6.7, ТЗ-112)".to_string()))?;
+            .ok_or_else(|| StartError(i18n_errors::ALSA_PERIOD_OVERFLOWS_BUFFER.to_string()))?;
         let wait_timeout_ms = alsa_out::wait_timeout_ms(period_frames, fmt.rate.hz())
-            .ok_or_else(|| StartError("таймаут wait переполнен или частота равна нулю (§6.7)".to_string()))?;
+            .ok_or_else(|| StartError(i18n_errors::ALSA_WAIT_TIMEOUT_OVERFLOW.to_string()))?;
 
         let Some(handle) = claim.pcm_mut().as_ref() else {
-            return Err(StartError("start вызван без открытого PCM (acquire не выполнен, §6.7)".to_string()));
+            return Err(StartError(i18n_errors::ALSA_START_NO_PCM.to_string()));
         };
         if handle.pcm().state() == alsa::pcm::State::Setup {
             handle.pcm().prepare().map_err(|e| {
-                StartError(format!(
-                    "не удалось выполнить prepare() над PCM в состоянии SETUP после повторного использования предыдущего потока (§6.7, AM1.0-B17): {e}"
-                ))
+                StartError(i18n_errors::alsa_prepare_after_reuse_failed_text(&e.to_string()))
             })?;
         }
 
@@ -414,7 +410,7 @@ impl AlsaExclusiveBackend {
             .unwrap_or(alsa_out::MIN_START_WATCHDOG_DEADLINE);
 
         let Some(pcm) = claim.pcm_mut().take() else {
-            return Err(StartError("start вызван без открытого PCM (acquire не выполнен, §6.7)".to_string()));
+            return Err(StartError(i18n_errors::ALSA_START_NO_PCM.to_string()));
         };
 
         let stop = Arc::new(AtomicBool::new(false));
@@ -429,7 +425,7 @@ impl AlsaExclusiveBackend {
         };
         let join = match alsa_out::spawn_output_thread(pcm, render, timing, shared, Arc::clone(&stop), tid_tx) {
             Ok(join) => join,
-            Err(e) => return Err(StartError(format!("не удалось создать поток apap-alsa-out: {e}"))),
+            Err(e) => return Err(StartError(i18n_errors::alsa_spawn_output_thread_failed_text(&e.to_string()))),
         };
 
         let tid = alsa_out::recv_tid(tid_rx);
@@ -522,20 +518,16 @@ pub(crate) fn configure_and_start_shared(
     apply_sw_params(&pcm, period_frames_i64, buffer_frames_i64).map_err(|e| StartError(e.0))?;
 
     if pcm.state() == alsa::pcm::State::Setup {
-        pcm.prepare().map_err(|e| {
-            StartError(format!(
-                "не удалось выполнить prepare() над Shared PCM после hw_params/sw_params (§6.7): {e}"
-            ))
-        })?;
+        pcm.prepare().map_err(|e| StartError(i18n_errors::alsa_prepare_shared_failed_text(&e.to_string())))?;
     }
 
     let period_frames = u32::try_from(period_frames_i64)
-        .map_err(|_| StartError("период переполняет u32 (§6.7, ТЗ-112)".to_string()))?;
+        .map_err(|_| StartError(i18n_errors::ALSA_PERIOD_OVERFLOWS_U32.to_string()))?;
     let sample_bytes = bytes_per_sample(fmt.sample)?;
     let period_bytes = alsa_out::period_buffer_bytes(period_frames, sample_bytes, fmt.channels)
-        .ok_or_else(|| StartError("размер периода переполняет буфер (§6.7, ТЗ-112)".to_string()))?;
+        .ok_or_else(|| StartError(i18n_errors::ALSA_PERIOD_OVERFLOWS_BUFFER.to_string()))?;
     let wait_timeout_ms = alsa_out::wait_timeout_ms(period_frames, fmt.rate.hz())
-        .ok_or_else(|| StartError("таймаут wait переполнен или частота равна нулю (§6.7)".to_string()))?;
+        .ok_or_else(|| StartError(i18n_errors::ALSA_WAIT_TIMEOUT_OVERFLOW.to_string()))?;
 
     let start_threshold = start_threshold_frames(buffer_frames_i64, period_frames_i64);
     let watchdog_deadline = u32::try_from(buffer_frames_i64)
@@ -555,7 +547,7 @@ pub(crate) fn configure_and_start_shared(
     };
     let join = match alsa_out::spawn_output_thread(pcm_handle, render, timing, shared, Arc::clone(&stop), tid_tx) {
         Ok(join) => join,
-        Err(e) => return Err(StartError(format!("не удалось создать поток apap-alsa-out: {e}"))),
+        Err(e) => return Err(StartError(i18n_errors::alsa_spawn_output_thread_failed_text(&e.to_string()))),
     };
 
     let tid = alsa_out::recv_tid(tid_rx);
@@ -589,13 +581,13 @@ pub(crate) fn apply_hw_params(pcm: &alsa::PCM, fmt: &StreamFormat, buffer: Devic
 /// обратного поиска по `FORMAT_MAP`.
 fn alsa_format(sample: OutputSampleFormat) -> Result<alsa::pcm::Format, ConfigureError> {
     if sample == OutputSampleFormat::F32 {
-        return Err(ConfigureError(format!("формат {sample:?} не поддерживается Exclusive (ТЗ-112)")));
+        return Err(ConfigureError(i18n_errors::alsa_format_unsupported_exclusive_text(&format!("{sample:?}"))));
     }
     FORMAT_MAP
         .iter()
         .find(|(_, out)| *out == sample)
         .map(|(alsa_fmt, _)| *alsa_fmt)
-        .ok_or_else(|| ConfigureError(format!("формат {sample:?} не найден в FORMAT_MAP")))
+        .ok_or_else(|| ConfigureError(i18n_errors::alsa_format_not_in_map_text(&format!("{sample:?}"))))
 }
 
 /// Байт на сэмпл формата устройства (§6.7, ТЗ-112): ширина контейнера ALSA
@@ -605,7 +597,8 @@ fn alsa_format(sample: OutputSampleFormat) -> Result<alsa::pcm::Format, Configur
 fn bytes_per_sample(sample: OutputSampleFormat) -> Result<u32, StartError> {
     let fmt = alsa_format(sample).map_err(|e| StartError(e.0))?;
     let bits = fmt.physical_width().map_err(|e| StartError(e.to_string()))?;
-    let bits = u32::try_from(bits).map_err(|_| StartError(format!("ширина формата {sample:?} отрицательна (§6.7)")))?;
+    let bits =
+        u32::try_from(bits).map_err(|_| StartError(i18n_errors::alsa_format_width_negative_text(&format!("{sample:?}"))))?;
     Ok(bits / 8)
 }
 

@@ -14,6 +14,7 @@ use super::{BackendError, SharedDeviceId, SharedDeviceInfo};
 use crate::audio::format::StreamFormat;
 use crate::audio::output::{classify_device, AudioHost, CpalHost, DeviceInfo};
 use crate::audio::session::SessionShared;
+use crate::i18n::errors as i18n_errors;
 use crate::settings::playback::DeviceBuffer;
 
 /// Итог фонового Shared-перечисления (`SharedBackend::enumerate_job`, §2.3,
@@ -267,7 +268,7 @@ pub fn open_pw_node_stream(
 ) -> Result<Box<dyn StreamHandle>, StartError> {
     let pcm_name = pw_sink_pcm_name(node_name);
     let pcm = alsa::PCM::new(&pcm_name, alsa::Direction::Playback, false)
-        .map_err(|e| StartError(format!("не удалось открыть Shared PCM {pcm_name}: {e}")))?;
+        .map_err(|e| StartError(i18n_errors::alsa_shared_pcm_open_failed_text(&pcm_name, &e.to_string())))?;
     configure_and_start_shared(pcm, fmt, buffer, render, shared)
 }
 

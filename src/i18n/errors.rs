@@ -234,6 +234,92 @@ pub fn read_error_at_frame_text(frame: &str, text: &str) -> String {
     format_named("ошибка чтения на кадре {frame}: {text}", &[("frame", frame), ("text", text)])
 }
 
+/// Отказ `configure`/`start` ALSA Exclusive без открытого PCM (вызван до
+/// `acquire`, §6.7, T1.0-B8): внутренняя проверка инварианта, до пользователя
+/// доходит через `OpenError` (`src/audio/backend/alsa.rs`).
+pub const ALSA_CONFIGURE_NO_PCM: &str = "configure вызван без открытого PCM (acquire не выполнен, §6.7)";
+/// Отказ `reconfigure` ALSA Exclusive без открытого PCM (§6.7, T1.0-B8).
+pub const ALSA_RECONFIGURE_NO_PCM: &str = "reconfigure вызван без открытого PCM (acquire не выполнен, §6.7)";
+/// Отказ `start` ALSA Exclusive без открытого PCM (§6.7, T1.0-B8).
+pub const ALSA_START_NO_PCM: &str = "start вызван без открытого PCM (acquire не выполнен, §6.7)";
+
+/// Текст отказа переоткрытия PCM перед `configure` после предыдущего
+/// использования (§6.6, §6.7, ТЗ-49, ТЗ-109, AM1.0-B17, T1.0-B8). `cause` —
+/// `Debug` исходной ошибки (`{e:?}`).
+pub fn alsa_reopen_before_configure_failed_text(cause: &str) -> String {
+    format_named(
+        "не удалось переоткрыть PCM перед configure после предыдущего использования \
+(§6.6, §6.7, ТЗ-49, ТЗ-109, AM1.0-B17): {cause}",
+        &[("cause", cause)],
+    )
+}
+
+/// Текст отказа размера периода, переполняющего буфер (§6.7, ТЗ-112,
+/// T1.0-B8): общий для Exclusive-потока и Shared-потока без резервирования.
+pub const ALSA_PERIOD_OVERFLOWS_BUFFER: &str = "размер периода переполняет буфер (§6.7, ТЗ-112)";
+/// Текст отказа таймаута `wait`, переполненного или нулевой частотой (§6.7,
+/// T1.0-B8): общий для Exclusive-потока и Shared-потока без резервирования.
+pub const ALSA_WAIT_TIMEOUT_OVERFLOW: &str = "таймаут wait переполнен или частота равна нулю (§6.7)";
+/// Текст отказа периода, переполняющего `u32` (§6.7, ТЗ-112, T1.0-B8).
+pub const ALSA_PERIOD_OVERFLOWS_U32: &str = "период переполняет u32 (§6.7, ТЗ-112)";
+
+/// Текст отказа `prepare()` над PCM в состоянии `SETUP` после повторного
+/// использования предыдущего потока (§6.7, AM1.0-B17, T1.0-B8). `cause` —
+/// исходная ошибка ALSA (`{e}`).
+pub fn alsa_prepare_after_reuse_failed_text(cause: &str) -> String {
+    format_named(
+        "не удалось выполнить prepare() над PCM в состоянии SETUP после повторного \
+использования предыдущего потока (§6.7, AM1.0-B17): {cause}",
+        &[("cause", cause)],
+    )
+}
+
+/// Текст отказа `prepare()` над Shared PCM после hw_params/sw_params (§6.7,
+/// T1.0-B8, ADR-07 «Уточнение»). `cause` — исходная ошибка ALSA (`{e}`).
+pub fn alsa_prepare_shared_failed_text(cause: &str) -> String {
+    format_named(
+        "не удалось выполнить prepare() над Shared PCM после hw_params/sw_params (§6.7): {cause}",
+        &[("cause", cause)],
+    )
+}
+
+/// Текст отказа запуска потока вывода `apap-alsa-out` (§6.7, ТЗ-51, T1.0-B8):
+/// общий для Exclusive-потока и Shared-потока без резервирования. `cause` —
+/// исходная ошибка ОС (`{e}`).
+pub fn alsa_spawn_output_thread_failed_text(cause: &str) -> String {
+    format_named("не удалось создать поток apap-alsa-out: {cause}", &[("cause", cause)])
+}
+
+/// Текст отказа Exclusive hw_params для формата, которого нет в Exclusive
+/// (ТЗ-112, T1.0-B8): только `OutputSampleFormat::F32`. `sample` — `Debug`
+/// формата (`{sample:?}`).
+pub fn alsa_format_unsupported_exclusive_text(sample: &str) -> String {
+    format_named("формат {sample} не поддерживается Exclusive (ТЗ-112)", &[("sample", sample)])
+}
+
+/// Текст отказа поиска формата в `FORMAT_MAP` (внутренний инвариант, ТЗ-112,
+/// T1.0-B8). `sample` — `Debug` формата (`{sample:?}`).
+pub fn alsa_format_not_in_map_text(sample: &str) -> String {
+    format_named("формат {sample} не найден в FORMAT_MAP", &[("sample", sample)])
+}
+
+/// Текст отказа отрицательной ширины формата (внутренний инвариант, §6.7,
+/// T1.0-B8). `sample` — `Debug` формата (`{sample:?}`).
+pub fn alsa_format_width_negative_text(sample: &str) -> String {
+    format_named("ширина формата {sample} отрицательна (§6.7)", &[("sample", sample)])
+}
+
+/// Текст отказа открытия Shared PCM по имени узла PipeWire (ADR-07
+/// «Уточнение», AM1.0-B37, T1.0-B8, `src/audio/backend/shared.rs`).
+/// `pcm_name` — ALSA-имя PCM (`pipewire:NODE=<node_name>`), `cause` —
+/// исходная ошибка ALSA (`{e}`).
+pub fn alsa_shared_pcm_open_failed_text(pcm_name: &str, cause: &str) -> String {
+    format_named(
+        "не удалось открыть Shared PCM {pcm_name}: {cause}",
+        &[("pcm_name", pcm_name), ("cause", cause)],
+    )
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -436,5 +522,58 @@ mod tests {
     #[test]
     fn theme_tooltip_wraps_reason() {
         assert_eq!(theme_tooltip("недопустимый HEX-цвет в поле `accent`"), "Тема: недопустимый HEX-цвет в поле `accent`");
+    }
+
+    #[test]
+    fn alsa_reopen_before_configure_failed_text_substitutes_cause() {
+        let text = alsa_reopen_before_configure_failed_text("EBUSY");
+        assert!(text.starts_with("не удалось переоткрыть PCM перед configure"), "text={text}");
+        assert!(text.ends_with("EBUSY"), "text={text}");
+    }
+
+    #[test]
+    fn alsa_prepare_after_reuse_failed_text_substitutes_cause() {
+        let text = alsa_prepare_after_reuse_failed_text("EIO");
+        assert!(text.starts_with("не удалось выполнить prepare() над PCM в состоянии SETUP"), "text={text}");
+        assert!(text.ends_with("EIO"), "text={text}");
+    }
+
+    #[test]
+    fn alsa_prepare_shared_failed_text_substitutes_cause() {
+        assert_eq!(
+            alsa_prepare_shared_failed_text("EIO"),
+            "не удалось выполнить prepare() над Shared PCM после hw_params/sw_params (§6.7): EIO"
+        );
+    }
+
+    #[test]
+    fn alsa_spawn_output_thread_failed_text_substitutes_cause() {
+        assert_eq!(
+            alsa_spawn_output_thread_failed_text("os error 11"),
+            "не удалось создать поток apap-alsa-out: os error 11"
+        );
+    }
+
+    #[test]
+    fn alsa_format_unsupported_exclusive_text_substitutes_sample() {
+        assert_eq!(alsa_format_unsupported_exclusive_text("F32"), "формат F32 не поддерживается Exclusive (ТЗ-112)");
+    }
+
+    #[test]
+    fn alsa_format_not_in_map_text_substitutes_sample() {
+        assert_eq!(alsa_format_not_in_map_text("F32"), "формат F32 не найден в FORMAT_MAP");
+    }
+
+    #[test]
+    fn alsa_format_width_negative_text_substitutes_sample() {
+        assert_eq!(alsa_format_width_negative_text("S16LE"), "ширина формата S16LE отрицательна (§6.7)");
+    }
+
+    #[test]
+    fn alsa_shared_pcm_open_failed_text_substitutes_both() {
+        assert_eq!(
+            alsa_shared_pcm_open_failed_text("pipewire:NODE=foo", "EBUSY"),
+            "не удалось открыть Shared PCM pipewire:NODE=foo: EBUSY"
+        );
     }
 }
