@@ -318,6 +318,64 @@ pub fn test_hint_incomplete(why: IncompleteWhy) -> String {
 /// ОВ-14, ОВ-20, T1.0-B2).
 pub const TEST_HINT_ENABLED: &str = "Проверить bit-perfect тракт";
 
+/// Пояснение строки диалога настроек режима, зафиксированной режимом:
+/// «<значение> — задано режимом» (T1.0-B2; перенесено из
+/// `src/app/mode_dialog.rs::build_row`, §6.27, ТЗ-95).
+pub fn mode_dialog_fixed_by_mode(shown: &str) -> String {
+    format_named("{shown} — задано режимом", &[("shown", shown)])
+}
+
+/// Пояснение/значение строки или пункта списка диалога настроек режима, пока
+/// не реализованного (T1.0-B2; перенесено из `src/app/mode_dialog.rs`,
+/// И-Т19, ТЗ-130, §6.27).
+pub const MODE_DIALOG_NOT_IMPLEMENTED: &str = "пока не реализовано";
+
+/// Пояснение переключателя «ЦАП понимает DoP» без выбранного устройства
+/// режима (T1.0-B2; перенесено из `src/app/mode_dialog.rs::row_device_dop`,
+/// ADR-25, ТЗ-145).
+pub const MODE_DIALOG_DEVICE_NOT_SELECTED: &str = "устройство не выбрано";
+
+/// Подписи пунктов списка «Фильтр SRC» в порядке отображения (T1.0-B2;
+/// перенесено из `src/app/mode_dialog.rs::SRC_FILTER_OPTIONS`, ТЗ-94,
+/// ТЗ-130, §6.27); два последних — синтетические `NotImplemented`-пункты
+/// минимальной фазы, непредставимые в `SrcFilter` (И-Т19).
+pub const SRC_FILTER_STEEP: &str = "Крутой";
+pub const SRC_FILTER_SLOW: &str = "Медленный";
+pub const SRC_FILTER_VERY_SLOW: &str = "Очень медленный";
+pub const SRC_FILTER_STEEP_SHORT_LATENCY: &str = "Крутой, короткая задержка";
+pub const SRC_FILTER_SLOW_SHORT_LATENCY: &str = "Медленный, короткая задержка";
+
+/// Подписи пунктов списка «Буфер устройства» в порядке отображения
+/// (T1.0-B2; перенесено из `src/app/mode_dialog.rs::DEVICE_BUFFER_OPTIONS`
+/// / `device_buffer_label`, ТЗ-94, ТЗ-131, §6.27).
+pub const DEVICE_BUFFER_20MS: &str = "20 мс";
+pub const DEVICE_BUFFER_40MS: &str = "40 мс";
+pub const DEVICE_BUFFER_100MS: &str = "100 мс";
+pub const DEVICE_BUFFER_200MS: &str = "200 мс";
+pub const DEVICE_BUFFER_400MS: &str = "400 мс";
+
+/// Подписи пунктов списка «Фильтр DSD → PCM» в порядке отображения
+/// (T1.0-B2; перенесено из `src/app/mode_dialog.rs::DSD_FILTER_OPTIONS`,
+/// ТЗ-94, ТЗ-128, §6.27).
+pub const DSD_FILTER_24K: &str = "24 кГц";
+pub const DSD_FILTER_30K: &str = "30 кГц";
+pub const DSD_FILTER_50K: &str = "50 кГц";
+
+/// Подписи пунктов списка «Политика несовпадения частоты» в порядке
+/// отображения (T1.0-B2; перенесено из
+/// `src/app/mode_dialog.rs::RATE_FALLBACK_OPTIONS`, ТЗ-94, §6.27).
+pub const RATE_FALLBACK_SAME_FAMILY: &str = "Та же семья частот";
+pub const RATE_FALLBACK_NEAREST: &str = "Ближайшая";
+pub const RATE_FALLBACK_NO_DOWNSAMPLE: &str = "Без понижения";
+
+/// Подписи пунктов списка «DSD выше возможностей ЦАП» в порядке отображения
+/// (T1.0-B2; перенесено из
+/// `src/app/mode_dialog.rs::DSD_ABOVE_DAC_OPTIONS`, ТЗ-34, ТЗ-94, §6.27);
+/// второй — синтетический `NotImplemented`-пункт, непредставимый в
+/// `DsdAboveDac`.
+pub const DSD_ABOVE_DAC_CONVERT_TO_PCM: &str = "Преобразовать в PCM";
+pub const DSD_ABOVE_DAC_REMODULATION: &str = "Ремодуляция";
+
 /// Ошибка валидации поля `freq_min` вкладки Visualization → Spectrum
 /// (§9.3, T1.0-B2); `freq_min`/`freq_max`/`bands` — имена ключей настроек,
 /// не переводятся (AGENTS.md).
@@ -591,5 +649,10 @@ mod tests {
     #[test]
     fn test_hint_incomplete_names_reason() {
         assert_eq!(test_hint_incomplete(IncompleteWhy::Seek), "Последний тест не завершён: перемотка");
+    }
+
+    #[test]
+    fn mode_dialog_fixed_by_mode_substitutes_shown_value() {
+        assert_eq!(mode_dialog_fixed_by_mode("Exclusive"), "Exclusive — задано режимом");
     }
 }

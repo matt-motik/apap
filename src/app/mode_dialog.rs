@@ -19,6 +19,7 @@
 //! `DialogRow` в одну строку панели, подключение сделано в `mod.rs`
 //! (§6.18, §6.27, ТЗ-41, ТЗ-94, ОВС-14).
 
+use music_player_rs::i18n;
 use music_player_rs::settings::params::{param_label, Availability, ParamDescriptor, ParamId, PARAMS};
 use music_player_rs::settings::playback::{
     buffer_floor_blocker, buffer_floor_ms, buffers_allowed, BufferMs, DeviceBuffer, DeviceOpts, Dither, DsdAboveDac,
@@ -140,7 +141,7 @@ fn build_row(descriptor: &ParamDescriptor, mode: ModeKind, settings: &ModeSettin
             label,
             kind: RowKind::Info { text: shown.to_string() },
             enabled: false,
-            note: format!("{shown} — задано режимом"),
+            note: i18n::mode_dialog_fixed_by_mode(shown),
         },
         Availability::Unavailable { why } => DialogRow {
             param: descriptor.id,
@@ -152,9 +153,9 @@ fn build_row(descriptor: &ParamDescriptor, mode: ModeKind, settings: &ModeSettin
         Availability::NotImplemented => DialogRow {
             param: descriptor.id,
             label,
-            kind: RowKind::Info { text: "пока не реализовано".to_string() },
+            kind: RowKind::Info { text: i18n::MODE_DIALOG_NOT_IMPLEMENTED.to_string() },
             enabled: false,
-            note: "пока не реализовано".to_string(),
+            note: i18n::MODE_DIALOG_NOT_IMPLEMENTED.to_string(),
         },
     }
 }
@@ -191,11 +192,11 @@ fn build_configurable_row(id: ParamId, mode: ModeKind, settings: &ModeSettings, 
 /// ТЗ-130, §6.27). `None` — синтетический `NotImplemented`-пункт минимальной
 /// фазы, непредставимый в `SrcFilter` (И-Т19).
 const SRC_FILTER_OPTIONS: &[(&str, Option<SrcFilter>)] = &[
-    ("Крутой", Some(SrcFilter::Steep)),
-    ("Медленный", Some(SrcFilter::Slow)),
-    ("Очень медленный", Some(SrcFilter::VerySlow)),
-    ("Крутой, короткая задержка", None),
-    ("Медленный, короткая задержка", None),
+    (i18n::SRC_FILTER_STEEP, Some(SrcFilter::Steep)),
+    (i18n::SRC_FILTER_SLOW, Some(SrcFilter::Slow)),
+    (i18n::SRC_FILTER_VERY_SLOW, Some(SrcFilter::VerySlow)),
+    (i18n::SRC_FILTER_STEEP_SHORT_LATENCY, None),
+    (i18n::SRC_FILTER_SLOW_SHORT_LATENCY, None),
 ];
 
 /// Список «Фильтр SRC» с двумя синтетическими `NotImplemented`-пунктами
@@ -213,7 +214,7 @@ fn row_src_filter(mode: ModeKind, settings: &ModeSettings, label: &'static str) 
         .map(|(opt_label, variant)| RowOption {
             label: opt_label,
             enabled: variant.is_some(),
-            hint: if variant.is_some() { String::new() } else { "пока не реализовано".to_string() },
+            hint: if variant.is_some() { String::new() } else { i18n::MODE_DIALOG_NOT_IMPLEMENTED.to_string() },
         })
         .collect();
     let selected = SRC_FILTER_OPTIONS.iter().position(|(_, v)| *v == Some(current)).unwrap_or(0);
@@ -265,19 +266,22 @@ fn row_device_buffer(mode: ModeKind, settings: &ModeSettings, label: &'static st
 
 fn device_buffer_label(d: DeviceBuffer) -> &'static str {
     match d {
-        DeviceBuffer::Ms20 => "20 мс",
-        DeviceBuffer::Ms40 => "40 мс",
-        DeviceBuffer::Ms100 => "100 мс",
-        DeviceBuffer::Ms200 => "200 мс",
-        DeviceBuffer::Ms400 => "400 мс",
+        DeviceBuffer::Ms20 => i18n::DEVICE_BUFFER_20MS,
+        DeviceBuffer::Ms40 => i18n::DEVICE_BUFFER_40MS,
+        DeviceBuffer::Ms100 => i18n::DEVICE_BUFFER_100MS,
+        DeviceBuffer::Ms200 => i18n::DEVICE_BUFFER_200MS,
+        DeviceBuffer::Ms400 => i18n::DEVICE_BUFFER_400MS,
     }
 }
 
 /// Пункты списка «Фильтр DSD → PCM» в порядке отображения: единственный
 /// источник соответствия индекс ↔ `DsdFilter` для `build_rows` и
 /// `apply_edit` (ТЗ-94, ТЗ-128, §6.27).
-const DSD_FILTER_OPTIONS: &[(&str, DsdFilter)] =
-    &[("24 кГц", DsdFilter::K24), ("30 кГц", DsdFilter::K30), ("50 кГц", DsdFilter::K50)];
+const DSD_FILTER_OPTIONS: &[(&str, DsdFilter)] = &[
+    (i18n::DSD_FILTER_24K, DsdFilter::K24),
+    (i18n::DSD_FILTER_30K, DsdFilter::K30),
+    (i18n::DSD_FILTER_50K, DsdFilter::K50),
+];
 
 /// Список «Фильтр DSD → PCM» (ТЗ-128).
 fn row_dsd_filter(mode: ModeKind, settings: &ModeSettings, label: &'static str) -> DialogRow {
@@ -364,9 +368,9 @@ fn row_buffer(mode: ModeKind, settings: &ModeSettings, label: &'static str) -> D
 /// единственный источник соответствия индекс ↔ `RateFallbackRule` для
 /// `build_rows` и `apply_edit` (ТЗ-94, §6.27).
 const RATE_FALLBACK_OPTIONS: &[(&str, RateFallbackRule)] = &[
-    ("Та же семья частот", RateFallbackRule::SameFamily),
-    ("Ближайшая", RateFallbackRule::Nearest),
-    ("Без понижения", RateFallbackRule::NoDownsample),
+    (i18n::RATE_FALLBACK_SAME_FAMILY, RateFallbackRule::SameFamily),
+    (i18n::RATE_FALLBACK_NEAREST, RateFallbackRule::Nearest),
+    (i18n::RATE_FALLBACK_NO_DOWNSAMPLE, RateFallbackRule::NoDownsample),
 ];
 
 /// Список «Политика несовпадения частоты» (только `Optimal`).
@@ -393,8 +397,10 @@ fn row_rate_fallback(mode: ModeKind, settings: &ModeSettings, label: &'static st
 /// единственный источник соответствия индекс ↔ `DsdAboveDac` для
 /// `build_rows` и `apply_edit` (ТЗ-34, ТЗ-94, §6.27). `None` — синтетический
 /// `NotImplemented`-пункт «Ремодуляция», непредставимый в `DsdAboveDac`.
-const DSD_ABOVE_DAC_OPTIONS: &[(&str, Option<DsdAboveDac>)] =
-    &[("Преобразовать в PCM", Some(DsdAboveDac::ConvertToPcm)), ("Ремодуляция", None)];
+const DSD_ABOVE_DAC_OPTIONS: &[(&str, Option<DsdAboveDac>)] = &[
+    (i18n::DSD_ABOVE_DAC_CONVERT_TO_PCM, Some(DsdAboveDac::ConvertToPcm)),
+    (i18n::DSD_ABOVE_DAC_REMODULATION, None),
+];
 
 /// Список «DSD выше возможностей ЦАП» с синтетическим `NotImplemented`-пунктом
 /// «Ремодуляция», непредставимым в `DsdAboveDac` (ТЗ-34).
@@ -404,7 +410,7 @@ fn row_dsd_above_dac(id: ParamId, label: &'static str) -> DialogRow {
         .map(|(opt_label, variant)| RowOption {
             label: opt_label,
             enabled: variant.is_some(),
-            hint: if variant.is_some() { String::new() } else { "пока не реализовано".to_string() },
+            hint: if variant.is_some() { String::new() } else { i18n::MODE_DIALOG_NOT_IMPLEMENTED.to_string() },
         })
         .collect();
     DialogRow { param: id, label, kind: RowKind::List { options, selected: 0 }, enabled: true, note: String::new() }
@@ -426,7 +432,7 @@ fn row_device_dop(mode: ModeKind, settings: &ModeSettings, label: &'static str) 
                 label,
                 kind: RowKind::Toggle { on: true },
                 enabled: false,
-                note: "устройство не выбрано".to_string(),
+                note: i18n::MODE_DIALOG_DEVICE_NOT_SELECTED.to_string(),
             };
         }
     };
@@ -443,7 +449,7 @@ fn row_device_dop(mode: ModeKind, settings: &ModeSettings, label: &'static str) 
             label,
             kind: RowKind::Toggle { on: true },
             enabled: false,
-            note: "устройство не выбрано".to_string(),
+            note: i18n::MODE_DIALOG_DEVICE_NOT_SELECTED.to_string(),
         },
     }
 }
@@ -685,7 +691,7 @@ mod tests {
         let rows = build_rows(ModeKind::Optimal, &settings);
         let row = rows.iter().find(|r| r.param == ParamId::DeviceBuffer).expect("DeviceBuffer row must exist");
         let RowKind::List { options, .. } = &row.kind else { panic!("expected List") };
-        let ms400 = options.iter().find(|o| o.label == "400 мс").expect("400 мс option must exist");
+        let ms400 = options.iter().find(|o| o.label == i18n::DEVICE_BUFFER_400MS).expect("400 мс option must exist");
         assert!(!ms400.enabled);
         assert!(ms400.hint.contains("буфер плеера"));
     }
@@ -698,10 +704,10 @@ mod tests {
         let RowKind::List { options, .. } = &row.kind else { panic!("expected List") };
         let short_latency = options
             .iter()
-            .find(|o| o.label == "Крутой, короткая задержка")
+            .find(|o| o.label == i18n::SRC_FILTER_STEEP_SHORT_LATENCY)
             .expect("short-latency option must exist");
         assert!(!short_latency.enabled);
-        assert_eq!(short_latency.hint, "пока не реализовано");
+        assert_eq!(short_latency.hint, i18n::MODE_DIALOG_NOT_IMPLEMENTED);
     }
 
     #[test]
@@ -820,9 +826,9 @@ mod tests {
         let short_latency = param_row
             .options
             .iter()
-            .find(|o| o.starts_with("Крутой, короткая задержка"))
+            .find(|o| o.starts_with(i18n::SRC_FILTER_STEEP_SHORT_LATENCY))
             .expect("short-latency option must exist");
-        assert!(short_latency.contains("пока не реализовано"));
+        assert!(short_latency.contains(i18n::MODE_DIALOG_NOT_IMPLEMENTED));
     }
 
     /// ТЗ-131, §6.27: буфер устройства `Ms100` поднимает нижнюю границу
@@ -912,7 +918,7 @@ mod tests {
         let row = rows.iter().find(|r| r.param == ParamId::DeviceDop).expect("DeviceDop row must exist");
 
         assert!(!row.enabled);
-        assert_eq!(row.note, "устройство не выбрано");
+        assert_eq!(row.note, i18n::MODE_DIALOG_DEVICE_NOT_SELECTED);
     }
 
     /// ADR-25, ТЗ-145: правка переключателя пишет/удаляет запись

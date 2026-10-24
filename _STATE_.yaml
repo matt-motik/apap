@@ -173,7 +173,7 @@ steps:
     done: true
   - id: 30
     description: "src/app/mode_dialog.rs — перенос пользовательских строк в src/i18n/."
-    done: false
+    done: true
   - id: 31
     description: >
       src/app/device_info_view.rs + src/app/path_view.rs — перенос уже русских пользовательских
@@ -197,8 +197,8 @@ steps:
       check зелёные; готовность к closing.md (ручная проверка пользователем — обрезка длинных
       русских подписей на всех экранах).
     done: false
-current_step: 30
-next_action: "src/app/mode_dialog.rs — перенос пользовательских строк в src/i18n/."
+current_step: 31
+next_action: "src/app/device_info_view.rs + src/app/path_view.rs — перенос уже русских пользовательских строк в src/i18n/ дословно (решение: все строки Rust в одном модуле); текст, закреплённый спекой, без изменений."
 fail_counter: 0
 fail_counter_max: 3
 failed_attempts: []
