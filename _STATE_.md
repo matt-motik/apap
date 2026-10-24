@@ -20,14 +20,14 @@
 - [x] Шаг 3: src/app/ui_manager.rs: 2 вызова strip_suffix(music_player_rs::audio::output::SERVER_NODE_SUFFIX) → music_player_rs::i18n::audio::SERVER_NODE_SUFFIX; обновить doc-комментарий find_device_index_in, цитирующий старый английский текст суффикса. Проверка: cargo check
 - [x] Шаг 4: src/app/mod.rs: тест find_device_index_in_strips_server_suffix — путь константы music_player_rs::i18n::audio::SERVER_NODE_SUFFIX. Проверка: cargo test --lib app::mod::tests::find_device_index_in_strips_server_suffix
 - [x] Шаг 5: src/audio/output.rs: убрать временный мост (pub use .. SERVER_NODE_SUFFIX) — больше не используется внешними вызывающими после шагов 3-4. Проверка: cargo check
-- [>] **Шаг 6: src/playlist/mod.rs: sort_rows_text() — ColumnId::Bitrate через i18n::format_kbps(track.bitrate), ColumnId::SampleRate через i18n::format_khz(sample_rate/1000.0) вместо литералов "{} kbps"/"{} Hz". Проверка: cargo check**
-- [ ] Шаг 7: src/app/mod.rs: тест sort_rows_text_formats_columns — ожидания Bitrate/SampleRate на русский вывод format_kbps/format_khz ("1411 кбит/с", "96 кГц" и т. п.). Проверка: cargo test --lib app::mod::tests::sort_rows_text_formats_columns
+- [x] Шаг 6: src/playlist/mod.rs: sort_rows_text() — ColumnId::Bitrate через i18n::format_kbps(track.bitrate), ColumnId::SampleRate через i18n::format_khz(sample_rate/1000.0) вместо литералов "{} kbps"/"{} Hz". Проверка: cargo check
+- [>] **Шаг 7: src/app/mod.rs: тест sort_rows_text_formats_columns — ожидания Bitrate/SampleRate на русский вывод format_kbps/format_khz ("1411 кбит/с", "96 кГц" и т. п.). Проверка: cargo test --lib app::mod::tests::sort_rows_text_formats_columns**
 - [ ] Шаг 8: ЧЕКПОИНТ: полный cargo test + cargo clippy без новых предупреждений по файлам вайтлиста перед закрытием T1.0-B6
 
 Легенда: [x] сделано · [>] текущий шаг · [ ] не начато
 
-- **Текущий шаг (current_step):** Шаг 6
-- **Следующий ход:** src/playlist/mod.rs: sort_rows_text() через i18n::format_kbps/format_khz
+- **Текущий шаг (current_step):** Шаг 7
+- **Следующий ход:** src/app/mod.rs: обновить ожидания sort_rows_text_formats_columns на русский вывод
 - **Счетчик безуспешных компиляций:** 0/3
 - **Состояние:** in_progress
 

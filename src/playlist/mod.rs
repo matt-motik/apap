@@ -251,7 +251,7 @@ pub fn sort_rows_text(track: &Track, col: ColumnId) -> String {
         ColumnId::Format => track.format.clone(),
         ColumnId::Bitrate => {
             if track.bitrate > 0 {
-                format!("{} kbps", track.bitrate)
+                crate::i18n::format_kbps(track.bitrate)
             } else {
                 String::new()
             }
@@ -259,7 +259,7 @@ pub fn sort_rows_text(track: &Track, col: ColumnId) -> String {
         ColumnId::BitDepth => track.bit_depth.clone(),
         ColumnId::SampleRate => {
             if track.sample_rate > 0 {
-                format!("{} Hz", track.sample_rate)
+                crate::i18n::format_khz(f64::from(track.sample_rate) / 1000.0)
             } else {
                 String::new()
             }
