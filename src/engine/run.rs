@@ -611,6 +611,11 @@ impl Engine {
                 };
                 self.emit_dynamics_if_changed();
             }
+            // Заглушка до шага 4 (AM1.0-B38): эмит `EngineEvent::
+            // DeviceCapsProbed` по исходу (успех/`Busy`/ошибка) появится
+            // там — здесь сообщение пока отбрасывается, чтобы
+            // `InternalMsg` оставался исчерпывающим.
+            InternalMsg::ProbeDone { device: _, result: _ } => {}
         }
     }
 
@@ -1434,6 +1439,11 @@ impl Engine {
             EngineCmd::RefreshDevices => {
                 self.refresh_devices(false);
             }
+            // Заглушка до шага 3 (AM1.0-B38): защита от опроса активного/
+            // захваченного устройства, дебаунс и запуск `probe_caps` через
+            // `self.deps.spawner` появятся там — здесь команда пока
+            // игнорируется, чтобы `EngineCmd` оставался исчерпывающим.
+            EngineCmd::ProbeDeviceCaps { device: _ } => {}
             EngineCmd::SetVizTap(on) => {
                 self.viz_tap_active = on;
                 self.player.set_viz_tap_active(on);

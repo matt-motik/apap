@@ -368,6 +368,11 @@ impl UiAudioState {
                 self.hw_caps.insert(device, caps);
                 Applied::None
             }
+            // Заглушка до шага 7 (AM1.0-B38): различение «известно»/«занято»
+            // в `hw_caps` и правило вытеснения появятся там — здесь исход
+            // опроса пока отбрасывается, чтобы `EngineEvent` оставался
+            // исчерпывающим.
+            EngineEvent::DeviceCapsProbed { device: _, result: _ } => Applied::None,
             // Автовыбор сохраняется приложением в настройках (ТЗ-143,
             // ТЗ-134, ADR-24, шаг 38) — одним снимком `settings.toml`, без
             // `EngineCmd::SetModeSettings` (у движка уже есть это значение,

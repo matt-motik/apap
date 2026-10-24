@@ -7,7 +7,7 @@ use std::path::Path;
 use std::sync::Arc;
 
 use crate::audio::backend::catalog::DeviceCatalog;
-use crate::audio::backend::exclusive::DeviceClaim;
+use crate::audio::backend::exclusive::{DeviceClaim, ProbeError};
 use crate::audio::backend::{BackendError, DeviceCaps, HwDeviceId};
 use crate::audio::decoder::TrackInfo;
 use crate::audio::error::{CaptureFailure, FileError, OpenError, Reaction, StreamFault};
@@ -72,6 +72,11 @@ pub enum EngineCmd {
     /// Выбор устройства вывода; позиция/трек переоткрытия — у движка.
     SetDevice { id: String },
     RefreshDevices,
+    /// Фоновый опрос возможностей `device` без резервирования (§2.3,
+    /// AM1.0-B38): движок защищает от опроса активного/захваченного
+    /// устройства и от повторного задания для того же устройства —
+    /// обработка в `run.rs` (следующий шаг), не здесь.
+    ProbeDeviceCaps { device: HwDeviceId },
     /// Включение tap визуализатора (§2.8).
     SetVizTap(bool),
     /// Мост С3: передача producer'а tap в движок (сейчас `Player::set_viz_tap`).
@@ -107,6 +112,9 @@ impl std::fmt::Debug for EngineCmd {
             EngineCmd::Lock(input) => f.debug_tuple("Lock").field(input).finish(),
             EngineCmd::SetDevice { id } => f.debug_struct("SetDevice").field("id", id).finish(),
             EngineCmd::RefreshDevices => write!(f, "RefreshDevices"),
+            EngineCmd::ProbeDeviceCaps { device } => {
+                f.debug_struct("ProbeDeviceCaps").field("device", device).finish()
+            }
             EngineCmd::SetVizTap(on) => f.debug_tuple("SetVizTap").field(on).finish(),
             EngineCmd::AttachVizTap(producer) => {
                 f.debug_tuple("AttachVizTap").field(&producer.as_ref().map(|_| "<producer>")).finish()
@@ -206,6 +214,12 @@ pub enum EngineEvent {
     /// «Аудио» диалога настроек (вкладка показывает возможности устройства,
     /// выбранного в редактируемом режиме, а не только фактически играющего).
     DeviceCapsCached { device: HwDeviceId, caps: Arc<DeviceCaps> },
+    /// Исход фонового опроса `EngineCmd::ProbeDeviceCaps` (§2.3, AM1.0-B38):
+    /// `Ok` — возможности устройства (как у `DeviceCapsCached`, но снятые
+    /// без открытия/резервирования), `Err(ProbeError::Busy)` — устройство
+    /// занято другим приложением, `Err(ProbeError::Driver(_))` — прочий
+    /// отказ ALSA при опросе. Обработчик в `run.rs` — следующий шаг.
+    DeviceCapsProbed { device: HwDeviceId, result: Result<Arc<DeviceCaps>, ProbeError> },
     /// Автовыбор устройства режима (ТЗ-143, ADR-24); приложение сохраняет его в настройках.
     DeviceAutoSelected { mode: ModeKind, device: HwDeviceId },
     Notice(Notice),
@@ -224,6 +238,9 @@ pub enum InternalMsg {
     ClaimDone { attempt: u64, result: Result<DeviceClaim, CaptureFailure> },
     /// Итог RT-приоритета (§6.8): на поведение движка не влияет.
     RtPriority { session: u64, granted: Option<u32> },
+    /// Итог `ExclusiveBackend::probe_caps` — поступает служебным потоком
+    /// фонового опроса (§2.3, AM1.0-B38), без резервирования устройства.
+    ProbeDone { device: HwDeviceId, result: Result<DeviceCaps, ProbeError> },
 }
 
 impl std::fmt::Debug for InternalMsg {
@@ -241,6 +258,11 @@ impl std::fmt::Debug for InternalMsg {
                 .debug_struct("RtPriority")
                 .field("session", session)
                 .field("granted", granted)
+                .finish(),
+            InternalMsg::ProbeDone { device, result } => f
+                .debug_struct("ProbeDone")
+                .field("device", device)
+                .field("result", result)
                 .finish(),
         }
     }
