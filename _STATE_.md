@@ -45,8 +45,8 @@
 - [x] Шаг 6: ЧЕКПОИНТ: cargo test, cargo clippy, tools/check_rt_imports.py, tools/traceability_tool.py check — все зелёные
 - [x] Шаг 7: src/app/mod.rs (30 строк: title/body сообщений — «Аудио-движок не запущен», «Режим недоступен», «Тема не загружена», «Устройство вывода потеряно» и др., кнопки «Исправить»/«Открыть настройку», статус-бар «Пропущен трек…», «Все треки пропущены», тексты ошибок OpenError) → src/i18n/. Проверка: cargo check без ошибок
 - [x] Шаг 8: src/audio/backend/alsa.rs (13 строк) + src/audio/backend/shared.rs (1 строка) — тексты StartError/ConfigureError при открытии ALSA Exclusive/Shared PCM, доходят до пользователя через OpenError → src/i18n/errors.rs. Проверка: cargo check без ошибок
-- [>] **Шаг 9: ЧЕКПОИНТ: cargo test, cargo clippy, tools/check_rt_imports.py, tools/traceability_tool.py check — все зелёные**
-- [ ] Шаг 10: src/audio/path/transform.rs (7 строк — подписи шагов пути сигнала: «Моно → 2 канала…», «Громкость N %», фильтры SRC «Крутой»/«Медленный»/«Очень медленный») + src/audio/dsd.rs (1 строка — тег «не DSD-контейнер» в FileError::Unsupported, подставляется в сообщение «неподдерживаемый формат: {codec}») → src/i18n/. Проверка: cargo check без ошибок
+- [x] Шаг 9: ЧЕКПОИНТ: cargo test, cargo clippy, tools/check_rt_imports.py, tools/traceability_tool.py check — все зелёные
+- [>] **Шаг 10: src/audio/path/transform.rs (7 строк — подписи шагов пути сигнала: «Моно → 2 канала…», «Громкость N %», фильтры SRC «Крутой»/«Медленный»/«Очень медленный») + src/audio/dsd.rs (1 строка — тег «не DSD-контейнер» в FileError::Unsupported, подставляется в сообщение «неподдерживаемый формат: {codec}») → src/i18n/. Проверка: cargo check без ошибок**
 - [ ] Шаг 11: src/app/playback_manager.rs (5 строк — «Захват устройства…», «Воспроизведение: {artist}—{title}», «Замок открыт» и тело, «Не удалось воспроизвести трек») + src/playlist/load.rs (4 строки — os_text «невалидный UTF-8», «строка N: не абсолютный путь» и др.) → src/i18n/. Проверка: cargo check без ошибок
 - [ ] Шаг 12: ЧЕКПОИНТ: cargo test, cargo clippy, tools/check_rt_imports.py, tools/traceability_tool.py check — все зелёные
 - [ ] Шаг 13: src/platform/fs/mod.rs (4 строки — WriteErrorClass::text(), «нет места на диске» и др., доходит до пользователя через core/messages.rs::write_failed) + src/engine/exclusive_path.rs (4 строки — Display ExclusiveOpenReason, деталь отказа захвата) → src/i18n/. Проверка: cargo check без ошибок
@@ -60,8 +60,8 @@
 
 Легенда: [x] сделано · [>] текущий шаг · [ ] не начато
 
-- **Текущий шаг (current_step):** Шаг 9
-- **Следующий ход:** ЧЕКПОИНТ: cargo test, cargo clippy, tools/check_rt_imports.py, tools/traceability_tool.py check
+- **Текущий шаг (current_step):** Шаг 10
+- **Следующий ход:** Шаг 10: src/audio/path/transform.rs + src/audio/dsd.rs (подписи шагов пути сигнала, тег «не DSD-контейнер») → src/i18n/
 - **Счетчик безуспешных компиляций:** 0/3
 - **Состояние:** in_progress
 
