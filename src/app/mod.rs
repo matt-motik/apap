@@ -14,7 +14,13 @@ use music_player_rs::audio::analyzer::TAP_CAPACITY;
 use music_player_rs::audio::backend::{BackendError, HwDeviceId, SharedDeviceId};
 use music_player_rs::audio::decoder::TrackInfo;
 use music_player_rs::audio::error::{CaptureFailure, EngineFault, FileError, OpenError, Reaction, StreamFault};
-use music_player_rs::audio::output::{default_device_name, DeviceInfo};
+use music_player_rs::audio::output::DeviceInfo;
+// `default_device_name` — только для не-Linux ветки Совместимого режима
+// (`apply_cpal_compatible_device_listing`, `ui_manager.rs`): на Linux список
+// строится из `DeviceCatalog.shared` (AM1.0-B37, шаг 9), импорт без cfg был
+// бы неиспользуемым.
+#[cfg(not(target_os = "linux"))]
+use music_player_rs::audio::output::default_device_name;
 use music_player_rs::audio::path::report::PathReport;
 use music_player_rs::audio::visualizer::{
     FreqScale, LevelScale, VisualizationMode, VisualizerConfig,

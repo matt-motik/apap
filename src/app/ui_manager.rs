@@ -7,6 +7,9 @@ use std::collections::HashMap;
 
 use music_player_rs::audio::backend::catalog::DeviceCatalog;
 use music_player_rs::audio::backend::DeviceCaps;
+// Только для `audio_filter_matches` (Windows/macOS-ветка Совместимого
+// режима, не используется на Linux — AM1.0-B37, шаг 9).
+#[cfg(any(not(target_os = "linux"), test))]
 use music_player_rs::audio::output::DeviceCategory;
 use music_player_rs::audio::path::OsStage;
 use music_player_rs::persist::state_file::{
@@ -350,6 +353,30 @@ impl MusicApp {
             self.apply_hw_device_listing(mode);
             return;
         }
+        // Совместимый на Linux — список из каталога движка
+        // (`DeviceCatalog.shared`, pw-dump): «Системное по умолчанию
+        // (PipeWire)» + по одной записи на узел Audio/Sink (ADR-07
+        // «Уточнение», AM1.0-B37, шаг 9). На Windows/macOS своего per-sink
+        // перечисления через pw-dump нет — остаётся прежний путь через
+        // отдельное cpal-перечисление (`audio_device_infos`).
+        #[cfg(target_os = "linux")]
+        {
+            self.apply_shared_device_listing();
+        }
+        #[cfg(not(target_os = "linux"))]
+        {
+            self.apply_cpal_compatible_device_listing(mode);
+        }
+    }
+
+    /// Совместимый режим на Windows/macOS: список из отдельного
+    /// cpal-перечисления (`sync_audio_devices`/`drain_audio_devices`), без
+    /// per-sink узлов pw-dump (их на этих ОС нет, AM1.0-B37, шаг 9).
+    /// Выбор — по id/метке через `find_device_index_in` (текстовое
+    /// сопоставление оставлено для этой ветки как было; на Linux —
+    /// `apply_shared_device_listing`, только по id).
+    #[cfg(not(target_os = "linux"))]
+    fn apply_cpal_compatible_device_listing(&mut self, mode: ModeKind) {
         // hw-ветка перезаписывает `audio_devices_pairs` парами каталога;
         // при возврате к Совместимому восстанавливаем пары cpal, иначе
         // `resolve_device_label` искал бы метку в hw-списке (ADR-24, ТЗ-126).
@@ -448,6 +475,60 @@ impl MusicApp {
 
         let (pairs, selected) = match self.audio().devices() {
             Some(catalog) => hw_device_pairs_and_selected(catalog, saved_ref),
+            None => (Vec::new(), None),
+        };
+        self.audio_devices_pairs = pairs;
+
+        let mut model: Vec<SharedString> =
+            Vec::with_capacity(self.audio_devices_pairs.len() + 1);
+        let sel: i32 = if self.audio_devices_pairs.is_empty() {
+            model.push("(нет устройств \u{2014} нажмите «Обновить»)".into());
+            0
+        } else {
+            let idx = selected.unwrap_or(0);
+            if selected.is_none() {
+                model.push("(выберите устройство)".into());
+            }
+            model.extend(
+                self.audio_devices_pairs
+                    .iter()
+                    .map(|(_, label)| SharedString::from(label.as_str())),
+            );
+            i32::try_from(idx).unwrap_or(0)
+        };
+
+        if let Some(ui) = self.try_ui() {
+            ui.set_settings_device_idx(sel);
+            ui.set_settings_devices(ModelRc::from(model.as_slice()));
+        }
+    }
+
+    /// Список и выбор устройства вкладки Audio для Совместимого режима на
+    /// Linux (ADR-07 «Уточнение», AM1.0-B37, шаг 9): источник —
+    /// `DeviceCatalog.shared` каталога движка (`self.audio().devices()`,
+    /// заполняется `CpalSharedBackend::enumerate_job`/`pw-dump`, не
+    /// отдельное cpal-перечисление `audio_device_infos`). Порядок —
+    /// порядок `catalog.shared` без пересортировки: «Системное по
+    /// умолчанию (PipeWire)» первой записью (агрегированный хост-выход,
+    /// см. `CpalHost::devices`/`collapse_to_system_default`), затем по
+    /// одной записи на каждый узел `pw-dump`, в том порядке, в каком он их
+    /// вернул (`shared.rs::CpalSharedBackend::enumerate`/`enumerate_job`).
+    /// Выбор — только по сохранённому id (`shared_device_pairs_and_selected`),
+    /// без текстового сопоставления по метке/`active_device`
+    /// (в отличие от `find_device_index_in`, оставленного для
+    /// Windows/macOS): `SharedDeviceChoice::SystemDefault` (`saved == None`)
+    /// выбирает первую запись списка. Пары `(id, label)` сохраняются в
+    /// `audio_devices_pairs`, поэтому `resolve_device_label`/
+    /// `device_display_name` (а через них — бейдж устройства и строка
+    /// «Сейчас: ● …») автоматически показывают per-sink метку, когда открыт
+    /// такой узел.
+    #[cfg(target_os = "linux")]
+    fn apply_shared_device_listing(&mut self) {
+        let saved = self.dialog_cfg().playback.device(ModeKind::Compatible).map(str::to_owned);
+        let saved_ref = saved.as_deref();
+
+        let (pairs, selected) = match self.audio().devices() {
+            Some(catalog) => shared_device_pairs_and_selected(catalog, saved_ref),
             None => (Vec::new(), None),
         };
         self.audio_devices_pairs = pairs;
@@ -883,6 +964,10 @@ impl MusicApp {
 
 /// Проекция устройства через draft-фильтры вкладки Audio: hardware-only и
 /// stereo-only (ТЗ A3.0 §8.1). Чистая функция — тестируется без UI.
+/// Используется только Windows/macOS-веткой Совместимого режима
+/// (`apply_cpal_compatible_device_listing`) — на Linux список строится из
+/// `DeviceCatalog.shared` без этого фильтра (AM1.0-B37, шаг 9).
+#[cfg(any(not(target_os = "linux"), test))]
 pub(super) fn audio_filter_matches(
     device: &DeviceInfo,
     hardware_only: bool,
@@ -899,6 +984,10 @@ pub(super) fn audio_filter_matches(
 /// `want` is either a stable device id or a human-readable name; for server
 /// nodes the name matches the label with the
 /// [`music_player_rs::i18n::audio::SERVER_NODE_SUFFIX`] suffix stripped.
+/// Используется только Windows/macOS-веткой Совместимого режима — на
+/// Linux выбор идёт по id через `shared_device_pairs_and_selected`, без
+/// текстового сопоставления (AM1.0-B37, шаг 9).
+#[cfg(any(not(target_os = "linux"), test))]
 pub(super) fn find_device_index_in(pairs: &[(String, String)], want: &str) -> Option<usize> {
     pairs
         .iter()
@@ -954,6 +1043,43 @@ pub(super) fn hw_device_pairs_and_selected(
     (pairs, selected)
 }
 
+/// Пары `(id, label)` вкладки Audio для Совместимого режима на Linux из
+/// `DeviceCatalog.shared` (ADR-07 «Уточнение», AM1.0-B37, шаг 9), плюс
+/// индекс выбранного. В отличие от [`hw_device_pairs_and_selected`] и
+/// [`find_device_index_in`], выбор — только точным совпадением id
+/// (`SharedDeviceId`, уже включает префикс `pipewire:NODE=` для per-sink
+/// записей, см. `shared.rs::pw_sink_pcm_name`) — без сопоставления по
+/// метке и без разбора легаси-алиасов (это уже сделано при загрузке
+/// настроек, `migrate_legacy_compatible_device`/`migrate_missing_shared_node`,
+/// `playback_dto.rs`). `saved: None` (`SharedDeviceChoice::SystemDefault`)
+/// выбирает первую запись списка — она и есть «Системное по умолчанию
+/// (PipeWire)» (`CpalSharedBackend::enumerate`/`enumerate_job`,
+/// `shared.rs`, всегда первой). Порядок пар — порядок `catalog.shared`,
+/// без пересортировки (стабилен по построению: хост первым, затем узлы
+/// `pw-dump` в порядке его вывода).
+#[cfg(target_os = "linux")]
+pub(super) fn shared_device_pairs_and_selected(
+    catalog: &DeviceCatalog,
+    saved: Option<&str>,
+) -> (Vec<(String, String)>, Option<usize>) {
+    let pairs: Vec<(String, String)> = catalog
+        .shared
+        .iter()
+        .map(|dev| (dev.id.as_str().to_string(), dev.name.clone()))
+        .collect();
+
+    if pairs.is_empty() {
+        return (pairs, None);
+    }
+
+    let selected = match saved {
+        Some(want) => pairs.iter().position(|(id, _)| id == want),
+        None => Some(0),
+    };
+
+    (pairs, selected)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -1001,6 +1127,85 @@ mod tests {
             hw_device_pairs_and_selected(&cat, Some("hw:CARD=3,DEV=0"));
         assert_eq!(pairs.len(), 1);
         assert_eq!(sel, Some(0));
+    }
+
+    // ── AM1.0-B37, шаг 9: список Совместимого на Linux из `catalog.shared` ──
+
+    #[cfg(target_os = "linux")]
+    fn shared_catalog(devices: Vec<music_player_rs::audio::backend::SharedDeviceInfo>) -> DeviceCatalog {
+        DeviceCatalog { shared: devices, hw: Vec::new(), generation: 0 }
+    }
+
+    #[cfg(target_os = "linux")]
+    #[test]
+    fn shared_pairs_system_default_first_then_pw_sinks_in_order() {
+        use music_player_rs::audio::backend::shared::fake_device;
+
+        let cat = shared_catalog(vec![
+            fake_device("pipewire", "Системное по умолчанию (PipeWire)"),
+            fake_device("pipewire:NODE=alsa_output.usb-MOTU_M2-00.sink", "Motu M2 (USB Audio)"),
+            fake_device("pipewire:NODE=alsa_output.usb-Xonar-00.sink", "Asus Xonar (Multichannel)"),
+        ]);
+        let (pairs, sel) = shared_device_pairs_and_selected(&cat, None);
+        assert_eq!(
+            pairs,
+            vec![
+                ("pipewire".to_string(), "Системное по умолчанию (PipeWire)".to_string()),
+                (
+                    "pipewire:NODE=alsa_output.usb-MOTU_M2-00.sink".to_string(),
+                    "Motu M2 (USB Audio)".to_string()
+                ),
+                (
+                    "pipewire:NODE=alsa_output.usb-Xonar-00.sink".to_string(),
+                    "Asus Xonar (Multichannel)".to_string()
+                ),
+            ]
+        );
+        // `SharedDeviceChoice::SystemDefault` (`saved: None`) — первая запись.
+        assert_eq!(sel, Some(0));
+    }
+
+    #[cfg(target_os = "linux")]
+    #[test]
+    fn shared_pairs_select_pw_sink_by_exact_id_only() {
+        use music_player_rs::audio::backend::shared::fake_device;
+
+        let cat = shared_catalog(vec![
+            fake_device("pipewire", "Системное по умолчанию (PipeWire)"),
+            fake_device("pipewire:NODE=alsa_output.usb-MOTU_M2-00.sink", "Motu M2 (USB Audio)"),
+        ]);
+        let (pairs, sel) = shared_device_pairs_and_selected(
+            &cat,
+            Some("pipewire:NODE=alsa_output.usb-MOTU_M2-00.sink"),
+        );
+        assert_eq!(pairs.len(), 2);
+        assert_eq!(sel, Some(1));
+
+        // Метка ("Motu M2 (USB Audio)") не подходит как `saved` — только id
+        // (без текстового сопоставления, в отличие от `find_device_index_in`).
+        let (_, sel_by_label) = shared_device_pairs_and_selected(&cat, Some("Motu M2 (USB Audio)"));
+        assert_eq!(sel_by_label, None);
+    }
+
+    #[cfg(target_os = "linux")]
+    #[test]
+    fn shared_pairs_vanished_saved_id_selects_none() {
+        let cat = shared_catalog(vec![music_player_rs::audio::backend::shared::fake_device(
+            "pipewire",
+            "Системное по умолчанию (PipeWire)",
+        )]);
+        let (pairs, sel) = shared_device_pairs_and_selected(&cat, Some("pipewire:NODE=gone.sink"));
+        assert_eq!(pairs.len(), 1);
+        assert_eq!(sel, None);
+    }
+
+    #[cfg(target_os = "linux")]
+    #[test]
+    fn shared_pairs_empty_catalog_has_no_selection() {
+        let cat = shared_catalog(Vec::new());
+        let (pairs, sel) = shared_device_pairs_and_selected(&cat, None);
+        assert!(pairs.is_empty());
+        assert_eq!(sel, None);
     }
 }
 

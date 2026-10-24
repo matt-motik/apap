@@ -60,12 +60,12 @@ steps:
     done: true
   - id: 9
     description: "UI: список устройств Совместимого на Linux показывает per-sink записи из DeviceCatalog (src/app/ui_manager.rs). Проверка: cargo check"
-    done: false
+    done: true
   - id: 10
     description: "ЧЕКПОИНТ финальный перед закрытием: полный cargo test + cargo clippy зелёные"
     done: false
-current_step: 9
-next_action: "UI: список устройств Совместимого на Linux показывает per-sink записи из DeviceCatalog"
+current_step: 10
+next_action: "ЧЕКПОИНТ финальный перед закрытием: полный cargo test + cargo clippy зелёные"
 fail_counter: 0
 fail_counter_max: 3
 failed_attempts: []
