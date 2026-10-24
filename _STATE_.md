@@ -42,8 +42,8 @@
 - [x] Шаг 3: ЧЕКПОИНТ: cargo test, cargo clippy, tools/check_rt_imports.py, tools/traceability_tool.py check — все зелёные
 - [x] Шаг 4: src/settings/params.rs (35 строк, подписи ParamId — «Доступ к устройству», «Устройство» и т. п.) → src/i18n/params.rs. Проверка: cargo check без ошибок
 - [x] Шаг 5: src/settings.rs (12 строк, заголовки колонок плейлиста «Название»/«Исполнитель»/… в default_column_defs) + src/core/load.rs (8 строк, title/body сообщений о плейлисте — «Плейлист повреждён», «Не удалось загрузить плейлист» и др.) → src/i18n/. Проверка: cargo check без ошибок
-- [>] **Шаг 6: ЧЕКПОИНТ: cargo test, cargo clippy, tools/check_rt_imports.py, tools/traceability_tool.py check — все зелёные**
-- [ ] Шаг 7: src/app/mod.rs (30 строк: title/body сообщений — «Аудио-движок не запущен», «Режим недоступен», «Тема не загружена», «Устройство вывода потеряно» и др., кнопки «Исправить»/«Открыть настройку», статус-бар «Пропущен трек…», «Все треки пропущены», тексты ошибок OpenError) → src/i18n/. Проверка: cargo check без ошибок
+- [x] Шаг 6: ЧЕКПОИНТ: cargo test, cargo clippy, tools/check_rt_imports.py, tools/traceability_tool.py check — все зелёные
+- [>] **Шаг 7: src/app/mod.rs (30 строк: title/body сообщений — «Аудио-движок не запущен», «Режим недоступен», «Тема не загружена», «Устройство вывода потеряно» и др., кнопки «Исправить»/«Открыть настройку», статус-бар «Пропущен трек…», «Все треки пропущены», тексты ошибок OpenError) → src/i18n/. Проверка: cargo check без ошибок**
 - [ ] Шаг 8: src/audio/backend/alsa.rs (13 строк) + src/audio/backend/shared.rs (1 строка) — тексты StartError/ConfigureError при открытии ALSA Exclusive/Shared PCM, доходят до пользователя через OpenError → src/i18n/errors.rs. Проверка: cargo check без ошибок
 - [ ] Шаг 9: ЧЕКПОИНТ: cargo test, cargo clippy, tools/check_rt_imports.py, tools/traceability_tool.py check — все зелёные
 - [ ] Шаг 10: src/audio/path/transform.rs (7 строк — подписи шагов пути сигнала: «Моно → 2 канала…», «Громкость N %», фильтры SRC «Крутой»/«Медленный»/«Очень медленный») + src/audio/dsd.rs (1 строка — тег «не DSD-контейнер» в FileError::Unsupported, подставляется в сообщение «неподдерживаемый формат: {codec}») → src/i18n/. Проверка: cargo check без ошибок
@@ -60,8 +60,8 @@
 
 Легенда: [x] сделано · [>] текущий шаг · [ ] не начато
 
-- **Текущий шаг (current_step):** Шаг 6
-- **Следующий ход:** Шаг 6: ЧЕКПОИНТ — cargo test, cargo clippy, tools/check_rt_imports.py, tools/traceability_tool.py check
+- **Текущий шаг (current_step):** Шаг 7
+- **Следующий ход:** Шаг 7: src/app/mod.rs (title/body сообщений, кнопки, статус-бар, тексты ошибок OpenError) → src/i18n/
 - **Счетчик безуспешных компиляций:** 0/3
 - **Состояние:** in_progress
 
