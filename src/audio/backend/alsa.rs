@@ -488,6 +488,81 @@ impl ExclusiveBackend for AlsaExclusiveBackend {
     }
 }
 
+/// Конфигурация и запуск писателя-потока на уже открытом PCM без
+/// резервирования (ADR-07 «Уточнение», AM1.0-B37, шаг 5): та же пара
+/// `apply_hw_params`/`apply_sw_params` и тот же цикл `apap-alsa-out`
+/// (порог старта, сторож, §6.7), что уже обслуживают
+/// `AlsaExclusiveBackend::configure`/`start` — не метод `ExclusiveBackend` и
+/// не принимает `DeviceClaim`: Shared-выходы (per-sink узлы PipeWire,
+/// `pipewire:NODE=<node.name>`) не резервируются через
+/// `org.freedesktop.ReserveDevice1` (ADR-08 касается только Exclusive).
+/// Вызывающая сторона (`src/audio/backend/shared.rs`) открывает PCM своим
+/// именем и передаёт его сюда уже открытым, владение переходит целиком —
+/// при отказе любого шага PCM просто роняется (`drop`), повторное открытие
+/// (следующая попытка) — на стороне вызывающего. Не возвращает
+/// `DriverFormat`/`DeviceBufferActual`: этот поток не участвует в
+/// `ExclusiveBadge`/«Bit-perfect» (ADR-06) — честность сигнала Совместимого
+/// режима обеспечена тем, что сюда просто не доходит код, который мог бы
+/// отметить поток подтверждённым Exclusive-форматом (AM1.0-B32).
+pub(crate) fn configure_and_start_shared(
+    pcm: alsa::PCM,
+    fmt: StreamFormat,
+    buffer: DeviceBuffer,
+    render: ExclusiveRender,
+    shared: Arc<SessionShared>,
+) -> Result<Box<dyn StreamHandle>, StartError> {
+    apply_hw_params(&pcm, &fmt, buffer).map_err(|e| StartError(e.0))?;
+
+    let read = read_hw_params_current(&pcm);
+    let (requested_period_frames, requested_buffer_frames) = requested_frames(buffer, fmt.rate);
+    let (period_frames_i64, buffer_frames_i64) = match &read {
+        Some(r) => (r.period_frames, r.buffer_frames),
+        None => (requested_period_frames, requested_buffer_frames),
+    };
+    apply_sw_params(&pcm, period_frames_i64, buffer_frames_i64).map_err(|e| StartError(e.0))?;
+
+    if pcm.state() == alsa::pcm::State::Setup {
+        pcm.prepare().map_err(|e| {
+            StartError(format!(
+                "не удалось выполнить prepare() над Shared PCM после hw_params/sw_params (§6.7): {e}"
+            ))
+        })?;
+    }
+
+    let period_frames = u32::try_from(period_frames_i64)
+        .map_err(|_| StartError("период переполняет u32 (§6.7, ТЗ-112)".to_string()))?;
+    let sample_bytes = bytes_per_sample(fmt.sample)?;
+    let period_bytes = alsa_out::period_buffer_bytes(period_frames, sample_bytes, fmt.channels)
+        .ok_or_else(|| StartError("размер периода переполняет буфер (§6.7, ТЗ-112)".to_string()))?;
+    let wait_timeout_ms = alsa_out::wait_timeout_ms(period_frames, fmt.rate.hz())
+        .ok_or_else(|| StartError("таймаут wait переполнен или частота равна нулю (§6.7)".to_string()))?;
+
+    let start_threshold = start_threshold_frames(buffer_frames_i64, period_frames_i64);
+    let watchdog_deadline = u32::try_from(buffer_frames_i64)
+        .ok()
+        .and_then(|frames| alsa_out::start_watchdog_deadline(frames, fmt.rate.hz()))
+        .unwrap_or(alsa_out::MIN_START_WATCHDOG_DEADLINE);
+
+    let pcm_handle = PcmHandle::new(pcm);
+    let stop = Arc::new(AtomicBool::new(false));
+    let (tid_tx, tid_rx) = mpsc::channel();
+    let timing = alsa_out::LoopTiming {
+        period_frames,
+        period_bytes,
+        wait_timeout_ms,
+        start_threshold_frames: start_threshold,
+        watchdog_deadline,
+    };
+    let join = match alsa_out::spawn_output_thread(pcm_handle, render, timing, shared, Arc::clone(&stop), tid_tx) {
+        Ok(join) => join,
+        Err(e) => return Err(StartError(format!("не удалось создать поток apap-alsa-out: {e}"))),
+    };
+
+    let tid = alsa_out::recv_tid(tid_rx);
+    let handle = alsa_out::AlsaStreamHandle::new(stop, join, tid);
+    Ok(Box::new(handle))
+}
+
 /// hw_params Exclusive-потока: доступ `RW_INTERLEAVED`, формат, число
 /// каналов, частота без ресэмплинга драйвера, период и буфер по настройке
 /// «Буфер устройства» (§6.7 п. 1, ТЗ-50, ТЗ-112, ТЗ-131). Порядок вызовов
@@ -889,6 +964,14 @@ mod tests {
     use std::cell::Cell;
 
     use super::*;
+    use crate::audio::backend::exclusive::{ExclusivePcm, StrictRender};
+    use crate::audio::format::BitDepth;
+    use crate::audio::render::gain::NoGain;
+    use crate::audio::render::out::S16Le;
+    use crate::audio::render::pcm::PcmRender;
+    use crate::audio::render::tpdf::Tpdf;
+    use crate::audio::render::RenderCore;
+    use crate::audio::session::RingPayload;
     use crate::audio::testing::{BusCall, FakeOwner, FakeReserveBus, FakeServerProbe, ManualClock};
 
     #[test]
@@ -1370,5 +1453,40 @@ mod tests {
 
         let result = AlsaExclusiveBackend::probe_caps(dev)();
         assert_eq!(result.err(), Some(ProbeError::Busy));
+    }
+
+    /// Минимальный `ExclusiveRender` для теста `configure_and_start_shared`
+    /// (§7.1): пустое ring `i32` без периодического опроса — тот же приём,
+    /// что `testing/mod.rs::fake_render` (AM1.0-B37, шаг 5).
+    fn fake_render() -> ExclusiveRender {
+        let (_producer, consumer) = rtrb::RingBuffer::<i32>::new(16);
+        let core = RenderCore::new(consumer, Arc::new(SessionShared::new()), 2, 0);
+        let valid_bits = BitDepth::new(16).expect("16 бит допустимо");
+        let render = PcmRender::<i32, S16Le, NoGain>::new(core, RingPayload::ExactI32 { valid_bits }, Tpdf::off());
+        ExclusiveRender::Strict(StrictRender::Pcm(ExclusivePcm::new(render)))
+    }
+
+    /// `configure_and_start_shared` на ALSA `null` (ADR-07 «Уточнение»,
+    /// AM1.0-B37, шаг 5): `null` — плагин ALSA, который принимает любые
+    /// hw_params и отбрасывает данные, не касаясь ни оборудования, ни
+    /// PipeWire (в отличие от `pipewire:NODE=…`, см. doc-комментарий
+    /// `src/audio/backend/shared.rs::open_pw_node_stream` — такой вызов
+    /// нельзя тестировать против настоящего PipeWire не играя звук на
+    /// устройстве пользователя). Проверяет весь путь без резервирования:
+    /// hw_params/sw_params, запуск `apap-alsa-out`, и чистую остановку
+    /// (`StreamHandle::stop`, §6.7).
+    #[test]
+    fn configure_and_start_shared_on_null_device_starts_and_stops_cleanly() {
+        let pcm = alsa::PCM::new("null", alsa::Direction::Playback, false).expect("открытие ALSA null");
+        let fmt = StreamFormat {
+            rate: SampleRate::new(48_000).expect("rate"),
+            sample: OutputSampleFormat::S16Le,
+            channels: NonZeroU8::new(2).expect("channels"),
+        };
+
+        let handle = configure_and_start_shared(pcm, fmt, DeviceBuffer::default(), fake_render(), Arc::new(SessionShared::new()))
+            .expect("configure_and_start_shared на null должен открыться");
+
+        assert!(handle.stop().is_some(), "PCM должен вернуться из потока при остановке");
     }
 }

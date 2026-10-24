@@ -13,6 +13,7 @@
   - src/audio/backend/pw_dump.rs
   - src/audio/backend/mod.rs
   - src/audio/backend/shared.rs
+  - src/audio/backend/alsa.rs
   - src/audio/output.rs
   - src/settings/playback_dto.rs
   - src/app/ui_manager.rs
@@ -24,8 +25,8 @@
 - [x] Шаг 2: Чистая функция разбора pw-dump JSON → список узлов Audio/Sink (id/node.name/node.description/alsa.card_name/alsa.name) + тесты с фикстурой JSON (новый файл src/audio/backend/pw_dump.rs; регистрация в docs/00_workflow_v1.0/architecture.md). Проверка: cargo test pw_dump::
 - [x] Шаг 3: Запуск pw-dump с таймаутом (паттерн run_pw_metadata, os_probe.rs) вне UI-потока, кэш в DeviceCatalog, обновление по DeviceWatcher/«Обновить»; сборка SharedDeviceInfo для per-sink узлов (src/audio/backend/pw_dump.rs, src/audio/backend/shared.rs). Проверка: cargo check
 - [x] Шаг 4: ЧЕКПОИНТ: полный cargo test + cargo clippy зелёные
-- [>] **Шаг 5: Открытие Shared-потока на выбранном per-sink узле напрямую крейтом alsa по имени pipewire:NODE=<node.name>, в обход cpal (src/audio/backend/shared.rs). Проверка: cargo check**
-- [ ] Шаг 6: is_server_routed_pcm принимает форму pipewire:NODE=… как легитимный выход аудиосервера (src/audio/output.rs). Проверка: cargo test output::
+- [x] Шаг 5: Открытие Shared-потока на выбранном per-sink узле напрямую крейтом alsa по имени pipewire:NODE=<node.name>, в обход cpal (src/audio/backend/shared.rs); конфигурация PCM и писатель-поток — переиспользованы из src/audio/backend/alsa.rs (apply_hw_params и приватные configure/start-хелперы того же файла, без резервирования DeviceClaim) через новую pub(crate) функцию в нём же — отсюда alsa.rs добавлен в вайтлист (execution.md §1: файл нужен для этого же шага, не шире плана). Проверка: cargo check
+- [>] **Шаг 6: is_server_routed_pcm принимает форму pipewire:NODE=… как легитимный выход аудиосервера (src/audio/output.rs). Проверка: cargo test output::**
 - [ ] Шаг 7: Миграция пропавшего при загрузке настроек узла на SystemDefault с уведомлением Adjusted, тем же способом, что устаревшие hw:/plughw: (src/settings/playback_dto.rs). Проверка: cargo test playback_dto::
 - [ ] Шаг 8: ЧЕКПОИНТ: полный cargo test + cargo clippy зелёные
 - [ ] Шаг 9: UI: список устройств Совместимого на Linux показывает per-sink записи из DeviceCatalog (src/app/ui_manager.rs). Проверка: cargo check
@@ -33,8 +34,8 @@
 
 Легенда: [x] сделано · [>] текущий шаг · [ ] не начато
 
-- **Текущий шаг (current_step):** Шаг 5
-- **Следующий ход:** Открытие Shared-потока на выбранном per-sink узле напрямую крейтом alsa по имени pipewire:NODE=<node.name>, в обход cpal (src/audio/backend/shared.rs). Проверка: cargo check
+- **Текущий шаг (current_step):** Шаг 6
+- **Следующий ход:** is_server_routed_pcm принимает форму pipewire:NODE=… как легитимный выход аудиосервера (src/audio/output.rs). Проверка: cargo test output::
 - **Счетчик безуспешных компиляций:** 0/3
 - **Состояние:** in_progress
 
@@ -58,6 +59,8 @@ _Источник: чат с пользователем (ноутбук), нач
   - Ручные проверки за пользователем: T1.0-B2 — весь интерфейс на русском: окно настроек (все вкладки, кнопки Отмена/Сохранить), главное окно (меню Файл/Настройки/Визуализация, панель информации — кроме подписей из настроек, T1.0-B5), строка статуса («Остановлено», «N треков» со склонением), плейлист, трей (меню и подсказка), окна выбора файлов (фильтры), окно «Путь сигнала»; заголовок окна «APAP — <трек>» и «APAP» без трека; палитры Сплошная/Серая/Радуга/Тепловая, Magma… без перевода; числа с запятой (44,1 кГц); сообщения об ошибках открытия файла — по-русски
   - AM1.0-8.6.1 шаг 9: тестовый дубль SilentSource (src/engine/source.rs) отдаёт info().sample_rate = SourceFormat.rate без DSD-пересчёта (реальный DsdDecoder даёт dsd_rate/64), поэтому DSD-фикстура device_dop_change_reopens_at_position задаёт rate = 44100, а не битрейт DSD64; поправить дубль при следующей работе с фикстурами движка.
   - AM1.0-B37 шаг 3: ошибка `PwSinkSource::sinks` (pw-dump недоступен/таймаут/не разобрался) в `CpalSharedBackend::enumerate` (src/audio/backend/shared.rs) сейчас молча отбрасывается — запись в `Journal` отложена: ни shared.rs, ни pw_dump.rs (вайтлист шага) не имеют доступа к `Journal`, только engine/run.rs (вне вайтлиста). Довести при шаге, где engine/run.rs/journal.rs войдут в вайтлист, тем же способом, что `DeviceEnumerate` у refresh_hw.
+  - AM1.0-B37 шаг 5, находка (проверено вживую 2026-10-24): открытие `pipewire:NODE=<node_name>` с несуществующим `node_name` не гарантирует отказ — WirePlumber может связать поток с узлом по умолчанию вместо отказа открытия (`PW_KEY_TARGET_OBJECT` — подсказка маршрутизации, не жёсткое требование). Поэтому `open_pw_node_stream` (`src/audio/backend/shared.rs`) не покрыт юнит-тестом на реальном вызове (как и `AlsaExclusiveBackend::acquire`/`configure`/`start`) — тест против настоящего PipeWire реально открыл бы звуковой поток на устройстве пользователя. Важно для шага 7: пропавший узел должен распознаваться по списку каталога (`DeviceCatalog`/`pw-dump`), а не по отказу открытия — опора на провал `open()` была бы небезопасной (честность сигнала, AGENTS.md). Безопасная часть (hw_params/sw_params/запуск/останов потока) покрыта тестом на ALSA `null` (`configure_and_start_shared`, alsa.rs).
+  - AM1.0-B37 шаг 5: `src/audio/backend/alsa.rs` добавлен в вайтлист сессии (execution.md §1) — новая pub(crate) функция `configure_and_start_shared` переиспользует приватные хелперы configure/start того же файла (apply_hw_params/apply_sw_params/read_hw_params_current/start_threshold_frames/bytes_per_sample) без DeviceClaim/Reservation; альтернатива (дублировать эти хелперы в shared.rs) противоречила бы просьбе минимизировать новый код.
   - Закрытые этапы — в ROADMAP.md (✅ с хэшем), закрытые баги — в _TODO_/history/archive_bugs.md (с 2026-10-21); здесь только открытое.
   - 2026-10-21 закрыт AM1.0-8.6.1 (С6а (01) «DoP устройства», 196ca1d) и баг AM1.0-B25; 2026-10-22 закрыты AM1.0-B27 (163682c, русские подписи параметров в окне пути) и AM1.0-B28 (6359220, советы «ЦАП с поддержкой …»); закрыт AM1.0-B29 (c3b5f6d, возможности текущего ЦАП в советах «Оборудование»). СЛЕДУЮЩИЙ (п. 21 сквозного порядка): AM1.0-8.7 (С7 (01) «DSP-корректность»). ЦАП для аппаратной проверки: hw:CARD=RU3U2 (Cayin RU3, с 2026-10-20 — системный выход PipeWire), APAP_HW_TEST_DEVICE для #[ignore]-тестов alsa.rs; карту держит PipeWire — открывать hw только с разрешения пользователя.
   - AM1.0-8.6 (С6 (01) «ALSA Exclusive, замок») закрыт в 154a2ce (2026-10-19, Linux-десктоп); СЛЕДУЮЩИЙ (п. 20 сквозного порядка): AM1.0-8.7 (С7 (01) «DSP-корректность»). Старый cpal-Exclusive путь удалён; Совместимый ещё идёт через легаси Player — остаток AM1.0-B10 (StreamDesc, FallbackReason, Opened.stream_format, legacy_path, open_dop) на С7/С11. Ручные проверки С6 выполнены 2026-10-19: подтверждены B1, B2, B13; найдены/открыты B17 (конец трека в Строгом — транспорт мёртв), B22 (не та карта при авто-выборе), B23 (текст «занято»), B24 (Совместимый→Строгий во время игры), B25 (DoP на ЦАП без DoP, вопрос пользователю).

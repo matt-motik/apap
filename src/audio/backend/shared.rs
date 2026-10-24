@@ -3,10 +3,17 @@
 //! `SharedRender`/`StartError` на следующих этапах.
 #![deny(clippy::unwrap_used, clippy::expect_used, clippy::unreachable)]
 
-use super::pw_dump::{self, PwSink};
+use std::sync::Arc;
+
+use super::alsa::configure_and_start_shared;
 use super::catalog::hw_device_label;
+use super::exclusive::{ExclusiveRender, StartError, StreamHandle};
+use super::pw_dump::{self, PwSink};
 use super::{BackendError, SharedDeviceId, SharedDeviceInfo};
+use crate::audio::format::StreamFormat;
 use crate::audio::output::{classify_device, AudioHost, CpalHost, DeviceInfo};
+use crate::audio::session::SessionShared;
+use crate::settings::playback::DeviceBuffer;
 
 /// Перечисление Shared-устройств (§2.3). `caps`/`start` — подмножество
 /// полного трейта из спецификации появится на последующих этапах.
@@ -131,6 +138,48 @@ impl<H: AudioHost + Send> SharedBackend for CpalSharedBackend<H> {
 /// шаг сессии (§6, шаг 5).
 fn pw_sink_pcm_name(node_name: &str) -> String {
     format!("pipewire:NODE={node_name}")
+}
+
+/// Открывает Shared-поток на per-sink узле PipeWire напрямую крейтом `alsa`
+/// (ADR-07 «Уточнение», AM1.0-B37, шаг 5), минуя `cpal`: `cpal` не умеет
+/// открыть PCM по произвольному параметризованному имени, которое не входит
+/// в его собственное перечисление устройств (ADR-07 «Уточнение»). Имя PCM —
+/// `pipewire:NODE=<node_name>` (`pw_sink_pcm_name`), тот самый параметризованный
+/// PCM, который объявляет ALSA-плагин PipeWire (`pcm.pipewire`,
+/// `50-pipewire.conf`); `EXCLUSIVE` у него по умолчанию `false` — честный
+/// Shared-выход, не захват (другие приложения звучат на этом узле
+/// одновременно), поэтому резервирование `DeviceClaim`/`Reservation`
+/// (ADR-08, только Exclusive) здесь не нужно и не выполняется. Конфигурация
+/// PCM и писатель-поток `apap-alsa-out` (порог старта, сторож, §6.7) —
+/// общая функция `alsa::configure_and_start_shared`, та же, что использует
+/// `AlsaExclusiveBackend` — здесь не заводится новый цикл потока.
+///
+/// Без юнит-теста на реальном вызове (как и `AlsaExclusiveBackend::acquire`/
+/// `configure`/`start` в `alsa.rs`): открытие `pipewire:NODE=<node_name>` —
+/// живое действие над настоящим PipeWire, и несуществующий `node_name` не
+/// гарантирует отказ открытия — проверено вживую на разработческой машине
+/// 2026-10-24: WirePlumber может связать поток с узлом по умолчанию вместо
+/// отказа (`PW_KEY_TARGET_OBJECT` — подсказка маршрутизации, не жёсткое
+/// требование), то есть случайный тестовый запуск этой функции против
+/// настоящего PipeWire реально открывает звуковой поток на устройстве
+/// пользователя — здесь такого вызова нет и не должно быть (AGENTS.md: не
+/// играть звук на устройствах пользователя). Поэтому пропавший узел
+/// (шаг 7) распознаётся по списку каталога (`DeviceCatalog`/`pw-dump`), а
+/// не по отказу `open_pw_node_stream` — опора на провал открытия была бы
+/// небезопасной. Безопасная часть конфигурации (hw_params/sw_params/запуск
+/// потока) покрыта тестом `configure_and_start_shared` на ALSA `null`
+/// (`alsa.rs`, тот же шаг) — он не достигает ни PipeWire, ни оборудования.
+pub fn open_pw_node_stream(
+    node_name: &str,
+    fmt: StreamFormat,
+    buffer: DeviceBuffer,
+    render: ExclusiveRender,
+    shared: Arc<SessionShared>,
+) -> Result<Box<dyn StreamHandle>, StartError> {
+    let pcm_name = pw_sink_pcm_name(node_name);
+    let pcm = alsa::PCM::new(&pcm_name, alsa::Direction::Playback, false)
+        .map_err(|e| StartError(format!("не удалось открыть Shared PCM {pcm_name}: {e}")))?;
+    configure_and_start_shared(pcm, fmt, buffer, render, shared)
 }
 
 /// Подпись per-sink записи (ADR-07 «Уточнение»): `hw_device_label` при
