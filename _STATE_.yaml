@@ -50,9 +50,9 @@ steps:
     done: true
   - id: 10
     description: "ЧЕКПОИНТ перед закрытием: полный cargo test + cargo clippy зелёные; ручные проверки — в заметку плана AM1.0-B4 при закрытии (closing.md §2)"
-    done: false
+    done: true
 current_step: 10
-next_action: "ЧЕКПОИНТ перед закрытием: полный cargo test + cargo clippy зелёные; ручные проверки — в заметку плана AM1.0-B4 при закрытии (closing.md §2)"
+next_action: "закрытие по closing.md"
 fail_counter: 0
 fail_counter_max: 3
 failed_attempts: []
