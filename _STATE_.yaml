@@ -164,7 +164,7 @@ steps:
     description: >
       ЧЕКПОИНТ: полный cargo test + cargo clippy зелёные (device_info_view/path_view/lock_view/
       ui_audio_state/fulltrack_manager/playlist_manager).
-    done: false
+    done: true
   - id: 27
     description: >
       src/app/badge_view.rs + src/app/visualizer_manager.rs + src/app/viz_settings_manager.rs +
@@ -183,8 +183,8 @@ steps:
       check зелёные; готовность к closing.md (ручная проверка пользователем — обрезка длинных
       русских подписей на всех экранах).
     done: false
-current_step: 26
-next_action: "ЧЕКПОИНТ: полный cargo test + cargo clippy зелёные (device_info_view/path_view/lock_view/ui_audio_state/fulltrack_manager/playlist_manager)."
+current_step: 27
+next_action: "src/app/badge_view.rs + src/app/visualizer_manager.rs + src/app/viz_settings_manager.rs + src/app/engine_sink.rs + src/app/mode_dialog.rs: зачистка оставшихся пользовательских английских строк через src/i18n/ (events.rs — проверить, вероятно пусто)."
 fail_counter: 0
 fail_counter_max: 3
 failed_attempts: []
