@@ -18,12 +18,12 @@ steps:
     done: true
   - id: 2
     description: "Тесты в run.rs: Open в Совместимом режиме не блокируется на os_probe (FakeOsProbe с видимым признаком вызова только из служебного потока StdSpawner, не из handle()); InternalMsg::OsProbeDone обновляет os_stage_cache и используется следующим build_compatible_path; коалесинг — второй Open до возврата первой пробы не запускает вторую. Проверка: cargo test engine::"
-    done: false
+    done: true
   - id: 3
     description: "ЧЕКПОИНТ: полный cargo test, cargo clippy (0 новых предупреждений), tools/check_rt_imports.py, tools/traceability_tool.py check"
     done: false
-current_step: 2
-next_action: "Тесты AM1.0-B39: Open не блокируется, кэш обновляется, коалесинг пробника (src/engine/run.rs, tests.rs)"
+current_step: 3
+next_action: "ЧЕКПОИНТ: полный cargo test, cargo clippy, check_rt_imports, traceability"
 fail_counter: 0
 fail_counter_max: 3
 failed_attempts: []

@@ -2828,6 +2828,50 @@ mod tests {
         )), "{records:?}");
     }
 
+    /// AM1.0-B39: `start_os_probe` не вызывает `OsLevelProbe::probe` на
+    /// цикле движка — задание уходит в служебный поток (`apap-os-probe`,
+    /// `deps.spawner`), итог приходит `InternalMsg::OsProbeDone` и
+    /// `handle_internal` сливает его в `os_stage_cache` (используется
+    /// следующим `EngineCmd::Open`, не этим сообщением — путь текущего
+    /// трека не пересобирается, см. doc-комментарий `handle_internal`).
+    #[test]
+    fn start_os_probe_runs_on_worker_and_updates_cache() {
+        let sink = VecSink::new();
+        let deps = fake_deps(Box::new(sink), Arc::new(StdSpawner));
+        let mut engine = Engine::new(deps, BackendCaps::current());
+        assert_eq!(engine.os_stage_cache, OsStage::Unknown, "кэш по умолчанию — честный Unknown, а не выдуманный факт");
+
+        engine.start_os_probe(SharedDeviceChoice::SystemDefault, SampleRate::new(44_100).expect("rate"));
+        assert!(engine.os_probe_in_flight);
+
+        let msg = engine.internal_rx.recv().expect("os probe done");
+        assert!(matches!(&msg, InternalMsg::OsProbeDone { .. }));
+        engine.handle_internal(msg);
+
+        assert!(!engine.os_probe_in_flight);
+        assert_eq!(engine.os_stage_cache, OsStage::Unknown, "FakeOsProbe по умолчанию отдаёт Unknown — слияние не меняет вариант");
+    }
+
+    /// Коалесинг (§2.3, AM1.0-B39, по образцу `start_shared_enumerate`/
+    /// AM1.0-B37 и `probe_device_caps`/AM1.0-B38): второй `start_os_probe`,
+    /// пришедший до возврата первой пробы, не запускает отдельное задание —
+    /// приходит ровно одно `InternalMsg::OsProbeDone`.
+    #[test]
+    fn start_os_probe_coalesces_while_in_flight() {
+        let sink = VecSink::new();
+        let deps = fake_deps(Box::new(sink), Arc::new(StdSpawner));
+        let mut engine = Engine::new(deps, BackendCaps::current());
+        let rate = SampleRate::new(44_100).expect("rate");
+
+        engine.start_os_probe(SharedDeviceChoice::SystemDefault, rate);
+        assert!(engine.os_probe_in_flight);
+        engine.start_os_probe(SharedDeviceChoice::SystemDefault, rate);
+
+        let msg = engine.internal_rx.recv().expect("os probe done");
+        assert!(matches!(&msg, InternalMsg::OsProbeDone { .. }));
+        assert!(engine.internal_rx.try_recv().is_err(), "вторая проба не должна быть запущена отдельным заданием");
+    }
+
     /// `StreamDesc` старого пути, точно совпадающий с `pcm_format()` (ТЗ-52,
     /// §6.3 шаг 28): частота, каналы и формат равны источнику, поэтому
     /// `plan()` не добавляет `Resample`/`Downmix` — только безлоссовый
