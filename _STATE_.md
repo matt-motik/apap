@@ -2,24 +2,10 @@
      Source of truth: _STATE_.yaml — edit that, then run:
      python tools/state_tool.py render -->
 
+# Состояние сессии
 
-# Текущая микро-сессия
-
-- **Задача из ROADMAP:** WF1.0-B11 — state_tool.py close-bug: регекс dod не переживает блочный скаляр
-- **Вайтлист файлов в работе (Изменяемые файлы):**
-  - tools/state_tool.py
-  - tools/test_state_tool.py
-- **Критерий успеха (Definition of Done):** python tools/test_state_tool.py зелёный; python tools/state_tool.py close-bug WF1.0-B11 <hash> не падает на реальном _STATE_.yaml
-
-## Итерационный трекер
-- [x] Шаг 1: Привести regex dod: в cmd_close_bug к тому же DOTALL-блочному виду, что whitelist/steps/failed_attempts; добавить tools/test_state_tool.py с регрессией на блочный скаляр dod: > и многострочный steps[].description. Проверка: python tools/test_state_tool.py
-
-Легенда: [x] сделано · [>] текущий шаг · [ ] не начато
-
-- **Текущий шаг (current_step):** Шаг 1
-- **Следующий ход:** закрытие по closing.md
-- **Счетчик безуспешных компиляций:** 0/3
-- **Состояние:** in_progress
+- **Текущая задача:** Нет (все шаги завершены)
+- **Состояние:** done
 
 ## План: Executable workflow: правила AGENTS.md → исполняемые механизмы
 _Источник: чат с пользователем (ноутбук), начат в 67686ce; перенесён в репо 2026-09-22_
