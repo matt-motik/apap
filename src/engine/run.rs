@@ -387,6 +387,24 @@ struct Engine {
     /// (та же причина, что у `claim_attempt`, но для номера карты — `ClaimInfo`
     /// его не хранит). Сбрасывается в `None` эффектом `LockEffect::Release`.
     claim_card: Option<u32>,
+    /// Устройство текущей попытки/удержанного захвата (§2.3, §6.19,
+    /// AM1.0-B38): записывается в `start_claim` вместе с `claim_card`, живёт
+    /// через `Acquiring` и `Held` (включая открытый `exclusive_path` — захват
+    /// внутри него, `self.claim` при этом пуст, И-Р1) и сбрасывается в
+    /// `None` эффектом `LockEffect::Release`. Источник правды для
+    /// `probe_device_caps`: активное/захваченное устройство нельзя опрашивать
+    /// фоновым пробником, не трогая его.
+    claim_device: Option<HwDeviceId>,
+    /// Устройство, чей фоновый опрос caps (`EngineCmd::ProbeDeviceCaps`,
+    /// §2.3, AM1.0-B38) сейчас выполняется служебным потоком — `None`, пока
+    /// опроса нет. Сбрасывается итогом `InternalMsg::ProbeDone` (шаг 4).
+    probe_in_flight: Option<HwDeviceId>,
+    /// Отложенный запрос опроса caps (§2.3, AM1.0-B38): заполняется, когда
+    /// `EngineCmd::ProbeDeviceCaps` приходит, пока опрос другого устройства
+    /// уже выполняется — не более одного опроса одновременно (дебаунс),
+    /// последний запрос вытесняет прежний. Забирается и запускается итогом
+    /// `InternalMsg::ProbeDone` (шаг 4).
+    probe_pending: Option<HwDeviceId>,
     /// Точка повторного захвата (§6.20 п. 2, ТЗ-51, ТЗ-126): заполняется
     /// движком (`save_reacquire_point`) до `lock_input(DeviceLost)`, пока
     /// `self.claim`/`self.exclusive_path` ещё не очищены эффектами
@@ -460,6 +478,9 @@ impl Engine {
             claim: None,
             claim_attempt: 0,
             claim_card: None,
+            claim_device: None,
+            probe_in_flight: None,
+            probe_pending: None,
             reacquire: None,
             reacquire_retry: None,
             deferred_open: None,
@@ -815,6 +836,7 @@ impl Engine {
                     self.claim_attempt += 1;
                     self.claim = None;
                     self.claim_card = None;
+                    self.claim_device = None;
                     // Отложенный `Open` относился к снимаемому замку
                     // (AM1.0-B24, ТЗ-20, §6.18 «Смена режима») — без
                     // удержания его больше некому доиграть.
@@ -1025,6 +1047,9 @@ impl Engine {
         let device_name = found.name.clone();
         let card = found.card;
         self.claim_card = Some(card);
+        // AM1.0-B38: с этого момента `canonical_dev` — активное/захватываемое
+        // устройство режима, `probe_device_caps` не должен его трогать.
+        self.claim_device = Some(canonical_dev.clone());
 
         let lost_tx = self.internal_tx.clone();
         let on_lost: LostNotify = Box::new(move || {
@@ -1042,6 +1067,70 @@ impl Engine {
         );
         if let Err(EngineFault::SpawnFailed { .. }) = spawned {
             self.lock_input(LockInput::CaptureResult(Err(CaptureFailure::PlatformUnsupported)));
+        }
+    }
+
+    /// Обработчик `EngineCmd::ProbeDeviceCaps` (§2.3, AM1.0-B38), часть 1 —
+    /// защита и запуск; приём итога (`InternalMsg::ProbeDone`) — шаг 4, где
+    /// `probe_in_flight` снимается и `probe_pending` (если есть) запускается
+    /// этим же методом.
+    ///
+    /// Без Эксклюзивного бэкенда (не Linux) опрос недоступен — тихий no-op,
+    /// как и `start_claim` в этом случае (§2.10, ADR-20): для команды без
+    /// резервирования отдельного кода отказа в `EngineEvent` не завели.
+    ///
+    /// Устройство, совпадающее с `self.claim_device` (замок его держит или
+    /// только захватывает — `Acquiring`/`Held`, в т.ч. с открытым
+    /// `exclusive_path`), не опрашивается — команда молча отбрасывается, а не
+    /// встаёт в очередь: это dod задачи (не трогать активное/захваченное
+    /// устройство), а не дебаунс. `canonical_hw`, в отличие от `start_claim`,
+    /// здесь не нужен — `device` опроса приходит уже каноническим из UI
+    /// (каталог строит список, из которого выбирают).
+    ///
+    /// Дебаунс — не более одного опроса одновременно: опрос того же
+    /// устройства, что уже в полёте, отбрасывается; опрос другого устройства
+    /// встаёт в очередь из одного элемента `probe_pending`, последний запрос
+    /// вытесняет прежний без собственного опроса (тот так и не был запущен).
+    ///
+    /// Гонка с настоящим захватом того же устройства (ADR-01, §6.6):
+    /// `probe_caps` открывает PCM в `NONBLOCK` и тут же закрывает — окно
+    /// пересечения с `open_retry` (`backend/alsa.rs`, до 1 с с шагом 50 мс на
+    /// `EBUSY`) на порядки короче его дедлайна, а guard выше и так не
+    /// допускает опрос уже захватываемого/захваченного устройства — поэтому
+    /// `Open` не получает отдельной защиты от своего же опроса: простого
+    /// запаса существующего повтора `EBUSY` достаточно (простейший безопасный
+    /// вариант, без ожидания/отмены).
+    fn probe_device_caps(&mut self, device: HwDeviceId) {
+        let Some(backend) = self.deps.exclusive.as_ref() else {
+            return;
+        };
+        if self.claim_device.as_ref() == Some(&device) {
+            return;
+        }
+        if self.probe_in_flight.as_ref() == Some(&device) {
+            return;
+        }
+        if self.probe_in_flight.is_some() {
+            self.probe_pending = Some(device);
+            return;
+        }
+
+        let job = backend.probe_caps(device.clone());
+        let done_tx = self.internal_tx.clone();
+        let probe_device = device.clone();
+        let spawned = self.deps.spawner.spawn(
+            "apap-probe",
+            Box::new(move || {
+                let result = job();
+                let _ = done_tx.send(InternalMsg::ProbeDone { device: probe_device, result });
+            }),
+        );
+        // Отказ планировщика (`SpawnFailed`) — тихий no-op, как и у отказа
+        // бэкенда выше: `probe_in_flight` не выставляется, следующий выбор
+        // того же устройства повторит попытку. Отдельного кода отказа в
+        // `EngineEvent` для опроса нет (в отличие от захвата).
+        if spawned.is_ok() {
+            self.probe_in_flight = Some(device);
         }
     }
 
@@ -1439,11 +1528,7 @@ impl Engine {
             EngineCmd::RefreshDevices => {
                 self.refresh_devices(false);
             }
-            // Заглушка до шага 3 (AM1.0-B38): защита от опроса активного/
-            // захваченного устройства, дебаунс и запуск `probe_caps` через
-            // `self.deps.spawner` появятся там — здесь команда пока
-            // игнорируется, чтобы `EngineCmd` оставался исчерпывающим.
-            EngineCmd::ProbeDeviceCaps { device: _ } => {}
+            EngineCmd::ProbeDeviceCaps { device } => self.probe_device_caps(device),
             EngineCmd::SetVizTap(on) => {
                 self.viz_tap_active = on;
                 self.player.set_viz_tap_active(on);
@@ -2155,6 +2240,7 @@ mod tests {
     use crate::audio::backend::catalog::FakeDeviceWatcher;
     use crate::audio::backend::os_probe::FakeOsProbe;
     use crate::audio::backend::shared::{fake_device, FakeSharedBackend};
+    use crate::audio::backend::exclusive::ProbeError;
     use crate::audio::backend::{BackendError, SharedDeviceId};
     use crate::audio::path::OsStage;
     use crate::audio::format::{ChannelLayout, Codec, Container, SampleRate, SourceFormat, SourceKind};
@@ -4962,5 +5048,175 @@ mod tests {
 
         assert!(engine.exclusive_path.is_some());
         assert_eq!(engine.exclusive_path.as_ref().expect("exclusive path open").configured(), configured_before);
+    }
+
+    /// `EngineDeps` с заданным Эксклюзивным бэкендом вместо дефолтного
+    /// `FakeExclusiveBackend::new()` фейка (как у `fake_deps`), по образцу
+    /// `lock_input_scripted_acquire_failure_emits_failed` — нужен тестам
+    /// `probe_device_caps_*` (AM1.0-B38), чтобы задать результат `with_probe`.
+    fn fake_deps_with_exclusive(
+        events: Box<dyn crate::engine::sink::EventSink>,
+        exclusive: Box<dyn crate::audio::backend::exclusive::ExclusiveBackend>,
+    ) -> EngineDeps {
+        let mem = MemStore::new();
+        EngineDeps {
+            shared: Box::new(FakeSharedBackend::with_devices(Vec::new())),
+            exclusive: Some(exclusive),
+            server_probe: Box::new(FakeServerProbe::desktop()),
+            watcher: Box::new(FakeDeviceWatcher::new()),
+            sources: Arc::new(FakeSource::with_format(pcm_format())),
+            clock: Box::new(MonotonicClock::new()),
+            store: Box::new(FsPersistStore::new(Arc::new(mem.clone()), Box::new(mem.clone()), PathBuf::from("/cfg"))),
+            events,
+            spawner: Arc::new(StdSpawner),
+            caps: BackendCaps::current(),
+            os_probe: Box::new(FakeOsProbe::new(OsStage::Unknown)),
+            rt: Arc::new(FakeRtRequester::new(None)),
+            journal: Arc::new(crate::journal::VecJournal::default()),
+        }
+    }
+
+    /// `EngineCmd::ProbeDeviceCaps` (§2.3, AM1.0-B38), часть 1: без
+    /// Эксклюзивного бэкенда (не Linux) опрос — тихий no-op, как и у
+    /// `start_claim` в этом случае — ни `probe_in_flight`, ни сообщения
+    /// служебному потоку.
+    #[test]
+    fn probe_device_caps_without_exclusive_backend_is_noop() {
+        let sink = VecSink::new();
+        let mut deps = fake_deps(Box::new(sink), Arc::new(StdSpawner));
+        deps.exclusive = None;
+        let mut engine = Engine::new(deps, BackendCaps::current());
+        let dev: HwDeviceId = "hw:CARD=RU3,DEV=0".parse().expect("hw id");
+
+        engine.handle(EngineCmd::ProbeDeviceCaps { device: dev });
+
+        assert!(engine.probe_in_flight.is_none());
+        assert!(engine.internal_rx.try_recv().is_err());
+    }
+
+    /// Guard (AM1.0-B38, dod): устройство, которое держит замок (`Held`),
+    /// не опрашивается — команда отбрасывается молча, бэкенд не вызывается.
+    #[test]
+    fn probe_device_caps_skips_held_device() {
+        let sink = VecSink::new();
+        let backend = FakeExclusiveBackend::new();
+        let calls = backend.calls_handle();
+        let dev: HwDeviceId = "hw:CARD=RU3,DEV=0".parse().expect("hw id");
+        let deps = fake_deps_with_exclusive(Box::new(sink), Box::new(backend));
+        let mut engine = Engine::new(deps, BackendCaps::current());
+        engine.lock = LockState::Held { info: crate::audio::backend::exclusive::ClaimInfo { device: dev.clone() } };
+        engine.claim_device = Some(dev.clone());
+
+        engine.handle(EngineCmd::ProbeDeviceCaps { device: dev });
+
+        assert!(engine.probe_in_flight.is_none());
+        assert!(engine.internal_rx.try_recv().is_err());
+        assert!(calls.lock().expect("calls lock").is_empty());
+    }
+
+    /// Guard (AM1.0-B38, dod): устройство, которое замок только захватывает
+    /// (`Acquiring`), тоже не опрашивается — тот же `claim_device`, что и у
+    /// `Held`, живёт через всю попытку захвата (`start_claim`).
+    #[test]
+    fn probe_device_caps_skips_acquiring_device() {
+        let sink = VecSink::new();
+        let backend = FakeExclusiveBackend::new();
+        let calls = backend.calls_handle();
+        let dev: HwDeviceId = "hw:CARD=RU3,DEV=0".parse().expect("hw id");
+        let deps = fake_deps_with_exclusive(Box::new(sink), Box::new(backend));
+        let mut engine = Engine::new(deps, BackendCaps::current());
+        engine.lock = LockState::Acquiring { started: ClockInstant::START };
+        engine.claim_device = Some(dev.clone());
+
+        engine.handle(EngineCmd::ProbeDeviceCaps { device: dev });
+
+        assert!(engine.probe_in_flight.is_none());
+        assert!(engine.internal_rx.try_recv().is_err());
+        assert!(calls.lock().expect("calls lock").is_empty());
+    }
+
+    /// Дебаунс (AM1.0-B38): повторный запрос того же устройства, пока его
+    /// опрос уже выполняется, отбрасывается — не встаёт в очередь (в
+    /// отличие от запроса другого устройства) и не заводит второй опрос, как
+    /// подтверждает ровно одно сообщение `InternalMsg::ProbeDone` ниже.
+    #[test]
+    fn probe_device_caps_skips_repeat_of_in_flight_device() {
+        let sink = VecSink::new();
+        let deps = fake_deps(Box::new(sink), Arc::new(StdSpawner));
+        let mut engine = Engine::new(deps, BackendCaps::current());
+        let dev: HwDeviceId = "hw:CARD=RU3,DEV=0".parse().expect("hw id");
+
+        engine.handle(EngineCmd::ProbeDeviceCaps { device: dev.clone() });
+        engine.handle(EngineCmd::ProbeDeviceCaps { device: dev.clone() });
+
+        assert_eq!(engine.probe_in_flight, Some(dev.clone()));
+        assert!(engine.probe_pending.is_none());
+
+        let msg = engine.internal_rx.recv().expect("probe done");
+        assert!(matches!(&msg, InternalMsg::ProbeDone { device, .. } if *device == dev));
+        assert!(engine.internal_rx.try_recv().is_err());
+    }
+
+    /// Дебаунс (AM1.0-B38): не более одного опроса одновременно — запрос
+    /// другого устройства, пока первый опрос в полёте, встаёт в очередь из
+    /// одного элемента (`probe_pending`), а третий запрос вытесняет второй
+    /// без собственного опроса (он так и не был запущен). Запуск
+    /// отложенного запроса из очереди — `InternalMsg::ProbeDone` (шаг 4),
+    /// здесь не проверяется.
+    #[test]
+    fn probe_device_caps_queues_latest_other_device_while_first_in_flight() {
+        let sink = VecSink::new();
+        let deps = fake_deps(Box::new(sink), Arc::new(StdSpawner));
+        let mut engine = Engine::new(deps, BackendCaps::current());
+        let dev_a: HwDeviceId = "hw:CARD=RU3,DEV=0".parse().expect("hw id");
+        let dev_b: HwDeviceId = "hw:CARD=DX,DEV=0".parse().expect("hw id");
+        let dev_c: HwDeviceId = "hw:CARD=RU3,DEV=1".parse().expect("hw id");
+
+        engine.handle(EngineCmd::ProbeDeviceCaps { device: dev_a.clone() });
+        assert_eq!(engine.probe_in_flight, Some(dev_a.clone()));
+
+        engine.handle(EngineCmd::ProbeDeviceCaps { device: dev_b });
+        engine.handle(EngineCmd::ProbeDeviceCaps { device: dev_c.clone() });
+        assert_eq!(engine.probe_in_flight, Some(dev_a.clone()));
+        assert_eq!(engine.probe_pending, Some(dev_c));
+
+        // Ровно один опрос фактически запущен — приходит ровно одно
+        // сообщение, от первого устройства.
+        let msg = engine.internal_rx.recv().expect("probe done");
+        assert!(matches!(&msg, InternalMsg::ProbeDone { device, .. } if *device == dev_a));
+        assert!(engine.internal_rx.try_recv().is_err());
+    }
+
+    /// Итог воркера доходит до движка служебным каналом (AM1.0-B38, ADR-01):
+    /// `ExclusiveBackend::probe_caps` выполняется в спавненном потоке (не на
+    /// цикле движка, не синхронно в `handle`), а его результат (здесь —
+    /// `ProbeError::Busy`) — в `InternalMsg::ProbeDone` с тем же устройством.
+    /// Приём (`handle_internal`) — заглушка до шага 4: `probe_in_flight` им
+    /// пока не снимается.
+    #[test]
+    fn probe_device_caps_worker_result_is_routed_to_internal_channel() {
+        let sink = VecSink::new();
+        let backend = FakeExclusiveBackend::new().with_probe(Err(ProbeError::Busy));
+        let calls = backend.calls_handle();
+        let dev: HwDeviceId = "hw:CARD=RU3,DEV=0".parse().expect("hw id");
+        let deps = fake_deps_with_exclusive(Box::new(sink), Box::new(backend));
+        let mut engine = Engine::new(deps, BackendCaps::current());
+
+        engine.handle(EngineCmd::ProbeDeviceCaps { device: dev.clone() });
+        assert_eq!(engine.probe_in_flight, Some(dev.clone()));
+
+        let msg = engine.internal_rx.recv().expect("probe done");
+        match &msg {
+            InternalMsg::ProbeDone { device, result } => {
+                assert_eq!(*device, dev);
+                assert_eq!(*result, Err(ProbeError::Busy));
+            }
+            other => panic!("expected ProbeDone, got {other:?}"),
+        }
+        assert_eq!(*calls.lock().expect("calls lock"), vec![crate::audio::testing::ExclusiveCall::Probe(dev.clone())]);
+
+        // Заглушка до шага 4 (AM1.0-B38): обработка не снимает `probe_in_flight`.
+        engine.handle_internal(msg);
+        assert_eq!(engine.probe_in_flight, Some(dev));
     }
 }

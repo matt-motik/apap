@@ -26,7 +26,7 @@ steps:
     done: true
   - id: 3
     description: "src/engine/run.rs, часть 1: обработчик EngineCmd::ProbeDeviceCaps — защита от опроса устройства, которое держит self.claim/играет в self.exclusive_path (совпадение HwDeviceId → игнор команды), дебаунс повторного выбора того же устройства, запуск короткоживущего воркера через self.deps.spawner.spawn (по образцу claim_job, ADR-01). Проверка: cargo check; cargo test (приём InternalMsg — заглушка до шага 4)."
-    done: false
+    done: true
   - id: 4
     description: "src/engine/run.rs, часть 2: приём результата воркера (InternalMsg от шага 3) — эмит EngineEvent успеха/«занято»/ошибки пробы. Проверка: cargo test (debounce, guard активного устройства, успех, EBUSY — ≤5 тестов)."
     done: false
@@ -48,8 +48,8 @@ steps:
   - id: 10
     description: "ЧЕКПОИНТ перед закрытием: полный cargo test + cargo clippy по всему вайтлисту."
     done: false
-current_step: 3
-next_action: "src/engine/run.rs, часть 1: обработчик EngineCmd::ProbeDeviceCaps — guard активного/захваченного устройства, дебаунс, запуск воркера через self.deps.spawner.spawn"
+current_step: 4
+next_action: "src/engine/run.rs, часть 2: приём InternalMsg::ProbeDone — эмит EngineEvent::DeviceCapsProbed (успех/Busy/ошибка), снятие probe_in_flight, запуск отложенного probe_pending"
 fail_counter: 0
 fail_counter_max: 3
 failed_attempts: []
