@@ -2,10 +2,39 @@
      Source of truth: _STATE_.yaml — edit that, then run:
      python tools/state_tool.py render -->
 
-# Состояние сессии
 
-- **Текущая задача:** Нет (все шаги завершены)
-- **Состояние:** done
+# Текущая микро-сессия
+
+- **Задача из ROADMAP:** AM1.0-B4 — Бейдж режима в строке меню + смена активного режима из диалога настроек по «Сохранить» (вариант А)
+- **Вайтлист файлов в работе (Изменяемые файлы):**
+  - docs/02_settings_persistence_v1.0/02_tz.md
+  - docs/02_settings_persistence_v1.0/03_spec.md
+  - src/core/dialog.rs
+  - src/core/mod.rs
+  - src/core/testing.rs
+  - src/app/mod.rs
+  - src/app/ui_manager.rs
+  - ui/top_panel.slint
+- **Критерий успеха (Definition of Done):** Выбор режима в диалоге без прочих правок разблокирует «Сохранить»; «Сохранить» переключает активный режим (state.toml) и обновляет бейдж режима в MenuBarTrailing; выбор режима из бейджа применяется сразу, как раньше из главного окна; cargo test и cargo clippy зелёные
+
+## Итерационный трекер
+- [x] Шаг 1: SP1.0 docs: ТЗ-30/Т-4 (02_tz.md) и связанные места 03_spec.md (DialogDraft.shown_mode — ADR-11 ~485, §2.10 ~1739, §6.9 ~2538-2573, §8.3 С9 ~3384, §7.2 тест ~3064) — shown_mode часть отличий, Save переключает активный режим, тест переименован/инвертирован. Проверка: traceability_tool.py check зелёный, текст непротиворечив
+- [>] **Шаг 2: src/core/dialog.rs: shown_mode входит в SettingsDiff (поле mode: Option<ModeKind>), apply_plan — шаг ActiveMode; validate не меняется; тест diff_ignores_shown_mode переименован/инвертирован (diff_detects_shown_mode_change). Проверка: cargo test core::dialog:: зелёный**
+- [ ] Шаг 3: src/core/mod.rs: dialog_save применяет шаг ActiveMode из плана — change_state(Origin::User, ActiveMode(m)), тот же путь, что и текущий select_mode главного окна/бейджа устройства. Проверка: cargo check; cargo test core:: зелёный
+- [ ] Шаг 4: src/core/testing.rs: тесты уровня AppCore — смена shown_mode без других правок разблокирует «Сохранить»; «Сохранить» меняет активный режим и закрывает диалог; «Отмена» — активный режим прежний (переписать тесты ~3960-3977). Проверка: cargo test core:: зелёный
+- [ ] Шаг 5: ЧЕКПОИНТ: полный cargo test + cargo clippy зелёные (шаги 2-4)
+- [ ] Шаг 6: ui/top_panel.slint: бейдж активного режима в MenuBarTrailing рядом с бейджем устройства (ярлык режима + попап-меню из трёх режимов, недоступные неактивны, ТЗ-111), по образцу device-label/lock-kind. Проверка: cargo check (slint build)
+- [ ] Шаг 7: src/app/mod.rs или src/app/ui_manager.rs (один файл, уточнить при реализации): колбэк бейджа режима подключён к существующему обработчику select_mode (применяется сразу, как раньше из главного окна); бейдж обновляется после dialog_save. Проверка: cargo check; ручной сценарий позже
+- [ ] Шаг 8: ЧЕКПОИНТ: полный cargo test + cargo clippy зелёные (шаги 6-7)
+- [ ] Шаг 9: ui/top_panel.slint (+ Rust-обработчик select-mode, если меняется сигнатура): убрать или оставить старый ряд ModeButton в главном окне — решить по ТЗ-18, ТЗ-109…ТЗ-111 (переключатель «постоянно виден в главном окне» уже удовлетворяется бейджем в строке меню, AM1.0-B4 решение пользователя 2026-10-10/23); убрать, если спека не требует отдельного ряда, иначе оставить с заметкой. Проверка: cargo check
+- [ ] Шаг 10: ЧЕКПОИНТ перед закрытием: полный cargo test + cargo clippy зелёные; ручные проверки — в заметку плана AM1.0-B4 при закрытии (closing.md §2)
+
+Легенда: [x] сделано · [>] текущий шаг · [ ] не начато
+
+- **Текущий шаг (current_step):** Шаг 2
+- **Следующий ход:** Шаг 2: src/core/dialog.rs — shown_mode входит в SettingsDiff, apply_plan получает шаг ActiveMode
+- **Счетчик безуспешных компиляций:** 0/3
+- **Состояние:** in_progress
 
 ## План: Executable workflow: правила AGENTS.md → исполняемые механизмы
 _Источник: чат с пользователем (ноутбук), начат в 67686ce; перенесён в репо 2026-09-22_
