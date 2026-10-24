@@ -30,6 +30,7 @@ use crate::engine::lock::{lock_step, resolve_device, LockEffect, LockInput, Lock
 use crate::engine::messages::{
     EngineCmd, EngineEvent, InternalMsg, LegacyAudio, Notice, SkipReason, TrackRef, TransportState,
 };
+use crate::journal::{backend_error_text, JournalRecord};
 use crate::persist::state_file::LegacyPlaybackState;
 use crate::settings::params::{ApplyKind, ModeSettingsDiff};
 use crate::settings::playback::{Dither, ModeKind, ModeSettings, PathPolicy, Volume};
@@ -894,7 +895,16 @@ impl Engine {
         // `reopen_after_reacquire` ниже сравнивала её с устройством
         // `ClaimDone` (тоже каноническим после `start_claim`) без ложного
         // расхождения форм одного и того же устройства.
-        let Some(found) = self.catalog.canonical_hw(&point.device) else {
+        let found = self.catalog.canonical_hw(&point.device);
+        // Журнал цепочки повторного захвата (§6.20 п. 4, ТЗ-126, ADR-21):
+        // найдено/не найдено устройство точки — единственное наблюдаемое
+        // извне решение `lock_step` этой точки, `found: true` всегда
+        // продолжается вызовом `lock_input(DeviceReappeared)` ниже.
+        self.deps.journal.record(JournalRecord::DeviceReacquireLookup {
+            device: point.device.clone(),
+            found: found.is_some(),
+        });
+        let Some(found) = found else {
             return;
         };
         let dev = found.id.clone();
@@ -1772,8 +1782,14 @@ impl Engine {
         // повторного захвата вернувшегося устройства (§6.20 п. 4, ТЗ-126).
         let hw_changed = match self.deps.exclusive.as_deref_mut() {
             Some(backend) => match self.catalog.refresh_hw(backend) {
-                Ok(changed) => changed,
+                Ok(changed) => {
+                    self.deps.journal.record(JournalRecord::DeviceEnumerate { enumerate_error: None });
+                    changed
+                }
                 Err(e) => {
+                    self.deps.journal.record(JournalRecord::DeviceEnumerate {
+                        enumerate_error: Some(backend_error_text(&e)),
+                    });
                     self.deps.events.emit(EngineEvent::Notice(Notice::DevicesUnavailable(e)));
                     false
                 }
@@ -2080,6 +2096,7 @@ mod tests {
             caps: BackendCaps::current(),
             os_probe: Box::new(FakeOsProbe::new(OsStage::Unknown)),
             rt: Arc::new(FakeRtRequester::new(None)),
+            journal: Arc::new(crate::journal::VecJournal::default()),
         }
     }
 
@@ -2449,6 +2466,7 @@ mod tests {
             caps: BackendCaps::current(),
             os_probe: Box::new(FakeOsProbe::new(OsStage::Unknown)),
             rt: Arc::new(FakeRtRequester::new(None)),
+            journal: Arc::new(crate::journal::VecJournal::default()),
         };
         let mut engine = Engine::new(deps, BackendCaps::current());
         engine.catalog.hw = vec![crate::audio::backend::catalog::HwDeviceInfo { id: dev.clone(), card: 1, device: 0, name: "RU3".to_string() }];
@@ -2497,6 +2515,7 @@ mod tests {
             caps: BackendCaps::current(),
             os_probe: Box::new(FakeOsProbe::new(OsStage::Unknown)),
             rt: Arc::new(FakeRtRequester::new(None)),
+            journal: Arc::new(crate::journal::VecJournal::default()),
         };
         let mut engine = Engine::new(deps, BackendCaps::current());
         engine.catalog.hw = vec![crate::audio::backend::catalog::HwDeviceInfo { id: dev.clone(), card: 1, device: 0, name: "RU3".to_string() }];
@@ -2678,6 +2697,7 @@ mod tests {
             caps: BackendCaps::current(),
             os_probe: Box::new(FakeOsProbe::new(OsStage::Unknown)),
             rt: Arc::new(FakeRtRequester::new(None)),
+            journal: Arc::new(crate::journal::VecJournal::default()),
         };
         let mut engine = Engine::new(deps, BackendCaps::current());
         engine.active_mode = ModeKind::Optimal;
@@ -2825,6 +2845,7 @@ mod tests {
             caps: BackendCaps::current(),
             os_probe: Box::new(FakeOsProbe::new(OsStage::Unknown)),
             rt: Arc::new(FakeRtRequester::new(None)),
+            journal: Arc::new(crate::journal::VecJournal::default()),
         };
         let mut engine = Engine::new(deps, BackendCaps::current());
         engine.active_mode = ModeKind::Optimal;
@@ -2886,6 +2907,7 @@ mod tests {
             caps: BackendCaps::current(),
             os_probe: Box::new(FakeOsProbe::new(OsStage::Unknown)),
             rt: Arc::new(FakeRtRequester::new(None)),
+            journal: Arc::new(crate::journal::VecJournal::default()),
         };
         let mut engine = Engine::new(deps, BackendCaps::current());
         engine.active_mode = ModeKind::Optimal;
@@ -2943,6 +2965,7 @@ mod tests {
             caps: BackendCaps::current(),
             os_probe: Box::new(FakeOsProbe::new(OsStage::Unknown)),
             rt: Arc::new(FakeRtRequester::new(None)),
+            journal: Arc::new(crate::journal::VecJournal::default()),
         };
         let mut engine = Engine::new(deps, BackendCaps::current());
         engine.active_mode = ModeKind::Optimal;
@@ -3642,6 +3665,7 @@ mod tests {
             caps: BackendCaps::current(),
             os_probe: Box::new(FakeOsProbe::new(OsStage::Unknown)),
             rt: Arc::new(FakeRtRequester::new(None)),
+            journal: Arc::new(crate::journal::VecJournal::default()),
         };
         let mut engine = Engine::new(deps, BackendCaps::current());
         engine.active_mode = ModeKind::Optimal;
@@ -3837,6 +3861,7 @@ mod tests {
             caps: BackendCaps::current(),
             os_probe: Box::new(FakeOsProbe::new(OsStage::Unknown)),
             rt: Arc::new(FakeRtRequester::new(None)),
+            journal: Arc::new(crate::journal::VecJournal::default()),
         };
         let mut engine = Engine::new(deps, BackendCaps::current());
         engine.active_mode = ModeKind::Optimal;
@@ -3893,6 +3918,7 @@ mod tests {
             caps: BackendCaps::current(),
             os_probe: Box::new(FakeOsProbe::new(OsStage::Unknown)),
             rt: Arc::new(FakeRtRequester::new(Some(20))),
+            journal: Arc::new(crate::journal::VecJournal::default()),
         };
         let mut engine = Engine::new(deps, BackendCaps::current());
         engine.active_mode = ModeKind::Optimal;
@@ -3947,6 +3973,7 @@ mod tests {
             caps: BackendCaps::current(),
             os_probe: Box::new(FakeOsProbe::new(OsStage::Unknown)),
             rt: Arc::new(FakeRtRequester::new(Some(20))),
+            journal: Arc::new(crate::journal::VecJournal::default()),
         };
         let mut engine = Engine::new(deps, BackendCaps::current());
         engine.active_mode = ModeKind::Optimal;
@@ -4003,6 +4030,7 @@ mod tests {
             caps: BackendCaps::current(),
             os_probe: Box::new(FakeOsProbe::new(OsStage::Unknown)),
             rt: Arc::clone(&rt) as Arc<dyn RtPriorityRequester>,
+            journal: Arc::new(crate::journal::VecJournal::default()),
         };
         let mut engine = Engine::new(deps, BackendCaps::current());
         engine.active_mode = ModeKind::Optimal;
@@ -4061,6 +4089,7 @@ mod tests {
             caps: BackendCaps::current(),
             os_probe: Box::new(FakeOsProbe::new(OsStage::Unknown)),
             rt: Arc::clone(&rt) as Arc<dyn RtPriorityRequester>,
+            journal: Arc::new(crate::journal::VecJournal::default()),
         };
         let mut engine = Engine::new(deps, BackendCaps::current());
         engine.active_mode = ModeKind::Optimal;
@@ -4143,6 +4172,7 @@ mod tests {
             caps: BackendCaps::current(),
             os_probe: Box::new(FakeOsProbe::new(OsStage::Unknown)),
             rt: Arc::new(FakeRtRequester::new(None)),
+            journal: Arc::new(crate::journal::VecJournal::default()),
         };
         let mut engine = Engine::new(deps, BackendCaps::current());
         engine.active_mode = ModeKind::Optimal;
@@ -4195,6 +4225,7 @@ mod tests {
             caps: BackendCaps::current(),
             os_probe: Box::new(FakeOsProbe::new(OsStage::Unknown)),
             rt: Arc::new(FakeRtRequester::new(None)),
+            journal: Arc::new(crate::journal::VecJournal::default()),
         };
         let mut engine = Engine::new(deps, BackendCaps::current());
         engine.active_mode = ModeKind::Optimal;
@@ -4260,6 +4291,7 @@ mod tests {
             caps: BackendCaps::current(),
             os_probe: Box::new(FakeOsProbe::new(OsStage::Unknown)),
             rt: Arc::new(FakeRtRequester::new(None)),
+            journal: Arc::new(crate::journal::VecJournal::default()),
         };
         let mut engine = Engine::new(deps, BackendCaps::current());
         engine.active_mode = ModeKind::Optimal;
@@ -4319,6 +4351,7 @@ mod tests {
             caps: BackendCaps::current(),
             os_probe: Box::new(FakeOsProbe::new(OsStage::Unknown)),
             rt: Arc::new(FakeRtRequester::new(None)),
+            journal: Arc::new(crate::journal::VecJournal::default()),
         };
         let mut engine = Engine::new(deps, BackendCaps::current());
         engine.active_mode = ModeKind::Optimal;
@@ -4386,6 +4419,7 @@ mod tests {
             caps: BackendCaps::current(),
             os_probe: Box::new(FakeOsProbe::new(OsStage::Unknown)),
             rt: Arc::new(FakeRtRequester::new(None)),
+            journal: Arc::new(crate::journal::VecJournal::default()),
         };
         let mut engine = Engine::new(deps, BackendCaps::current());
         engine.active_mode = ModeKind::Optimal;
@@ -4463,6 +4497,7 @@ mod tests {
             caps: BackendCaps::current(),
             os_probe: Box::new(FakeOsProbe::new(OsStage::Unknown)),
             rt: Arc::new(FakeRtRequester::new(None)),
+            journal: Arc::new(crate::journal::VecJournal::default()),
         };
         let mut engine = Engine::new(deps, BackendCaps::current());
         engine.active_mode = ModeKind::Optimal;
@@ -4544,6 +4579,7 @@ mod tests {
             caps: BackendCaps::current(),
             os_probe: Box::new(FakeOsProbe::new(OsStage::Unknown)),
             rt: Arc::new(FakeRtRequester::new(None)),
+            journal: Arc::new(crate::journal::VecJournal::default()),
         };
         let mut engine = Engine::new(deps, BackendCaps::current());
         engine.active_mode = ModeKind::Optimal;

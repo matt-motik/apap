@@ -2,6 +2,7 @@
 //! Реализация по умолчанию — `FileJournal` (stderr + `apap.log`), подмена для
 //! автотестов — `VecJournal`. В аудио-колбэке журнал не используется.
 
+use crate::audio::backend::{BackendError, HwDeviceId};
 use crate::core::exit::{ExitReason, ExitReport, TermSignal};
 use crate::persist::keys::{LoadNote, LoadNoteKind};
 use crate::persist::{ConfigFile, WorkFile};
@@ -61,6 +62,20 @@ pub enum JournalRecord {
     /// воспроизведение продолжается на обычном приоритете (§6.8 п. 3,
     /// ТЗ-76).
     RtPriorityDenied { tid: u32, prio: u32 },
+    /// Перечисление Exclusive-устройств по сигналу `DeviceWatcher` или
+    /// команде «Обновить» (§2.3, ADR-16, ТЗ-105, ТЗ-126,
+    /// `DeviceCatalog::refresh_hw`, `src/engine/run.rs::refresh_devices`):
+    /// `enumerate_error` — текст ошибки `ExclusiveBackend::enumerate`,
+    /// `None` — перечисление прошло (список мог не измениться).
+    DeviceEnumerate { enumerate_error: Option<Box<str>> },
+    /// Поиск устройства сохранённой точки повторного захвата в обновлённом
+    /// каталоге Exclusive-устройств (§6.20 п. 4, ТЗ-126,
+    /// `DeviceCatalog::canonical_hw`, `src/engine/run.rs::
+    /// try_reacquire_reappeared_device`): `found` — устройство нашлось, и
+    /// движок запросил у `lock_step` повторный захват
+    /// (`LockInput::DeviceReappeared`, `src/engine/lock.rs`); `false` — пока
+    /// не нашлось, решение `lock_step` не запрашивалось.
+    DeviceReacquireLookup { device: HwDeviceId, found: bool },
 }
 
 /// Что записывалось (§2.9).
@@ -100,6 +115,8 @@ impl JournalRecord {
             JournalRecord::TrayHost { .. } => "хост трея",
             JournalRecord::Notify { .. } => "уведомление не доставлено",
             JournalRecord::RtPriorityDenied { .. } => "приоритет реального времени не получен",
+            JournalRecord::DeviceEnumerate { .. } => "перечисление устройств",
+            JournalRecord::DeviceReacquireLookup { .. } => "поиск устройства повторного захвата",
         }
     }
 
@@ -164,7 +181,27 @@ impl JournalRecord {
             JournalRecord::RtPriorityDenied { tid, prio } => {
                 format!("rtkit MakeThreadRealtime: поток {tid}, приоритет {prio}")
             }
+            JournalRecord::DeviceEnumerate { enumerate_error } => match enumerate_error {
+                Some(err) => format!("ошибка: {err}"),
+                None => "без ошибки".to_string(),
+            },
+            JournalRecord::DeviceReacquireLookup { device, found } => {
+                if *found {
+                    format!("{device}: найдено, запрошен повторный захват lock_step")
+                } else {
+                    format!("{device}: не найдено в перечислении, lock_step не запрошен")
+                }
+            }
         }
+    }
+}
+
+/// Текст ошибки перечисления Exclusive-устройств для строки журнала
+/// (§2.9, ADR-24) — используется движком при формировании
+/// `JournalRecord::DeviceEnumerate` (`src/engine/run.rs`).
+pub fn backend_error_text(err: &BackendError) -> Box<str> {
+    match err {
+        BackendError::Unavailable(msg) => msg.as_str().into(),
     }
 }
 
@@ -585,6 +622,34 @@ mod tests {
             assert_eq!(rec.kind(), "хост трея");
             assert_eq!(format_line(&rec, UNIX_EPOCH), format!("1970-01-01T00:00:00.000Z хост трея: {text}"));
         }
+    }
+
+    #[test]
+    fn journal_device_enumerate_line_has_error_or_not() {
+        let ok = JournalRecord::DeviceEnumerate { enumerate_error: None };
+        assert_eq!(ok.kind(), "перечисление устройств");
+        assert_eq!(format_line(&ok, UNIX_EPOCH), "1970-01-01T00:00:00.000Z перечисление устройств: без ошибки");
+
+        let err = JournalRecord::DeviceEnumerate { enumerate_error: Some("no host".into()) };
+        assert_eq!(format_line(&err, UNIX_EPOCH), "1970-01-01T00:00:00.000Z перечисление устройств: ошибка: no host");
+    }
+
+    #[test]
+    fn journal_device_reacquire_lookup_line_has_device_and_outcome() {
+        let device: HwDeviceId = "hw:CARD=RU3,DEV=0".parse().expect("hw id");
+
+        let found = JournalRecord::DeviceReacquireLookup { device: device.clone(), found: true };
+        assert_eq!(found.kind(), "поиск устройства повторного захвата");
+        assert_eq!(
+            format_line(&found, UNIX_EPOCH),
+            "1970-01-01T00:00:00.000Z поиск устройства повторного захвата: hw:CARD=RU3,DEV=0: найдено, запрошен повторный захват lock_step"
+        );
+
+        let missing = JournalRecord::DeviceReacquireLookup { device, found: false };
+        assert_eq!(
+            format_line(&missing, UNIX_EPOCH),
+            "1970-01-01T00:00:00.000Z поиск устройства повторного захвата: hw:CARD=RU3,DEV=0: не найдено в перечислении, lock_step не запрошен"
+        );
     }
 
     /// Временный каталог теста (не каталог пользователя, ТЗ-49).

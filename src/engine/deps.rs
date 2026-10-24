@@ -53,6 +53,10 @@ pub struct EngineDeps {
     /// Запрос RT-приоритета потока вывода Эксклюзивного пути у `rtkit`
     /// (§6.8, ТЗ-99, ТЗ-76); тесты подменяют фейком.
     pub rt: Arc<dyn RtPriorityRequester>,
+    /// Журнал (ADR-21, §2.9): цепочка повторного захвата вернувшегося
+    /// устройства (§6.20 п. 4, ТЗ-126, `src/engine/run.rs`); тесты
+    /// подменяют `VecJournal`.
+    pub journal: Arc<dyn Journal>,
 }
 
 impl EngineDeps {
@@ -61,6 +65,7 @@ impl EngineDeps {
     /// И-Т1): этот модуль их не ищет сам.
     pub fn system(events: Box<dyn EventSink>, dir: PathBuf, journal: Arc<dyn Journal>) -> EngineDeps {
         let rt_journal = Arc::clone(&journal);
+        let engine_journal = Arc::clone(&journal);
         let (reader, _writer, store_writer) = os_fs(journal);
         EngineDeps {
             shared: Box::new(CpalSharedBackend::default()),
@@ -81,6 +86,7 @@ impl EngineDeps {
             caps: BackendCaps::current(),
             os_probe: Box::new(SystemOsProbe),
             rt: Arc::new(crate::audio::rt::RtKitRequester::new(rt_journal)),
+            journal: engine_journal,
         }
     }
 }
@@ -150,6 +156,7 @@ mod tests {
             caps: BackendCaps::current(),
             os_probe: Box::new(FakeOsProbe::new(OsStage::Unknown)),
             rt: Arc::new(crate::audio::testing::FakeRtRequester::new(None)),
+            journal: Arc::new(crate::journal::VecJournal::default()),
         };
 
         let format = deps.sources.probe(Path::new("fake.flac")).expect("probe ok");

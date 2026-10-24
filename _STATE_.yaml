@@ -16,15 +16,15 @@ dod: "cargo test зелёный; cargo clippy 0 новых предупрежд�
 steps:
   - id: 1
     description: "Журнал цепочки повторного захвата: изменение списка карт, результат enumerate (успех/ошибка с текстом), найдено/не найдено устройство ReacquirePoint (id), решение lock_step — через существующий journal (вне RT-потока). Проверка: cargo check + clippy"
-    done: false
+    done: true
   - id: 2
     description: "Повтор enumerate после изменения списка карт: при ошибке или если ReacquirePoint есть, а устройства в каталоге нет — до N попыток с интервалом ~500 мс в течение ~5 с (без блокировки цикла движка; таймер/счётчик в poll_session), затем Notice как сейчас; тест на подставном AudioHost/каталоге: первая попытка ошибка/пусто, вторая — устройство есть → DeviceReappeared → захват. Проверка: тесты engine + clippy"
     done: false
   - id: 3
     description: "ЧЕКПОИНТ: полный cargo test + clippy"
     done: false
-current_step: 1
-next_action: "Добавить JournalRecord::DeviceEnumerate/DeviceReacquireLookup и записи в refresh_devices/try_reacquire_reappeared_device"
+current_step: 2
+next_action: "Добавить ReacquireRetry (счётчик/таймер на ClockInstant) в Engine и логику повтора в refresh_devices/poll_session"
 fail_counter: 0
 fail_counter_max: 3
 failed_attempts: []
