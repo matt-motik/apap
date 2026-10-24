@@ -10,6 +10,7 @@ use std::fmt;
 
 use crate::audio::format::{BitDepth, ChannelLayout, DsdRate, SampleRate};
 use crate::audio::verdict::NbpReason;
+use crate::i18n::report as i18n_report;
 use crate::settings::params::ParamId;
 use crate::settings::playback::{Dither, DsdFilter, ModeKind, SrcFilter, Volume};
 
@@ -298,7 +299,7 @@ impl TransformKind {
             TransformKind::ZeroPad(z) => {
                 format!("{} → {} бит, дополнение нулями", z.from().bits(), z.to().bits())
             }
-            TransformKind::MonoToStereo => "Моно → 2 канала, дублирование".to_owned(),
+            TransformKind::MonoToStereo => i18n_report::TRANSFORM_MONO_TO_STEREO.to_owned(),
             TransformKind::ChannelPad { from, to } => {
                 format!("{from} → {to} кан., остальные каналы — тишина")
             }
@@ -336,7 +337,7 @@ impl TransformKind {
                     comp
                 )
             }
-            TransformKind::Volume(v) => format!("Громкость {} %", v.get()),
+            TransformKind::Volume(v) => i18n_report::transform_volume_note(v.get()),
             TransformKind::Mute => "Mute: усиление 0".to_owned(),
             TransformKind::SilenceGate => "Mute: подмена тишиной, без пересчёта сэмплов".to_owned(),
             TransformKind::Dither(d) => match d {
@@ -370,12 +371,13 @@ pub(super) fn dsd_name(dsd: DsdRate) -> &'static str {
     }
 }
 
-/// Название фильтра SRC, как в диалоге настроек (ОВС-7, ТЗ-130).
+/// Название фильтра SRC, как в диалоге настроек (ОВС-7, ТЗ-130; тексты —
+/// `src/i18n/mod.rs::SRC_FILTER_*`, T1.0-B8).
 fn src_filter_name(filter: SrcFilter) -> &'static str {
     match filter {
-        SrcFilter::Steep => "Крутой",
-        SrcFilter::Slow => "Медленный",
-        SrcFilter::VerySlow => "Очень медленный",
+        SrcFilter::Steep => crate::i18n::SRC_FILTER_STEEP,
+        SrcFilter::Slow => crate::i18n::SRC_FILTER_SLOW,
+        SrcFilter::VerySlow => crate::i18n::SRC_FILTER_VERY_SLOW,
     }
 }
 

@@ -782,7 +782,11 @@ pub fn probe_dsd_format(path: &Path) -> Result<SourceFormat, FileError> {
             let (header, _) = parse_dff(&mut file)?;
             (Container::Dff, Codec::Dff, header)
         }
-        _ => return Err(FileError::Unsupported { codec: "не DSD-контейнер".into() }),
+        _ => {
+            return Err(FileError::Unsupported {
+                codec: crate::i18n::errors::DSD_NOT_A_CONTAINER.into(),
+            });
+        }
     };
     let rate = SampleRate::new(header.dsd_rate).ok_or(corrupt(CorruptKind::BadHeader))?;
     let layout = dsd_channel_layout(header.channels).ok_or(corrupt(CorruptKind::ZeroChannels))?;

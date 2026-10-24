@@ -65,7 +65,7 @@ steps:
     done: true
   - id: 10
     description: "src/audio/path/transform.rs (7 строк — подписи шагов пути сигнала: «Моно → 2 канала…», «Громкость N %», фильтры SRC «Крутой»/«Медленный»/«Очень медленный») + src/audio/dsd.rs (1 строка — тег «не DSD-контейнер» в FileError::Unsupported, подставляется в сообщение «неподдерживаемый формат: {codec}») → src/i18n/. Проверка: cargo check без ошибок"
-    done: false
+    done: true
   - id: 11
     description: "src/app/playback_manager.rs (5 строк — «Захват устройства…», «Воспроизведение: {artist}—{title}», «Замок открыт» и тело, «Не удалось воспроизвести трек») + src/playlist/load.rs (4 строки — os_text «невалидный UTF-8», «строка N: не абсолютный путь» и др.) → src/i18n/. Проверка: cargo check без ошибок"
     done: false
@@ -96,8 +96,8 @@ steps:
   - id: 20
     description: "ЧЕКПОИНТ (финальный, перед закрытием задачи): полный cargo test + cargo clippy + tools/check_rt_imports.py + tools/traceability_tool.py check — все зелёные; выборочная сверка, что перенесённые строки байт-в-байт совпадают с прежними (diff литералов)"
     done: false
-current_step: 10
-next_action: "Шаг 10: src/audio/path/transform.rs + src/audio/dsd.rs (подписи шагов пути сигнала, тег «не DSD-контейнер») → src/i18n/"
+current_step: 11
+next_action: "Шаг 11: src/app/playback_manager.rs + src/playlist/load.rs → src/i18n/"
 fail_counter: 0
 fail_counter_max: 3
 failed_attempts: []

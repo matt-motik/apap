@@ -409,3 +409,18 @@ pub fn dac_dop_combined(dop: &str, max_khz: &str) -> String {
 pub const SWITCH_WHY_RESAMPLE: &str = "ресемплинг";
 pub const SWITCH_WHY_TRUNCATE: &str = "усечение разрядности";
 pub const SWITCH_WHY_DOWNMIX: &str = "сведение каналов";
+
+// ---------------------------------------------------------------------------
+// Часть 3: тексты преобразований пути сигнала (§3.3, ТЗ-72,
+// `TransformKind::describe`/`src_filter_name`, T1.0-B8) — перенесено из
+// `src/audio/path/transform.rs` байт-в-байт, без изменения содержания.
+// ---------------------------------------------------------------------------
+
+/// Текст преобразования `MonoToStereo` — моно → 2 канала дублированием (ОВ-2).
+pub const TRANSFORM_MONO_TO_STEREO: &str = "Моно → 2 канала, дублирование";
+
+/// Текст преобразования `Volume` — программная громкость стадии AtomicGain
+/// (ОВ-5); `pct` — значение `Volume::get()` (0..=100).
+pub fn transform_volume_note(pct: u8) -> String {
+    format!("Громкость {pct} %")
+}

@@ -222,6 +222,12 @@ pub fn unsupported_format_text(codec: &str) -> String {
     format_named("неподдерживаемый формат: {codec}", &[("codec", codec)])
 }
 
+/// Тег контейнера для `FileError::Unsupported` при пробе формата файла с
+/// расширением, не принадлежащим DSD-контейнерам (DSF/DFF) (§6.18 шаг 3,
+/// ТЗ-103, T1.0-B8, `src/audio/dsd.rs::probe_dsd_format`) — попадает в
+/// [`unsupported_format_text`] как `codec`.
+pub const DSD_NOT_A_CONTAINER: &str = "не DSD-контейнер";
+
 /// Текст ошибки чтения файла при отказе открытия/пропуске трека (ТЗ-86,
 /// ТЗ-87, T1.0-B8). `text` — вывод [`describe_io_error`].
 pub fn read_error_text(text: &str) -> String {
