@@ -556,8 +556,84 @@ fn migrate_legacy_compatible_device(
     device
 }
 
-/// `[playback.compatible]` -> `CompatibleOpts` (§6.27 п. 3).
-fn parse_compatible(dto: CompatibleDto, notes: &mut Vec<LoadNote>) -> CompatibleOpts {
+/// Сохранённый per-sink узел Совместимого (`pipewire:NODE=<name>`,
+/// ADR-07 «Уточнение», AM1.0-B37), пропавший из каталога PipeWire между
+/// запусками (устройство отключено или переименовано) — мигрирует на
+/// `SystemDefault` тем же способом, что устаревшие `hw:`/`plughw:`-значения
+/// выше (`migrate_legacy_compatible_device`): заметка `Adjusted` на том же
+/// ключе, тот же показ пользователю (`app::mod`, одноразовое уведомление по
+/// образцу AM1.0-B32).
+///
+/// Распознаётся по каталогу (`known_ids` — срез актуальных id из
+/// `DeviceCatalog`/`pw-dump`), не по отказу открытия: `open_pw_node_stream`
+/// (`audio::backend::shared`) может не отказать и при несуществующем узле —
+/// WirePlumber способен молча перенаправить поток на узел по умолчанию
+/// (`PW_KEY_TARGET_OBJECT` — подсказка, не жёсткое требование; проверено
+/// вживую 2026-10-24, см. doc-комментарий `open_pw_node_stream`) — такая
+/// проверка была бы небезопасной (честность сигнала, AGENTS.md).
+///
+/// `known_ids = None` — каталог ещё не опрошен к моменту разбора файла
+/// настроек (перечисление идёт служебным потоком, AM1.0-B37, продолжение
+/// шага 3/12, и не готово синхронно к загрузке настроек): честность сигнала
+/// здесь — не гадать об отсутствии узла без каталога, выбор не трогаем.
+/// Фиксированные алиасы сервера (`default`/`pipewire`/`pulse`) не привязаны
+/// к конкретному узлу и каталог им не нужен — не проверяются здесь.
+#[cfg(target_os = "linux")]
+fn migrate_missing_shared_node(
+    device: SharedDeviceChoice,
+    known_ids: Option<&[String]>,
+    key: &str,
+    notes: &mut Vec<LoadNote>,
+) -> SharedDeviceChoice {
+    let SharedDeviceChoice::Named(id) = &device else {
+        return device;
+    };
+    if !id.as_str().to_ascii_lowercase().starts_with("pipewire:node=") {
+        return device;
+    }
+    let Some(known) = known_ids else {
+        return device;
+    };
+    if known.iter().any(|k| k.as_str() == id.as_str()) {
+        return device;
+    }
+    notes.push(LoadNote {
+        key: KeyPath::new(key.to_owned()),
+        kind: LoadNoteKind::Adjusted {
+            reason: format!(
+                "узел «{}» больше не найден среди устройств PipeWire — установлено «Системное по умолчанию»",
+                id.as_str()
+            )
+            .into(),
+        },
+    });
+    SharedDeviceChoice::SystemDefault
+}
+
+/// На Windows/macOS список Совместимого никогда не ограничивался per-sink
+/// узлами PipeWire (ADR-07 «Уточнение» — Linux-специфика) — проверка здесь
+/// не нужна.
+#[cfg(not(target_os = "linux"))]
+fn migrate_missing_shared_node(
+    device: SharedDeviceChoice,
+    _known_ids: Option<&[String]>,
+    _key: &str,
+    _notes: &mut Vec<LoadNote>,
+) -> SharedDeviceChoice {
+    device
+}
+
+/// `[playback.compatible]` -> `CompatibleOpts` (§6.27 п. 3). `known_shared_ids`
+/// — текущий каталог id Совместимого (`DeviceCatalog`/`pw-dump`), если он уже
+/// опрошен к моменту разбора (AM1.0-B37, шаг 7); `None`, когда вызывающий код
+/// ещё не имеет каталога (сейчас — всегда, см. `load_mode_settings` ниже;
+/// `load_mode_settings_with_catalog` — точка расширения для вызывающего
+/// кода, который каталог уже получил).
+fn parse_compatible(
+    dto: CompatibleDto,
+    known_shared_ids: Option<&[String]>,
+    notes: &mut Vec<LoadNote>,
+) -> CompatibleOpts {
     let default = CompatibleOpts::default();
     let mut opts = CompatibleOpts {
         device: read_shared_device(dto.device.as_ref(), "playback.compatible.device", notes),
@@ -595,6 +671,7 @@ fn parse_compatible(dto: CompatibleDto, notes: &mut Vec<LoadNote>) -> Compatible
         buffer: read_buffer_ms(dto.buffer.as_ref(), default.buffer, "playback.compatible.buffer", notes),
     };
     opts.device = migrate_legacy_compatible_device(opts.device, "playback.compatible.device", notes);
+    opts.device = migrate_missing_shared_node(opts.device, known_shared_ids, "playback.compatible.device", notes);
     for key in dto.unknown.keys() {
         notes.push(unknown_note(format!("playback.compatible.{key}")));
     }
@@ -744,6 +821,25 @@ fn parse_devices(
 /// разбора Оптимального и Строгого режимов `device_buffer` согласуется с
 /// `buffer` по И-Р22 (`reconcile_device_buffer`, §6.27 п. 4).
 pub fn load_mode_settings(dto: Option<PlaybackDto>) -> (ModeSettings, Vec<LoadNote>) {
+    // Вызывающий код (`persist::settings_file`) пока не передаёт каталог
+    // Совместимого — миграция пропавшего per-sink узла (шаг 7) требует
+    // `pw-dump`, который к этому моменту (ранняя синхронная загрузка файла
+    // настроек) ещё не опрошен (AM1.0-B37, продолжение шага 3/12: опрос —
+    // служебный поток движка). `load_mode_settings_with_catalog` — та же
+    // загрузка с явным каталогом, для вызывающего кода, который его уже
+    // получил; пробел интеграции (нет такого вызывающего кода пока) —
+    // заметка плана `_STATE_.yaml`, не расширение вайтлиста этой сессии.
+    load_mode_settings_with_catalog(dto, None)
+}
+
+/// Та же загрузка, что [`load_mode_settings`], с явным каталогом id
+/// Совместимого (`known_shared_ids` — текущий список из `DeviceCatalog`/
+/// `pw-dump`, если он уже опрошен; `None` — ещё нет) для миграции пропавшего
+/// per-sink узла (`migrate_missing_shared_node`, AM1.0-B37, шаг 7).
+pub fn load_mode_settings_with_catalog(
+    dto: Option<PlaybackDto>,
+    known_shared_ids: Option<&[String]>,
+) -> (ModeSettings, Vec<LoadNote>) {
     let Some(dto) = dto else {
         return (ModeSettings::default(), Vec::new());
     };
@@ -763,7 +859,7 @@ pub fn load_mode_settings(dto: Option<PlaybackDto>) -> (ModeSettings, Vec<LoadNo
     }
 
     let mut notes = Vec::new();
-    let compatible = parse_compatible(dto.compatible.unwrap_or_default(), &mut notes);
+    let compatible = parse_compatible(dto.compatible.unwrap_or_default(), known_shared_ids, &mut notes);
     let mut optimal = parse_optimal(dto.optimal.unwrap_or_default(), &mut notes);
     let mut strict = parse_strict(dto.strict.unwrap_or_default(), &mut notes);
     let devices = parse_devices(dto.devices, &mut notes);
@@ -1133,7 +1229,7 @@ dop = false
         for raw in ["hw:CARD=4,DEV=0", "plughw:CARD=4,DEV=0"] {
             let dto = CompatibleDto { device: Some(toml::Value::String(raw.to_owned())), ..Default::default() };
             let mut notes = Vec::new();
-            let opts = parse_compatible(dto, &mut notes);
+            let opts = parse_compatible(dto, None, &mut notes);
             assert_eq!(opts.device, SharedDeviceChoice::SystemDefault, "{raw}");
             assert_eq!(notes.len(), 1, "{raw}: {notes:?}");
             assert_eq!(notes[0].key.as_str(), "playback.compatible.device");
@@ -1149,13 +1245,13 @@ dop = false
         for raw in ["default", "pipewire", "pulse"] {
             let dto = CompatibleDto { device: Some(toml::Value::String(raw.to_owned())), ..Default::default() };
             let mut notes = Vec::new();
-            let opts = parse_compatible(dto, &mut notes);
+            let opts = parse_compatible(dto, None, &mut notes);
             assert_eq!(opts.device, SharedDeviceChoice::Named(SharedDeviceId::new(raw)), "{raw}");
             assert!(notes.is_empty(), "{raw}: {notes:?}");
         }
 
         let mut notes = Vec::new();
-        let opts = parse_compatible(CompatibleDto::default(), &mut notes);
+        let opts = parse_compatible(CompatibleDto::default(), None, &mut notes);
         assert_eq!(opts.device, SharedDeviceChoice::SystemDefault);
         assert!(notes.is_empty());
     }
@@ -1175,6 +1271,85 @@ dop = false
             ..Default::default()
         };
         let (settings, notes) = load_mode_settings(Some(dto));
+        assert_eq!(settings.compatible.device, SharedDeviceChoice::SystemDefault);
+        assert_eq!(notes.len(), 1);
+        assert_eq!(notes[0].key.as_str(), "playback.compatible.device");
+    }
+
+    const PW_NODE_ID: &str = "pipewire:NODE=alsa_output.usb-MOTU_M2-00.HiFi__Line__sink.3";
+
+    fn compatible_dto_with_device(id: &str) -> CompatibleDto {
+        CompatibleDto { device: Some(toml::Value::String(id.to_owned())), ..Default::default() }
+    }
+
+    /// AM1.0-B37, шаг 7 (ADR-07 «Уточнение»): per-sink узел `pipewire:NODE=…`
+    /// проходит `is_server_routed_pcm` (шаг 6) и не трогается миграцией
+    /// `hw:`/`plughw:`, но когда он отсутствует в переданном каталоге,
+    /// `migrate_missing_shared_node` переводит выбор на `SystemDefault` с
+    /// заметкой `Adjusted` — тем же способом, что устаревшие `hw:`/`plughw:`.
+    #[test]
+    #[cfg(target_os = "linux")]
+    fn migrate_missing_shared_node_replaces_vanished_pw_node() {
+        let dto = compatible_dto_with_device(PW_NODE_ID);
+        let mut notes = Vec::new();
+        let known: Vec<String> = vec!["pipewire".to_owned(), "pipewire:NODE=some_other_node".to_owned()];
+        let opts = parse_compatible(dto, Some(&known), &mut notes);
+        assert_eq!(opts.device, SharedDeviceChoice::SystemDefault);
+        assert_eq!(notes.len(), 1, "{notes:?}");
+        assert_eq!(notes[0].key.as_str(), "playback.compatible.device");
+        assert!(matches!(notes[0].kind, LoadNoteKind::Adjusted { .. }), "{notes:?}");
+    }
+
+    /// Узел, присутствующий в каталоге, остаётся выбранным без заметок.
+    #[test]
+    #[cfg(target_os = "linux")]
+    fn migrate_missing_shared_node_keeps_present_pw_node() {
+        let dto = compatible_dto_with_device(PW_NODE_ID);
+        let mut notes = Vec::new();
+        let known: Vec<String> = vec!["pipewire".to_owned(), PW_NODE_ID.to_owned()];
+        let opts = parse_compatible(dto, Some(&known), &mut notes);
+        assert_eq!(opts.device, SharedDeviceChoice::Named(SharedDeviceId::new(PW_NODE_ID)));
+        assert!(notes.is_empty(), "{notes:?}");
+    }
+
+    /// Каталог ещё не опрошен (`None`) — честность сигнала означает не
+    /// гадать об отсутствии узла без каталога: выбор не трогаем, заметок нет.
+    #[test]
+    #[cfg(target_os = "linux")]
+    fn migrate_missing_shared_node_skips_check_without_catalog() {
+        let dto = compatible_dto_with_device(PW_NODE_ID);
+        let mut notes = Vec::new();
+        let opts = parse_compatible(dto, None, &mut notes);
+        assert_eq!(opts.device, SharedDeviceChoice::Named(SharedDeviceId::new(PW_NODE_ID)));
+        assert!(notes.is_empty(), "{notes:?}");
+    }
+
+    /// Фиксированные алиасы сервера не привязаны к узлу — каталог для них
+    /// не нужен, даже когда передан и не содержит их явно.
+    #[test]
+    #[cfg(target_os = "linux")]
+    fn migrate_missing_shared_node_ignores_fixed_aliases() {
+        let dto = compatible_dto_with_device("pipewire");
+        let mut notes = Vec::new();
+        let known: Vec<String> = vec![PW_NODE_ID.to_owned()];
+        let opts = parse_compatible(dto, Some(&known), &mut notes);
+        assert_eq!(opts.device, SharedDeviceChoice::Named(SharedDeviceId::new("pipewire")));
+        assert!(notes.is_empty(), "{notes:?}");
+    }
+
+    /// Миграция срабатывает и через полный путь
+    /// `load_mode_settings_with_catalog`, не только напрямую через
+    /// `parse_compatible` (интеграция с разбором `[playback]` целиком).
+    #[test]
+    #[cfg(target_os = "linux")]
+    fn load_mode_settings_with_catalog_migrates_vanished_pw_node() {
+        let dto = PlaybackDto {
+            schema: Some(2),
+            compatible: Some(compatible_dto_with_device(PW_NODE_ID)),
+            ..Default::default()
+        };
+        let known: Vec<String> = vec!["pipewire".to_owned()];
+        let (settings, notes) = load_mode_settings_with_catalog(Some(dto), Some(&known));
         assert_eq!(settings.compatible.device, SharedDeviceChoice::SystemDefault);
         assert_eq!(notes.len(), 1);
         assert_eq!(notes[0].key.as_str(), "playback.compatible.device");
