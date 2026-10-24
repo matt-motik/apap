@@ -963,7 +963,7 @@ export component Settings inherits Rectangle {
                                                 padding-left: 8px;
                                                 spacing: 4px;
                                                 RowLabel {
-                                                    text: @tr("Размер БПФ");
+                                                    text: @tr("Размер FFT");
                                                     min-width: 170px;
                                                 }
 
@@ -1246,7 +1246,7 @@ export component Settings inherits Rectangle {
 
                                             spacing: 8px;
                                             RowLabel {
-                                                text: "Settings: Spectrum";
+                                                text: @tr("Настройки: Анализатор спектра");
                                                 text-color: Colors.accent;
                                             }
 
@@ -1254,12 +1254,12 @@ export component Settings inherits Rectangle {
                                                 padding-left: 8px;
                                                 spacing: 4px;
                                                 RowLabel {
-                                                    text: "Channels";
+                                                    text: @tr("Каналы");
                                                     min-width: 170px;
                                                 }
 
                                                 ComboBox {
-                                                    model: ["Mono", "Stereo"];
+                                                    model: [@tr("Моно"), @tr("Стерео")];
                                                     current-index: root.viz-sp-channels;
                                                     selected(s) => { root.set-viz-sp-channels(self.current-index); }
                                                 }
@@ -1273,7 +1273,7 @@ export component Settings inherits Rectangle {
                                                 padding-left: 8px;
                                                 spacing: 4px;
                                                 RowLabel {
-                                                    text: "Sensitivity";
+                                                    text: @tr("Чувствительность");
                                                     min-width: 170px;
                                                 }
 
@@ -1296,7 +1296,7 @@ export component Settings inherits Rectangle {
                                                 padding-left: 4px;
                                                 spacing: 4px;
                                                 RowLabel {
-                                                    text: "Bands (4-128)";
+                                                    text: @tr("Полосы (4-128)");
                                                     min-width: 170px;
                                                 }
 
@@ -1321,12 +1321,12 @@ export component Settings inherits Rectangle {
                                                 padding-left: 8px;
                                                 spacing: 4px;
                                                 RowLabel {
-                                                    text: "Freq scale";
+                                                    text: @tr("Шкала частот");
                                                     min-width: 170px;
                                                 }
 
                                                 ComboBox {
-                                                    model: ["Linear", "Log", "Mel"];
+                                                    model: [@tr("Линейная"), @tr("Логарифмическая"), @tr("Мел")];
                                                     current-index: root.viz-sp-freq-scale;
                                                     selected(s) => { root.set-viz-sp-freq-scale(self.current-index); }
                                                 }
@@ -1340,12 +1340,12 @@ export component Settings inherits Rectangle {
                                                 padding-left: 8px;
                                                 spacing: 4px;
                                                 RowLabel {
-                                                    text: "Level scale";
+                                                    text: @tr("Шкала уровня");
                                                     min-width: 170px;
                                                 }
 
                                                 ComboBox {
-                                                    model: ["Linear", "Log"];
+                                                    model: [@tr("Линейная"), @tr("Логарифмическая")];
                                                     current-index: root.viz-sp-level-scale;
                                                     selected(s) => { root.set-viz-sp-level-scale(self.current-index); }
                                                 }
@@ -1359,7 +1359,7 @@ export component Settings inherits Rectangle {
                                                 padding-left: 8px;
                                                 spacing: 4px;
                                                 RowLabel {
-                                                    text: "Smoothing";
+                                                    text: @tr("Сглаживание");
                                                     min-width: 170px;
                                                 }
 
@@ -1382,7 +1382,7 @@ export component Settings inherits Rectangle {
                                                 padding-left: 8px;
                                                 spacing: 4px;
                                                 RowLabel {
-                                                    text: "Peak hold";
+                                                    text: @tr("Удержание пика");
                                                     min-width: 170px;
                                                 }
 
@@ -1400,7 +1400,7 @@ export component Settings inherits Rectangle {
                                                 padding-left: 8px;
                                                 spacing: 4px;
                                                 RowLabel {
-                                                    text: "Peak decay (ms)";
+                                                    text: @tr("Спад пика (мс)");
                                                     min-width: 170px;
                                                 }
 
@@ -1423,7 +1423,7 @@ export component Settings inherits Rectangle {
                                                 padding-left: 8px;
                                                 spacing: 4px;
                                                 RowLabel {
-                                                    text: "Bar gap (px)";
+                                                    text: @tr("Зазор между столбцами (px)");
                                                     min-width: 170px;
                                                 }
 
@@ -1446,7 +1446,7 @@ export component Settings inherits Rectangle {
                                                 padding-left: 8px;
                                                 spacing: 4px;
                                                 RowLabel {
-                                                    text: "Bar radius (px)";
+                                                    text: @tr("Радиус столбцов (px)");
                                                     min-width: 170px;
                                                 }
 
@@ -1469,7 +1469,7 @@ export component Settings inherits Rectangle {
                                                 padding-left: 8px;
                                                 spacing: 4px;
                                                 RowLabel {
-                                                    text: "Gradient";
+                                                    text: @tr("Градиент");
                                                     min-width: 170px;
                                                 }
 
@@ -1487,7 +1487,7 @@ export component Settings inherits Rectangle {
                                                 padding-left: 8px;
                                                 spacing: 4px;
                                                 RowLabel {
-                                                    text: "DSD CIC compensation";
+                                                    text: @tr("Компенсация CIC для DSD");
                                                     min-width: 170px;
                                                 }
 
@@ -1506,7 +1506,7 @@ export component Settings inherits Rectangle {
                                         if root.viz-mode == 0: VerticalLayout {
                                             spacing: 8px;
                                             RowLabel {
-                                                text: "Visualization is disabled (placeholder only).";
+                                                text: @tr("Визуализация отключена (только заглушка).");
                                                 text-color: Colors.text-tertiary;
                                             }
                                         }
@@ -1521,7 +1521,7 @@ export component Settings inherits Rectangle {
                                     }
 
                                     Button {
-                                        text: "Reset type settings";
+                                        text: @tr("Сбросить настройки типа");
                                         preferred-height: 28px;
                                         clicked => { debug("settings: reset viz type"); root.reset-viz-type(); }
                                     }

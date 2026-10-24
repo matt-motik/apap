@@ -97,7 +97,7 @@ steps:
       ui/settings.slint — вкладка Visualization, под-секции «Анализатор спектра» + «Отключено»
       (~строки 1244–1532): @tr + перевод; Solid→«Сплошная», Gray→«Серая», Rainbow→«Радуга»,
       Thermal→«Тепловая».
-    done: false
+    done: true
   - id: 12
     description: "ЧЕКПОИНТ: полный cargo test + cargo clippy зелёные (settings.slint Covers/Visualization)."
     done: false
@@ -183,8 +183,8 @@ steps:
       check зелёные; готовность к closing.md (ручная проверка пользователем — обрезка длинных
       русских подписей на всех экранах).
     done: false
-current_step: 11
-next_action: "ui/settings.slint — вкладка Visualization, под-секции «Анализатор спектра» + «Отключено» (~строки 1244–1532): @tr + перевод; Solid→«Сплошная», Gray→«Серая», Rainbow→«Радуга», Thermal→«Тепловая»."
+current_step: 12
+next_action: "ЧЕКПОИНТ: полный cargo test + cargo clippy зелёные (settings.slint Covers/Visualization)."
 fail_counter: 0
 fail_counter_max: 3
 failed_attempts: []
