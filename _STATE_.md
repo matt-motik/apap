@@ -14,13 +14,13 @@
 
 ## Итерационный трекер
 - [x] Шаг 1: Карта (вариант): pure fn hw_device_label(card_name, pcm_name) в src/audio/backend/catalog.rs (+тесты M2/RU3/Xonar x2/дубликаты); alsa.rs::enumerate берёт card_info().get_name() и строит HwDeviceInfo.name через hw_device_label вместо голого pcm_info().get_name() (§6.6, ADR-24, ТЗ-143, AM1.0-B31). Проверка: cargo test audio::backend::
-- [>] **Шаг 2: Активное устройство: drain_engine_events (src/app/mod.rs) для Оптимального/Строгого режима берёт ready_device из DeviceCatalog.hw (hw_device_pairs_and_selected по сохранённому HwDeviceId), не из catalog.default_device() — убирает «default audio device» на hw-режимах (ТЗ-76, ADR-24, AM1.0-B31). Проверка: cargo test app::**
-- [ ] Шаг 3: ЧЕКПОИНТ: полный cargo test + cargo clippy без новых предупреждений
+- [x] Шаг 2: Активное устройство: drain_engine_events (src/app/mod.rs) для Оптимального/Строгого режима берёт ready_device из DeviceCatalog.hw (hw_device_pairs_and_selected по сохранённому HwDeviceId), не из catalog.default_device() — убирает «default audio device» на hw-режимах (ТЗ-76, ADR-24, AM1.0-B31). Проверка: cargo test app::
+- [>] **Шаг 3: ЧЕКПОИНТ: полный cargo test + cargo clippy без новых предупреждений**
 
 Легенда: [x] сделано · [>] текущий шаг · [ ] не начато
 
-- **Текущий шаг (current_step):** Шаг 2
-- **Следующий ход:** drain_engine_events (src/app/mod.rs): active_device для Оптимального/Строгого из DeviceCatalog.hw
+- **Текущий шаг (current_step):** Шаг 3
+- **Следующий ход:** ЧЕКПОИНТ: полный cargo test + cargo clippy
 - **Счетчик безуспешных компиляций:** 0/3
 - **Состояние:** in_progress
 

@@ -3264,16 +3264,29 @@ impl MusicApp {
         raw_events.clear();
         self.engine_events.drain(|ev| {
             if let EngineEvent::Devices(ref catalog) = ev {
-                let found = if saved_device.is_empty() {
-                    catalog.default_device()
+                // Оптимальный/Строгий — активное устройство из `catalog.hw`,
+                // не из `catalog.shared.default_device()` (ТЗ-76, ADR-24,
+                // ТЗ-143, AM1.0-B31): до этого бага обе ветки режима брали
+                // имя Shared-устройства системного выхода по умолчанию,
+                // поэтому диалог «Настройки» и «Путь сигнала» показывали
+                // «default audio device» даже когда реально был захвачен
+                // аппаратный ЦАП (MOTU M2 и т. п.) — подпись не совпадала с
+                // открытым hw-устройством и с его же подписью в списке
+                // устройств вкладки Audio (`hw_device_pairs_and_selected`).
+                ready_device = if active_mode == ModeKind::Compatible {
+                    let found = if saved_device.is_empty() {
+                        catalog.default_device()
+                    } else {
+                        catalog
+                            .find(&SharedDeviceId::new(saved_device.as_str()))
+                            .or_else(|| catalog.default_device())
+                    };
+                    found.map(|dev| dev.name.clone())
                 } else {
-                    catalog
-                        .find(&SharedDeviceId::new(saved_device.as_str()))
-                        .or_else(|| catalog.default_device())
+                    let saved_ref = if saved_device.is_empty() { None } else { Some(saved_device.as_str()) };
+                    let (pairs, selected) = ui_manager::hw_device_pairs_and_selected(catalog, saved_ref);
+                    selected.and_then(|i| pairs.get(i)).map(|(_, label)| label.clone())
                 };
-                if let Some(dev) = found {
-                    ready_device = Some(dev.name.clone());
-                }
                 // Каталог изменился — список hw-устройств вкладки Audio
                 // устарел (ADR-24, ТЗ-126, AM1.0-B16).
                 hw_listing_dirty = true;

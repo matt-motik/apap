@@ -17,12 +17,12 @@ steps:
     done: true
   - id: 2
     description: "Активное устройство: drain_engine_events (src/app/mod.rs) для Оптимального/Строгого режима берёт ready_device из DeviceCatalog.hw (hw_device_pairs_and_selected по сохранённому HwDeviceId), не из catalog.default_device() — убирает «default audio device» на hw-режимах (ТЗ-76, ADR-24, AM1.0-B31). Проверка: cargo test app::"
-    done: false
+    done: true
   - id: 3
     description: "ЧЕКПОИНТ: полный cargo test + cargo clippy без новых предупреждений"
     done: false
-current_step: 2
-next_action: "drain_engine_events (src/app/mod.rs): active_device для Оптимального/Строгого из DeviceCatalog.hw"
+current_step: 3
+next_action: "ЧЕКПОИНТ: полный cargo test + cargo clippy"
 fail_counter: 0
 fail_counter_max: 3
 failed_attempts: []
