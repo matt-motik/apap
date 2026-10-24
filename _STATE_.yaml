@@ -100,7 +100,7 @@ steps:
     done: true
   - id: 12
     description: "ЧЕКПОИНТ: полный cargo test + cargo clippy зелёные (settings.slint Covers/Visualization)."
-    done: false
+    done: true
   - id: 13
     description: >
       ui/settings.slint — вкладка Cache (~строки 1532–1736) + диалоговая обвязка вне вкладок
@@ -183,8 +183,8 @@ steps:
       check зелёные; готовность к closing.md (ручная проверка пользователем — обрезка длинных
       русских подписей на всех экранах).
     done: false
-current_step: 12
-next_action: "ЧЕКПОИНТ: полный cargo test + cargo clippy зелёные (settings.slint Covers/Visualization)."
+current_step: 13
+next_action: "ui/settings.slint — вкладка Cache (~строки 1532–1736) + диалоговая обвязка вне вкладок (заголовки, кнопки Cancel/Save/Reset/Refresh, ~строки 1–246): @tr + перевод."
 fail_counter: 0
 fail_counter_max: 3
 failed_attempts: []
