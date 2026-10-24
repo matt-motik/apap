@@ -170,6 +170,32 @@ pub fn lock_step(
     mode: ModeKind,
     dev: Option<&HwDeviceId>,
 ) -> (LockState, SmallVec<[LockEffect; 2]>) {
+    // `Shutdown` обрабатывается раньше ветки `mode == Compatible` ниже
+    // (AM1.0-B41, найдено на AM1.0-B40): завершение процесса должно
+    // безусловно дать `StopPlayback`+`Release`, независимо от режима и
+    // текущего состояния. Без этой проверки `Shutdown`, пришедший в окне
+    // асинхронной резолюции устройства (`device_resolve_pending`,
+    // `Engine::start_device_resolve`, переход Совместимый→Оптимальный/
+    // Строгий) — пока `self.active_mode` ещё не переключён на целевой режим
+    // (переключение только в `finish_lock_input`, ПОСЛЕ самого перехода,
+    // см. AM1.0-B15) — попадал бы в ветку Совместимого `lock_step` ниже (она
+    // смотрит только на `mode`/`input`, не на то, что сюда привело) и давал
+    // `NotApplicable` без эффектов — без явного `Stop`+`Release`. Итоговое
+    // состояние зависит от `mode`: `NotApplicable` для Совместимого (ТЗ-50 —
+    // замок остаётся неактивным даже при выключении), `Open` для
+    // Оптимального/Строгого, как и было для этого входа раньше.
+    //
+    // `DeviceLost` (аналогичный терминальный вход, §6.19, ТЗ-51) не несёт
+    // того же риска: таблица задаёт для него переход только из `Held`, а
+    // `Held` достижимо лишь после успешного захвата в Оптимальном/Строгом —
+    // пока резолюция устройства не вернулась, замок стоит в `Acquiring`
+    // ожидания, не в `Held`, и движок не шлёт `DeviceLost` в этом окне
+    // (`Engine::lock_input`, доккомент `save_reacquire_point`).
+    if let LockInput::Shutdown = input {
+        let next = if mode == ModeKind::Compatible { LockState::NotApplicable } else { LockState::Open };
+        return (next, smallvec![LockEffect::StopPlayback, LockEffect::Release]);
+    }
+
     // В Совместимом режиме любой вход, кроме выбора Exclusive-режима, даёт
     // `NotApplicable` без эффектов, независимо от текущего состояния (ТЗ-50).
     if mode == ModeKind::Compatible {
@@ -181,11 +207,11 @@ pub fn lock_step(
         };
     }
 
-    // Далее mode ∈ {Optimal, Strict} (Exclusive).
+    // Далее mode ∈ {Optimal, Strict} (Exclusive). `LockInput::Shutdown` сюда
+    // не доходит — обработан и возвращён выше, до ветки режима (AM1.0-B41);
+    // арм ниже — только чтобы матч остался исчерпывающим по типу `LockInput`.
     match input {
-        LockInput::Shutdown => {
-            (LockState::Open, smallvec![LockEffect::StopPlayback, LockEffect::Release])
-        }
+        LockInput::Shutdown => (LockState::Open, smallvec![LockEffect::StopPlayback, LockEffect::Release]),
         LockInput::ModeSelected(ModeKind::Compatible) => match state {
             LockState::Held { .. } | LockState::Acquiring { .. } | LockState::Failed(_) => (
                 LockState::NotApplicable,
@@ -337,8 +363,10 @@ mod tests {
         }
     }
 
-    /// Совместимый режим: любой вход, кроме `ModeSelected(Optimal/Strict)`,
-    /// даёт `NotApplicable` без эффектов независимо от состояния (ТЗ-50).
+    /// Совместимый режим: любой вход, кроме `ModeSelected(Optimal/Strict)` и
+    /// `Shutdown` (своя таблица — `shutdown_stops_and_releases_regardless_of_mode`,
+    /// AM1.0-B41), даёт `NotApplicable` без эффектов независимо от состояния
+    /// (ТЗ-50).
     #[test]
     fn compatible_mode_gives_not_applicable() {
         let inputs = [
@@ -353,13 +381,38 @@ mod tests {
             LockInput::CaptureResult(Ok(ClaimInfo { device: dev_b() })),
             LockInput::CaptureResult(Err(CaptureFailure::DeviceDisconnected)),
             LockInput::DeviceLost,
-            LockInput::Shutdown,
         ];
         for state in &state_samples() {
             for input in &inputs {
                 let (new_state, effects) = lock_step(state, input.clone(), ModeKind::Compatible, Some(&dev_a()));
                 assert_eq!(new_state, LockState::NotApplicable, "input={input:?} state={state:?}");
                 assert!(effects.is_empty(), "input={input:?} state={state:?}");
+            }
+        }
+    }
+
+    /// `Shutdown` (AM1.0-B41, найдено на AM1.0-B40): всегда даёт
+    /// `StopPlayback`+`Release`, независимо от текущего состояния и
+    /// режима — включая `mode == Compatible`, куда раньше Shutdown попадал
+    /// бы по общей ветке режима (строка выше в `lock_step`) и терял оба
+    /// эффекта. Итоговое состояние зависит от режима: `NotApplicable` для
+    /// Совместимого (ТЗ-50), `Open` для Оптимального/Строгого (как и до
+    /// этого исправления).
+    #[test]
+    fn shutdown_stops_and_releases_regardless_of_mode() {
+        let devices = [None, Some(dev_a())];
+        for state in &state_samples() {
+            for &mode in &[ModeKind::Compatible, ModeKind::Optimal, ModeKind::Strict] {
+                for dev in &devices {
+                    let (new_state, effects) = lock_step(state, LockInput::Shutdown, mode, dev.as_ref());
+                    let expected = if mode == ModeKind::Compatible { LockState::NotApplicable } else { LockState::Open };
+                    assert_eq!(new_state, expected, "state={state:?} mode={mode:?} dev={dev:?}");
+                    assert_eq!(
+                        effects.as_slice(),
+                        [LockEffect::StopPlayback, LockEffect::Release],
+                        "state={state:?} mode={mode:?} dev={dev:?}"
+                    );
+                }
             }
         }
     }

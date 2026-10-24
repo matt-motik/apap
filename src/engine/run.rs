@@ -2269,6 +2269,17 @@ impl Engine {
     /// данных `bp_tests.toml`/`track_marks.toml` в движке моста ещё нет, а
     /// запись пустого содержимого затёрла бы файлы; запись добавляется вместе
     /// с их владельцем. `settings.toml`/`state.toml` пишет UI (ОВС-16).
+    ///
+    /// `device_resolve_pending` сбрасывается здесь же (AM1.0-B41, найдено на
+    /// AM1.0-B40): этот путь не идёт через `lock_input`/`finish_lock_input`
+    /// (их собственный сброс по выходу из `Acquiring`, см. доккомент поля, не
+    /// выполняется), а `run()` после `EngineCmd::Shutdown` прекращает
+    /// `drain_internal` (§6.1) — запоздавший `InternalMsg::DeviceResolveDone`
+    /// от фоновой пробы `start_device_resolve` в норме уже не дошёл бы до
+    /// `handle_internal`. Явный сброс здесь — тот же щит, что и в
+    /// `finish_lock_input`, на случай прямого вызова `handle_internal` после
+    /// `shutdown()` (например, из теста): устаревший `attempt` не совпадёт с
+    /// `None`, и итог будет отброшен молча, как при обычной отмене.
     fn shutdown(&mut self) {
         if self.player.is_playing() {
             self.player.toggle();
@@ -2281,6 +2292,7 @@ impl Engine {
             self.claim = Some(p.close());
         }
         self.exclusive_signal = None;
+        self.device_resolve_pending = None;
         self.deps.events.emit(EngineEvent::ShutdownComplete);
     }
 
@@ -3552,6 +3564,103 @@ mod tests {
         let events = sink.take();
         assert!(!events.iter().any(|e| matches!(e, EngineEvent::DeviceAutoSelected { .. })));
         assert!(!events.iter().any(|e| matches!(e, EngineEvent::Lock(_))), "{events:?}");
+    }
+
+    /// AM1.0-B41 (найдено на AM1.0-B40): `Shutdown`, пришедший во время
+    /// асинхронной резолюции устройства, запущенной переходом Совместимый→
+    /// Оптимальный (`self.active_mode` ещё не переключён — переключение
+    /// только в `finish_lock_input` ПОСЛЕ перехода, AM1.0-B15), должен дать
+    /// `StopPlayback`+`Release`, а не тихий `NotApplicable` без эффектов
+    /// (старый баг — `lock_step` видел `mode == Compatible` и уходил в её
+    /// ветку раньше проверки `Shutdown`). Наблюдаемый эффект здесь —
+    /// `claim_attempt`, который увеличивает только `LockEffect::Release`:
+    /// без исправления он остался бы прежним.
+    #[test]
+    fn lock_input_shutdown_during_pending_resolution_stops_and_releases() {
+        let sink = VecSink::new();
+        let probe = Arc::new(FakeServerProbe::desktop().with_sink_card(Some(SinkCard { card: 1, device: Some(0) })));
+        let mut deps = fake_deps(Box::new(sink.clone()), Arc::new(StdSpawner));
+        deps.server_probe = Arc::clone(&probe) as Arc<dyn AudioServerProbe>;
+        let mut engine = Engine::new(deps, BackendCaps::current());
+        engine.catalog.hw = vec![crate::audio::backend::catalog::HwDeviceInfo {
+            id: "hw:CARD=RU3,DEV=0".parse().expect("hw id"),
+            card: 1,
+            device: 0,
+            name: "RU3".to_string(),
+        }];
+        engine.active_mode = ModeKind::Compatible;
+        engine.mode_settings.optimal.device = None;
+        engine.lock = LockState::NotApplicable;
+
+        engine.lock_input(LockInput::ModeSelected(ModeKind::Optimal));
+        assert!(matches!(engine.lock, LockState::Acquiring { .. }));
+        assert!(engine.device_resolve_pending.is_some());
+        let claim_attempt_before = engine.claim_attempt;
+        sink.take();
+
+        // `Shutdown` до того, как фоновая проба `wpctl` вернулась — замок
+        // ещё в Compatible (`active_mode` не переключён, переход
+        // ModeSelected(Optimal) не довершён).
+        engine.lock_input(LockInput::Shutdown);
+
+        assert_eq!(engine.lock, LockState::NotApplicable, "Compatible -> NotApplicable, не Open (ТЗ-50)");
+        assert_eq!(
+            engine.claim_attempt,
+            claim_attempt_before + 1,
+            "LockEffect::Release должен был выполниться — без исправления эффектов не было бы вовсе"
+        );
+        assert!(engine.device_resolve_pending.is_none(), "резолюция, ставшая неактуальной, забыта");
+        let events = sink.take();
+        assert!(
+            events.iter().any(|e| matches!(e, EngineEvent::Lock(LockState::NotApplicable))),
+            "{events:?}"
+        );
+        assert!(!events.iter().any(|e| matches!(e, EngineEvent::DeviceAutoSelected { .. })));
+
+        // Запоздавший итог прерванной резолюции отбрасывается как обычно
+        // (`attempt` не совпадает с уже сброшенным `device_resolve_pending`).
+        let msg = engine.internal_rx.recv().expect("устаревший итог всё равно приходит из служебного потока");
+        sink.take();
+        engine.handle_internal(msg);
+        assert_eq!(engine.lock, LockState::NotApplicable);
+        assert!(sink.take().is_empty());
+    }
+
+    /// AM1.0-B41: `Engine::shutdown` (реальный путь `EngineCmd::Shutdown`,
+    /// не идущий через `lock_input`) сбрасывает `device_resolve_pending` сам
+    /// — запоздавший `InternalMsg::DeviceResolveDone`, присланный уже
+    /// остановленным служебным потоком, не находит совпадающую попытку и
+    /// отбрасывается молча (ТЗ-123), не трогая остановленный движок.
+    #[test]
+    fn engine_shutdown_drops_pending_device_resolution_and_ignores_late_result() {
+        let sink = VecSink::new();
+        let probe = Arc::new(FakeServerProbe::desktop().with_sink_card(Some(SinkCard { card: 1, device: Some(0) })));
+        let mut deps = fake_deps(Box::new(sink.clone()), Arc::new(StdSpawner));
+        deps.server_probe = Arc::clone(&probe) as Arc<dyn AudioServerProbe>;
+        let mut engine = Engine::new(deps, BackendCaps::current());
+        engine.catalog.hw = vec![crate::audio::backend::catalog::HwDeviceInfo {
+            id: "hw:CARD=RU3,DEV=0".parse().expect("hw id"),
+            card: 1,
+            device: 0,
+            name: "RU3".to_string(),
+        }];
+        engine.active_mode = ModeKind::Optimal;
+        engine.mode_settings.optimal.device = None;
+        engine.lock = LockState::Open;
+
+        engine.lock_input(LockInput::Startup);
+        assert!(engine.device_resolve_pending.is_some());
+
+        assert!(engine.handle(EngineCmd::Shutdown));
+        assert!(engine.device_resolve_pending.is_none(), "shutdown() должен сбросить отложенную резолюцию сам");
+        sink.take();
+
+        let msg = engine.internal_rx.recv().expect("устаревший итог всё равно приходит из служебного потока");
+        engine.handle_internal(msg);
+
+        assert!(engine.device_resolve_pending.is_none());
+        let events = sink.take();
+        assert!(events.is_empty(), "запоздавший итог после shutdown не должен производить событий: {events:?}");
     }
 
     /// AM1.0-B40: отказ резолюции (нет `SinkCard` у системного выхода) ведёт

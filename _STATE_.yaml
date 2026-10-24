@@ -13,9 +13,9 @@ dod: "lock_step(Shutdown) всегда даёт StopPlayback+Release незав�
 steps:
   - id: 1
     description: "lock.rs: обрабатывать LockInput::Shutdown до ветки mode==Compatible (всегда StopPlayback+Release; состояние NotApplicable для Compatible, Open для Optimal/Strict) + поправить/добавить тесты (убрать Shutdown из compatible_mode_gives_not_applicable, новый тест shutdown-ветки). run.rs: Engine::shutdown сбрасывает device_resolve_pending; новые тесты — lock_input(Shutdown) во время pending-резолюции даёт верные эффекты, и запоздавший DeviceResolveDone после shutdown() игнорируется. Проверка: ЧЕКПОИНТ — полный cargo test + cargo clippy --all-targets (0 новых предупреждений в lock.rs/run.rs) + tools/check_rt_imports.py"
-    done: false
+    done: true
 current_step: 1
-next_action: "Править src/engine/lock.rs: вынести LockInput::Shutdown до проверки mode перед остальной веткой lock_step"
+next_action: "закрытие по closing.md"
 fail_counter: 0
 fail_counter_max: 3
 failed_attempts: []

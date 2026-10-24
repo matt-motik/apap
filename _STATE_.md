@@ -12,12 +12,12 @@
 - **Критерий успеха (Definition of Done):** lock_step(Shutdown) всегда даёт StopPlayback+Release независимо от mode (Compatible -> NotApplicable, Optimal/Strict -> Open, как раньше); Engine::shutdown сбрасывает device_resolve_pending, запоздавший DeviceResolveDone после него игнорируется; существующие тесты lock.rs/run.rs зелёные; новые тесты покрывают оба случая; cargo test + clippy --all-targets 0 + check_rt_imports зелёные
 
 ## Итерационный трекер
-- [>] **Шаг 1: lock.rs: обрабатывать LockInput::Shutdown до ветки mode==Compatible (всегда StopPlayback+Release; состояние NotApplicable для Compatible, Open для Optimal/Strict) + поправить/добавить тесты (убрать Shutdown из compatible_mode_gives_not_applicable, новый тест shutdown-ветки). run.rs: Engine::shutdown сбрасывает device_resolve_pending; новые тесты — lock_input(Shutdown) во время pending-резолюции даёт верные эффекты, и запоздавший DeviceResolveDone после shutdown() игнорируется. Проверка: ЧЕКПОИНТ — полный cargo test + cargo clippy --all-targets (0 новых предупреждений в lock.rs/run.rs) + tools/check_rt_imports.py**
+- [x] Шаг 1: lock.rs: обрабатывать LockInput::Shutdown до ветки mode==Compatible (всегда StopPlayback+Release; состояние NotApplicable для Compatible, Open для Optimal/Strict) + поправить/добавить тесты (убрать Shutdown из compatible_mode_gives_not_applicable, новый тест shutdown-ветки). run.rs: Engine::shutdown сбрасывает device_resolve_pending; новые тесты — lock_input(Shutdown) во время pending-резолюции даёт верные эффекты, и запоздавший DeviceResolveDone после shutdown() игнорируется. Проверка: ЧЕКПОИНТ — полный cargo test + cargo clippy --all-targets (0 новых предупреждений в lock.rs/run.rs) + tools/check_rt_imports.py
 
 Легенда: [x] сделано · [>] текущий шаг · [ ] не начато
 
 - **Текущий шаг (current_step):** Шаг 1
-- **Следующий ход:** Править src/engine/lock.rs: вынести LockInput::Shutdown до проверки mode перед остальной веткой lock_step
+- **Следующий ход:** закрытие по closing.md
 - **Счетчик безуспешных компиляций:** 0/3
 - **Состояние:** in_progress
 
