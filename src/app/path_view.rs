@@ -7,6 +7,7 @@ use music_player_rs::audio::path::report::{
     build_report, confidence_text, recommendation_group, recommendation_text, stage_name, status_text, PathReport,
     RecGroup, StageRow,
 };
+use music_player_rs::i18n;
 use music_player_rs::settings::params::SettingsAnchor;
 use music_player_rs::settings::playback::ModeSettings;
 
@@ -86,10 +87,7 @@ pub(super) fn path_view(report: &PathReport) -> PathView {
         player,
         os,
         hardware,
-        footer: format!(
-            "{}\n\nВерсия плеера: {}\nОС: {}",
-            report.guarantee_boundary, report.player_version, report.os
-        ),
+        footer: i18n::audio::path_footer(report.guarantee_boundary, report.player_version, &report.os),
         copy_text: report.to_string(),
     }
 }

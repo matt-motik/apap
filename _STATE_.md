@@ -10,6 +10,7 @@
   - docs/00_workflow_v1.0/architecture.md
   - src/i18n/mod.rs
   - src/i18n/errors.rs
+  - src/i18n/audio.rs
   - src/lib.rs
   - ui/settings.slint
   - ui/app.slint
@@ -82,10 +83,10 @@
 - [x] Шаг 27: src/app/badge_view.rs + src/app/visualizer_manager.rs + src/app/viz_settings_manager.rs + src/app/engine_sink.rs: зачистка оставшихся пользовательских английских строк через src/i18n/ (events.rs — проверить, вероятно пусто).
 
 - [x] Шаг 30: src/app/mode_dialog.rs — перенос пользовательских строк в src/i18n/.
-- [>] **Шаг 31: src/app/device_info_view.rs + src/app/path_view.rs — перенос уже русских пользовательских строк в src/i18n/ дословно (решение: все строки Rust в одном модуле); текст, закреплённый спекой, без изменений.
-**
-- [ ] Шаг 32: ЧЕКПОИНТ: полный cargo test + cargo clippy зелёные (mode_dialog.rs, device_info_view.rs, path_view.rs перенесены в src/i18n/).
+- [x] Шаг 31: src/app/device_info_view.rs + src/app/path_view.rs — перенос уже русских пользовательских строк в src/i18n/ дословно (решение: все строки Rust в одном модуле); текст, закреплённый спекой, без изменений.
 
+- [>] **Шаг 32: ЧЕКПОИНТ: полный cargo test + cargo clippy зелёные (mode_dialog.rs, device_info_view.rs, path_view.rs перенесены в src/i18n/).
+**
 - [ ] Шаг 28: Финальный сквозной grep по ui/*.slint, src/app/*, tray, rfd на оставшийся английский пользовательский текст; найденное вне описи T1.0-B2 — новой B-строкой (⬜ открыто, без сессии), не молча.
 
 - [ ] Шаг 29: ЧЕКПОИНТ финальный: полный cargo test + cargo clippy + python tools/traceability_tool.py check зелёные; готовность к closing.md (ручная проверка пользователем — обрезка длинных русских подписей на всех экранах).
@@ -93,8 +94,8 @@
 
 Легенда: [x] сделано · [>] текущий шаг · [ ] не начато
 
-- **Текущий шаг (current_step):** Шаг 31
-- **Следующий ход:** src/app/device_info_view.rs + src/app/path_view.rs — перенос уже русских пользовательских строк в src/i18n/ дословно (решение: все строки Rust в одном модуле); текст, закреплённый спекой, без изменений.
+- **Текущий шаг (current_step):** Шаг 32
+- **Следующий ход:** ЧЕКПОИНТ: полный cargo test + cargo clippy зелёные (mode_dialog.rs, device_info_view.rs, path_view.rs перенесены в src/i18n/).
 - **Счетчик безуспешных компиляций:** 0/3
 - **Состояние:** in_progress
 

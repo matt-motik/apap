@@ -10,6 +10,7 @@
 //!
 //! Перечисление своих ошибок и системные ошибки — [`errors`].
 
+pub mod audio;
 pub mod errors;
 
 use crate::audio::test_run::{IncompleteWhy, TestBlocker};

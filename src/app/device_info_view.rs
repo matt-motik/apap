@@ -21,6 +21,7 @@
 use music_player_rs::audio::backend::{AccessKind, DeviceCaps, RateSet};
 use music_player_rs::audio::format::{DsdRate, OutputSampleFormat, SampleRate};
 use music_player_rs::audio::path::OsStage;
+use music_player_rs::i18n;
 use music_player_rs::settings::playback::ModeKind;
 
 /// Фактически открытое устройство на момент построения вида (AM1.0-B30):
@@ -50,12 +51,6 @@ pub struct DeviceInfoView {
     pub mixer_line: Option<String>,
 }
 
-/// Текст непрошенного устройства (AM1.0-B30, решение 2026-10-24): кэш
-/// возможностей не содержит записи для устройства этого режима — оно ещё
-/// не открывалось в текущей сессии движка (кэш живёт в памяти, не на
-/// диске), а не «устройство не умеет».
-const NOT_CACHED: &str = "неизвестно — устройство ещё не открывалось";
-
 /// Строит `DeviceInfoView` (AM1.0-B30). `opened` — `None`, если устройство
 /// фактически не открыто (трек не играет/на паузе ни на одном устройстве) —
 /// тогда показывается только «○ не открыто», остальные строки скрыты
@@ -67,7 +62,7 @@ const NOT_CACHED: &str = "неизвестно — устройство ещё �
 /// не обязательно то же устройство, что в `opened` (§2.4, ТЗ-94: выбор в
 /// диалоге и фактически играющее устройство различаются до «Сохранить»).
 /// `caps` — `None`, если устройство этого режима ещё не открывалось в этой
-/// сессии: даёт `NOT_CACHED`, а не пустые строки.
+/// сессии: даёт `i18n::audio::DEVICE_NOT_CACHED`, а не пустые строки.
 pub fn device_info_view(
     mode: ModeKind,
     opened: Option<OpenedDevice<'_>>,
@@ -76,7 +71,7 @@ pub fn device_info_view(
 ) -> DeviceInfoView {
     let Some(dev) = opened else {
         return DeviceInfoView {
-            now_line: "○ не открыто".to_owned(),
+            now_line: i18n::audio::DEVICE_NOW_CLOSED.to_owned(),
             rates_line: None,
             bits_line: None,
             dsd_line: None,
@@ -86,7 +81,7 @@ pub fn device_info_view(
 
     if mode == ModeKind::Compatible {
         DeviceInfoView {
-            now_line: format!("Сейчас: ● {} — куда сейчас маршрутизирует сервер", dev.label),
+            now_line: i18n::audio::device_now_compatible(dev.label),
             rates_line: None,
             bits_line: None,
             dsd_line: None,
@@ -94,7 +89,7 @@ pub fn device_info_view(
         }
     } else {
         DeviceInfoView {
-            now_line: format!("Сейчас: ● {} — монопольно/bit-perfect", dev.label),
+            now_line: i18n::audio::device_now_exclusive(dev.label),
             rates_line: Some(rates_line(caps)),
             bits_line: Some(bits_line(caps)),
             dsd_line: Some(dsd_line(caps)),
@@ -107,15 +102,15 @@ pub fn device_info_view(
 /// семействами (кратно 44 100 / 48 000 Гц, AM1.0-B30); частоты вне обеих
 /// семей — группа «другие»; `Range` — как сплошной диапазон, без семей
 /// (нет дискретного списка, который можно разложить). `None` — устройство
-/// не кэшировано (`NOT_CACHED`).
+/// не кэшировано (`i18n::audio::DEVICE_NOT_CACHED`).
 fn rates_line(caps: Option<&DeviceCaps>) -> String {
     let Some(caps) = caps else {
-        return format!("Частоты: {NOT_CACHED}");
+        return i18n::audio::device_rates_not_cached();
     };
     match &caps.rates {
         RateSet::Discrete(rates) => {
             if rates.is_empty() {
-                return "Частоты: неизвестно".to_owned();
+                return i18n::audio::DEVICE_RATES_UNKNOWN.to_owned();
             }
             let mut f441: Vec<u32> = Vec::new();
             let mut f48: Vec<u32> = Vec::new();
@@ -132,20 +127,20 @@ fn rates_line(caps: Option<&DeviceCaps>) -> String {
             }
             let mut groups: Vec<String> = Vec::new();
             if !f441.is_empty() {
-                groups.push(format!("44,1 кГц: {}", join_khz(&f441)));
+                groups.push(i18n::audio::device_rate_group_441(&join_khz(&f441)));
             }
             if !f48.is_empty() {
-                groups.push(format!("48 кГц: {}", join_khz(&f48)));
+                groups.push(i18n::audio::device_rate_group_48(&join_khz(&f48)));
             }
             if !other.is_empty() {
-                groups.push(format!("другие: {}", join_khz(&other)));
+                groups.push(i18n::audio::device_rate_group_other(&join_khz(&other)));
             }
             if groups.is_empty() {
-                return "Частоты: неизвестно".to_owned();
+                return i18n::audio::DEVICE_RATES_UNKNOWN.to_owned();
             }
-            format!("Частоты: {}", groups.join("; "))
+            i18n::audio::device_rates_line(&groups.join("; "))
         }
-        RateSet::Range { min, max } => format!("Частоты: {}–{}", khz(min.hz()), khz(max.hz())),
+        RateSet::Range { min, max } => i18n::audio::device_rates_range(&khz(min.hz()), &khz(max.hz())),
     }
 }
 
@@ -157,10 +152,8 @@ fn join_khz(rates: &[u32]) -> String {
 /// «неизвестно», если `OsStage` не `Known` или частота не узнана.
 fn mixer_line(os: &OsStage) -> String {
     match os {
-        OsStage::Known { rate: Some(rate), .. } => {
-            format!("{} · float — сервер ресемплирует и микширует", khz(rate.hz()))
-        }
-        _ => "неизвестно".to_owned(),
+        OsStage::Known { rate: Some(rate), .. } => i18n::audio::device_mixer_line(&khz(rate.hz())),
+        _ => i18n::audio::DEVICE_MIXER_UNKNOWN.to_owned(),
     }
 }
 
@@ -172,18 +165,18 @@ fn mixer_line(os: &OsStage) -> String {
 /// число в списке битов (`bits`, без повтора). Только `F32` среди
 /// `caps.formats` — «до 24 бит, float» (как раньше, без списка кодов: один
 /// формат не нуждается в перечне). `None` — устройство не кэшировано
-/// (`NOT_CACHED`); пустой `caps.formats` — «неизвестно» (кэш есть, но без
-/// данных — защитный случай, вживую не встречается у ALSA).
+/// (`i18n::audio::DEVICE_NOT_CACHED`); пустой `caps.formats` — «неизвестно»
+/// (кэш есть, но без данных — защитный случай, вживую не встречается у ALSA).
 fn bits_line(caps: Option<&DeviceCaps>) -> String {
     let Some(caps) = caps else {
-        return format!("Разрядность: {NOT_CACHED}");
+        return i18n::audio::device_bits_not_cached();
     };
     if caps.formats.is_empty() {
-        return "Разрядность: неизвестно".to_owned();
+        return i18n::audio::DEVICE_BITS_UNKNOWN.to_owned();
     }
     let has_int = caps.formats.iter().any(|&f| f != OutputSampleFormat::F32);
     if !has_int {
-        return "Разрядность: до 24 бит, float".to_owned();
+        return i18n::audio::DEVICE_BITS_FLOAT_ONLY.to_owned();
     }
     let mut bits: Vec<u8> = Vec::new();
     let mut codes: Vec<&'static str> = Vec::new();
@@ -198,7 +191,7 @@ fn bits_line(caps: Option<&DeviceCaps>) -> String {
         codes.push(format_code(fmt));
     }
     let bits_text = bits.iter().map(u8::to_string).collect::<Vec<_>>().join(" / ");
-    format!("Разрядность: {bits_text} бит ({})", codes.join(", "))
+    i18n::audio::device_bits_line(&bits_text, &codes.join(", "))
 }
 
 /// Код формата поля ALSA (ADR-24, ТЗ-109): те же обозначения, что в
@@ -216,14 +209,15 @@ fn format_code(fmt: OutputSampleFormat) -> &'static str {
     }
 }
 
-/// «DSD: до DSDxxx (DoP)»/«DSD: DoP не поддерживается»/`NOT_CACHED`.
+/// «DSD: до DSDxxx (DoP)»/«DSD: DoP не поддерживается»/
+/// `i18n::audio::DEVICE_NOT_CACHED`.
 fn dsd_line(caps: Option<&DeviceCaps>) -> String {
     let Some(caps) = caps else {
-        return format!("DSD: {NOT_CACHED}");
+        return i18n::audio::device_dsd_not_cached();
     };
     match max_dop_for_display(caps) {
-        Some(d) => format!("DSD: до {} (DoP)", dsd_name(d)),
-        None => "DSD: DoP не поддерживается".to_owned(),
+        Some(d) => i18n::audio::device_dsd_line(dsd_name(d)),
+        None => i18n::audio::DEVICE_DSD_NO_DOP.to_owned(),
     }
 }
 
@@ -274,21 +268,16 @@ fn dsd_name(dsd: DsdRate) -> &'static str {
     }
 }
 
-/// Частота в кГц с десятичной запятой без лишних нулей (как
-/// `audio::path::transform::khz`, продублировано по той же причине):
-/// 44 100 → «44,1 кГц», 96 000 → «96 кГц».
+/// Частота в кГц с десятичной запятой без лишних нулей (T1.0-B2,
+/// [`i18n::format_khz`]): 44 100 → «44,1 кГц», 96 000 → «96 кГц».
 fn khz(hz: u32) -> String {
-    let int = hz / 1000;
-    let frac = hz % 1000;
-    if frac == 0 {
-        return format!("{int} кГц");
-    }
-    let digits = format!("{frac:03}");
-    format!("{int},{} кГц", digits.trim_end_matches('0'))
+    i18n::format_khz(f64::from(hz) / 1000.0)
 }
 
+/// Та же частота без суффикса «кГц» — для списков через « / » (T1.0-B2,
+/// [`i18n::audio::format_khz_number`]).
 fn khz_num(hz: u32) -> String {
-    khz(hz).trim_end_matches(" кГц").to_owned()
+    i18n::audio::format_khz_number(f64::from(hz) / 1000.0)
 }
 
 #[cfg(test)]

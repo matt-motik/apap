@@ -10,6 +10,7 @@ whitelist:
   - "docs/00_workflow_v1.0/architecture.md"
   - "src/i18n/mod.rs"
   - "src/i18n/errors.rs"
+  - "src/i18n/audio.rs"
   - "src/lib.rs"
   - "ui/settings.slint"
   - "ui/app.slint"
@@ -179,7 +180,7 @@ steps:
       src/app/device_info_view.rs + src/app/path_view.rs — перенос уже русских пользовательских
       строк в src/i18n/ дословно (решение: все строки Rust в одном модуле); текст, закреплённый
       спекой, без изменений.
-    done: false
+    done: true
   - id: 32
     description: >
       ЧЕКПОИНТ: полный cargo test + cargo clippy зелёные (mode_dialog.rs, device_info_view.rs,
@@ -197,8 +198,8 @@ steps:
       check зелёные; готовность к closing.md (ручная проверка пользователем — обрезка длинных
       русских подписей на всех экранах).
     done: false
-current_step: 31
-next_action: "src/app/device_info_view.rs + src/app/path_view.rs — перенос уже русских пользовательских строк в src/i18n/ дословно (решение: все строки Rust в одном модуле); текст, закреплённый спекой, без изменений."
+current_step: 32
+next_action: "ЧЕКПОИНТ: полный cargo test + cargo clippy зелёные (mode_dialog.rs, device_info_view.rs, path_view.rs перенесены в src/i18n/)."
 fail_counter: 0
 fail_counter_max: 3
 failed_attempts: []
