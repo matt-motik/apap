@@ -19,10 +19,12 @@
 //!
 //! Баг AM1.0-B38, шаг 8: фоновый опрос (шаг 7, `UiAudioState::device_busy`)
 //! может объяснить отсутствие `caps` — устройство занято другим приложением,
-//! а не просто «ещё не открывалось». `device_info_view_with_busy` — та же
-//! функция с явным флагом `busy`; `device_info_view` остаётся прежним
-//! фасадом (`busy = false`) до подключения вызывающей стороны
-//! (`ui_manager.rs::sync_device_info_to_ui`, вне белого списка этой сессии).
+//! а не просто «ещё не открывалось». `device_info_view` принимает явный
+//! флаг `busy` (шаг 11: вызывающая сторона —
+//! `ui_manager.rs::sync_device_info_to_ui` через `device_busy_for_mode`;
+//! прежние раздельные `device_info_view`/`device_info_view_with_busy`
+//! схлопнуты в одну функцию, текст «занято» — `i18n::audio::DEVICE_BUSY`,
+//! шаг 11).
 #![deny(clippy::unwrap_used, clippy::expect_used, clippy::unreachable)]
 
 use music_player_rs::audio::backend::{AccessKind, DeviceCaps, RateSet};
@@ -69,26 +71,16 @@ pub struct DeviceInfoView {
 /// не обязательно то же устройство, что в `opened` (§2.4, ТЗ-94: выбор в
 /// диалоге и фактически играющее устройство различаются до «Сохранить»).
 /// `caps` — `None`, если устройство этого режима ещё не открывалось в этой
-/// сессии: даёт `i18n::audio::DEVICE_NOT_CACHED`, а не пустые строки.
+/// сессии: даёт `i18n::audio::DEVICE_NOT_CACHED`, а не пустые строки, если
+/// `busy` — ложь. `busy` (AM1.0-B38, шаг 8/11) — истина, если `caps` — `None`
+/// потому, что устройство занято другим приложением (`UiAudioState::device_busy`,
+/// итог фонового опроса из шага 7), а не потому, что оно просто ещё не
+/// открывалось в этой сессии: тогда строки «Частоты»/«Разрядность»/«DSD»
+/// показывают `i18n::audio::DEVICE_BUSY` вместо `DEVICE_NOT_CACHED`. Опрос
+/// ещё не завершился (`caps` — `None`, `busy` — `false`) — прежний текст
+/// NOT_CACHED (тривиально: отдельного состояния «опрос идёт» в
+/// `UiAudioState` нет, этого достаточно).
 pub fn device_info_view(
-    mode: ModeKind,
-    opened: Option<OpenedDevice<'_>>,
-    caps: Option<&DeviceCaps>,
-    os: &OsStage,
-) -> DeviceInfoView {
-    device_info_view_with_busy(mode, opened, caps, os, false)
-}
-
-/// Тот же вид, что и `device_info_view` (AM1.0-B30), с явным флагом `busy`
-/// (AM1.0-B38, шаг 8): истина, если `caps` — `None` потому, что устройство
-/// занято другим приложением (`UiAudioState::device_busy`, итог фонового
-/// опроса из шага 7), а не потому, что оно просто ещё не открывалось в этой
-/// сессии. При `busy = true` и `caps.is_none()` строки «Частоты»/
-/// «Разрядность»/«DSD» показывают `DEVICE_BUSY` вместо
-/// `i18n::audio::DEVICE_NOT_CACHED`; опрос ещё не завершился (`caps` — `None`,
-/// `busy` — `false`) — прежний текст NOT_CACHED (тривиально: отдельного
-/// состояния «опрос идёт» в `UiAudioState` нет, этого достаточно).
-pub fn device_info_view_with_busy(
     mode: ModeKind,
     opened: Option<OpenedDevice<'_>>,
     caps: Option<&DeviceCaps>,
@@ -124,23 +116,16 @@ pub fn device_info_view_with_busy(
     }
 }
 
-/// «неизвестно — устройство занято» (AM1.0-B38, шаг 8) — для «Частоты»/
-/// «Разрядность»/«DSD», когда `caps` неизвестны по причине занятости
-/// устройства другим приложением. Локальная константа, а не
-/// `i18n::audio::DEVICE_NOT_CACHED`: `src/i18n/audio.rs` не входит в белый
-/// список правки этой сессии (AM1.0-B38), а текст нужен только в тех же
-/// трёх строках, что и `NOT_CACHED` — тот же приём оформления.
-const DEVICE_BUSY: &str = "неизвестно — устройство занято";
-
 /// «Частоты: 44,1 кГц: 44,1 / 88,2 / 176,4; 48 кГц: 48 / 96 / 192» —
 /// семействами (кратно 44 100 / 48 000 Гц, AM1.0-B30); частоты вне обеих
 /// семей — группа «другие»; `Range` — как сплошной диапазон, без семей
 /// (нет дискретного списка, который можно разложить). `None` — устройство
 /// не кэшировано (`i18n::audio::DEVICE_NOT_CACHED`), занято другим
-/// приложением (`DEVICE_BUSY`, шаг 8, AM1.0-B38) — только если `busy`.
+/// приложением (`i18n::audio::DEVICE_BUSY`, шаг 8/11, AM1.0-B38) — только
+/// если `busy`.
 fn rates_line(caps: Option<&DeviceCaps>, busy: bool) -> String {
     let Some(caps) = caps else {
-        return if busy { format!("Частоты: {DEVICE_BUSY}") } else { i18n::audio::device_rates_not_cached() };
+        return if busy { i18n::audio::device_rates_busy() } else { i18n::audio::device_rates_not_cached() };
     };
     match &caps.rates {
         RateSet::Discrete(rates) => {
@@ -204,7 +189,7 @@ fn mixer_line(os: &OsStage) -> String {
 /// (кэш есть, но без данных — защитный случай, вживую не встречается у ALSA).
 fn bits_line(caps: Option<&DeviceCaps>, busy: bool) -> String {
     let Some(caps) = caps else {
-        return if busy { format!("Разрядность: {DEVICE_BUSY}") } else { i18n::audio::device_bits_not_cached() };
+        return if busy { i18n::audio::device_bits_busy() } else { i18n::audio::device_bits_not_cached() };
     };
     if caps.formats.is_empty() {
         return i18n::audio::DEVICE_BITS_UNKNOWN.to_owned();
@@ -245,10 +230,10 @@ fn format_code(fmt: OutputSampleFormat) -> &'static str {
 }
 
 /// «DSD: до DSDxxx (DoP)»/«DSD: DoP не поддерживается»/
-/// `i18n::audio::DEVICE_NOT_CACHED`.
+/// `i18n::audio::DEVICE_NOT_CACHED`/`i18n::audio::DEVICE_BUSY`.
 fn dsd_line(caps: Option<&DeviceCaps>, busy: bool) -> String {
     let Some(caps) = caps else {
-        return if busy { format!("DSD: {DEVICE_BUSY}") } else { i18n::audio::device_dsd_not_cached() };
+        return if busy { i18n::audio::device_dsd_busy() } else { i18n::audio::device_dsd_not_cached() };
     };
     match max_dop_for_display(caps) {
         Some(d) => i18n::audio::device_dsd_line(dsd_name(d)),
@@ -343,7 +328,7 @@ mod tests {
 
     #[test]
     fn closed_device_shows_not_opened_and_nothing_else() {
-        let view = device_info_view(ModeKind::Optimal, None, None, &OsStage::Unknown);
+        let view = device_info_view(ModeKind::Optimal, None, None, &OsStage::Unknown, false);
         assert_eq!(view.now_line, "○ не открыто");
         assert_eq!(view.rates_line, None);
         assert_eq!(view.bits_line, None);
@@ -362,7 +347,7 @@ mod tests {
             &[2],
         );
         let opened = OpenedDevice { label: "Motu M2 (USB Audio)" };
-        let view = device_info_view(ModeKind::Optimal, Some(opened), Some(&dev_caps), &OsStage::NotInvolved);
+        let view = device_info_view(ModeKind::Optimal, Some(opened), Some(&dev_caps), &OsStage::NotInvolved, false);
 
         assert_eq!(view.now_line, "Сейчас: ● Motu M2 (USB Audio) — монопольно/bit-perfect");
         assert_eq!(
@@ -378,7 +363,7 @@ mod tests {
     fn exclusive_device_strict_mode_same_suffix_as_optimal() {
         let dev_caps = caps(discrete(&[48_000]), &[OutputSampleFormat::S24_3Le], &[2]);
         let opened = OpenedDevice { label: "Cayin RU3 (USB Audio)" };
-        let view = device_info_view(ModeKind::Strict, Some(opened), Some(&dev_caps), &OsStage::NotInvolved);
+        let view = device_info_view(ModeKind::Strict, Some(opened), Some(&dev_caps), &OsStage::NotInvolved, false);
         assert_eq!(view.now_line, "Сейчас: ● Cayin RU3 (USB Audio) — монопольно/bit-perfect");
         assert_eq!(view.rates_line, Some("Частоты: 48 кГц: 48".to_owned()));
     }
@@ -388,7 +373,7 @@ mod tests {
     #[test]
     fn not_cached_device_shows_hint_on_every_line() {
         let opened = OpenedDevice { label: "Asus Xonar (Digital)" };
-        let view = device_info_view(ModeKind::Optimal, Some(opened), None, &OsStage::NotInvolved);
+        let view = device_info_view(ModeKind::Optimal, Some(opened), None, &OsStage::NotInvolved, false);
         assert_eq!(view.rates_line, Some("Частоты: неизвестно — устройство ещё не открывалось".to_owned()));
         assert_eq!(view.bits_line, Some("Разрядность: неизвестно — устройство ещё не открывалось".to_owned()));
         assert_eq!(view.dsd_line, Some("DSD: неизвестно — устройство ещё не открывалось".to_owned()));
@@ -400,7 +385,7 @@ mod tests {
     #[test]
     fn busy_device_shows_busy_hint_on_every_line() {
         let opened = OpenedDevice { label: "Asus Xonar (Digital)" };
-        let view = device_info_view_with_busy(ModeKind::Optimal, Some(opened), None, &OsStage::NotInvolved, true);
+        let view = device_info_view(ModeKind::Optimal, Some(opened), None, &OsStage::NotInvolved, true);
         assert_eq!(view.rates_line, Some("Частоты: неизвестно — устройство занято".to_owned()));
         assert_eq!(view.bits_line, Some("Разрядность: неизвестно — устройство занято".to_owned()));
         assert_eq!(view.dsd_line, Some("DSD: неизвестно — устройство занято".to_owned()));
@@ -412,7 +397,7 @@ mod tests {
     #[test]
     fn pending_probe_keeps_not_cached_hint() {
         let opened = OpenedDevice { label: "Asus Xonar (Digital)" };
-        let view = device_info_view_with_busy(ModeKind::Optimal, Some(opened), None, &OsStage::NotInvolved, false);
+        let view = device_info_view(ModeKind::Optimal, Some(opened), None, &OsStage::NotInvolved, false);
         assert_eq!(view.rates_line, Some("Частоты: неизвестно — устройство ещё не открывалось".to_owned()));
     }
 
@@ -425,7 +410,7 @@ mod tests {
         let dev_caps = caps(discrete(&[48_000]), &[OutputSampleFormat::S24_3Le], &[2]);
         let opened = OpenedDevice { label: "Cayin RU3 (USB Audio)" };
         let view =
-            device_info_view_with_busy(ModeKind::Optimal, Some(opened), Some(&dev_caps), &OsStage::NotInvolved, true);
+            device_info_view(ModeKind::Optimal, Some(opened), Some(&dev_caps), &OsStage::NotInvolved, true);
         assert_eq!(view.rates_line, Some("Частоты: 48 кГц: 48".to_owned()));
     }
 
@@ -436,7 +421,7 @@ mod tests {
     fn cached_but_empty_caps_render_as_plain_unknown() {
         let dev_caps = caps(RateSet::Discrete(SmallVec::new()), &[], &[]);
         let opened = OpenedDevice { label: "Asus Xonar (Digital)" };
-        let view = device_info_view(ModeKind::Optimal, Some(opened), Some(&dev_caps), &OsStage::NotInvolved);
+        let view = device_info_view(ModeKind::Optimal, Some(opened), Some(&dev_caps), &OsStage::NotInvolved, false);
         assert_eq!(view.rates_line, Some("Частоты: неизвестно".to_owned()));
         assert_eq!(view.bits_line, Some("Разрядность: неизвестно".to_owned()));
         assert_eq!(view.dsd_line, Some("DSD: DoP не поддерживается".to_owned()));
@@ -446,7 +431,7 @@ mod tests {
     fn exclusive_device_float_only_and_no_dop() {
         let dev_caps = caps(discrete(&[44_100]), &[OutputSampleFormat::F32], &[]);
         let opened = OpenedDevice { label: "Realtek" };
-        let view = device_info_view(ModeKind::Optimal, Some(opened), Some(&dev_caps), &OsStage::NotInvolved);
+        let view = device_info_view(ModeKind::Optimal, Some(opened), Some(&dev_caps), &OsStage::NotInvolved, false);
         assert_eq!(view.bits_line, Some("Разрядность: до 24 бит, float".to_owned()));
         assert_eq!(view.dsd_line, Some("DSD: DoP не поддерживается".to_owned()));
     }
@@ -455,7 +440,7 @@ mod tests {
     fn exclusive_device_range_rates_shown_as_plain_range() {
         let dev_caps = caps(RateSet::Range { min: r(8_000), max: r(192_000) }, &[OutputSampleFormat::S16Le], &[2]);
         let opened = OpenedDevice { label: "Legacy DAC" };
-        let view = device_info_view(ModeKind::Optimal, Some(opened), Some(&dev_caps), &OsStage::NotInvolved);
+        let view = device_info_view(ModeKind::Optimal, Some(opened), Some(&dev_caps), &OsStage::NotInvolved, false);
         assert_eq!(view.rates_line, Some("Частоты: 8 кГц–192 кГц".to_owned()));
     }
 
@@ -469,7 +454,7 @@ mod tests {
             format: None,
             confidence: music_player_rs::audio::path::transform::Confidence::Assumed,
         };
-        let view = device_info_view(ModeKind::Compatible, Some(opened), None, &os);
+        let view = device_info_view(ModeKind::Compatible, Some(opened), None, &os, false);
 
         assert_eq!(
             view.now_line,
@@ -484,7 +469,7 @@ mod tests {
     #[test]
     fn compatible_unknown_os_stage_shows_unknown_mixer_line() {
         let opened = OpenedDevice { label: "Системное по умолчанию (PipeWire)" };
-        let view = device_info_view(ModeKind::Compatible, Some(opened), None, &OsStage::Unknown);
+        let view = device_info_view(ModeKind::Compatible, Some(opened), None, &OsStage::Unknown, false);
         assert_eq!(view.mixer_line, Some("неизвестно".to_owned()));
     }
 }

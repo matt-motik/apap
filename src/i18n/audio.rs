@@ -15,6 +15,15 @@ pub const DEVICE_NOT_CACHED: &str = "неизвестно — устройств
 /// (AM1.0-B30).
 pub const DEVICE_NOW_CLOSED: &str = "○ не открыто";
 
+/// Текст занятого устройства (AM1.0-B38, шаг 8/11): кэш возможностей не
+/// содержит записи для устройства этого режима, потому что фоновый опрос
+/// (`UiAudioState::device_busy`) получил `ProbeError::Busy` — устройство
+/// открыто другим приложением, а не просто «ещё не открывалось в этой
+/// сессии» (`DEVICE_NOT_CACHED`). Перенесена из локальной константы
+/// `src/app/device_info_view.rs` сюда (шаг 11) — тот же модуль, что и
+/// `DEVICE_NOT_CACHED`.
+pub const DEVICE_BUSY: &str = "неизвестно — устройство занято";
+
 /// «Сейчас: ● <устройство> — куда сейчас маршрутизирует сервер» —
 /// Совместимый режим (AM1.0-B30).
 pub fn device_now_compatible(label: &str) -> String {
@@ -30,6 +39,11 @@ pub fn device_now_exclusive(label: &str) -> String {
 /// «Частоты: <DEVICE_NOT_CACHED>» (AM1.0-B30).
 pub fn device_rates_not_cached() -> String {
     format!("Частоты: {DEVICE_NOT_CACHED}")
+}
+
+/// «Частоты: <DEVICE_BUSY>» (AM1.0-B38, шаг 11).
+pub fn device_rates_busy() -> String {
+    format!("Частоты: {DEVICE_BUSY}")
 }
 
 /// «Частоты: неизвестно» — пустой список частот либо кэшировано без данных
@@ -76,6 +90,11 @@ pub fn device_bits_not_cached() -> String {
     format!("Разрядность: {DEVICE_NOT_CACHED}")
 }
 
+/// «Разрядность: <DEVICE_BUSY>» (AM1.0-B38, шаг 11).
+pub fn device_bits_busy() -> String {
+    format!("Разрядность: {DEVICE_BUSY}")
+}
+
 /// «Разрядность: неизвестно» — кэшировано, но данные пусты (AM1.0-B30,
 /// защитный случай).
 pub const DEVICE_BITS_UNKNOWN: &str = "Разрядность: неизвестно";
@@ -92,6 +111,11 @@ pub fn device_bits_line(bits: &str, codes: &str) -> String {
 /// «DSD: <DEVICE_NOT_CACHED>» (AM1.0-B30).
 pub fn device_dsd_not_cached() -> String {
     format!("DSD: {DEVICE_NOT_CACHED}")
+}
+
+/// «DSD: <DEVICE_BUSY>» (AM1.0-B38, шаг 11).
+pub fn device_dsd_busy() -> String {
+    format!("DSD: {DEVICE_BUSY}")
 }
 
 /// «DSD: до <DSDxxx> (DoP)» (AM1.0-B30).
@@ -155,6 +179,11 @@ mod tests {
     }
 
     #[test]
+    fn device_rates_busy_includes_hint() {
+        assert_eq!(device_rates_busy(), "Частоты: неизвестно — устройство занято");
+    }
+
+    #[test]
     fn device_rate_groups_substitute_joined_list() {
         assert_eq!(device_rate_group_441("44,1 / 88,2"), "44,1 кГц: 44,1 / 88,2");
         assert_eq!(device_rate_group_48("48 / 96"), "48 кГц: 48 / 96");
@@ -182,6 +211,11 @@ mod tests {
     }
 
     #[test]
+    fn device_bits_busy_includes_hint() {
+        assert_eq!(device_bits_busy(), "Разрядность: неизвестно — устройство занято");
+    }
+
+    #[test]
     fn device_bits_line_substitutes_bits_and_codes() {
         assert_eq!(
             device_bits_line("16 / 24 / 32", "S16_LE, S24_3LE, S32_LE"),
@@ -192,6 +226,11 @@ mod tests {
     #[test]
     fn device_dsd_not_cached_includes_hint() {
         assert_eq!(device_dsd_not_cached(), "DSD: неизвестно — устройство ещё не открывалось");
+    }
+
+    #[test]
+    fn device_dsd_busy_includes_hint() {
+        assert_eq!(device_dsd_busy(), "DSD: неизвестно — устройство занято");
     }
 
     #[test]

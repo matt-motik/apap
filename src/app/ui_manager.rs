@@ -502,15 +502,14 @@ impl MusicApp {
             })
     }
 
-    /// Возможности устройства, выбранного в РЕДАКТИРУЕМОЙ панели режима
-    /// диалога настроек (черновик `dialog_cfg().playback.device(mode)`), из
-    /// кэша `UiAudioState::hw_caps` — без повторного опроса/открытия
-    /// устройства (AM1.0-B30, решение 2026-10-24). `None` для Совместимого
-    /// режима (нет аппаратных caps устройства — есть только формат микшера
-    /// сервера, `OsStage`), а также если устройство ещё не выбрано, каталог
-    /// ещё не пришёл от движка или устройство не кэшировано (блок «Аудио»
-    /// покажет `NOT_CACHED` в каждой строке).
-    fn hw_caps_for_mode(&self, mode: ModeKind) -> Option<&DeviceCaps> {
+    /// Устройство, выбранное в РЕДАКТИРУЕМОЙ панели режима диалога настроек
+    /// (черновик `dialog_cfg().playback.device(mode)`), найденное в текущем
+    /// каталоге движка (AM1.0-B30, решение 2026-10-24). `None` для
+    /// Совместимого режима (нет аппаратного устройства — есть только формат
+    /// микшера сервера, `OsStage`), а также если устройство ещё не выбрано
+    /// или каталог ещё не пришёл от движка. Общая часть `hw_caps_for_mode` и
+    /// `device_busy_for_mode` (AM1.0-B38, шаг 11).
+    fn selected_hw_device_for_mode(&self, mode: ModeKind) -> Option<&HwDeviceId> {
         if mode == ModeKind::Compatible {
             return None;
         }
@@ -518,7 +517,27 @@ impl MusicApp {
         let catalog = self.audio().devices()?;
         let (_, selected) = hw_device_pairs_and_selected(catalog, Some(saved));
         let dev = catalog.hw.get(selected?)?;
-        self.audio().hw_caps(&dev.id)
+        Some(&dev.id)
+    }
+
+    /// Возможности устройства, выбранного в РЕДАКТИРУЕМОЙ панели режима
+    /// диалога настроек, из кэша `UiAudioState::hw_caps` — без повторного
+    /// опроса/открытия устройства (AM1.0-B30, решение 2026-10-24). `None`,
+    /// если режим Совместимый, устройство не выбрано/не в каталоге или не
+    /// кэшировано (блок «Аудио» покажет `NOT_CACHED`/`DEVICE_BUSY` в каждой
+    /// строке в зависимости от `device_busy_for_mode`).
+    fn hw_caps_for_mode(&self, mode: ModeKind) -> Option<&DeviceCaps> {
+        self.audio().hw_caps(self.selected_hw_device_for_mode(mode)?)
+    }
+
+    /// Истина, если устройство, выбранное в РЕДАКТИРУЕМОЙ панели режима,
+    /// помечено занятым другим приложением фоновым опросом
+    /// (`UiAudioState::device_busy`, AM1.0-B38, шаг 7/11) — блок «Аудио»
+    /// показывает «неизвестно — устройство занято» вместо обычного
+    /// «ещё не открывалось». Для Совместимого режима и невыбранного
+    /// устройства всегда `false` (как и `hw_caps_for_mode`).
+    fn device_busy_for_mode(&self, mode: ModeKind) -> bool {
+        self.selected_hw_device_for_mode(mode).is_some_and(|id| self.audio().device_busy(id))
     }
 
     /// Перестраивает `DeviceInfoView` (AM1.0-B30, §8 С11) для режима,
@@ -529,9 +548,11 @@ impl MusicApp {
     /// (может отличаться от редактируемого в диалоге режима до
     /// «Сохранить», §2.4, ТЗ-94: `active_device` отражает активный режим
     /// воспроизведения, не `shown_mode`); `caps` — кэш возможностей
-    /// устройства, выбранного в черновике (`hw_caps_for_mode`); `os` —
-    /// этап ОС текущего `SignalPath` (`OsStage::Unknown`, если путь не
-    /// построен/открытие не удалось).
+    /// устройства, выбранного в черновике (`hw_caps_for_mode`); `busy` —
+    /// занято ли это устройство другим приложением (`device_busy_for_mode`,
+    /// AM1.0-B38, шаг 11), объясняет отсутствие `caps`, когда оно не просто
+    /// «ещё не открывалось»; `os` — этап ОС текущего `SignalPath`
+    /// (`OsStage::Unknown`, если путь не построен/открытие не удалось).
     ///
     /// Вызывается из `drain_engine_events` каждый тик, пока диалог открыт
     /// (`mod.rs`), — повод обновиться может прийти от самого диалога (смена
@@ -552,9 +573,10 @@ impl MusicApp {
         let opened =
             self.audio_ready.then(|| device_info_view::OpenedDevice { label: &self.active_device });
         let caps = self.hw_caps_for_mode(mode);
+        let busy = self.device_busy_for_mode(mode);
         let os = self.audio().path().map(|p| p.os.clone()).unwrap_or(OsStage::Unknown);
 
-        let view = device_info_view::device_info_view(mode, opened, caps, &os);
+        let view = device_info_view::device_info_view(mode, opened, caps, &os, busy);
 
         if self.last_device_info_view.as_ref() == Some(&view) {
             return;

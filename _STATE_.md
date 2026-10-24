@@ -16,6 +16,8 @@
   - src/app/ui_audio_state.rs
   - src/app/device_info_view.rs
   - src/app/mod.rs
+  - src/app/ui_manager.rs
+  - src/i18n/audio.rs
 - **Критерий успеха (Definition of Done):** Выбор устройства в списке вкладки «Аудио» (Оптимальный/Строгий) запускает фоновый опрос caps (open NONBLOCK → hw_params refine → close), не блокируя UI и не трогая активное/захваченное устройство; занятое другим приложением устройство кэшируется как «неизвестно — устройство занято»; повторный выбор того же устройства не плодит повторные опросы; cargo test + cargo clippy зелёные
 
 ## Итерационный трекер
@@ -27,6 +29,7 @@
 - [x] Шаг 6: ЧЕКПОИНТ: полный cargo test + cargo clippy по движку и бэкенду (шаги 1–5) перед переходом к UI-слою.
 - [x] Шаг 7: src/app/ui_audio_state.rs: кэш hw_caps различает «caps известны»/«занято» (новый тип записи вместо голого Arc<DeviceCaps>), обработка нового события(ий) из шага 4, сохранение правила вытеснения записи при исчезновении устройства из каталога. Проверка: cargo test (кэш/вытеснение/занято).
 - [x] Шаг 8: src/app/device_info_view.rs: текстовая ветка «неизвестно — устройство занято» для записи «занято» из шага 7 (рядом с существующей NOT_CACHED, тот же стиль — локальная константа, не i18n, как у неё). Проверка: cargo test (rates/bits/dsd_line на занятом устройстве).
+- [x] Шаг 11: src/app/ui_manager.rs + src/i18n/audio.rs: UiAudioState::device_busy() подключается в hw_caps_for_mode/sync_device_info_to_ui (новый helper selected_hw_device_for_mode, метод device_busy_for_mode) — блок «Аудио» получает busy; константа DEVICE_BUSY переносится из device_info_view.rs в i18n/audio.rs (device_rates_busy/device_bits_busy/device_dsd_busy, по образцу *_not_cached); #[allow(dead_code)] на UiAudioState::device_busy снят; device_info_view/device_info_view_with_busy схлопнуты в одну функцию device_info_view(..., busy). Проверка: cargo test.
 - [>] **Шаг 9: src/app/mod.rs, on_settings_device: после edit_draft — если показанный режим Оптимальный/Строгий и выбранное устройство не активное/захваченное, отправка EngineCmd::ProbeDeviceCaps с дебаунсом (повтор того же устройства подряд не шлёт новую команду); в Совместимом — не отправлять. Проверка: cargo test (дебаунс, пропуск Совместимого, пропуск активного устройства).**
 - [ ] Шаг 10: ЧЕКПОИНТ перед закрытием: полный cargo test + cargo clippy по всему вайтлисту.
 

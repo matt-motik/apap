@@ -503,11 +503,9 @@ impl UiAudioState {
     /// обычного «неизвестно». Снимается следующей принятой записью
     /// `CapsEntry::Known` для того же устройства (открытием или успешным
     /// повторным опросом).
-    // Подключение вызывающей стороны (`ui_manager.rs::sync_device_info_to_ui`
-    // → `device_info_view::device_info_view_with_busy`) — отдельный шаг, вне
-    // белого списка этой сессии (AM1.0-B38); метод уже покрыт тестами кэша
-    // ниже.
-    #[allow(dead_code)]
+    //
+    // Подключена в `ui_manager.rs::device_busy_for_mode` →
+    // `sync_device_info_to_ui` (AM1.0-B38, шаг 11).
     pub fn device_busy(&self, id: &HwDeviceId) -> bool {
         matches!(self.hw_caps.get(id), Some(CapsEntry::Busy))
     }
