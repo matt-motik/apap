@@ -11,11 +11,13 @@
 //!   строка для `std::io::ErrorKind` (`FileError::Io`,
 //!   `FileError::ReadDuringPlayback`, ТЗ-86/87).
 //!
-//! Подключение к местам вызова (`src/app/mod.rs::describe_open_error` и
-//! `describe_file_error`, сейчас показывающим `{:?}` в обход перевода) —
-//! отдельным шагом этой задачи.
+//! `src/app/mod.rs::describe_open_error`/`describe_file_error`/
+//! `describe_skip_reason` и подсказка кнопки «Сохранить» для недопустимого
+//! цвета темы (`save_button_view`) подключены к этому модулю на T1.0-B8
+//! шаг 7 (строки перенесены байт-в-байт, без изменения содержания).
 
 use crate::audio::error::{CaptureFailure, CorruptKind, EngineFault};
+use crate::theme::ThemeError;
 
 use super::format_named;
 
@@ -80,6 +82,26 @@ pub fn io_error_reason(kind: std::io::ErrorKind) -> Option<&'static str> {
 /// и [`system_error`]; исходный текст — `Display` стандартной библиотеки.
 pub fn describe_io_error(kind: std::io::ErrorKind) -> String {
     system_error(io_error_reason(kind), &kind.to_string())
+}
+
+/// Причина недопустимого цвета черновика темы для подсказки кнопки
+/// «Сохранить» (`save_button_view`, ADR-11, §6.9, T1.0-B8): только
+/// `InvalidHex` имеет русский текст — остальные варианты `ThemeError`
+/// (`Io`/`Deserialize`) не показываются здесь (структура темы уже проверена
+/// ядром) и используют `Display` как есть.
+pub fn theme_error_reason(error: &ThemeError) -> String {
+    match error {
+        ThemeError::InvalidHex { field } => {
+            format_named("недопустимый HEX-цвет в поле `{field}`", &[("field", field)])
+        }
+        other => other.to_string(),
+    }
+}
+
+/// Подсказка кнопки «Сохранить» для недопустимого цвета темы (ADR-11,
+/// §6.9, T1.0-B8): `reason` — вывод [`theme_error_reason`].
+pub fn theme_tooltip(reason: &str) -> String {
+    format_named("Тема: {reason}", &[("reason", reason)])
 }
 
 /// Короткая причина отказа захвата устройства ([`CaptureFailure`], ТЗ-46,
@@ -160,6 +182,57 @@ pub const LOCK_HINT_NOT_APPLICABLE: &str = "в Совместимом режим
 /// Текст и подсказка отказа `NoDeviceSelected` (ТЗ-144, T1.0-B2): отдельный
 /// текст, кнопка-значок остаётся «открыт» (`src/app/lock_view.rs::lock_view`).
 pub const LOCK_TEXT_NO_DEVICE_SELECTED: &str = "устройство не выбрано";
+
+/// Текст несовместимости трека с устройством (ТЗ-57, ТЗ-80, §2.4,
+/// T1.0-B8): план остановлен на этапе `blocked.at` в Строгом режиме — общий
+/// для отказа открытия (`OpenError::Incompatible`) и пропуска трека на лету
+/// (`SkipReason::Incompatible`, `src/app/mod.rs`). `blocked` — вывод
+/// `music_player_rs::audio::path::report::blocked_text`.
+pub fn incompatible_track_text(blocked: &str) -> String {
+    format_named("трек несовместим с устройством — {blocked}", &[("blocked", blocked)])
+}
+
+/// Короткий текст потери устройства вывода при отказе открытия трека
+/// (`OpenError::DeviceLost`, ТЗ-86, T1.0-B8).
+pub const DEVICE_LOST_SHORT: &str = "устройство вывода потеряно";
+
+/// Текст внутренней ошибки движка при отказе открытия трека
+/// (`OpenError::Internal`, ТЗ-86, T1.0-B8). `text` — вывод
+/// [`engine_fault_text`].
+pub fn internal_fault_text(text: &str) -> String {
+    format_named("внутренняя ошибка движка: {text}", &[("text", text)])
+}
+
+/// Текст недоступного на платформе режима при отказе открытия трека
+/// (`OpenError::ModeUnavailable`, ТЗ-86, ТЗ-111, §6.18 п. 2, T1.0-B8).
+/// `mode` — `Debug` активного режима (`{mode:?}`).
+pub fn mode_unavailable_text(mode: &str) -> String {
+    format_named("режим {mode} недоступен на этой платформе", &[("mode", mode)])
+}
+
+/// Текст повреждённого файла при отказе открытия/пропуске трека (ТЗ-86,
+/// ТЗ-87, T1.0-B8). `text` — вывод [`corrupt_kind_text`].
+pub fn corrupt_file_text(text: &str) -> String {
+    format_named("файл повреждён: {text}", &[("text", text)])
+}
+
+/// Текст неподдерживаемого формата файла при отказе открытия/пропуске
+/// трека (ТЗ-86, ТЗ-87, T1.0-B8).
+pub fn unsupported_format_text(codec: &str) -> String {
+    format_named("неподдерживаемый формат: {codec}", &[("codec", codec)])
+}
+
+/// Текст ошибки чтения файла при отказе открытия/пропуске трека (ТЗ-86,
+/// ТЗ-87, T1.0-B8). `text` — вывод [`describe_io_error`].
+pub fn read_error_text(text: &str) -> String {
+    format_named("ошибка чтения: {text}", &[("text", text)])
+}
+
+/// Текст ошибки чтения на известном кадре во время воспроизведения
+/// (ТЗ-86, ТЗ-87, T1.0-B8). `text` — вывод [`describe_io_error`].
+pub fn read_error_at_frame_text(frame: &str, text: &str) -> String {
+    format_named("ошибка чтения на кадре {frame}: {text}", &[("frame", frame), ("text", text)])
+}
 
 #[cfg(test)]
 mod tests {
@@ -311,5 +384,57 @@ mod tests {
             capture_failure_text("устройство занято приложением aplay (PID 4242)"),
             "не удалось захватить: устройство занято приложением aplay (PID 4242)"
         );
+    }
+
+    #[test]
+    fn incompatible_track_text_substitutes_blocked() {
+        assert_eq!(
+            incompatible_track_text("ЦАП не поддерживает 32 бит"),
+            "трек несовместим с устройством — ЦАП не поддерживает 32 бит"
+        );
+    }
+
+    #[test]
+    fn internal_fault_text_substitutes_text() {
+        assert_eq!(internal_fault_text("не удалось сохранить состояние движка"), "внутренняя ошибка движка: не удалось сохранить состояние движка");
+    }
+
+    #[test]
+    fn mode_unavailable_text_substitutes_mode() {
+        assert_eq!(mode_unavailable_text("Strict"), "режим Strict недоступен на этой платформе");
+    }
+
+    #[test]
+    fn corrupt_file_text_substitutes_text() {
+        assert_eq!(corrupt_file_text("повреждён заголовок файла"), "файл повреждён: повреждён заголовок файла");
+    }
+
+    #[test]
+    fn unsupported_format_text_substitutes_codec() {
+        assert_eq!(unsupported_format_text("APE"), "неподдерживаемый формат: APE");
+    }
+
+    #[test]
+    fn read_error_text_substitutes_text() {
+        assert_eq!(read_error_text("файл не найден"), "ошибка чтения: файл не найден");
+    }
+
+    #[test]
+    fn read_error_at_frame_text_substitutes_frame_and_text() {
+        assert_eq!(
+            read_error_at_frame_text("123456", "файл закончился раньше ожидаемого"),
+            "ошибка чтения на кадре 123456: файл закончился раньше ожидаемого"
+        );
+    }
+
+    #[test]
+    fn theme_error_reason_invalid_hex_names_field() {
+        let reason = theme_error_reason(&ThemeError::InvalidHex { field: "accent".to_string() });
+        assert_eq!(reason, "недопустимый HEX-цвет в поле `accent`");
+    }
+
+    #[test]
+    fn theme_tooltip_wraps_reason() {
+        assert_eq!(theme_tooltip("недопустимый HEX-цвет в поле `accent`"), "Тема: недопустимый HEX-цвет в поле `accent`");
     }
 }

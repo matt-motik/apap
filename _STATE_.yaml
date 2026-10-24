@@ -56,7 +56,7 @@ steps:
     done: true
   - id: 7
     description: "src/app/mod.rs (30 строк: title/body сообщений — «Аудио-движок не запущен», «Режим недоступен», «Тема не загружена», «Устройство вывода потеряно» и др., кнопки «Исправить»/«Открыть настройку», статус-бар «Пропущен трек…», «Все треки пропущены», тексты ошибок OpenError) → src/i18n/. Проверка: cargo check без ошибок"
-    done: false
+    done: true
   - id: 8
     description: "src/audio/backend/alsa.rs (13 строк) + src/audio/backend/shared.rs (1 строка) — тексты StartError/ConfigureError при открытии ALSA Exclusive/Shared PCM, доходят до пользователя через OpenError → src/i18n/errors.rs. Проверка: cargo check без ошибок"
     done: false
@@ -96,8 +96,8 @@ steps:
   - id: 20
     description: "ЧЕКПОИНТ (финальный, перед закрытием задачи): полный cargo test + cargo clippy + tools/check_rt_imports.py + tools/traceability_tool.py check — все зелёные; выборочная сверка, что перенесённые строки байт-в-байт совпадают с прежними (diff литералов)"
     done: false
-current_step: 7
-next_action: "Шаг 7: src/app/mod.rs (title/body сообщений, кнопки, статус-бар, тексты ошибок OpenError) → src/i18n/"
+current_step: 8
+next_action: "Шаг 8: src/audio/backend/alsa.rs + src/audio/backend/shared.rs (тексты StartError/ConfigureError ALSA Exclusive/Shared) → src/i18n/errors.rs"
 fail_counter: 0
 fail_counter_max: 3
 failed_attempts: []

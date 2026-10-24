@@ -6,6 +6,10 @@
 //! Сообщения о загрузке/экспорте плейлиста (ADR-16, ADR-17, §6.12, §6.18,
 //! ОВ-8, ТЗ-13 а/б, ТЗ-20, ТЗ-21, ТЗ-48, T1.0-B8) — перенесены из
 //! `src/core/load.rs` байт-в-байт.
+//!
+//! Заголовки/тела окон сообщений, строка состояния и подсказка
+//! переключателя режимов (ТЗ-52, ТЗ-86, ТЗ-110, ТЗ-111, ОВ-7, §6.2 п. 5,
+//! §6.18, §6.20, T1.0-B8) — перенесены из `src/app/mod.rs` байт-в-байт.
 
 use std::path::Path;
 
@@ -77,6 +81,101 @@ pub fn playlist_export_failed_body(path: &Path, os_text: &str) -> String {
     format!("Файл {} не удалось записать ({}).", path.display(), os_text)
 }
 
+/// Заголовок окна — аудио-движок не поднялся при старте приложения
+/// (ТЗ-88, T1.0-B8): показывается сразу, не дожидаясь первого обращения к
+/// звуку.
+pub const ENGINE_NOT_STARTED_TITLE: &str = "Аудио-движок не запущен";
+
+/// Короткая причина недоступности Оптимального/Строгого режима в
+/// переключателе режимов top_panel (ТЗ-110, T1.0-B8) — дословно по тексту
+/// ТЗ.
+pub const MODE_SWITCH_UNAVAILABLE_REASON: &str = "монопольный доступ на этой платформе пока не поддерживается";
+
+/// Заголовок уведомления о недоступном на платформе активном режиме
+/// (ТЗ-111, §6.2 п. 5, ADR-13, T1.0-B8): ставится при старте и при отказе
+/// открытия трека `OpenError::ModeUnavailable`.
+pub const MODE_UNAVAILABLE_NOTICE_TITLE: &str = "Режим недоступен";
+
+/// Тело уведомления, см. [`MODE_UNAVAILABLE_NOTICE_TITLE`].
+pub const MODE_UNAVAILABLE_NOTICE_BODY: &str =
+    "на этой платформе доступен только Совместимый режим (Shared), для воспроизведения переключите режим";
+
+/// Короткий текст отказа отправки команды открытия трека, когда поток
+/// движка уже не запущен (T1.0-B8, `src/app/mod.rs::open_track`) —
+/// подстрока тела окна [`PLAYBACK_FAILED_TITLE`] (`on_open_failed`).
+pub const ENGINE_NOT_RUNNING_SHORT: &str = "движок не запущен";
+
+/// Заголовок предупреждения о падении загрузки стартовой темы (§6.1,
+/// ТЗ-52, ОВ-7, T1.0-B8): тема для текущего запуска заменена на светлую,
+/// значение в `settings.toml` не перезаписывается.
+pub const THEME_NOT_LOADED_TITLE: &str = "Тема не загружена";
+
+/// Тело предупреждения, см. [`THEME_NOT_LOADED_TITLE`]; `theme_name` —
+/// имя темы из настроек, которую не удалось загрузить.
+pub fn theme_not_loaded_body(theme_name: &str) -> String {
+    format!("Тема \"{theme_name}\" не загружена, применена светлая тема")
+}
+
+/// Имя темы в диалоге настроек, когда файл темы есть, но не читается/не
+/// разбирается (§5.2/§5.3, T1.0-B8).
+pub const THEME_META_UNREADABLE: &str = "(не удалось загрузить метаданные)";
+
+/// Имя темы в диалоге настроек, когда файл темы не найден в `themes/`
+/// (§5.2/§5.3, T1.0-B8).
+pub const THEME_NOT_FOUND: &str = "(тема не найдена)";
+
+/// Строка состояния при автопропуске повреждённого/нечитаемого трека
+/// (ТЗ-52, ТЗ-86, ТЗ-87, ОВ-7, T1.0-B8): `name` — имя файла, `reason` —
+/// вывод `describe_skip_reason`.
+pub fn track_skipped_status(name: &str, reason: &str) -> String {
+    format!("Пропущен трек «{name}»: {reason}")
+}
+
+/// Строка состояния — вся библиотека пропущена подряд без успешного
+/// открытия (защита от бесконечного пропуска при `RepeatMode::All`,
+/// T1.0-B8).
+pub const ALL_TRACKS_SKIPPED: &str = "Все треки пропущены";
+
+/// Заголовок окна ошибки явного действия пользователя — трек не
+/// воспроизвёлся (ТЗ-52, ОВ-7, T1.0-B8).
+pub const PLAYBACK_FAILED_TITLE: &str = "Не удалось воспроизвести трек";
+
+/// Тело окна ошибки «устройство не запустило воспроизведение», когда
+/// известен буфер устройства (AM1.0-B34 шаг 4, §6.7 п. 2, §6.20, T1.0-B8).
+pub fn device_buffer_stalled_body(ms: &str, period_frames: &str) -> String {
+    format!("Буфер устройства {ms} мс (период {period_frames} кадров) — драйвер не начал воспроизведение.")
+}
+
+/// Тело того же окна, когда буфер устройства неизвестен, см.
+/// [`device_buffer_stalled_body`].
+pub const DRIVER_NOT_STARTED: &str = "Драйвер не начал воспроизведение.";
+
+/// Заголовок окна ошибки «устройство не запустило воспроизведение»
+/// (AM1.0-B34 шаг 4, §6.7 п. 2, §6.20, T1.0-B8): поток открылся, но
+/// hw-указатель не двинулся — другая по смыслу ошибка, чем потеря уже
+/// игравшего устройства ([`DEVICE_LOST_TITLE`]).
+pub const DEVICE_NOT_STARTED_TITLE: &str = "Устройство не запустило воспроизведение";
+
+/// Заголовок окна ошибки реальной потери устройства вывода во время игры
+/// (ТЗ-51, ADR-14, T1.0-B8).
+pub const DEVICE_LOST_TITLE: &str = "Устройство вывода потеряно";
+
+/// Тело того же окна, см. [`DEVICE_LOST_TITLE`].
+pub const DEVICE_LOST_BODY: &str = "Воспроизведение остановлено (ТЗ-51, ADR-14).";
+
+/// Строка состояния при фоновом переключении на устройство по умолчанию
+/// после потери текущего устройства (`Reaction::FollowSystemDefault`,
+/// ТЗ-52, ОВ-7, T1.0-B8) — не явное действие пользователя, поэтому строка
+/// состояния, не окно.
+pub const OUTPUT_SWITCHED_TO_DEFAULT_STATUS: &str = "Вывод переключён на устройство по умолчанию";
+
+/// Строка состояния при фоновом сбое перечисления устройств вывода
+/// (ТЗ-104, ТЗ-105, ADR-16, T1.0-B8); `msg` — текст
+/// `BackendError::Unavailable`.
+pub fn devices_unavailable_status(msg: &str) -> String {
+    format!("Не удалось получить список устройств вывода: {msg}")
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -135,5 +234,56 @@ mod tests {
             playlist_export_failed_body(path, "нет места на диске"),
             "Файл /music/export.m3u не удалось записать (нет места на диске)."
         );
+    }
+
+    #[test]
+    fn theme_not_loaded_body_substitutes_theme_name() {
+        assert_eq!(theme_not_loaded_body("dark"), "Тема \"dark\" не загружена, применена светлая тема");
+    }
+
+    #[test]
+    fn track_skipped_status_substitutes_name_and_reason() {
+        assert_eq!(
+            track_skipped_status("intro.flac", "файл повреждён: повреждён заголовок файла"),
+            "Пропущен трек «intro.flac»: файл повреждён: повреждён заголовок файла"
+        );
+    }
+
+    #[test]
+    fn device_buffer_stalled_body_substitutes_ms_and_period() {
+        assert_eq!(
+            device_buffer_stalled_body("20", "882"),
+            "Буфер устройства 20 мс (период 882 кадров) — драйвер не начал воспроизведение."
+        );
+    }
+
+    #[test]
+    fn devices_unavailable_status_substitutes_msg() {
+        assert_eq!(
+            devices_unavailable_status("D-Bus недоступен"),
+            "Не удалось получить список устройств вывода: D-Bus недоступен"
+        );
+    }
+
+    #[test]
+    fn app_message_constants_are_russian() {
+        assert_eq!(ENGINE_NOT_STARTED_TITLE, "Аудио-движок не запущен");
+        assert_eq!(MODE_SWITCH_UNAVAILABLE_REASON, "монопольный доступ на этой платформе пока не поддерживается");
+        assert_eq!(MODE_UNAVAILABLE_NOTICE_TITLE, "Режим недоступен");
+        assert_eq!(
+            MODE_UNAVAILABLE_NOTICE_BODY,
+            "на этой платформе доступен только Совместимый режим (Shared), для воспроизведения переключите режим"
+        );
+        assert_eq!(ENGINE_NOT_RUNNING_SHORT, "движок не запущен");
+        assert_eq!(THEME_NOT_LOADED_TITLE, "Тема не загружена");
+        assert_eq!(THEME_META_UNREADABLE, "(не удалось загрузить метаданные)");
+        assert_eq!(THEME_NOT_FOUND, "(тема не найдена)");
+        assert_eq!(ALL_TRACKS_SKIPPED, "Все треки пропущены");
+        assert_eq!(PLAYBACK_FAILED_TITLE, "Не удалось воспроизвести трек");
+        assert_eq!(DRIVER_NOT_STARTED, "Драйвер не начал воспроизведение.");
+        assert_eq!(DEVICE_NOT_STARTED_TITLE, "Устройство не запустило воспроизведение");
+        assert_eq!(DEVICE_LOST_TITLE, "Устройство вывода потеряно");
+        assert_eq!(DEVICE_LOST_BODY, "Воспроизведение остановлено (ТЗ-51, ADR-14).");
+        assert_eq!(OUTPUT_SWITCHED_TO_DEFAULT_STATUS, "Вывод переключён на устройство по умолчанию");
     }
 }

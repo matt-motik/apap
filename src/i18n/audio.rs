@@ -165,6 +165,14 @@ pub fn path_footer(boundary: &str, version: &str, os: &str) -> String {
     )
 }
 
+/// Подпись кнопки рекомендации окна «Путь сигнала» для действия
+/// `QuickFix` (ТЗ-81, ТЗ-84, T1.0-B8, `src/app/mod.rs::path_rec_items`).
+pub const PATH_REC_FIX_LABEL: &str = "Исправить";
+
+/// Подпись кнопки рекомендации окна «Путь сигнала» для действия
+/// `OpenSettings` (ТЗ-81, ТЗ-84, T1.0-B8, `src/app/mod.rs::path_rec_items`).
+pub const PATH_REC_OPEN_SETTINGS_LABEL: &str = "Открыть настройку";
+
 #[cfg(test)]
 #[allow(clippy::unwrap_used, clippy::expect_used, clippy::unreachable)]
 mod tests {
@@ -269,5 +277,11 @@ mod tests {
     #[test]
     fn server_node_suffix_is_russian() {
         assert_eq!(SERVER_NODE_SUFFIX, " — (программный, с ресемплингом)");
+    }
+
+    #[test]
+    fn path_rec_labels_are_russian() {
+        assert_eq!(PATH_REC_FIX_LABEL, "Исправить");
+        assert_eq!(PATH_REC_OPEN_SETTINGS_LABEL, "Открыть настройку");
     }
 }

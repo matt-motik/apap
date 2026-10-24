@@ -303,11 +303,8 @@ fn save_button_view(button: SaveButton, theme: Option<&ThemeLoad>) -> (bool, Str
         return (button.enabled, button.tooltip.unwrap_or_default());
     };
     let tooltip = button.tooltip.unwrap_or_else(|| {
-        let reason = match error {
-            ThemeError::InvalidHex { field } => format!("недопустимый HEX-цвет в поле `{field}`"),
-            other => other.to_string(),
-        };
-        format!("Тема: {reason}")
+        let reason = music_player_rs::i18n::errors::theme_error_reason(&error);
+        music_player_rs::i18n::errors::theme_tooltip(&reason)
     });
     (false, tooltip)
 }
@@ -421,11 +418,17 @@ fn path_rec_items(
                 path_view::RecViewAction::None => (-1, String::new()),
                 path_view::RecViewAction::QuickFix(_) => {
                     actions.push(r.action);
-                    (i32::try_from(actions.len() - 1).unwrap_or(-1), "Исправить".to_string())
+                    (
+                        i32::try_from(actions.len() - 1).unwrap_or(-1),
+                        music_player_rs::i18n::audio::PATH_REC_FIX_LABEL.to_string(),
+                    )
                 }
                 path_view::RecViewAction::OpenSettings(_) => {
                     actions.push(r.action);
-                    (i32::try_from(actions.len() - 1).unwrap_or(-1), "Открыть настройку".to_string())
+                    (
+                        i32::try_from(actions.len() - 1).unwrap_or(-1),
+                        music_player_rs::i18n::audio::PATH_REC_OPEN_SETTINGS_LABEL.to_string(),
+                    )
                 }
             };
             PathRecItem { text: r.text.into(), action_label: action_label.into(), action_id }
@@ -950,7 +953,7 @@ impl MusicApp {
         if let Some(fault) = app.engine_fault.clone() {
             app.push_message(Message {
                 level: MessageLevel::Error,
-                title: "Аудио-движок не запущен".into(),
+                title: music_player_rs::i18n::messages::ENGINE_NOT_STARTED_TITLE.into(),
                 body: format!("{fault:?}").into(),
                 actions: vec![MessageAction::Ok],
             });
@@ -1092,7 +1095,6 @@ impl MusicApp {
             ModeKind::Strict => 2,
         });
         // Текст пояснения — дословно по ТЗ-110.
-        const UNAVAILABLE_REASON: &str = "монопольный доступ на этой платформе пока не поддерживается";
         let modes = [ModeKind::Compatible, ModeKind::Optimal, ModeKind::Strict];
         let available: Vec<bool> = modes.iter().map(|m| self.backend_caps.available(*m)).collect();
         let reasons: Vec<SharedString> = modes
@@ -1101,7 +1103,7 @@ impl MusicApp {
                 if self.backend_caps.available(*m) {
                     SharedString::default()
                 } else {
-                    SharedString::from(UNAVAILABLE_REASON)
+                    SharedString::from(music_player_rs::i18n::messages::MODE_SWITCH_UNAVAILABLE_REASON)
                 }
             })
             .collect();
@@ -1267,8 +1269,8 @@ impl MusicApp {
         self.mode_notice_pending = true;
         self.push_message(Message {
             level: MessageLevel::Warning,
-            title: "Режим недоступен".into(),
-            body: "на этой платформе доступен только Совместимый режим (Shared), для воспроизведения переключите режим".into(),
+            title: music_player_rs::i18n::messages::MODE_UNAVAILABLE_NOTICE_TITLE.into(),
+            body: music_player_rs::i18n::messages::MODE_UNAVAILABLE_NOTICE_BODY.into(),
             actions: vec![MessageAction::SwitchToCompatible, MessageAction::Ok],
         });
     }
@@ -1366,7 +1368,7 @@ impl MusicApp {
         if self.engine_send(cmd) {
             Ok(())
         } else {
-            Err("движок не запущен".to_string())
+            Err(music_player_rs::i18n::messages::ENGINE_NOT_RUNNING_SHORT.to_string())
         }
     }
 
@@ -1548,11 +1550,8 @@ impl MusicApp {
                 );
                 app.push_message(Message {
                     level: MessageLevel::Warning,
-                    title: "Тема не загружена".into(),
-                    body: format!(
-                        "Тема \"{theme_name}\" не загружена, применена светлая тема"
-                    )
-                    .into(),
+                    title: music_player_rs::i18n::messages::THEME_NOT_LOADED_TITLE.into(),
+                    body: music_player_rs::i18n::messages::theme_not_loaded_body(&theme_name).into(),
                     actions: vec![MessageAction::Ok],
                 });
             }
@@ -1809,10 +1808,10 @@ impl MusicApp {
                 m.description.clone().unwrap_or_default(),
             ),
             Some(_) => (
-                "(не удалось загрузить метаданные)".to_string(),
+                music_player_rs::i18n::messages::THEME_META_UNREADABLE.to_string(),
                 String::new(),
             ),
-            None => ("(тема не найдена)".to_string(), String::new()),
+            None => (music_player_rs::i18n::messages::THEME_NOT_FOUND.to_string(), String::new()),
         };
         if let Some(ui) = self.try_ui() {
             ui.set_theme_name(name.into());
@@ -3565,14 +3564,16 @@ impl MusicApp {
                     .unwrap_or_else(|| path.display().to_string());
                 // Фоновое событие (не результат явного действия пользователя
                 // над этим треком) — строка состояния, не окно (ТЗ-52, ОВ-7).
-                self.status = format!("Пропущен трек «{name}»: {}", describe_skip_reason(&reason)).into();
+                self.status =
+                    music_player_rs::i18n::messages::track_skipped_status(&name, &describe_skip_reason(&reason))
+                        .into();
 
                 if self.track_count() == 0 || self.skip_streak >= self.track_count() {
                     // Защита от бесконечного пропуска при Repeat All, если
                     // вся библиотека повреждена (мост до SkipSeries С8).
                     self.engine_send(EngineCmd::Stop);
                     self.emit(AppEvent::PlaybackStopped);
-                    self.status = "Все треки пропущены".into();
+                    self.status = music_player_rs::i18n::messages::ALL_TRACKS_SKIPPED.into();
                     return;
                 }
                 // `RepeatMode::One` на пропуске ведёт себя как `All`/`Off` —
@@ -3618,7 +3619,7 @@ impl MusicApp {
                         self.engine_send(EngineCmd::Stop);
                         self.push_message(Message {
                             level: MessageLevel::Error,
-                            title: "Не удалось воспроизвести трек".into(),
+                            title: music_player_rs::i18n::messages::PLAYBACK_FAILED_TITLE.into(),
                             body: text.into(),
                             actions: vec![MessageAction::Ok],
                         });
@@ -3646,15 +3647,15 @@ impl MusicApp {
                     .and_then(|p| p.output.device_buffer.map(|buf| (buf, p.output.requested)))
                     .map(|(buf, fmt)| {
                         let ms = u64::from(buf.buffer_frames) * 1000 / u64::from(fmt.rate.hz());
-                        format!(
-                            "Буфер устройства {ms} мс (период {} кадров) — драйвер не начал воспроизведение.",
-                            buf.period_frames
+                        music_player_rs::i18n::messages::device_buffer_stalled_body(
+                            &ms.to_string(),
+                            &buf.period_frames.to_string(),
                         )
                     })
-                    .unwrap_or_else(|| "Драйвер не начал воспроизведение.".to_owned());
+                    .unwrap_or_else(|| music_player_rs::i18n::messages::DRIVER_NOT_STARTED.to_owned());
                 self.push_message(Message {
                     level: MessageLevel::Error,
-                    title: "Устройство не запустило воспроизведение".into(),
+                    title: music_player_rs::i18n::messages::DEVICE_NOT_STARTED_TITLE.into(),
                     body: body.into(),
                     actions: vec![MessageAction::OpenAudioSettings, MessageAction::Cancel],
                 });
@@ -3665,8 +3666,8 @@ impl MusicApp {
                     self.emit(AppEvent::PlaybackStopped);
                     self.push_message(Message {
                         level: MessageLevel::Error,
-                        title: "Устройство вывода потеряно".into(),
-                        body: "Воспроизведение остановлено (ТЗ-51, ADR-14).".into(),
+                        title: music_player_rs::i18n::messages::DEVICE_LOST_TITLE.into(),
+                        body: music_player_rs::i18n::messages::DEVICE_LOST_BODY.into(),
                         actions: vec![MessageAction::Ok],
                     });
                 }
@@ -3674,7 +3675,7 @@ impl MusicApp {
                     // Фоновое переключение на устройство по умолчанию — не
                     // явное действие пользователя (ТЗ-52, ОВ-7) — строка
                     // состояния.
-                    self.status = "Вывод переключён на устройство по умолчанию".into();
+                    self.status = music_player_rs::i18n::messages::OUTPUT_SWITCHED_TO_DEFAULT_STATUS.into();
                 }
                 Reaction::Skip => {
                     // Трактуется как пропуск трека без отдельного сообщения —
@@ -3693,7 +3694,7 @@ impl MusicApp {
                 // выдавал синхронный startup-probe, теперь приходит событием.
                 self.audio_ready = false;
                 self.audio_error = Some(msg.clone());
-                self.status = format!("Не удалось получить список устройств вывода: {msg}").into();
+                self.status = music_player_rs::i18n::messages::devices_unavailable_status(&msg).into();
             }
             // Пропавший per-sink узел PipeWire Совместимого режима во время
             // работы движка (ADR-07 «Уточнение», AM1.0-B37, шаг 13): движок
@@ -3819,18 +3820,18 @@ fn describe_open_error(err: &OpenError) -> String {
     match err {
         // §2.4, ТЗ-57, ТЗ-80: план остановлен на этапе `blocked.at` —
         // устройство несовместимо с треком в Строгом режиме.
-        OpenError::Incompatible(blocked) => {
-            format!("трек несовместим с устройством — {}", music_player_rs::audio::path::report::blocked_text(blocked))
-        }
+        OpenError::Incompatible(blocked) => music_player_rs::i18n::errors::incompatible_track_text(
+            &music_player_rs::audio::path::report::blocked_text(blocked),
+        ),
         OpenError::Capture(_) => String::new(),
-        OpenError::DeviceLost => "устройство вывода потеряно".to_string(),
+        OpenError::DeviceLost => music_player_rs::i18n::errors::DEVICE_LOST_SHORT.to_string(),
         OpenError::File(file_err) => describe_file_error(file_err),
         OpenError::Internal(fault) => {
             let (_, text) = music_player_rs::i18n::errors::engine_fault_text(fault);
-            music_player_rs::i18n::format_named("внутренняя ошибка движка: {text}", &[("text", &text)])
+            music_player_rs::i18n::errors::internal_fault_text(&text)
         }
         // ТЗ-111, §6.18 п. 2: сохранённый режим недоступен на платформе.
-        OpenError::ModeUnavailable(mode) => format!("режим {mode:?} недоступен на этой платформе"),
+        OpenError::ModeUnavailable(mode) => music_player_rs::i18n::errors::mode_unavailable_text(&format!("{mode:?}")),
     }
 }
 
@@ -3839,21 +3840,16 @@ fn describe_file_error(err: &FileError) -> String {
     match err {
         FileError::Corrupt(kind) => {
             let (_, text) = music_player_rs::i18n::errors::corrupt_kind_text(kind);
-            music_player_rs::i18n::format_named("файл повреждён: {text}", &[("text", text)])
+            music_player_rs::i18n::errors::corrupt_file_text(text)
         }
-        FileError::Unsupported { codec } => {
-            music_player_rs::i18n::format_named("неподдерживаемый формат: {codec}", &[("codec", codec)])
-        }
+        FileError::Unsupported { codec } => music_player_rs::i18n::errors::unsupported_format_text(codec),
         FileError::Io(kind) => {
             let text = music_player_rs::i18n::errors::describe_io_error(*kind);
-            music_player_rs::i18n::format_named("ошибка чтения: {text}", &[("text", &text)])
+            music_player_rs::i18n::errors::read_error_text(&text)
         }
         FileError::ReadDuringPlayback { at_frame, kind } => {
             let text = music_player_rs::i18n::errors::describe_io_error(*kind);
-            music_player_rs::i18n::format_named(
-                "ошибка чтения на кадре {frame}: {text}",
-                &[("frame", &at_frame.to_string()), ("text", &text)],
-            )
+            music_player_rs::i18n::errors::read_error_at_frame_text(&at_frame.to_string(), &text)
         }
     }
 }
@@ -3863,9 +3859,9 @@ fn describe_skip_reason(reason: &SkipReason) -> String {
     match reason {
         // §2.4, ТЗ-57, ТЗ-80: план остановлен на этапе `blocked.at` —
         // устройство несовместимо с треком в Строгом режиме.
-        SkipReason::Incompatible(blocked) => {
-            format!("трек несовместим с устройством — {}", music_player_rs::audio::path::report::blocked_text(blocked))
-        }
+        SkipReason::Incompatible(blocked) => music_player_rs::i18n::errors::incompatible_track_text(
+            &music_player_rs::audio::path::report::blocked_text(blocked),
+        ),
         SkipReason::File(err) => describe_file_error(err),
     }
 }
