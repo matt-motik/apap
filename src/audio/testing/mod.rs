@@ -431,7 +431,12 @@ impl StreamHandle for FakeExclusiveStream {
 /// задании резервирование получается через `FakeReserveBus`/`ManualClock`
 /// (без D-Bus), а журнал и `acquire_result` разделяются с фейком через `Arc`.
 pub struct FakeExclusiveBackend {
-    enumerate_result: Result<Vec<HwDeviceInfo>, BackendError>,
+    /// За `Arc<Mutex<_>>` (а не плоским полем), чтобы тест мог сменить
+    /// результат между попытками уже после того, как фейк ушёл в движок
+    /// (`enumerate_handle`, §6.20 п. 4, ТЗ-126, AM1.0-B36) — например,
+    /// первая попытка серии повторного захвата отдаёт ошибку/пустой
+    /// список, вторая — появившееся устройство.
+    enumerate_result: Arc<Mutex<Result<Vec<HwDeviceInfo>, BackendError>>>,
     acquire_result: Result<(), CaptureFailure>,
     device_caps_result: Result<DeviceCaps, CaptureFailure>,
     configure_result: Result<(DriverFormat, Option<DeviceBufferActual>), ConfigureError>,
@@ -444,7 +449,7 @@ impl FakeExclusiveBackend {
     /// Все вызовы успешны со значениями по умолчанию.
     pub fn new() -> FakeExclusiveBackend {
         FakeExclusiveBackend {
-            enumerate_result: Ok(Vec::new()),
+            enumerate_result: Arc::new(Mutex::new(Ok(Vec::new()))),
             acquire_result: Ok(()),
             device_caps_result: Ok(fake_device_caps()),
             configure_result: Ok((fake_driver_format(), None)),
@@ -454,9 +459,17 @@ impl FakeExclusiveBackend {
         }
     }
 
-    pub fn with_enumerate(mut self, result: Result<Vec<HwDeviceInfo>, BackendError>) -> FakeExclusiveBackend {
-        self.enumerate_result = result;
+    pub fn with_enumerate(self, result: Result<Vec<HwDeviceInfo>, BackendError>) -> FakeExclusiveBackend {
+        *self.enumerate_result.lock().unwrap_or_else(|e| e.into_inner()) = result;
         self
+    }
+
+    /// Хэндл результата `enumerate`, разделяемый с фейком (§6.20 п. 4,
+    /// ТЗ-126, AM1.0-B36): берётся до того, как бэкенд уходит в `Box<dyn
+    /// ExclusiveBackend>`, и после этого меняется отдельно от него — тест
+    /// подставляет следующий результат серии повторных попыток.
+    pub fn enumerate_handle(&self) -> Arc<Mutex<Result<Vec<HwDeviceInfo>, BackendError>>> {
+        Arc::clone(&self.enumerate_result)
     }
 
     pub fn with_acquire(mut self, result: Result<(), CaptureFailure>) -> FakeExclusiveBackend {
@@ -520,7 +533,7 @@ impl ExclusiveBackend for FakeExclusiveBackend {
 
     fn enumerate(&mut self) -> Result<Vec<HwDeviceInfo>, BackendError> {
         self.push(ExclusiveCall::Enumerate);
-        self.enumerate_result.clone()
+        self.enumerate_result.lock().unwrap_or_else(|e| e.into_inner()).clone()
     }
 
     fn acquire(&mut self, dev: &HwDeviceId, reservation: Reservation) -> Result<DeviceClaim, CaptureFailure> {

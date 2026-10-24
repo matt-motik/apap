@@ -12,7 +12,7 @@ use std::time::Duration;
 
 use crate::audio::backend::exclusive::DeviceClaim;
 use crate::audio::backend::catalog::DeviceCatalog;
-use crate::audio::backend::HwDeviceId;
+use crate::audio::backend::{BackendError, HwDeviceId};
 use crate::audio::clock::ClockInstant;
 use crate::audio::error::{CaptureFailure, EngineFault, FileError, OpenError, Reaction, StreamFault};
 use crate::audio::format::{SampleRate, SourceFormat};
@@ -37,6 +37,32 @@ use crate::settings::playback::{Dither, ModeKind, ModeSettings, PathPolicy, Volu
 
 /// Минимальный интервал между событиями `Position` (§6.1, И-Р13).
 const POSITION_INTERVAL: Duration = Duration::from_millis(100);
+
+/// Шаг между попытками серии повторного перечисления Exclusive-устройств
+/// при висящей точке повторного захвата (§6.20 п. 4, ТЗ-126, AM1.0-B36):
+/// карта может появиться в `/proc/asound/cards` раньше, чем её ctl/pcm-узлы
+/// становятся доступны `ExclusiveBackend::enumerate` — без этой серии
+/// единственная попытка, сделанная по сигналу `DeviceWatcher`, терялась бы
+/// до следующего изменения текста `/proc/asound/cards` (не по таймеру).
+const REACQUIRE_RETRY_INTERVAL: Duration = Duration::from_millis(500);
+
+/// Предел серии попыток (§6.20 п. 4, ТЗ-126, AM1.0-B36): включая самую
+/// первую, сделанную по `DeviceWatcher`, — 10 попыток с шагом
+/// `REACQUIRE_RETRY_INTERVAL` покрывают ~5 с.
+const REACQUIRE_RETRY_ATTEMPTS: u32 = 10;
+
+/// Состояние серии повторных попыток перечисления (§6.20 п. 4, ТЗ-126,
+/// AM1.0-B36): живёт в `Engine::reacquire_retry`, расписание проверяется
+/// `poll_session` по инжектируемым часам (`deps.clock`) — без блокировки
+/// цикла движка и без собственного потока/таймера.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+struct ReacquireRetry {
+    /// Сколько попыток осталось после текущей (включая саму себя при
+    /// создании серии — см. `note_reacquire_attempt`).
+    attempts_left: u32,
+    /// Момент следующей попытки по `deps.clock.now()`.
+    next_at: ClockInstant,
+}
 
 /// Решение `EngineCmd::SetModeSettings` по диффу активного режима и
 /// состоянию транспорта (§6.18, И-Р26). `Store` — без переоткрытия: пустой
@@ -366,6 +392,14 @@ struct Engine {
     /// `self.claim`/`self.exclusive_path` ещё не очищены эффектами
     /// `StopPlayback`/`Release` перехода `Held → Failed(DeviceDisconnected)`.
     reacquire: Option<ReacquirePoint>,
+    /// Серия повторных попыток перечисления Exclusive-устройств при висящей
+    /// точке повторного захвата (§6.20 п. 4, ТЗ-126, AM1.0-B36): заполняется
+    /// `note_reacquire_attempt`, когда очередная попытка `refresh_devices`
+    /// не находит вернувшееся устройство (ошибка `enumerate` или список без
+    /// него); расписание проверяется `poll_session` по `deps.clock` — цикл
+    /// движка не блокируется. `None` — серии нет (устройство захвачено,
+    /// точка забыта или серия исчерпана).
+    reacquire_retry: Option<ReacquireRetry>,
     /// Отложенный `Open`, пришедший при захвате в процессе (`Acquiring`,
     /// AM1.0-B24, ТЗ-20, §6.18 «Смена режима»): заполняется в
     /// `open_exclusive`, забирается и доигрывается в `handle_internal` по
@@ -427,6 +461,7 @@ impl Engine {
             claim_attempt: 0,
             claim_card: None,
             reacquire: None,
+            reacquire_retry: None,
             deferred_open: None,
             dynamics: DynamicPathState::default(),
             last_sent_dynamics: None,
@@ -517,6 +552,7 @@ impl Engine {
                             // `reacquire`, затем поверх него из `Open`).
                             Some(d) if matches!(self.lock, LockState::Held { .. }) => {
                                 self.reacquire = None;
+                                self.reacquire_retry = None;
                                 self.open_exclusive(d.req_gen, d.path, d.src, d.start_secs, d.autoplay);
                             }
                             // Переоткрытие трека из точки повторного захвата —
@@ -779,7 +815,10 @@ impl Engine {
                     // удержания его больше некому доиграть.
                     self.deferred_open = None;
                 }
-                LockEffect::ForgetReacquire => self.reacquire = None,
+                LockEffect::ForgetReacquire => {
+                    self.reacquire = None;
+                    self.reacquire_retry = None;
+                }
             }
         }
     }
@@ -1776,6 +1815,14 @@ impl Engine {
     /// нужно для первого перечисления при старте движка; по `RefreshDevices`
     /// и по сигналу `DeviceWatcher` событие шлётся только при изменении.
     fn refresh_devices(&mut self, force_emit: bool) {
+        // Серия повторных попыток нужна только при висящей точке
+        // повторного захвата (§6.20 п. 4, ТЗ-126, AM1.0-B36): во всех прочих
+        // случаях (ручное «Обновить», обычный хотплаг без потери устройства)
+        // поведение ошибки перечисления не меняется — `Notice` шлётся сразу,
+        // как раньше.
+        let awaiting_reacquire =
+            matches!(self.lock, LockState::Failed(CaptureFailure::DeviceDisconnected)) && self.reacquire.is_some();
+
         // Каталог Exclusive-устройств (`hw`) перечисляется тут же, рядом с
         // Shared (§6.2 п. 3, ТЗ-104, ТЗ-105, ADR-16): изменение списка — не
         // только повод переотдать `Devices` в UI, но и триггер автоматического
@@ -1784,13 +1831,20 @@ impl Engine {
             Some(backend) => match self.catalog.refresh_hw(backend) {
                 Ok(changed) => {
                     self.deps.journal.record(JournalRecord::DeviceEnumerate { enumerate_error: None });
+                    if awaiting_reacquire {
+                        self.note_reacquire_attempt(None);
+                    }
                     changed
                 }
                 Err(e) => {
                     self.deps.journal.record(JournalRecord::DeviceEnumerate {
                         enumerate_error: Some(backend_error_text(&e)),
                     });
-                    self.deps.events.emit(EngineEvent::Notice(Notice::DevicesUnavailable(e)));
+                    if awaiting_reacquire {
+                        self.note_reacquire_attempt(Some(e));
+                    } else {
+                        self.deps.events.emit(EngineEvent::Notice(Notice::DevicesUnavailable(e)));
+                    }
                     false
                 }
             },
@@ -1809,6 +1863,38 @@ impl Engine {
         if hw_changed {
             self.try_reacquire_reappeared_device();
         }
+        // Устройство захвачено (лок вышел из `Failed(DeviceDisconnected)`)
+        // или точка забыта мимо этой функции (`ForgetReacquire`,
+        // `reopen_after_reacquire`) — серии больше незачем жить до следующей
+        // попытки; `note_reacquire_attempt` сама не вызывается снова, пока
+        // `awaiting_reacquire` не станет истинным на будущем вызове.
+        if !(matches!(self.lock, LockState::Failed(CaptureFailure::DeviceDisconnected)) && self.reacquire.is_some()) {
+            self.reacquire_retry = None;
+        }
+    }
+
+    /// Отмечает одну попытку перечисления в серии повторного захвата висящей
+    /// точки (§6.20 п. 4, ТЗ-126, AM1.0-B36): первая попытка (`reacquire_retry`
+    /// ещё `None`) запускает серию на `REACQUIRE_RETRY_ATTEMPTS`, каждая
+    /// следующая убывает счётчик на единицу. Серия исчерпана (`attempts_left
+    /// == 0`) — ошибка ПОСЛЕДНЕЙ попытки (если она была) идёт в
+    /// `Notice::DevicesUnavailable`, как раньше делала самая первая попытка
+    /// (до этого шага); устройство так и не нашлось без ошибки перечисления —
+    /// молча, как и раньше для этого случая (`try_reacquire_reappeared_device`
+    /// никогда не слал уведомления).
+    fn note_reacquire_attempt(&mut self, error: Option<BackendError>) {
+        let attempts_left = match self.reacquire_retry.take() {
+            Some(retry) => retry.attempts_left.saturating_sub(1),
+            None => REACQUIRE_RETRY_ATTEMPTS - 1,
+        };
+        if attempts_left == 0 {
+            if let Some(e) = error {
+                self.deps.events.emit(EngineEvent::Notice(Notice::DevicesUnavailable(e)));
+            }
+            return;
+        }
+        let next_at = self.deps.clock.now().saturating_add(REACQUIRE_RETRY_INTERVAL);
+        self.reacquire_retry = Some(ReacquireRetry { attempts_left, next_at });
     }
 
     /// `Transport` по текущему состоянию (мост С3): `self.stopped` имеет
@@ -1873,6 +1959,12 @@ impl Engine {
     /// затем транспорт, затем позиция.
     fn poll_session(&mut self) {
         if self.devices_dirty.swap(false, Ordering::Acquire) {
+            self.refresh_devices(false);
+        } else if self.reacquire_retry.as_ref().is_some_and(|retry| self.deps.clock.now() >= retry.next_at) {
+            // Собственный таймер серии повторных попыток (§6.20 п. 4,
+            // ТЗ-126, AM1.0-B36): следующая попытка не ждёт нового сигнала
+            // `DeviceWatcher` — `/proc/asound/cards` мог не измениться
+            // повторно, пока ctl/pcm-узлы свежей карты становились готовы.
             self.refresh_devices(false);
         }
 
@@ -2054,7 +2146,7 @@ mod tests {
     use crate::engine::sink::VecSink;
     use crate::engine::source::FakeSource;
     use crate::audio::rt::RtPriorityRequester;
-    use crate::audio::testing::{FakeExclusiveBackend, FakeRtRequester, FakeServerProbe};
+    use crate::audio::testing::{FakeExclusiveBackend, FakeRtRequester, FakeServerProbe, ManualClock};
     use crate::engine::spawner::{FailingSpawner, StdSpawner};
     use crate::platform::fs::{FsPersistStore, MemStore};
     use crate::settings::params::{ModeSettingsUpdate, ParamId};
@@ -3722,6 +3814,204 @@ mod tests {
         let path = engine.exclusive_path.as_ref().expect("track reopened");
         assert_eq!(path.position_secs(), 1.0);
         assert_eq!(engine.last_transport, Some(TransportState::Paused));
+    }
+
+    /// Шаг 2 (§6.20 п. 4, ТЗ-126, AM1.0-B36): свежая USB-карта появляется в
+    /// `/proc/asound/cards` раньше, чем её ctl/pcm-узлы становятся доступны
+    /// `ExclusiveBackend::enumerate` — первая попытка (по сигналу
+    /// `DeviceWatcher`) отдаёт ошибку перечисления, замок остаётся
+    /// `Failed(DeviceDisconnected)`, но точка повторного захвата не теряется:
+    /// движок сам планирует следующую попытку через
+    /// `REACQUIRE_RETRY_INTERVAL` (`poll_session`, без нового сигнала
+    /// `DeviceWatcher` — текст `/proc/asound/cards` не меняется повторно).
+    /// Опрос до срока следующей попытки не перечисляет снова; когда срок
+    /// наступает, а бэкенд к этому моменту уже отдаёт устройство — захват
+    /// проходит сам.
+    #[test]
+    fn device_reacquire_retries_enumerate_after_error_without_new_devwatch_signal() {
+        let sink = VecSink::new();
+        let dev: HwDeviceId = "hw:CARD=RU3,DEV=0".parse().expect("hw id");
+        let backend = FakeExclusiveBackend::new()
+            .with_configure(Ok((
+                crate::audio::backend::DriverFormat::Confirmed(crate::audio::format::StreamFormat {
+                    rate: SampleRate::new(44_100).expect("rate"),
+                    sample: crate::audio::format::OutputSampleFormat::S32Le,
+                    channels: std::num::NonZeroU8::new(2).expect("channels"),
+                }),
+                Some(crate::audio::backend::DeviceBufferActual { period_frames: 256, buffer_frames: 1024 }),
+            )))
+            .with_enumerate(Err(BackendError::Unavailable("ctl not ready".to_string())));
+        let enumerate_handle = backend.enumerate_handle();
+        let float_format = SourceFormat {
+            container: Container::Wav,
+            codec: Codec::Wav,
+            lossy: false,
+            rate: SampleRate::new(44_100).expect("rate"),
+            layout: ChannelLayout::stereo(),
+            kind: SourceKind::FloatPcm { double: false },
+        };
+        let mem = MemStore::new();
+        let clock = ManualClock::new();
+        let deps = EngineDeps {
+            shared: Box::new(FakeSharedBackend::with_devices(Vec::new())),
+            exclusive: Some(Box::new(backend)),
+            server_probe: Box::new(FakeServerProbe::desktop()),
+            watcher: Box::new(FakeDeviceWatcher::new()),
+            sources: Arc::new(FakeSource::with_format(float_format)),
+            clock: Box::new(clock.clone()),
+            store: Box::new(FsPersistStore::new(Arc::new(mem.clone()), Box::new(mem.clone()), PathBuf::from("/cfg"))),
+            events: Box::new(sink),
+            spawner: Arc::new(StdSpawner),
+            caps: BackendCaps::current(),
+            os_probe: Box::new(FakeOsProbe::new(OsStage::Unknown)),
+            rt: Arc::new(FakeRtRequester::new(None)),
+            journal: Arc::new(crate::journal::VecJournal::default()),
+        };
+        let mut engine = Engine::new(deps, BackendCaps::current());
+        engine.active_mode = ModeKind::Optimal;
+        engine.mode_settings.optimal.device = Some(dev.clone());
+        engine.catalog.hw = vec![crate::audio::backend::catalog::HwDeviceInfo { id: dev.clone(), card: 1, device: 0, name: "RU3".to_string() }];
+        engine.lock = LockState::Held { info: crate::audio::backend::exclusive::ClaimInfo { device: dev.clone() } };
+        engine.claim = Some(crate::audio::backend::exclusive::DeviceClaim::new(
+            None,
+            crate::audio::reservation::Reservation::UnavailableNoServer,
+            crate::audio::backend::exclusive::ClaimInfo { device: dev.clone() },
+        ));
+        engine.handle(EngineCmd::Open { req_gen: 1, path: Arc::from(Path::new("/music/a.flac")), start_secs: 0.0, autoplay: true });
+        assert!(engine.exclusive_path.is_some());
+        let rate = engine.exclusive_path.as_ref().expect("exclusive path open").frame_rate();
+        let shared = Arc::clone(engine.exclusive_path.as_ref().expect("exclusive path open").shared());
+        shared.pos_frames.store(u64::from(rate), Ordering::Relaxed);
+        shared.set_fault(StreamFault::DeviceUnavailable);
+        engine.poll_session();
+        assert!(matches!(engine.lock, LockState::Failed(CaptureFailure::DeviceDisconnected)));
+        assert!(engine.reacquire.is_some());
+
+        // Карта уже пропала из каталога (предыдущий `refresh_devices` во
+        // время отключения убрал её). Первая попытка — по сигналу
+        // `DeviceWatcher`: `enumerate` отдаёт ошибку, устройство не
+        // найдено — серия повторов запускается, точка остаётся.
+        engine.catalog.hw = Vec::new();
+        engine.devices_dirty.store(true, Ordering::Relaxed);
+        engine.poll_session();
+        assert!(matches!(engine.lock, LockState::Failed(CaptureFailure::DeviceDisconnected)));
+        assert!(engine.reacquire.is_some(), "точка не должна быть потеряна на первой неудачной попытке");
+
+        // Устройство становится видимым бэкенду (ctl/pcm готовы), но текст
+        // `/proc/asound/cards` не меняется повторно — `devices_dirty` не
+        // взводится. До срока следующей попытки серии повтор сам по себе не
+        // должен сработать.
+        let hw_info = crate::audio::backend::catalog::HwDeviceInfo { id: dev.clone(), card: 1, device: 0, name: "RU3".to_string() };
+        *enumerate_handle.lock().expect("enumerate handle") = Ok(vec![hw_info]);
+        engine.poll_session();
+        assert!(
+            matches!(engine.lock, LockState::Failed(CaptureFailure::DeviceDisconnected)),
+            "до срока таймера серии повтор не должен сработать сам"
+        );
+
+        // Наступает время следующей попытки серии — движок сам перечисляет
+        // снова без нового сигнала `DeviceWatcher`, находит устройство и
+        // запрашивает повторный захват у `lock_step`.
+        clock.advance(REACQUIRE_RETRY_INTERVAL);
+        engine.poll_session();
+        assert!(matches!(engine.lock, LockState::Acquiring { .. }));
+        let msg = engine.internal_rx.recv().expect("claim done");
+        engine.handle_internal(msg);
+        match &engine.lock {
+            LockState::Held { info } => assert_eq!(info.device, dev),
+            other => panic!("expected Held, got {other:?}"),
+        }
+        assert!(engine.reacquire.is_none());
+    }
+
+    /// Шаг 2 (§6.20 п. 4, ТЗ-126, AM1.0-B36): серия повторных попыток не
+    /// вечна — после `REACQUIRE_RETRY_ATTEMPTS` неудачных перечислений
+    /// (ошибка на каждой) движок перестаёт сам планировать следующую попытку
+    /// и шлёт `Notice::DevicesUnavailable` ошибкой последней попытки — как
+    /// раньше делала единственная попытка по сигналу `DeviceWatcher`; точка
+    /// повторного захвата НЕ теряется — дальше работает только ручной
+    /// «Повторить захват» (`RetryCapture`), как до этого шага.
+    #[test]
+    fn device_reacquire_retry_series_exhausts_then_notifies() {
+        let sink = VecSink::new();
+        let dev: HwDeviceId = "hw:CARD=RU3,DEV=0".parse().expect("hw id");
+        let backend = FakeExclusiveBackend::new()
+            .with_configure(Ok((
+                crate::audio::backend::DriverFormat::Confirmed(crate::audio::format::StreamFormat {
+                    rate: SampleRate::new(44_100).expect("rate"),
+                    sample: crate::audio::format::OutputSampleFormat::S32Le,
+                    channels: std::num::NonZeroU8::new(2).expect("channels"),
+                }),
+                Some(crate::audio::backend::DeviceBufferActual { period_frames: 256, buffer_frames: 1024 }),
+            )))
+            .with_enumerate(Err(BackendError::Unavailable("still gone".to_string())));
+        let float_format = SourceFormat {
+            container: Container::Wav,
+            codec: Codec::Wav,
+            lossy: false,
+            rate: SampleRate::new(44_100).expect("rate"),
+            layout: ChannelLayout::stereo(),
+            kind: SourceKind::FloatPcm { double: false },
+        };
+        let mem = MemStore::new();
+        let clock = ManualClock::new();
+        let deps = EngineDeps {
+            shared: Box::new(FakeSharedBackend::with_devices(Vec::new())),
+            exclusive: Some(Box::new(backend)),
+            server_probe: Box::new(FakeServerProbe::desktop()),
+            watcher: Box::new(FakeDeviceWatcher::new()),
+            sources: Arc::new(FakeSource::with_format(float_format)),
+            clock: Box::new(clock.clone()),
+            store: Box::new(FsPersistStore::new(Arc::new(mem.clone()), Box::new(mem.clone()), PathBuf::from("/cfg"))),
+            events: Box::new(sink.clone()),
+            spawner: Arc::new(StdSpawner),
+            caps: BackendCaps::current(),
+            os_probe: Box::new(FakeOsProbe::new(OsStage::Unknown)),
+            rt: Arc::new(FakeRtRequester::new(None)),
+            journal: Arc::new(crate::journal::VecJournal::default()),
+        };
+        let mut engine = Engine::new(deps, BackendCaps::current());
+        engine.active_mode = ModeKind::Optimal;
+        engine.mode_settings.optimal.device = Some(dev.clone());
+        engine.catalog.hw = vec![crate::audio::backend::catalog::HwDeviceInfo { id: dev.clone(), card: 1, device: 0, name: "RU3".to_string() }];
+        engine.lock = LockState::Held { info: crate::audio::backend::exclusive::ClaimInfo { device: dev.clone() } };
+        engine.claim = Some(crate::audio::backend::exclusive::DeviceClaim::new(
+            None,
+            crate::audio::reservation::Reservation::UnavailableNoServer,
+            crate::audio::backend::exclusive::ClaimInfo { device: dev.clone() },
+        ));
+        engine.handle(EngineCmd::Open { req_gen: 1, path: Arc::from(Path::new("/music/a.flac")), start_secs: 0.0, autoplay: true });
+        let rate = engine.exclusive_path.as_ref().expect("exclusive path open").frame_rate();
+        let shared = Arc::clone(engine.exclusive_path.as_ref().expect("exclusive path open").shared());
+        shared.pos_frames.store(u64::from(rate), Ordering::Relaxed);
+        shared.set_fault(StreamFault::DeviceUnavailable);
+        engine.poll_session();
+        assert!(matches!(engine.lock, LockState::Failed(CaptureFailure::DeviceDisconnected)));
+
+        engine.catalog.hw = Vec::new();
+        engine.devices_dirty.store(true, Ordering::Relaxed);
+        sink.take();
+        engine.poll_session(); // попытка 1 из REACQUIRE_RETRY_ATTEMPTS
+
+        for _ in 1..REACQUIRE_RETRY_ATTEMPTS {
+            assert!(sink.take().is_empty(), "до исчерпания серии Notice не шлётся");
+            clock.advance(REACQUIRE_RETRY_INTERVAL);
+            engine.poll_session();
+        }
+
+        let events = sink.take();
+        assert!(
+            events.iter().any(|e| matches!(e, EngineEvent::Notice(Notice::DevicesUnavailable(_)))),
+            "{events:?}"
+        );
+        assert!(matches!(engine.lock, LockState::Failed(CaptureFailure::DeviceDisconnected)));
+        assert!(engine.reacquire.is_some(), "точка остаётся для ручного «Повторить захват»");
+
+        // Серия исчерпана — собственный таймер больше не перечисляет сам,
+        // даже если время идёт дальше.
+        clock.advance(REACQUIRE_RETRY_INTERVAL * 5);
+        engine.poll_session();
+        assert!(sink.take().is_empty(), "после исчерпания серии таймер больше не перечисляет сам");
     }
 
     /// Шаг 64 (§6.20 п. 4, ТЗ-126): перечисление изменилось, но появившееся
