@@ -2,10 +2,95 @@
      Source of truth: _STATE_.yaml — edit that, then run:
      python tools/state_tool.py render -->
 
-# Состояние сессии
 
-- **Текущая задача:** Нет (все шаги завершены)
-- **Состояние:** done
+# Текущая микро-сессия
+
+- **Задача из ROADMAP:** T1.0-B2 — Перевод интерфейса на русский (Slint — @tr, Rust — src/i18n/), задел под многоязычность
+- **Вайтлист файлов в работе (Изменяемые файлы):**
+  - src/i18n/mod.rs
+  - src/i18n/errors.rs
+  - src/lib.rs
+  - ui/settings.slint
+  - ui/app.slint
+  - ui/top_panel.slint
+  - ui/status.slint
+  - ui/playlist.slint
+  - src/platform/tray/mod.rs
+  - src/platform/pick/rfd.rs
+  - src/app/mod.rs
+  - src/app/playback_manager.rs
+  - src/app/ui_manager.rs
+  - src/app/device_info_view.rs
+  - src/app/path_view.rs
+  - src/app/lock_view.rs
+  - src/app/ui_audio_state.rs
+  - src/app/fulltrack_manager.rs
+  - src/app/playlist_manager.rs
+  - src/app/badge_view.rs
+  - src/app/visualizer_manager.rs
+  - src/app/viz_settings_manager.rs
+  - src/app/engine_sink.rs
+  - src/app/mode_dialog.rs
+- **Критерий успеха (Definition of Done):** Все английские пользовательские строки из описи T1.0-B2 (ROADMAP.md: ui/settings.slint ~108, ui/app.slint ~62, ui/top_panel.slint, ui/status.slint, ui/playlist.slint, трей, фильтры rfd.rs, плюс найденные по ходу в src/app/*) переведены на русский — Slint через @tr(...) (в т.ч. форма множественного числа), Rust через src/i18n/ (named-placeholder конструкторы, плюральный хелпер 3 формы, форматирование чисел/единиц, перечисление своих ошибок, обёртка системных ошибок). Технические термины/форматы/палитры Magma-Viridis-Plasma-Inferno/окна Hann-Hamming-Blackman/ ключи настроек/имена тем/теги треков не переводятся; Solid/Gray/Rainbow/Thermal переведены («Сплошная»/«Серая»/«Радуга»/«Тепловая»); логи остаются английскими; уже русские строки не трогаются. Заголовок окна «APAP — <трек>» / «APAP» через одну константу имени приложения. cargo test и cargo clippy по всему проекту зелёные; python tools/traceability_tool.py check зелёный. Находки вне описи — отдельной B-строкой (⬜ открыто), не молча.
+
+
+## Итерационный трекер
+- [>] **Шаг 1: i18n фундамент, часть 1 (src/i18n/mod.rs — новый файл, src/lib.rs — регистрация модуля): константа APP_NAME, форматтер заголовка окна «APAP — <трек>» / «APAP», хелпер строк с именованными подстановками ({name}-плейсхолдеры); юнит-тесты. Проверка: cargo check без ошибок, cargo test i18n:: зелёный.
+**
+- [ ] Шаг 2: i18n фундамент, часть 2 (src/i18n/mod.rs): хелпер множественного числа (3 русские формы) и форматирование чисел/единиц (десятичная запятая, «кГц», «мс», «дБ», «бит» и пр.); юнит-тесты на граничные случаи (1/2/5, дробные). Проверка: cargo test i18n:: зелёный.
+
+- [ ] Шаг 3: i18n фундамент, часть 3 (src/i18n/errors.rs — новый файл): перечисление своих ошибок с кодом и русским текстом; хелпер системных ошибок с известной причиной («наше описание (исходный текст)») и с неизвестной («Системная ошибка: <исходный>»); юнит-тесты.
+
+- [ ] Шаг 4: ЧЕКПОИНТ: полный cargo test + cargo clippy по всему проекту зелёные (фундамент i18n).
+- [ ] Шаг 5: ui/settings.slint — вкладка General (~строки 246–390): обернуть строки в @tr(...), перевести на русский; технические термины не трогать.
+
+- [ ] Шаг 6: ui/settings.slint — вкладка Audio + под-секция «Настройки режима» (~строки 390–530): @tr + перевод; Exclusive/Shared/DoP/ASIO/WASAPI/ALSA/PipeWire и форматы S24_3LE… не переводятся.
+
+- [ ] Шаг 7: ui/settings.slint — вкладка Columns (~строки 530–621): @tr + перевод.
+- [ ] Шаг 8: ЧЕКПОИНТ: полный cargo test + cargo clippy зелёные (settings.slint General/Audio/Columns).
+- [ ] Шаг 9: ui/settings.slint — вкладка Covers (~строки 621–709): @tr + перевод.
+- [ ] Шаг 10: ui/settings.slint — вкладка Visualization, под-секции «Осциллограмма» + «Спектрограмма» (~строки 709–1244): @tr + перевод; окна Hann/Hamming/Blackman и палитры Magma/Viridis/Plasma/Inferno не переводятся.
+
+- [ ] Шаг 11: ui/settings.slint — вкладка Visualization, под-секции «Анализатор спектра» + «Отключено» (~строки 1244–1532): @tr + перевод; Solid→«Сплошная», Gray→«Серая», Rainbow→«Радуга», Thermal→«Тепловая».
+
+- [ ] Шаг 12: ЧЕКПОИНТ: полный cargo test + cargo clippy зелёные (settings.slint Covers/Visualization).
+- [ ] Шаг 13: ui/settings.slint — вкладка Cache (~строки 1532–1736) + диалоговая обвязка вне вкладок (заголовки, кнопки Cancel/Save/Reset/Refresh, ~строки 1–246): @tr + перевод.
+
+- [ ] Шаг 14: ui/app.slint: @tr + перевод оставшихся английских строк (статус, «No tracks» и пр.).
+- [ ] Шаг 15: ui/top_panel.slint + ui/status.slint + ui/playlist.slint: @tr + перевод мелких строк («Album Art», «No tracks», «Stopped»).
+
+- [ ] Шаг 16: ЧЕКПОИНТ: полный cargo test + cargo clippy зелёные (app.slint, top_panel/status/playlist.slint).
+- [ ] Шаг 17: src/platform/tray/mod.rs: перевод меню (Play/Pause, Stop, Previous, Next, Show/Hide, Quit) и тултипов на русский через src/i18n/; заголовок трея — APP_NAME.
+
+- [ ] Шаг 18: src/platform/pick/rfd.rs: перевод фильтров диалогов выбора файлов (Audio/Playlist/Theme) на русский через src/i18n/.
+
+- [ ] Шаг 19: ЧЕКПОИНТ: полный cargo test + cargo clippy зелёные (трей, диалоги выбора файлов).
+- [ ] Шаг 20: src/app/mod.rs: перевод реальных пользовательских строк (напр. статус «Audio: {name} ready») через src/i18n/; тестовые фикстуры (Title/Artist/FLAC/Intel HDA и пр.) не переводятся — не пользовательский текст.
+
+- [ ] Шаг 21: src/app/playback_manager.rs + src/app/ui_manager.rs: перевод пользовательских строк (метаданные трека, единицы kbps/Hz/ch, подписи устройств) через src/i18n/.
+
+- [ ] Шаг 22: ЧЕКПОИНТ: полный cargo test + cargo clippy зелёные (app/mod.rs, playback_manager.rs, ui_manager.rs).
+- [ ] Шаг 23: src/app/device_info_view.rs + src/app/path_view.rs: перевод подписей возможностей устройства и пути сигнала через src/i18n/.
+
+- [ ] Шаг 24: src/app/lock_view.rs + src/app/ui_audio_state.rs: перевод причин отказа захвата устройства (AM1.0 ТЗ-88/119/122/144) и подписей состояния аудио через src/i18n/; сверить с открытой заметкой плана (п. 16, шаг 67) про LockKind.
+
+- [ ] Шаг 25: src/app/fulltrack_manager.rs + src/app/playlist_manager.rs: перевод сообщений сканирования/теста плейлиста («Adding tracks», «Scanning», «Scan finished») через src/i18n/.
+
+- [ ] Шаг 26: ЧЕКПОИНТ: полный cargo test + cargo clippy зелёные (device_info_view/path_view/lock_view/ ui_audio_state/fulltrack_manager/playlist_manager).
+
+- [ ] Шаг 27: src/app/badge_view.rs + src/app/visualizer_manager.rs + src/app/viz_settings_manager.rs + src/app/engine_sink.rs + src/app/mode_dialog.rs: зачистка оставшихся пользовательских английских строк через src/i18n/ (events.rs — проверить, вероятно пусто).
+
+- [ ] Шаг 28: Финальный сквозной grep по ui/*.slint, src/app/*, tray, rfd на оставшийся английский пользовательский текст; найденное вне описи T1.0-B2 — новой B-строкой (⬜ открыто, без сессии), не молча.
+
+- [ ] Шаг 29: ЧЕКПОИНТ финальный: полный cargo test + cargo clippy + python tools/traceability_tool.py check зелёные; готовность к closing.md (ручная проверка пользователем — обрезка длинных русских подписей на всех экранах).
+
+
+Легенда: [x] сделано · [>] текущий шаг · [ ] не начато
+
+- **Текущий шаг (current_step):** Шаг 1
+- **Следующий ход:** Шаг 1: создать src/i18n/mod.rs — APP_NAME, форматтер заголовка окна, хелпер именованных подстановок; юнит-тесты.
+- **Счетчик безуспешных компиляций:** 0/3
+- **Состояние:** in_progress
 
 ## План: Executable workflow: правила AGENTS.md → исполняемые механизмы
 _Источник: чат с пользователем (ноутбук), начат в 67686ce; перенесён в репо 2026-09-22_
