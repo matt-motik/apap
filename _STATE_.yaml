@@ -2,15 +2,35 @@
 # _STATE_.md генерируется из этого файла — не редактировать его руками.
 # Редактируйте этот файл, затем: python tools/state_tool.py render
 
-status: done
+status: in_progress
 task:
-  roadmap_id: null
-  title: null
-whitelist: []
-dod: null
-steps: []
-current_step: null
-next_action: null
+  roadmap_id: AM1.0-B32
+  title: "Совместимый режим: только выходы аудиосервера (фаза 1)"
+whitelist:
+  - src/audio/output.rs
+  - src/audio/backend/shared.rs
+  - src/audio/reservation/dbus.rs
+  - src/settings/playback.rs
+  - src/settings/playback_dto.rs
+  - src/app/ui_manager.rs
+  - src/app/mod.rs
+  - src/audio/path/report.rs
+dod: "Список Совместимого на Linux — одна запись «Системное по умолчанию»; сохранённый hw-выбор мигрирует на неё с одноразовым уведомлением; cargo test audio:: app:: settings:: и clippy зелёные"
+steps:
+  - id: 1
+    description: "Фильтр: `is_server_routed_pcm` (allow: точные `default`, `pipewire`, `pulse`; deny: hw:, plughw:, front:, surround*, dmix, dsnoop, iec958, hdmi, ресемплеры samplerate/speexrate/lavrate, jack, oss, upmix, vdownmix, usbstream, всё с `:CARD=`) в `CpalHost::devices()`; схлопнуть в одну запись «Системное по умолчанию» (подпись с сервером: «Системное по умолчанию (PipeWire)»), которая выбирается как SharedDeviceChoice::SystemDefault; убрать ставшую ненужной группировку hw-первым; cfg Windows/macOS не фильтровать (review). Тесты. Проверка: тесты output + clippy"
+    done: false
+  - id: 2
+    description: "Миграция: сохранённый Named(id) Совместимого, не прошедший is_server_routed_pcm → SystemDefault + одноразовое уведомление «Устройство было выбрано в обход аудиосервера — переключено на «Системное по умолчанию»» (по образцу существующих one-shot уведомлений); тест миграции. Проверка: тесты settings/app + clippy"
+    done: false
+  - id: 3
+    description: "Путь сигнала и смена default между треками: тест, что при SystemDefault этап «Уровень ОС» — Known{server}; тест, что между треками SystemDefault переразрешается в текущий default (choose_output). Проверка: тесты + clippy"
+    done: false
+  - id: 4
+    description: "ЧЕКПОИНТ: полный cargo test + clippy"
+    done: false
+current_step: 1
+next_action: "Добавить фильтр is_server_routed_pcm и схлопывание в «Системное по умолчанию» в CpalHost::devices (src/audio/output.rs)"
 fail_counter: 0
 fail_counter_max: 3
 failed_attempts: []

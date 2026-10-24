@@ -2,10 +2,33 @@
      Source of truth: _STATE_.yaml — edit that, then run:
      python tools/state_tool.py render -->
 
-# Состояние сессии
 
-- **Текущая задача:** Нет (все шаги завершены)
-- **Состояние:** done
+# Текущая микро-сессия
+
+- **Задача из ROADMAP:** AM1.0-B32 — Совместимый режим: только выходы аудиосервера (фаза 1)
+- **Вайтлист файлов в работе (Изменяемые файлы):**
+  - src/audio/output.rs
+  - src/audio/backend/shared.rs
+  - src/audio/reservation/dbus.rs
+  - src/settings/playback.rs
+  - src/settings/playback_dto.rs
+  - src/app/ui_manager.rs
+  - src/app/mod.rs
+  - src/audio/path/report.rs
+- **Критерий успеха (Definition of Done):** Список Совместимого на Linux — одна запись «Системное по умолчанию»; сохранённый hw-выбор мигрирует на неё с одноразовым уведомлением; cargo test audio:: app:: settings:: и clippy зелёные
+
+## Итерационный трекер
+- [>] **Шаг 1: Фильтр: `is_server_routed_pcm` (allow: точные `default`, `pipewire`, `pulse`; deny: hw:, plughw:, front:, surround*, dmix, dsnoop, iec958, hdmi, ресемплеры samplerate/speexrate/lavrate, jack, oss, upmix, vdownmix, usbstream, всё с `:CARD=`) в `CpalHost::devices()`; схлопнуть в одну запись «Системное по умолчанию» (подпись с сервером: «Системное по умолчанию (PipeWire)»), которая выбирается как SharedDeviceChoice::SystemDefault; убрать ставшую ненужной группировку hw-первым; cfg Windows/macOS не фильтровать (review). Тесты. Проверка: тесты output + clippy**
+- [ ] Шаг 2: Миграция: сохранённый Named(id) Совместимого, не прошедший is_server_routed_pcm → SystemDefault + одноразовое уведомление «Устройство было выбрано в обход аудиосервера — переключено на «Системное по умолчанию»» (по образцу существующих one-shot уведомлений); тест миграции. Проверка: тесты settings/app + clippy
+- [ ] Шаг 3: Путь сигнала и смена default между треками: тест, что при SystemDefault этап «Уровень ОС» — Known{server}; тест, что между треками SystemDefault переразрешается в текущий default (choose_output). Проверка: тесты + clippy
+- [ ] Шаг 4: ЧЕКПОИНТ: полный cargo test + clippy
+
+Легенда: [x] сделано · [>] текущий шаг · [ ] не начато
+
+- **Текущий шаг (current_step):** Шаг 1
+- **Следующий ход:** Добавить фильтр is_server_routed_pcm и схлопывание в «Системное по умолчанию» в CpalHost::devices (src/audio/output.rs)
+- **Счетчик безуспешных компиляций:** 0/3
+- **Состояние:** in_progress
 
 ## План: Executable workflow: правила AGENTS.md → исполняемые механизмы
 _Источник: чат с пользователем (ноутбук), начат в 67686ce; перенесён в репо 2026-09-22_
