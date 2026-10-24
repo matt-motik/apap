@@ -2,15 +2,33 @@
 # _STATE_.md генерируется из этого файла — не редактировать его руками.
 # Редактируйте этот файл, затем: python tools/state_tool.py render
 
-status: done
+status: in_progress
 task:
-  roadmap_id: null
-  title: null
-whitelist: []
-dod: null
-steps: []
-current_step: null
-next_action: null
+  roadmap_id: AM1.0-B30
+  title: "Диалог «Настройки», вкладка «Аудио»: блок под списком устройств заменён на «Сейчас: …» + возможности ЦАП; бейдж устройства в строке меню"
+whitelist:
+  - src/app/device_info_view.rs
+  - src/app/mod.rs
+  - src/app/ui_manager.rs
+  - ui/settings.slint
+  - ui/app.slint
+  - ui/top_panel.slint
+dod: "cargo test зелёный; вкладка «Аудио» показывает «Сейчас: ● <устройство> — …» (или «○ не открыто»), для Оптимального/Строгого — частоты семействами/разрядность/DSD, для Совместимого — формат микшера сервера; codec-info и active-device убраны из ui/settings.slint и ui/app.slint; sync_audio_devices приведён в соответствие (без мёртвого кода); бейдж устройства в MenuBarTrailing показывает фактически открытое устройство или «—»"
+steps:
+  - id: 1
+    description: "DeviceInfoView: чистая view-model блока «Информация об устройстве» (src/app/device_info_view.rs, src/app/mod.rs) — now-line, частоты семействами 44,1/48 кГц, разрядность, DSD/DoP (Оптимальный/Строгий, из DacCaps), строка микшера сервера (Совместимый, из OsStage, ОВС-4: float). Проверка: cargo test app::device_info_view:: зелёный"
+    done: false
+  - id: 2
+    description: "Slint-блок вкладки «Аудио» под списком устройств рендерит DeviceInfoView (ui/settings.slint); удаление codec-info/active-device (ui/app.slint, ui/settings.slint) и неиспользуемых остатков в sync_audio_devices (src/app/ui_manager.rs); проводка building DeviceInfoView из UiAudioState/DeviceCatalog/ModeSettings в ui_manager.rs. Проверка: cargo test зелёный (меняет публичные свойства Slint)"
+    done: false
+  - id: 3
+    description: "Бейдж фактически открытого устройства в MenuBarTrailing (ui/top_panel.slint, перед LockButton) + проводка текста бейджа (ui/app.slint, src/app/ui_manager.rs): имя устройства из DeviceInfoView.now_line или «—», если не открыто. Проверка: cargo check"
+    done: false
+  - id: 4
+    description: "ЧЕКПОИНТ: cargo test + cargo clippy по всему крейту без новых предупреждений в файлах вайтлиста"
+    done: false
+current_step: 1
+next_action: "Коммит шага 1 (DeviceInfoView) и переход к шагу 2: Slint-блок вкладки «Аудио» + проводка"
 fail_counter: 0
 fail_counter_max: 3
 failed_attempts: []
