@@ -83,7 +83,7 @@ impl MusicApp {
         // перезаписи `self.status` — обычный текст возвращается сам, как
         // только флаг снимается следующим `EngineEvent::Lock`.
         let status_s = if self.audio().lock_acquiring() {
-            "Захват устройства\u{2026}".to_string()
+            music_player_rs::i18n::messages::ACQUIRING_DEVICE_STATUS.to_string()
         } else {
             self.status.to_string()
         };
@@ -193,10 +193,7 @@ impl MusicApp {
             return String::new();
         };
         let artist = track.artist.as_deref().unwrap_or("");
-        music_player_rs::i18n::format_named(
-            "Воспроизведение: {artist}\u{2014}{title}",
-            &[("artist", artist), ("title", &track.title)],
-        )
+        music_player_rs::i18n::messages::now_playing_status(artist, &track.title)
     }
 
     pub(super) fn handle_auto_advance(&mut self) {
@@ -319,8 +316,8 @@ impl MusicApp {
         }
         self.push_message(Message {
             level: MessageLevel::Warning,
-            title: "Замок открыт".into(),
-            body: "устройство не захвачено; нажмите «Захватить и играть», чтобы захватить устройство и начать воспроизведение".into(),
+            title: music_player_rs::i18n::messages::LOCK_OPEN_BLOCKS_PLAY_TITLE.into(),
+            body: music_player_rs::i18n::messages::LOCK_OPEN_BLOCKS_PLAY_BODY.into(),
             actions: vec![MessageAction::CaptureAndPlay, MessageAction::Ok],
         });
         true
@@ -586,7 +583,7 @@ impl MusicApp {
         // Error, не строка состояния (ТЗ-52, ОВ-7).
         self.push_message(Message {
             level: MessageLevel::Error,
-            title: "Не удалось воспроизвести трек".into(),
+            title: music_player_rs::i18n::messages::PLAYBACK_FAILED_TITLE.into(),
             body: format!("{title}: {err}").into(),
             actions: vec![MessageAction::Ok],
         });

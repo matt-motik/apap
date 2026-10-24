@@ -78,7 +78,8 @@ fn strip_cr(line: &str) -> &str {
 /// формата — не повреждение, просто пропускается; повторы отбрасываются,
 /// остаётся первое вхождение.
 pub fn parse_startup(bytes: &[u8]) -> Result<Vec<PathBuf>, Box<str>> {
-    let text = std::str::from_utf8(bytes).map_err(|_| Box::from("невалидный UTF-8"))?;
+    let text =
+        std::str::from_utf8(bytes).map_err(|_| Box::from(crate::i18n::errors::PLAYLIST_INVALID_UTF8))?;
     let text = text.strip_prefix('\u{feff}').unwrap_or(text);
 
     let mut seen = std::collections::HashSet::new();
@@ -90,7 +91,7 @@ pub fn parse_startup(bytes: &[u8]) -> Result<Vec<PathBuf>, Box<str>> {
         }
         let path = Path::new(line);
         if !path.is_absolute() {
-            return Err(format!("строка {}: не абсолютный путь", idx + 1).into());
+            return Err(crate::i18n::errors::playlist_line_not_absolute_text(&(idx + 1).to_string()).into());
         }
         if is_supported_audio(path) && seen.insert(path.to_path_buf()) {
             out.push(path.to_path_buf());
@@ -156,7 +157,7 @@ pub fn run_load(job: &LoadJob, reader: &dyn FileReader, probe: &dyn Fn(&Path) ->
                 let err = ReadError {
                     class: ReadErrorClass::Io,
                     os_code: None,
-                    os_text: "невалидный UTF-8".into(),
+                    os_text: crate::i18n::errors::PLAYLIST_INVALID_UTF8.into(),
                     path: path.to_path_buf(),
                 };
                 return LoadOutcome::ReadFailed { gen, err };
@@ -213,7 +214,7 @@ impl PlaylistLoader for ThreadLoader {
             let err = ReadError {
                 class: ReadErrorClass::Io,
                 os_code: None,
-                os_text: "не удалось создать поток apap-playlist".into(),
+                os_text: crate::i18n::errors::PLAYLIST_THREAD_SPAWN_FAILED.into(),
                 path,
             };
             let _ = done.send(LoadOutcome::ReadFailed { gen, err });

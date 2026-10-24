@@ -10,10 +10,16 @@
 //! Заголовки/тела окон сообщений, строка состояния и подсказка
 //! переключателя режимов (ТЗ-52, ТЗ-86, ТЗ-110, ТЗ-111, ОВ-7, §6.2 п. 5,
 //! §6.18, §6.20, T1.0-B8) — перенесены из `src/app/mod.rs` байт-в-байт.
+//!
+//! Строка состояния захвата устройства, строка состояния воспроизведения и
+//! окно «Замок открыт» (ТЗ-119, ТЗ-125, §6.19, T1.0-B8) — перенесены из
+//! `src/app/playback_manager.rs` байт-в-байт.
 
 use std::path::Path;
 
 use crate::core::messages::MessageAction;
+
+use super::format_named;
 
 /// Подпись кнопки окна сообщения (ТЗ-46).
 pub fn message_action_label(action: MessageAction) -> &'static str {
@@ -176,6 +182,26 @@ pub fn devices_unavailable_status(msg: &str) -> String {
     format!("Не удалось получить список устройств вывода: {msg}")
 }
 
+/// Строка состояния, пока замок устройства захватывает устройство (ТЗ-119,
+/// §6.19, AM1.0-B9, T1.0-B8): показывается вместо обычного текста
+/// `self.status` (`src/app/playback_manager.rs::sync_playback_state_to_ui`).
+pub const ACQUIRING_DEVICE_STATUS: &str = "Захват устройства\u{2026}";
+
+/// Строка состояния текущего воспроизведения
+/// (`src/app/playback_manager.rs::playing_status`, T1.0-B8); `artist` —
+/// исполнитель (может быть пустой строкой), `title` — название трека.
+pub fn now_playing_status(artist: &str, title: &str) -> String {
+    format_named("Воспроизведение: {artist}\u{2014}{title}", &[("artist", artist), ("title", title)])
+}
+
+/// Заголовок окна «замок открыт — воспроизведение заблокировано» (ТЗ-125,
+/// §6.19, T1.0-B8, `src/app/playback_manager.rs::lock_blocks_play`).
+pub const LOCK_OPEN_BLOCKS_PLAY_TITLE: &str = "Замок открыт";
+
+/// Тело того же окна, см. [`LOCK_OPEN_BLOCKS_PLAY_TITLE`].
+pub const LOCK_OPEN_BLOCKS_PLAY_BODY: &str =
+    "устройство не захвачено; нажмите «Захватить и играть», чтобы захватить устройство и начать воспроизведение";
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -285,5 +311,16 @@ mod tests {
         assert_eq!(DEVICE_LOST_TITLE, "Устройство вывода потеряно");
         assert_eq!(DEVICE_LOST_BODY, "Воспроизведение остановлено (ТЗ-51, ADR-14).");
         assert_eq!(OUTPUT_SWITCHED_TO_DEFAULT_STATUS, "Вывод переключён на устройство по умолчанию");
+        assert_eq!(ACQUIRING_DEVICE_STATUS, "Захват устройства\u{2026}");
+        assert_eq!(LOCK_OPEN_BLOCKS_PLAY_TITLE, "Замок открыт");
+        assert_eq!(
+            LOCK_OPEN_BLOCKS_PLAY_BODY,
+            "устройство не захвачено; нажмите «Захватить и играть», чтобы захватить устройство и начать воспроизведение"
+        );
+    }
+
+    #[test]
+    fn now_playing_status_substitutes_artist_and_title() {
+        assert_eq!(now_playing_status("Daft Punk", "Harder"), "Воспроизведение: Daft Punk\u{2014}Harder");
     }
 }

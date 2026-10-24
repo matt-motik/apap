@@ -326,6 +326,22 @@ pub fn alsa_shared_pcm_open_failed_text(pcm_name: &str, cause: &str) -> String {
     )
 }
 
+/// Текст невалидного UTF-8 — причина повреждения стартового плейлиста
+/// (ОВ-8, ТЗ-21) и `os_text` отказа чтения файла, выбранного командой
+/// «Загрузить плейлист» (ТЗ-13 б), T1.0-B8, `src/playlist/load.rs::parse_startup`/`run_load`.
+pub const PLAYLIST_INVALID_UTF8: &str = "невалидный UTF-8";
+
+/// Текст причины повреждения стартового плейлиста — строка не абсолютный
+/// путь (ОВ-8, ТЗ-21, T1.0-B8, `src/playlist/load.rs::parse_startup`).
+/// `line` — номер строки плейлиста, считая с 1.
+pub fn playlist_line_not_absolute_text(line: &str) -> String {
+    format_named("строка {line}: не абсолютный путь", &[("line", line)])
+}
+
+/// Текст отказа запуска потока `apap-playlist` (ADR-16, §6.12, T1.0-B8,
+/// `src/playlist/load.rs::ThreadLoader::start`).
+pub const PLAYLIST_THREAD_SPAWN_FAILED: &str = "не удалось создать поток apap-playlist";
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -581,5 +597,20 @@ mod tests {
             alsa_shared_pcm_open_failed_text("pipewire:NODE=foo", "EBUSY"),
             "не удалось открыть Shared PCM pipewire:NODE=foo: EBUSY"
         );
+    }
+
+    #[test]
+    fn playlist_invalid_utf8_text_is_russian() {
+        assert_eq!(PLAYLIST_INVALID_UTF8, "невалидный UTF-8");
+    }
+
+    #[test]
+    fn playlist_line_not_absolute_text_substitutes_line() {
+        assert_eq!(playlist_line_not_absolute_text("1"), "строка 1: не абсолютный путь");
+    }
+
+    #[test]
+    fn playlist_thread_spawn_failed_text_is_russian() {
+        assert_eq!(PLAYLIST_THREAD_SPAWN_FAILED, "не удалось создать поток apap-playlist");
     }
 }

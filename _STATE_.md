@@ -47,8 +47,8 @@
 - [x] Шаг 8: src/audio/backend/alsa.rs (13 строк) + src/audio/backend/shared.rs (1 строка) — тексты StartError/ConfigureError при открытии ALSA Exclusive/Shared PCM, доходят до пользователя через OpenError → src/i18n/errors.rs. Проверка: cargo check без ошибок
 - [x] Шаг 9: ЧЕКПОИНТ: cargo test, cargo clippy, tools/check_rt_imports.py, tools/traceability_tool.py check — все зелёные
 - [x] Шаг 10: src/audio/path/transform.rs (7 строк — подписи шагов пути сигнала: «Моно → 2 канала…», «Громкость N %», фильтры SRC «Крутой»/«Медленный»/«Очень медленный») + src/audio/dsd.rs (1 строка — тег «не DSD-контейнер» в FileError::Unsupported, подставляется в сообщение «неподдерживаемый формат: {codec}») → src/i18n/. Проверка: cargo check без ошибок
-- [>] **Шаг 11: src/app/playback_manager.rs (5 строк — «Захват устройства…», «Воспроизведение: {artist}—{title}», «Замок открыт» и тело, «Не удалось воспроизвести трек») + src/playlist/load.rs (4 строки — os_text «невалидный UTF-8», «строка N: не абсолютный путь» и др.) → src/i18n/. Проверка: cargo check без ошибок**
-- [ ] Шаг 12: ЧЕКПОИНТ: cargo test, cargo clippy, tools/check_rt_imports.py, tools/traceability_tool.py check — все зелёные
+- [x] Шаг 11: src/app/playback_manager.rs (5 строк — «Захват устройства…», «Воспроизведение: {artist}—{title}», «Замок открыт» и тело, «Не удалось воспроизвести трек») + src/playlist/load.rs (4 строки — os_text «невалидный UTF-8», «строка N: не абсолютный путь» и др.) → src/i18n/. Проверка: cargo check без ошибок
+- [>] **Шаг 12: ЧЕКПОИНТ: cargo test, cargo clippy, tools/check_rt_imports.py, tools/traceability_tool.py check — все зелёные**
 - [ ] Шаг 13: src/platform/fs/mod.rs (4 строки — WriteErrorClass::text(), «нет места на диске» и др., доходит до пользователя через core/messages.rs::write_failed) + src/engine/exclusive_path.rs (4 строки — Display ExclusiveOpenReason, деталь отказа захвата) → src/i18n/. Проверка: cargo check без ошибок
 - [ ] Шаг 14: src/core/dialog.rs (4 строки — PARAM_THEME/PARAM_DEVICE_BUFFER_* и причина «тема загружается», валидация диалога настроек) + src/core/volume.rs (2 строки — «Громкость недоступна в Строгом режиме» и т. п.) → src/i18n/. Проверка: cargo check без ошибок
 - [ ] Шаг 15: ЧЕКПОИНТ: cargo test, cargo clippy, tools/check_rt_imports.py, tools/traceability_tool.py check — все зелёные
@@ -60,8 +60,8 @@
 
 Легенда: [x] сделано · [>] текущий шаг · [ ] не начато
 
-- **Текущий шаг (current_step):** Шаг 11
-- **Следующий ход:** Шаг 11: src/app/playback_manager.rs + src/playlist/load.rs → src/i18n/
+- **Текущий шаг (current_step):** Шаг 12
+- **Следующий ход:** Шаг 12: ЧЕКПОИНТ — cargo test, cargo clippy, check_rt_imports, traceability
 - **Счетчик безуспешных компиляций:** 0/3
 - **Состояние:** in_progress
 
