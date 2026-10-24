@@ -16,15 +16,15 @@
 
 ## Итерационный трекер
 - [x] Шаг 1: Docs: ТЗ-131 (исключение для пары буферов, 02_tz.md) и §6.27 (03_spec.md) — автоподъём вместо неактивных пунктов, постоянная подсказка-граница под ползунком. Проверка: текст не противоречит коду шагов 2-4
-- [>] **Шаг 2: src/settings/playback.rs: функция автоподъёма чернового BufferMs по DeviceBuffer на основе buffer_floor_ms + юнит-тесты (подъём, не опускает обратно при уменьшении, границы диапазона BufferMs). Проверка: cargo test settings::playback:: зелёный**
-- [ ] Шаг 3: src/app/mode_dialog.rs: apply_device_buffer применяет автоподъём к draft ModeSettings вместо отказа buffers_allowed; row_buffer формирует note с постоянной строкой границы и строкой автоподъёма, когда он сработал. Проверка: cargo test app::mode_dialog:: зелёный
+- [x] Шаг 2: src/settings/playback.rs: функция автоподъёма чернового BufferMs по DeviceBuffer на основе buffer_floor_ms + юнит-тесты (подъём, не опускает обратно при уменьшении, границы диапазона BufferMs). Проверка: cargo test settings::playback:: зелёный
+- [>] **Шаг 3: src/app/mode_dialog.rs: apply_device_buffer применяет автоподъём к draft ModeSettings вместо отказа buffers_allowed; row_buffer формирует note с постоянной строкой границы и строкой автоподъёма, когда он сработал. Проверка: cargo test app::mode_dialog:: зелёный**
 - [ ] Шаг 4: ui/mode_params.slint: проверить/поправить отображение многострочной note под ползунком буфера плеера (граница + строка автоподъёма). Проверка: cargo check зелёный
 - [ ] Шаг 5: ЧЕКПОИНТ: full cargo test + cargo clippy по всему workspace зелёные
 
 Легенда: [x] сделано · [>] текущий шаг · [ ] не начато
 
-- **Текущий шаг (current_step):** Шаг 2
-- **Следующий ход:** Шаг 2: добавить в src/settings/playback.rs функцию автоподъёма BufferMs по DeviceBuffer и юнит-тесты
+- **Текущий шаг (current_step):** Шаг 3
+- **Следующий ход:** Шаг 3: src/app/mode_dialog.rs — apply_device_buffer применяет автоподъём к draft ModeSettings вместо отказа buffers_allowed; row_buffer формирует note с постоянной строкой границы и строкой автоподъёма, когда он сработал
 - **Счетчик безуспешных компиляций:** 0/3
 - **Состояние:** in_progress
 

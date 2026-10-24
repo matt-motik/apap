@@ -19,7 +19,7 @@ steps:
     done: true
   - id: 2
     description: "src/settings/playback.rs: функция автоподъёма чернового BufferMs по DeviceBuffer на основе buffer_floor_ms + юнит-тесты (подъём, не опускает обратно при уменьшении, границы диапазона BufferMs). Проверка: cargo test settings::playback:: зелёный"
-    done: false
+    done: true
   - id: 3
     description: "src/app/mode_dialog.rs: apply_device_buffer применяет автоподъём к draft ModeSettings вместо отказа buffers_allowed; row_buffer формирует note с постоянной строкой границы и строкой автоподъёма, когда он сработал. Проверка: cargo test app::mode_dialog:: зелёный"
     done: false
@@ -29,8 +29,8 @@ steps:
   - id: 5
     description: "ЧЕКПОИНТ: full cargo test + cargo clippy по всему workspace зелёные"
     done: false
-current_step: 2
-next_action: "Шаг 2: добавить в src/settings/playback.rs функцию автоподъёма BufferMs по DeviceBuffer и юнит-тесты"
+current_step: 3
+next_action: "Шаг 3: src/app/mode_dialog.rs — apply_device_buffer применяет автоподъём к draft ModeSettings вместо отказа buffers_allowed; row_buffer формирует note с постоянной строкой границы и строкой автоподъёма, когда он сработал"
 fail_counter: 0
 fail_counter_max: 3
 failed_attempts: []

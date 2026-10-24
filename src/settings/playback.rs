@@ -207,6 +207,29 @@ pub fn buffer_floor_blocker(device: DeviceBuffer) -> Option<ValueBlocker> {
     Some(ValueBlocker::DeviceBufferTooLarge { max_ms })
 }
 
+/// Автоподъём чернового буфера плеера списком «Буфер устройства» (ТЗ-131,
+/// §6.27, решение пользователя 2026-10-24): если черновой `buffer` диалога
+/// ниже `buffer_floor_ms(device)`, возвращает значение, поднятое ровно до
+/// этой границы; если `buffer` уже не ниже границы — возвращает его же без
+/// изменений. Связь односторонняя: вызывающая сторона (`apply_device_buffer`
+/// в `mode_dialog.rs`) применяет функцию на каждое изменение пункта списка
+/// «Буфер устройства», в том числе на уменьшение — но уменьшение `device`
+/// снижает и саму границу, поэтому уже поднятое значение `buffer` эту
+/// границу не опускает (ветка `buffer.get() >= floor` возвращает его как
+/// есть). `None` — граница вышла за допустимый диапазон `BufferMs`
+/// (100..=10 000 мс); для нынешних пяти значений `DeviceBuffer` такого
+/// случая нет (`buffer_floor_ms(Ms400) = 800`), резерв на будущее —
+/// симметрично `buffer_floor_blocker`, которым список отмечает такой пункт
+/// неактивным.
+pub fn raise_buffer_for_device(buffer: BufferMs, device: DeviceBuffer) -> Option<BufferMs> {
+    let floor = buffer_floor_ms(device);
+    if buffer.get() >= floor {
+        Some(buffer)
+    } else {
+        BufferMs::new(floor)
+    }
+}
+
 /// Опции всех трёх режимов. Значения неактивных режимов сохраняются (ТЗ-93,
 /// §2.2). Активный режим не хранится здесь — он снят в `PlaybackState`
 /// (ОВС-15).
@@ -569,6 +592,71 @@ mod tests {
             buffer_floor_blocker(DeviceBuffer::Ms400),
             Some(ValueBlocker::DeviceBufferTooLarge { max_ms: 40 })
         );
+    }
+
+    /// Автоподъём (ТЗ-131, §6.27): черновой буфер плеера ниже
+    /// `buffer_floor_ms(device)` поднимается ровно до этой границы — для
+    /// каждого значения `DeviceBuffer`, у которого граница выше 100 мс.
+    #[test]
+    fn raise_buffer_for_device_raises_below_floor() {
+        for device in ALL_DEVICE_BUFFERS {
+            let floor = buffer_floor_ms(device);
+            let Some(below) = BufferMs::new(floor - 1) else {
+                continue;
+            };
+            let Some(raised_to) = BufferMs::new(floor) else {
+                panic!("buffer_floor_ms({device:?}) = {floor} вне диапазона BufferMs");
+            };
+            assert_eq!(raise_buffer_for_device(below, device), Some(raised_to));
+        }
+    }
+
+    /// Буфер плеера не ниже границы автоподъём не трогает — ни на самой
+    /// границе, ни выше неё (здесь: у верхнего края диапазона `BufferMs`).
+    #[test]
+    fn raise_buffer_for_device_keeps_value_at_or_above_floor() {
+        for device in ALL_DEVICE_BUFFERS {
+            let floor = buffer_floor_ms(device);
+            let Some(at_floor) = BufferMs::new(floor) else {
+                panic!("buffer_floor_ms({device:?}) = {floor} вне диапазона BufferMs");
+            };
+            assert_eq!(raise_buffer_for_device(at_floor, device), Some(at_floor));
+
+            let Some(max) = BufferMs::new(10_000) else {
+                panic!("10 000 мс — верхняя граница диапазона BufferMs");
+            };
+            assert_eq!(raise_buffer_for_device(max, device), Some(max));
+        }
+    }
+
+    /// Связь односторонняя (решение пользователя 2026-10-24): буфер плеера,
+    /// уже поднятый автоподъёмом до границы `Ms400` (800 мс), при
+    /// последующем уменьшении буфера устройства до `Ms20` (граница 100 мс)
+    /// обратно не опускается.
+    #[test]
+    fn raise_buffer_for_device_does_not_lower_on_decrease() {
+        let Some(below) = BufferMs::new(buffer_floor_ms(DeviceBuffer::Ms400) - 1) else {
+            panic!("buffer_floor_ms(Ms400) - 1 в диапазоне BufferMs");
+        };
+        let Some(raised) = raise_buffer_for_device(below, DeviceBuffer::Ms400) else {
+            panic!("автоподъём Ms400 всегда успешен — граница 800 мс в диапазоне");
+        };
+        assert_eq!(raised.get(), 800);
+
+        assert_eq!(raise_buffer_for_device(raised, DeviceBuffer::Ms20), Some(raised));
+    }
+
+    /// Границы диапазона `BufferMs` (100 и 10 000 мс, §2.2): минимальное
+    /// значение проходит без изменений под `Ms20`/`Ms40` (граница 100 мс), а
+    /// под `Ms400` (граница 800 мс) поднимается в пределах диапазона.
+    #[test]
+    fn raise_buffer_for_device_respects_buffer_ms_range() {
+        let Some(min) = BufferMs::new(100) else {
+            panic!("100 мс — нижняя граница диапазона BufferMs");
+        };
+        assert_eq!(raise_buffer_for_device(min, DeviceBuffer::Ms20), Some(min));
+        assert_eq!(raise_buffer_for_device(min, DeviceBuffer::Ms40), Some(min));
+        assert_eq!(raise_buffer_for_device(min, DeviceBuffer::Ms400).map(BufferMs::get), Some(800));
     }
 
     /// §7.2 `dsd_filter_and_comp_defaults`: по умолчанию 30 кГц и компенсация
