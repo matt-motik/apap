@@ -2,27 +2,10 @@
      Source of truth: _STATE_.yaml — edit that, then run:
      python tools/state_tool.py render -->
 
+# Состояние сессии
 
-# Текущая микро-сессия
-
-- **Задача из ROADMAP:** AM1.0-B31 — Подпись устройства «Карта (вариант)», активное устройство — та же подпись каталога
-- **Вайтлист файлов в работе (Изменяемые файлы):**
-  - src/audio/backend/alsa.rs
-  - src/audio/backend/catalog.rs
-  - src/app/mod.rs
-- **Критерий успеха (Definition of Done):** cargo test green; hw_device_label("Motu M2","USB Audio") == "Motu M2 (USB Audio)"; hw_device_label("Asus Xonar","Multichannel")/("Digital") дают «Asus Xonar (Multichannel)»/«Asus Xonar (Digital)»; активное устройство в Оптимальном/Строгом берётся из DeviceCatalog.hw, не из DeviceCatalog.shared.default_device()
-
-## Итерационный трекер
-- [x] Шаг 1: Карта (вариант): pure fn hw_device_label(card_name, pcm_name) в src/audio/backend/catalog.rs (+тесты M2/RU3/Xonar x2/дубликаты); alsa.rs::enumerate берёт card_info().get_name() и строит HwDeviceInfo.name через hw_device_label вместо голого pcm_info().get_name() (§6.6, ADR-24, ТЗ-143, AM1.0-B31). Проверка: cargo test audio::backend::
-- [x] Шаг 2: Активное устройство: drain_engine_events (src/app/mod.rs) для Оптимального/Строгого режима берёт ready_device из DeviceCatalog.hw (hw_device_pairs_and_selected по сохранённому HwDeviceId), не из catalog.default_device() — убирает «default audio device» на hw-режимах (ТЗ-76, ADR-24, AM1.0-B31). Проверка: cargo test app::
-- [x] Шаг 3: ЧЕКПОИНТ: полный cargo test + cargo clippy без новых предупреждений
-
-Легенда: [x] сделано · [>] текущий шаг · [ ] не начато
-
-- **Текущий шаг (current_step):** Шаг 3
-- **Следующий ход:** закрытие по closing.md
-- **Счетчик безуспешных компиляций:** 0/3
-- **Состояние:** in_progress
+- **Текущая задача:** Нет (все шаги завершены)
+- **Состояние:** done
 
 ## План: Executable workflow: правила AGENTS.md → исполняемые механизмы
 _Источник: чат с пользователем (ноутбук), начат в 67686ce; перенесён в репо 2026-09-22_
@@ -30,6 +13,7 @@ _Источник: чат с пользователем (ноутбук), нач
 - [~] **10.** Кросс-ОС приёмка спеки (вместо CI): tools/acceptance.py run/status, результаты по ОС в git, прогон при закрытии спеки, не на каждой задаче
   - Инструмент готов; ждёт прогонов пакета baseline-2026-09 на linux и windows (python tools/acceptance.py status)
 - [>] **16.** Реализация AM1.0 + SP1.0 по сквозному порядку (ROADMAP.md): docs/01_audio_modes_v1.0/ (С0…С11) и docs/02_settings_persistence_v1.0/ (С0…С12) — ТЕКУЩАЯ ОСНОВНАЯ ЗАДАЧА
+  - Ручные проверки за пользователем: AM1.0-B31 — Оптимальный/Строгий: в списке устройств «Motu M2 (USB Audio)», «Asus Xonar (Multichannel)», «Asus Xonar (Digital)», «Cayin RU3 (…)»; активное устройство в диалоге и в «Путь сигнала» подписано так же (не «default audio device»)
   - Ручные проверки за пользователем: SP1.0-B7 — SP1.0-B7: на Windows — cargo test по затронутым модулям зелёный
   - Ручные проверки за пользователем: T1.0-B4 — светлая тема → Настройки: в поле и в раскрытом списке выделена «Светлая»; выбор другой темы с первого раза включает «Сохранить»; то же после повторного открытия диалога (другие ComboBox диалога правкой не затронуты — current-index у них уже был)
   - Ручные проверки за пользователем: AM1.0-B34 — буфер устройства 20 мс, Оптимальный и Строгий: FLAC 44,1 кГц на MOTU M2 и Cayin RU3 играет (в «Путь сигнала» период 221, Xrun 0); 48 кГц тоже; короткий трек доигрывает
