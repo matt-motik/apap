@@ -2,10 +2,40 @@
      Source of truth: _STATE_.yaml — edit that, then run:
      python tools/state_tool.py render -->
 
-# Состояние сессии
 
-- **Текущая задача:** Нет (все шаги завершены)
-- **Состояние:** done
+# Текущая микро-сессия
+
+- **Задача из ROADMAP:** AM1.0-B38 — Продолжение AM1.0-B30 — фоновый неблокирующий опрос caps выбранного устройства
+- **Вайтлист файлов в работе (Изменяемые файлы):**
+  - src/audio/backend/exclusive.rs
+  - src/audio/backend/alsa.rs
+  - src/audio/testing/mod.rs
+  - src/engine/messages.rs
+  - src/engine/run.rs
+  - src/journal.rs
+  - src/app/ui_audio_state.rs
+  - src/app/device_info_view.rs
+  - src/app/mod.rs
+- **Критерий успеха (Definition of Done):** Выбор устройства в списке вкладки «Аудио» (Оптимальный/Строгий) запускает фоновый опрос caps (open NONBLOCK → hw_params refine → close), не блокируя UI и не трогая активное/захваченное устройство; занятое другим приложением устройство кэшируется как «неизвестно — устройство занято»; повторный выбор того же устройства не плодит повторные опросы; cargo test + cargo clippy зелёные
+
+## Итерационный трекер
+- [>] **Шаг 1: ProbeError + метод probe_caps в трейте ExclusiveBackend (src/audio/backend/exclusive.rs), ALSA-реализация через alsa::PCM::new(.., nonblock=true) → AlsaExclusiveBackend::device_caps_of → явное закрытие (src/audio/backend/alsa.rs), фейковая реализация в тестовом дубле (src/audio/testing/mod.rs) — без неё cargo check не проходит (ExclusiveBackend — трейт, все реализации обновляются вместе). EBUSY → ProbeError::Busy, остальные ошибки ALSA → ProbeError::Driver. Проверка: cargo check; cargo test (тест фейка + тест ALSA-реализации на успех/EBUSY, ≤5 тестов).**
+- [ ] Шаг 2: EngineCmd::ProbeDeviceCaps { device: HwDeviceId } и внутренний канал результата воркера (InternalMsg, по образцу ClaimDone) в src/engine/messages.rs; представление исхода опроса (caps/Busy/ошибка) в самом событии или новом варианте EngineEvent — без обработчика в run.rs (следующий шаг). Проверка: cargo check.
+- [ ] Шаг 3: src/engine/run.rs, часть 1: обработчик EngineCmd::ProbeDeviceCaps — защита от опроса устройства, которое держит self.claim/играет в self.exclusive_path (совпадение HwDeviceId → игнор команды), дебаунс повторного выбора того же устройства, запуск короткоживущего воркера через self.deps.spawner.spawn (по образцу claim_job, ADR-01). Проверка: cargo check; cargo test (приём InternalMsg — заглушка до шага 4).
+- [ ] Шаг 4: src/engine/run.rs, часть 2: приём результата воркера (InternalMsg от шага 3) — эмит EngineEvent успеха/«занято»/ошибки пробы. Проверка: cargo test (debounce, guard активного устройства, успех, EBUSY — ≤5 тестов).
+- [ ] Шаг 5: Журнал пробы caps: новый вариант JournalRecord (устройство + исход) в src/journal.rs и вызов записи в точках эмита события (src/engine/run.rs), по аналогии с DeviceEnumerate/DeviceReacquireLookup. Проверка: cargo test (журнал пишет строку на каждый исход).
+- [ ] Шаг 6: ЧЕКПОИНТ: полный cargo test + cargo clippy по движку и бэкенду (шаги 1–5) перед переходом к UI-слою.
+- [ ] Шаг 7: src/app/ui_audio_state.rs: кэш hw_caps различает «caps известны»/«занято» (новый тип записи вместо голого Arc<DeviceCaps>), обработка нового события(ий) из шага 4, сохранение правила вытеснения записи при исчезновении устройства из каталога. Проверка: cargo test (кэш/вытеснение/занято).
+- [ ] Шаг 8: src/app/device_info_view.rs: текстовая ветка «неизвестно — устройство занято» для записи «занято» из шага 7 (рядом с существующей NOT_CACHED, тот же стиль — локальная константа, не i18n, как у неё). Проверка: cargo test (rates/bits/dsd_line на занятом устройстве).
+- [ ] Шаг 9: src/app/mod.rs, on_settings_device: после edit_draft — если показанный режим Оптимальный/Строгий и выбранное устройство не активное/захваченное, отправка EngineCmd::ProbeDeviceCaps с дебаунсом (повтор того же устройства подряд не шлёт новую команду); в Совместимом — не отправлять. Проверка: cargo test (дебаунс, пропуск Совместимого, пропуск активного устройства).
+- [ ] Шаг 10: ЧЕКПОИНТ перед закрытием: полный cargo test + cargo clippy по всему вайтлисту.
+
+Легенда: [x] сделано · [>] текущий шаг · [ ] не начато
+
+- **Текущий шаг (current_step):** Шаг 1
+- **Следующий ход:** Открыть src/audio/backend/exclusive.rs и добавить ProbeError + сигнатуру probe_caps в трейт ExclusiveBackend
+- **Счетчик безуспешных компиляций:** 0/3
+- **Состояние:** in_progress
 
 ## План: Executable workflow: правила AGENTS.md → исполняемые механизмы
 _Источник: чат с пользователем (ноутбук), начат в 67686ce; перенесён в репо 2026-09-22_
