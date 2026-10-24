@@ -21,6 +21,23 @@ use crate::settings::playback::DeviceBuffer;
 /// затем открытие PCM.
 pub type ClaimJob = Box<dyn FnOnce() -> Result<DeviceClaim, CaptureFailure> + Send>;
 
+/// Задание фонового опроса caps устройства без резервирования (ADR-01,
+/// §2.3, AM1.0-B38), не заимствующее бэкенд — по образцу `ClaimJob`:
+/// выполняется в служебном потоке, открывает собственный временный PCM и не
+/// трогает активное/захваченное устройство.
+pub type ProbeJob = Box<dyn FnOnce() -> Result<DeviceCaps, ProbeError> + Send>;
+
+/// Ошибка задания `ExclusiveBackend::probe_caps` (§2.3, AM1.0-B38): `Busy` —
+/// устройство занято другим процессом/приложением (`EBUSY`/`EAGAIN` при
+/// открытии в режиме `NONBLOCK`, без повторов — задание короткоживущее),
+/// `Driver` — прочий отказ ALSA при открытии PCM или снятии caps (текст
+/// ошибки хоста).
+#[derive(Clone, PartialEq, Eq, Debug)]
+pub enum ProbeError {
+    Busy,
+    Driver(String),
+}
+
 /// Эксклюзивный бэкенд вывода: резервирование и ALSA `hw:` (§2.3, ADR-08).
 pub trait ExclusiveBackend: Send {
     fn caps(&self) -> BackendCaps;
@@ -33,6 +50,13 @@ pub trait ExclusiveBackend: Send {
     /// `on_lost` — уведомление о потере резервирования.
     fn claim_job(&self, dev: HwDeviceId, device_name: String, on_lost: LostNotify) -> ClaimJob;
     fn device_caps(&mut self, claim: &mut DeviceClaim) -> Result<DeviceCaps, CaptureFailure>;
+    /// Задание фонового опроса caps `dev` без резервирования (§2.3,
+    /// AM1.0-B38), не заимствующее бэкенд (по образцу `claim_job`, ADR-01):
+    /// открывает PCM в режиме `NONBLOCK`, снимает caps тем же путём, что и
+    /// для уже захваченного устройства (`device_caps_of`), и закрывает PCM
+    /// явно независимо от исхода. Не вмешивается в активное/захваченное
+    /// устройство — вызывающая сторона не передаёт сюда `DeviceClaim`.
+    fn probe_caps(&self, dev: HwDeviceId) -> ProbeJob;
     /// Установка hw_params и однократное чтение фактических параметров
     /// (ТЗ-113, §2.3). `buffer` — «Буфер устройства» из опций режима: буфер
     /// = buffer, период = buffer/4 (ОВС-13).

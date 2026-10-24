@@ -15,8 +15,8 @@ use super::alsa_out;
 use super::busy_owner::busy_owner;
 use super::catalog::{hw_device_label, HwDeviceInfo};
 use super::exclusive::{
-    ClaimInfo, ClaimJob, ConfigureError, DeviceClaim, ExclusiveBackend, ExclusiveRender, PcmHandle, StartError,
-    StreamHandle,
+    ClaimInfo, ClaimJob, ConfigureError, DeviceClaim, ExclusiveBackend, ExclusiveRender, PcmHandle, ProbeError,
+    ProbeJob, StartError, StreamHandle,
 };
 use super::{
     AccessKind, BackendCaps, BackendError, DeviceBufferActual, DeviceCaps, DriverFormat, HwDeviceId, OutputApi, RateSet,
@@ -192,6 +192,23 @@ impl AlsaExclusiveBackend {
         let rates = probe_rates(&hw)?;
 
         Ok(DeviceCaps { api: OutputApi::AlsaHw, access: AccessKind::Exclusive, name, rates, formats, channels })
+    }
+
+    /// Задание фонового опроса caps `dev` без резервирования (§2.3, §6.6,
+    /// AM1.0-B38): `ExclusiveBackend::probe_caps` — не заимствует `self`, по
+    /// образцу `claim_job`. PCM открывается в режиме `NONBLOCK` (в отличие
+    /// от `acquire`/`open_retry` — без повторов `EBUSY`, задание
+    /// короткоживущее), caps снимаются тем же путём, что и для уже
+    /// захваченного устройства (`device_caps_of`, без дублирования), PCM
+    /// закрывается явно (`drop`) перед возвратом независимо от исхода.
+    pub fn probe_caps(dev: HwDeviceId) -> ProbeJob {
+        Box::new(move || {
+            let hw_name = dev.as_str().to_string();
+            let pcm = alsa::PCM::new(&hw_name, alsa::Direction::Playback, true).map_err(probe_error_from_open)?;
+            let caps = Self::device_caps_of(&pcm).map_err(probe_error_from_caps);
+            drop(pcm);
+            caps
+        })
     }
 
     /// Резервирование карты `dev` — первая часть `ExclusiveBackend::acquire`
@@ -444,6 +461,10 @@ impl ExclusiveBackend for AlsaExclusiveBackend {
 
     fn device_caps(&mut self, claim: &mut DeviceClaim) -> Result<DeviceCaps, CaptureFailure> {
         AlsaExclusiveBackend::device_caps(self, claim)
+    }
+
+    fn probe_caps(&self, dev: HwDeviceId) -> ProbeJob {
+        AlsaExclusiveBackend::probe_caps(dev)
     }
 
     fn configure(
@@ -811,6 +832,29 @@ fn build_hw_id(card_id: &str, device: u32) -> Option<HwDeviceId> {
 /// подходящий вариант закрытого набора `CaptureFailure`.
 fn driver_refused(e: alsa::Error) -> CaptureFailure {
     CaptureFailure::DriverRefused { errno: e.errno() }
+}
+
+/// Отказ открытия PCM в `AlsaExclusiveBackend::probe_caps` (§6.6,
+/// AM1.0-B38): `EBUSY`/`EAGAIN` — устройство занято другим процессом (режим
+/// `NONBLOCK` не ждёт освобождения, в отличие от `open_retry`), прочее —
+/// текст ошибки хоста ALSA.
+fn probe_error_from_open(e: alsa::Error) -> ProbeError {
+    match e.errno() {
+        libc::EBUSY | libc::EAGAIN => ProbeError::Busy,
+        _ => ProbeError::Driver(e.to_string()),
+    }
+}
+
+/// `CaptureFailure` снятия caps в `AlsaExclusiveBackend::probe_caps` (§6.6,
+/// AM1.0-B38) в `ProbeError`: `device_caps_of` возвращает только
+/// `DriverRefused`, поэтому разбор ограничен этим вариантом; `EBUSY`/
+/// `EAGAIN` в errno (устройство стало занято между открытием и
+/// `hw_params`) — тоже `ProbeError::Busy`, иначе — текст варианта.
+fn probe_error_from_caps(e: CaptureFailure) -> ProbeError {
+    match e {
+        CaptureFailure::DriverRefused { errno } if errno == libc::EBUSY || errno == libc::EAGAIN => ProbeError::Busy,
+        other => ProbeError::Driver(format!("{other:?}")),
+    }
 }
 
 /// Частоты устройства (§2.3, §6.6): дискретный список через `test_rate` по
@@ -1285,5 +1329,46 @@ mod tests {
         assert_eq!(handle.pcm().state(), alsa::pcm::State::Setup, "после drop() PCM должен быть в SETUP (ТЗ-49, AM1.0-B17)");
         handle.pcm().prepare().expect("prepare() над PCM в SETUP, как делает start()");
         write_silence(&mut claim, fmt_192k, buf2);
+    }
+
+    /// Аппаратный тест `ExclusiveBackend::probe_caps` на успех (§2.3, §6.6,
+    /// AM1.0-B38): устройство свободно — опрос открывает PCM в `NONBLOCK`,
+    /// снимает caps и явно закрывает его, не оставляя PCM занятым (повторный
+    /// опрос того же устройства сразу после первого тоже проходит).
+    /// Требует реальное устройство и игнорируется по умолчанию.
+    ///
+    /// Запуск: `APAP_HW_TEST_DEVICE=hw:CARD=RU3U2,DEV=0 cargo test --lib
+    /// hw_probe_caps_of_free_device -- --ignored --nocapture`.
+    #[test]
+    #[ignore]
+    fn hw_probe_caps_of_free_device_returns_caps_and_closes_pcm() {
+        let Ok(dev_str) = std::env::var("APAP_HW_TEST_DEVICE") else { return };
+        let dev: HwDeviceId = dev_str.parse().expect("валидный HwDeviceId из APAP_HW_TEST_DEVICE");
+
+        let caps = AlsaExclusiveBackend::probe_caps(dev.clone())().expect("опрос свободного устройства");
+        assert!(!caps.formats.is_empty(), "возможности свободного устройства должны содержать форматы");
+
+        // Повторный опрос проходит без EBUSY — первый опрос закрыл PCM.
+        AlsaExclusiveBackend::probe_caps(dev)().expect("повторный опрос того же свободного устройства");
+    }
+
+    /// Аппаратный тест `ExclusiveBackend::probe_caps` на `EBUSY` (§2.3, §6.6,
+    /// AM1.0-B38): устройство уже открыто другим PCM (не через резервирование
+    /// — опрос не резервирует) — опрос не ждёт и сразу отдаёт
+    /// `ProbeError::Busy`. Требует реальное устройство и игнорируется по
+    /// умолчанию.
+    ///
+    /// Запуск: `APAP_HW_TEST_DEVICE=hw:CARD=RU3U2,DEV=0 cargo test --lib
+    /// hw_probe_caps_of_busy_device -- --ignored --nocapture`.
+    #[test]
+    #[ignore]
+    fn hw_probe_caps_of_busy_device_returns_busy_without_waiting() {
+        let Ok(dev_str) = std::env::var("APAP_HW_TEST_DEVICE") else { return };
+        let dev: HwDeviceId = dev_str.parse().expect("валидный HwDeviceId из APAP_HW_TEST_DEVICE");
+
+        let _holder = alsa::PCM::new(dev.as_str(), alsa::Direction::Playback, false).expect("открытие PCM для занятости");
+
+        let result = AlsaExclusiveBackend::probe_caps(dev)();
+        assert_eq!(result.err(), Some(ProbeError::Busy));
     }
 }

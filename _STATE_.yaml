@@ -20,7 +20,7 @@ dod: "Выбор устройства в списке вкладки «Ауди�
 steps:
   - id: 1
     description: "ProbeError + метод probe_caps в трейте ExclusiveBackend (src/audio/backend/exclusive.rs), ALSA-реализация через alsa::PCM::new(.., nonblock=true) → AlsaExclusiveBackend::device_caps_of → явное закрытие (src/audio/backend/alsa.rs), фейковая реализация в тестовом дубле (src/audio/testing/mod.rs) — без неё cargo check не проходит (ExclusiveBackend — трейт, все реализации обновляются вместе). EBUSY → ProbeError::Busy, остальные ошибки ALSA → ProbeError::Driver. Проверка: cargo check; cargo test (тест фейка + тест ALSA-реализации на успех/EBUSY, ≤5 тестов)."
-    done: false
+    done: true
   - id: 2
     description: "EngineCmd::ProbeDeviceCaps { device: HwDeviceId } и внутренний канал результата воркера (InternalMsg, по образцу ClaimDone) в src/engine/messages.rs; представление исхода опроса (caps/Busy/ошибка) в самом событии или новом варианте EngineEvent — без обработчика в run.rs (следующий шаг). Проверка: cargo check."
     done: false
@@ -48,8 +48,8 @@ steps:
   - id: 10
     description: "ЧЕКПОИНТ перед закрытием: полный cargo test + cargo clippy по всему вайтлисту."
     done: false
-current_step: 1
-next_action: "Открыть src/audio/backend/exclusive.rs и добавить ProbeError + сигнатуру probe_caps в трейт ExclusiveBackend"
+current_step: 2
+next_action: "Открыть src/engine/messages.rs и добавить EngineCmd::ProbeDeviceCaps + InternalMsg по образцу ClaimDone"
 fail_counter: 0
 fail_counter_max: 3
 failed_attempts: []

@@ -8,8 +8,8 @@ pub mod signals;
 
 use crate::audio::backend::catalog::HwDeviceInfo;
 use crate::audio::backend::exclusive::{
-    ClaimInfo, ClaimJob, ConfigureError, DeviceClaim, ExclusiveBackend, ExclusiveRender, PcmHandle, StartError,
-    StreamHandle,
+    ClaimInfo, ClaimJob, ConfigureError, DeviceClaim, ExclusiveBackend, ExclusiveRender, PcmHandle, ProbeError,
+    ProbeJob, StartError, StreamHandle,
 };
 use crate::audio::backend::{AccessKind, BackendCaps, BackendError, DeviceBufferActual, DeviceCaps, DriverFormat, HwDeviceId, OutputApi, RateSet};
 use crate::audio::clock::{Clock, ClockInstant};
@@ -355,6 +355,10 @@ pub enum ExclusiveCall {
     Enumerate,
     Acquire(HwDeviceId),
     DeviceCaps,
+    /// `ExclusiveBackend::probe_caps` выполнился (внутри задания, не в
+    /// момент его построения — по образцу `Acquire` в `claim_job`,
+    /// AM1.0-B38).
+    Probe(HwDeviceId),
     Configure,
     Start,
     /// `StreamHandle::stop` фейкового потока — пишется в тот же журнал, что
@@ -439,6 +443,9 @@ pub struct FakeExclusiveBackend {
     enumerate_result: Arc<Mutex<Result<Vec<HwDeviceInfo>, BackendError>>>,
     acquire_result: Result<(), CaptureFailure>,
     device_caps_result: Result<DeviceCaps, CaptureFailure>,
+    /// Результат `probe_caps` (§2.3, AM1.0-B38): по умолчанию те же caps,
+    /// что и `device_caps_result`.
+    probe_result: Result<DeviceCaps, ProbeError>,
     configure_result: Result<(DriverFormat, Option<DeviceBufferActual>), ConfigureError>,
     start_result: Result<(), StartError>,
     start_tid: Option<u32>,
@@ -452,6 +459,7 @@ impl FakeExclusiveBackend {
             enumerate_result: Arc::new(Mutex::new(Ok(Vec::new()))),
             acquire_result: Ok(()),
             device_caps_result: Ok(fake_device_caps()),
+            probe_result: Ok(fake_device_caps()),
             configure_result: Ok((fake_driver_format(), None)),
             start_result: Ok(()),
             start_tid: None,
@@ -479,6 +487,13 @@ impl FakeExclusiveBackend {
 
     pub fn with_device_caps(mut self, result: Result<DeviceCaps, CaptureFailure>) -> FakeExclusiveBackend {
         self.device_caps_result = result;
+        self
+    }
+
+    /// Результат, который задание `probe_caps` вернёт при вызове (§2.3,
+    /// AM1.0-B38).
+    pub fn with_probe(mut self, result: Result<DeviceCaps, ProbeError>) -> FakeExclusiveBackend {
+        self.probe_result = result;
         self
     }
 
@@ -557,6 +572,15 @@ impl ExclusiveBackend for FakeExclusiveBackend {
     fn device_caps(&mut self, _claim: &mut DeviceClaim) -> Result<DeviceCaps, CaptureFailure> {
         self.push(ExclusiveCall::DeviceCaps);
         self.device_caps_result.clone()
+    }
+
+    fn probe_caps(&self, dev: HwDeviceId) -> ProbeJob {
+        let calls = Arc::clone(&self.calls);
+        let result = self.probe_result.clone();
+        Box::new(move || {
+            calls.lock().unwrap_or_else(|e| e.into_inner()).push(ExclusiveCall::Probe(dev));
+            result
+        })
     }
 
     fn configure(
@@ -676,6 +700,34 @@ mod tests {
 
         assert_eq!(result.err(), Some(CaptureFailure::DeviceDisconnected));
         assert_eq!(backend.calls(), vec![ExclusiveCall::Acquire(dev)]);
+    }
+
+    /// `probe_caps` не заимствует бэкенд (§2.3, AM1.0-B38), как `claim_job`:
+    /// задание выполняется в отдельном `std::thread`, журнал пишется внутри
+    /// задания, не в момент его построения.
+    #[test]
+    fn probe_caps_job_runs_on_spawned_thread_and_records_probe() {
+        let backend = FakeExclusiveBackend::new();
+        let dev: HwDeviceId = "hw:CARD=RU3,DEV=0".parse().expect("hw id");
+        let job = backend.probe_caps(dev.clone());
+
+        assert_eq!(backend.calls(), vec![]);
+        let caps = std::thread::spawn(job).join().expect("job thread joined").expect("probe ok");
+
+        assert_eq!(caps, fake_device_caps());
+        assert_eq!(backend.calls(), vec![ExclusiveCall::Probe(dev)]);
+    }
+
+    #[test]
+    fn probe_caps_job_propagates_scripted_busy() {
+        let backend = FakeExclusiveBackend::new().with_probe(Err(ProbeError::Busy));
+        let dev: HwDeviceId = "hw:CARD=RU3,DEV=0".parse().expect("hw id");
+        let job = backend.probe_caps(dev.clone());
+
+        let result = std::thread::spawn(job).join().expect("job thread joined");
+
+        assert_eq!(result.err(), Some(ProbeError::Busy));
+        assert_eq!(backend.calls(), vec![ExclusiveCall::Probe(dev)]);
     }
 
     #[test]

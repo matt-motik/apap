@@ -19,8 +19,8 @@
 - **Критерий успеха (Definition of Done):** Выбор устройства в списке вкладки «Аудио» (Оптимальный/Строгий) запускает фоновый опрос caps (open NONBLOCK → hw_params refine → close), не блокируя UI и не трогая активное/захваченное устройство; занятое другим приложением устройство кэшируется как «неизвестно — устройство занято»; повторный выбор того же устройства не плодит повторные опросы; cargo test + cargo clippy зелёные
 
 ## Итерационный трекер
-- [>] **Шаг 1: ProbeError + метод probe_caps в трейте ExclusiveBackend (src/audio/backend/exclusive.rs), ALSA-реализация через alsa::PCM::new(.., nonblock=true) → AlsaExclusiveBackend::device_caps_of → явное закрытие (src/audio/backend/alsa.rs), фейковая реализация в тестовом дубле (src/audio/testing/mod.rs) — без неё cargo check не проходит (ExclusiveBackend — трейт, все реализации обновляются вместе). EBUSY → ProbeError::Busy, остальные ошибки ALSA → ProbeError::Driver. Проверка: cargo check; cargo test (тест фейка + тест ALSA-реализации на успех/EBUSY, ≤5 тестов).**
-- [ ] Шаг 2: EngineCmd::ProbeDeviceCaps { device: HwDeviceId } и внутренний канал результата воркера (InternalMsg, по образцу ClaimDone) в src/engine/messages.rs; представление исхода опроса (caps/Busy/ошибка) в самом событии или новом варианте EngineEvent — без обработчика в run.rs (следующий шаг). Проверка: cargo check.
+- [x] Шаг 1: ProbeError + метод probe_caps в трейте ExclusiveBackend (src/audio/backend/exclusive.rs), ALSA-реализация через alsa::PCM::new(.., nonblock=true) → AlsaExclusiveBackend::device_caps_of → явное закрытие (src/audio/backend/alsa.rs), фейковая реализация в тестовом дубле (src/audio/testing/mod.rs) — без неё cargo check не проходит (ExclusiveBackend — трейт, все реализации обновляются вместе). EBUSY → ProbeError::Busy, остальные ошибки ALSA → ProbeError::Driver. Проверка: cargo check; cargo test (тест фейка + тест ALSA-реализации на успех/EBUSY, ≤5 тестов).
+- [>] **Шаг 2: EngineCmd::ProbeDeviceCaps { device: HwDeviceId } и внутренний канал результата воркера (InternalMsg, по образцу ClaimDone) в src/engine/messages.rs; представление исхода опроса (caps/Busy/ошибка) в самом событии или новом варианте EngineEvent — без обработчика в run.rs (следующий шаг). Проверка: cargo check.**
 - [ ] Шаг 3: src/engine/run.rs, часть 1: обработчик EngineCmd::ProbeDeviceCaps — защита от опроса устройства, которое держит self.claim/играет в self.exclusive_path (совпадение HwDeviceId → игнор команды), дебаунс повторного выбора того же устройства, запуск короткоживущего воркера через self.deps.spawner.spawn (по образцу claim_job, ADR-01). Проверка: cargo check; cargo test (приём InternalMsg — заглушка до шага 4).
 - [ ] Шаг 4: src/engine/run.rs, часть 2: приём результата воркера (InternalMsg от шага 3) — эмит EngineEvent успеха/«занято»/ошибки пробы. Проверка: cargo test (debounce, guard активного устройства, успех, EBUSY — ≤5 тестов).
 - [ ] Шаг 5: Журнал пробы caps: новый вариант JournalRecord (устройство + исход) в src/journal.rs и вызов записи в точках эмита события (src/engine/run.rs), по аналогии с DeviceEnumerate/DeviceReacquireLookup. Проверка: cargo test (журнал пишет строку на каждый исход).
@@ -32,8 +32,8 @@
 
 Легенда: [x] сделано · [>] текущий шаг · [ ] не начато
 
-- **Текущий шаг (current_step):** Шаг 1
-- **Следующий ход:** Открыть src/audio/backend/exclusive.rs и добавить ProbeError + сигнатуру probe_caps в трейт ExclusiveBackend
+- **Текущий шаг (current_step):** Шаг 2
+- **Следующий ход:** Открыть src/engine/messages.rs и добавить EngineCmd::ProbeDeviceCaps + InternalMsg по образцу ClaimDone
 - **Счетчик безуспешных компиляций:** 0/3
 - **Состояние:** in_progress
 
