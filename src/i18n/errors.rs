@@ -15,7 +15,9 @@
 //! `describe_file_error`, сейчас показывающим `{:?}` в обход перевода) —
 //! отдельным шагом этой задачи.
 
-use crate::audio::error::{CorruptKind, EngineFault};
+use crate::audio::error::{CaptureFailure, CorruptKind, EngineFault};
+
+use super::format_named;
 
 /// Код + русский текст одной из наших ошибок движка (не системной,
 /// [`EngineFault`], AM1.0 §2.4) — код для журнала, текст для пользователя.
@@ -79,6 +81,85 @@ pub fn io_error_reason(kind: std::io::ErrorKind) -> Option<&'static str> {
 pub fn describe_io_error(kind: std::io::ErrorKind) -> String {
     system_error(io_error_reason(kind), &kind.to_string())
 }
+
+/// Короткая причина отказа захвата устройства ([`CaptureFailure`], ТЗ-46,
+/// ТЗ-119, ТЗ-122, T1.0-B2) — текст замка и заголовок окна ошибки захвата
+/// (`src/app/lock_view.rs::lock_view`, AM1.0-B2: вместо прежнего неверного
+/// «устройство не найдено» показывается настоящая причина).
+/// `ReservationDenied`/`BusyOutsideProtocol`/`DriverRefused` подставляют
+/// владельца/errno (ТЗ-119, ТЗ-122).
+pub fn capture_failure_label(f: &CaptureFailure) -> String {
+    match f {
+        CaptureFailure::ReservationDenied { owner: Some(owner) } => {
+            format_named("резервирование отклонено ({owner})", &[("owner", owner)])
+        }
+        CaptureFailure::ReservationDenied { owner: None } => "резервирование отклонено".to_string(),
+        CaptureFailure::OwnerNotResponding => "владелец резервирования не отвечает".to_string(),
+        CaptureFailure::NoSessionBus => "нет сессионной шины D-Bus".to_string(),
+        CaptureFailure::BusyOutsideProtocol { owner: Some(owner) } => {
+            let pid = owner.pid.to_string();
+            format_named(
+                "устройство занято приложением {name} (PID {pid})",
+                &[("name", &owner.name), ("pid", &pid)],
+            )
+        }
+        CaptureFailure::BusyOutsideProtocol { owner: None } => {
+            "устройство занято приложением вне протокола резервирования".to_string()
+        }
+        CaptureFailure::DriverRefused { errno } => {
+            format_named("отказ драйвера (errno {errno})", &[("errno", &errno.to_string())])
+        }
+        CaptureFailure::LostOnReopen => "перехвачено при переоткрытии".to_string(),
+        CaptureFailure::DeviceDisconnected => "устройство отключено".to_string(),
+        CaptureFailure::ReservationLost => "резервирование перехвачено".to_string(),
+        CaptureFailure::PlatformUnsupported => "платформа не поддерживается".to_string(),
+        CaptureFailure::NoDeviceSelected => "устройство не выбрано".to_string(),
+    }
+}
+
+/// Подсказка замка для отказа захвата (ТЗ-122, T1.0-B2): по умолчанию
+/// совпадает с [`capture_failure_label`], но для «занято вне протокола» с
+/// известным владельцем заменяется на указание закрыть приложение-владельца.
+/// Тот же текст идёт в тело окна ошибки замка (`src/app/mod.rs`,
+/// AM1.0-B14 шаг 5, `apply_lock_failure_message`/`show_lock_failure_message`).
+pub fn capture_failure_hint(f: &CaptureFailure) -> String {
+    match f {
+        CaptureFailure::BusyOutsideProtocol { owner: Some(owner) } => format_named(
+            "карту открыло напрямую приложение {name}, минуя резервирование PipeWire. \
+Закройте его и нажмите «Повторить захват»",
+            &[("name", &owner.name)],
+        ),
+        _ => capture_failure_label(f),
+    }
+}
+
+/// Полный текст значка замка для прочих отказов захвата (ТЗ-46, T1.0-B2):
+/// `label` — вывод [`capture_failure_label`]. Отдельная функция, не часть
+/// `capture_failure_label`, т.к. `NoDeviceSelected` (ТЗ-144) показывает
+/// [`LOCK_TEXT_NO_DEVICE_SELECTED`] без этой обёртки.
+pub fn capture_failure_text(label: &str) -> String {
+    format_named("не удалось захватить: {reason}", &[("reason", label)])
+}
+
+/// Текст значка замка в состоянии `Open` (`LockState::Open`, ТЗ-118, §6.19,
+/// T1.0-B2).
+pub const LOCK_TEXT_OPEN: &str = "открыт";
+/// Текст значка замка в состоянии `Acquiring` (ТЗ-119, §6.19, T1.0-B2).
+pub const LOCK_TEXT_ACQUIRING: &str = "захват…";
+/// Текст значка замка в состоянии `Held` (ТЗ-118, §6.19, T1.0-B2).
+pub const LOCK_TEXT_HELD: &str = "закрыт";
+/// Подсказка состояния `Held` (ТЗ-121, T1.0-B2): звук чужих приложений,
+/// адресованный захваченному устройству, система перенаправляет на другое —
+/// он может прозвучать из другого выхода.
+pub const LOCK_HINT_HELD: &str = "пока устройство захвачено, звук других приложений, \
+адресованный этому устройству, система перенаправляет на другое устройство — \
+он может прозвучать из другого выхода";
+/// Подсказка состояния `NotApplicable` (ТЗ-50, T1.0-B2): замок не нужен в
+/// Совместимом режиме.
+pub const LOCK_HINT_NOT_APPLICABLE: &str = "в Совместимом режиме устройство не захватывается";
+/// Текст и подсказка отказа `NoDeviceSelected` (ТЗ-144, T1.0-B2): отдельный
+/// текст, кнопка-значок остаётся «открыт» (`src/app/lock_view.rs::lock_view`).
+pub const LOCK_TEXT_NO_DEVICE_SELECTED: &str = "устройство не выбрано";
 
 #[cfg(test)]
 mod tests {
@@ -158,5 +239,77 @@ mod tests {
     fn describe_io_error_unknown_kind_uses_generic_prefix() {
         let text = describe_io_error(std::io::ErrorKind::Other);
         assert!(text.starts_with("Системная ошибка: "), "text={text}");
+    }
+
+    /// AM1.0-B2, ТЗ-119, T1.0-B2: владелец резервирования называется в тексте
+    /// вместо прежнего неверного «устройство не найдено».
+    #[test]
+    fn capture_failure_label_reservation_denied_with_owner_names_owner() {
+        let f = CaptureFailure::ReservationDenied { owner: Some("Spotify".to_string()) };
+        let text = capture_failure_label(&f);
+        assert_eq!(text, "резервирование отклонено (Spotify)");
+    }
+
+    #[test]
+    fn capture_failure_label_reservation_denied_without_owner() {
+        let text = capture_failure_label(&CaptureFailure::ReservationDenied { owner: None });
+        assert_eq!(text, "резервирование отклонено");
+    }
+
+    /// ТЗ-122, T1.0-B2: «занято вне протокола» с известным владельцем
+    /// называет процесс и PID.
+    #[test]
+    fn capture_failure_label_busy_outside_protocol_with_owner() {
+        use crate::audio::error::BusyOwner;
+
+        let owner = BusyOwner { name: "aplay".to_string(), pid: 4242 };
+        let text = capture_failure_label(&CaptureFailure::BusyOutsideProtocol { owner: Some(owner) });
+        assert_eq!(text, "устройство занято приложением aplay (PID 4242)");
+    }
+
+    #[test]
+    fn capture_failure_label_busy_outside_protocol_without_owner() {
+        let text = capture_failure_label(&CaptureFailure::BusyOutsideProtocol { owner: None });
+        assert_eq!(text, "устройство занято приложением вне протокола резервирования");
+    }
+
+    #[test]
+    fn capture_failure_label_driver_refused_includes_errno() {
+        let text = capture_failure_label(&CaptureFailure::DriverRefused { errno: 5 });
+        assert!(text.contains('5'), "text={text}");
+    }
+
+    #[test]
+    fn capture_failure_label_no_device_selected() {
+        assert_eq!(capture_failure_label(&CaptureFailure::NoDeviceSelected), "устройство не выбрано");
+    }
+
+    /// ТЗ-122, T1.0-B2: подсказка с известным владельцем советует закрыть
+    /// приложение-владельца, подсказка без владельца совпадает с текстом.
+    #[test]
+    fn capture_failure_hint_busy_owner_suggests_closing_app() {
+        use crate::audio::error::BusyOwner;
+
+        let owner = BusyOwner { name: "aplay".to_string(), pid: 4242 };
+        let hint = capture_failure_hint(&CaptureFailure::BusyOutsideProtocol { owner: Some(owner) });
+        assert_eq!(
+            hint,
+            "карту открыло напрямую приложение aplay, минуя резервирование PipeWire. \
+Закройте его и нажмите «Повторить захват»"
+        );
+    }
+
+    #[test]
+    fn capture_failure_hint_falls_back_to_label() {
+        let hint = capture_failure_hint(&CaptureFailure::DeviceDisconnected);
+        assert_eq!(hint, "устройство отключено");
+    }
+
+    #[test]
+    fn capture_failure_text_wraps_label() {
+        assert_eq!(
+            capture_failure_text("устройство занято приложением aplay (PID 4242)"),
+            "не удалось захватить: устройство занято приложением aplay (PID 4242)"
+        );
     }
 }

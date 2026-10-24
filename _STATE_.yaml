@@ -154,7 +154,7 @@ steps:
       src/app/lock_view.rs + src/app/ui_audio_state.rs: перевод причин отказа захвата устройства
       (AM1.0 ТЗ-88/119/122/144) и подписей состояния аудио через src/i18n/; сверить с открытой
       заметкой плана (п. 16, шаг 67) про LockKind.
-    done: false
+    done: true
   - id: 25
     description: >
       src/app/fulltrack_manager.rs + src/app/playlist_manager.rs: перевод сообщений
@@ -183,8 +183,8 @@ steps:
       check зелёные; готовность к closing.md (ручная проверка пользователем — обрезка длинных
       русских подписей на всех экранах).
     done: false
-current_step: 24
-next_action: "src/app/lock_view.rs + src/app/ui_audio_state.rs: перевод причин отказа захвата устройства (AM1.0 ТЗ-88/119/122/144) и подписей состояния аудио через src/i18n/; сверить с открытой заметкой плана (п. 16, шаг 67) про LockKind."
+current_step: 25
+next_action: "src/app/fulltrack_manager.rs + src/app/playlist_manager.rs: перевод сообщений сканирования/теста плейлиста («Adding tracks», «Scanning», «Scan finished») через src/i18n/."
 fail_counter: 0
 fail_counter_max: 3
 failed_attempts: []

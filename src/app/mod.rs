@@ -76,7 +76,7 @@ use badge_view::{BadgeView, BadgeViewState, TestView};
 use engine_sink::EngineEventQueue;
 use events::AppEvent;
 use fulltrack_manager::{FullCmd, FullEvt};
-use lock_view::{failure_hint, failure_label, lock_failure_transition, lock_view, LockFailureEffect};
+use lock_view::{lock_failure_transition, lock_view, LockFailureEffect};
 use path_view::PathWindowCache;
 use ui_audio_state::{Applied, UiAudioState};
 
@@ -1321,14 +1321,15 @@ impl MusicApp {
 
     /// Поставить окно ошибки замка для причины `reason` и запомнить его в
     /// `lock_failure_msg` (AM1.0-B14 шаг 5): заголовок/текст — те же строки,
-    /// что подсказка самого замка (`lock_view::failure_label`/`failure_hint`,
-    /// §6.19, ТЗ-122 — с именем владельца, если он известен), набор кнопок —
+    /// что подсказка самого замка (`music_player_rs::i18n::errors::
+    /// capture_failure_label`/`capture_failure_hint`, §6.19, ТЗ-122 — с
+    /// именем владельца, если он известен), набор кнопок —
     /// `lock_failure_actions` (ТЗ-46, ТЗ-144).
     fn show_lock_failure_message(&mut self, reason: &CaptureFailure) {
         let message = Message {
             level: MessageLevel::Error,
-            title: failure_label(reason).into(),
-            body: failure_hint(reason).into(),
+            title: music_player_rs::i18n::errors::capture_failure_label(reason).into(),
+            body: music_player_rs::i18n::errors::capture_failure_hint(reason).into(),
             actions: lock_failure_actions(reason),
         };
         self.lock_failure_msg = Some(message.clone());

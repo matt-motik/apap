@@ -2,10 +2,13 @@
 //! (ADR-06, §2.6, §6.19, ТЗ-44, ТЗ-46, ТЗ-50, ТЗ-118…ТЗ-123, ТЗ-144). Модуль
 //! не знает о Slint-свойствах, кроме самого перечисления `LockKind` —
 //! подключение остального (`lock-text`/`lock-hint`) к `mod.rs` выполняет
-//! `MusicApp::apply_lock_view` (AM1.0-8.6 шаг 70, AM1.0-B14 шаг 6).
+//! `MusicApp::apply_lock_view` (AM1.0-8.6 шаг 70, AM1.0-B14 шаг 6). Русский
+//! текст (T1.0-B2) живёт в `music_player_rs::i18n::errors` — этот модуль
+//! только выбирает, какую строку и для какого `kind` показать.
 
 use music_player_rs::audio::error::CaptureFailure;
 use music_player_rs::engine::lock::LockState;
+use music_player_rs::i18n::errors as i18n_errors;
 
 #[cfg(test)]
 use music_player_rs::audio::backend::exclusive::ClaimInfo;
@@ -16,48 +19,6 @@ use music_player_rs::audio::clock::ClockInstant;
 // режиме/не удалось захватить. Перечисление сгенерировано из
 // `ui/top_panel.slint` (`export enum LockKind`), варианты в CamelCase.
 use super::LockKind;
-
-/// Короткая причина отказа захвата (ТЗ-46, канонический список из критерия
-/// приёмки). `ReservationDenied`/`DriverRefused` подставляют владельца/errno
-/// (ТЗ-119) — это и закрывает AM1.0-B2: вместо «устройство не найдено»
-/// показывается настоящая причина.
-pub(super) fn failure_label(f: &CaptureFailure) -> String {
-    match f {
-        CaptureFailure::ReservationDenied { owner: Some(owner) } => {
-            format!("резервирование отклонено ({owner})")
-        }
-        CaptureFailure::ReservationDenied { owner: None } => "резервирование отклонено".to_string(),
-        CaptureFailure::OwnerNotResponding => "владелец резервирования не отвечает".to_string(),
-        CaptureFailure::NoSessionBus => "нет сессионной шины D-Bus".to_string(),
-        CaptureFailure::BusyOutsideProtocol { owner: Some(owner) } => {
-            format!("устройство занято приложением {} (PID {})", owner.name, owner.pid)
-        }
-        CaptureFailure::BusyOutsideProtocol { owner: None } => {
-            "устройство занято приложением вне протокола резервирования".to_string()
-        }
-        CaptureFailure::DriverRefused { errno } => format!("отказ драйвера (errno {errno})"),
-        CaptureFailure::LostOnReopen => "перехвачено при переоткрытии".to_string(),
-        CaptureFailure::DeviceDisconnected => "устройство отключено".to_string(),
-        CaptureFailure::ReservationLost => "резервирование перехвачено".to_string(),
-        CaptureFailure::PlatformUnsupported => "платформа не поддерживается".to_string(),
-        CaptureFailure::NoDeviceSelected => "устройство не выбрано".to_string(),
-    }
-}
-
-/// Подсказка замка для отказа захвата (ТЗ-122): по умолчанию совпадает с
-/// `failure_label`, но для «занято вне протокола» с известным владельцем
-/// заменяется на указание закрыть приложение-владельца. Этот же текст идёт
-/// в тело окна ошибки замка (AM1.0-B14 шаг 5, `mod.rs::lock_failure_message`).
-pub(super) fn failure_hint(f: &CaptureFailure) -> String {
-    match f {
-        CaptureFailure::BusyOutsideProtocol { owner: Some(owner) } => format!(
-            "карту открыло напрямую приложение {}, минуя резервирование PipeWire. \
-Закройте его и нажмите «Повторить захват»",
-            owner.name
-        ),
-        _ => failure_label(f),
-    }
-}
 
 /// Вид замка: вид (значок кнопки, ТЗ-44), короткий текст и подсказка
 /// (ТЗ-119, ТЗ-121) — кнопка-значок (AM1.0-B14 шаг 6) выбирает клик
@@ -71,39 +32,29 @@ pub(super) struct LockView {
     pub hint: String,
 }
 
-/// Подсказка состояния `Held` (ТЗ-121): звук чужих приложений, адресованный
-/// захваченному устройству, система перенаправляет на другое — он может
-/// прозвучать из другого выхода.
-const HELD_HINT: &str = "пока устройство захвачено, звук других приложений, \
-адресованный этому устройству, система перенаправляет на другое устройство — \
-он может прозвучать из другого выхода";
-
-/// Подсказка состояния `NotApplicable` (ТЗ-50): замок не нужен в
-/// Совместимом режиме.
-const NOT_APPLICABLE_HINT: &str = "в Совместимом режиме устройство не захватывается";
-
-/// Строит вид замка из состояния автомата (§6.19, ADR-06).
+/// Строит вид замка из состояния автомата (§6.19, ADR-06). Тексты — ТЗ-50,
+/// ТЗ-118…ТЗ-123, ТЗ-144 — живут в `music_player_rs::i18n::errors` (T1.0-B2).
 pub(super) fn lock_view(state: &LockState) -> LockView {
     match state {
         LockState::NotApplicable => LockView {
             kind: LockKind::NotApplicable,
             text: String::new(),
-            hint: NOT_APPLICABLE_HINT.to_string(),
+            hint: i18n_errors::LOCK_HINT_NOT_APPLICABLE.to_string(),
         },
         LockState::Open => LockView {
             kind: LockKind::Open,
-            text: "открыт".to_string(),
+            text: i18n_errors::LOCK_TEXT_OPEN.to_string(),
             hint: String::new(),
         },
         LockState::Acquiring { .. } => LockView {
             kind: LockKind::Acquiring,
-            text: "захват…".to_string(),
+            text: i18n_errors::LOCK_TEXT_ACQUIRING.to_string(),
             hint: String::new(),
         },
         LockState::Held { .. } => LockView {
             kind: LockKind::Held,
-            text: "закрыт".to_string(),
-            hint: HELD_HINT.to_string(),
+            text: i18n_errors::LOCK_TEXT_HELD.to_string(),
+            hint: i18n_errors::LOCK_HINT_HELD.to_string(),
         },
         LockState::Failed(CaptureFailure::NoDeviceSelected) => LockView {
             // Решение пользователя 2026-10-23 (ТЗ-46, ТЗ-144): замок
@@ -111,19 +62,19 @@ pub(super) fn lock_view(state: &LockState) -> LockView {
             // причину отказа и действия несёт отдельное окно ошибки
             // (AM1.0-B14 шаг 5), а не значок замка.
             kind: LockKind::Open,
-            text: "устройство не выбрано".to_string(),
-            hint: "устройство не выбрано".to_string(),
+            text: i18n_errors::LOCK_TEXT_NO_DEVICE_SELECTED.to_string(),
+            hint: i18n_errors::LOCK_TEXT_NO_DEVICE_SELECTED.to_string(),
         },
         LockState::Failed(f) => {
-            let reason = failure_label(f);
+            let reason = i18n_errors::capture_failure_label(f);
             LockView {
                 // См. комментарий у `NoDeviceSelected` выше — тот же
                 // редизайн (ТЗ-46): клик по кнопке-значку снова начинает
                 // захват независимо от причины (`DeviceDisconnected` и
                 // прочие отказы — тот же `close()`, §6.19 `UserClose`).
                 kind: LockKind::Open,
-                text: format!("не удалось захватить: {reason}"),
-                hint: failure_hint(f),
+                text: i18n_errors::capture_failure_text(&reason),
+                hint: i18n_errors::capture_failure_hint(f),
             }
         }
     }
