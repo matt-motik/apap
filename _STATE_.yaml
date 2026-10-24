@@ -2,15 +2,20 @@
 # _STATE_.md генерируется из этого файла — не редактировать его руками.
 # Редактируйте этот файл, затем: python tools/state_tool.py render
 
-status: done
+status: in_progress
 task:
-  roadmap_id: null
-  title: null
-whitelist: []
-dod: null
-steps: []
-current_step: null
-next_action: null
+  roadmap_id: T1.0-B9
+  title: "Mute/SilenceGate/Dither описания TransformKind — литералы вне src/i18n/"
+whitelist:
+  - src/audio/path/transform.rs
+  - src/i18n/report.rs
+dod: "Тексты Mute/SilenceGate/Dither(Tpdf/Off) — константы в src/i18n/report.rs, transform.rs их использует байт-в-байт; cargo test + clippy --all-targets зелёные"
+steps:
+  - id: 1
+    description: "Перенести 4 литерала TransformKind::{Mute,SilenceGate,Dither(Tpdf),Dither(Off)} в src/i18n/report.rs как константы (по образцу TRANSFORM_MONO_TO_STEREO), transform.rs::describe() использует их байт-в-байт. Проверка: ЧЕКПОИНТ — cargo test + cargo clippy --all-targets"
+    done: false
+current_step: 1
+next_action: "Добавить константы TRANSFORM_MUTE/TRANSFORM_SILENCE_GATE/TRANSFORM_DITHER_TPDF/TRANSFORM_DITHER_OFF в src/i18n/report.rs и использовать их в src/audio/path/transform.rs::describe()"
 fail_counter: 0
 fail_counter_max: 3
 failed_attempts: []

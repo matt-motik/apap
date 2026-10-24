@@ -2,10 +2,24 @@
      Source of truth: _STATE_.yaml — edit that, then run:
      python tools/state_tool.py render -->
 
-# Состояние сессии
 
-- **Текущая задача:** Нет (все шаги завершены)
-- **Состояние:** done
+# Текущая микро-сессия
+
+- **Задача из ROADMAP:** T1.0-B9 — Mute/SilenceGate/Dither описания TransformKind — литералы вне src/i18n/
+- **Вайтлист файлов в работе (Изменяемые файлы):**
+  - src/audio/path/transform.rs
+  - src/i18n/report.rs
+- **Критерий успеха (Definition of Done):** Тексты Mute/SilenceGate/Dither(Tpdf/Off) — константы в src/i18n/report.rs, transform.rs их использует байт-в-байт; cargo test + clippy --all-targets зелёные
+
+## Итерационный трекер
+- [>] **Шаг 1: Перенести 4 литерала TransformKind::{Mute,SilenceGate,Dither(Tpdf),Dither(Off)} в src/i18n/report.rs как константы (по образцу TRANSFORM_MONO_TO_STEREO), transform.rs::describe() использует их байт-в-байт. Проверка: ЧЕКПОИНТ — cargo test + cargo clippy --all-targets**
+
+Легенда: [x] сделано · [>] текущий шаг · [ ] не начато
+
+- **Текущий шаг (current_step):** Шаг 1
+- **Следующий ход:** Добавить константы TRANSFORM_MUTE/TRANSFORM_SILENCE_GATE/TRANSFORM_DITHER_TPDF/TRANSFORM_DITHER_OFF в src/i18n/report.rs и использовать их в src/audio/path/transform.rs::describe()
+- **Счетчик безуспешных компиляций:** 0/3
+- **Состояние:** in_progress
 
 ## План: Executable workflow: правила AGENTS.md → исполняемые механизмы
 _Источник: чат с пользователем (ноутбук), начат в 67686ce; перенесён в репо 2026-09-22_
