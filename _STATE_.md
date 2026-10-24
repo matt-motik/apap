@@ -24,12 +24,12 @@
 - [x] Шаг 5: Кэш возможностей открытых устройств (по HwDeviceId, без повторного открытия) → блок «Аудио» показывает частоты/форматы/DSD выбранного устройства; разрядность со списком форматов (решение пользователя)
 - [x] Шаг 2: Slint-блок вкладки «Аудио» под списком устройств рендерит DeviceInfoView (ui/settings.slint); удаление codec-info/active-device (ui/app.slint, ui/settings.slint) и неиспользуемых остатков в sync_audio_devices (src/app/ui_manager.rs); проводка building DeviceInfoView из UiAudioState/DeviceCatalog/ModeSettings в ui_manager.rs. Проверка: cargo test зелёный (меняет публичные свойства Slint)
 - [x] Шаг 3: Бейдж фактически открытого устройства в MenuBarTrailing (ui/top_panel.slint, перед LockButton) + проводка текста бейджа (ui/app.slint, src/app/ui_manager.rs): имя устройства из DeviceInfoView.now_line или «—», если не открыто. Проверка: cargo check
-- [>] **Шаг 4: ЧЕКПОИНТ: cargo test + cargo clippy по всему крейту без новых предупреждений в файлах вайтлиста**
+- [x] Шаг 4: ЧЕКПОИНТ: cargo test + cargo clippy по всему крейту без новых предупреждений в файлах вайтлиста
 
 Легенда: [x] сделано · [>] текущий шаг · [ ] не начато
 
 - **Текущий шаг (current_step):** Шаг 4
-- **Следующий ход:** ЧЕКПОИНТ: полный cargo test + clippy
+- **Следующий ход:** закрытие по closing.md
 - **Счетчик безуспешных компиляций:** 0/3
 - **Состояние:** in_progress
 
