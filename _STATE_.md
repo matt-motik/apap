@@ -2,102 +2,10 @@
      Source of truth: _STATE_.yaml — edit that, then run:
      python tools/state_tool.py render -->
 
+# Состояние сессии
 
-# Текущая микро-сессия
-
-- **Задача из ROADMAP:** T1.0-B2 — Перевод интерфейса на русский (Slint — @tr, Rust — src/i18n/), задел под многоязычность
-- **Вайтлист файлов в работе (Изменяемые файлы):**
-  - docs/00_workflow_v1.0/architecture.md
-  - src/i18n/mod.rs
-  - src/i18n/errors.rs
-  - src/i18n/audio.rs
-  - src/lib.rs
-  - ui/settings.slint
-  - ui/app.slint
-  - ui/top_panel.slint
-  - ui/status.slint
-  - ui/playlist.slint
-  - src/platform/tray/mod.rs
-  - src/platform/pick/rfd.rs
-  - src/app/mod.rs
-  - src/app/playback_manager.rs
-  - src/app/ui_manager.rs
-  - src/app/device_info_view.rs
-  - src/app/path_view.rs
-  - src/app/lock_view.rs
-  - src/app/ui_audio_state.rs
-  - src/app/fulltrack_manager.rs
-  - src/app/playlist_manager.rs
-  - src/app/badge_view.rs
-  - src/app/visualizer_manager.rs
-  - src/app/viz_settings_manager.rs
-  - src/app/engine_sink.rs
-  - src/app/mode_dialog.rs
-- **Критерий успеха (Definition of Done):** Все английские пользовательские строки из описи T1.0-B2 (ROADMAP.md: ui/settings.slint ~108, ui/app.slint ~62, ui/top_panel.slint, ui/status.slint, ui/playlist.slint, трей, фильтры rfd.rs, плюс найденные по ходу в src/app/*) переведены на русский — Slint через @tr(...) (в т.ч. форма множественного числа), Rust через src/i18n/ (named-placeholder конструкторы, плюральный хелпер 3 формы, форматирование чисел/единиц, перечисление своих ошибок, обёртка системных ошибок). Технические термины/форматы/палитры Magma-Viridis-Plasma-Inferno/окна Hann-Hamming-Blackman/ ключи настроек/имена тем/теги треков не переводятся; Solid/Gray/Rainbow/Thermal переведены («Сплошная»/«Серая»/«Радуга»/«Тепловая»); логи остаются английскими; уже русские строки не трогаются. Заголовок окна «APAP — <трек>» / «APAP» через одну константу имени приложения. cargo test и cargo clippy по всему проекту зелёные; python tools/traceability_tool.py check зелёный. Находки вне описи — отдельной B-строкой (⬜ открыто), не молча.
-
-
-## Итерационный трекер
-- [x] Шаг 1: i18n фундамент, часть 1 (src/i18n/mod.rs — новый файл, src/lib.rs — регистрация модуля): константа APP_NAME, форматтер заголовка окна «APAP — <трек>» / «APAP», хелпер строк с именованными подстановками ({name}-плейсхолдеры); юнит-тесты. Проверка: cargo check без ошибок, cargo test i18n:: зелёный.
-
-- [x] Шаг 2: i18n фундамент, часть 2 (src/i18n/mod.rs): хелпер множественного числа (3 русские формы) и форматирование чисел/единиц (десятичная запятая, «кГц», «мс», «дБ», «бит» и пр.); юнит-тесты на граничные случаи (1/2/5, дробные). Проверка: cargo test i18n:: зелёный.
-
-- [x] Шаг 3: i18n фундамент, часть 3 (src/i18n/errors.rs — новый файл): перечисление своих ошибок с кодом и русским текстом; хелпер системных ошибок с известной причиной («наше описание (исходный текст)») и с неизвестной («Системная ошибка: <исходный>»); юнит-тесты.
-
-- [x] Шаг 4: ЧЕКПОИНТ: полный cargo test + cargo clippy по всему проекту зелёные (фундамент i18n).
-- [x] Шаг 5: ui/settings.slint — вкладка General (~строки 246–390): обернуть строки в @tr(...), перевести на русский; технические термины не трогать.
-
-- [x] Шаг 6: ui/settings.slint — вкладка Audio + под-секция «Настройки режима» (~строки 390–530): @tr + перевод; Exclusive/Shared/DoP/ASIO/WASAPI/ALSA/PipeWire и форматы S24_3LE… не переводятся.
-
-- [x] Шаг 7: ui/settings.slint — вкладка Columns (~строки 530–621): @tr + перевод.
-- [x] Шаг 8: ЧЕКПОИНТ: полный cargo test + cargo clippy зелёные (settings.slint General/Audio/Columns).
-- [x] Шаг 9: ui/settings.slint — вкладка Covers (~строки 621–709): @tr + перевод.
-- [x] Шаг 10: ui/settings.slint — вкладка Visualization, под-секции «Осциллограмма» + «Спектрограмма» (~строки 709–1244): @tr + перевод; окна Hann/Hamming/Blackman и палитры Magma/Viridis/Plasma/Inferno не переводятся.
-
-- [x] Шаг 11: ui/settings.slint — вкладка Visualization, под-секции «Анализатор спектра» + «Отключено» (~строки 1244–1532): @tr + перевод; Solid→«Сплошная», Gray→«Серая», Rainbow→«Радуга», Thermal→«Тепловая».
-
-- [x] Шаг 12: ЧЕКПОИНТ: полный cargo test + cargo clippy зелёные (settings.slint Covers/Visualization).
-- [x] Шаг 13: ui/settings.slint — вкладка Cache (~строки 1532–1736) + диалоговая обвязка вне вкладок (заголовки, кнопки Cancel/Save/Reset/Refresh, ~строки 1–246): @tr + перевод.
-
-- [x] Шаг 14: ui/app.slint: @tr + перевод оставшихся английских строк (статус, «No tracks» и пр.).
-- [x] Шаг 15: ui/top_panel.slint + ui/status.slint + ui/playlist.slint: @tr + перевод мелких строк («Album Art», «No tracks», «Stopped»).
-
-- [x] Шаг 16: ЧЕКПОИНТ: полный cargo test + cargo clippy зелёные (app.slint, top_panel/status/playlist.slint).
-- [x] Шаг 17: src/platform/tray/mod.rs: перевод меню (Play/Pause, Stop, Previous, Next, Show/Hide, Quit) и тултипов на русский через src/i18n/; заголовок трея — APP_NAME.
-
-- [x] Шаг 18: src/platform/pick/rfd.rs: перевод фильтров диалогов выбора файлов (Audio/Playlist/Theme) на русский через src/i18n/.
-
-- [x] Шаг 19: ЧЕКПОИНТ: полный cargo test + cargo clippy зелёные (трей, диалоги выбора файлов).
-- [x] Шаг 20: src/app/mod.rs: перевод реальных пользовательских строк (напр. статус «Audio: {name} ready») через src/i18n/; тестовые фикстуры (Title/Artist/FLAC/Intel HDA и пр.) не переводятся — не пользовательский текст.
-
-- [x] Шаг 21: src/app/playback_manager.rs + src/app/ui_manager.rs: перевод пользовательских строк (метаданные трека, единицы kbps/Hz/ch, подписи устройств) через src/i18n/.
-
-- [x] Шаг 22: ЧЕКПОИНТ: полный cargo test + cargo clippy зелёные (app/mod.rs, playback_manager.rs, ui_manager.rs).
-- [x] Шаг 23: src/app/device_info_view.rs + src/app/path_view.rs: перевод подписей возможностей устройства и пути сигнала через src/i18n/.
-
-- [x] Шаг 24: src/app/lock_view.rs + src/app/ui_audio_state.rs: перевод причин отказа захвата устройства (AM1.0 ТЗ-88/119/122/144) и подписей состояния аудио через src/i18n/; сверить с открытой заметкой плана (п. 16, шаг 67) про LockKind.
-
-- [x] Шаг 25: src/app/fulltrack_manager.rs + src/app/playlist_manager.rs: перевод сообщений сканирования/теста плейлиста («Adding tracks», «Scanning», «Scan finished») через src/i18n/.
-
-- [x] Шаг 26: ЧЕКПОИНТ: полный cargo test + cargo clippy зелёные (device_info_view/path_view/lock_view/ ui_audio_state/fulltrack_manager/playlist_manager).
-
-- [x] Шаг 27: src/app/badge_view.rs + src/app/visualizer_manager.rs + src/app/viz_settings_manager.rs + src/app/engine_sink.rs: зачистка оставшихся пользовательских английских строк через src/i18n/ (events.rs — проверить, вероятно пусто).
-
-- [x] Шаг 30: src/app/mode_dialog.rs — перенос пользовательских строк в src/i18n/.
-- [x] Шаг 31: src/app/device_info_view.rs + src/app/path_view.rs — перенос уже русских пользовательских строк в src/i18n/ дословно (решение: все строки Rust в одном модуле); текст, закреплённый спекой, без изменений.
-
-- [x] Шаг 32: ЧЕКПОИНТ: полный cargo test + cargo clippy зелёные (mode_dialog.rs, device_info_view.rs, path_view.rs перенесены в src/i18n/).
-
-- [x] Шаг 28: Финальный сквозной grep по ui/*.slint, src/app/*, tray, rfd на оставшийся английский пользовательский текст; найденное вне описи T1.0-B2 — новой B-строкой (⬜ открыто, без сессии), не молча.
-
-- [x] Шаг 29: ЧЕКПОИНТ финальный: полный cargo test + cargo clippy + python tools/traceability_tool.py check зелёные; готовность к closing.md (ручная проверка пользователем — обрезка длинных русских подписей на всех экранах).
-
-
-Легенда: [x] сделано · [>] текущий шаг · [ ] не начато
-
-- **Текущий шаг (current_step):** Шаг 29
-- **Следующий ход:** закрытие по closing.md
-- **Счетчик безуспешных компиляций:** 0/3
-- **Состояние:** in_progress
+- **Текущая задача:** Нет (все шаги завершены)
+- **Состояние:** done
 
 ## План: Executable workflow: правила AGENTS.md → исполняемые механизмы
 _Источник: чат с пользователем (ноутбук), начат в 67686ce; перенесён в репо 2026-09-22_
@@ -112,6 +20,7 @@ _Источник: чат с пользователем (ноутбук), нач
   - Ручные проверки за пользователем: AM1.0-B34 — буфер устройства 20 мс, Оптимальный и Строгий: FLAC 44,1 кГц на MOTU M2 и Cayin RU3 играет (в «Путь сигнала» период 221, Xrun 0); 48 кГц тоже; короткий трек доигрывает
   - Ручные проверки за пользователем: AM1.0-B36 — Оптимальный/Строгий: выдернуть USB-ЦАП во время воспроизведения → окно ошибки; вставить обратно → замок сам захватывает устройство (≤ 5 с), окно закрывается, воспроизведение на паузе с сохранённой позицией (ТЗ-126). Если не сработало — прислать `grep -iE 'захват|перечисл' ~/.config/music_player/apap.log | tail -30` (путь — ConfigPaths::journal, не ~/.config/apap/)
   - Ручные проверки за пользователем: AM1.0-B32 — Совместимый режим, вкладка «Аудио»: в списке только «Системное по умолчанию (PipeWire)», нет Xonar/Motu/hw/плагинов; игра идёт через PipeWire (другие приложения звучат одновременно, в «Путь сигнала» этап «Уровень ОС» — PipeWire); если раньше было выбрано аппаратное устройство — при запуске одно уведомление о переключении на «Системное по умолчанию»; смена устройства по умолчанию в системном микшере между треками — следующий трек на новом устройстве (на лету — проверить, задокументировать)
+  - Ручные проверки за пользователем: T1.0-B2 — весь интерфейс на русском: окно настроек (все вкладки, кнопки Отмена/Сохранить), главное окно (меню Файл/Настройки/Визуализация, панель информации — кроме подписей из настроек, T1.0-B5), строка статуса («Остановлено», «N треков» со склонением), плейлист, трей (меню и подсказка), окна выбора файлов (фильтры), окно «Путь сигнала»; заголовок окна «APAP — <трек>» и «APAP» без трека; палитры Сплошная/Серая/Радуга/Тепловая, Magma… без перевода; числа с запятой (44,1 кГц); сообщения об ошибках открытия файла — по-русски
   - AM1.0-8.6.1 шаг 9: тестовый дубль SilentSource (src/engine/source.rs) отдаёт info().sample_rate = SourceFormat.rate без DSD-пересчёта (реальный DsdDecoder даёт dsd_rate/64), поэтому DSD-фикстура device_dop_change_reopens_at_position задаёт rate = 44100, а не битрейт DSD64; поправить дубль при следующей работе с фикстурами движка.
   - Закрытые этапы — в ROADMAP.md (✅ с хэшем), закрытые баги — в _TODO_/history/archive_bugs.md (с 2026-10-21); здесь только открытое.
   - 2026-10-21 закрыт AM1.0-8.6.1 (С6а (01) «DoP устройства», 196ca1d) и баг AM1.0-B25; 2026-10-22 закрыты AM1.0-B27 (163682c, русские подписи параметров в окне пути) и AM1.0-B28 (6359220, советы «ЦАП с поддержкой …»); закрыт AM1.0-B29 (c3b5f6d, возможности текущего ЦАП в советах «Оборудование»). СЛЕДУЮЩИЙ (п. 21 сквозного порядка): AM1.0-8.7 (С7 (01) «DSP-корректность»). ЦАП для аппаратной проверки: hw:CARD=RU3U2 (Cayin RU3, с 2026-10-20 — системный выход PipeWire), APAP_HW_TEST_DEVICE для #[ignore]-тестов alsa.rs; карту держит PipeWire — открывать hw только с разрешения пользователя.
