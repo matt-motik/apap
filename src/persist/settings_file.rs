@@ -368,22 +368,57 @@ fn default_info_labels() -> BTreeMap<InfoLabelKey, String> {
         .collect()
 }
 
+/// Английские дефолты подписей панели информации до перевода на русский
+/// (T1.0-B5, `default_info_labels()` в `src/settings.rs` до правки).
+/// `serialize_settings` всегда пишет полную карту `info_labels.*` (§2.4) —
+/// файл настроек, сохранённый прежней версией, буквально содержит эти
+/// строки для каждого ключа, даже если пользователь их не трогал. Список
+/// нужен только для сравнения при загрузке (`info_label` ниже): хранимое
+/// значение, совпавшее с ним, не считается пользовательским
+/// переопределением, и показывается новый (русский) дефолт
+/// `default_info_labels()`; настоящая пользовательская правка значения не
+/// теряется — совпасть с английским текстом она может только случайно, и
+/// тогда результат (новый дефолт) всё равно совпадает с тем, что было
+/// видно раньше.
+const OLD_ENGLISH_INFO_LABEL_DEFAULTS: &[(&str, &str)] = &[
+    ("artist", "Artist"),
+    ("track", "Track"),
+    ("title", "Title"),
+    ("duration", "Duration"),
+    ("year", "Year"),
+    ("album", "Album"),
+    ("disc", "Disc"),
+    ("genre", "Genre"),
+    ("format", "Format"),
+    ("bitrate", "Bitrate"),
+    ("bit_depth", "Bit depth"),
+    ("sample_rate", "Sample rate"),
+    ("channels", "Channels"),
+];
+
 impl Settings {
     /// Подпись панели информации по ключу: переопределение пользователя,
-    /// иначе — дефолт (English), пустая строка в переопределении тоже
-    /// считается отсутствующей (бывший `Settings::info_label`,
-    /// `src/settings.rs:882`, §2.4).
+    /// иначе — дефолт (русский через `src/i18n/`, T1.0-B5), пустая строка в
+    /// переопределении тоже считается отсутствующей (бывший
+    /// `Settings::info_label`, `src/settings.rs:882`, §2.4). Хранимое
+    /// значение, совпадающее со старым английским дефолтом
+    /// (`OLD_ENGLISH_INFO_LABEL_DEFAULTS`, T1.0-B5) — например, из файла
+    /// настроек, сохранённого прежней версией, — не считается
+    /// переопределением: показывается новый дефолт.
     pub fn info_label(&self, key: &InfoLabelKey) -> String {
-        self.info_labels
-            .get(key)
-            .filter(|s| !s.is_empty())
-            .cloned()
-            .unwrap_or_else(|| {
-                default_info_labels()
-                    .get(key)
-                    .cloned()
-                    .unwrap_or_else(|| key.as_str().to_string())
-            })
+        let stored = self.info_labels.get(key).filter(|s| !s.is_empty());
+        let is_stale_default = stored.is_some_and(|v| {
+            OLD_ENGLISH_INFO_LABEL_DEFAULTS.iter().any(|&(k, old)| k == key.as_str() && v == old)
+        });
+        if is_stale_default {
+            return default_info_labels().get(key).cloned().unwrap_or_else(|| key.as_str().to_string());
+        }
+        stored.cloned().unwrap_or_else(|| {
+            default_info_labels()
+                .get(key)
+                .cloned()
+                .unwrap_or_else(|| key.as_str().to_string())
+        })
     }
 
     /// Все подписи панели информации в порядке отображения
@@ -1273,7 +1308,7 @@ mod tests {
         assert!(s.covers.online);
         assert!(!s.covers.folder_names.is_empty());
 
-        assert_eq!(s.info_labels.get(&InfoLabelKey("artist")).map(String::as_str), Some("Artist"));
+        assert_eq!(s.info_labels.get(&InfoLabelKey("artist")).map(String::as_str), Some("Исполнитель"));
         assert_eq!(s.info_labels.len(), crate::settings::INFO_LABEL_KEYS.len());
 
         assert_eq!(s.playback, ModeSettings::default());
@@ -1342,27 +1377,52 @@ mod tests {
         let s = Settings::default();
         let ordered = s.info_labels_ordered();
         assert_eq!(ordered.len(), crate::settings::INFO_LABEL_KEYS.len());
-        assert_eq!(ordered[0], "Artist");
-        assert_eq!(ordered[2], "Title");
-        assert_eq!(ordered[10], "Bit depth");
-        assert_eq!(ordered[12], "Channels");
+        assert_eq!(ordered[0], "Исполнитель");
+        assert_eq!(ordered[2], "Название");
+        assert_eq!(ordered[10], "Разрядность");
+        assert_eq!(ordered[12], "Каналы");
     }
 
     #[test]
     fn info_label_overrides_and_falls_back() {
         let mut s = Settings::default();
         let artist = InfoLabelKey("artist");
-        assert_eq!(s.info_label(&artist), "Artist");
+        // Fresh default (T1.0-B5): Russian, not the old English text.
+        assert_eq!(s.info_label(&artist), "Исполнитель");
 
-        s.info_labels.insert(artist.clone(), "Исполнитель".into());
+        s.info_labels.insert(artist.clone(), "Автор".into());
         let channels = InfoLabelKey("channels");
         s.info_labels.insert(channels.clone(), String::new());
-        assert_eq!(s.info_label(&artist), "Исполнитель");
+        assert_eq!(s.info_label(&artist), "Автор");
         // Empty string falls back to the default (not blank/raw key).
-        assert_eq!(s.info_label(&channels), "Channels");
+        assert_eq!(s.info_label(&channels), "Каналы");
         // Unknown key: raw key as last resort.
         let bogus = InfoLabelKey("bogus");
         assert_eq!(s.info_label(&bogus), "bogus");
+    }
+
+    #[test]
+    fn info_label_stored_old_english_default_becomes_russian() {
+        // A settings file saved before T1.0-B5 persisted the old English
+        // default verbatim for every info_labels.* key (serialize_settings
+        // always writes the whole map) — on load this must not be treated
+        // as a user override: the new (Russian) default is shown instead.
+        let mut s = Settings::default();
+        let artist = InfoLabelKey("artist");
+        s.info_labels.insert(artist.clone(), "Artist".into());
+        assert_eq!(s.info_label(&artist), "Исполнитель");
+
+        let bit_depth = InfoLabelKey("bit_depth");
+        s.info_labels.insert(bit_depth.clone(), "Bit depth".into());
+        assert_eq!(s.info_label(&bit_depth), "Разрядность");
+    }
+
+    #[test]
+    fn info_label_custom_user_value_is_kept() {
+        let mut s = Settings::default();
+        let title = InfoLabelKey("title");
+        s.info_labels.insert(title.clone(), "Композиция".into());
+        assert_eq!(s.info_label(&title), "Композиция");
     }
 
     fn bytes(text: &str) -> FileRead {
