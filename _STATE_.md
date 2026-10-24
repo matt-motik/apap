@@ -2,24 +2,10 @@
      Source of truth: _STATE_.yaml — edit that, then run:
      python tools/state_tool.py render -->
 
+# Состояние сессии
 
-# Текущая микро-сессия
-
-- **Задача из ROADMAP:** AM1.0-B41 — Shutdown во время асинхронной резолюции устройства обходит Stop+Release
-- **Вайтлист файлов в работе (Изменяемые файлы):**
-  - src/engine/lock.rs
-  - src/engine/run.rs
-- **Критерий успеха (Definition of Done):** lock_step(Shutdown) всегда даёт StopPlayback+Release независимо от mode (Compatible -> NotApplicable, Optimal/Strict -> Open, как раньше); Engine::shutdown сбрасывает device_resolve_pending, запоздавший DeviceResolveDone после него игнорируется; существующие тесты lock.rs/run.rs зелёные; новые тесты покрывают оба случая; cargo test + clippy --all-targets 0 + check_rt_imports зелёные
-
-## Итерационный трекер
-- [x] Шаг 1: lock.rs: обрабатывать LockInput::Shutdown до ветки mode==Compatible (всегда StopPlayback+Release; состояние NotApplicable для Compatible, Open для Optimal/Strict) + поправить/добавить тесты (убрать Shutdown из compatible_mode_gives_not_applicable, новый тест shutdown-ветки). run.rs: Engine::shutdown сбрасывает device_resolve_pending; новые тесты — lock_input(Shutdown) во время pending-резолюции даёт верные эффекты, и запоздавший DeviceResolveDone после shutdown() игнорируется. Проверка: ЧЕКПОИНТ — полный cargo test + cargo clippy --all-targets (0 новых предупреждений в lock.rs/run.rs) + tools/check_rt_imports.py
-
-Легенда: [x] сделано · [>] текущий шаг · [ ] не начато
-
-- **Текущий шаг (current_step):** Шаг 1
-- **Следующий ход:** закрытие по closing.md
-- **Счетчик безуспешных компиляций:** 0/3
-- **Состояние:** in_progress
+- **Текущая задача:** Нет (все шаги завершены)
+- **Состояние:** done
 
 ## План: Executable workflow: правила AGENTS.md → исполняемые механизмы
 _Источник: чат с пользователем (ноутбук), начат в 67686ce; перенесён в репо 2026-09-22_
