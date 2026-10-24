@@ -13,6 +13,7 @@
 pub mod audio;
 pub mod errors;
 pub mod messages;
+pub mod report;
 
 use crate::audio::test_run::{IncompleteWhy, TestBlocker};
 use crate::audio::verdict::NbpReason;

@@ -11,6 +11,7 @@ use smallvec::SmallVec;
 use crate::audio::backend::{AccessKind, DeviceBufferActual, DriverFormat, OutputApi, RateSet};
 use crate::audio::error::Incompatibility;
 use crate::audio::format::{Codec, OutputSampleFormat, SourceFormat, SourceKind, StreamFormat};
+use crate::i18n::report as i18n_report;
 use crate::settings::params::{param_label, ParamId};
 use crate::settings::playback::{DsdFilter, ModeKind, ModeSettings};
 
@@ -25,8 +26,7 @@ use super::{
 };
 
 /// Граница гарантии (ТЗ-78): показывается во всех режимах.
-pub const GUARANTEE_BOUNDARY: &str = "Плеер отвечает за данные до входа драйвера устройства. \
-Что делает с сигналом сам ЦАП (внутренний ресемплинг, цифровая громкость, DSP), плеер не контролирует.";
+pub use i18n_report::GUARANTEE_BOUNDARY;
 
 /// Порядок этапов (ТЗ-70).
 const STAGE_ORDER: [StageId; 6] = [
@@ -88,9 +88,10 @@ pub fn build_report(subject: PathSubject<'_>, dyn_state: &DynamicPathState, sett
     let (subject_title, stages) = match subject {
         PathSubject::Opened(path) => (opened_title(path), opened_rows(path, dyn_state)),
         PathSubject::Skipped(blocked) => (skipped_title(blocked), skipped_rows(blocked)),
-        PathSubject::NoStream => {
-            ("Поток не открыт".to_owned(), STAGE_ORDER.map(|id| StageRow::placeholder(id, "поток не открыт")))
-        }
+        PathSubject::NoStream => (
+            i18n_report::NO_STREAM_TITLE.to_owned(),
+            STAGE_ORDER.map(|id| StageRow::placeholder(id, i18n_report::STREAM_NOT_OPEN_NOTE)),
+        ),
     };
     PathReport {
         subject_title,
@@ -126,9 +127,9 @@ fn opened_rows(path: &SignalPath, d: &DynamicPathState) -> [StageRow; 6] {
 fn source_row(stage: &SourceStage) -> StageRow {
     let fmt = &stage.fmt;
     let mut row = StageRow::new(StageId::Source, StageStatus::Unchanged, Confidence::Confirmed(ConfirmedBy::FileHeader));
-    row.notes.push(format!("{} (из открытого файла)", source_text(fmt)));
+    row.notes.push(i18n_report::opened_from_file_note(&source_text(fmt)));
     if fmt.lossy {
-        row.notes.push(format!("источник с потерями ({}): 24 бит (выход декодера)", codec_name(fmt.codec)));
+        row.notes.push(i18n_report::lossy_source_note(codec_name(fmt.codec)));
     }
     row
 }
@@ -139,17 +140,17 @@ fn decoder_row(fmt: &SourceFormat, stage: &DecoderStage, d: &DynamicPathState) -
     let status = if stage.lossless { StageStatus::Unchanged } else { StageStatus::Lossy };
     let mut row = StageRow::new(StageId::Decoder, status, Confidence::Confirmed(ConfirmedBy::FileHeader));
     if !stage.lossless {
-        row.changes.push("с потерями, округление до 24 бит без дизеринга".to_owned());
-        row.causes.push(format!("кодек с потерями ({})", codec_name(fmt.codec)));
+        row.changes.push(i18n_report::LOSSY_DECODE_CHANGE.to_owned());
+        row.causes.push(i18n_report::lossy_codec_cause(codec_name(fmt.codec)));
     }
     if let Some(md5) = md5_text(d.md5) {
         row.notes.push(md5.to_owned());
     }
     if d.decode_errors > 0 {
-        row.notes.push(format!("ошибок декодирования: {}", d.decode_errors));
+        row.notes.push(i18n_report::decode_errors_note(d.decode_errors));
     }
     if d.lossy_clipped > 0 {
-        row.notes.push(format!("ограничено {} сэмплов", d.lossy_clipped));
+        row.notes.push(i18n_report::clipped_samples_note(d.lossy_clipped));
     }
     row
 }
@@ -166,7 +167,7 @@ fn processing_row(stage: &ProcessingStage, d: &DynamicPathState, driver: Confide
     let mut row = StageRow::new(StageId::Processing, stage.status(), confidence);
     push_transforms(&mut row, &stage.transforms);
     if d.dsd_clipped > 0 {
-        row.notes.push(format!("ограничено {} сэмплов", d.dsd_clipped));
+        row.notes.push(i18n_report::clipped_samples_note(d.dsd_clipped));
     }
     row
 }
@@ -178,7 +179,7 @@ fn push_transforms(row: &mut StageRow, transforms: &[Transform]) {
         if let TransformKind::DsdToPcm { filter, stop_hz, .. } = t.kind {
             let chosen = dsd_filter_hz(filter);
             if stop_hz < chosen {
-                row.notes.push(format!("фактическая граница фильтра {} (выбрано {})", khz(stop_hz), khz(chosen)));
+                row.notes.push(i18n_report::filter_boundary_note(&khz(stop_hz), &khz(chosen)));
             }
         }
     }
@@ -188,32 +189,32 @@ fn push_transforms(row: &mut StageRow, transforms: &[Transform]) {
 /// ОВ-35, буфер устройства (ТЗ-131), RT-приоритет (ОВС-8), Underrun/Xrun (ТЗ-68).
 fn output_row(stage: &OutputStage, d: &DynamicPathState) -> StageRow {
     let mut row = StageRow::new(StageId::Output, stage.status(), driver_confidence(&stage.driver));
-    row.notes.push(format!("{}, «{}»", api_name(stage.api, stage.access), stage.device_name));
-    row.notes.push(format!("запрошено: {}", stream_text(&stage.requested)));
+    row.notes.push(i18n_report::api_device_note(api_name(stage.api, stage.access), &stage.device_name));
+    row.notes.push(i18n_report::requested_note(&stream_text(&stage.requested)));
     match stage.driver {
         DriverFormat::Confirmed(actual) => {
             if actual != stage.requested {
-                row.changes.push(format!("драйвер принял {}", stream_text(&actual)));
+                row.changes.push(i18n_report::driver_accepted_change(&stream_text(&actual)));
                 row.causes.push(cause_text(&Cause::DriverAccepted));
             }
-            row.notes.push(format!("фактически: {} (прочитано у драйвера)", stream_text(&actual)));
+            row.notes.push(i18n_report::actual_driver_note(&stream_text(&actual)));
         }
-        DriverFormat::Unreadable { .. } => row.notes.push("запрошено, не подтверждено".to_owned()),
+        DriverFormat::Unreadable { .. } => row.notes.push(i18n_report::REQUESTED_UNCONFIRMED_NOTE.to_owned()),
     }
     if stage.reservation_warning {
-        row.notes.push("устройство открыто без резервирования: сервера резервирования нет".to_owned());
+        row.notes.push(i18n_report::NO_RESERVATION_SERVER_NOTE.to_owned());
     }
     if let Some(buf) = stage.device_buffer {
         row.notes.push(device_buffer_text(buf, &stage.requested));
     }
     match d.rt_priority {
-        RtPriorityState::Granted(prio) => row.notes.push(format!("приоритет реального времени: получен ({prio})")),
-        RtPriorityState::Denied => row.notes.push("приоритет реального времени: не получен".to_owned()),
+        RtPriorityState::Granted(prio) => row.notes.push(i18n_report::rt_priority_granted_note(prio)),
+        RtPriorityState::Denied => row.notes.push(i18n_report::RT_PRIORITY_DENIED_NOTE.to_owned()),
         RtPriorityState::NotRequested | RtPriorityState::Pending => {}
     }
-    row.notes.push(format!("Underrun: {}", d.underruns));
+    row.notes.push(i18n_report::underrun_note(d.underruns));
     if stage.access == AccessKind::Exclusive {
-        row.notes.push(format!("Xrun: {}", d.xruns));
+        row.notes.push(i18n_report::xrun_note(d.xruns));
     }
     row
 }
@@ -227,13 +228,16 @@ fn os_row(stage: &OsStage) -> StageRow {
     };
     let mut row = StageRow::new(StageId::OsLevel, stage.status(), confidence);
     let note = match stage {
-        OsStage::NotInvolved => "не участвует: монопольный доступ к устройству".to_owned(),
+        OsStage::NotInvolved => i18n_report::OS_NOT_INVOLVED_NOTE.to_owned(),
         OsStage::Known { server, rate, format, .. } => {
-            let rate = rate.map_or_else(|| "частота неизвестна".to_owned(), |r| format!("частота {}", khz(r.hz())));
-            let format = format.as_deref().unwrap_or("формат неизвестен");
-            format!("{}: {rate}, {format}; не контролируется плеером", server_name(*server))
+            let rate = rate.map_or_else(
+                || i18n_report::RATE_UNKNOWN.to_owned(),
+                |r| i18n_report::rate_known_note(&khz(r.hz())),
+            );
+            let format = format.as_deref().unwrap_or(i18n_report::FORMAT_UNKNOWN);
+            i18n_report::os_known_note(server_name(*server), &rate, format)
         }
-        OsStage::Unknown => "не контролируется плеером, возможно преобразование".to_owned(),
+        OsStage::Unknown => i18n_report::OS_UNKNOWN_NOTE.to_owned(),
     };
     row.notes.push(note);
     row
@@ -245,14 +249,12 @@ fn os_row(stage: &OsStage) -> StageRow {
 fn device_row(stage: &DeviceStage, route: &Route) -> StageRow {
     let mut row = StageRow::new(StageId::Device, stage.status(), Confidence::Assumed);
     let note = match stage.accepted {
-        Some(f) => format!("принят формат {}", stream_text(&f)),
-        None => "принятый формат не подтверждён".to_owned(),
+        Some(f) => i18n_report::accepted_format_note(&stream_text(&f)),
+        None => i18n_report::ACCEPTED_FORMAT_UNCONFIRMED_NOTE.to_owned(),
     };
     row.notes.push(note);
     if matches!(route, Route::Dop(_)) {
-        row.notes.push(
-            "если ЦАП молчит — он не понимает DoP: снимите «ЦАП понимает DoP»".to_owned(),
-        );
+        row.notes.push(i18n_report::DOP_SILENCE_HINT.to_owned());
     }
     row
 }
@@ -262,11 +264,7 @@ fn device_row(stage: &DeviceStage, route: &Route) -> StageRow {
 // ---------------------------------------------------------------------------
 
 fn skipped_title(blocked: &Blocked) -> String {
-    format!(
-        "{} — {}: трек пропущен",
-        source_text(&blocked.partial.source),
-        mode_name(blocked.partial.mode)
-    )
+    i18n_report::skipped_title(&source_text(&blocked.partial.source), mode_name(blocked.partial.mode))
 }
 
 fn skipped_rows(blocked: &Blocked) -> [StageRow; 6] {
@@ -274,12 +272,12 @@ fn skipped_rows(blocked: &Blocked) -> [StageRow; 6] {
     let mut reached = true;
     STAGE_ORDER.map(|id| {
         if !reached {
-            return StageRow::placeholder(id, "не построен");
+            return StageRow::placeholder(id, i18n_report::NOT_BUILT_NOTE);
         }
         if id == blocked.at {
             reached = false;
             let mut row = StageRow::new(id, StageStatus::Lossy, Confidence::Assumed);
-            row.changes.push("несовместимо".to_owned());
+            row.changes.push(i18n_report::INCOMPATIBLE_CHANGE.to_owned());
             row.causes.push(incompatibility_text(&blocked.reason));
             return row;
         }
@@ -297,7 +295,9 @@ fn skipped_rows(blocked: &Blocked) -> [StageRow; 6] {
                 push_transforms(&mut row, &plan.transforms);
                 row
             }
-            StageId::Output | StageId::OsLevel | StageId::Device => StageRow::placeholder(id, "не построен"),
+            StageId::Output | StageId::OsLevel | StageId::Device => {
+                StageRow::placeholder(id, i18n_report::NOT_BUILT_NOTE)
+            }
         }
     })
 }
@@ -311,33 +311,21 @@ pub fn blocked_text(blocked: &Blocked) -> String {
 /// Текст причины несовместимости (ТЗ-80): «частота 192 кГц не поддерживается устройством».
 fn incompatibility_text(reason: &Incompatibility) -> String {
     match reason {
-        Incompatibility::RateUnsupported { rate, .. } => {
-            format!("частота {} не поддерживается устройством", khz(rate.hz()))
-        }
-        Incompatibility::TruncationForbidden { from, max } => {
-            format!("{} бит: устройство принимает не более {max} бит, усечение запрещено режимом", from.bits())
-        }
-        Incompatibility::ChannelsUnsupported { src, .. } => {
-            format!("{src} кан. не поддерживается устройством")
-        }
+        Incompatibility::RateUnsupported { rate, .. } => i18n_report::rate_unsupported(&khz(rate.hz())),
+        Incompatibility::TruncationForbidden { from, max } => i18n_report::truncation_forbidden(from.bits(), *max),
+        Incompatibility::ChannelsUnsupported { src, .. } => i18n_report::channels_unsupported(*src),
         Incompatibility::DopUnsupported { dsd, max_dop } => match max_dop {
-            Some(max) => format!("DoP {} не поддерживается устройством (не выше {})", dsd_name(*dsd), dsd_name(*max)),
-            None => format!("DoP {} не поддерживается устройством", dsd_name(*dsd)),
+            Some(max) => i18n_report::dop_unsupported_max(dsd_name(*dsd), dsd_name(*max)),
+            None => i18n_report::dop_unsupported(dsd_name(*dsd)),
         },
-        Incompatibility::DopDisabled { device } => {
-            format!("DoP выключен для устройства {}", device.as_str())
+        Incompatibility::DopDisabled { device } => i18n_report::dop_disabled_for_device(device.as_str()),
+        Incompatibility::DriverRejectedRate { requested, actual } => {
+            i18n_report::driver_rejected_rate(&khz(actual.hz()), &khz(requested.hz()))
         }
-        Incompatibility::DriverRejectedRate { requested, actual } => format!(
-            "драйвер принял {} вместо запрошенной {}",
-            khz(actual.hz()),
-            khz(requested.hz())
-        ),
-        Incompatibility::DriverRejectedFormat { requested, actual } => format!(
-            "драйвер принял формат {} вместо {}",
-            sample_name(*actual),
-            sample_name(*requested)
-        ),
-        Incompatibility::FloatUnsupported => "PCM с плавающей точкой не воспроизводится в Строгом режиме".to_owned(),
+        Incompatibility::DriverRejectedFormat { requested, actual } => {
+            i18n_report::driver_rejected_format(sample_name(*actual), sample_name(*requested))
+        }
+        Incompatibility::FloatUnsupported => i18n_report::FLOAT_UNSUPPORTED_STRICT.to_owned(),
     }
 }
 
@@ -366,23 +354,23 @@ fn transforms_confidence(transforms: &[Transform], empty: Confidence) -> Confide
 fn cause_text(cause: &Cause) -> String {
     match cause {
         // ТЗ-145, ADR-25: текст точнее, чем «настройка плеера: <ярлык>».
-        Cause::PlayerSetting(ParamId::DeviceDop) => "DoP выключен для устройства".to_owned(),
-        Cause::PlayerSetting(param) => format!("настройка плеера: {}", param_label(*param)),
-        Cause::DeviceLimit => "ограничение устройства".to_owned(),
-        Cause::DriverAccepted => "драйвер принял другой формат".to_owned(),
-        Cause::ServerLimit => "аудиосервер не принимает формат".to_owned(),
-        Cause::ModeRule => "правило режима".to_owned(),
-        Cause::FormatContainer => "формат контейнера устройства".to_owned(),
+        Cause::PlayerSetting(ParamId::DeviceDop) => i18n_report::DOP_DISABLED_FOR_DEVICE_CAUSE.to_owned(),
+        Cause::PlayerSetting(param) => i18n_report::player_setting_cause(param_label(*param)),
+        Cause::DeviceLimit => i18n_report::DEVICE_LIMIT_CAUSE.to_owned(),
+        Cause::DriverAccepted => i18n_report::DRIVER_ACCEPTED_CAUSE.to_owned(),
+        Cause::ServerLimit => i18n_report::SERVER_LIMIT_CAUSE.to_owned(),
+        Cause::ModeRule => i18n_report::MODE_RULE_CAUSE.to_owned(),
+        Cause::FormatContainer => i18n_report::FORMAT_CONTAINER_CAUSE.to_owned(),
     }
 }
 
 fn md5_text(md5: Md5Status) -> Option<&'static str> {
     match md5 {
-        Md5Status::Pending => Some("MD5: проверка после окончания трека"),
-        Md5Status::Matched => Some("MD5 совпал"),
-        Md5Status::Mismatched => Some("MD5 не совпал"),
-        Md5Status::Absent => Some("MD5 в файле нет"),
-        Md5Status::NotChecked(NotCheckedWhy::Seeked) => Some("MD5 не проверен: была перемотка"),
+        Md5Status::Pending => Some(i18n_report::MD5_PENDING),
+        Md5Status::Matched => Some(i18n_report::MD5_MATCHED),
+        Md5Status::Mismatched => Some(i18n_report::MD5_MISMATCHED),
+        Md5Status::Absent => Some(i18n_report::MD5_ABSENT),
+        Md5Status::NotChecked(NotCheckedWhy::Seeked) => Some(i18n_report::MD5_NOT_CHECKED_SEEKED),
         Md5Status::NotChecked(NotCheckedWhy::NotFlac) => None,
     }
 }
@@ -390,29 +378,29 @@ fn md5_text(md5: Md5Status) -> Option<&'static str> {
 /// «буфер устройства 42 мс (период 512 кадров)»; миллисекунды — целочисленно по частоте потока.
 fn device_buffer_text(buf: DeviceBufferActual, fmt: &StreamFormat) -> String {
     let ms = u64::from(buf.buffer_frames) * 1000 / u64::from(fmt.rate.hz());
-    format!("буфер устройства {ms} мс (период {} кадров)", buf.period_frames)
+    i18n_report::device_buffer_note(ms, buf.period_frames)
 }
 
 fn source_text(fmt: &SourceFormat) -> String {
     let depth = match fmt.kind {
-        SourceKind::Pcm { bits } => format!("{} бит", bits.bits()),
+        SourceKind::Pcm { bits } => i18n_report::bits_depth(bits.bits()),
         SourceKind::FloatPcm { double: false } => "float32".to_owned(),
         SourceKind::FloatPcm { double: true } => "float64".to_owned(),
         SourceKind::Dsd { dsd } => dsd_name(dsd).to_owned(),
     };
-    format!("{} {depth} / {}, {} кан.", codec_name(fmt.codec), khz(fmt.rate.hz()), fmt.layout.count().get())
+    i18n_report::source_summary(codec_name(fmt.codec), &depth, &khz(fmt.rate.hz()), fmt.layout.count().get())
 }
 
 fn stream_text(fmt: &StreamFormat) -> String {
-    format!("{}, {}, {} кан.", khz(fmt.rate.hz()), sample_name(fmt.sample), fmt.channels.get())
+    i18n_report::stream_summary(&khz(fmt.rate.hz()), sample_name(fmt.sample), fmt.channels.get())
 }
 
 fn sample_name(s: OutputSampleFormat) -> &'static str {
     match s {
-        OutputSampleFormat::S16Le => "16 бит",
-        OutputSampleFormat::S24_3Le => "24 бит (3 байта)",
-        OutputSampleFormat::S24Le => "24 бит (в 32)",
-        OutputSampleFormat::S32Le => "32 бит",
+        OutputSampleFormat::S16Le => i18n_report::SAMPLE_S16,
+        OutputSampleFormat::S24_3Le => i18n_report::SAMPLE_S24_3,
+        OutputSampleFormat::S24Le => i18n_report::SAMPLE_S24,
+        OutputSampleFormat::S32Le => i18n_report::SAMPLE_S32,
         OutputSampleFormat::F32 => "float32",
     }
 }
