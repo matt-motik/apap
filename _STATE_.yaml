@@ -2,36 +2,15 @@
 # _STATE_.md генерируется из этого файла — не редактировать его руками.
 # Редактируйте этот файл, затем: python tools/state_tool.py render
 
-status: in_progress
+status: done
 task:
-  roadmap_id: AM1.0-B34
-  title: "Буфер устройства 20 мс при 44,1 кГц: PCM не стартует (порог старта недостижим), тишина без ошибки"
-whitelist:
-  - src/audio/backend/alsa.rs
-  - src/audio/backend/alsa_out.rs
-  - src/engine/run.rs
-  - src/engine/exclusive_path.rs
-  - src/engine/messages.rs
-  - src/core/messages.rs
-  - src/app/mod.rs
-  - src/app/lock_view.rs
-  - src/app/ui_audio_state.rs
-dod: "44,1 кГц/20 мс и любые некратные буфер/период стартуют; порог старта = ⌊buffer/period⌋·period; неудачный запуск потока (нет движения hw-указателя за отведённое время) — окно ошибки с действиями, не тишина; тесты; полный cargo test + clippy"
-steps:
-  - id: 1
-    description: "Порог старта = целые периоды, вмещающиеся в фактический буфер (чистая функция + тесты для 44,1/48/88,2/96/176,4/192 кГц × 20/40/100/200/400 мс, и DoP/DSD-частоты, если путь общий). Проверка: тесты модуля + clippy"
-    done: true
-  - id: 2
-    description: "Сторож запуска (сделано в whitelist без src/engine/messages.rs): run_output_loop считает written_frames и держит Instant с момента достижения start_threshold_frames (или с момента shared.ended, если декодер закончил раньше порога — короткий трек/хвост); чистая start_watchdog_decision(threshold_reached, pointer_moved=state==Running, elapsed, deadline=max(3×буфер,300мс)); по Fault — shared.set_fault(StreamFault::Stalled), выход из цикла, как остальные StreamFault. Короткий трек: ended && state==Prepared → один явный pcm.start() (идиома крейта alsa), сторож остаётся как резерв, если явный start не поднял поток. Эскалация пока идёт по уже существующему generic-пути run.rs poll_session (fault != None → EngineEvent::DeviceLost{reaction: StopWithError}) → уже существующее окно «Устройство вывода потеряно» в app/mod.rs (Applied::DeviceLost) — честная ошибка, не тишина, воспроизведение останавливается. Тесты: start_watchdog_decision (4 теста) + start_watchdog_deadline (3 теста)"
-    done: true
-  - id: 4
-    description: "Отдельное окно «Устройство не запустило воспроизведение» (заголовок/текст с буфером и периодом устройства, действия Настройки аудио/Отмена, Увеличить буфер устройства при буфере < 100 мс — опустить, если слишком большой объём и явно сказать об этом) требует различать StreamFault::Stalled на стороне app/mod.rs, а EngineEvent::DeviceLost{reaction} сейчас не несёт fault — нужно поле в EngineEvent (src/engine/messages.rs, НЕ в текущем whitelist) + обновить emit в run.rs и match в app/mod.rs. Перед началом: добавить src/engine/messages.rs в whitelist этой сессии. Пока это не сделано, Stalled показывает тот же общий текст, что DeviceUnavailable/BackendError (шаг 2) — не тишина, но не специфическое сообщение. Проверка: тесты + clippy"
-    done: true
-  - id: 5
-    description: "ЧЕКПОИНТ: полный cargo test + clippy"
-    done: true
-current_step: 5
-next_action: "закрытие по closing.md"
+  roadmap_id: null
+  title: null
+whitelist: []
+dod: null
+steps: []
+current_step: null
+next_action: null
 fail_counter: 0
 fail_counter_max: 3
 failed_attempts: []
