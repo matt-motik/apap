@@ -508,8 +508,9 @@ impl MusicApp {
     /// Совместимого режима (нет аппаратного устройства — есть только формат
     /// микшера сервера, `OsStage`), а также если устройство ещё не выбрано
     /// или каталог ещё не пришёл от движка. Общая часть `hw_caps_for_mode` и
-    /// `device_busy_for_mode` (AM1.0-B38, шаг 11).
-    fn selected_hw_device_for_mode(&self, mode: ModeKind) -> Option<&HwDeviceId> {
+    /// `device_busy_for_mode` (AM1.0-B38, шаг 11); `pub(super)` — также
+    /// вызывается из `mod.rs::maybe_probe_selected_device` (AM1.0-B38, шаг 9).
+    pub(super) fn selected_hw_device_for_mode(&self, mode: ModeKind) -> Option<&HwDeviceId> {
         if mode == ModeKind::Compatible {
             return None;
         }

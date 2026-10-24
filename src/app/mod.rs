@@ -361,6 +361,46 @@ fn mode_param_row_changed(old: &ModeParamRow, new: &ModeParamRow) -> bool {
     old_opts != new_opts
 }
 
+/// Решение: слать ли `EngineCmd::ProbeDeviceCaps` для устройства, выбранного
+/// в показанной панели режима диалога настроек (AM1.0-B38, §2.3, шаг 9).
+/// Чистая функция без доступа к `MusicApp`/движку — по образцу
+/// `play_route`/`mode_param_row_changed`, для прямого юнит-теста; реальные
+/// аргументы собирает `MusicApp::maybe_probe_selected_device`.
+///
+/// `device` — устройство, выбранное в черновике показанного режима
+/// (`None` — Совместимый режим, устройство не выбрано или не в текущем
+/// каталоге, `ui_manager.rs::selected_hw_device_for_mode`). `held` —
+/// устройство, которое держит замок (`LockState::Held`, иначе `None`) — не
+/// трогается, то же исключение, что и у собственной защиты движка
+/// (`engine::run::probe_device_caps`, §2.3). `caps_known` — возможности
+/// `device` уже кэшированы (`UiAudioState::hw_caps`) — повторный опрос
+/// ничего не даст. `last_probed` — устройство последней отправленной команды
+/// (дебаунс повторного выбора того же устройства подряд, не распространяется
+/// на выбор другого устройства). Возвращает устройство для отправки, если
+/// ни одно исключение не сработало.
+fn should_probe_device(
+    mode: ModeKind,
+    device: Option<&HwDeviceId>,
+    held: Option<&HwDeviceId>,
+    caps_known: bool,
+    last_probed: Option<&HwDeviceId>,
+) -> Option<HwDeviceId> {
+    if mode == ModeKind::Compatible {
+        return None;
+    }
+    let device = device?;
+    if held == Some(device) {
+        return None;
+    }
+    if caps_known {
+        return None;
+    }
+    if last_probed == Some(device) {
+        return None;
+    }
+    Some(device.clone())
+}
+
 /// Строки рекомендаций одной группы окна «Путь сигнала» → `PathRecItem`
 /// (ТЗ-81, ТЗ-84). Действие с кнопкой (`QuickFix`/`OpenSettings`) дописывается
 /// в `actions`, а `action-id` элемента — его индекс там; без действия —
@@ -503,6 +543,14 @@ pub struct MusicApp {
     /// 3) — `None` до первой записи, `Some("")` — бейдж скрыт (ничего не
     /// открыто). Пишет в Slint только при изменении (`sync_device_badge`).
     last_device_badge: Option<String>,
+    /// Устройство, для которого последним была отправлена
+    /// `EngineCmd::ProbeDeviceCaps` (AM1.0-B38, шаг 9) — дебаунс повторного
+    /// выбора того же устройства подряд в `on_settings_device`
+    /// (`maybe_probe_selected_device`): движок и так не плодит параллельные
+    /// опросы одного устройства (`probe_device_caps`, §2.3), но лишнюю
+    /// команду в канал всё равно не шлём. Выбор другого устройства —
+    /// обычное новое значение, не снятие дебаунса отдельным событием.
+    last_probed_device: Option<HwDeviceId>,
     /// Имя трека, по которому последний раз выставлялся заголовок окна
     /// (T1.0-B2, решение пользователя 2026-10-23): `None` — заголовок
     /// «APAP» (ничего не играет). Пишет в Slint только при изменении
@@ -834,6 +882,7 @@ impl MusicApp {
             audio_device_infos: Vec::new(),
             last_device_info_view: None,
             last_device_badge: None,
+            last_probed_device: None,
             last_window_title: None,
             events_tx,
             events_rx,
@@ -1261,6 +1310,45 @@ impl MusicApp {
         &self.audio_state
     }
 
+    /// Фоновый опрос caps устройства, выбранного в редактируемой панели
+    /// показанного режима диалога настроек (`shown_mode`, иначе активный
+    /// режим — диалог закрыт), если это даст новую информацию (AM1.0-B38,
+    /// §2.3, шаг 9). Вызывается из `on_settings_device` (смена выбора в
+    /// списке) и из `open_settings_dialog` (разовый опрос при открытии, если
+    /// caps выбранного устройства ещё не известны).
+    ///
+    /// Пропускает: Совместимый режим (нет аппаратных caps устройства —
+    /// только формат микшера сервера, `OsStage`); устройство не выбрано или
+    /// не найдено в текущем каталоге движка (`selected_hw_device_for_mode`,
+    /// `ui_manager.rs`); устройство держит замок (`LockState::Held`) — то же
+    /// исключение, что и у собственной защиты движка
+    /// (`engine::run::probe_device_caps`), здесь — чтобы не слать команду,
+    /// которую он всё равно отбросит; устройство, чьи caps уже кэшированы
+    /// (`UiAudioState::hw_caps`) — повторный опрос ничего не даст. Дебаунс
+    /// повторного выбора того же устройства подряд — `last_probed_device`
+    /// (не плодит повторные команды в канал движка, даже если первый опрос
+    /// ещё не завершился).
+    pub(super) fn maybe_probe_selected_device(&mut self) {
+        let mode = self
+            .core
+            .draft()
+            .map(|d| d.shown_mode)
+            .unwrap_or_else(|| self.core.state().active_mode());
+        let device = self.selected_hw_device_for_mode(mode);
+        let held = match self.audio().lock() {
+            LockState::Held { info } => Some(&info.device),
+            _ => None,
+        };
+        let caps_known = device.is_some_and(|d| self.audio().hw_caps(d).is_some());
+        let Some(device) =
+            should_probe_device(mode, device, held, caps_known, self.last_probed_device.as_ref())
+        else {
+            return;
+        };
+        self.last_probed_device = Some(device.clone());
+        self.engine_send(EngineCmd::ProbeDeviceCaps { device });
+    }
+
     /// Открыть трек асинхронно: команда уходит в движок немедленно, сам
     /// `TrackInfo` приходит позже событием `Opened`/`OpenFailed`/`Skipped`
     /// через `on_engine_event` (ADR-01, ADR-02, И-Р14, ТЗ-56).
@@ -1683,6 +1771,10 @@ impl MusicApp {
             ui.set_settings_open(true);
         }
         self.sync_gate_ui();
+        // AM1.0-B38, шаг 9: разовый опрос caps устройства, уже выбранного в
+        // показанной панели режима, если они ещё не известны (иначе блок
+        // «Аудио» показывал бы NOT_CACHED до первого изменения выбора).
+        self.maybe_probe_selected_device();
         true
     }
 
@@ -2358,6 +2450,10 @@ impl MusicApp {
                     let mode = d.shown_mode;
                     d.settings.playback.set_device(mode, &raw);
                 });
+                // AM1.0-B38, шаг 9: выбор устройства в Оптимальном/Строгом
+                // запускает фоновый опрос caps, если они ещё не известны и
+                // устройство не держит замок (`maybe_probe_selected_device`).
+                a.maybe_probe_selected_device();
             });
         }
 
@@ -3800,6 +3896,69 @@ mod tests {
         let old = mode_param_row(200.0, &["a", "b"]);
         let relabeled = mode_param_row(200.0, &["a", "b (недоступно)"]);
         assert!(mode_param_row_changed(&old, &relabeled));
+    }
+
+    fn dev(s: &str) -> HwDeviceId {
+        s.parse().expect("валидный HwDeviceId в тесте")
+    }
+
+    /// AM1.0-B38, шаг 9: Совместимый режим — опрос не шлётся, даже если
+    /// устройство выбрано и ничем не занято.
+    #[test]
+    fn should_probe_device_skips_compatible_mode() {
+        let d = dev("hw:CARD=USB,DEV=0");
+        assert_eq!(should_probe_device(ModeKind::Compatible, Some(&d), None, false, None), None);
+    }
+
+    /// Устройство не выбрано (ещё не пришло из каталога/не сохранено) —
+    /// ничего слать некому.
+    #[test]
+    fn should_probe_device_skips_no_selection() {
+        assert_eq!(should_probe_device(ModeKind::Optimal, None, None, false, None), None);
+    }
+
+    /// Выбранное устройство держит замок (активное/захваченное,
+    /// `LockState::Held`) — не трогаем его опросом, та же защита, что у
+    /// движка.
+    #[test]
+    fn should_probe_device_skips_held_device() {
+        let d = dev("hw:CARD=USB,DEV=0");
+        assert_eq!(should_probe_device(ModeKind::Strict, Some(&d), Some(&d), false, None), None);
+    }
+
+    /// Caps выбранного устройства уже кэшированы — повторный опрос не нужен.
+    #[test]
+    fn should_probe_device_skips_known_caps() {
+        let d = dev("hw:CARD=USB,DEV=0");
+        assert_eq!(should_probe_device(ModeKind::Optimal, Some(&d), None, true, None), None);
+    }
+
+    /// Дебаунс: подряд то же устройство, что уже было отправлено на опрос, —
+    /// повторная команда не шлётся.
+    #[test]
+    fn should_probe_device_debounces_repeat_selection() {
+        let d = dev("hw:CARD=USB,DEV=0");
+        assert_eq!(should_probe_device(ModeKind::Optimal, Some(&d), None, false, Some(&d)), None);
+    }
+
+    /// Нет исключений — устройство возвращается для отправки
+    /// `EngineCmd::ProbeDeviceCaps`.
+    #[test]
+    fn should_probe_device_returns_device_when_unknown_and_free() {
+        let d = dev("hw:CARD=USB,DEV=0");
+        assert_eq!(should_probe_device(ModeKind::Optimal, Some(&d), None, false, None), Some(d));
+    }
+
+    /// Выбор другого устройства после отправки опроса первого — дебаунс не
+    /// распространяется на новое устройство.
+    #[test]
+    fn should_probe_device_allows_different_device_after_debounce() {
+        let prev = dev("hw:CARD=USB,DEV=0");
+        let next = dev("hw:CARD=USB,DEV=1");
+        assert_eq!(
+            should_probe_device(ModeKind::Optimal, Some(&next), None, false, Some(&prev)),
+            Some(next)
+        );
     }
 
     /// AM1.0-B21, §6.18, ТЗ-20: из «Стоп» (в т. ч. после смены режима,

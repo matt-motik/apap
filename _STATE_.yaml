@@ -49,12 +49,12 @@ steps:
     done: true
   - id: 9
     description: "src/app/mod.rs, on_settings_device: после edit_draft — если показанный режим Оптимальный/Строгий и выбранное устройство не активное/захваченное, отправка EngineCmd::ProbeDeviceCaps с дебаунсом (повтор того же устройства подряд не шлёт новую команду); в Совместимом — не отправлять. Проверка: cargo test (дебаунс, пропуск Совместимого, пропуск активного устройства)."
-    done: false
+    done: true
   - id: 10
     description: "ЧЕКПОИНТ перед закрытием: полный cargo test + cargo clippy по всему вайтлисту."
     done: false
-current_step: 9
-next_action: "src/app/mod.rs on_settings_device: trigger probe on device selection"
+current_step: 10
+next_action: "ЧЕКПОИНТ: full cargo test + cargo clippy over whitelist, then closing.md"
 fail_counter: 0
 fail_counter_max: 3
 failed_attempts: []
