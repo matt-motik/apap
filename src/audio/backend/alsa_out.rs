@@ -10,6 +10,7 @@ use std::num::NonZeroU8;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{mpsc, Arc};
 use std::thread::{self, JoinHandle};
+use std::time::{Duration, Instant};
 
 use super::exclusive::{ExclusiveRender, PcmHandle, StreamHandle};
 use crate::audio::error::StreamFault;
@@ -162,10 +163,74 @@ impl StreamHandle for AlsaStreamHandle {
 /// период в кадрах и в байтах (размер `period_buf`) и таймаут `pcm.wait`
 /// (2×период в мс). Собраны в одну структуру, чтобы `spawn_output_thread`/
 /// `run_output_loop` не превышали 7 параметров (`clippy::too_many_arguments`).
+///
+/// `start_threshold_frames`/`watchdog_deadline` — сторож запуска (§6.7 п. 2,
+/// ТЗ-68, AM1.0-B34): посчитаны один раз в `AlsaExclusiveBackend::start`, не
+/// в RT-цикле (И-Р7).
 pub(crate) struct LoopTiming {
     pub(crate) period_frames: u32,
     pub(crate) period_bytes: usize,
     pub(crate) wait_timeout_ms: u32,
+    /// Порог старта потока (`sw_params::start_threshold`, кадры) — тот же,
+    /// что уже установлен в sw_params (`alsa.rs::start_threshold_frames`):
+    /// цикл сравнивает с ним счётчик уже записанных кадров, не читая ALSA
+    /// повторно.
+    pub(crate) start_threshold_frames: i64,
+    /// Дедлайн сторожа — `max(3×время буфера, 300 мс)` от момента, когда
+    /// счётчик записанных кадров достиг `start_threshold_frames` (или от
+    /// момента, когда декодер закончил, см. `run_output_loop`).
+    pub(crate) watchdog_deadline: Duration,
+}
+
+/// Минимальный дедлайн сторожа запуска (§6.7 п. 2, ТЗ-68, AM1.0-B34) —
+/// нижняя граница `max(3×буфер, 300 мс)` и запасное значение, если буфер
+/// устройства не удалось прочитать при запуске потока.
+pub(crate) const MIN_START_WATCHDOG_DEADLINE: Duration = Duration::from_millis(300);
+
+/// Дедлайн сторожа запуска — `max(3×время буфера устройства, 300 мс)` (§6.7
+/// п. 2, ТЗ-68, AM1.0-B34): время, которое даётся драйверу перейти в
+/// `RUNNING` после того, как писатель заполнил буфер до порога старта.
+/// `None` — переполнение или нулевая частота, а не паника; вызывающая
+/// сторона подставляет `MIN_START_WATCHDOG_DEADLINE`.
+pub(crate) fn start_watchdog_deadline(buffer_frames: u32, rate_hz: u32) -> Option<Duration> {
+    let buffer_ms = u64::from(buffer_frames).checked_mul(1_000)?.checked_div(u64::from(rate_hz))?;
+    let triple_ms = buffer_ms.checked_mul(3)?.max(300);
+    u32::try_from(triple_ms).ok().map(|ms| Duration::from_millis(u64::from(ms)))
+}
+
+/// Решение сторожа запуска потока на текущей итерации цикла (§6.7 п. 2,
+/// ТЗ-68, AM1.0-B34).
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub(crate) enum StartWatchdogDecision {
+    /// Ждать дальше — порог ещё не достигнут, hw-указатель уже двинулся,
+    /// либо дедлайн не истёк.
+    Wait,
+    /// Поток открыт, порог достигнут, hw-указатель не двинулся дольше
+    /// дедлайна — честная ошибка вместо тишины (`StreamFault::Stalled`).
+    Fault,
+}
+
+/// Чистая функция решения сторожа (§6.7 п. 2, ТЗ-68, AM1.0-B34): без ALSA,
+/// тестируется без реального устройства. `threshold_reached` — писатель
+/// заполнил буфер до порога старта, либо декодер уже закончил (короткий
+/// трек/хвост — порог может быть недостижим в принципе, см.
+/// `run_output_loop`); `pointer_moved` — PCM уже в `RUNNING` (hw-указатель
+/// точно движется); `elapsed` — время с момента, когда `threshold_reached`
+/// стало истинным впервые.
+pub(crate) fn start_watchdog_decision(
+    threshold_reached: bool,
+    pointer_moved: bool,
+    elapsed: Duration,
+    deadline: Duration,
+) -> StartWatchdogDecision {
+    if !threshold_reached || pointer_moved {
+        return StartWatchdogDecision::Wait;
+    }
+    if elapsed >= deadline {
+        StartWatchdogDecision::Fault
+    } else {
+        StartWatchdogDecision::Wait
+    }
 }
 
 /// Запуск потока `apap-alsa-out` (§6.7): PCM перемещается в поток целиком и
@@ -193,6 +258,18 @@ pub(crate) fn spawn_output_thread(
 /// один раз до входа в цикл — внутри цикла нет аллокаций (И-Р7, ТЗ-112).
 /// TID потока отправляется в `tid_tx` до входа в цикл (§6.8); отказ
 /// отправки (получатель уже отброшен) не паникует и не прерывает поток.
+///
+/// Сторож запуска (§6.7 п. 2, ТЗ-68, AM1.0-B34): открытый поток, чей
+/// hw-указатель никогда не двинулся, — честная ошибка (`StreamFault::
+/// Stalled`), а не бесконечная тишина. `written_frames`/`watchdog_at`/
+/// `watchdog_resolved`/`explicit_started` — состояние сторожа внутри одного
+/// запуска потока, без аллокаций (`Instant::now()` — не системный вызов с
+/// I/O). Короткий трек/хвост, где декодер заканчивает раньше, чем писатель
+/// набирает порог старта, — порог в принципе недостижим обычным путём:
+/// как только декодер закончил (`shared.ended`), поток один раз зовёт явный
+/// `pcm.start()` (идиома самого крейта `alsa`, см. `pcm.rs` doc-пример), а
+/// сторож остаётся даже после этой попытки — на случай, если и явный
+/// `start()` не поднял поток (та же честная ошибка вместо тишины).
 fn run_output_loop(
     pcm: PcmHandle,
     render: &mut ExclusiveRender,
@@ -206,6 +283,11 @@ fn run_output_loop(
     let mut period_buf = vec![0u8; timing.period_bytes];
     let io = pcm.pcm().io_bytes();
     let period_frames_i64 = i64::from(timing.period_frames);
+
+    let mut written_frames: i64 = 0;
+    let mut watchdog_at: Option<Instant> = None;
+    let mut watchdog_resolved = false;
+    let mut explicit_started = false;
 
     'outer: while !stop.load(Ordering::Acquire) {
         if let Err(e) = pcm.pcm().wait(Some(timing.wait_timeout_ms)) {
@@ -227,12 +309,38 @@ fn run_output_loop(
         while avail >= period_frames_i64 {
             render.render(&mut period_buf);
             match io.writei(&period_buf) {
-                Ok(_) => avail -= period_frames_i64,
+                Ok(_) => {
+                    avail -= period_frames_i64;
+                    written_frames = written_frames.saturating_add(period_frames_i64);
+                }
                 Err(e) => {
                     if handle_stream_error(pcm.pcm(), e.errno(), shared) {
                         break 'outer;
                     }
                     break;
+                }
+            }
+        }
+
+        if !watchdog_resolved {
+            let running = pcm.pcm().state() == alsa::pcm::State::Running;
+            if running {
+                watchdog_resolved = true;
+            } else {
+                let ended = shared.ended.load(Ordering::Acquire);
+                if ended && !explicit_started {
+                    explicit_started = true;
+                    let _ = pcm.pcm().start();
+                }
+                let threshold_reached = ended || written_frames >= timing.start_threshold_frames;
+                if threshold_reached {
+                    let t0 = watchdog_at.get_or_insert_with(Instant::now);
+                    if start_watchdog_decision(true, running, t0.elapsed(), timing.watchdog_deadline)
+                        == StartWatchdogDecision::Fault
+                    {
+                        shared.set_fault(StreamFault::Stalled);
+                        break 'outer;
+                    }
                 }
             }
         }
@@ -297,5 +405,61 @@ mod tests {
         let (tx, rx) = mpsc::channel::<rustix::thread::Pid>();
         drop(tx);
         assert_eq!(recv_tid(rx), None);
+    }
+
+    /// Сторож запуска (§6.7 п. 2, ТЗ-68, AM1.0-B34): порог не достигнут —
+    /// ждём, даже если формальный «дедлайн» давно истёк (вырожденный
+    /// `Duration::ZERO`, на практике недостижим, но функция не паникует).
+    #[test]
+    fn start_watchdog_waits_while_threshold_not_reached() {
+        let decision =
+            start_watchdog_decision(false, false, Duration::from_secs(10), Duration::ZERO);
+        assert_eq!(decision, StartWatchdogDecision::Wait);
+    }
+
+    /// Порог достигнут, но hw-указатель уже двинулся (`RUNNING`) — не
+    /// ошибка, даже если элапс формально больше дедлайна.
+    #[test]
+    fn start_watchdog_waits_when_pointer_already_moved() {
+        let decision =
+            start_watchdog_decision(true, true, Duration::from_secs(10), Duration::from_millis(300));
+        assert_eq!(decision, StartWatchdogDecision::Wait);
+    }
+
+    /// Порог достигнут, указатель не двинулся, дедлайн не истёк — ждём дальше.
+    #[test]
+    fn start_watchdog_waits_before_deadline() {
+        let decision =
+            start_watchdog_decision(true, false, Duration::from_millis(100), Duration::from_millis(300));
+        assert_eq!(decision, StartWatchdogDecision::Wait);
+    }
+
+    /// Порог достигнут, указатель не двинулся, дедлайн истёк — честная
+    /// ошибка вместо бесконечной тишины (AM1.0-B34).
+    #[test]
+    fn start_watchdog_faults_after_deadline() {
+        let decision =
+            start_watchdog_decision(true, false, Duration::from_millis(300), Duration::from_millis(300));
+        assert_eq!(decision, StartWatchdogDecision::Fault);
+    }
+
+    /// `max(3×буфер, 300 мс)` (§6.7 п. 2, ТЗ-68, AM1.0-B34): буфер короче
+    /// 100 мс — дедлайн упирается в минимум 300 мс.
+    #[test]
+    fn start_watchdog_deadline_floors_at_300ms_for_short_buffers() {
+        // 20 мс буфера при 44,1 кГц — 882 кадра; 3×20=60 мс < 300 мс.
+        assert_eq!(start_watchdog_deadline(882, 44_100), Some(Duration::from_millis(300)));
+    }
+
+    /// Буфер 200 мс — дедлайн растёт вместе с ним (3×200=600 мс > 300 мс).
+    #[test]
+    fn start_watchdog_deadline_scales_with_large_buffers() {
+        // 200 мс буфера при 48 кГц — 9 600 кадров.
+        assert_eq!(start_watchdog_deadline(9_600, 48_000), Some(Duration::from_millis(600)));
+    }
+
+    #[test]
+    fn start_watchdog_deadline_zero_rate_is_none() {
+        assert_eq!(start_watchdog_deadline(882, 0), None);
     }
 }

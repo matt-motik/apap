@@ -372,6 +372,23 @@ impl AlsaExclusiveBackend {
             })?;
         }
 
+        // Сторож запуска потока (§6.7 п. 2, ТЗ-68, AM1.0-B34): порог и дедлайн
+        // считаются здесь, один раз при запуске, не в RT-цикле (И-Р7) —
+        // `run_output_loop` получает их уже готовыми через `LoopTiming`.
+        // Буфер читается тем же `hw_params_current`, что и `configure`; PCM
+        // между `configure` и `start` не переоткрывается (§6.18), поэтому
+        // показания актуальны. Чтение не удалось — порог падает к одному
+        // периоду (писатель его точно достигнет первой же записью), а
+        // дедлайн — к `MIN_START_WATCHDOG_DEADLINE`, чтобы сторож не
+        // блокировался навсегда без показаний драйвера.
+        let period_frames_i64 = alsa::pcm::Frames::from(period_frames);
+        let buffer_frames_i64 = read_hw_params_current(handle.pcm()).map_or(period_frames_i64, |r| r.buffer_frames);
+        let start_threshold = start_threshold_frames(buffer_frames_i64, period_frames_i64);
+        let watchdog_deadline = u32::try_from(buffer_frames_i64)
+            .ok()
+            .and_then(|frames| alsa_out::start_watchdog_deadline(frames, fmt.rate.hz()))
+            .unwrap_or(alsa_out::MIN_START_WATCHDOG_DEADLINE);
+
         let Some(pcm) = claim.pcm_mut().take() else {
             return Err(StartError("start вызван без открытого PCM (acquire не выполнен, §6.7)".to_string()));
         };
@@ -379,7 +396,13 @@ impl AlsaExclusiveBackend {
         let stop = Arc::new(AtomicBool::new(false));
         let (tid_tx, tid_rx) = mpsc::channel();
 
-        let timing = alsa_out::LoopTiming { period_frames, period_bytes, wait_timeout_ms };
+        let timing = alsa_out::LoopTiming {
+            period_frames,
+            period_bytes,
+            wait_timeout_ms,
+            start_threshold_frames: start_threshold,
+            watchdog_deadline,
+        };
         let join = match alsa_out::spawn_output_thread(pcm, render, timing, shared, Arc::clone(&stop), tid_tx) {
             Ok(join) => join,
             Err(e) => return Err(StartError(format!("не удалось создать поток apap-alsa-out: {e}"))),
