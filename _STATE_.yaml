@@ -44,7 +44,7 @@ steps:
     done: true
   - id: 3
     description: "ЧЕКПОИНТ: cargo test, cargo clippy, tools/check_rt_imports.py, tools/traceability_tool.py check — все зелёные"
-    done: false
+    done: true
   - id: 4
     description: "src/settings/params.rs (35 строк, подписи ParamId — «Доступ к устройству», «Устройство» и т. п.) → src/i18n/params.rs. Проверка: cargo check без ошибок"
     done: false
@@ -96,8 +96,8 @@ steps:
   - id: 20
     description: "ЧЕКПОИНТ (финальный, перед закрытием задачи): полный cargo test + cargo clippy + tools/check_rt_imports.py + tools/traceability_tool.py check — все зелёные; выборочная сверка, что перенесённые строки байт-в-байт совпадают с прежними (diff литералов)"
     done: false
-current_step: 3
-next_action: "ЧЕКПОИНТ: cargo test, cargo clippy, tools/check_rt_imports.py, tools/traceability_tool.py check"
+current_step: 4
+next_action: "Шаг 4: src/settings/params.rs (35 строк, подписи ParamId) → src/i18n/params.rs"
 fail_counter: 0
 fail_counter_max: 3
 failed_attempts: []
