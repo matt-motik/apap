@@ -14,12 +14,12 @@
 
 ## Итерационный трекер
 - [x] Шаг 1: ui/settings.slint + ui/app.slint: in-out property theme-current-index, ComboBox { current-index <=> root.theme-current-index }, проводка Settings<=>AppWindow; src/app/mod.rs apply_theme_list: индекс текущей темы в entries -> ui.set_theme_current_index (не найдена -> -1) (T1.0 §5.1). Проверка: cargo check; cargo test --lib app::; cargo clippy без новых предупреждений
-- [>] **Шаг 2: ЧЕКПОИНТ: полный cargo test + cargo clippy**
+- [x] Шаг 2: ЧЕКПОИНТ: полный cargo test + cargo clippy
 
 Легенда: [x] сделано · [>] текущий шаг · [ ] не начато
 
 - **Текущий шаг (current_step):** Шаг 2
-- **Следующий ход:** ЧЕКПОИНТ: полный cargo test + cargo clippy
+- **Следующий ход:** закрытие по closing.md
 - **Счетчик безуспешных компиляций:** 0/3
 - **Состояние:** in_progress
 

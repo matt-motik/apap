@@ -17,9 +17,9 @@ steps:
     done: true
   - id: 2
     description: "ЧЕКПОИНТ: полный cargo test + cargo clippy"
-    done: false
+    done: true
 current_step: 2
-next_action: "ЧЕКПОИНТ: полный cargo test + cargo clippy"
+next_action: "закрытие по closing.md"
 fail_counter: 0
 fail_counter_max: 3
 failed_attempts: []
