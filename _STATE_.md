@@ -2,34 +2,10 @@
      Source of truth: _STATE_.yaml — edit that, then run:
      python tools/state_tool.py render -->
 
+# Состояние сессии
 
-# Текущая микро-сессия
-
-- **Задача из ROADMAP:** T1.0-B6 — Английские строки вне вайтлиста T1.0-B2: SERVER_NODE_SUFFIX и sort_rows_text() через src/i18n/
-- **Вайтлист файлов в работе (Изменяемые файлы):**
-  - src/i18n/audio.rs
-  - src/audio/output.rs
-  - src/app/ui_manager.rs
-  - src/app/mod.rs
-  - src/playlist/mod.rs
-- **Критерий успеха (Definition of Done):** SERVER_NODE_SUFFIX и sort_rows_text() выдают русский текст через src/i18n/ (без локальных английских литералов); cargo test зелёный; cargo clippy без новых предупреждений
-
-## Итерационный трекер
-- [x] Шаг 1: src/i18n/audio.rs: добавить pub const SERVER_NODE_SUFFIX (русский текст, формат « — (программный, с ресемплингом)») с doc-комментарием T1.0-B6 и юнит-тестом значения. Проверка: cargo check
-- [x] Шаг 2: src/audio/output.rs: убрать локальное определение SERVER_NODE_SUFFIX, label_device_names использует crate::i18n::audio::SERVER_NODE_SUFFIX; временный мост `pub use crate::i18n::audio::SERVER_NODE_SUFFIX;` на старом пути (убирается шагом 5 этой же задачи — внешние ссылки на 2-3 файла мигрируют по одной, planning.md §5); обновить 3 юнит-теста, сверяющих литерал "(software, resamples)", на SERVER_NODE_SUFFIX. Проверка: cargo test --lib audio::output::
-- [x] Шаг 3: src/app/ui_manager.rs: 2 вызова strip_suffix(music_player_rs::audio::output::SERVER_NODE_SUFFIX) → music_player_rs::i18n::audio::SERVER_NODE_SUFFIX; обновить doc-комментарий find_device_index_in, цитирующий старый английский текст суффикса. Проверка: cargo check
-- [x] Шаг 4: src/app/mod.rs: тест find_device_index_in_strips_server_suffix — путь константы music_player_rs::i18n::audio::SERVER_NODE_SUFFIX. Проверка: cargo test --lib app::mod::tests::find_device_index_in_strips_server_suffix
-- [x] Шаг 5: src/audio/output.rs: убрать временный мост (pub use .. SERVER_NODE_SUFFIX) — больше не используется внешними вызывающими после шагов 3-4. Проверка: cargo check
-- [x] Шаг 6: src/playlist/mod.rs: sort_rows_text() — ColumnId::Bitrate через i18n::format_kbps(track.bitrate), ColumnId::SampleRate через i18n::format_khz(sample_rate/1000.0) вместо литералов "{} kbps"/"{} Hz". Проверка: cargo check
-- [x] Шаг 7: src/app/mod.rs: тест sort_rows_text_formats_columns — ожидания Bitrate/SampleRate на русский вывод format_kbps/format_khz ("1411 кбит/с", "96 кГц" и т. п.). Проверка: cargo test --lib app::mod::tests::sort_rows_text_formats_columns
-- [x] Шаг 8: ЧЕКПОИНТ: полный cargo test + cargo clippy без новых предупреждений по файлам вайтлиста перед закрытием T1.0-B6
-
-Легенда: [x] сделано · [>] текущий шаг · [ ] не начато
-
-- **Текущий шаг (current_step):** Шаг 8
-- **Следующий ход:** закрытие по closing.md
-- **Счетчик безуспешных компиляций:** 0/3
-- **Состояние:** in_progress
+- **Текущая задача:** Нет (все шаги завершены)
+- **Состояние:** done
 
 ## План: Executable workflow: правила AGENTS.md → исполняемые механизмы
 _Источник: чат с пользователем (ноутбук), начат в 67686ce; перенесён в репо 2026-09-22_
@@ -72,5 +48,6 @@ _Источник: чат с пользователем (ноутбук), нач
   - На Windows-ноутбуке: проверить cargo build (Windows/macOS проверены только ревью).
   - На С12: ручной strace ТЗ-19.
   - T1.0-B2 шаг 14: окно AppWindow (ui/app.slint) имеет статический title: "APAP" — src/i18n/mod.rs::window_title()/APP_NAME (шаг 1) нигде не вызывается, заголовок не обновляется на «APAP — <трек>» при смене трека. Нужно завести in-property window-title в app.slint и дёргать window_title() из mod.rs/ui_manager.rs при обновлении трека — при следующей работе с этими файлами (шаг 20/21) или отдельным шагом до закрытия T1.0-B2.
+  - Ручные проверки за пользователем: T1.0-B6 — Настройки → «Аудио»: в списке устройств PipeWire/Pulse-узлы («Системное по умолчанию» не в счёт) подписаны суффиксом «… — (программный, с ресемплингом)» по-русски (не «(software, resamples)»); выбор такого узла и повторное открытие диалога сохраняют и находят устройство как прежде (сырой/персистентный id не поменялся, суффикс только в видимом ярлыке).
 
 Легенда: [x] сделано · [~] частично · [>] в работе · [ ] не начато · [-] отменено
