@@ -2,15 +2,29 @@
 # _STATE_.md генерируется из этого файла — не редактировать его руками.
 # Редактируйте этот файл, затем: python tools/state_tool.py render
 
-status: done
+status: in_progress
 task:
-  roadmap_id: null
-  title: null
-whitelist: []
-dod: null
-steps: []
-current_step: null
-next_action: null
+  roadmap_id: AM1.0-B36
+  title: "Окно ошибки захвата не закрывается само при возвращении устройства — автоповтор enumerate + журнал цепочки"
+whitelist:
+  - src/journal.rs
+  - src/engine/deps.rs
+  - src/engine/run.rs
+  - src/engine/tests.rs
+  - src/audio/testing/mod.rs
+dod: "cargo test зелёный; cargo clippy 0 новых предупреждений; повторная вставка USB-ЦАП после одного неудачного enumerate подхватывается автоматически в течение ~5 с без нового сигнала DeviceWatcher"
+steps:
+  - id: 1
+    description: "Журнал цепочки повторного захвата: изменение списка карт, результат enumerate (успех/ошибка с текстом), найдено/не найдено устройство ReacquirePoint (id), решение lock_step — через существующий journal (вне RT-потока). Проверка: cargo check + clippy"
+    done: false
+  - id: 2
+    description: "Повтор enumerate после изменения списка карт: при ошибке или если ReacquirePoint есть, а устройства в каталоге нет — до N попыток с интервалом ~500 мс в течение ~5 с (без блокировки цикла движка; таймер/счётчик в poll_session), затем Notice как сейчас; тест на подставном AudioHost/каталоге: первая попытка ошибка/пусто, вторая — устройство есть → DeviceReappeared → захват. Проверка: тесты engine + clippy"
+    done: false
+  - id: 3
+    description: "ЧЕКПОИНТ: полный cargo test + clippy"
+    done: false
+current_step: 1
+next_action: "Добавить JournalRecord::DeviceEnumerate/DeviceReacquireLookup и записи в refresh_devices/try_reacquire_reappeared_device"
 fail_counter: 0
 fail_counter_max: 3
 failed_attempts: []
