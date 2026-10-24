@@ -106,6 +106,141 @@ component ModeButton inherits Rectangle {
     }
 }
 
+// AM1.0-B4 (решение пользователя 2026-10-10/23, AM1.0-B30 шаг 3): компактный
+// бейдж активного режима в строке меню — тот же набор режимов, что в
+// переключателе ModeButton выше в главном окне (ТЗ-18, ТЗ-109…ТЗ-111), но
+// как попап: клик открывает список трёх режимов (отмеченных «✓» у активного
+// — не цветом, различимость формой/символом), недоступный режим не
+// прячется, остаётся видимым строкой и неактивным (ТЗ-109, ТЗ-110). Выбор
+// применяется сразу тем же `select-mode`, что и ряд ModeButton — тот же
+// Rust-обработчик, без шага «Сохранить».
+component ModeBadge inherits Rectangle {
+    in property <int> active-mode: 0;
+    in property <[bool]> mode-available: [true, true, true];
+    in property <[string]> mode-unavailable-reason: ["", "", ""];
+    callback select-mode(int);
+
+    private property <[string]> mode-labels: [@tr("Совместимый"), @tr("Оптимальный"), @tr("Строгий")];
+
+    background: transparent;
+    height: badge-text.preferred-height;
+    width: badge-text.preferred-width;
+
+    badge-text := Text {
+        text: root.mode-labels[root.active-mode];
+        color: touch.has-hover ? Colors.text-secondary : Colors.text-tertiary;
+        font-size: 11px;
+        vertical-alignment: center;
+    }
+
+    touch := TouchArea {
+        mouse-cursor: MouseCursor.pointer;
+        clicked => { popup.show(); }
+    }
+
+    // Подсказка — тот же паттерн, что у LockButton ниже (свой попап после
+    // 700 мс непрерывного наведения, не встроенный Tooltip): см. комментарий
+    // там же про обрезку фиксированной позиции у края окна.
+    private property <int> hover-ms: 0;
+    private property <bool> show-tooltip: false;
+    Timer {
+        interval: 50ms;
+        running: true;
+        triggered => {
+            if (touch.has-hover) {
+                root.hover-ms += 50;
+            } else {
+                root.hover-ms = 0;
+            }
+            root.show-tooltip = root.hover-ms >= 700;
+        }
+    }
+
+    if touch.has-hover && root.show-tooltip: Rectangle {
+        x: root.width - self.width;
+        y: root.height + 4px;
+        width: 180px;
+        height: mode-tip-text.preferred-height + 10px;
+        background: Colors.bg-elevated;
+        border-color: Colors.border-default;
+        border-width: 1px;
+        border-radius: 4px;
+        z: 10;
+
+        mode-tip-text := Text {
+            text: @tr("Режим воспроизведения");
+            color: Colors.text-secondary;
+            font-size: 11px;
+            wrap: word-wrap;
+            x: 6px;
+            y: 5px;
+            width: parent.width - 12px;
+        }
+    }
+
+    // Попап списка режимов: встроенный PopupWindow (не самодельный Rectangle,
+    // как подсказка выше) — рисуется в overlay-слое самого Slint, поэтому
+    // позиционируется относительно бейджа независимо от того, в какое дерево
+    // тот вложен (оверлей над встроенным MenuBar на Linux/Windows через
+    // отрицательный y контейнера в ui/app.slint, или обычная верхняя панель
+    // на macOS, menu-bar-in-window: false — см. MenuBarTrailing ниже).
+    popup := PopupWindow {
+        x: 0px;
+        y: root.height + 4px;
+        width: 210px;
+        height: mode-list.preferred-height + 8px;
+        close-policy: close-on-click-outside;
+
+        Rectangle {
+            background: Colors.bg-elevated;
+            border-color: Colors.border-default;
+            border-width: 1px;
+            border-radius: 6px;
+
+            mode-list := VerticalLayout {
+                padding: 4px;
+                spacing: 2px;
+
+                for lbl[i] in root.mode-labels: row := Rectangle {
+                    private property <bool> available: root.mode-available[i];
+                    height: 28px;
+                    border-radius: 4px;
+                    background: row-touch.has-hover && row.available ? Colors.surface-hover : transparent;
+
+                    row-touch := TouchArea {
+                        enabled: row.available;
+                        mouse-cursor: row.available ? MouseCursor.pointer : MouseCursor.not-allowed;
+                        clicked => {
+                            popup.close();
+                            root.select-mode(i);
+                        }
+                    }
+
+                    HorizontalLayout {
+                        padding-left: 8px;
+                        padding-right: 8px;
+                        spacing: 6px;
+                        Text {
+                            text: i == root.active-mode ? "✓" : "";
+                            color: Colors.accent;
+                            font-size: 12px;
+                            vertical-alignment: center;
+                            width: 14px;
+                        }
+                        Text {
+                            text: lbl;
+                            color: !row.available ? Colors.text-dim : (i == root.active-mode ? Colors.text-primary : Colors.text-secondary);
+                            font-size: 12px;
+                            vertical-alignment: center;
+                            horizontal-stretch: 1;
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
 // ADR-06, §6.19, ТЗ-44, ТЗ-46, ТЗ-50, ТЗ-55, ТЗ-61, ТЗ-118, ТЗ-119, ТЗ-121,
 // ТЗ-144 (решение пользователя 2026-10-23 — редизайн): кнопка-значок замка
 // устройства без подписи. Вид (значок, цвет не несёт смысла — различимость
@@ -233,12 +368,15 @@ component LockButton inherits Rectangle {
 }
 
 // ADR-06, §6.19, AM1.0-B14 шаг 8 (AM1.0-B4, AM1.0-B30): контейнер у правого
-// края строки меню — пока только кнопка замка; будущая группа
-// «режим ▾ · устройство» встаёт здесь же, слева от неё (новые элементы
-// добавляются ПЕРЕД LockButton, выравнивание `end` сохраняет замок крайним
-// справа). Используется дважды в зависимости от `menu-bar-in-window`
-// (ui/app.slint): оверлеем над встроенным MenuBar (Linux/Windows) или здесь,
-// в TopPanel, у правого края верхней панели (macOS, системный NSMenu).
+// края строки меню — бейдж режима (ModeBadge) · бейдж устройства · замок
+// (новые элементы добавляются ПЕРЕД LockButton, выравнивание `end`
+// сохраняет замок крайним справа). Используется дважды в зависимости от
+// `menu-bar-in-window` (ui/app.slint): оверлеем над встроенным MenuBar
+// (Linux/Windows) или здесь, в TopPanel, у правого края верхней панели
+// (macOS, системный NSMenu). AM1.0-B4 шаг 6: на Linux/Windows свойства
+// режима у прямого инстанса в ui/app.slint ещё не подключены (шаг 7, тот же
+// файл в вайтлисте следующего шага) — бейдж там временно показывает
+// умолчания (Совместимый, select-mode без обработчика).
 export component MenuBarTrailing inherits HorizontalLayout {
     in property <LockKind> lock-kind: LockKind.not-applicable;
     in property <string> lock-text: "";
@@ -247,14 +385,26 @@ export component MenuBarTrailing inherits HorizontalLayout {
     // AM1.0-B30 шаг 3: ярлык фактически открытого устройства — та же
     // подпись, что в DeviceInfoView.now_line (src/app/device_info_view.rs),
     // без приставки «Сейчас: ● … —»; "" — ничего не открыто, бейдж скрыт
-    // целиком (без «—», решение шага). Будущий бейдж режима (AM1.0-B4)
-    // встаёт здесь же, перед DeviceBadge (слева от него).
+    // целиком (без «—», решение шага).
     in property <string> device-label: "";
+    // AM1.0-B4 шаг 6: активный режим и доступность — те же данные, что у
+    // переключателя ModeButton главного окна (ТЗ-18, ТЗ-109…ТЗ-111).
+    in property <int> active-mode: 0;
+    in property <[bool]> mode-available: [true, true, true];
+    in property <[string]> mode-unavailable-reason: ["", "", ""];
+    callback select-mode(int);
     callback lock-close();
     callback lock-open();
 
     alignment: end;
     spacing: 8px;
+
+    ModeBadge {
+        active-mode: root.active-mode;
+        mode-available: root.mode-available;
+        mode-unavailable-reason: root.mode-unavailable-reason;
+        select-mode(i) => { root.select-mode(i); }
+    }
 
     if root.device-label != "": Text {
         text: root.device-label;
@@ -462,6 +612,10 @@ export component TopPanel inherits Rectangle {
                 lock-hint: root.lock-hint;
                 theme-palette: root.theme-palette;
                 device-label: root.device-label;
+                active-mode: root.active-mode;
+                mode-available: root.mode-available;
+                mode-unavailable-reason: root.mode-unavailable-reason;
+                select-mode(i) => { root.select-mode(i); }
                 lock-close => { root.lock-close(); }
                 lock-open => { root.lock-open(); }
             }

@@ -37,7 +37,7 @@ steps:
     done: true
   - id: 6
     description: "ui/top_panel.slint: бейдж активного режима в MenuBarTrailing рядом с бейджем устройства (ярлык режима + попап-меню из трёх режимов, недоступные неактивны, ТЗ-111), по образцу device-label/lock-kind. Проверка: cargo check (slint build)"
-    done: false
+    done: true
   - id: 7
     description: "src/app/mod.rs или src/app/ui_manager.rs (один файл, уточнить при реализации): колбэк бейджа режима подключён к существующему обработчику select_mode (применяется сразу, как раньше из главного окна); бейдж обновляется после dialog_save. Проверка: cargo check; ручной сценарий позже"
     done: false
@@ -50,8 +50,8 @@ steps:
   - id: 10
     description: "ЧЕКПОИНТ перед закрытием: полный cargo test + cargo clippy зелёные; ручные проверки — в заметку плана AM1.0-B4 при закрытии (closing.md §2)"
     done: false
-current_step: 6
-next_action: "ui/top_panel.slint: бейдж активного режима в MenuBarTrailing рядом с бейджем устройства (ярлык режима + попап-меню из трёх режимов, недоступные неактивны, ТЗ-111), по образцу device-label/lock-kind. Проверка: cargo check (slint build)"
+current_step: 7
+next_action: "src/app/mod.rs или src/app/ui_manager.rs (один файл, уточнить при реализации): колбэк бейджа режима подключён к существующему обработчику select_mode (применяется сразу, как раньше из главного окна); бейдж обновляется после dialog_save. Проверка: cargo check; ручной сценарий позже"
 fail_counter: 0
 fail_counter_max: 3
 failed_attempts: []
