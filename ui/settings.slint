@@ -529,7 +529,7 @@ export component Settings inherits Rectangle {
 
                         // ===== Columns =====
                         Tab {
-                            title: "Columns";
+                            title: @tr("Колонки");
                             ScrollView {
                                 VerticalLayout {
                                     spacing: 8px;
@@ -609,7 +609,7 @@ export component Settings inherits Rectangle {
                                         }
 
                                         Button {
-                                            text: "Reset";
+                                            text: @tr("Сбросить");
                                             preferred-height: 20px;
                                             clicked => { root.reset-columns(); }
                                         }
