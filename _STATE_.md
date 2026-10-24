@@ -16,15 +16,15 @@
 - **Критерий успеха (Definition of Done):** cargo test зелёный; вкладка «Аудио» показывает «Сейчас: ● <устройство> — …» (или «○ не открыто»), для Оптимального/Строгого — частоты семействами/разрядность/DSD, для Совместимого — формат микшера сервера; codec-info и active-device убраны из ui/settings.slint и ui/app.slint; sync_audio_devices приведён в соответствие (без мёртвого кода); бейдж устройства в MenuBarTrailing показывает фактически открытое устройство или «—»
 
 ## Итерационный трекер
-- [>] **Шаг 1: DeviceInfoView: чистая view-model блока «Информация об устройстве» (src/app/device_info_view.rs, src/app/mod.rs) — now-line, частоты семействами 44,1/48 кГц, разрядность, DSD/DoP (Оптимальный/Строгий, из DacCaps), строка микшера сервера (Совместимый, из OsStage, ОВС-4: float). Проверка: cargo test app::device_info_view:: зелёный**
-- [ ] Шаг 2: Slint-блок вкладки «Аудио» под списком устройств рендерит DeviceInfoView (ui/settings.slint); удаление codec-info/active-device (ui/app.slint, ui/settings.slint) и неиспользуемых остатков в sync_audio_devices (src/app/ui_manager.rs); проводка building DeviceInfoView из UiAudioState/DeviceCatalog/ModeSettings в ui_manager.rs. Проверка: cargo test зелёный (меняет публичные свойства Slint)
+- [x] Шаг 1: DeviceInfoView: чистая view-model блока «Информация об устройстве» (src/app/device_info_view.rs, src/app/mod.rs) — now-line, частоты семействами 44,1/48 кГц, разрядность, DSD/DoP (Оптимальный/Строгий, из DacCaps), строка микшера сервера (Совместимый, из OsStage, ОВС-4: float). Проверка: cargo test app::device_info_view:: зелёный
+- [>] **Шаг 2: Slint-блок вкладки «Аудио» под списком устройств рендерит DeviceInfoView (ui/settings.slint); удаление codec-info/active-device (ui/app.slint, ui/settings.slint) и неиспользуемых остатков в sync_audio_devices (src/app/ui_manager.rs); проводка building DeviceInfoView из UiAudioState/DeviceCatalog/ModeSettings в ui_manager.rs. Проверка: cargo test зелёный (меняет публичные свойства Slint)**
 - [ ] Шаг 3: Бейдж фактически открытого устройства в MenuBarTrailing (ui/top_panel.slint, перед LockButton) + проводка текста бейджа (ui/app.slint, src/app/ui_manager.rs): имя устройства из DeviceInfoView.now_line или «—», если не открыто. Проверка: cargo check
 - [ ] Шаг 4: ЧЕКПОИНТ: cargo test + cargo clippy по всему крейту без новых предупреждений в файлах вайтлиста
 
 Легенда: [x] сделано · [>] текущий шаг · [ ] не начато
 
-- **Текущий шаг (current_step):** Шаг 1
-- **Следующий ход:** Коммит шага 1 (DeviceInfoView) и переход к шагу 2: Slint-блок вкладки «Аудио» + проводка
+- **Текущий шаг (current_step):** Шаг 2
+- **Следующий ход:** Slint-блок вкладки «Аудио» под списком устройств рендерит DeviceInfoView; удаление codec-info/active-device; проводка в src/app/ui_manager.rs
 - **Счетчик безуспешных компиляций:** 0/3
 - **Состояние:** in_progress
 
