@@ -2,10 +2,68 @@
      Source of truth: _STATE_.yaml — edit that, then run:
      python tools/state_tool.py render -->
 
-# Состояние сессии
 
-- **Текущая задача:** Нет (все шаги завершены)
-- **Состояние:** done
+# Текущая микро-сессия
+
+- **Задача из ROADMAP:** T1.0-B8 — Русские строки вне src/i18n/: перенести видимые пользователю (решение 2026-10-24)
+- **Вайтлист файлов в работе (Изменяемые файлы):**
+  - src/i18n/mod.rs
+  - src/i18n/report.rs
+  - src/i18n/params.rs
+  - src/i18n/errors.rs
+  - src/i18n/messages.rs
+  - src/i18n/audio.rs
+  - src/audio/path/report.rs
+  - src/settings/params.rs
+  - src/settings.rs
+  - src/core/load.rs
+  - src/app/mod.rs
+  - src/audio/backend/alsa.rs
+  - src/audio/backend/shared.rs
+  - src/audio/path/transform.rs
+  - src/audio/dsd.rs
+  - src/app/playback_manager.rs
+  - src/playlist/load.rs
+  - src/platform/fs/mod.rs
+  - src/engine/exclusive_path.rs
+  - src/core/dialog.rs
+  - src/core/volume.rs
+  - src/core/mod.rs
+  - src/settings/playback.rs
+  - src/theme.rs
+  - src/app/fulltrack_manager.rs
+  - src/audio/session_build.rs
+  - src/audio/output.rs
+- **Критерий успеха (Definition of Done):** Инвентаризация (см. note ниже): ≈223 пользовательски видимых строк в 21 файле перенесены в src/i18n/ байт-в-байт (окна, отчёт «Путь сигнала», сообщения, статус-бар, подсказки, подписи); журнал (включая LoadNote allowed/reason в settings_file.rs/state_file.rs/playback_dto.rs/journal.rs), doc-комментарии, тесты и платформенный lifecycle-текст (unix/macos/windows.rs) не трогаем; cargo test + clippy + check_rt_imports + traceability зелёные
+
+## Итерационный трекер
+- [>] **Шаг 1: src/audio/path/report.rs часть 1 (~40 из 77 строк): создать src/i18n/report.rs, перенести константы/заглушки/первую половину текстов отчёта «Путь сигнала» (строки до функции с ModeKind/OsServer). Проверка: cargo check без ошибок**
+- [ ] Шаг 2: src/audio/path/report.rs часть 2 (оставшиеся ~37 строк): перенести остальные тексты отчёта в src/i18n/report.rs, вызовы в report.rs — через новый модуль. Проверка: cargo check без ошибок
+- [ ] Шаг 3: ЧЕКПОИНТ: cargo test, cargo clippy, tools/check_rt_imports.py, tools/traceability_tool.py check — все зелёные
+- [ ] Шаг 4: src/settings/params.rs (35 строк, подписи ParamId — «Доступ к устройству», «Устройство» и т. п.) → src/i18n/params.rs. Проверка: cargo check без ошибок
+- [ ] Шаг 5: src/settings.rs (12 строк, заголовки колонок плейлиста «Название»/«Исполнитель»/… в default_column_defs) + src/core/load.rs (8 строк, title/body сообщений о плейлисте — «Плейлист повреждён», «Не удалось загрузить плейлист» и др.) → src/i18n/. Проверка: cargo check без ошибок
+- [ ] Шаг 6: ЧЕКПОИНТ: cargo test, cargo clippy, tools/check_rt_imports.py, tools/traceability_tool.py check — все зелёные
+- [ ] Шаг 7: src/app/mod.rs (30 строк: title/body сообщений — «Аудио-движок не запущен», «Режим недоступен», «Тема не загружена», «Устройство вывода потеряно» и др., кнопки «Исправить»/«Открыть настройку», статус-бар «Пропущен трек…», «Все треки пропущены», тексты ошибок OpenError) → src/i18n/. Проверка: cargo check без ошибок
+- [ ] Шаг 8: src/audio/backend/alsa.rs (13 строк) + src/audio/backend/shared.rs (1 строка) — тексты StartError/ConfigureError при открытии ALSA Exclusive/Shared PCM, доходят до пользователя через OpenError → src/i18n/errors.rs. Проверка: cargo check без ошибок
+- [ ] Шаг 9: ЧЕКПОИНТ: cargo test, cargo clippy, tools/check_rt_imports.py, tools/traceability_tool.py check — все зелёные
+- [ ] Шаг 10: src/audio/path/transform.rs (7 строк — подписи шагов пути сигнала: «Моно → 2 канала…», «Громкость N %», фильтры SRC «Крутой»/«Медленный»/«Очень медленный») + src/audio/dsd.rs (1 строка — тег «не DSD-контейнер» в FileError::Unsupported, подставляется в сообщение «неподдерживаемый формат: {codec}») → src/i18n/. Проверка: cargo check без ошибок
+- [ ] Шаг 11: src/app/playback_manager.rs (5 строк — «Захват устройства…», «Воспроизведение: {artist}—{title}», «Замок открыт» и тело, «Не удалось воспроизвести трек») + src/playlist/load.rs (4 строки — os_text «невалидный UTF-8», «строка N: не абсолютный путь» и др.) → src/i18n/. Проверка: cargo check без ошибок
+- [ ] Шаг 12: ЧЕКПОИНТ: cargo test, cargo clippy, tools/check_rt_imports.py, tools/traceability_tool.py check — все зелёные
+- [ ] Шаг 13: src/platform/fs/mod.rs (4 строки — WriteErrorClass::text(), «нет места на диске» и др., доходит до пользователя через core/messages.rs::write_failed) + src/engine/exclusive_path.rs (4 строки — Display ExclusiveOpenReason, деталь отказа захвата) → src/i18n/. Проверка: cargo check без ошибок
+- [ ] Шаг 14: src/core/dialog.rs (4 строки — PARAM_THEME/PARAM_DEVICE_BUFFER_* и причина «тема загружается», валидация диалога настроек) + src/core/volume.rs (2 строки — «Громкость недоступна в Строгом режиме» и т. п.) → src/i18n/. Проверка: cargo check без ошибок
+- [ ] Шаг 15: ЧЕКПОИНТ: cargo test, cargo clippy, tools/check_rt_imports.py, tools/traceability_tool.py check — все зелёные
+- [ ] Шаг 16: src/core/mod.rs (3 из 4 строк — title/body/hint сообщения «Файл настроек не прочитан»; строку reason=«модуль ввода не подключён» (журнал, AttachOutcome::DefaultRuleOnly) НЕ трогать) + src/settings/playback.rs (2 строки — подсказки ValueBlocker «увеличьте буфер плеера…»/«уменьшите буфер устройства…») → src/i18n/. Проверка: cargo check без ошибок
+- [ ] Шаг 17: src/theme.rs (2 строки — description тем «Системная тёмная/светлая тема», используется в ui.set_theme_description) + src/app/fulltrack_manager.rs (4 строки — подписи «Спектрограмма»/«Осциллограмма» и причины отказа построения) → src/i18n/. Проверка: cargo check без ошибок
+- [ ] Шаг 18: ЧЕКПОИНТ: cargo test, cargo clippy, tools/check_rt_imports.py, tools/traceability_tool.py check — все зелёные
+- [ ] Шаг 19: src/audio/session_build.rs (2 строки — Display ошибок несовпадения формата/источника при построении сессии) + src/audio/output.rs (3 строки — «Системное по умолчанию ({server})»/«Системное по умолчанию»; строку-комментарий 634 НЕ трогать) → src/i18n/. Проверка: cargo check без ошибок
+- [ ] Шаг 20: ЧЕКПОИНТ (финальный, перед закрытием задачи): полный cargo test + cargo clippy + tools/check_rt_imports.py + tools/traceability_tool.py check — все зелёные; выборочная сверка, что перенесённые строки байт-в-байт совпадают с прежними (diff литералов)
+
+Легенда: [x] сделано · [>] текущий шаг · [ ] не начато
+
+- **Текущий шаг (current_step):** Шаг 1
+- **Следующий ход:** Шаг 1: создать src/i18n/report.rs и перенести первую половину строк src/audio/path/report.rs
+- **Счетчик безуспешных компиляций:** 0/3
+- **Состояние:** in_progress
 
 ## План: Executable workflow: правила AGENTS.md → исполняемые механизмы
 _Источник: чат с пользователем (ноутбук), начат в 67686ce; перенесён в репо 2026-09-22_
