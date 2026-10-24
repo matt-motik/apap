@@ -389,7 +389,7 @@ export component Settings inherits Rectangle {
 
                         // ===== Audio =====
                         Tab {
-                            title: "Audio";
+                            title: @tr("Аудио");
                             ScrollView {
                                 VerticalLayout {
                                     spacing: 10px;
@@ -399,7 +399,7 @@ export component Settings inherits Rectangle {
                                         padding-right: 8px;
                                         spacing: 4px;
                                         RowLabel {
-                                            text: "Audio device";
+                                            text: @tr("Устройство");
                                         }
 
                                         ComboBox {
@@ -409,7 +409,7 @@ export component Settings inherits Rectangle {
                                         }
 
                                         Button {
-                                            text: "Refresh";
+                                            text: @tr("Обновить");
                                             preferred-height: 20px;
                                             clicked => { root.refresh-devices(); }
                                         }
@@ -509,7 +509,7 @@ export component Settings inherits Rectangle {
                                     }
 
                                     RowLabel {
-                                        text: "Настройки режима";
+                                        text: @tr("Настройки режима");
                                         font-weight: 600;
                                         text-color: Colors.text-primary;
                                     }

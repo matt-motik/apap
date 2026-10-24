@@ -76,7 +76,7 @@ steps:
     description: >
       ui/settings.slint — вкладка Audio + под-секция «Настройки режима» (~строки 390–530): @tr +
       перевод; Exclusive/Shared/DoP/ASIO/WASAPI/ALSA/PipeWire и форматы S24_3LE… не переводятся.
-    done: false
+    done: true
   - id: 7
     description: "ui/settings.slint — вкладка Columns (~строки 530–621): @tr + перевод."
     done: false
@@ -183,8 +183,8 @@ steps:
       check зелёные; готовность к closing.md (ручная проверка пользователем — обрезка длинных
       русских подписей на всех экранах).
     done: false
-current_step: 6
-next_action: "ui/settings.slint — вкладка Audio + под-секция «Настройки режима» (~строки 390–530): @tr + перевод; Exclusive/Shared/DoP/ASIO/WASAPI/ALSA/PipeWire и форматы S24_3LE… не переводятся."
+current_step: 7
+next_action: "ui/settings.slint — вкладка Columns (~строки 530–621): @tr + перевод."
 fail_counter: 0
 fail_counter_max: 3
 failed_attempts: []
