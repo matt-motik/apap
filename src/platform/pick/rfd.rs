@@ -5,6 +5,10 @@
 //! `'static`, как требует `FilePicker::pick`.
 
 use super::{FilePicker, PickRequest, PickResult};
+use crate::i18n::{
+    PICKER_FILTER_AUDIO, PICKER_FILTER_PLAYLIST, PICKER_FILTER_PLAYLIST_M3U,
+    PICKER_FILTER_PLAYLIST_M3U8, PICKER_FILTER_THEME,
+};
 use std::future::Future;
 use std::pin::Pin;
 
@@ -38,7 +42,7 @@ impl FilePicker for RfdPicker {
         match req {
             PickRequest::AddFiles { start } => {
                 let mut dialog =
-                    ::rfd::AsyncFileDialog::new().add_filter("Audio", AUDIO_EXTENSIONS);
+                    ::rfd::AsyncFileDialog::new().add_filter(PICKER_FILTER_AUDIO, AUDIO_EXTENSIONS);
                 if let Some(start) = &start {
                     dialog = dialog.set_directory(start);
                 }
@@ -70,8 +74,8 @@ impl FilePicker for RfdPicker {
                 })
             }
             PickRequest::OpenPlaylist { start } => {
-                let mut dialog =
-                    ::rfd::AsyncFileDialog::new().add_filter("Playlist", PLAYLIST_EXTENSIONS);
+                let mut dialog = ::rfd::AsyncFileDialog::new()
+                    .add_filter(PICKER_FILTER_PLAYLIST, PLAYLIST_EXTENSIONS);
                 if let Some(start) = &start {
                     dialog = dialog.set_directory(start);
                 }
@@ -89,8 +93,8 @@ impl FilePicker for RfdPicker {
                 // `.m3u8` — расширение по умолчанию (ОВ-17): оно первое в
                 // списке фильтров и задаёт имя файла-подсказки.
                 let mut dialog = ::rfd::AsyncFileDialog::new()
-                    .add_filter("Playlist (M3U8)", &["m3u8"])
-                    .add_filter("Playlist (M3U)", &["m3u"])
+                    .add_filter(PICKER_FILTER_PLAYLIST_M3U8, &["m3u8"])
+                    .add_filter(PICKER_FILTER_PLAYLIST_M3U, &["m3u"])
                     .set_file_name(DEFAULT_PLAYLIST_FILE_NAME);
                 if let Some(start) = &start {
                     dialog = dialog.set_directory(start);
@@ -107,7 +111,7 @@ impl FilePicker for RfdPicker {
             }
             PickRequest::ThemeFile { start } => {
                 let mut dialog =
-                    ::rfd::AsyncFileDialog::new().add_filter("Theme", THEME_EXTENSIONS);
+                    ::rfd::AsyncFileDialog::new().add_filter(PICKER_FILTER_THEME, THEME_EXTENSIONS);
                 if let Some(start) = &start {
                     dialog = dialog.set_directory(start);
                 }

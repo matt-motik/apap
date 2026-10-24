@@ -138,6 +138,23 @@ pub fn tray_tooltip_unavailable(error: &str) -> String {
     format_named("Воспроизведение недоступно: {error}", &[("error", error)])
 }
 
+/// Фильтр диалога выбора аудиофайлов (`PickRequest::AddFiles`) (T1.0-B2,
+/// ADR-10, ТЗ-53).
+pub const PICKER_FILTER_AUDIO: &str = "Аудио";
+/// Фильтр диалога открытия плейлиста (`PickRequest::OpenPlaylist`) (T1.0-B2,
+/// ADR-10, ТЗ-53).
+pub const PICKER_FILTER_PLAYLIST: &str = "Плейлист";
+/// Фильтр диалога выбора файла темы (`PickRequest::ThemeFile`) (T1.0-B2,
+/// ADR-10, ТЗ-53).
+pub const PICKER_FILTER_THEME: &str = "Тема";
+/// Фильтр M3U8 диалога сохранения плейлиста (`PickRequest::SavePlaylist`),
+/// первый в списке и задающий расширение-подсказку (T1.0-B2, ADR-10, ТЗ-53,
+/// ОВ-17).
+pub const PICKER_FILTER_PLAYLIST_M3U8: &str = "Плейлист (M3U8)";
+/// Фильтр M3U диалога сохранения плейлиста (`PickRequest::SavePlaylist`)
+/// (T1.0-B2, ADR-10, ТЗ-53).
+pub const PICKER_FILTER_PLAYLIST_M3U: &str = "Плейлист (M3U)";
+
 #[cfg(test)]
 mod tests {
     use super::*;

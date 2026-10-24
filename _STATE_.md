@@ -63,9 +63,9 @@
 - [x] Шаг 16: ЧЕКПОИНТ: полный cargo test + cargo clippy зелёные (app.slint, top_panel/status/playlist.slint).
 - [x] Шаг 17: src/platform/tray/mod.rs: перевод меню (Play/Pause, Stop, Previous, Next, Show/Hide, Quit) и тултипов на русский через src/i18n/; заголовок трея — APP_NAME.
 
-- [>] **Шаг 18: src/platform/pick/rfd.rs: перевод фильтров диалогов выбора файлов (Audio/Playlist/Theme) на русский через src/i18n/.
-**
-- [ ] Шаг 19: ЧЕКПОИНТ: полный cargo test + cargo clippy зелёные (трей, диалоги выбора файлов).
+- [x] Шаг 18: src/platform/pick/rfd.rs: перевод фильтров диалогов выбора файлов (Audio/Playlist/Theme) на русский через src/i18n/.
+
+- [>] **Шаг 19: ЧЕКПОИНТ: полный cargo test + cargo clippy зелёные (трей, диалоги выбора файлов).**
 - [ ] Шаг 20: src/app/mod.rs: перевод реальных пользовательских строк (напр. статус «Audio: {name} ready») через src/i18n/; тестовые фикстуры (Title/Artist/FLAC/Intel HDA и пр.) не переводятся — не пользовательский текст.
 
 - [ ] Шаг 21: src/app/playback_manager.rs + src/app/ui_manager.rs: перевод пользовательских строк (метаданные трека, единицы kbps/Hz/ch, подписи устройств) через src/i18n/.
@@ -88,8 +88,8 @@
 
 Легенда: [x] сделано · [>] текущий шаг · [ ] не начато
 
-- **Текущий шаг (current_step):** Шаг 18
-- **Следующий ход:** src/platform/pick/rfd.rs: перевод фильтров диалогов выбора файлов (Audio/Playlist/Theme) на русский через src/i18n/.
+- **Текущий шаг (current_step):** Шаг 19
+- **Следующий ход:** ЧЕКПОИНТ: полный cargo test + cargo clippy зелёные (трей, диалоги выбора файлов).
 - **Счетчик безуспешных компиляций:** 0/3
 - **Состояние:** in_progress
 

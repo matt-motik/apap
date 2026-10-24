@@ -126,7 +126,7 @@ steps:
     description: >
       src/platform/pick/rfd.rs: перевод фильтров диалогов выбора файлов (Audio/Playlist/Theme) на
       русский через src/i18n/.
-    done: false
+    done: true
   - id: 19
     description: "ЧЕКПОИНТ: полный cargo test + cargo clippy зелёные (трей, диалоги выбора файлов)."
     done: false
@@ -183,8 +183,8 @@ steps:
       check зелёные; готовность к closing.md (ручная проверка пользователем — обрезка длинных
       русских подписей на всех экранах).
     done: false
-current_step: 18
-next_action: "src/platform/pick/rfd.rs: перевод фильтров диалогов выбора файлов (Audio/Playlist/Theme) на русский через src/i18n/."
+current_step: 19
+next_action: "ЧЕКПОИНТ: полный cargo test + cargo clippy зелёные (трей, диалоги выбора файлов)."
 fail_counter: 0
 fail_counter_max: 3
 failed_attempts: []
