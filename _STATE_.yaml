@@ -197,9 +197,9 @@ steps:
       ЧЕКПОИНТ финальный: полный cargo test + cargo clippy + python tools/traceability_tool.py
       check зелёные; готовность к closing.md (ручная проверка пользователем — обрезка длинных
       русских подписей на всех экранах).
-    done: false
+    done: true
 current_step: 29
-next_action: "ЧЕКПОИНТ финальный: полный cargo test + cargo clippy + python tools/traceability_tool.py check зелёные; готовность к closing.md (ручная проверка пользователем — обрезка длинных русских подписей на всех экранах)."
+next_action: "закрытие по closing.md"
 fail_counter: 0
 fail_counter_max: 3
 failed_attempts: []
