@@ -17,12 +17,12 @@
 ## Итерационный трекер
 - [x] Шаг 1: src/i18n/messages.rs: функция message_action_label(MessageAction) и константа WRITE_ERRORS_TITLE (ТЗ-46, §6.8, byte-identical текст) + регистрация pub mod messages в src/i18n/mod.rs; src/core/messages.rs::MessageAction::label() и write_errors_text() переключены на них. Проверка: cargo check; cargo test core::messages:: i18n:: — зелёные
 - [x] Шаг 2: src/i18n/mod.rs: функция cover_source_label(CoverSource) с переводом (Из папки/Встроенная в файл/Из интернета); src/settings.rs::CoverSource::label() удалён; src/app/ui_manager.rs::sync_cover_settings_to_ui вызывает i18n::cover_source_label напрямую. Проверка: cargo check (lib + bin)
-- [>] **Шаг 3: ЧЕКПОИНТ: полный cargo test + cargo clippy без новых предупреждений по файлам вайтлиста**
+- [x] Шаг 3: ЧЕКПОИНТ: полный cargo test + cargo clippy без новых предупреждений по файлам вайтлиста
 
 Легенда: [x] сделано · [>] текущий шаг · [ ] не начато
 
 - **Текущий шаг (current_step):** Шаг 3
-- **Следующий ход:** ЧЕКПОИНТ: полный cargo test + cargo clippy
+- **Следующий ход:** закрытие по closing.md
 - **Счетчик безуспешных компиляций:** 0/3
 - **Состояние:** in_progress
 
