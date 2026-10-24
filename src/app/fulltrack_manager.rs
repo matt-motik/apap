@@ -186,7 +186,7 @@ fn run_osc(b: FullBuild, flag: Arc<AtomicBool>, out: Sender<FullEvt>) {
         return;
     }
     if total == 0 {
-        return fail(&out, b.id, "не удалось определить длину трека (num_frames == 0)");
+        return fail(&out, b.id, music_player_rs::i18n::messages::FULLTRACK_FAIL_ZERO_LENGTH);
     }
 
     let cols = env.finish();
@@ -279,7 +279,7 @@ fn run_spec(b: FullBuild, flag: Arc<AtomicBool>, out: Sender<FullEvt>) {
     let info = src.info().clone();
     let total = info.num_frames.unwrap_or(0);
     if total == 0 {
-        return fail(&out, b.id, "не удалось определить длину трека (num_frames == 0)");
+        return fail(&out, b.id, music_player_rs::i18n::messages::FULLTRACK_FAIL_ZERO_LENGTH);
     }
     let dst_ch = match scfg.channels {
         ChannelMode::Mono => 1,
@@ -415,13 +415,11 @@ impl MusicApp {
         let want_disabled = is_fulltrack_mode && skip_dsd && current.is_some();
         let disabled_text = if want_disabled {
             let label = if mode == VisualizationMode::Spectrogram {
-                "Спектрограмма"
+                music_player_rs::i18n::messages::FULLTRACK_LABEL_SPECTROGRAM
             } else {
-                "Осциллограмма"
+                music_player_rs::i18n::messages::FULLTRACK_LABEL_OSCILLOGRAM
             };
-            format!(
-                "{label} недоступна для DSD"
-            )
+            music_player_rs::i18n::messages::fulltrack_disabled_for_dsd(label)
         } else {
             String::new()
         };

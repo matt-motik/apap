@@ -222,6 +222,26 @@ pub fn settings_read_failed_body(os_text: &str) -> String {
 pub const SETTINGS_SAVE_NOTICE: &str =
     "Файл настроек не прочитан — «Сохранить» заменит его значениями из этого окна";
 
+/// Подпись режима «Спектрограмма» в плейсхолдере недоступности для DSD
+/// (§6.3, T1.0-B8; перенесено из `src/app/fulltrack_manager.rs::drain_fulltrack`
+/// байт-в-байт), см. [`fulltrack_disabled_for_dsd`].
+pub const FULLTRACK_LABEL_SPECTROGRAM: &str = "Спектрограмма";
+/// Подпись режима «Осциллограмма», см. [`FULLTRACK_LABEL_SPECTROGRAM`].
+pub const FULLTRACK_LABEL_OSCILLOGRAM: &str = "Осциллограмма";
+
+/// Плейсхолдер полнотрековой визуализации (осциллограмма/спектрограмма),
+/// пропущенной для DSD-трека (§6.3, T1.0-B8; перенесено из
+/// `src/app/fulltrack_manager.rs::drain_fulltrack` байт-в-байт): `label` —
+/// [`FULLTRACK_LABEL_SPECTROGRAM`] или [`FULLTRACK_LABEL_OSCILLOGRAM`].
+pub fn fulltrack_disabled_for_dsd(label: &str) -> String {
+    format!("{label} недоступна для DSD")
+}
+
+/// Причина отказа построения полнотрековой визуализации: нулевая длина
+/// трека (T1.0-B8; перенесено из `src/app/fulltrack_manager.rs` байт-в-байт,
+/// два места вызова `fail()`).
+pub const FULLTRACK_FAIL_ZERO_LENGTH: &str = "не удалось определить длину трека (num_frames == 0)";
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -342,5 +362,22 @@ mod tests {
     #[test]
     fn now_playing_status_substitutes_artist_and_title() {
         assert_eq!(now_playing_status("Daft Punk", "Harder"), "Воспроизведение: Daft Punk\u{2014}Harder");
+    }
+
+    #[test]
+    fn fulltrack_disabled_for_dsd_substitutes_label() {
+        assert_eq!(
+            fulltrack_disabled_for_dsd(FULLTRACK_LABEL_SPECTROGRAM),
+            "Спектрограмма недоступна для DSD"
+        );
+        assert_eq!(
+            fulltrack_disabled_for_dsd(FULLTRACK_LABEL_OSCILLOGRAM),
+            "Осциллограмма недоступна для DSD"
+        );
+    }
+
+    #[test]
+    fn fulltrack_fail_zero_length_is_russian() {
+        assert_eq!(FULLTRACK_FAIL_ZERO_LENGTH, "не удалось определить длину трека (num_frames == 0)");
     }
 }

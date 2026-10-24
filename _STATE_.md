@@ -34,6 +34,8 @@
   - src/app/fulltrack_manager.rs
   - src/audio/session_build.rs
   - src/audio/output.rs
+  - src/core/io.rs
+  - src/core/testing.rs
 - **Критерий успеха (Definition of Done):** Инвентаризация (см. note ниже): ≈223 пользовательски видимых строк в 21 файле перенесены в src/i18n/ байт-в-байт (окна, отчёт «Путь сигнала», сообщения, статус-бар, подсказки, подписи); журнал (включая LoadNote allowed/reason в settings_file.rs/state_file.rs/playback_dto.rs/journal.rs), doc-комментарии, тесты и платформенный lifecycle-текст (unix/macos/windows.rs) не трогаем; cargo test + clippy + check_rt_imports + traceability зелёные
 
 ## Итерационный трекер
@@ -53,15 +55,16 @@
 - [x] Шаг 14: src/core/dialog.rs (4 строки — PARAM_THEME/PARAM_DEVICE_BUFFER_* и причина «тема загружается», валидация диалога настроек) + src/core/volume.rs (2 строки — «Громкость недоступна в Строгом режиме» и т. п.) → src/i18n/. Проверка: cargo check без ошибок
 - [x] Шаг 15: ЧЕКПОИНТ: cargo test, cargo clippy, tools/check_rt_imports.py, tools/traceability_tool.py check — все зелёные
 - [x] Шаг 16: src/core/mod.rs (3 из 4 строк — title/body/hint сообщения «Файл настроек не прочитан»; строку reason=«модуль ввода не подключён» (журнал, AttachOutcome::DefaultRuleOnly) НЕ трогать) + src/settings/playback.rs (2 строки — подсказки ValueBlocker «увеличьте буфер плеера…»/«уменьшите буфер устройства…») → src/i18n/. Проверка: cargo check без ошибок
-- [>] **Шаг 17: src/theme.rs (2 строки — description тем «Системная тёмная/светлая тема», используется в ui.set_theme_description) + src/app/fulltrack_manager.rs (4 строки — подписи «Спектрограмма»/«Осциллограмма» и причины отказа построения) → src/i18n/. Проверка: cargo check без ошибок**
+- [x] Шаг 17: src/app/fulltrack_manager.rs (4 строки — подписи «Спектрограмма»/«Осциллограмма» и причины отказа построения num_frames == 0) → src/i18n/messages.rs. Проверка: cargo check без ошибок. (Разбито из прежнего шага 17 WF1.0 §1: часть про src/theme.rs — шаг 21, ей нужны файлы вне исходного вайтлиста.)
+- [>] **Шаг 21: src/theme.rs (2 строки — description тем «Системная тёмная/светлая тема» внутри DEFAULT_DARK_TOML/DEFAULT_LIGHT_TOML, используется в ui.set_theme_description) → src/i18n/messages.rs. Текст нельзя подставить в константу-литерал (`concat!` не принимает пути к `const`, проверено) — DEFAULT_DARK_TOML/DEFAULT_LIGHT_TOML становятся функциями default_dark_toml()/default_light_toml() -> String (format! с desc из i18n); правятся все вызовы по сигнатуре: src/theme.rs (свои), src/core/dialog.rs, src/app/mod.rs (и импорт DEFAULT_LIGHT_TOML), src/core/io.rs (тесты), src/core/testing.rs (тесты) — тексты тестов не меняются, только вызов без `&`/со `&`. Проверка: публичная сигнатура в нескольких модулях → полный cargo test (execution.md §3), а не только cargo check**
 - [ ] Шаг 18: ЧЕКПОИНТ: cargo test, cargo clippy, tools/check_rt_imports.py, tools/traceability_tool.py check — все зелёные
 - [ ] Шаг 19: src/audio/session_build.rs (2 строки — Display ошибок несовпадения формата/источника при построении сессии) + src/audio/output.rs (3 строки — «Системное по умолчанию ({server})»/«Системное по умолчанию»; строку-комментарий 634 НЕ трогать) → src/i18n/. Проверка: cargo check без ошибок
 - [ ] Шаг 20: ЧЕКПОИНТ (финальный, перед закрытием задачи): полный cargo test + cargo clippy + tools/check_rt_imports.py + tools/traceability_tool.py check — все зелёные; выборочная сверка, что перенесённые строки байт-в-байт совпадают с прежними (diff литералов)
 
 Легенда: [x] сделано · [>] текущий шаг · [ ] не начато
 
-- **Текущий шаг (current_step):** Шаг 17
-- **Следующий ход:** Шаг 17: src/theme.rs + src/app/fulltrack_manager.rs → src/i18n/
+- **Текущий шаг (current_step):** Шаг 21
+- **Следующий ход:** Шаг 21: src/theme.rs DEFAULT_DARK_TOML/DEFAULT_LIGHT_TOML -> i18n (функции, правка вызовов в dialog.rs/app/mod.rs/core/io.rs/core/testing.rs)
 - **Счетчик безуспешных компиляций:** 0/3
 - **Состояние:** in_progress
 
