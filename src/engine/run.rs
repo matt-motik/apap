@@ -447,6 +447,23 @@ struct Engine {
     /// `Devices` всё равно уйдёт по уже запущенному заданию, даже если сам
     /// список не изменился.
     shared_enumerate_force_emit: bool,
+    /// Последний известный этап «Уровень ОС» (§6.26, ADR-21, ТЗ-77,
+    /// AM1.0-B39): `EngineCmd::Open` в Совместимом режиме читает его
+    /// синхронно вместо вызова `OsLevelProbe::probe` в своём цикле —
+    /// `pw-metadata` (до 500 мс, `os_probe.rs`) уходит в служебный поток
+    /// (`start_os_probe`), а итог лишь освежает это поле для *следующего*
+    /// открытия (`InternalMsg::OsProbeDone`, `handle_internal`); уже
+    /// открытый путь не пересобирается — то же поведение, что раньше было
+    /// у неудачи/таймаута `pw-metadata`, которая синхронно давала
+    /// `OsStage::Unknown` на весь трек. По умолчанию `OsStage::Unknown`
+    /// (честный факт «не опрошено», тот же вариант, что и у отказа пробы).
+    os_stage_cache: OsStage,
+    /// Идёт фоновая проба «Уровня ОС» (§2.3, AM1.0-B39, по образцу
+    /// `probe_in_flight`/AM1.0-B38 и `shared_enumerate_in_flight`/AM1.0-B37):
+    /// не более одной одновременно — повторный `start_os_probe`, пока
+    /// прошлая не вернулась, no-op (следующий `Open` всё равно её запросит
+    /// снова). Снимается итогом `InternalMsg::OsProbeDone`.
+    os_probe_in_flight: bool,
     /// Точка повторного захвата (§6.20 п. 2, ТЗ-51, ТЗ-126): заполняется
     /// движком (`save_reacquire_point`) до `lock_input(DeviceLost)`, пока
     /// `self.claim`/`self.exclusive_path` ещё не очищены эффектами
@@ -526,6 +543,8 @@ impl Engine {
             probe_pending: None,
             shared_enumerate_in_flight: false,
             shared_enumerate_force_emit: false,
+            os_stage_cache: OsStage::Unknown,
+            os_probe_in_flight: false,
             reacquire: None,
             reacquire_retry: None,
             deferred_open: None,
@@ -756,6 +775,20 @@ impl Engine {
                         self.deps.events.emit(EngineEvent::Notice(Notice::DevicesUnavailable(e)));
                     }
                 }
+            }
+            // Итог фоновой пробы «Уровня ОС» (§6.26, AM1.0-B39,
+            // `start_os_probe`): освежает `os_stage_cache` для *следующего*
+            // `EngineCmd::Open` — уже открытый путь (`active_path`/`facts.os`)
+            // не пересобирается этим сообщением, как и раньше синхронная
+            // проба не обновляла его после открытия трека; значение просто
+            // становится известным раньше, чем откроется следующий. Без
+            // события для UI — `os` виден только через снимок пути при
+            // следующем `Opened`, отдельного push-канала для него нет
+            // (как и у `DeviceCapsProbed`, который тоже не трогает уже
+            // открытый путь).
+            InternalMsg::OsProbeDone { stage } => {
+                self.os_probe_in_flight = false;
+                self.os_stage_cache = stage;
             }
         }
     }
@@ -1560,7 +1593,14 @@ impl Engine {
                             let generation = self.path_generation.saturating_add(1);
                             let gain = self.gain_state();
                             let stream_rate = SampleRate::new(desc.rate).unwrap_or(FALLBACK_STREAM_RATE);
-                            let os = self.deps.os_probe.probe(&self.mode_settings.compatible.device, stream_rate);
+                            // AM1.0-B39: больше не `self.deps.os_probe.probe(...)`
+                            // синхронно здесь — `pw-metadata` уходит в служебный
+                            // поток (`start_os_probe`); этот `Open` строит путь
+                            // по последнему известному `os_stage_cache` без
+                            // ожидания, итог пробы освежит кэш для следующего
+                            // открытия (`handle_internal`, `InternalMsg::OsProbeDone`).
+                            let os = self.os_stage_cache.clone();
+                            self.start_os_probe(self.mode_settings.compatible.device.clone(), stream_rate);
                             match build_compatible_path(&src, &desc, os, &self.mode_settings, gain, generation) {
                                 Ok(active) => {
                                     self.path_generation = generation;
@@ -2190,6 +2230,44 @@ impl Engine {
         }
     }
 
+    /// Запускает фоновую пробу «Уровня ОС» (§6.26, ADR-21, ТЗ-77, AM1.0-B39)
+    /// в служебном потоке: на Linux `OsLevelProbe::probe` запускает
+    /// `pw-metadata` с таймаутом до 500 мс (`os_probe.rs`), поэтому цикл
+    /// движка больше не вызывает её сам — только через `deps.spawner`, итог
+    /// приходит `InternalMsg::OsProbeDone` (`handle_internal`), который
+    /// освежает `os_stage_cache`. Не более одной пробы одновременно
+    /// (коалесинг, как `start_shared_enumerate`/AM1.0-B37 и
+    /// `probe_device_caps`/AM1.0-B38): повторный вызов, пока прошлая проба
+    /// не вернулась, — тихий no-op, следующий `Open` всё равно запросит
+    /// пробу снова со своим актуальным `stream_rate`. Отказ планировщика
+    /// (`SpawnFailed`) — тоже no-op, как и у `start_shared_enumerate`:
+    /// `os_probe_in_flight` не выставляется, следующий `Open` повторит
+    /// попытку.
+    fn start_os_probe(&mut self, dev: SharedDeviceChoice, stream_rate: SampleRate) {
+        if self.os_probe_in_flight {
+            return;
+        }
+        let probe = Arc::clone(&self.deps.os_probe);
+        let done_tx = self.internal_tx.clone();
+        let spawned = self.deps.spawner.spawn(
+            "apap-os-probe",
+            Box::new(move || {
+                // Отравленный Mutex (паника внутри предыдущего `probe`) не
+                // должен ронять и этот служебный поток — тот же приём, что
+                // у остальных `Mutex` вне RT-пути (`catalog.rs`, `journal.rs`,
+                // `reservation/dbus.rs`): берём данные из отравленного
+                // гварда как есть.
+                let mut guard = probe.lock().unwrap_or_else(|poisoned| poisoned.into_inner());
+                let stage = guard.probe(&dev, stream_rate);
+                drop(guard);
+                let _ = done_tx.send(InternalMsg::OsProbeDone { stage });
+            }),
+        );
+        if spawned.is_ok() {
+            self.os_probe_in_flight = true;
+        }
+    }
+
     /// Отмечает одну попытку перечисления в серии повторного захвата висящей
     /// точки (§6.20 п. 4, ТЗ-126, AM1.0-B36): первая попытка (`reacquire_retry`
     /// ещё `None`) запускает серию на `REACQUIRE_RETRY_ATTEMPTS`, каждая
@@ -2453,6 +2531,7 @@ impl Drop for EngineHandle {
 #[allow(clippy::unwrap_used, clippy::expect_used)]
 mod tests {
     use super::*;
+    use std::sync::Mutex;
     use crate::audio::backend::catalog::FakeDeviceWatcher;
     use crate::audio::backend::os_probe::FakeOsProbe;
     use crate::audio::backend::shared::{fake_device, FakeSharedBackend};
@@ -2504,7 +2583,7 @@ mod tests {
             events,
             spawner,
             caps: BackendCaps::current(),
-            os_probe: Box::new(FakeOsProbe::new(OsStage::Unknown)),
+            os_probe: Arc::new(Mutex::new(Box::new(FakeOsProbe::new(OsStage::Unknown)))),
             rt: Arc::new(FakeRtRequester::new(None)),
             journal: Arc::new(crate::journal::VecJournal::default()),
         }
@@ -3024,7 +3103,7 @@ mod tests {
             events: Box::new(sink.clone()),
             spawner: Arc::new(StdSpawner),
             caps: BackendCaps::current(),
-            os_probe: Box::new(FakeOsProbe::new(OsStage::Unknown)),
+            os_probe: Arc::new(Mutex::new(Box::new(FakeOsProbe::new(OsStage::Unknown)))),
             rt: Arc::new(FakeRtRequester::new(None)),
             journal: Arc::new(crate::journal::VecJournal::default()),
         };
@@ -3073,7 +3152,7 @@ mod tests {
             events: Box::new(sink.clone()),
             spawner: Arc::new(StdSpawner),
             caps: BackendCaps::current(),
-            os_probe: Box::new(FakeOsProbe::new(OsStage::Unknown)),
+            os_probe: Arc::new(Mutex::new(Box::new(FakeOsProbe::new(OsStage::Unknown)))),
             rt: Arc::new(FakeRtRequester::new(None)),
             journal: Arc::new(crate::journal::VecJournal::default()),
         };
@@ -3255,7 +3334,7 @@ mod tests {
             events: Box::new(sink.clone()),
             spawner: Arc::new(StdSpawner),
             caps: BackendCaps::current(),
-            os_probe: Box::new(FakeOsProbe::new(OsStage::Unknown)),
+            os_probe: Arc::new(Mutex::new(Box::new(FakeOsProbe::new(OsStage::Unknown)))),
             rt: Arc::new(FakeRtRequester::new(None)),
             journal: Arc::new(crate::journal::VecJournal::default()),
         };
@@ -3403,7 +3482,7 @@ mod tests {
             events: Box::new(sink.clone()),
             spawner: Arc::new(StdSpawner),
             caps: BackendCaps::current(),
-            os_probe: Box::new(FakeOsProbe::new(OsStage::Unknown)),
+            os_probe: Arc::new(Mutex::new(Box::new(FakeOsProbe::new(OsStage::Unknown)))),
             rt: Arc::new(FakeRtRequester::new(None)),
             journal: Arc::new(crate::journal::VecJournal::default()),
         };
@@ -3467,7 +3546,7 @@ mod tests {
             events: Box::new(sink),
             spawner: Arc::new(StdSpawner),
             caps: BackendCaps::current(),
-            os_probe: Box::new(FakeOsProbe::new(OsStage::Unknown)),
+            os_probe: Arc::new(Mutex::new(Box::new(FakeOsProbe::new(OsStage::Unknown)))),
             rt: Arc::new(FakeRtRequester::new(None)),
             journal: Arc::new(crate::journal::VecJournal::default()),
         };
@@ -3525,7 +3604,7 @@ mod tests {
             events: Box::new(sink),
             spawner: Arc::new(StdSpawner),
             caps: BackendCaps::current(),
-            os_probe: Box::new(FakeOsProbe::new(OsStage::Unknown)),
+            os_probe: Arc::new(Mutex::new(Box::new(FakeOsProbe::new(OsStage::Unknown)))),
             rt: Arc::new(FakeRtRequester::new(None)),
             journal: Arc::new(crate::journal::VecJournal::default()),
         };
@@ -4225,7 +4304,7 @@ mod tests {
             events: Box::new(sink),
             spawner: Arc::new(StdSpawner),
             caps: BackendCaps::current(),
-            os_probe: Box::new(FakeOsProbe::new(OsStage::Unknown)),
+            os_probe: Arc::new(Mutex::new(Box::new(FakeOsProbe::new(OsStage::Unknown)))),
             rt: Arc::new(FakeRtRequester::new(None)),
             journal: Arc::new(crate::journal::VecJournal::default()),
         };
@@ -4332,7 +4411,7 @@ mod tests {
             events: Box::new(sink),
             spawner: Arc::new(StdSpawner),
             caps: BackendCaps::current(),
-            os_probe: Box::new(FakeOsProbe::new(OsStage::Unknown)),
+            os_probe: Arc::new(Mutex::new(Box::new(FakeOsProbe::new(OsStage::Unknown)))),
             rt: Arc::new(FakeRtRequester::new(None)),
             journal: Arc::new(crate::journal::VecJournal::default()),
         };
@@ -4434,7 +4513,7 @@ mod tests {
             events: Box::new(sink.clone()),
             spawner: Arc::new(StdSpawner),
             caps: BackendCaps::current(),
-            os_probe: Box::new(FakeOsProbe::new(OsStage::Unknown)),
+            os_probe: Arc::new(Mutex::new(Box::new(FakeOsProbe::new(OsStage::Unknown)))),
             rt: Arc::new(FakeRtRequester::new(None)),
             journal: Arc::new(crate::journal::VecJournal::default()),
         };
@@ -4617,7 +4696,7 @@ mod tests {
             events: Box::new(sink.clone()),
             spawner: Arc::new(StdSpawner),
             caps: BackendCaps::current(),
-            os_probe: Box::new(FakeOsProbe::new(OsStage::Unknown)),
+            os_probe: Arc::new(Mutex::new(Box::new(FakeOsProbe::new(OsStage::Unknown)))),
             rt: Arc::new(FakeRtRequester::new(None)),
             journal: Arc::new(crate::journal::VecJournal::default()),
         };
@@ -4674,7 +4753,7 @@ mod tests {
             events: Box::new(sink.clone()),
             spawner: Arc::new(StdSpawner),
             caps: BackendCaps::current(),
-            os_probe: Box::new(FakeOsProbe::new(OsStage::Unknown)),
+            os_probe: Arc::new(Mutex::new(Box::new(FakeOsProbe::new(OsStage::Unknown)))),
             rt: Arc::new(FakeRtRequester::new(Some(20))),
             journal: Arc::new(crate::journal::VecJournal::default()),
         };
@@ -4729,7 +4808,7 @@ mod tests {
             events: Box::new(sink.clone()),
             spawner: Arc::new(StdSpawner),
             caps: BackendCaps::current(),
-            os_probe: Box::new(FakeOsProbe::new(OsStage::Unknown)),
+            os_probe: Arc::new(Mutex::new(Box::new(FakeOsProbe::new(OsStage::Unknown)))),
             rt: Arc::new(FakeRtRequester::new(Some(20))),
             journal: Arc::new(crate::journal::VecJournal::default()),
         };
@@ -4786,7 +4865,7 @@ mod tests {
             events: Box::new(sink.clone()),
             spawner: Arc::new(StdSpawner),
             caps: BackendCaps::current(),
-            os_probe: Box::new(FakeOsProbe::new(OsStage::Unknown)),
+            os_probe: Arc::new(Mutex::new(Box::new(FakeOsProbe::new(OsStage::Unknown)))),
             rt: Arc::clone(&rt) as Arc<dyn RtPriorityRequester>,
             journal: Arc::new(crate::journal::VecJournal::default()),
         };
@@ -4845,7 +4924,7 @@ mod tests {
             events: Box::new(sink.clone()),
             spawner: Arc::new(StdSpawner),
             caps: BackendCaps::current(),
-            os_probe: Box::new(FakeOsProbe::new(OsStage::Unknown)),
+            os_probe: Arc::new(Mutex::new(Box::new(FakeOsProbe::new(OsStage::Unknown)))),
             rt: Arc::clone(&rt) as Arc<dyn RtPriorityRequester>,
             journal: Arc::new(crate::journal::VecJournal::default()),
         };
@@ -4928,7 +5007,7 @@ mod tests {
             events: Box::new(sink.clone()),
             spawner: Arc::new(StdSpawner),
             caps: BackendCaps::current(),
-            os_probe: Box::new(FakeOsProbe::new(OsStage::Unknown)),
+            os_probe: Arc::new(Mutex::new(Box::new(FakeOsProbe::new(OsStage::Unknown)))),
             rt: Arc::new(FakeRtRequester::new(None)),
             journal: Arc::new(crate::journal::VecJournal::default()),
         };
@@ -4986,7 +5065,7 @@ mod tests {
             events: Box::new(sink.clone()),
             spawner: Arc::new(StdSpawner),
             caps: BackendCaps::current(),
-            os_probe: Box::new(FakeOsProbe::new(OsStage::Unknown)),
+            os_probe: Arc::new(Mutex::new(Box::new(FakeOsProbe::new(OsStage::Unknown)))),
             rt: Arc::new(FakeRtRequester::new(None)),
             journal: Arc::new(crate::journal::VecJournal::default()),
         };
@@ -5057,7 +5136,7 @@ mod tests {
             events: Box::new(sink.clone()),
             spawner: Arc::new(StdSpawner),
             caps: BackendCaps::current(),
-            os_probe: Box::new(FakeOsProbe::new(OsStage::Unknown)),
+            os_probe: Arc::new(Mutex::new(Box::new(FakeOsProbe::new(OsStage::Unknown)))),
             rt: Arc::new(FakeRtRequester::new(None)),
             journal: Arc::new(crate::journal::VecJournal::default()),
         };
@@ -5117,7 +5196,7 @@ mod tests {
             events: Box::new(sink.clone()),
             spawner: Arc::new(StdSpawner),
             caps: BackendCaps::current(),
-            os_probe: Box::new(FakeOsProbe::new(OsStage::Unknown)),
+            os_probe: Arc::new(Mutex::new(Box::new(FakeOsProbe::new(OsStage::Unknown)))),
             rt: Arc::new(FakeRtRequester::new(None)),
             journal: Arc::new(crate::journal::VecJournal::default()),
         };
@@ -5185,7 +5264,7 @@ mod tests {
             events: Box::new(sink.clone()),
             spawner: Arc::new(StdSpawner),
             caps: BackendCaps::current(),
-            os_probe: Box::new(FakeOsProbe::new(OsStage::Unknown)),
+            os_probe: Arc::new(Mutex::new(Box::new(FakeOsProbe::new(OsStage::Unknown)))),
             rt: Arc::new(FakeRtRequester::new(None)),
             journal: Arc::new(crate::journal::VecJournal::default()),
         };
@@ -5263,7 +5342,7 @@ mod tests {
             events: Box::new(sink.clone()),
             spawner: Arc::new(StdSpawner),
             caps: BackendCaps::current(),
-            os_probe: Box::new(FakeOsProbe::new(OsStage::Unknown)),
+            os_probe: Arc::new(Mutex::new(Box::new(FakeOsProbe::new(OsStage::Unknown)))),
             rt: Arc::new(FakeRtRequester::new(None)),
             journal: Arc::new(crate::journal::VecJournal::default()),
         };
@@ -5345,7 +5424,7 @@ mod tests {
             events: Box::new(sink.clone()),
             spawner: Arc::new(StdSpawner),
             caps: BackendCaps::current(),
-            os_probe: Box::new(FakeOsProbe::new(OsStage::Unknown)),
+            os_probe: Arc::new(Mutex::new(Box::new(FakeOsProbe::new(OsStage::Unknown)))),
             rt: Arc::new(FakeRtRequester::new(None)),
             journal: Arc::new(crate::journal::VecJournal::default()),
         };
@@ -5434,7 +5513,7 @@ mod tests {
             events,
             spawner: Arc::new(StdSpawner),
             caps: BackendCaps::current(),
-            os_probe: Box::new(FakeOsProbe::new(OsStage::Unknown)),
+            os_probe: Arc::new(Mutex::new(Box::new(FakeOsProbe::new(OsStage::Unknown)))),
             rt: Arc::new(FakeRtRequester::new(None)),
             journal: Arc::new(crate::journal::VecJournal::default()),
         }

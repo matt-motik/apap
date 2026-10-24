@@ -6,7 +6,7 @@
 #![deny(clippy::unwrap_used, clippy::expect_used, clippy::unreachable)]
 
 use std::path::PathBuf;
-use std::sync::Arc;
+use std::sync::{Arc, Mutex};
 
 use crate::audio::backend::catalog::DeviceWatcher;
 use crate::audio::backend::exclusive::ExclusiveBackend;
@@ -48,8 +48,16 @@ pub struct EngineDeps {
     /// Возможности бэкенда платформы (§2.3, ОВС-12, ТЗ-109); статичны,
     /// тесты подставляют свои.
     pub caps: BackendCaps,
-    /// Уровень ОС для этапа «Уровень ОС» (§6.26, ADR-21).
-    pub os_probe: Box<dyn OsLevelProbe>,
+    /// Уровень ОС для этапа «Уровень ОС» (§6.26, ADR-21). `Arc<Mutex<_>>`,
+    /// а не `Box` (AM1.0-B39): `OsLevelProbe::probe` на Linux запускает
+    /// `pw-metadata` (до 500 мс, `os_probe.rs`) — движок зовёт её не из
+    /// своего цикла, а из служебного потока `apap-os-probe`
+    /// (`Engine::start_os_probe`, `src/engine/run.rs`), которому нужен
+    /// общий доступ к пробнику между вызовами `EngineCmd::Open`. Сигнатура
+    /// `probe(&mut self, …)` сохранена как есть — её задаёт спецификация
+    /// §6.26, `Mutex` даёт мутабельный доступ через границу потока без
+    /// смены трейта.
+    pub os_probe: Arc<Mutex<Box<dyn OsLevelProbe>>>,
     /// Запрос RT-приоритета потока вывода Эксклюзивного пути у `rtkit`
     /// (§6.8, ТЗ-99, ТЗ-76); тесты подменяют фейком.
     pub rt: Arc<dyn RtPriorityRequester>,
@@ -84,7 +92,7 @@ impl EngineDeps {
             events,
             spawner: Arc::new(StdSpawner),
             caps: BackendCaps::current(),
-            os_probe: Box::new(SystemOsProbe),
+            os_probe: Arc::new(Mutex::new(Box::new(SystemOsProbe))),
             rt: Arc::new(crate::audio::rt::RtKitRequester::new(rt_journal)),
             journal: engine_journal,
         }
@@ -154,7 +162,7 @@ mod tests {
             events: Box::new(VecSink::new()),
             spawner: Arc::new(StdSpawner),
             caps: BackendCaps::current(),
-            os_probe: Box::new(FakeOsProbe::new(OsStage::Unknown)),
+            os_probe: Arc::new(Mutex::new(Box::new(FakeOsProbe::new(OsStage::Unknown)))),
             rt: Arc::new(crate::audio::testing::FakeRtRequester::new(None)),
             journal: Arc::new(crate::journal::VecJournal::default()),
         };

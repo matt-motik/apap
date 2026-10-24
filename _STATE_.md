@@ -10,19 +10,18 @@
   - src/engine/messages.rs
   - src/engine/deps.rs
   - src/engine/run.rs
+  - src/engine/tests.rs
 - **Критерий успеха (Definition of Done):** EngineCmd::Open в Совместимом режиме не вызывает deps.os_probe.probe(...) синхронно — цикл движка использует кэш OsStage и никогда не ждёт pw-metadata; проба уходит в служебный поток (deps.spawner), итог обновляет кэш через InternalMsg; полный cargo test + clippy 0 + check_rt_imports + traceability зелёные
 
 ## Итерационный трекер
-- [>] **Шаг 1: InternalMsg::OsProbeDone { stage: OsStage } (messages.rs, Debug-ветка) + пустая обрабатывающая ветка в Engine::handle_internal (run.rs) — заготовка под асинхронный итог пробы ОС (§6.26, AM1.0-B39). Проверка: cargo check**
-- [ ] Шаг 2: EngineDeps.os_probe: Box<dyn OsLevelProbe> → Arc<Mutex<Box<dyn OsLevelProbe>>> (deps.rs, EngineDeps::system); OsLevelProbe::probe остаётся &mut self (спека §6.26 задаёт эту сигнатуру) — Mutex даёт служебному потоку доступ без смены трейта. Правка тестовых литералов EngineDeps в run.rs под новый тип поля. Проверка: cargo check
-- [ ] Шаг 3: Engine: поля os_stage_cache: OsStage (по умолчанию Unknown) и os_probe_in_flight: bool; метод start_os_probe (служебный поток deps.spawner, тот же паттерн, что probe_device_caps/AM1.0-B38 и start_shared_enumerate/AM1.0-B37: коалесинг одним in_flight-флагом, результат — InternalMsg::OsProbeDone). EngineCmd::Open (ветка Совместимого режима) берёт os_stage_cache синхронно без ожидания и запускает start_os_probe на освежение кэша; InternalMsg::OsProbeDone обновляет os_stage_cache (кэш используется следующим Open — текущий открытый путь не пересобирается, как и раньше при неудаче/таймауте pw-metadata, честный OsStage::Unknown как стартовое значение). Проверка: cargo check
-- [ ] Шаг 4: Тесты в run.rs: Open в Совместимом режиме не блокируется на os_probe (FakeOsProbe, которому можно наказать паниковать на синхронный вызов — убеждаемся, что probe() движок зовёт только из служебного потока StdSpawner, а не из handle()); InternalMsg::OsProbeDone обновляет os_stage_cache и используется следующим build_compatible_path; коалесинг — второй Open до возврата первой пробы не запускает вторую. Проверка: cargo test engine::
-- [ ] Шаг 5: ЧЕКПОИНТ: полный cargo test, cargo clippy (0 новых предупреждений), tools/check_rt_imports.py, tools/traceability_tool.py check
+- [x] Шаг 1: Вынести pw-metadata (OsLevelProbe::probe) из цикла движка в служебный поток (§6.26, AM1.0-B39): InternalMsg::OsProbeDone { stage: OsStage } (messages.rs); EngineDeps.os_probe: Box<dyn OsLevelProbe> → Arc<Mutex<Box<dyn OsLevelProbe>>> (deps.rs, EngineDeps::system; OsLevelProbe::probe остаётся &mut self — спека §6.26 задаёт эту сигнатуру, Mutex даёт служебному потоку доступ без смены трейта); Engine: поля os_stage_cache: OsStage (по умолчанию Unknown) и os_probe_in_flight: bool, метод start_os_probe (служебный поток deps.spawner, паттерн probe_device_caps/AM1.0-B38 и start_shared_enumerate/AM1.0-B37 — коалесинг одним in_flight-флагом); EngineCmd::Open (ветка Совместимого режима) берёт os_stage_cache синхронно без ожидания и зовёт start_os_probe на освежение кэша; handle_internal на OsProbeDone обновляет os_stage_cache (кэш используется следующим Open — текущий открытый путь не пересобирается, как и раньше при неудаче/таймауте pw-metadata; честный OsStage::Unknown как стартовое значение). Правка тестовых литералов EngineDeps в run.rs под новый тип поля (run.rs). Проверка: cargo check
+- [>] **Шаг 2: Тесты в run.rs: Open в Совместимом режиме не блокируется на os_probe (FakeOsProbe с видимым признаком вызова только из служебного потока StdSpawner, не из handle()); InternalMsg::OsProbeDone обновляет os_stage_cache и используется следующим build_compatible_path; коалесинг — второй Open до возврата первой пробы не запускает вторую. Проверка: cargo test engine::**
+- [ ] Шаг 3: ЧЕКПОИНТ: полный cargo test, cargo clippy (0 новых предупреждений), tools/check_rt_imports.py, tools/traceability_tool.py check
 
 Легенда: [x] сделано · [>] текущий шаг · [ ] не начато
 
-- **Текущий шаг (current_step):** Шаг 1
-- **Следующий ход:** Добавить InternalMsg::OsProbeDone { stage: OsStage } в src/engine/messages.rs и пустую ветку в Engine::handle_internal (run.rs)
+- **Текущий шаг (current_step):** Шаг 2
+- **Следующий ход:** Тесты AM1.0-B39: Open не блокируется, кэш обновляется, коалесинг пробника (src/engine/run.rs, tests.rs)
 - **Счетчик безуспешных компиляций:** 0/3
 - **Состояние:** in_progress
 

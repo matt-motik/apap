@@ -15,7 +15,7 @@ use crate::audio::decoder::TrackInfo;
 use crate::audio::error::{CaptureFailure, FileError, OpenError, Reaction, StreamFault};
 use crate::audio::format::StreamFormat;
 use crate::audio::path::signal::{DynamicPathState, SignalPath};
-use crate::audio::path::Blocked;
+use crate::audio::path::{Blocked, OsStage};
 use crate::audio::verdict::BadgeState;
 use crate::engine::lock::{LockInput, LockState};
 use crate::playlist::model::TrackId;
@@ -266,6 +266,14 @@ pub enum InternalMsg {
     /// синхронно в своём цикле (`refresh_devices`), только через это
     /// сообщение.
     SharedEnumerateDone { result: Result<SharedEnumerateOutcome, BackendError> },
+    /// Итог фоновой пробы «Уровня ОС» (§6.26, ADR-21, ТЗ-77, AM1.0-B39) —
+    /// поступает служебным потоком `apap-os-probe` (`Engine::start_os_probe`,
+    /// `src/engine/run.rs`): `OsLevelProbe::probe` на Linux запускает
+    /// `pw-metadata` с таймаутом до 500 мс (`os_probe.rs`), поэтому движок
+    /// больше не вызывает её синхронно внутри `EngineCmd::Open` — только
+    /// через это сообщение, которое освежает `Engine::os_stage_cache` для
+    /// следующего открытия.
+    OsProbeDone { stage: OsStage },
 }
 
 impl std::fmt::Debug for InternalMsg {
@@ -294,6 +302,7 @@ impl std::fmt::Debug for InternalMsg {
                 .debug_struct("SharedEnumerateDone")
                 .field("result", &result.as_ref().map(|_| "<enumerate>"))
                 .finish(),
+            InternalMsg::OsProbeDone { stage } => f.debug_struct("OsProbeDone").field("stage", stage).finish(),
         }
     }
 }
