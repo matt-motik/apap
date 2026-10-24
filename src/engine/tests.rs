@@ -14,7 +14,9 @@ use std::time::{Duration, Instant};
 
 use crate::audio::backend::catalog::{DeviceWatcher, FakeDeviceWatcher};
 use crate::audio::backend::os_probe::FakeOsProbe;
-use crate::audio::backend::shared::{fake_device, FakeSharedBackend, SharedBackend};
+use crate::audio::backend::shared::{
+    fake_device, FakeSharedBackend, SharedBackend, SharedEnumerateJob, SharedEnumerateOutcome,
+};
 use crate::audio::backend::{BackendError, SharedDeviceInfo};
 use crate::audio::clock::MonotonicClock;
 use crate::audio::error::{EngineFault, OpenError};
@@ -82,17 +84,30 @@ fn fake_deps(events: Box<dyn EventSink>, spawner: Arc<dyn ThreadSpawner>) -> Eng
     )
 }
 
-/// Ждёт, пока `cond` не станет `true`, но не дольше `timeout` (шаг 5 мс
-/// между проверками). Нужен для детерминированного ожидания фонового события
-/// движка без безусловного `sleep`.
-fn wait_for<F: FnMut() -> bool>(timeout: Duration, mut cond: F) -> bool {
+/// Копит события из `sink` прогрессивным `take()`, пока среди накопленного
+/// не наберётся `min_matching` штук, удовлетворяющих `pred`, или не истечёт
+/// `timeout` — возвращает всё собранное (включая не подошедшие события), не
+/// теряя их. Нужен, т.к. `VecSink` не даёт заглянуть в события без `take()`
+/// (`src/engine/sink.rs` не входит в вайтлист этой сессии): грубая проверка
+/// `!sink.is_empty()` ловит случайные более ранние события движка
+/// (`Transport`/`Position` при старте) и не гарантирует, что искомое
+/// `Devices` от фонового Shared-перечисления (AM1.0-B37, шаг 12) уже
+/// пришло.
+fn collect_until<F: Fn(&EngineEvent) -> bool>(
+    sink: &VecSink,
+    timeout: Duration,
+    min_matching: usize,
+    pred: F,
+) -> Vec<EngineEvent> {
     let start = Instant::now();
+    let mut collected = Vec::new();
     loop {
-        if cond() {
-            return true;
+        collected.extend(sink.take());
+        if collected.iter().filter(|e| pred(e)).count() >= min_matching {
+            return collected;
         }
         if start.elapsed() >= timeout {
-            return false;
+            return collected;
         }
         std::thread::sleep(Duration::from_millis(5));
     }
@@ -130,6 +145,15 @@ impl SharedBackend for CountingShared {
         let mut state = self.state.lock().expect("lock");
         state.enumerations += 1;
         Ok(state.devices.clone())
+    }
+
+    fn enumerate_job(&self) -> SharedEnumerateJob {
+        let state = Arc::clone(&self.state);
+        Box::new(move || {
+            let mut state = state.lock().expect("lock");
+            state.enumerations += 1;
+            Ok(SharedEnumerateOutcome { devices: state.devices.clone(), pw_sink_error: None })
+        })
     }
 }
 
@@ -210,11 +234,22 @@ fn device_catalog_enumerated_once() {
     let (handle, _caps) = EngineHandle::spawn(deps).expect("spawn ok");
     assert!(handle.send(EngineCmd::SetVolume(0.4)));
     assert!(handle.send(EngineCmd::SetVolume(0.6)));
+    // Стартовое перечисление уходит в фоновое задание (AM1.0-B37, шаг 12) —
+    // дождаться именно Devices от него (`collect_until`, не грубое
+    // `!sink.is_empty()`: раньше него в sink уже лежат синхронные
+    // `Transport`/`Position` со старта движка), прежде чем выключать движок
+    // (иначе Shutdown может прервать цикл раньше drain_internal и результат
+    // потеряется).
+    let mut events = collect_until(&sink, Duration::from_secs(1), 1, |e| matches!(e, EngineEvent::Devices(_)));
+    assert!(
+        events.iter().any(|e| matches!(e, EngineEvent::Devices(_))),
+        "Devices не пришёл от фонового перечисления: {events:?}"
+    );
     assert!(handle.send(EngineCmd::Shutdown));
     handle.join();
 
     assert_eq!(probe.enumerations(), 1);
-    let events = sink.take();
+    events.extend(sink.take());
     assert_eq!(events.iter().filter(|e| matches!(e, EngineEvent::Devices(_))).count(), 1);
 }
 
@@ -239,19 +274,39 @@ fn device_hotplug_single_enumeration() {
 
     let (handle, _caps) = EngineHandle::spawn(deps).expect("spawn ok");
 
-    // Дождаться первого (стартового) перечисления, прежде чем менять список
-    // и дёргать триггер: иначе возможна гонка, при которой первое
-    // перечисление уже увидело бы новый список.
-    assert!(wait_for(Duration::from_secs(1), || probe.enumerations() >= 1));
+    // Дождаться первого (стартового) перечисления — не только счётчика
+    // воркера, а именно обработанного `Devices` (`shared_enumerate_in_flight`
+    // снят `handle_internal`, через `collect_until`, не грубое
+    // `!sink.is_empty()`: раньше него в sink уже лежат синхронные
+    // `Transport`/`Position` со старта движка), прежде чем менять список и
+    // дёргать триггер: иначе возможна гонка с коалесингом (AM1.0-B37, шаг
+    // 12, `start_shared_enumerate`: второй запрос во время ещё не слитого
+    // первого задания не запускает отдельное перечисление, а только взводит
+    // `force_emit` у уже идущего — и тот уйдёт со старым списком).
+    let mut events = collect_until(&sink, Duration::from_secs(1), 1, |e| matches!(e, EngineEvent::Devices(_)));
+    assert!(
+        events.iter().any(|e| matches!(e, EngineEvent::Devices(_))),
+        "первый Devices не пришёл от фонового перечисления: {events:?}"
+    );
+    assert_eq!(probe.enumerations(), 1);
 
     probe.set_devices(vec![fake_device("hw:0", "Speakers"), fake_device("hw:1", "HDMI")]);
     assert!(trigger.fire());
     assert!(handle.send(EngineCmd::SetVolume(0.5)));
+    // Повторное перечисление по сигналу `DeviceWatcher` тоже уходит в
+    // фоновое задание (AM1.0-B37, шаг 12) — дождаться второго Devices,
+    // прежде чем выключать движок.
+    let more = collect_until(&sink, Duration::from_secs(1), 1, |e| matches!(e, EngineEvent::Devices(_)));
+    assert!(
+        more.iter().any(|e| matches!(e, EngineEvent::Devices(_))),
+        "второй Devices не пришёл от фонового перечисления: {more:?}"
+    );
+    events.extend(more);
     assert!(handle.send(EngineCmd::Shutdown));
     handle.join();
 
     assert_eq!(probe.enumerations(), 2);
-    let events = sink.take();
+    events.extend(sink.take());
     let devices: Vec<_> = events
         .iter()
         .filter_map(|e| match e {

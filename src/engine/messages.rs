@@ -9,6 +9,7 @@ use std::time::Duration;
 
 use crate::audio::backend::catalog::DeviceCatalog;
 use crate::audio::backend::exclusive::{DeviceClaim, ProbeError};
+use crate::audio::backend::shared::SharedEnumerateOutcome;
 use crate::audio::backend::{BackendError, DeviceCaps, HwDeviceId};
 use crate::audio::decoder::TrackInfo;
 use crate::audio::error::{CaptureFailure, FileError, OpenError, Reaction, StreamFault};
@@ -245,6 +246,14 @@ pub enum InternalMsg {
     /// close), засечённое в потоке `apap-probe` (`Instant`, вне RT-пути) —
     /// идёт в журнал (`JournalRecord::DeviceCapsProbe`, `src/engine/run.rs`).
     ProbeDone { device: HwDeviceId, result: Result<DeviceCaps, ProbeError>, duration: Duration },
+    /// Итог фонового Shared-перечисления (§2.3, ADR-07 «Уточнение»,
+    /// AM1.0-B37, продолжение) — поступает служебным потоком
+    /// `apap-shared-enum` (`start_shared_enumerate`, `src/engine/run.rs`):
+    /// `pw-dump` внутри `SharedBackend::enumerate_job` может занять до 2 с
+    /// (таймаут `pw_dump.rs`), поэтому движок никогда не вызывает его
+    /// синхронно в своём цикле (`refresh_devices`), только через это
+    /// сообщение.
+    SharedEnumerateDone { result: Result<SharedEnumerateOutcome, BackendError> },
 }
 
 impl std::fmt::Debug for InternalMsg {
@@ -268,6 +277,10 @@ impl std::fmt::Debug for InternalMsg {
                 .field("device", device)
                 .field("result", result)
                 .field("duration", duration)
+                .finish(),
+            InternalMsg::SharedEnumerateDone { result } => f
+                .debug_struct("SharedEnumerateDone")
+                .field("result", &result.as_ref().map(|_| "<enumerate>"))
                 .finish(),
         }
     }

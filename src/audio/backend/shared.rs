@@ -3,6 +3,7 @@
 //! `SharedRender`/`StartError` на следующих этапах.
 #![deny(clippy::unwrap_used, clippy::expect_used, clippy::unreachable)]
 
+use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::Arc;
 
 use super::alsa::configure_and_start_shared;
@@ -15,10 +16,38 @@ use crate::audio::output::{classify_device, AudioHost, CpalHost, DeviceInfo};
 use crate::audio::session::SessionShared;
 use crate::settings::playback::DeviceBuffer;
 
+/// Итог фонового Shared-перечисления (`SharedBackend::enumerate_job`, §2.3,
+/// ADR-07 «Уточнение», AM1.0-B37, продолжение): `devices` — тот же
+/// агрегированный список, что строит `enumerate()` (базовый список хоста +
+/// per-sink узлы PipeWire); `pw_sink_error` — ошибка `PwSinkSource`
+/// (`pw-dump` недоступен/не ответил за таймаут/вывод не разобрался),
+/// снятая отдельно от `devices`, чтобы вызывающая сторона
+/// (`src/engine/run.rs::handle_internal`) могла записать её в `Journal`
+/// (`JournalRecord::PwSinkEnumerate`), даже когда сам список при этом не
+/// пуст (честность сигнала важнее тишины об ошибке, ADR-07 «Уточнение»).
+#[derive(Debug)]
+pub struct SharedEnumerateOutcome {
+    pub devices: Vec<SharedDeviceInfo>,
+    pub pw_sink_error: Option<String>,
+}
+
+/// Задание фонового Shared-перечисления, не заимствующее бэкенд (§2.3,
+/// AM1.0-B37, продолжение) — по образцу `ClaimJob`/`ProbeJob`
+/// (`exclusive.rs`): выполняется в служебном потоке `apap-shared-enum`
+/// (`start_shared_enumerate`, `src/engine/run.rs`), т.к. `pw-dump` внутри
+/// может занять до 2 с (таймаут `pw_dump.rs`) — цикл движка не ждёт его
+/// синхронно.
+pub type SharedEnumerateJob = Box<dyn FnOnce() -> Result<SharedEnumerateOutcome, BackendError> + Send>;
+
 /// Перечисление Shared-устройств (§2.3). `caps`/`start` — подмножество
 /// полного трейта из спецификации появится на последующих этапах.
 pub trait SharedBackend: Send {
     fn enumerate(&mut self) -> Result<Vec<SharedDeviceInfo>, BackendError>;
+    /// Задание того же перечисления для служебного потока (§2.3, AM1.0-B37,
+    /// продолжение): движок (`src/engine/run.rs::refresh_devices`) вызывает
+    /// только этот метод, не `enumerate()`, — `pw-dump` внутри не должен
+    /// держать цикл движка.
+    fn enumerate_job(&self) -> SharedEnumerateJob;
 }
 
 /// Источник per-sink узлов PipeWire (`pw-dump`) для `CpalSharedBackend`
@@ -37,6 +66,11 @@ pub trait PwSinkSource: Send {
     /// умолчанию» и не падая целиком (ADR-07 «Уточнение»: честность сигнала
     /// важнее полноты списка).
     fn sinks(&mut self) -> Result<Vec<PwSink>, String>;
+    /// Задание того же опроса, не заимствующее источник (AM1.0-B37,
+    /// продолжение, по образцу `ClaimJob`/`ProbeJob`): выполняется в
+    /// служебном потоке `CpalSharedBackend::enumerate_job`, ошибка — текстом
+    /// для `JournalRecord::PwSinkEnumerate` (`src/engine/run.rs`).
+    fn job(&self) -> Box<dyn FnOnce() -> Result<Vec<PwSink>, String> + Send>;
 }
 
 /// Боевая реализация `PwSinkSource` (ADR-07 «Уточнение», AM1.0-B37):
@@ -48,18 +82,29 @@ pub trait PwSinkSource: Send {
 #[derive(Default)]
 pub struct SystemPwSinkSource;
 
-impl PwSinkSource for SystemPwSinkSource {
+/// Тело `SystemPwSinkSource::sinks`/`job` — свободная функция, общая для
+/// обоих методов (AM1.0-B37, продолжение): `job()` строит задание служебного
+/// потока без заимствования `self` (источник без состояния), `sinks()`
+/// остаётся для существующего синхронного пути `enumerate()`.
+fn system_pw_sinks() -> Result<Vec<PwSink>, String> {
     #[cfg(target_os = "linux")]
-    fn sinks(&mut self) -> Result<Vec<PwSink>, String> {
+    {
         if crate::audio::reservation::dbus::active_server_name() != Some("PipeWire") {
             return Ok(Vec::new());
         }
         pw_dump::enumerate_pipewire_sinks().map_err(|err| err.to_string())
     }
-
     #[cfg(not(target_os = "linux"))]
+    Ok(Vec::new())
+}
+
+impl PwSinkSource for SystemPwSinkSource {
     fn sinks(&mut self) -> Result<Vec<PwSink>, String> {
-        Ok(Vec::new())
+        system_pw_sinks()
+    }
+
+    fn job(&self) -> Box<dyn FnOnce() -> Result<Vec<PwSink>, String> + Send> {
+        Box::new(system_pw_sinks)
     }
 }
 
@@ -102,7 +147,12 @@ impl<H: AudioHost + Send> CpalSharedBackend<H> {
     }
 }
 
-impl<H: AudioHost + Send> SharedBackend for CpalSharedBackend<H> {
+// `Clone + 'static` сверх `AudioHost + Send` нужны только `enumerate_job`
+// (AM1.0-B37, продолжение): `host.clone()` снимается сейчас, в замыкание,
+// которое выполняется позже в служебном потоке (§2.3). `CpalHost` и
+// тестовый `MockHost` ниже — оба дешёво `Clone` (без состояния/маленький
+// снимок), отдельный бэкенд не потребовался.
+impl<H: AudioHost + Clone + Send + 'static> SharedBackend for CpalSharedBackend<H> {
     fn enumerate(&mut self) -> Result<Vec<SharedDeviceInfo>, BackendError> {
         let devices = self.host.devices();
         let default_name = self.host.default_name();
@@ -124,12 +174,51 @@ impl<H: AudioHost + Send> SharedBackend for CpalSharedBackend<H> {
                 infos.extend(sinks.iter().map(pw_sink_to_shared_device));
             }
             // `Err` намеренно отбрасывается здесь (см. doc-комментарий
-            // `PwSinkSource::sinks`): запись в журнал — заметка плана
-            // AM1.0-B37, до шага с файлом в вайтлисте, имеющим доступ к
-            // `Journal`.
+            // `PwSinkSource::sinks`): этот синхронный путь больше не
+            // вызывается движком (`enumerate_job` ниже — его асинхронная
+            // замена, AM1.0-B37, продолжение), запись в журнал для него не
+            // нужна.
         }
 
         Ok(infos)
+    }
+
+    /// Асинхронная замена `enumerate()` для служебного потока (§2.3,
+    /// AM1.0-B37, продолжение): `host`/`pw_sinks.job()` снимаются сейчас
+    /// (клон `H`/боксед-замыкание — обе операции без I/O), а сам опрос —
+    /// `host.devices()`/`default_name()` (без процесса, не блокирует) и
+    /// `pw_sinks`-задание (может ждать `pw-dump` до 2 с) — выполняется
+    /// внутри возвращённого замыкания, в служебном потоке, не здесь.
+    fn enumerate_job(&self) -> SharedEnumerateJob {
+        let host = self.host.clone();
+        let pw_job = self.pw_sinks.as_ref().map(|source| source.job());
+        Box::new(move || {
+            let devices = host.devices();
+            let default_name = host.default_name();
+            let mut infos: Vec<SharedDeviceInfo> = devices
+                .into_iter()
+                .map(|dev| {
+                    let is_default = default_name.as_deref() == Some(dev.name.as_str());
+                    SharedDeviceInfo {
+                        id: SharedDeviceId::new(dev.id.clone()),
+                        name: dev.name.clone(),
+                        is_default,
+                        legacy: dev,
+                    }
+                })
+                .collect();
+            let pw_sink_error = match pw_job {
+                Some(job) => match job() {
+                    Ok(sinks) => {
+                        infos.extend(sinks.iter().map(pw_sink_to_shared_device));
+                        None
+                    }
+                    Err(err) => Some(err),
+                },
+                None => None,
+            };
+            Ok(SharedEnumerateOutcome { devices: infos, pw_sink_error })
+        })
     }
 }
 
@@ -211,31 +300,60 @@ fn pw_sink_to_shared_device(sink: &PwSink) -> SharedDeviceInfo {
 }
 
 /// Фейк для тестов: отдаёт заранее заданный список устройств или ошибку и
-/// считает число вызовов `enumerate` (§2.3).
+/// считает число вызовов `enumerate`/`enumerate_job` (§2.3). Счётчик —
+/// `Arc<AtomicUsize>` (не простой `usize`), т.к. `enumerate_job` строит
+/// задание из `&self` (AM1.0-B37, продолжение, по образцу `ClaimJob`/
+/// `ProbeJob`) — инкремент происходит внутри замыкания, когда оно
+/// фактически выполняется служебным потоком, а не когда задание только
+/// построено.
 pub struct FakeSharedBackend {
     result: Result<Vec<SharedDeviceInfo>, BackendError>,
-    enumerations: usize,
+    /// Ошибка `pw-dump`, которую несёт `enumerate_job`, помимо `devices` из
+    /// `result` (AM1.0-B37, продолжение) — тесты движка, проверяющие запись
+    /// в журнал без реального `CpalSharedBackend`/`PwSinkSource`.
+    pw_sink_error: Option<String>,
+    enumerations: Arc<AtomicUsize>,
 }
 
 impl FakeSharedBackend {
     pub fn with_devices(devices: Vec<SharedDeviceInfo>) -> FakeSharedBackend {
-        FakeSharedBackend { result: Ok(devices), enumerations: 0 }
+        FakeSharedBackend { result: Ok(devices), pw_sink_error: None, enumerations: Arc::new(AtomicUsize::new(0)) }
     }
 
     pub fn with_error(err: BackendError) -> FakeSharedBackend {
-        FakeSharedBackend { result: Err(err), enumerations: 0 }
+        FakeSharedBackend { result: Err(err), pw_sink_error: None, enumerations: Arc::new(AtomicUsize::new(0)) }
     }
 
-    /// Сколько раз был вызван `enumerate`.
+    /// Задаёт ошибку `pw-dump`, несомую `enumerate_job` рядом со списком
+    /// устройств из `with_devices` (AM1.0-B37, продолжение): симулирует
+    /// отказ/таймаут/неразбор `pw-dump` без реального `CpalSharedBackend`.
+    pub fn with_pw_sink_error(mut self, err: impl Into<String>) -> FakeSharedBackend {
+        self.pw_sink_error = Some(err.into());
+        self
+    }
+
+    /// Сколько раз фактически выполнено перечисление (`enumerate` синхронно
+    /// или `enumerate_job` — когда служебный поток вызвал построенное
+    /// задание).
     pub fn enumerations(&self) -> usize {
-        self.enumerations
+        self.enumerations.load(Ordering::SeqCst)
     }
 }
 
 impl SharedBackend for FakeSharedBackend {
     fn enumerate(&mut self) -> Result<Vec<SharedDeviceInfo>, BackendError> {
-        self.enumerations += 1;
+        self.enumerations.fetch_add(1, Ordering::SeqCst);
         self.result.clone()
+    }
+
+    fn enumerate_job(&self) -> SharedEnumerateJob {
+        let result = self.result.clone();
+        let pw_sink_error = self.pw_sink_error.clone();
+        let counter = Arc::clone(&self.enumerations);
+        Box::new(move || {
+            counter.fetch_add(1, Ordering::SeqCst);
+            result.map(|devices| SharedEnumerateOutcome { devices, pw_sink_error })
+        })
     }
 }
 
@@ -286,6 +404,11 @@ impl PwSinkSource for FakePwSinkSource {
     fn sinks(&mut self) -> Result<Vec<PwSink>, String> {
         self.0.clone()
     }
+
+    fn job(&self) -> Box<dyn FnOnce() -> Result<Vec<PwSink>, String> + Send> {
+        let result = self.0.clone();
+        Box::new(move || result)
+    }
 }
 
 const _: fn() = || {
@@ -294,6 +417,7 @@ const _: fn() = || {
     assert_send::<FakeSharedBackend>();
     assert_send::<SystemPwSinkSource>();
     assert_send::<FakePwSinkSource>();
+    assert_send::<SharedEnumerateOutcome>();
 };
 
 #[cfg(test)]
@@ -301,6 +425,7 @@ const _: fn() = || {
 mod tests {
     use super::*;
 
+    #[derive(Clone)]
     struct MockHost {
         devices: Vec<DeviceInfo>,
         default_name: Option<String>,
@@ -446,5 +571,91 @@ mod tests {
         let host = MockHost { devices: vec![mock_device("hw:0", "Speakers")], default_name: None };
         let mut backend = CpalSharedBackend::with_host(host);
         assert_eq!(backend.enumerate().expect("enumerate ok").len(), 1);
+    }
+
+    /// Асинхронная замена `enumerate()` (AM1.0-B37, продолжение): тот же
+    /// агрегированный список, `pw_sink_error: None` при успехе `pw-dump`.
+    #[test]
+    fn enumerate_job_appends_pw_sink_entries_after_base_list() {
+        let host = MockHost {
+            devices: vec![mock_device("pipewire", "Системное по умолчанию (PipeWire)")],
+            default_name: Some("Системное по умолчанию (PipeWire)".to_string()),
+        };
+        let source = FakePwSinkSource::with_sinks(vec![motu_sink(), bluetooth_sink()]);
+        let backend = CpalSharedBackend::with_host(host).with_pw_sinks(Box::new(source));
+
+        let job = backend.enumerate_job();
+        let outcome = job().expect("enumerate_job ok");
+
+        assert!(outcome.pw_sink_error.is_none());
+        assert_eq!(outcome.devices.len(), 3);
+        assert_eq!(outcome.devices[0].name, "Системное по умолчанию (PipeWire)");
+        assert!(outcome.devices[0].is_default);
+        assert_eq!(outcome.devices[1].id.as_str(), "pipewire:NODE=alsa_output.usb-MOTU_M2-00.HiFi__Line__sink.3");
+        assert_eq!(outcome.devices[2].id.as_str(), "pipewire:NODE=bluez_output.AA_BB_CC_DD_EE_FF.1");
+    }
+
+    /// Отказ `pw-dump` в `enumerate_job` (AM1.0-B37, продолжение): список —
+    /// только базовый (как у синхронного `enumerate()`), но ошибка не
+    /// отбрасывается — уходит в `pw_sink_error` для записи в `Journal`
+    /// (`src/engine/run.rs::handle_internal`, `JournalRecord::
+    /// PwSinkEnumerate`).
+    #[test]
+    fn enumerate_job_reports_pw_sink_error_and_keeps_base_list() {
+        let host = MockHost {
+            devices: vec![mock_device("pipewire", "Системное по умолчанию (PipeWire)")],
+            default_name: Some("Системное по умолчанию (PipeWire)".to_string()),
+        };
+        let source = FakePwSinkSource::with_error("pw-dump did not respond in time");
+        let backend = CpalSharedBackend::with_host(host).with_pw_sinks(Box::new(source));
+
+        let job = backend.enumerate_job();
+        let outcome = job().expect("enumerate_job ok despite pw-dump error");
+
+        assert_eq!(outcome.pw_sink_error.as_deref(), Some("pw-dump did not respond in time"));
+        assert_eq!(outcome.devices.len(), 1);
+        assert_eq!(outcome.devices[0].name, "Системное по умолчанию (PipeWire)");
+    }
+
+    #[test]
+    fn enumerate_job_without_pw_sink_source_is_unchanged() {
+        let host = MockHost { devices: vec![mock_device("hw:0", "Speakers")], default_name: None };
+        let backend = CpalSharedBackend::with_host(host);
+        let outcome = backend.enumerate_job()().expect("enumerate_job ok");
+        assert_eq!(outcome.devices.len(), 1);
+        assert!(outcome.pw_sink_error.is_none());
+    }
+
+    /// `enumerate_job` не заимствует `&mut self` — задание выполняется в
+    /// служебном потоке, не на вызывающей стороне (по образцу `ClaimJob`/
+    /// `ProbeJob`, AM1.0-B37, продолжение); счётчик `FakeSharedBackend`
+    /// учитывает фактическое выполнение, а не построение задания.
+    #[test]
+    fn fake_shared_backend_enumerate_job_counts_on_execution_not_build() {
+        let backend = FakeSharedBackend::with_devices(vec![fake_device("hw:0", "Speakers")]);
+        let job = backend.enumerate_job();
+        assert_eq!(backend.enumerations(), 0, "построение задания не считается выполнением");
+
+        let outcome = job().expect("enumerate_job ok");
+        assert_eq!(outcome.devices.len(), 1);
+        assert_eq!(backend.enumerations(), 1);
+    }
+
+    #[test]
+    fn fake_shared_backend_enumerate_job_reports_pw_sink_error() {
+        let backend =
+            FakeSharedBackend::with_devices(vec![fake_device("hw:0", "Speakers")]).with_pw_sink_error("timeout");
+        let outcome = backend.enumerate_job()().expect("enumerate_job ok");
+        assert_eq!(outcome.pw_sink_error.as_deref(), Some("timeout"));
+        assert_eq!(outcome.devices.len(), 1);
+    }
+
+    #[test]
+    fn fake_shared_backend_enumerate_job_propagates_backend_error() {
+        let backend = FakeSharedBackend::with_error(BackendError::Unavailable("no host".to_string()));
+        match backend.enumerate_job()() {
+            Err(BackendError::Unavailable(msg)) => assert_eq!(msg, "no host"),
+            other => panic!("expected Unavailable, got {other:?}"),
+        }
     }
 }

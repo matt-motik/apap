@@ -85,6 +85,17 @@ pub enum JournalRecord {
     /// длительность самого задания (open NONBLOCK → hw_params refine →
     /// close), засечённая служебным потоком `apap-probe` вне RT-пути.
     DeviceCapsProbe { device: HwDeviceId, outcome: ProbeOutcomeText, duration: Duration },
+    /// Перечисление per-sink узлов PipeWire через `pw-dump` внутри
+    /// фонового Shared-перечисления (§2.3, ADR-07 «Уточнение», AM1.0-B37,
+    /// продолжение, `src/engine/run.rs::handle_internal`,
+    /// `InternalMsg::SharedEnumerateDone`): `error` — текст ошибки
+    /// `PwSinkSource` (`pw-dump` недоступен/не ответил за таймаут/вывод не
+    /// разобрался), `None` — `pw-dump` отработал (список мог быть пустым).
+    /// Сама ошибка не останавливает перечисление (`CpalSharedBackend::
+    /// enumerate_job`, `src/audio/backend/shared.rs`) — только «Системное
+    /// по умолчанию» без per-sink записей (честность сигнала важнее
+    /// полноты списка, ADR-07 «Уточнение»).
+    PwSinkEnumerate { error: Option<Box<str>> },
 }
 
 /// Исход опроса caps для строки журнала (ADR-21, §2.9, AM1.0-B38):
@@ -142,6 +153,7 @@ impl JournalRecord {
             JournalRecord::DeviceEnumerate { .. } => "перечисление устройств",
             JournalRecord::DeviceReacquireLookup { .. } => "поиск устройства повторного захвата",
             JournalRecord::DeviceCapsProbe { .. } => "опрос caps устройства",
+            JournalRecord::PwSinkEnumerate { .. } => "перечисление узлов PipeWire",
         }
     }
 
@@ -225,6 +237,10 @@ impl JournalRecord {
                 };
                 format!("{device}: {outcome}; {} мс", duration.as_millis())
             }
+            JournalRecord::PwSinkEnumerate { error } => match error {
+                Some(err) => format!("ошибка: {err}"),
+                None => "без ошибки".to_string(),
+            },
         }
     }
 }
@@ -691,6 +707,22 @@ mod tests {
 
         let err = JournalRecord::DeviceEnumerate { enumerate_error: Some("no host".into()) };
         assert_eq!(format_line(&err, UNIX_EPOCH), "1970-01-01T00:00:00.000Z перечисление устройств: ошибка: no host");
+    }
+
+    /// `JournalRecord::PwSinkEnumerate` (AM1.0-B37, продолжение) — та же
+    /// форма строки, что у `DeviceEnumerate`, для фонового Shared-
+    /// перечисления (`pw-dump`, `src/engine/run.rs::handle_internal`).
+    #[test]
+    fn journal_pw_sink_enumerate_line_has_error_or_not() {
+        let ok = JournalRecord::PwSinkEnumerate { error: None };
+        assert_eq!(ok.kind(), "перечисление узлов PipeWire");
+        assert_eq!(format_line(&ok, UNIX_EPOCH), "1970-01-01T00:00:00.000Z перечисление узлов PipeWire: без ошибки");
+
+        let err = JournalRecord::PwSinkEnumerate { error: Some("pw-dump did not respond in time".into()) };
+        assert_eq!(
+            format_line(&err, UNIX_EPOCH),
+            "1970-01-01T00:00:00.000Z перечисление узлов PipeWire: ошибка: pw-dump did not respond in time"
+        );
     }
 
     #[test]

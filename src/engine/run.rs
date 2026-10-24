@@ -12,7 +12,7 @@ use std::time::{Duration, Instant};
 
 use crate::audio::backend::exclusive::DeviceClaim;
 use crate::audio::backend::catalog::DeviceCatalog;
-use crate::audio::backend::{BackendError, HwDeviceId};
+use crate::audio::backend::{BackendError, HwDeviceId, SharedDeviceInfo};
 use crate::audio::clock::ClockInstant;
 use crate::audio::error::{CaptureFailure, EngineFault, FileError, OpenError, Reaction, StreamFault};
 use crate::audio::format::{SampleRate, SourceFormat};
@@ -279,6 +279,19 @@ fn exclusive_open_error(reason: ExclusiveOpenReason) -> OpenError {
     }
 }
 
+/// Сравнение списков Shared-устройств «изменился или нет» — та же сверка
+/// по `(id, name, is_default)`, что `devices_match` в
+/// `src/audio/backend/catalog.rs` (ADR-16). Продублирована здесь, а не
+/// вызвана оттуда (не `pub(crate)`), намеренно: слияние итога фонового
+/// перечисления в каталог (`handle_internal`, §2.3, AM1.0-B37, продолжение)
+/// работает через публичные поля `DeviceCatalog::shared`/`generation`
+/// напрямую — `catalog.rs` не входит в вайтлист этой сессии, а расширять
+/// его без прямого разрешения пользователя запрещено (`execution.md` §1);
+/// три строки сравнения дешевле лишнего файла в вайтлисте.
+fn shared_enumerate_lists_match(a: &[SharedDeviceInfo], b: &[SharedDeviceInfo]) -> bool {
+    a.len() == b.len() && a.iter().zip(b.iter()).all(|(x, y)| x.id == y.id && x.name == y.name && x.is_default == y.is_default)
+}
+
 /// Цикл обработки команд (мост С3): владеет `Player` целиком, пока
 /// `SignalPath`/`BadgeState`/`DeviceCatalog.hw` не появились (С4…С6).
 struct Engine {
@@ -408,6 +421,21 @@ struct Engine {
     /// `start_claim`, если захват начался на то же устройство, что ждёт в
     /// очереди.
     probe_pending: Option<HwDeviceId>,
+    /// Идёт фоновое Shared-перечисление, запущенное `start_shared_enumerate`
+    /// (§2.3, ADR-07 «Уточнение», AM1.0-B37, продолжение): `pw-dump` внутри
+    /// `SharedBackend::enumerate_job` может занять до 2 с (таймаут
+    /// `pw_dump.rs`), поэтому цикл движка не ждёт его синхронно — не более
+    /// одного перечисления одновременно (коалесинг, как `probe_in_flight`,
+    /// AM1.0-B38). Снимается итогом `InternalMsg::SharedEnumerateDone`
+    /// (`handle_internal`).
+    shared_enumerate_in_flight: bool,
+    /// `force_emit`, накопленный за время, пока Shared-перечисление уже в
+    /// полёте (§2.3, AM1.0-B37, продолжение): повторный `refresh_devices` с
+    /// `force_emit: true`, пришедший до возврата предыдущего задания, не
+    /// запускает второе (коалесинг выше) — этот флаг гарантирует, что
+    /// `Devices` всё равно уйдёт по уже запущенному заданию, даже если сам
+    /// список не изменился.
+    shared_enumerate_force_emit: bool,
     /// Точка повторного захвата (§6.20 п. 2, ТЗ-51, ТЗ-126): заполняется
     /// движком (`save_reacquire_point`) до `lock_input(DeviceLost)`, пока
     /// `self.claim`/`self.exclusive_path` ещё не очищены эффектами
@@ -484,6 +512,8 @@ impl Engine {
             claim_device: None,
             probe_in_flight: None,
             probe_pending: None,
+            shared_enumerate_in_flight: false,
+            shared_enumerate_force_emit: false,
             reacquire: None,
             reacquire_retry: None,
             deferred_open: None,
@@ -661,6 +691,48 @@ impl Engine {
                     .emit(EngineEvent::DeviceCapsProbed { device, result: result.map(Arc::new) });
                 if let Some(pending) = self.probe_pending.take() {
                     self.probe_device_caps(pending);
+                }
+            }
+            // Итог фонового Shared-перечисления (§2.3, ADR-07 «Уточнение»,
+            // AM1.0-B37, продолжение, `start_shared_enumerate`): снимает
+            // `shared_enumerate_in_flight` первым делом — следующий
+            // `refresh_devices` (хотплаг/«Обновить»/серия повторного
+            // захвата) должен суметь запустить новое задание, даже если
+            // этот `Ok`/`Err` ниже вернёт раньше. `Ok` — `pw_sink_error`
+            // уходит в журнал (`JournalRecord::PwSinkEnumerate`) отдельно
+            // от самого списка (честность сигнала важнее тишины об ошибке
+            // `pw-dump`, ADR-07 «Уточнение»), затем список сливается прямо в
+            // публичные поля `catalog.shared`/`catalog.generation`
+            // (`shared_enumerate_changed`, ниже — та же сверка, что у
+            // `DeviceCatalog::refresh`/`devices_match`, не вынесенная в
+            // `catalog.rs`: этот файл не входит в вайтлист текущей сессии, а
+            // расширять его без явного разрешения пользователя запрещено,
+            // `execution.md` §1), и `Devices` шлётся по изменению списка или
+            // по накопленному `force_emit`. `Err` — весь Shared-бэкенд не
+            // ответил (в проде почти не случается: `cpal`-перечисление не
+            // завязано на внешний процесс) — `Notice::DevicesUnavailable`,
+            // как и раньше у синхронного `DeviceCatalog::refresh`.
+            InternalMsg::SharedEnumerateDone { result } => {
+                let force_emit = self.shared_enumerate_force_emit;
+                self.shared_enumerate_in_flight = false;
+                self.shared_enumerate_force_emit = false;
+                match result {
+                    Ok(outcome) => {
+                        self.deps.journal.record(JournalRecord::PwSinkEnumerate {
+                            error: outcome.pw_sink_error.as_deref().map(Into::into),
+                        });
+                        let changed = !shared_enumerate_lists_match(&self.catalog.shared, &outcome.devices);
+                        self.catalog.shared = outcome.devices;
+                        if changed {
+                            self.catalog.generation = self.catalog.generation.wrapping_add(1);
+                        }
+                        if changed || force_emit {
+                            self.deps.events.emit(EngineEvent::Devices(Arc::new(self.catalog.clone())));
+                        }
+                    }
+                    Err(e) => {
+                        self.deps.events.emit(EngineEvent::Notice(Notice::DevicesUnavailable(e)));
+                    }
                 }
             }
         }
@@ -1952,10 +2024,23 @@ impl Engine {
         self.deps.events.emit(EngineEvent::ShutdownComplete);
     }
 
-    /// Перечисляет Shared-устройства и уведомляет UI (ТЗ-104, ТЗ-105, ADR-16,
-    /// §6.2 п.3). `force_emit` шлёт `Devices` даже без изменения списка —
-    /// нужно для первого перечисления при старте движка; по `RefreshDevices`
-    /// и по сигналу `DeviceWatcher` событие шлётся только при изменении.
+    /// Перечисляет Exclusive-устройства синхронно и запускает фоновое
+    /// Shared-перечисление; уведомляет UI (ТЗ-104, ТЗ-105, ADR-16, §6.2 п.3).
+    /// `force_emit` шлёт `Devices` даже без изменения списка — нужно для
+    /// первого перечисления при старте движка; по `RefreshDevices` и по
+    /// сигналу `DeviceWatcher` событие шлётся только при изменении.
+    ///
+    /// Shared-перечисление (`pw-dump` для per-sink узлов PipeWire, ADR-07
+    /// «Уточнение», AM1.0-B37) может занять до 2 с (таймаут `pw_dump.rs`) —
+    /// раньше `DeviceCatalog::refresh` вызывался прямо здесь и мог держать
+    /// этим весь цикл движка (play/pause/seek стояли бы в очереди до 2 с).
+    /// Продолжение AM1.0-B37: эта функция больше не ждёт его — она только
+    /// запускает `start_shared_enumerate` (служебный поток, коалесинг, как
+    /// у `probe_device_caps`/AM1.0-B38), а итог приходит позже
+    /// `InternalMsg::SharedEnumerateDone` (`handle_internal`), который и
+    /// решает, нужен ли `Devices` по изменению списка/`force_emit`. Поэтому
+    /// `hw`-изменение эмитится сразу (оно уже известно синхронно), а
+    /// Shared — отдельным, возможно более поздним, `Devices`.
     fn refresh_devices(&mut self, force_emit: bool) {
         // Серия повторных попыток нужна только при висящей точке
         // повторного захвата (§6.20 п. 4, ТЗ-126, AM1.0-B36): во всех прочих
@@ -1992,16 +2077,10 @@ impl Engine {
             },
             None => false,
         };
-        match self.catalog.refresh(self.deps.shared.as_mut()) {
-            Ok(changed) => {
-                if changed || hw_changed || force_emit {
-                    self.deps.events.emit(EngineEvent::Devices(Arc::new(self.catalog.clone())));
-                }
-            }
-            Err(e) => {
-                self.deps.events.emit(EngineEvent::Notice(Notice::DevicesUnavailable(e)));
-            }
+        if hw_changed {
+            self.deps.events.emit(EngineEvent::Devices(Arc::new(self.catalog.clone())));
         }
+        self.start_shared_enumerate(force_emit);
         if hw_changed {
             self.try_reacquire_reappeared_device();
         }
@@ -2012,6 +2091,39 @@ impl Engine {
         // `awaiting_reacquire` не станет истинным на будущем вызове.
         if !(matches!(self.lock, LockState::Failed(CaptureFailure::DeviceDisconnected)) && self.reacquire.is_some()) {
             self.reacquire_retry = None;
+        }
+    }
+
+    /// Запускает фоновое Shared-перечисление (включая `pw-dump` per-sink
+    /// узлов PipeWire, ADR-07 «Уточнение», AM1.0-B37, продолжение) в
+    /// служебном потоке: задание строит `SharedBackend::enumerate_job` (не
+    /// заимствует бэкенд, по образцу `ClaimJob`/`ProbeJob`, `exclusive.rs`),
+    /// выполняется `deps.spawner`, итог приходит `InternalMsg::
+    /// SharedEnumerateDone` (`handle_internal`). Не более одного
+    /// перечисления одновременно — повторный вызов, пока прошлое не
+    /// вернулось, только копит `force_emit` (дебаунс, как у
+    /// `probe_device_caps`, AM1.0-B38: `|=`, а не перезапись, — любой из
+    /// накопленных запросов на `force_emit: true` должен быть обслужен).
+    /// Отказ планировщика (`SpawnFailed`) — тихий no-op, как и у
+    /// `probe_device_caps`/`start_claim`: следующий `refresh_devices`
+    /// (хотплаг/«Обновить»/серия повторного захвата) повторит попытку.
+    fn start_shared_enumerate(&mut self, force_emit: bool) {
+        if self.shared_enumerate_in_flight {
+            self.shared_enumerate_force_emit |= force_emit;
+            return;
+        }
+        let job = self.deps.shared.enumerate_job();
+        let done_tx = self.internal_tx.clone();
+        let spawned = self.deps.spawner.spawn(
+            "apap-shared-enum",
+            Box::new(move || {
+                let result = job();
+                let _ = done_tx.send(InternalMsg::SharedEnumerateDone { result });
+            }),
+        );
+        if spawned.is_ok() {
+            self.shared_enumerate_in_flight = true;
+            self.shared_enumerate_force_emit = force_emit;
         }
     }
 
@@ -2335,6 +2447,43 @@ mod tests {
         }
     }
 
+    /// Ждёт `cond() == true` не дольше `timeout`, опрашивая раз в 5 мс —
+    /// для сборки, проверяющей итог служебного потока (`apap-shared-enum`,
+    /// `apap-claim`, …) через `EventSink`/`Journal`, не угадывая его тайминг
+    /// (AM1.0-B37, продолжение; тот же паттерн — `src/engine/tests.rs`).
+    fn wait_for<F: FnMut() -> bool>(timeout: Duration, mut cond: F) -> bool {
+        let start = Instant::now();
+        loop {
+            if cond() {
+                return true;
+            }
+            if start.elapsed() >= timeout {
+                return false;
+            }
+            std::thread::sleep(Duration::from_millis(5));
+        }
+    }
+
+    /// Вычитывает `internal_rx`, применяя `handle_internal` к каждому
+    /// сообщению по порядку, пока не придёт и не будет обработан
+    /// `ClaimDone` (AM1.0-B37, продолжение): с этого шага `refresh_devices`
+    /// попутно запускает фоновое Shared-перечисление
+    /// (`start_shared_enumerate`), чьё `InternalMsg::SharedEnumerateDone`
+    /// может прийти раньше или позже `ClaimDone` реакации на возврат
+    /// устройства — голый `internal_rx.recv()` мог бы забрать не то
+    /// сообщение. Используется тестами повторного захвата, которые до
+    /// этого шага читали `internal_rx` один раз.
+    fn drain_until_claim_done(engine: &mut Engine) {
+        loop {
+            let msg = engine.internal_rx.recv().expect("internal message");
+            let is_claim_done = matches!(msg, InternalMsg::ClaimDone { .. });
+            engine.handle_internal(msg);
+            if is_claim_done {
+                break;
+            }
+        }
+    }
+
     #[test]
     fn engine_spawn_and_shutdown() {
         let sink = VecSink::new();
@@ -2369,6 +2518,13 @@ mod tests {
             fake_deps_with(Box::new(sink.clone()), Arc::new(StdSpawner), Box::new(shared), Box::new(FakeDeviceWatcher::new()));
 
         let (handle, _caps) = EngineHandle::spawn(deps).expect("spawn ok");
+        // Shared-перечисление при старте уходит в служебный поток
+        // (AM1.0-B37, продолжение, `start_shared_enumerate`) — `Devices`
+        // приходит не раньше, чем он вернётся и цикл движка его вычитает
+        // (`drain_internal`); до отправки `Shutdown` ждём это событие явно,
+        // иначе оно могло бы не успеть попасть в финальную итерацию цикла
+        // (`run`, §6.1: `drain_internal` не выполняется после `Shutdown`).
+        assert!(wait_for(Duration::from_secs(1), || !sink.is_empty()), "Devices не пришёл от фонового перечисления");
         assert!(handle.send(EngineCmd::Shutdown));
         handle.join();
 
@@ -2395,6 +2551,13 @@ mod tests {
             fake_deps_with(Box::new(sink.clone()), Arc::new(StdSpawner), Box::new(shared), Box::new(watcher));
 
         let (handle, _caps) = EngineHandle::spawn(deps).expect("spawn ok");
+        // Дожидаемся `Devices` стартового перечисления (AM1.0-B37,
+        // продолжение — см. `engine_startup_emits_devices_once`), прежде чем
+        // взводить `devices_dirty` сигналом вотчера: иначе фоновые задания
+        // старта и хотплага могли бы совпасть по времени непредсказуемо для
+        // теста (оба и так коалесируются `start_shared_enumerate`, но
+        // порядок emit/no-emit должен быть детерминирован).
+        assert!(wait_for(Duration::from_secs(1), || !sink.is_empty()), "Devices не пришёл от фонового перечисления");
         trigger.fire();
         assert!(handle.send(EngineCmd::SetVolume(0.5)));
         assert!(handle.send(EngineCmd::Shutdown));
@@ -2413,6 +2576,11 @@ mod tests {
             fake_deps_with(Box::new(sink.clone()), Arc::new(StdSpawner), Box::new(shared), Box::new(FakeDeviceWatcher::new()));
 
         let (handle, _caps) = EngineHandle::spawn(deps).expect("spawn ok");
+        // Как в `engine_startup_emits_devices_once`: `Notice` приходит из
+        // фонового перечисления (AM1.0-B37, продолжение) — ждём его явно,
+        // иначе `Shutdown` мог бы оборвать цикл до того, как
+        // `drain_internal` успел его вычитать.
+        assert!(wait_for(Duration::from_secs(1), || !sink.is_empty()), "Notice не пришёл от фонового перечисления");
         assert!(handle.send(EngineCmd::Shutdown));
         handle.join();
 
@@ -2422,6 +2590,100 @@ mod tests {
             EngineEvent::Notice(Notice::DevicesUnavailable(BackendError::Unavailable(msg))) if msg == "no host"
         )));
         assert!(!events.iter().any(|e| matches!(e, EngineEvent::Devices(_))));
+    }
+
+    /// AM1.0-B37 (продолжение): `refresh_devices` больше не блокируется на
+    /// `SharedBackend::enumerate` — каталог остаётся прежним, пока итог
+    /// служебного потока (`apap-shared-enum`) не придёт `InternalMsg::
+    /// SharedEnumerateDone` и не будет обработан `handle_internal`
+    /// (слияние в `catalog.shared`/`catalog.generation`), после чего
+    /// уходит `Devices`.
+    #[test]
+    fn refresh_devices_merges_shared_enumerate_worker_result_and_emits_devices() {
+        let sink = VecSink::new();
+        let shared = FakeSharedBackend::with_devices(vec![fake_device("hw:0", "Speakers")]);
+        let deps =
+            fake_deps_with(Box::new(sink.clone()), Arc::new(StdSpawner), Box::new(shared), Box::new(FakeDeviceWatcher::new()));
+        let mut engine = Engine::new(deps, BackendCaps::current());
+
+        engine.refresh_devices(false);
+        assert!(engine.catalog.shared.is_empty(), "каталог не трогается синхронно — это и есть цель AM1.0-B37");
+
+        let msg = engine.internal_rx.recv().expect("shared enumerate done");
+        assert!(matches!(msg, InternalMsg::SharedEnumerateDone { .. }));
+        engine.handle_internal(msg);
+
+        assert_eq!(engine.catalog.shared.len(), 1);
+        assert_eq!(engine.catalog.shared[0].id, SharedDeviceId::new("hw:0"));
+        let events = sink.take();
+        assert!(events.iter().any(|e| matches!(e, EngineEvent::Devices(_))));
+    }
+
+    /// Коалесинг (§2.3, AM1.0-B37, продолжение, по образцу
+    /// `probe_device_caps`/AM1.0-B38): второй `refresh_devices`, пришедший
+    /// до возврата первого задания, не запускает отдельное перечисление —
+    /// приходит ровно одно `SharedEnumerateDone`, но накопленный
+    /// `force_emit: true` второго вызова всё равно даёт `Devices`, даже
+    /// когда список не изменился относительно уже известного каталогу.
+    #[test]
+    fn refresh_devices_coalesces_in_flight_shared_enumerate_but_keeps_force_emit() {
+        let sink = VecSink::new();
+        let shared = FakeSharedBackend::with_devices(vec![fake_device("hw:0", "Speakers")]);
+        let deps =
+            fake_deps_with(Box::new(sink.clone()), Arc::new(StdSpawner), Box::new(shared), Box::new(FakeDeviceWatcher::new()));
+        let mut engine = Engine::new(deps, BackendCaps::current());
+        // Каталог уже содержит тот же список, что отдаст воркер — без
+        // накопленного `force_emit` слияние не дало бы `Devices`.
+        engine.catalog.shared = vec![fake_device("hw:0", "Speakers")];
+
+        engine.refresh_devices(false);
+        assert!(engine.shared_enumerate_in_flight);
+        engine.refresh_devices(true);
+        assert!(engine.shared_enumerate_force_emit, "второй вызов должен взвести force_emit, а не перезаписать его");
+
+        let msg = engine.internal_rx.recv().expect("shared enumerate done");
+        engine.handle_internal(msg);
+        assert!(
+            engine.internal_rx.try_recv().is_err(),
+            "второе перечисление не должно быть запущено отдельным заданием"
+        );
+
+        let events = sink.take();
+        assert!(
+            events.iter().any(|e| matches!(e, EngineEvent::Devices(_))),
+            "force_emit второго вызова должен дать Devices, даже когда список не изменился"
+        );
+    }
+
+    /// Отказ `pw-dump` внутри фонового Shared-перечисления (ADR-07
+    /// «Уточнение», AM1.0-B37, продолжение): каталог получает только
+    /// базовый список («Системное по умолчанию», без per-sink записей —
+    /// сама агрегация проверена в `src/audio/backend/shared.rs`), а ошибка
+    /// уходит в `Journal` отдельной записью (`JournalRecord::
+    /// PwSinkEnumerate`), а не отбрасывается молча, как до этого шага
+    /// (заметка плана AM1.0-B37, шаг 3).
+    #[test]
+    fn shared_enumerate_done_journals_pw_sink_error_and_keeps_base_list() {
+        let sink = VecSink::new();
+        let journal = Arc::new(crate::journal::VecJournal::default());
+        let shared = FakeSharedBackend::with_devices(vec![fake_device("pipewire", "Системное по умолчанию (PipeWire)")])
+            .with_pw_sink_error("pw-dump did not respond in time");
+        let mut deps =
+            fake_deps_with(Box::new(sink), Arc::new(StdSpawner), Box::new(shared), Box::new(FakeDeviceWatcher::new()));
+        deps.journal = Arc::clone(&journal) as Arc<dyn crate::journal::Journal>;
+        let mut engine = Engine::new(deps, BackendCaps::current());
+
+        engine.refresh_devices(true);
+        let msg = engine.internal_rx.recv().expect("shared enumerate done");
+        engine.handle_internal(msg);
+
+        assert_eq!(engine.catalog.shared.len(), 1);
+        assert_eq!(engine.catalog.shared[0].name, "Системное по умолчанию (PipeWire)");
+        let records = journal.records();
+        assert!(records.iter().any(|r| matches!(
+            r,
+            JournalRecord::PwSinkEnumerate { error: Some(e) } if e.as_ref() == "pw-dump did not respond in time"
+        )), "{records:?}");
     }
 
     /// `StreamDesc` старого пути, точно совпадающий с `pcm_format()` (ТЗ-52,
@@ -3948,8 +4210,7 @@ mod tests {
         engine.refresh_devices(false);
 
         assert!(matches!(engine.lock, LockState::Acquiring { .. }));
-        let msg = engine.internal_rx.recv().expect("claim done");
-        engine.handle_internal(msg);
+        drain_until_claim_done(&mut engine);
 
         match &engine.lock {
             LockState::Held { info } => assert_eq!(info.device, dev),
@@ -4060,8 +4321,7 @@ mod tests {
         clock.advance(REACQUIRE_RETRY_INTERVAL);
         engine.poll_session();
         assert!(matches!(engine.lock, LockState::Acquiring { .. }));
-        let msg = engine.internal_rx.recv().expect("claim done");
-        engine.handle_internal(msg);
+        drain_until_claim_done(&mut engine);
         match &engine.lock {
             LockState::Held { info } => assert_eq!(info.device, dev),
             other => panic!("expected Held, got {other:?}"),

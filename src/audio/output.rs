@@ -608,7 +608,11 @@ pub trait AudioHost {
     fn default_name(&self) -> Option<String>;
 }
 
-/// Live cpal backend.
+/// Live cpal backend. `Clone` (unit struct, no state) — нужен
+/// `CpalSharedBackend::enumerate_job` (AM1.0-B37, продолжение), который
+/// строит задание служебного потока без заимствования `self` (по образцу
+/// `ClaimJob`/`ProbeJob`, `exclusive.rs`).
+#[derive(Clone, Copy)]
 pub struct CpalHost;
 
 impl AudioHost for CpalHost {
