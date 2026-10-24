@@ -125,13 +125,21 @@ impl MusicApp {
                     ui.set_info_genre(empty_dash(t.genre.as_deref().unwrap_or("")));
                     ui.set_info_format(empty_dash(&t.format));
                     ui.set_info_bitrate(if t.bitrate > 0 {
-                        format!("{} kbps", t.bitrate).into()
+                        music_player_rs::i18n::format_kbps(t.bitrate).into()
                     } else {
                         "—".into()
                     });
                     ui.set_info_bit_depth(empty_dash(&t.bit_depth));
-                    ui.set_info_sample_rate(num_str(t.sample_rate, " Hz"));
-                    ui.set_info_channels(num_str(t.channels, " ch"));
+                    ui.set_info_sample_rate(if t.sample_rate > 0 {
+                        music_player_rs::i18n::format_khz(f64::from(t.sample_rate) / 1000.0).into()
+                    } else {
+                        "—".into()
+                    });
+                    ui.set_info_channels(if t.channels > 0 {
+                        music_player_rs::i18n::format_channels(t.channels).into()
+                    } else {
+                        "—".into()
+                    });
 
                     let mut parts: Vec<String> = Vec::new();
                     if !t.format.is_empty() {
@@ -141,15 +149,15 @@ impl MusicApp {
                         parts.push(t.bit_depth.clone());
                     }
                     if t.sample_rate > 0 {
-                        parts.push(format!("{} Hz", t.sample_rate));
+                        parts.push(music_player_rs::i18n::format_khz(f64::from(t.sample_rate) / 1000.0));
                     }
                     if t.bitrate > 0 {
-                        parts.push(format!("{} kbps", t.bitrate));
+                        parts.push(music_player_rs::i18n::format_kbps(t.bitrate));
                     }
                     if t.channels > 0 {
-                        parts.push(format!("{} ch", t.channels));
+                        parts.push(music_player_rs::i18n::format_channels(t.channels));
                     }
-                    let track_count = format!("{} tracks", self.track_count());
+                    let track_count = music_player_rs::i18n::format_track_count(self.track_count() as u64);
                     ui.set_track_info(parts.join(" \u{2022} ").into());
                     ui.set_track_count(track_count.into());
                 }
@@ -172,7 +180,7 @@ impl MusicApp {
             ui.set_info_bit_depth("—".into());
             ui.set_info_sample_rate("—".into());
             ui.set_info_channels("—".into());
-            let track_count = format!("{} tracks", self.track_count());
+            let track_count = music_player_rs::i18n::format_track_count(self.track_count() as u64);
             ui.set_track_info("".into());
             ui.set_track_count(track_count.into());
         }
@@ -185,7 +193,10 @@ impl MusicApp {
             return String::new();
         };
         let artist = track.artist.as_deref().unwrap_or("");
-        format!("Playing: {artist}\u{2014}{}", track.title)
+        music_player_rs::i18n::format_named(
+            "Воспроизведение: {artist}\u{2014}{title}",
+            &[("artist", artist), ("title", &track.title)],
+        )
     }
 
     pub(super) fn handle_auto_advance(&mut self) {

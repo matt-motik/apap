@@ -110,6 +110,27 @@ pub fn format_bits(bits: u32) -> String {
     format!("{bits} бит")
 }
 
+/// Битрейт в кбит/с (T1.0-B2): `format_kbps(1411)` → `"1411 кбит/с"` —
+/// единица не склоняется, как и в [`format_bits`] (устоявшийся технический
+/// оборот).
+pub fn format_kbps(kbps: u32) -> String {
+    format!("{kbps} кбит/с")
+}
+
+/// Число каналов с русским склонением (T1.0-B2): `format_channels(1)` →
+/// `"1 канал"`, `format_channels(2)` → `"2 канала"`, `format_channels(5)` →
+/// `"5 каналов"` ([`plural_ru`]).
+pub fn format_channels(n: u32) -> String {
+    format!("{n} {}", plural_ru(u64::from(n), "канал", "канала", "каналов"))
+}
+
+/// Число треков с русским склонением (T1.0-B2): `format_track_count(1)` →
+/// `"1 трек"`, `format_track_count(3)` → `"3 трека"`, `format_track_count(0)`
+/// → `"0 треков"` ([`plural_ru`]).
+pub fn format_track_count(n: u64) -> String {
+    format!("{n} {}", plural_ru(n, "трек", "трека", "треков"))
+}
+
 /// Пункт меню трея «Play / Pause» (T1.0-B2, ADR-6).
 pub const TRAY_MENU_PLAY_PAUSE: &str = "Воспроизведение / Пауза";
 /// Пункт меню трея «Stop» (T1.0-B2, ADR-6).
@@ -292,6 +313,26 @@ mod tests {
     fn format_bits_is_not_declined() {
         assert_eq!(format_bits(24), "24 бит");
         assert_eq!(format_bits(1), "1 бит");
+    }
+
+    #[test]
+    fn format_kbps_is_not_declined() {
+        assert_eq!(format_kbps(1411), "1411 кбит/с");
+        assert_eq!(format_kbps(1), "1 кбит/с");
+    }
+
+    #[test]
+    fn format_channels_declines_by_count() {
+        assert_eq!(format_channels(1), "1 канал");
+        assert_eq!(format_channels(2), "2 канала");
+        assert_eq!(format_channels(5), "5 каналов");
+    }
+
+    #[test]
+    fn format_track_count_declines_by_count() {
+        assert_eq!(format_track_count(1), "1 трек");
+        assert_eq!(format_track_count(3), "3 трека");
+        assert_eq!(format_track_count(0), "0 треков");
     }
 
     #[test]

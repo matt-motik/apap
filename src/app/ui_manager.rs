@@ -293,7 +293,7 @@ impl MusicApp {
         if let Some(ui) = &ui {
             if ui.get_settings_devices().row_count() == 0 {
                 ui
-                    .set_settings_devices(ModelRc::from([SharedString::from("(loading\u{2026})")].as_slice()));
+                    .set_settings_devices(ModelRc::from([SharedString::from("(загрузка\u{2026})")].as_slice()));
                 ui.set_settings_device_idx(-1);
             }
         }
@@ -408,19 +408,19 @@ impl MusicApp {
         // stable device id on the Rust side (`resolve_device_label`).
         let mut model: Vec<SharedString> = Vec::with_capacity(pairs.len() + 1);
         let sel: i32 = if pairs.is_empty() {
-            model.push("(no devices \u{2014} retry Refresh)".into());
+            model.push("(нет устройств \u{2014} нажмите «Обновить»)".into());
             0
         } else if let Some(w) = want {
             if let Some(i) = find_device_index_in(&pairs, &w) {
                 model.extend(pairs.iter().map(|(_, label)| SharedString::from(label.as_str())));
                 i as i32
             } else {
-                model.push("(select device)".into());
+                model.push("(выберите устройство)".into());
                 model.extend(pairs.iter().map(|(_, label)| SharedString::from(label.as_str())));
                 0
             }
         } else {
-            model.push("(select device)".into());
+            model.push("(выберите устройство)".into());
             model.extend(pairs.iter().map(|(_, label)| SharedString::from(label.as_str())));
             0
         };
@@ -455,12 +455,12 @@ impl MusicApp {
         let mut model: Vec<SharedString> =
             Vec::with_capacity(self.audio_devices_pairs.len() + 1);
         let sel: i32 = if self.audio_devices_pairs.is_empty() {
-            model.push("(no devices \u{2014} retry Refresh)".into());
+            model.push("(нет устройств \u{2014} нажмите «Обновить»)".into());
             0
         } else {
             let idx = selected.unwrap_or(0);
             if selected.is_none() {
-                model.push("(select device)".into());
+                model.push("(выберите устройство)".into());
             }
             model.extend(
                 self.audio_devices_pairs
@@ -479,7 +479,7 @@ impl MusicApp {
     /// Translate a ComboBox *label* (the deduplicated/grouped display string,
     /// possibly with a server-node suffix) back to the stable device id that
     /// the settings and the audio backend use. Empty when the label is unknown
-    /// (e.g. the "(select device)" placeholder).
+    /// (e.g. the "(выберите устройство)" placeholder).
     pub(super) fn resolve_device_label(&self, label: &str) -> String {
         self.audio_devices_pairs
             .iter()
@@ -664,7 +664,13 @@ impl MusicApp {
                         }
                     }
                     ColumnId::BitDepth => empty_dash(&t.bit_depth).to_string(),
-                    ColumnId::SampleRate => num_str(t.sample_rate, " Hz").to_string(),
+                    ColumnId::SampleRate => {
+                        if t.sample_rate > 0 {
+                            music_player_rs::i18n::format_khz(f64::from(t.sample_rate) / 1000.0)
+                        } else {
+                            "—".to_string()
+                        }
+                    }
                     ColumnId::Duration => playlist::get_duration_string(t.duration),
                     ColumnId::FileName => t
                         .path

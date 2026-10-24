@@ -334,10 +334,6 @@ fn resolve_startup_theme(name: &str, themes_dir: &std::path::Path) -> Option<(Th
     }
 }
 
-fn num_str(v: u32, suffix: &str) -> SharedString {
-    if v > 0 { format!("{v}{suffix}").into() } else { "—".into() }
-}
-
 /// Отличается ли строка диалога настроек режима `new` от уже показанной
 /// `old` (AM1.0-B33, SP1.0 ADR-11): используется, чтобы `set_row_data`
 /// вызывался только для изменившихся строк персистентной модели

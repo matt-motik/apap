@@ -140,7 +140,7 @@ steps:
     description: >
       src/app/playback_manager.rs + src/app/ui_manager.rs: перевод пользовательских строк
       (метаданные трека, единицы kbps/Hz/ch, подписи устройств) через src/i18n/.
-    done: false
+    done: true
   - id: 22
     description: "ЧЕКПОИНТ: полный cargo test + cargo clippy зелёные (app/mod.rs, playback_manager.rs, ui_manager.rs)."
     done: false
@@ -183,8 +183,8 @@ steps:
       check зелёные; готовность к closing.md (ручная проверка пользователем — обрезка длинных
       русских подписей на всех экранах).
     done: false
-current_step: 21
-next_action: "src/app/playback_manager.rs + src/app/ui_manager.rs: перевод пользовательских строк (метаданные трека, единицы kbps/Hz/ch, подписи устройств) через src/i18n/."
+current_step: 22
+next_action: "ЧЕКПОИНТ: полный cargo test + cargo clippy зелёные (app/mod.rs, playback_manager.rs, ui_manager.rs)."
 fail_counter: 0
 fail_counter_max: 3
 failed_attempts: []
