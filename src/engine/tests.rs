@@ -17,21 +17,21 @@ use crate::audio::backend::os_probe::FakeOsProbe;
 use crate::audio::backend::shared::{
     fake_device, FakeSharedBackend, SharedBackend, SharedEnumerateJob, SharedEnumerateOutcome,
 };
-use crate::audio::backend::{BackendError, SharedDeviceInfo};
+use crate::audio::backend::{BackendError, SharedDeviceId, SharedDeviceInfo};
 use crate::audio::clock::MonotonicClock;
 use crate::audio::error::{EngineFault, OpenError};
 use crate::audio::format::{ChannelLayout, Codec, Container, SampleRate, SourceFormat, SourceKind};
 use crate::audio::path::OsStage;
 use crate::audio::testing::{FakeExclusiveBackend, FakeServerProbe};
 use crate::engine::deps::EngineDeps;
-use crate::engine::messages::{EngineCmd, EngineEvent, TransportState};
+use crate::engine::messages::{EngineCmd, EngineEvent, Notice, TransportState};
 use crate::engine::run::{effective_gain, mode_apply_action, BackendCaps, EngineHandle, ModeApplyAction};
 use crate::engine::sink::{EventSink, VecSink};
 use crate::engine::source::{FakeSource, SourceOpener};
 use crate::engine::spawner::{FailingSpawner, StdSpawner, ThreadSpawner};
 use crate::platform::fs::{FsPersistStore, MemStore};
 use crate::settings::params::ModeSettingsUpdate;
-use crate::settings::playback::{BufferMs, ModeKind, ModeSettings, RateFallbackRule, SrcFilter};
+use crate::settings::playback::{BufferMs, ModeKind, ModeSettings, RateFallbackRule, SharedDeviceChoice, SrcFilter};
 
 fn pcm_format() -> SourceFormat {
     SourceFormat {
@@ -317,6 +317,139 @@ fn device_hotplug_single_enumeration() {
     assert_eq!(devices.len(), 2);
     assert_eq!(devices[0].shared.len(), 1);
     assert_eq!(devices[1].shared.len(), 2);
+}
+
+/// Узел-«призрак» вида `pipewire:NODE=…`, которого нет ни в одном фейковом
+/// каталоге ниже (ADR-07 «Уточнение», AM1.0-B37, шаг 13).
+const GHOST_NODE: &str = "pipewire:NODE=ghost";
+
+fn settings_with_compatible_device(id: &str) -> ModeSettings {
+    let mut settings = ModeSettings::default();
+    settings.compatible.device = SharedDeviceChoice::Named(SharedDeviceId::new(id));
+    settings
+}
+
+/// (a) ADR-07 «Уточнение», AM1.0-B37, шаг 13: обновлённый каталог
+/// (`SharedEnumerateDone`, фоновое перечисление `EngineCmd::RefreshDevices`)
+/// подтверждает, что сохранённый per-sink узел Совместимого режима пропал —
+/// движок сам переключает `mode_settings.compatible.device` на
+/// `SystemDefault` и шлёт одноразовый `Notice::CompatibleDeviceMigrated`, не
+/// дожидаясь попытки открытия устройства.
+#[test]
+fn compatible_device_migrates_when_catalog_confirms_vanished_node() {
+    let sink = VecSink::new();
+    let deps = build_deps(
+        Arc::new(FakeSource::with_format(pcm_format())),
+        Box::new(FakeSharedBackend::with_devices(vec![fake_device("hw:0", "Speakers")])),
+        Box::new(FakeDeviceWatcher::new()),
+        Box::new(sink.clone()),
+        Arc::new(StdSpawner),
+        MemStore::new(),
+    );
+
+    let (handle, _caps) = EngineHandle::spawn(deps).expect("spawn ok");
+    // Стартовое перечисление (без узла-призрака) делает каталог «известным»
+    // прежде, чем узел-призрак появится в настройках (шаг 13, (c)).
+    let mut events = collect_until(&sink, Duration::from_secs(1), 1, |e| matches!(e, EngineEvent::Devices(_)));
+
+    assert!(handle.send(EngineCmd::SetModeSettings(ModeSettingsUpdate {
+        settings: settings_with_compatible_device(GHOST_NODE),
+        diff: None,
+    })));
+    // Новое перечисление того же (без узла-призрака) списка — та самая
+    // проверка по приходу `SharedEnumerateDone`, независимо от того, был ли
+    // сам список перечисления затронут.
+    assert!(handle.send(EngineCmd::RefreshDevices));
+    let migrated = collect_until(&sink, Duration::from_secs(1), 1, |e| {
+        matches!(e, EngineEvent::Notice(Notice::CompatibleDeviceMigrated))
+    });
+    assert!(
+        migrated.iter().any(|e| matches!(e, EngineEvent::Notice(Notice::CompatibleDeviceMigrated))),
+        "CompatibleDeviceMigrated не пришёл: {migrated:?}"
+    );
+    events.extend(migrated);
+
+    assert!(handle.send(EngineCmd::Shutdown));
+    handle.join();
+}
+
+/// (b) ADR-07 «Уточнение», AM1.0-B37, шаг 13: узел-призрак выбран
+/// `SetModeSettings` уже ПОСЛЕ того, как каталог стал известным (обычный
+/// случай смены устройства в диалоге настроек на уже пропавший узел,
+/// независимо от перечисления) — фоллбэк срабатывает перед применением
+/// устройства к легаси-`Player` (`ApplyKind::SwitchDevice`, Совместимый
+/// режим, остановленный транспорт), не только по приходу каталога.
+#[test]
+fn compatible_device_migrates_before_switch_device_apply() {
+    let sink = VecSink::new();
+    let deps = build_deps(
+        Arc::new(FakeSource::with_format(pcm_format())),
+        Box::new(FakeSharedBackend::with_devices(vec![fake_device("hw:0", "Speakers")])),
+        Box::new(FakeDeviceWatcher::new()),
+        Box::new(sink.clone()),
+        Arc::new(StdSpawner),
+        MemStore::new(),
+    );
+
+    let (handle, _caps) = EngineHandle::spawn(deps).expect("spawn ok");
+    // Каталог должен стать известным (без узла-призрака) до смены
+    // устройства ниже — иначе сработала бы (c), не (b).
+    let mut events = collect_until(&sink, Duration::from_secs(1), 1, |e| matches!(e, EngineEvent::Devices(_)));
+
+    let old = ModeSettings::default();
+    let new = settings_with_compatible_device(GHOST_NODE);
+    let diff = old.diff(&new);
+    assert!(handle.send(EngineCmd::SetModeSettings(ModeSettingsUpdate { settings: new, diff: Some(diff) })));
+    let migrated = collect_until(&sink, Duration::from_secs(1), 1, |e| {
+        matches!(e, EngineEvent::Notice(Notice::CompatibleDeviceMigrated))
+    });
+    assert!(
+        migrated.iter().any(|e| matches!(e, EngineEvent::Notice(Notice::CompatibleDeviceMigrated))),
+        "CompatibleDeviceMigrated не пришёл перед применением SwitchDevice: {migrated:?}"
+    );
+    events.extend(migrated);
+
+    assert!(handle.send(EngineCmd::Shutdown));
+    handle.join();
+}
+
+/// (c) ADR-07 «Уточнение», AM1.0-B37, шаг 13: `pw-dump` этого раунда отказал
+/// (`FakeSharedBackend::with_pw_sink_error`) — каталог остаётся «неизвестен»
+/// даже когда узел-призрак и правда не входит в список, и фоллбэк НЕ
+/// срабатывает (честность сигнала важнее ложной миграции): отсутствие узла
+/// в этом случае значит «не опрошено», не «узел пропал».
+#[test]
+fn compatible_device_not_migrated_when_pw_dump_failed() {
+    let sink = VecSink::new();
+    let deps = build_deps(
+        Arc::new(FakeSource::with_format(pcm_format())),
+        Box::new(
+            FakeSharedBackend::with_devices(vec![fake_device("hw:0", "Speakers")])
+                .with_pw_sink_error("pw-dump timed out"),
+        ),
+        Box::new(FakeDeviceWatcher::new()),
+        Box::new(sink.clone()),
+        Arc::new(StdSpawner),
+        MemStore::new(),
+    );
+
+    let (handle, _caps) = EngineHandle::spawn(deps).expect("spawn ok");
+    assert!(handle.send(EngineCmd::SetModeSettings(ModeSettingsUpdate {
+        settings: settings_with_compatible_device(GHOST_NODE),
+        diff: None,
+    })));
+    // Дождаться хотя бы одного `Devices`, прежде чем выключать движок —
+    // перечисление (пусть и с ошибкой `pw-dump`) успело обработаться.
+    let mut events = collect_until(&sink, Duration::from_secs(1), 1, |e| matches!(e, EngineEvent::Devices(_)));
+
+    assert!(handle.send(EngineCmd::Shutdown));
+    handle.join();
+
+    events.extend(sink.take());
+    assert!(
+        !events.iter().any(|e| matches!(e, EngineEvent::Notice(Notice::CompatibleDeviceMigrated))),
+        "фоллбэк не должен срабатывать без надёжного каталога (pw-dump отказал): {events:?}"
+    );
 }
 
 /// ТЗ-134, И-Р24: `SetModeSettings` с `diff: None` (начальная загрузка, ещё

@@ -17,6 +17,8 @@
   - src/audio/output.rs
   - src/settings/playback_dto.rs
   - src/app/ui_manager.rs
+  - src/app/mod.rs
+  - src/i18n/audio.rs
   - src/engine/run.rs
   - src/engine/messages.rs
   - src/journal.rs
@@ -33,6 +35,7 @@
 - [x] Шаг 12: Перечисление серверных узлов (pw-dump) вынесено из цикла движка (AM1.0-B37, продолжение заметки шага 3): SharedBackend::enumerate_job/PwSinkSource::job выполняется служебным потоком через deps.spawner (паттерн claim_job/probe_caps, AM1.0-B38); итог — InternalMsg::SharedEnumerateDone (src/engine/messages.rs), слияние напрямую в публичные поля DeviceCatalog.shared/generation (catalog.rs не в вайтлисте сессии) и EngineEvent::Devices; не более одного перечисления одновременно — повторный запрос, пока прошлое не вернулось, копит force_emit (start_shared_enumerate, src/engine/run.rs). Отказ pw-dump внутри Shared-перечисления — JournalRecord::PwSinkEnumerate (src/journal.rs), список падает до «Системное по умолчанию», ошибка не отбрасывается молча. Проверка: cargo test --quiet engine:: + полный cargo test + cargo clippy
 - [x] Шаг 6: is_server_routed_pcm принимает форму pipewire:NODE=… как легитимный выход аудиосервера (src/audio/output.rs). Проверка: cargo test output::
 - [x] Шаг 7: Миграция пропавшего при загрузке настроек узла на SystemDefault с уведомлением Adjusted, тем же способом, что устаревшие hw:/plughw: (src/settings/playback_dto.rs). Проверка: cargo test playback_dto::
+- [x] Шаг 13: Рантайм-фоллбэк пропавшего per-sink узла PipeWire Совместимого режима (ADR-07 «Уточнение», завершает пробел шага 7): (a) по приходу/обновлению каталога (InternalMsg::SharedEnumerateDone) и (b) непосредственно перед применением устройства к легаси-Player (apply_active_mode/store_active_mode/SetModeSettings SwitchDevice) — Engine::migrate_vanished_compatible_device переключает mode_settings.compatible.device на SystemDefault и шлёт Notice::CompatibleDeviceMigrated (src/engine/run.rs, src/engine/messages.rs); предикат shared_node_vanished вынесен pub(crate) в src/settings/playback_dto.rs (общее ядро с migrate_missing_shared_node); приложение показывает одноразовое уведомление (текст — src/i18n/audio.rs::COMPATIBLE_DEVICE_MIGRATED_TITLE/BODY, общий с AM1.0-B32 шаг 7) и перезаписывает settings.toml обычным путём сохранения (save_compatible_device_migrated, src/app/mod.rs, по образцу save_auto_selected_device). (c) каталог «неизвестен» (pw-dump этого раунда отказал, shared_catalog_known=false) — миграция не выполняется, список без узла не трактуется как «узел пропал». Тесты с фейками на a/b/c (src/engine/tests.rs). Проверка: cargo test --quiet engine:: + playback_dto:: + app:: + i18n::audio::; cargo check
 - [>] **Шаг 8: ЧЕКПОИНТ: полный cargo test + cargo clippy зелёные**
 - [ ] Шаг 9: UI: список устройств Совместимого на Linux показывает per-sink записи из DeviceCatalog (src/app/ui_manager.rs). Проверка: cargo check
 - [ ] Шаг 10: ЧЕКПОИНТ финальный перед закрытием: полный cargo test + cargo clippy зелёные

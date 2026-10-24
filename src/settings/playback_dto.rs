@@ -578,6 +578,32 @@ fn migrate_legacy_compatible_device(
 /// здесь — не гадать об отсутствии узла без каталога, выбор не трогаем.
 /// Фиксированные алиасы сервера (`default`/`pipewire`/`pulse`) не привязаны
 /// к конкретному узлу и каталог им не нужен — не проверяются здесь.
+/// Предикат «узел PipeWire пропал из каталога» (ADR-07 «Уточнение»,
+/// AM1.0-B37): общее ядро `migrate_missing_shared_node` ниже (загрузка файла
+/// настроек, заметки `LoadNote`) и рантайм-проверки движка (шаг 13,
+/// `Engine::migrate_vanished_compatible_device`, `src/engine/run.rs`), которой
+/// `LoadNote` не нужны — там своё одноразовое уведомление (`Notice`,
+/// `src/i18n/audio.rs`). `true` — `device` выбран по форме `pipewire:NODE=…`
+/// (регистронезависимо) и его нет среди `known_ids`.
+#[cfg(target_os = "linux")]
+pub(crate) fn shared_node_vanished(device: &SharedDeviceChoice, known_ids: &[String]) -> bool {
+    let SharedDeviceChoice::Named(id) = device else {
+        return false;
+    };
+    if !id.as_str().to_ascii_lowercase().starts_with("pipewire:node=") {
+        return false;
+    }
+    !known_ids.iter().any(|k| k.as_str() == id.as_str())
+}
+
+/// На Windows/macOS список Совместимого никогда не ограничивался per-sink
+/// узлами PipeWire (ADR-07 «Уточнение» — Linux-специфика) — предикат всегда
+/// `false`.
+#[cfg(not(target_os = "linux"))]
+pub(crate) fn shared_node_vanished(_device: &SharedDeviceChoice, _known_ids: &[String]) -> bool {
+    false
+}
+
 #[cfg(target_os = "linux")]
 fn migrate_missing_shared_node(
     device: SharedDeviceChoice,
@@ -588,13 +614,10 @@ fn migrate_missing_shared_node(
     let SharedDeviceChoice::Named(id) = &device else {
         return device;
     };
-    if !id.as_str().to_ascii_lowercase().starts_with("pipewire:node=") {
-        return device;
-    }
     let Some(known) = known_ids else {
         return device;
     };
-    if known.iter().any(|k| k.as_str() == id.as_str()) {
+    if !shared_node_vanished(&device, known) {
         return device;
     }
     notes.push(LoadNote {

@@ -143,6 +143,19 @@ pub fn format_khz_number(value_khz: f64) -> String {
 /// устройства этим суффиксом не затрагивается.
 pub const SERVER_NODE_SUFFIX: &str = " — (программный, с ресемплингом)";
 
+/// Заголовок одноразового уведомления «устройство изменено» (AM1.0-B32,
+/// шаг 7; AM1.0-B37, шаг 13): общий текст для миграции устаревшего
+/// `hw:`/`plughw:`-значения Совместимого режима на старте
+/// (`migrate_legacy_compatible_device`) и пропавшего узла PipeWire во время
+/// работы движка (`migrate_vanished_compatible_device`, `src/engine/run.rs`,
+/// `Notice::CompatibleDeviceMigrated`) — обе ветки показывают пользователю
+/// один и тот же текст (`src/app/mod.rs`).
+pub const COMPATIBLE_DEVICE_MIGRATED_TITLE: &str = "Устройство изменено";
+
+/// Текст того же уведомления, см. [`COMPATIBLE_DEVICE_MIGRATED_TITLE`].
+pub const COMPATIBLE_DEVICE_MIGRATED_BODY: &str =
+    "Устройство Совместимого режима было выбрано в обход аудиосервера — переключено на «Системное по умолчанию»";
+
 /// Подвал окна «Путь сигнала»: граница гарантии, версия плеера, ОС (§3.6,
 /// ТЗ-71, ТЗ-81, ТЗ-84; перенесено из `src/app/path_view.rs::path_view`).
 pub fn path_footer(boundary: &str, version: &str, os: &str) -> String {

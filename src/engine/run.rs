@@ -33,7 +33,8 @@ use crate::engine::messages::{
 use crate::journal::{backend_error_text, probe_outcome_text, JournalRecord};
 use crate::persist::state_file::LegacyPlaybackState;
 use crate::settings::params::{ApplyKind, ModeSettingsDiff};
-use crate::settings::playback::{Dither, ModeKind, ModeSettings, PathPolicy, Volume};
+use crate::settings::playback::{Dither, ModeKind, ModeSettings, PathPolicy, SharedDeviceChoice, Volume};
+use crate::settings::playback_dto::shared_node_vanished;
 
 /// Минимальный интервал между событиями `Position` (§6.1, И-Р13).
 const POSITION_INTERVAL: Duration = Duration::from_millis(100);
@@ -308,6 +309,16 @@ struct Engine {
     /// `DeviceWatcher` из произвольного потока (ADR-16, ТЗ-105); `poll_session`
     /// снимает его и перечисляет устройства не чаще одного раза на событие.
     devices_dirty: Arc<AtomicBool>,
+    /// Каталог Shared-перечисления надёжен для миграции пропавшего per-sink
+    /// узла (ADR-07 «Уточнение», AM1.0-B37, шаг 13): `true` только после
+    /// успешного `SharedEnumerateDone` без `pw_sink_error` в этом раунде —
+    /// отказ/таймаут `pw-dump` делает `catalog.shared` без per-sink записей
+    /// не потому, что узлы и правда пропали, а потому, что список не
+    /// опрошен (честность сигнала важнее ложной миграции). `false` до
+    /// первого такого перечисления — тот же смысл, что `known_shared_ids =
+    /// None` в `settings::playback_dto::load_mode_settings_with_catalog`
+    /// (шаг 7).
+    shared_catalog_known: bool,
     /// Явная остановка транспорта (ADR-20, мост С3): легаси `Player` держит
     /// декодер загруженным и после `stop()` (`has_decoder()` остаётся
     /// `true`), поэтому `Stopped` отслеживается здесь, а не выводится из
@@ -488,6 +499,7 @@ impl Engine {
             current: None,
             catalog: DeviceCatalog::default(),
             devices_dirty: Arc::new(AtomicBool::new(false)),
+            shared_catalog_known: false,
             stopped: true,
             last_transport: None,
             last_pos: None,
@@ -721,11 +733,21 @@ impl Engine {
                         self.deps.journal.record(JournalRecord::PwSinkEnumerate {
                             error: outcome.pw_sink_error.as_deref().map(Into::into),
                         });
+                        // (c) ADR-07 «Уточнение», AM1.0-B37, шаг 13: `pw-dump`
+                        // этого раунда отказал/не разобрался — `outcome.devices`
+                        // без per-sink записей значит «не опрошено», не «узлы
+                        // пропали»; каталог «известен» только без этой ошибки.
+                        self.shared_catalog_known = outcome.pw_sink_error.is_none();
                         let changed = !shared_enumerate_lists_match(&self.catalog.shared, &outcome.devices);
                         self.catalog.shared = outcome.devices;
                         if changed {
                             self.catalog.generation = self.catalog.generation.wrapping_add(1);
                         }
+                        // (a) ADR-07 «Уточнение», AM1.0-B37, шаг 13: обновлённый
+                        // каталог пришёл — пропавший per-sink узел Совместимого
+                        // мигрирует на SystemDefault сразу, не дожидаясь
+                        // следующей попытки открытия.
+                        self.migrate_vanished_compatible_device();
                         if changed || force_emit {
                             self.deps.events.emit(EngineEvent::Devices(Arc::new(self.catalog.clone())));
                         }
@@ -736,6 +758,37 @@ impl Engine {
                 }
             }
         }
+    }
+
+    /// Переключает `self.mode_settings.compatible.device` на `SystemDefault`,
+    /// если он — пропавший per-sink узел PipeWire каталога (ADR-07
+    /// «Уточнение», AM1.0-B37, шаг 13; завершает пробел шага 7, см. заметку
+    /// плана `_STATE_.yaml`): общий вызов для (a) прихода/обновления
+    /// Shared-каталога (`handle_internal::SharedEnumerateDone`, выше) и (b)
+    /// момента непосредственно перед применением устройства к легаси-
+    /// `Player` (`apply_active_mode`/`store_active_mode`/`SetModeSettings`,
+    /// все три — перед `legacy_audio`) — WirePlumber может молча подменить
+    /// узел при открытии (см. доккомент `open_pw_node_stream`,
+    /// `audio::backend::shared`), поэтому пропавший узел распознаётся здесь
+    /// по каталогу, не по отказу открытия. (c) `self.shared_catalog_known ==
+    /// false` (ещё не было успешного перечисления без ошибки `pw-dump` в
+    /// этом раунде) — миграция не выполняется: отсутствие узла в
+    /// `catalog.shared` в этом случае означает «не опрошено», не «узел
+    /// пропал». Возвращает `true`, когда переключение произошло —
+    /// вызывающая сторона шлёт `Notice::CompatibleDeviceMigrated` ровно
+    /// один раз на срабатывание (приложение показывает уведомление и
+    /// перезаписывает `settings.toml`, `src/app/mod.rs`).
+    fn migrate_vanished_compatible_device(&mut self) -> bool {
+        if !self.shared_catalog_known {
+            return false;
+        }
+        let known: Vec<String> = self.catalog.shared.iter().map(|d| d.id.as_str().to_owned()).collect();
+        if !shared_node_vanished(&self.mode_settings.compatible.device, &known) {
+            return false;
+        }
+        self.mode_settings.compatible.device = SharedDeviceChoice::SystemDefault;
+        self.deps.events.emit(EngineEvent::Notice(Notice::CompatibleDeviceMigrated));
+        true
     }
 
     /// Запрашивает RT-приоритет потока вывода Эксклюзивного пути у `rtkit`
@@ -1672,6 +1725,10 @@ impl Engine {
                         if self.active_mode == ModeKind::Compatible
                             && matches!(strongest, Some(ApplyKind::ReopenAtPosition) | Some(ApplyKind::SwitchDevice)) =>
                     {
+                        // (b) ADR-07 «Уточнение», AM1.0-B37, шаг 13: перед
+                        // применением устройства к `Player` — тот же пропавший-
+                        // узел фоллбэк, что по приходу каталога.
+                        self.migrate_vanished_compatible_device();
                         let (legacy, device) = legacy_audio(&self.mode_settings);
                         self.apply_legacy_fields(&legacy, device);
                     }
@@ -1882,6 +1939,9 @@ impl Engine {
     /// `EngineCmd::SetActiveMode` переоткрытие здесь не запускает — см.
     /// `store_active_mode`.
     fn apply_active_mode(&mut self) {
+        // (b) ADR-07 «Уточнение», AM1.0-B37, шаг 13 — см. doc-комментарий
+        // `migrate_vanished_compatible_device`.
+        self.migrate_vanished_compatible_device();
         let (legacy, device) = legacy_audio(&self.mode_settings);
         if self.stopped {
             self.apply_legacy_fields(&legacy, device);
@@ -1906,6 +1966,9 @@ impl Engine {
     fn store_active_mode(&mut self) {
         self.player.release_engine();
         if self.active_mode == ModeKind::Compatible {
+            // (b) ADR-07 «Уточнение», AM1.0-B37, шаг 13 — см. doc-комментарий
+            // `migrate_vanished_compatible_device`.
+            self.migrate_vanished_compatible_device();
             let (legacy, device) = legacy_audio(&self.mode_settings);
             self.apply_legacy_fields(&legacy, device);
         }

@@ -49,7 +49,7 @@ use music_player_rs::platform::pick::{FilePicker, PickRequest, PickResult};
 use music_player_rs::playlist::{self, ScanMsg, Track};
 use music_player_rs::playlist::model::TrackId;
 use music_player_rs::settings::params::ModeSettingsUpdate;
-use music_player_rs::settings::playback::{ModeSettings, Volume};
+use music_player_rs::settings::playback::{ModeSettings, SharedDeviceChoice, Volume};
 use music_player_rs::settings::{ColumnId, ModeKind, RepeatMode};
 use music_player_rs::theme::{
     ColorsData, ThemeData, ThemeEntry, ThemeError, DEFAULT_LIGHT_TOML, parse_hex,
@@ -970,8 +970,8 @@ impl MusicApp {
         }) {
             app.push_message(Message {
                 level: MessageLevel::Info,
-                title: "Устройство изменено".into(),
-                body: "Устройство Совместимого режима было выбрано в обход аудиосервера — переключено на «Системное по умолчанию»".into(),
+                title: music_player_rs::i18n::audio::COMPATIBLE_DEVICE_MIGRATED_TITLE.into(),
+                body: music_player_rs::i18n::audio::COMPATIBLE_DEVICE_MIGRATED_BODY.into(),
                 actions: vec![MessageAction::Ok],
             });
         }
@@ -3689,6 +3689,22 @@ impl MusicApp {
                 self.audio_error = Some(msg.clone());
                 self.status = format!("Не удалось получить список устройств вывода: {msg}").into();
             }
+            // Пропавший per-sink узел PipeWire Совместимого режима во время
+            // работы движка (ADR-07 «Уточнение», AM1.0-B37, шаг 13): движок
+            // уже переключил свою копию на «Системное по умолчанию» —
+            // приложению остаётся показать то же окно, что при аналогичной
+            // миграции на старте, и перезаписать `settings.toml`, чтобы
+            // следующее «Сохранить» диалога настроек не вернуло узел обратно
+            // из открытого черновика.
+            Applied::Notice(Notice::CompatibleDeviceMigrated) => {
+                self.push_message(Message {
+                    level: MessageLevel::Info,
+                    title: music_player_rs::i18n::audio::COMPATIBLE_DEVICE_MIGRATED_TITLE.into(),
+                    body: music_player_rs::i18n::audio::COMPATIBLE_DEVICE_MIGRATED_BODY.into(),
+                    actions: vec![MessageAction::Ok],
+                });
+                self.save_compatible_device_migrated();
+            }
             // Автовыбор устройства Оптимального/Строгого режима (шаг 38,
             // ТЗ-143, ТЗ-134, ADR-24) — сохраняется в настройках.
             Applied::DeviceAutoSelected { mode, device } => self.save_auto_selected_device(mode, device),
@@ -3713,6 +3729,24 @@ impl MusicApp {
         }
         // Внешнее изменение настроек перебазирует открытый черновик — кнопка
         // «Сохранить» пересчитывается следом (SP1.0 ТЗ-27).
+        self.sync_save_button();
+    }
+
+    /// Перезаписывает устройство Совместимого режима в `settings.toml` на
+    /// «Системное по умолчанию» (ADR-07 «Уточнение», AM1.0-B37, шаг 13) тем
+    /// же снимочным путём, что автовыбор устройства Оптимального/Строгого
+    /// (`save_auto_selected_device`, шаг 38): движок уже переключил свою
+    /// копию `ModeSettings` (`Engine::migrate_vanished_compatible_device`),
+    /// повторная отправка `SetModeSettings` обратно не нужна — предпочтение
+    /// «переписать через обычный путь сохранения» (ADR-07 «Уточнение»):
+    /// запись файла остаётся честной, иначе следующее «Сохранить» диалога
+    /// настроек вернуло бы пропавший узел обратно из открытого черновика.
+    fn save_compatible_device_migrated(&mut self) {
+        let mut settings = self.core.settings().clone();
+        settings.playback.compatible.device = SharedDeviceChoice::SystemDefault;
+        if let Some(effect) = self.core.save_settings_now(settings) {
+            self.apply_reply_effects(vec![effect]);
+        }
         self.sync_save_button();
     }
 

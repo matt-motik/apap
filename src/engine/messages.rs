@@ -153,6 +153,18 @@ pub enum SkipReason {
 pub enum Notice {
     /// Перечисление устройств упало — хост не ответил (ТЗ-104, ТЗ-105, ADR-16, §6.2 п.3).
     DevicesUnavailable(BackendError),
+    /// Сохранённый per-sink узел PipeWire Совместимого режима перестал
+    /// существовать в каталоге — движок уже переключил свою копию
+    /// `ModeSettings.compatible.device` на `SystemDefault` (ADR-07
+    /// «Уточнение», AM1.0-B37, шаг 13,
+    /// `Engine::migrate_vanished_compatible_device`, `src/engine/run.rs`).
+    /// Приложение показывает то же одноразовое уведомление, что при миграции
+    /// устаревших `hw:`/`plughw:` на старте (AM1.0-B32, шаг 7,
+    /// `src/i18n/audio.rs`), и перезаписывает `settings.toml` тем же путём,
+    /// что автовыбор устройства (`save_auto_selected_device`, `src/app/mod.rs`),
+    /// иначе следующее «Сохранить» диалога настроек вернуло бы пропавший
+    /// узел обратно из открытого черновика.
+    CompatibleDeviceMigrated,
 }
 
 /// События движок → UI (мост С3).
