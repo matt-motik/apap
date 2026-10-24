@@ -11,6 +11,7 @@
   - docs/01_audio_modes_v1.0/03_spec.md
   - docs/00_workflow_v1.0/architecture.md
   - src/audio/backend/pw_dump.rs
+  - src/audio/backend/mod.rs
   - src/audio/backend/shared.rs
   - src/audio/output.rs
   - src/settings/playback_dto.rs
@@ -20,8 +21,8 @@
 ## Итерационный трекер
 - [x] Шаг 1: ADR-07: новая формулировка — перечень per-sink узлов через pw-dump, открытие через alsa crate по pipewire:NODE=<node.name>, идентификатор — node.name, подпись через hw_device_label при соответствии карте ALSA, иначе node.description, фоллбэк на «Системное по умолчанию» без pw-dump (docs/01_audio_modes_v1.0/03_spec.md#adr-07-бэкенды-вывода). Проверка: python tools/state_tool.py check; python tools/traceability_tool.py check
 - [x] Шаг 11: ТЗ (02_tz.md, определение Shared, ~строка 89): буквальное восстановление новой формулировки ADR-07 — per-sink узлы PipeWire Audio/Sink наравне с алиасами default/pipewire/pulse, открываемые по имени pipewire:NODE=<node.name> (правка docs по разрешению пользователя — точное отражение ADR-07, без новых требований). Проверка: python tools/state_tool.py check; python tools/traceability_tool.py check
-- [>] **Шаг 2: Чистая функция разбора pw-dump JSON → список узлов Audio/Sink (id/node.name/node.description/alsa.card_name/alsa.name) + тесты с фикстурой JSON (новый файл src/audio/backend/pw_dump.rs; регистрация в docs/00_workflow_v1.0/architecture.md). Проверка: cargo test pw_dump::**
-- [ ] Шаг 3: Запуск pw-dump с таймаутом (паттерн run_pw_metadata, os_probe.rs) вне UI-потока, кэш в DeviceCatalog, обновление по DeviceWatcher/«Обновить»; сборка SharedDeviceInfo для per-sink узлов (src/audio/backend/pw_dump.rs, src/audio/backend/shared.rs). Проверка: cargo check
+- [x] Шаг 2: Чистая функция разбора pw-dump JSON → список узлов Audio/Sink (id/node.name/node.description/alsa.card_name/alsa.name) + тесты с фикстурой JSON (новый файл src/audio/backend/pw_dump.rs; регистрация в docs/00_workflow_v1.0/architecture.md). Проверка: cargo test pw_dump::
+- [>] **Шаг 3: Запуск pw-dump с таймаутом (паттерн run_pw_metadata, os_probe.rs) вне UI-потока, кэш в DeviceCatalog, обновление по DeviceWatcher/«Обновить»; сборка SharedDeviceInfo для per-sink узлов (src/audio/backend/pw_dump.rs, src/audio/backend/shared.rs). Проверка: cargo check**
 - [ ] Шаг 4: ЧЕКПОИНТ: полный cargo test + cargo clippy зелёные
 - [ ] Шаг 5: Открытие Shared-потока на выбранном per-sink узле напрямую крейтом alsa по имени pipewire:NODE=<node.name>, в обход cpal (src/audio/backend/shared.rs). Проверка: cargo check
 - [ ] Шаг 6: is_server_routed_pcm принимает форму pipewire:NODE=… как легитимный выход аудиосервера (src/audio/output.rs). Проверка: cargo test output::
@@ -32,8 +33,8 @@
 
 Легенда: [x] сделано · [>] текущий шаг · [ ] не начато
 
-- **Текущий шаг (current_step):** Шаг 2
-- **Следующий ход:** Шаг 2: чистая функция разбора pw-dump JSON в src/audio/backend/pw_dump.rs + тесты с фикстурой JSON
+- **Текущий шаг (current_step):** Шаг 3
+- **Следующий ход:** ЧЕКПОИНТ: полный cargo test + cargo clippy зелёные
 - **Счетчик безуспешных компиляций:** 0/3
 - **Состояние:** in_progress
 

@@ -11,6 +11,7 @@ whitelist:
   - docs/01_audio_modes_v1.0/03_spec.md
   - docs/00_workflow_v1.0/architecture.md
   - src/audio/backend/pw_dump.rs
+  - src/audio/backend/mod.rs
   - src/audio/backend/shared.rs
   - src/audio/output.rs
   - src/settings/playback_dto.rs
@@ -25,7 +26,7 @@ steps:
     done: true
   - id: 2
     description: "Чистая функция разбора pw-dump JSON → список узлов Audio/Sink (id/node.name/node.description/alsa.card_name/alsa.name) + тесты с фикстурой JSON (новый файл src/audio/backend/pw_dump.rs; регистрация в docs/00_workflow_v1.0/architecture.md). Проверка: cargo test pw_dump::"
-    done: false
+    done: true
   - id: 3
     description: "Запуск pw-dump с таймаутом (паттерн run_pw_metadata, os_probe.rs) вне UI-потока, кэш в DeviceCatalog, обновление по DeviceWatcher/«Обновить»; сборка SharedDeviceInfo для per-sink узлов (src/audio/backend/pw_dump.rs, src/audio/backend/shared.rs). Проверка: cargo check"
     done: false
@@ -50,8 +51,8 @@ steps:
   - id: 10
     description: "ЧЕКПОИНТ финальный перед закрытием: полный cargo test + cargo clippy зелёные"
     done: false
-current_step: 2
-next_action: "Шаг 2: чистая функция разбора pw-dump JSON в src/audio/backend/pw_dump.rs + тесты с фикстурой JSON"
+current_step: 3
+next_action: "ЧЕКПОИНТ: полный cargo test + cargo clippy зелёные"
 fail_counter: 0
 fail_counter_max: 3
 failed_attempts: []

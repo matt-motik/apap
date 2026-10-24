@@ -91,7 +91,7 @@ src/
   settings/            # модуль-файл src/settings.rs + подмодули params.rs, playback.rs, playback_dto.rs
   audio/               # аудио-подсистема
     mod.rs
-    backend/             # устройства/бэкенды вывода (АМ1.0 §2.3): alsa.rs, alsa_out.rs, busy_owner.rs, catalog.rs, exclusive.rs, os_probe.rs, shared.rs
+    backend/             # устройства/бэкенды вывода (АМ1.0 §2.3): alsa.rs, alsa_out.rs, busy_owner.rs, catalog.rs, exclusive.rs, os_probe.rs, pw_dump.rs, shared.rs
     path/                # модель пути сигнала (АМ1.0 §3.1-3.3): plan.rs, recommend.rs, report.rs, signal.rs, transform.rs, plan_tests.rs
     render/              # RT-колбэк вывода (§6.14-6.17): mod.rs, dop.rs, gain.rs, out.rs, pcm.rs, tpdf.rs — 0 аллокаций/блокировок/логов, проверяет tools/check_rt_imports.py
     reservation/         # ReserveDevice1 по D-Bus (ADR-08, §6.6): mod.rs (trait ReserveBus, acquire), dbus.rs (zbus)

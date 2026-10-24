@@ -19,6 +19,7 @@ pub(crate) mod busy_owner;
 pub mod catalog;
 pub mod exclusive;
 pub mod os_probe;
+pub mod pw_dump;
 pub mod shared;
 
 /// Стабильный идентификатор аппаратного устройства ALSA: `CARD=<id>` +
