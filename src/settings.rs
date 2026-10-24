@@ -292,27 +292,16 @@ pub const INFO_LABEL_KEYS: [&str; 13] = [
     "channels",
 ];
 
-/// Default (English) labels for the track-info panel. Editing `info_labels`
-/// in the config file overrides these values.
+/// Default (Russian, via `src/i18n/`) labels for the track-info panel
+/// (T1.0-B5; было на английском). Editing `info_labels` in the config file
+/// overrides these values — see `crate::i18n::info_label_default` for the
+/// text (same order and wording as `ui/app.slint`'s `info-labels` default,
+/// T1.0-B2).
 pub(crate) fn default_info_labels() -> std::collections::HashMap<String, String> {
-    [
-        ("artist", "Artist"),
-        ("track", "Track"),
-        ("title", "Title"),
-        ("duration", "Duration"),
-        ("year", "Year"),
-        ("album", "Album"),
-        ("disc", "Disc"),
-        ("genre", "Genre"),
-        ("format", "Format"),
-        ("bitrate", "Bitrate"),
-        ("bit_depth", "Bit depth"),
-        ("sample_rate", "Sample rate"),
-        ("channels", "Channels"),
-    ]
-    .into_iter()
-    .map(|(k, v)| (k.to_string(), v.to_string()))
-    .collect()
+    INFO_LABEL_KEYS
+        .iter()
+        .map(|&k| (k.to_string(), crate::i18n::info_label_default(k).to_string()))
+        .collect()
 }
 
 /// Режим вывода DSD (ТЗ 5.1 §8.2). `Pcm` — единственный реализованный;

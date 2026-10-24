@@ -390,6 +390,32 @@ pub const VIZ_ERROR_FREQ_MAX: &str = "freq_max: целое 1..22050 и стро�
 /// T1.0-B2).
 pub const VIZ_ERROR_BANDS: &str = "bands: целое 4..128";
 
+/// Дефолтная подпись панели информации по ключу `INFO_LABEL_KEYS`
+/// (`src/settings.rs`) (T1.0-B5; перенесено из
+/// `src/settings.rs::default_info_labels()`, было на английском) — тот же
+/// текст и порядок, что в дефолте `in property <[string]> info-labels`
+/// `ui/app.slint` (T1.0-B2). Неизвестный ключ (за пределами
+/// `INFO_LABEL_KEYS`) возвращает пустую строку — вызывающий код сам решает,
+/// чем её заменить (`Settings::info_label`, `src/persist/settings_file.rs`).
+pub fn info_label_default(key: &str) -> &'static str {
+    match key {
+        "artist" => "Исполнитель",
+        "track" => "Трек",
+        "title" => "Название",
+        "duration" => "Длительность",
+        "year" => "Год",
+        "album" => "Альбом",
+        "disc" => "Диск",
+        "genre" => "Жанр",
+        "format" => "Формат",
+        "bitrate" => "Битрейт",
+        "bit_depth" => "Разрядность",
+        "sample_rate" => "Частота дискретизации",
+        "channels" => "Каналы",
+        _ => "",
+    }
+}
+
 /// Подпись источника обложки в списке «Приоритет источников обложки»
 /// вкладки «Обложки» (T1.0-B7; перенесено из
 /// `src/settings.rs::CoverSource::label()`, было на английском).
@@ -668,6 +694,34 @@ mod tests {
     #[test]
     fn mode_dialog_fixed_by_mode_substitutes_shown_value() {
         assert_eq!(mode_dialog_fixed_by_mode("Exclusive"), "Exclusive — задано режимом");
+    }
+
+    #[test]
+    fn info_label_default_covers_all_keys_in_display_order() {
+        let cases = [
+            ("artist", "Исполнитель"),
+            ("track", "Трек"),
+            ("title", "Название"),
+            ("duration", "Длительность"),
+            ("year", "Год"),
+            ("album", "Альбом"),
+            ("disc", "Диск"),
+            ("genre", "Жанр"),
+            ("format", "Формат"),
+            ("bitrate", "Битрейт"),
+            ("bit_depth", "Разрядность"),
+            ("sample_rate", "Частота дискретизации"),
+            ("channels", "Каналы"),
+        ];
+        assert_eq!(cases.len(), crate::settings::INFO_LABEL_KEYS.len());
+        for (key, label) in cases {
+            assert_eq!(info_label_default(key), label, "key={key}");
+        }
+    }
+
+    #[test]
+    fn info_label_default_unknown_key_is_empty() {
+        assert_eq!(info_label_default("bogus"), "");
     }
 
     #[test]

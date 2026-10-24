@@ -13,14 +13,14 @@
 - **Критерий успеха (Definition of Done):** default_info_labels() отдаёт русские подписи (порядок INFO_LABEL_KEYS = ui/app.slint info-labels) через src/i18n/; значение info_labels.<key>, сохранённое в файле настроек и равное старому английскому дефолту, на загрузке заменяется русским дефолтом (не считается переопределением); пользовательские значения не трогаются; cargo test + clippy зелёные
 
 ## Итерационный трекер
-- [>] **Шаг 1: Добавить info_label_default(key) в src/i18n/mod.rs (русские подписи в порядке INFO_LABEL_KEYS/ui/app.slint info-labels) и переключить Settings::default_info_labels() (src/settings.rs) на вызов этой функции. Проверка: cargo check**
-- [ ] Шаг 2: В src/persist/settings_file.rs добавить приватный список OLD_ENGLISH_INFO_LABEL_DEFAULTS (английские дефолты до перевода, с doc-комментарием) и логику в Settings::info_label(): хранимое значение, равное старому английскому дефолту для этого ключа, не считается переопределением — показывается новый (русский) дефолт; обновить/добавить unit-тесты (свежий дефолт, старое английское значение → русский, пользовательское значение → сохранено). Проверка: cargo test persist::settings_file::
+- [x] Шаг 1: Добавить info_label_default(key) в src/i18n/mod.rs (русские подписи в порядке INFO_LABEL_KEYS/ui/app.slint info-labels) и переключить Settings::default_info_labels() (src/settings.rs) на вызов этой функции. Проверка: cargo check
+- [>] **Шаг 2: В src/persist/settings_file.rs добавить приватный список OLD_ENGLISH_INFO_LABEL_DEFAULTS (английские дефолты до перевода, с doc-комментарием) и логику в Settings::info_label(): хранимое значение, равное старому английскому дефолту для этого ключа, не считается переопределением — показывается новый (русский) дефолт; обновить/добавить unit-тесты (свежий дефолт, старое английское значение → русский, пользовательское значение → сохранено). Проверка: cargo test persist::settings_file::**
 - [ ] Шаг 3: ЧЕКПОИНТ: полный cargo test + cargo clippy без новых предупреждений по файлам вайтлиста
 
 Легенда: [x] сделано · [>] текущий шаг · [ ] не начато
 
-- **Текущий шаг (current_step):** Шаг 1
-- **Следующий ход:** Добавить info_label_default(key) в src/i18n/mod.rs
+- **Текущий шаг (current_step):** Шаг 2
+- **Следующий ход:** Добавить OLD_ENGLISH_INFO_LABEL_DEFAULTS и логику сравнения в Settings::info_label() (src/persist/settings_file.rs)
 - **Счетчик безуспешных компиляций:** 0/3
 - **Состояние:** in_progress
 
