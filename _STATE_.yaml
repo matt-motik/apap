@@ -71,7 +71,7 @@ steps:
     description: >
       ui/settings.slint — вкладка General (~строки 246–390): обернуть строки в @tr(...), перевести
       на русский; технические термины не трогать.
-    done: false
+    done: true
   - id: 6
     description: >
       ui/settings.slint — вкладка Audio + под-секция «Настройки режима» (~строки 390–530): @tr +
@@ -183,8 +183,8 @@ steps:
       check зелёные; готовность к closing.md (ручная проверка пользователем — обрезка длинных
       русских подписей на всех экранах).
     done: false
-current_step: 5
-next_action: "ui/settings.slint — вкладка General (~строки 246–390): обернуть строки в @tr(...), перевести на русский; технические термины не трогать."
+current_step: 6
+next_action: "ui/settings.slint — вкладка Audio + под-секция «Настройки режима» (~строки 390–530): @tr + перевод; Exclusive/Shared/DoP/ASIO/WASAPI/ALSA/PipeWire и форматы S24_3LE… не переводятся."
 fail_counter: 0
 fail_counter_max: 3
 failed_attempts: []

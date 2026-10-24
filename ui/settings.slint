@@ -245,7 +245,7 @@ export component Settings inherits Rectangle {
 
                         // ===== General =====
                         Tab {
-                            title: "General";
+                            title: @tr("Общие");
                             ScrollView {
                                 VerticalLayout {
                                     spacing: 10px;
@@ -255,7 +255,7 @@ export component Settings inherits Rectangle {
                                         padding-right: 8px;
                                         spacing: 4px;
                                         RowLabel {
-                                            text: "Theme";
+                                            text: @tr("Тема");
                                         }
 
                                         VerticalLayout {
@@ -286,7 +286,7 @@ export component Settings inherits Rectangle {
                                         padding-right: 8px;
                                         spacing: 4px;
                                         RowLabel {
-                                            text: "Cover size";
+                                            text: @tr("Размер обложки");
                                         }
 
                                         Slider {
@@ -303,7 +303,7 @@ export component Settings inherits Rectangle {
                                         padding-right: 8px;
                                         spacing: 4px;
                                         RowLabel {
-                                            text: "Info column width";
+                                            text: @tr("Ширина колонки с информацией");
                                         }
 
                                         Slider {
@@ -320,7 +320,7 @@ export component Settings inherits Rectangle {
                                         padding-right: 8px;
                                         spacing: 4px;
                                         RowLabel {
-                                            text: "Column gap";
+                                            text: @tr("Промежуток между колонками");
                                         }
 
                                         Slider {
@@ -337,7 +337,7 @@ export component Settings inherits Rectangle {
                                         padding-right: 8px;
                                         spacing: 4px;
                                         RowLabel {
-                                            text: "Minimize to tray";
+                                            text: @tr("Свернуть в трей");
                                         }
 
                                         CheckBox {
@@ -358,11 +358,11 @@ export component Settings inherits Rectangle {
                                         HorizontalLayout {
                                             spacing: 4px;
                                             RowLabel {
-                                                text: "Save state every";
+                                                text: @tr("Сохранять состояние каждые");
                                             }
 
                                             ComboBox {
-                                                model: ["10 s", "30 s", "60 s", "120 s"];
+                                                model: [@tr("10 с"), @tr("30 с"), @tr("60 с"), @tr("120 с")];
                                                 current-index: root.save-interval-idx;
                                                 selected(s) => { root.set-save-interval(self.current-index); }
                                             }
@@ -373,7 +373,7 @@ export component Settings inherits Rectangle {
                                         }
 
                                         Text {
-                                            text: "Через сколько секунд после первого изменения громкости, режима, колонок, сортировки, окна и плейлиста они сохраняются на диск. При аварийном завершении программы или отключении питания теряются изменения не старше этого интервала. Настройки из этого окна сохраняются сразу по кнопке „Сохранить“";
+                                            text: @tr("Через сколько секунд после первого изменения громкости, режима, колонок, сортировки, окна и плейлиста они сохраняются на диск. При аварийном завершении программы или отключении питания теряются изменения не старше этого интервала. Настройки из этого окна сохраняются сразу по кнопке „Сохранить“");
                                             color: Colors.text-secondary;
                                             font-size: 11px;
                                             wrap: word-wrap;
