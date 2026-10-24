@@ -31,16 +31,16 @@
 - [x] Шаг 4: ЧЕКПОИНТ: полный cargo test + cargo clippy зелёные
 - [x] Шаг 5: Открытие Shared-потока на выбранном per-sink узле напрямую крейтом alsa по имени pipewire:NODE=<node.name>, в обход cpal (src/audio/backend/shared.rs); конфигурация PCM и писатель-поток — переиспользованы из src/audio/backend/alsa.rs (apply_hw_params и приватные configure/start-хелперы того же файла, без резервирования DeviceClaim) через новую pub(crate) функцию в нём же — отсюда alsa.rs добавлен в вайтлист (execution.md §1: файл нужен для этого же шага, не шире плана). Проверка: cargo check
 - [x] Шаг 12: Перечисление серверных узлов (pw-dump) вынесено из цикла движка (AM1.0-B37, продолжение заметки шага 3): SharedBackend::enumerate_job/PwSinkSource::job выполняется служебным потоком через deps.spawner (паттерн claim_job/probe_caps, AM1.0-B38); итог — InternalMsg::SharedEnumerateDone (src/engine/messages.rs), слияние напрямую в публичные поля DeviceCatalog.shared/generation (catalog.rs не в вайтлисте сессии) и EngineEvent::Devices; не более одного перечисления одновременно — повторный запрос, пока прошлое не вернулось, копит force_emit (start_shared_enumerate, src/engine/run.rs). Отказ pw-dump внутри Shared-перечисления — JournalRecord::PwSinkEnumerate (src/journal.rs), список падает до «Системное по умолчанию», ошибка не отбрасывается молча. Проверка: cargo test --quiet engine:: + полный cargo test + cargo clippy
-- [>] **Шаг 6: is_server_routed_pcm принимает форму pipewire:NODE=… как легитимный выход аудиосервера (src/audio/output.rs). Проверка: cargo test output::**
-- [ ] Шаг 7: Миграция пропавшего при загрузке настроек узла на SystemDefault с уведомлением Adjusted, тем же способом, что устаревшие hw:/plughw: (src/settings/playback_dto.rs). Проверка: cargo test playback_dto::
+- [x] Шаг 6: is_server_routed_pcm принимает форму pipewire:NODE=… как легитимный выход аудиосервера (src/audio/output.rs). Проверка: cargo test output::
+- [>] **Шаг 7: Миграция пропавшего при загрузке настроек узла на SystemDefault с уведомлением Adjusted, тем же способом, что устаревшие hw:/plughw: (src/settings/playback_dto.rs). Проверка: cargo test playback_dto::**
 - [ ] Шаг 8: ЧЕКПОИНТ: полный cargo test + cargo clippy зелёные
 - [ ] Шаг 9: UI: список устройств Совместимого на Linux показывает per-sink записи из DeviceCatalog (src/app/ui_manager.rs). Проверка: cargo check
 - [ ] Шаг 10: ЧЕКПОИНТ финальный перед закрытием: полный cargo test + cargo clippy зелёные
 
 Легенда: [x] сделано · [>] текущий шаг · [ ] не начато
 
-- **Текущий шаг (current_step):** Шаг 6
-- **Следующий ход:** is_server_routed_pcm принимает форму pipewire:NODE=… как легитимный выход аудиосервера (src/audio/output.rs). Проверка: cargo test output::
+- **Текущий шаг (current_step):** Шаг 7
+- **Следующий ход:** Миграция пропавшего при загрузке настроек узла на SystemDefault с уведомлением Adjusted, тем же способом, что устаревшие hw:/plughw: (src/settings/playback_dto.rs). Проверка: cargo test playback_dto::
 - **Счетчик безуспешных компиляций:** 0/3
 - **Состояние:** in_progress
 

@@ -641,7 +641,7 @@ impl AudioHost for CpalHost {
             // спрашиваем у cpal его собственное представление о дефолтном
             // устройстве (AM1.0-B32, фаза 2); `collapse_to_system_default`
             // всё равно откажется от голого hw:/plughw: узла.
-            let fallback_default = if out.iter().any(|d| is_server_routed_pcm(&d.id)) {
+            let fallback_default = if out.iter().any(|d| is_fixed_server_alias(&d.id)) {
                 None
             } else {
                 host.default_output_device().as_ref().and_then(device_info_from_cpal)
@@ -791,7 +791,9 @@ pub enum DeviceCategory {
 ///     loopback попадает в список Virtual в §3.1, но это именно отражение
 ///     ALSA-loopback-устройства)
 ///  3. `plughw:` / `default` / `front:` / `surround*` / `sysdefault` /
-///     name PipeWire/Pulse → ServerProxy
+///     `pipewire:NODE=…` (per-sink выход аудиосервера, ADR-07 «Уточнение»,
+///     AM1.0-B37 — честно Shared, никогда bit-perfect) / name PipeWire/Pulse
+///     → ServerProxy
 ///  4. id содержит dmix|dsnoop|softvol|null|ffmpeg → Virtual
 ///  5. иначе → Unknown
 pub fn classify_device(id: &str, name: &str) -> DeviceCategory {
@@ -809,6 +811,7 @@ pub fn classify_device(id: &str, name: &str) -> DeviceCategory {
         || id_l.starts_with("front:")
         || id_l.starts_with("surround")
         || id_l.starts_with("sysdefault")
+        || id_l.starts_with("pipewire:node=")
         || name_l.contains("pipewire")
         || name_l.contains("pulseaudio")
         || name_l.contains("sound server")
@@ -871,24 +874,59 @@ fn collapse_same_name(infos: Vec<DeviceInfo>) -> Vec<DeviceInfo> {
 /// §5, AM1.0-B32) — все эти варианты, как и любой id с `:CARD=`, не являются
 /// фиксированным алиасом сервера и отбрасываются простым несовпадением.
 ///
-/// `pub(crate)`: переиспользуется миграцией сохранённого Совместимого
-/// устройства при загрузке настроек (`settings::playback_dto`, AM1.0-B32,
-/// фаза 2) — тот же критерий «это выход аудиосервера», без дублирования.
-pub(crate) fn is_server_routed_pcm(id: &str) -> bool {
+/// True when the id names one of the three fixed ALSA aliases that always
+/// route through the desktop audio server (`default`/`pipewire`/`pulse`).
+/// These are the ids [`collapse_to_system_default`] collapses into the
+/// single «Системное по умолчанию» entry — unlike a per-sink
+/// `pipewire:NODE=<name>` id ([`is_pipewire_node_id`]), which routes through
+/// the same server but must stay its own separate list entry (ADR-07
+/// «Уточнение», AM1.0-B37).
+fn is_fixed_server_alias(id: &str) -> bool {
     matches!(id.to_ascii_lowercase().as_str(), "default" | "pipewire" | "pulse")
 }
 
-/// Схлопывает полный cpal-список до одной записи с заданной подписью, если
-/// среди устройств есть хоть один выход аудиосервера ([`is_server_routed_pcm`]).
+/// True when the id names a per-sink PipeWire node opened directly through
+/// the `alsa` crate as `pipewire:NODE=<node.name>` (ADR-07 «Уточнение»,
+/// AM1.0-B37) — strictly that prefix form: `pipewire:target.object=…`,
+/// `pipewire:CARD=…` or any other parameterization of the `pipewire` ALSA
+/// plugin is **not** this id and is denied, same as a bare `hw:`/`plughw:`
+/// node. An empty node name after `=` is denied too (malformed).
+fn is_pipewire_node_id(id: &str) -> bool {
+    id.to_ascii_lowercase().strip_prefix("pipewire:node=").is_some_and(|rest| !rest.is_empty())
+}
+
+/// True when the id is a legitimate output of the desktop audio server in
+/// Совместимый режим — either a fixed alias ([`is_fixed_server_alias`]) or a
+/// per-sink PipeWire node ([`is_pipewire_node_id`], ADR-07 «Уточнение»,
+/// AM1.0-B37). A per-sink stream still never claims bit-perfect: it is
+/// classified `DeviceCategory::ServerProxy` by [`classify_device`] like any
+/// other server-routed PCM (честность сигнала, AGENTS.md).
 ///
-/// Иначе (редкий случай — ни "default", ни "pipewire", ни "pulse" среди
-/// перечисленных PCM) список обязан по-прежнему не показывать голые
-/// hw:/plughw: узлы (ADR-07, AM1.0-B32, фаза 2): берётся `fallback_default`
-/// (отдельный, вне перечисления, вызов cpal для его собственного дефолтного
-/// устройства — платформенная проверка и сам вызов живут в вызывающем коде,
-/// эта функция остаётся чистой), с тем же ограничением — если он сам
-/// hw:/plughw:, он отбрасывается. Нет и такого — список честно пуст
-/// (AGENTS.md: честность сигнала важнее удобства; UI уже обрабатывает «нет
+/// `pub(crate)`: переиспользуется миграцией сохранённого Совместимого
+/// устройства при загрузке настроек (`settings::playback_dto`, AM1.0-B32,
+/// AM1.0-B37) — тот же критерий «это выход аудиосервера», без дублирования.
+pub(crate) fn is_server_routed_pcm(id: &str) -> bool {
+    is_fixed_server_alias(id) || is_pipewire_node_id(id)
+}
+
+/// Схлопывает фиксированные алиасы сервера ([`is_fixed_server_alias`]) до
+/// одной записи с заданной подписью и сохраняет per-sink узлы
+/// ([`is_pipewire_node_id`]) каждый своей отдельной записью списка (ADR-07
+/// «Уточнение», AM1.0-B37) — они не являются синонимами «Системного по
+/// умолчанию» и не должны в него схлопываться, даже притом что оба случая
+/// проходят через [`is_server_routed_pcm`]. Любой другой id (голый
+/// `hw:`/`plughw:`/иной плагин) отбрасывается молча — список Совместимого на
+/// Linux не предлагает его (ADR-07, AM1.0-B32).
+///
+/// Нет ни одного фиксированного алиаса среди перечисленных PCM (редкий
+/// случай): список обязан по-прежнему не показывать голые hw:/plughw: узлы
+/// (ADR-07, AM1.0-B32, фаза 2) — берётся `fallback_default` (отдельный, вне
+/// перечисления, вызов cpal для его собственного дефолтного устройства —
+/// платформенная проверка и сам вызов живут в вызывающем коде, эта функция
+/// остаётся чистой), с тем же ограничением — если он сам hw:/plughw:, он
+/// отбрасывается. Нет и такого — представителя «Системного по умолчанию» в
+/// списке не будет (per-sink записи, если они есть, всё равно останутся:
+/// AGENTS.md — честность сигнала важнее удобства; UI уже обрабатывает «нет
 /// устройств»).
 fn collapse_to_system_default(
     infos: Vec<DeviceInfo>,
@@ -898,23 +936,39 @@ fn collapse_to_system_default(
     // Любой из трёх алиасов ведёт на тот же сервер; порядок — просто
     // предпочтение более информативного имени для представителя записи.
     const PRIORITY: [&str; 3] = ["pipewire", "pulse", "default"];
-    let mut filtered: Vec<DeviceInfo> = infos.into_iter().filter(|d| is_server_routed_pcm(&d.id)).collect();
-    if filtered.is_empty() {
-        return match fallback_default {
+    let mut fixed: Vec<DeviceInfo> = Vec::new();
+    let mut per_sink: Vec<DeviceInfo> = Vec::new();
+    for info in infos {
+        if is_fixed_server_alias(&info.id) {
+            fixed.push(info);
+        } else if is_pipewire_node_id(&info.id) {
+            per_sink.push(info);
+        }
+        // иначе — голое hw:/plughw:/другой плагин, отбрасывается (ADR-07).
+    }
+
+    let representative = if fixed.is_empty() {
+        match fallback_default {
             Some(d) if !is_bare_hardware_or_plughw_id(&d.id) => {
                 let mut d = d;
                 d.name = label.to_owned();
-                vec![d]
+                Some(d)
             }
-            _ => Vec::new(),
-        };
-    }
-    filtered.sort_by_key(|d| {
-        PRIORITY.iter().position(|p| *p == d.id.to_ascii_lowercase()).unwrap_or(PRIORITY.len())
-    });
-    let mut representative = filtered.swap_remove(0);
-    representative.name = label.to_owned();
-    vec![representative]
+            _ => None,
+        }
+    } else {
+        fixed.sort_by_key(|d| {
+            PRIORITY.iter().position(|p| *p == d.id.to_ascii_lowercase()).unwrap_or(PRIORITY.len())
+        });
+        let mut representative = fixed.swap_remove(0);
+        representative.name = label.to_owned();
+        Some(representative)
+    };
+
+    let mut out: Vec<DeviceInfo> = Vec::with_capacity(per_sink.len() + 1);
+    out.extend(representative);
+    out.extend(per_sink);
+    out
 }
 
 /// «Системное по умолчанию» — единственная запись списка Совместимого на
@@ -1969,8 +2023,17 @@ mod tests {
     }
 
     #[test]
-    fn is_server_routed_pcm_allows_only_fixed_server_aliases() {
-        for allowed in ["default", "pipewire", "pulse", "DEFAULT", "PipeWire"] {
+    fn is_server_routed_pcm_allows_fixed_aliases_and_pw_node_prefix() {
+        for allowed in [
+            "default",
+            "pipewire",
+            "pulse",
+            "DEFAULT",
+            "PipeWire",
+            "pipewire:NODE=alsa_output.usb-MOTU_M2-00.HiFi__Line__sink.3",
+            "pipewire:node=alsa_output.usb-MOTU_M2-00.HiFi__Line__sink.3",
+            "PIPEWIRE:NODE=x",
+        ] {
             assert!(is_server_routed_pcm(allowed), "{allowed} must be allowed");
         }
         for denied in [
@@ -1993,6 +2056,11 @@ mod tests {
             "usbstream:CARD=4,DEV=0",
             // Сам сервер, но с привязкой к карте — уже не фиксированный алиас.
             "pipewire:CARD=4,DEV=0",
+            // Другой параметр плагина pipewire (маршрутизация, не узел) — не
+            // форма `pipewire:NODE=`, отбрасывается (ADR-07 «Уточнение»).
+            "pipewire:target.object=alsa_output.usb-MOTU_M2-00.HiFi__Line__sink.3",
+            // Пустое имя узла после "=" — тоже не легитимная форма.
+            "pipewire:NODE=",
             "",
         ] {
             assert!(!is_server_routed_pcm(denied), "{denied} must be denied");
@@ -2012,6 +2080,43 @@ mod tests {
         // pipewire — высший приоритет среди трёх алиасов сервера.
         assert_eq!(collapsed[0].id, "pipewire");
         assert_eq!(collapsed[0].name, "Системное по умолчанию (PipeWire)");
+    }
+
+    #[test]
+    fn collapse_to_system_default_keeps_per_sink_entries_separate() {
+        // Per-sink узлы (ADR-07 «Уточнение», AM1.0-B37) не синонимы
+        // «Системного по умолчанию» — несмотря на то, что оба случая
+        // проходят `is_server_routed_pcm`, схлопывание в одну запись должно
+        // затронуть только три фиксированных алиаса; per-sink записи
+        // остаются каждая своей строкой списка, классифицированы
+        // `ServerProxy` (никогда bit-perfect).
+        let devs = vec![
+            mock_device_id("hw:CARD=4,DEV=0", "ADI-2 DAC, USB Audio", 2, 48000, &[(2, 48000, 48000)]),
+            mock_device_id("pipewire", "PipeWire Sound Server", 2, 48000, &[(2, 44100, 48000)]),
+            mock_device_id(
+                "pipewire:NODE=alsa_output.usb-MOTU_M2-00.HiFi__Line__sink.3",
+                "Motu M2 (USB Audio)",
+                2,
+                48000,
+                &[(2, 44100, 192000)],
+            ),
+            mock_device_id(
+                "pipewire:NODE=bluez_output.AA_BB_CC_DD_EE_FF.1",
+                "Asus Xonar (Multichannel)",
+                2,
+                48000,
+                &[(2, 44100, 48000)],
+            ),
+        ];
+        let collapsed = collapse_to_system_default(devs, "Системное по умолчанию (PipeWire)", None);
+        assert_eq!(collapsed.len(), 3, "{collapsed:?}");
+        assert_eq!(collapsed[0].id, "pipewire");
+        assert_eq!(collapsed[0].name, "Системное по умолчанию (PipeWire)");
+        assert_eq!(collapsed[1].id, "pipewire:NODE=alsa_output.usb-MOTU_M2-00.HiFi__Line__sink.3");
+        assert_eq!(collapsed[1].name, "Motu M2 (USB Audio)");
+        assert_eq!(collapsed[1].category, DeviceCategory::ServerProxy);
+        assert_eq!(collapsed[2].id, "pipewire:NODE=bluez_output.AA_BB_CC_DD_EE_FF.1");
+        assert_eq!(collapsed[2].category, DeviceCategory::ServerProxy);
     }
 
     #[test]

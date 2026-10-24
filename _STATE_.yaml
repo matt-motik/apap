@@ -46,7 +46,7 @@ steps:
     done: true
   - id: 6
     description: "is_server_routed_pcm принимает форму pipewire:NODE=… как легитимный выход аудиосервера (src/audio/output.rs). Проверка: cargo test output::"
-    done: false
+    done: true
   - id: 7
     description: "Миграция пропавшего при загрузке настроек узла на SystemDefault с уведомлением Adjusted, тем же способом, что устаревшие hw:/plughw: (src/settings/playback_dto.rs). Проверка: cargo test playback_dto::"
     done: false
@@ -59,8 +59,8 @@ steps:
   - id: 10
     description: "ЧЕКПОИНТ финальный перед закрытием: полный cargo test + cargo clippy зелёные"
     done: false
-current_step: 6
-next_action: "is_server_routed_pcm принимает форму pipewire:NODE=… как легитимный выход аудиосервера (src/audio/output.rs). Проверка: cargo test output::"
+current_step: 7
+next_action: "Миграция пропавшего при загрузке настроек узла на SystemDefault с уведомлением Adjusted, тем же способом, что устаревшие hw:/plughw: (src/settings/playback_dto.rs). Проверка: cargo test playback_dto::"
 fail_counter: 0
 fail_counter_max: 3
 failed_attempts: []
