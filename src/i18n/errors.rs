@@ -17,6 +17,7 @@
 //! шаг 7 (строки перенесены байт-в-байт, без изменения содержания).
 
 use crate::audio::error::{CaptureFailure, CorruptKind, EngineFault};
+use crate::audio::session_build::{ExclusiveFeedError, ExclusiveRenderError};
 use crate::theme::ThemeError;
 
 use super::format_named;
@@ -128,6 +129,48 @@ pub fn exclusive_render_failed_text(detail: &str) -> String {
 /// `detail` — `Display` исходной ошибки (`{e}`).
 pub fn exclusive_feed_failed_text(detail: &str) -> String {
     format_named("источник декодера: {detail}", &[("detail", detail)])
+}
+
+/// Текст `Display` [`ExclusiveRenderError`] (`src/audio/session_build.rs`,
+/// §6.18 п. 3, T1.0-B8) — `detail`, подставляемый вызывающей стороной в
+/// [`exclusive_render_failed_text`] через `e.to_string()`.
+pub(crate) fn exclusive_render_error_text(err: &ExclusiveRenderError) -> String {
+    match err {
+        ExclusiveRenderError::UnsupportedFormat { format, kind } => {
+            let format = format!("{format:?}");
+            let kind = format!("{kind:?}");
+            format_named("формат {format} не поддержан рендером {kind}", &[("format", &format), ("kind", &kind)])
+        }
+        ExclusiveRenderError::RingMismatch { render, ring } => {
+            let render = format!("{render:?}");
+            let ring = format!("{ring:?}");
+            format_named("ring {ring} не совместим с рендером {render}", &[("ring", &ring), ("render", &render)])
+        }
+    }
+}
+
+/// Текст `Display` [`ExclusiveFeedError`] (`src/audio/session_build.rs`,
+/// §6.18 п. 4, T1.0-B8) — `detail`, подставляемый вызывающей стороной в
+/// [`exclusive_feed_failed_text`] через `e.to_string()`.
+pub(crate) fn exclusive_feed_error_text(err: &ExclusiveFeedError) -> String {
+    match err {
+        ExclusiveFeedError::SourceMismatch { expected_rate, expected_channels, got_rate, got_channels } => {
+            let got_rate = got_rate.to_string();
+            let got_channels = got_channels.to_string();
+            let expected_rate = expected_rate.to_string();
+            let expected_channels = expected_channels.to_string();
+            format_named(
+                "источник {got_rate} Гц × {got_channels} кан. не совпал с планом {expected_rate} Гц × {expected_channels} кан.",
+                &[
+                    ("got_rate", &got_rate),
+                    ("got_channels", &got_channels),
+                    ("expected_rate", &expected_rate),
+                    ("expected_channels", &expected_channels),
+                ],
+            )
+        }
+        ExclusiveFeedError::PayloadMismatch => "payload источника не совпал с payload ring плана".to_string(),
+    }
 }
 
 /// Текст отказа запуска потока декодера Эксклюзивного пути (§6.18 п. 5,
@@ -698,5 +741,35 @@ mod tests {
     #[test]
     fn exclusive_decode_spawn_failed_text_substitutes_detail() {
         assert_eq!(exclusive_decode_spawn_failed_text("Spawn(\"os error\")"), "поток декодера: Spawn(\"os error\")");
+    }
+
+    #[test]
+    fn exclusive_render_error_text_unsupported_format() {
+        use crate::audio::format::OutputSampleFormat;
+        use crate::audio::session_build::ExclusiveRenderKind;
+        let err =
+            ExclusiveRenderError::UnsupportedFormat { format: OutputSampleFormat::S16Le, kind: ExclusiveRenderKind::OptimalDop };
+        assert_eq!(exclusive_render_error_text(&err), "формат S16Le не поддержан рендером OptimalDop");
+    }
+
+    #[test]
+    fn exclusive_render_error_text_ring_mismatch() {
+        use crate::audio::session_build::{ExclusiveRenderKind, RingKind};
+        let err = ExclusiveRenderError::RingMismatch { render: ExclusiveRenderKind::StrictPcm, ring: RingKind::Float };
+        assert_eq!(exclusive_render_error_text(&err), "ring Float не совместим с рендером StrictPcm");
+    }
+
+    #[test]
+    fn exclusive_feed_error_text_source_mismatch() {
+        let err = ExclusiveFeedError::SourceMismatch { expected_rate: 44100, expected_channels: 2, got_rate: 48000, got_channels: 2 };
+        assert_eq!(exclusive_feed_error_text(&err), "источник 48000 Гц × 2 кан. не совпал с планом 44100 Гц × 2 кан.");
+    }
+
+    #[test]
+    fn exclusive_feed_error_text_payload_mismatch() {
+        assert_eq!(
+            exclusive_feed_error_text(&ExclusiveFeedError::PayloadMismatch),
+            "payload источника не совпал с payload ring плана"
+        );
     }
 }

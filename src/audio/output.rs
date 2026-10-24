@@ -977,8 +977,8 @@ fn collapse_to_system_default(
 #[cfg(target_os = "linux")]
 fn system_default_label() -> String {
     match crate::audio::reservation::dbus::active_server_name() {
-        Some(server) => format!("Системное по умолчанию ({server})"),
-        None => "Системное по умолчанию".to_owned(),
+        Some(server) => crate::i18n::audio::system_default_label_with_server(&server),
+        None => crate::i18n::audio::SYSTEM_DEFAULT_LABEL.to_owned(),
     }
 }
 
@@ -1328,7 +1328,7 @@ pub fn is_server_node(name: &str) -> bool {
     // сервера в скобках; старый суффикс
     // [`crate::i18n::audio::SERVER_NODE_SUFFIX`] здесь не нужен и не должен
     // задваиваться с этой подписью.
-    if name.starts_with("Системное по умолчанию") {
+    if name.starts_with(crate::i18n::audio::SYSTEM_DEFAULT_LABEL) {
         return false;
     }
     let n = name.to_ascii_lowercase();

@@ -58,13 +58,13 @@
 - [x] Шаг 17: src/app/fulltrack_manager.rs (4 строки — подписи «Спектрограмма»/«Осциллограмма» и причины отказа построения num_frames == 0) → src/i18n/messages.rs. Проверка: cargo check без ошибок. (Разбито из прежнего шага 17 WF1.0 §1: часть про src/theme.rs — шаг 21, ей нужны файлы вне исходного вайтлиста.)
 - [x] Шаг 21: src/theme.rs (2 строки — description тем «Системная тёмная/светлая тема» внутри DEFAULT_DARK_TOML/DEFAULT_LIGHT_TOML, используется в ui.set_theme_description) → src/i18n/messages.rs. Текст нельзя подставить в константу-литерал (`concat!` не принимает пути к `const`, проверено) — DEFAULT_DARK_TOML/DEFAULT_LIGHT_TOML становятся функциями default_dark_toml()/default_light_toml() -> String (format! с desc из i18n); правятся все вызовы по сигнатуре: src/theme.rs (свои), src/core/dialog.rs, src/app/mod.rs (и импорт DEFAULT_LIGHT_TOML), src/core/io.rs (тесты), src/core/testing.rs (тесты) — тексты тестов не меняются, только вызов без `&`/со `&`. Проверка: публичная сигнатура в нескольких модулях → полный cargo test (execution.md §3), а не только cargo check
 - [x] Шаг 18: ЧЕКПОИНТ: cargo test, cargo clippy, tools/check_rt_imports.py, tools/traceability_tool.py check — все зелёные
-- [>] **Шаг 19: src/audio/session_build.rs (2 строки — Display ошибок несовпадения формата/источника при построении сессии) + src/audio/output.rs (3 строки — «Системное по умолчанию ({server})»/«Системное по умолчанию»; строку-комментарий 634 НЕ трогать) → src/i18n/. Проверка: cargo check без ошибок**
-- [ ] Шаг 20: ЧЕКПОИНТ (финальный, перед закрытием задачи): полный cargo test + cargo clippy + tools/check_rt_imports.py + tools/traceability_tool.py check — все зелёные; выборочная сверка, что перенесённые строки байт-в-байт совпадают с прежними (diff литералов)
+- [x] Шаг 19: src/audio/session_build.rs (2 строки — Display ошибок несовпадения формата/источника при построении сессии) + src/audio/output.rs (3 строки — «Системное по умолчанию ({server})»/«Системное по умолчанию»; строку-комментарий 634 НЕ трогать) → src/i18n/. Проверка: cargo check без ошибок
+- [>] **Шаг 20: ЧЕКПОИНТ (финальный, перед закрытием задачи): полный cargo test + cargo clippy + tools/check_rt_imports.py + tools/traceability_tool.py check — все зелёные; выборочная сверка, что перенесённые строки байт-в-байт совпадают с прежними (diff литералов)**
 
 Легенда: [x] сделано · [>] текущий шаг · [ ] не начато
 
-- **Текущий шаг (current_step):** Шаг 19
-- **Следующий ход:** Шаг 19: src/audio/session_build.rs + src/audio/output.rs -> i18n
+- **Текущий шаг (current_step):** Шаг 20
+- **Следующий ход:** Шаг 20: финальный ЧЕКПОИНТ
 - **Счетчик безуспешных компиляций:** 0/3
 - **Состояние:** in_progress
 

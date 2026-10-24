@@ -272,14 +272,7 @@ pub(crate) enum ExclusiveRenderError {
 
 impl std::fmt::Display for ExclusiveRenderError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        match self {
-            ExclusiveRenderError::UnsupportedFormat { format, kind } => {
-                write!(f, "формат {format:?} не поддержан рендером {kind:?}")
-            }
-            ExclusiveRenderError::RingMismatch { render, ring } => {
-                write!(f, "ring {ring:?} не совместим с рендером {render:?}")
-            }
-        }
+        write!(f, "{}", crate::i18n::errors::exclusive_render_error_text(self))
     }
 }
 
@@ -399,20 +392,7 @@ pub(crate) enum ExclusiveFeedError {
 
 impl std::fmt::Display for ExclusiveFeedError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        match self {
-            ExclusiveFeedError::SourceMismatch {
-                expected_rate,
-                expected_channels,
-                got_rate,
-                got_channels,
-            } => write!(
-                f,
-                "источник {got_rate} Гц × {got_channels} кан. не совпал с планом {expected_rate} Гц × {expected_channels} кан."
-            ),
-            ExclusiveFeedError::PayloadMismatch => {
-                write!(f, "payload источника не совпал с payload ring плана")
-            }
-        }
+        write!(f, "{}", crate::i18n::errors::exclusive_feed_error_text(self))
     }
 }
 

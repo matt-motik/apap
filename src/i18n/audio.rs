@@ -173,6 +173,20 @@ pub const PATH_REC_FIX_LABEL: &str = "Исправить";
 /// `OpenSettings` (ТЗ-81, ТЗ-84, T1.0-B8, `src/app/mod.rs::path_rec_items`).
 pub const PATH_REC_OPEN_SETTINGS_LABEL: &str = "Открыть настройку";
 
+/// «Системное по умолчанию» — единственная запись списка Совместимого
+/// режима на Linux (ADR-07, AM1.0-B32, T1.0-B8, `system_default_label`,
+/// `src/audio/output.rs`): база лейбла, на которую [`is_server_node`]
+/// (`src/audio/output.rs`) проверяет `starts_with`, и которая дополняется
+/// именем определившегося активного аудиосервера в скобках
+/// ([`system_default_label_with_server`]).
+pub const SYSTEM_DEFAULT_LABEL: &str = "Системное по умолчанию";
+
+/// «Системное по умолчанию (<server>)» — [`SYSTEM_DEFAULT_LABEL`] с именем
+/// активного аудиосервера (ADR-07, AM1.0-B32, T1.0-B8, `system_default_label`).
+pub fn system_default_label_with_server(server: &str) -> String {
+    format_named("Системное по умолчанию ({server})", &[("server", server)])
+}
+
 #[cfg(test)]
 #[allow(clippy::unwrap_used, clippy::expect_used, clippy::unreachable)]
 mod tests {
@@ -283,5 +297,15 @@ mod tests {
     fn path_rec_labels_are_russian() {
         assert_eq!(PATH_REC_FIX_LABEL, "Исправить");
         assert_eq!(PATH_REC_OPEN_SETTINGS_LABEL, "Открыть настройку");
+    }
+
+    #[test]
+    fn system_default_label_is_russian() {
+        assert_eq!(SYSTEM_DEFAULT_LABEL, "Системное по умолчанию");
+    }
+
+    #[test]
+    fn system_default_label_with_server_substitutes_server() {
+        assert_eq!(system_default_label_with_server("PipeWire"), "Системное по умолчанию (PipeWire)");
     }
 }
