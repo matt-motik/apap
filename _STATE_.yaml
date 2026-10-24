@@ -191,15 +191,15 @@ steps:
       Финальный сквозной grep по ui/*.slint, src/app/*, tray, rfd на оставшийся английский
       пользовательский текст; найденное вне описи T1.0-B2 — новой B-строкой (⬜ открыто, без
       сессии), не молча.
-    done: false
+    done: true
   - id: 29
     description: >
       ЧЕКПОИНТ финальный: полный cargo test + cargo clippy + python tools/traceability_tool.py
       check зелёные; готовность к closing.md (ручная проверка пользователем — обрезка длинных
       русских подписей на всех экранах).
     done: false
-current_step: 28
-next_action: "Финальный сквозной grep по ui/*.slint, src/app/*, tray, rfd на оставшийся английский пользовательский текст; найденное вне описи T1.0-B2 — новой B-строкой (⬜ открыто, без сессии), не молча."
+current_step: 29
+next_action: "ЧЕКПОИНТ финальный: полный cargo test + cargo clippy + python tools/traceability_tool.py check зелёные; готовность к closing.md (ручная проверка пользователем — обрезка длинных русских подписей на всех экранах)."
 fail_counter: 0
 fail_counter_max: 3
 failed_attempts: []

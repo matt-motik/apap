@@ -56,15 +56,15 @@ export component AppWindow inherits Window {
     // окно сообщения или выбор файла.
     MenuBar {
         Menu {
-            title: "Файл";
+            title: @tr("Файл");
             MenuItem {
-                title: "Добавить файлы";
+                title: @tr("Добавить файлы");
                 enabled: !root.window-blocked;
                 activated => { root.add-files(); }
             }
 
             MenuItem {
-                title: "Добавить папку";
+                title: @tr("Добавить папку");
                 enabled: !root.window-blocked;
                 activated => { root.add-folder(); }
             }
@@ -73,13 +73,13 @@ export component AppWindow inherits Window {
 
             // Действия с плейлистом — в меню, не в диалоге настроек (ТЗ-34, ОВ-10).
             MenuItem {
-                title: "Удалить выделенный трек";
+                title: @tr("Удалить выделенный трек");
                 enabled: !root.window-blocked;
                 activated => { root.menu-remove-selected(playlist_view_width.selected-row); }
             }
 
             MenuItem {
-                title: "Очистить плейлист";
+                title: @tr("Очистить плейлист");
                 enabled: !root.window-blocked;
                 activated => { root.menu-clear-playlist(); }
             }
@@ -87,13 +87,13 @@ export component AppWindow inherits Window {
             MenuSeparator { }
 
             MenuItem {
-                title: "Сохранить плейлист";
+                title: @tr("Сохранить плейлист");
                 enabled: !root.window-blocked;
                 activated => { root.save-playlist(); }
             }
 
             MenuItem {
-                title: "Загрузить плейлист";
+                title: @tr("Загрузить плейлист");
                 enabled: !root.window-blocked;
                 activated => { root.load-playlist(); }
             }
@@ -103,37 +103,37 @@ export component AppWindow inherits Window {
             // Выход из программы (§6.10, ТЗ-14): путь выхода напрямую, без
             // сворачивания в трей по настройке закрытия окна (SP1.0-B17).
             MenuItem {
-                title: "Выход";
+                title: @tr("Выход");
                 enabled: !root.window-blocked;
                 activated => { root.menu-quit(); }
             }
         }
 
         Menu {
-            title: "Визуализация";
+            title: @tr("Визуализация");
             MenuItem {
-                title: "Отключена";
+                title: @tr("Отключена");
                 checked: root.settings-viz-mode == 0;
                 enabled: !root.window-blocked;
                 activated => { root.menu-select-viz(0); }
             }
 
             MenuItem {
-                title: "Осциллограмма";
+                title: @tr("Осциллограмма");
                 checked: root.settings-viz-mode == 1;
                 enabled: !root.window-blocked;
                 activated => { root.menu-select-viz(1); }
             }
 
             MenuItem {
-                title: "Спектрограмма";
+                title: @tr("Спектрограмма");
                 checked: root.settings-viz-mode == 2;
                 enabled: !root.window-blocked;
                 activated => { root.menu-select-viz(2); }
             }
 
             MenuItem {
-                title: "Анализатор спектра";
+                title: @tr("Анализатор спектра");
                 checked: root.settings-viz-mode == 3;
                 enabled: !root.window-blocked;
                 activated => { root.menu-select-viz(3); }
@@ -141,9 +141,9 @@ export component AppWindow inherits Window {
         }
 
         Menu {
-            title: "Настройки";
+            title: @tr("Настройки");
             MenuItem {
-                title: "Параметры";
+                title: @tr("Параметры");
                 enabled: !root.window-blocked;
                 activated => { root.open-settings(); }
             }
@@ -151,7 +151,7 @@ export component AppWindow inherits Window {
             MenuSeparator { }
 
             MenuItem {
-                title: "О программе";
+                title: @tr("О программе");
                 enabled: !root.window-blocked;
                 activated => { root.show-about(); }
             }
@@ -759,21 +759,21 @@ export component AppWindow inherits Window {
                                 }
 
                                 if stage.changes != "": Text {
-                                    text: "Изменения: " + stage.changes;
+                                    text: @tr("Изменения: {}", stage.changes);
                                     color: Colors.text-secondary;
                                     font-size: 11px;
                                     wrap: word-wrap;
                                 }
 
                                 if stage.causes != "": Text {
-                                    text: "Причины: " + stage.causes;
+                                    text: @tr("Причины: {}", stage.causes);
                                     color: Colors.text-secondary;
                                     font-size: 11px;
                                     wrap: word-wrap;
                                 }
 
                                 if stage.confidence != "": Text {
-                                    text: "Достоверность: " + stage.confidence;
+                                    text: @tr("Достоверность: {}", stage.confidence);
                                     color: Colors.text-tertiary;
                                     font-size: 11px;
                                     wrap: word-wrap;
@@ -791,7 +791,7 @@ export component AppWindow inherits Window {
                         if root.path-recs-player.length > 0: VerticalLayout {
                             spacing: 4px;
                             Text {
-                                text: "Настройки плеера";
+                                text: @tr("Настройки плеера");
                                 color: Colors.text-tertiary;
                                 font-size: 12px;
                             }
@@ -817,7 +817,7 @@ export component AppWindow inherits Window {
                         if root.path-recs-os.length > 0: VerticalLayout {
                             spacing: 4px;
                             Text {
-                                text: "Система";
+                                text: @tr("Система");
                                 color: Colors.text-tertiary;
                                 font-size: 12px;
                             }
@@ -843,7 +843,7 @@ export component AppWindow inherits Window {
                         if root.path-recs-hardware.length > 0: VerticalLayout {
                             spacing: 4px;
                             Text {
-                                text: "Оборудование";
+                                text: @tr("Оборудование");
                                 color: Colors.text-tertiary;
                                 font-size: 12px;
                             }
@@ -884,7 +884,7 @@ export component AppWindow inherits Window {
                 }
 
                 Button {
-                    text: "Копировать отчёт";
+                    text: @tr("Копировать отчёт");
                     preferred-height: 28px;
                     clicked => {
                         path_copy_input.select-all();
@@ -894,13 +894,13 @@ export component AppWindow inherits Window {
                 }
 
                 Button {
-                    text: "Настройки аудио";
+                    text: @tr("Настройки аудио");
                     preferred-height: 28px;
                     clicked => { root.bp-report-open-settings(); }
                 }
 
                 Button {
-                    text: "Закрыть";
+                    text: @tr("Закрыть");
                     preferred-height: 28px;
                     clicked => { root.bp-report-close(); }
                 }
