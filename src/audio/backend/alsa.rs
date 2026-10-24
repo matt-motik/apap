@@ -13,7 +13,7 @@ use smallvec::SmallVec;
 
 use super::alsa_out;
 use super::busy_owner::busy_owner;
-use super::catalog::HwDeviceInfo;
+use super::catalog::{hw_device_label, HwDeviceInfo};
 use super::exclusive::{
     ClaimInfo, ClaimJob, ConfigureError, DeviceClaim, ExclusiveBackend, ExclusiveRender, PcmHandle, StartError,
     StreamHandle,
@@ -87,12 +87,17 @@ impl AlsaExclusiveBackend {
     }
 
     /// Перечисление карт ALSA и их PCM-устройств воспроизведения (§6.6,
-    /// ADR-24, ТЗ-143): id строится по стабильному `CARD=<id>`, а не по
-    /// номеру карты, который может смениться после переподключения
-    /// (ТЗ-126). Отказ `card::Iter` — сбой перечисления целиком; отказ
-    /// отдельной карты (`Ctl`, `CardInfo`) или устройства без потока
-    /// воспроизведения — карта/устройство пропускаются, перечисление
-    /// продолжается остальными картами.
+    /// ADR-24, ТЗ-76, ТЗ-143, AM1.0-B31): id строится по стабильному
+    /// `CARD=<id>`, а не по номеру карты, который может смениться после
+    /// переподключения (ТЗ-126). Отказ `card::Iter` — сбой перечисления
+    /// целиком; отказ отдельной карты (`Ctl`, `CardInfo`) или устройства без
+    /// потока воспроизведения — карта/устройство пропускаются, перечисление
+    /// продолжается остальными картами. `name` — подпись «Карта (вариант)»
+    /// (`hw_device_label`, `src/audio/backend/catalog.rs`): `card_info.get_name()`
+    /// (то же имя, что `aplay -l` показывает в квадратных скобках перед
+    /// PCM) как имя карты, `pcm_info.get_name()` как вариант — а не голый
+    /// вариант, как было до AM1.0-B31 (у MOTU M2/Cayin RU3 это общее
+    /// «USB Audio», у Asus Xonar — «Multichannel»/«Digital» без карты).
     pub fn enumerate(&mut self) -> Result<Vec<HwDeviceInfo>, BackendError> {
         let mut out = Vec::new();
         for card in alsa::card::Iter::new() {
@@ -102,6 +107,7 @@ impl AlsaExclusiveBackend {
             let Ok(card_info) = ctl.card_info() else { continue };
             let Ok(card_id) = card_info.get_id() else { continue };
             let card_id = card_id.to_string();
+            let card_name = card_info.get_name().unwrap_or_default().to_string();
 
             for device in alsa::ctl::DeviceIter::new(&ctl) {
                 let Ok(device_index) = u32::try_from(device) else { continue };
@@ -109,7 +115,8 @@ impl AlsaExclusiveBackend {
                     continue;
                 };
                 let Some(id) = build_hw_id(&card_id, device_index) else { continue };
-                let name = pcm_info.get_name().unwrap_or_default().to_string();
+                let pcm_name = pcm_info.get_name().unwrap_or_default();
+                let name = hw_device_label(&card_name, pcm_name);
                 out.push(HwDeviceInfo { id, card: card_index, device: device_index, name });
             }
         }

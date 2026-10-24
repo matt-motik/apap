@@ -9,6 +9,30 @@ use super::{BackendError, HwDeviceId, SharedDeviceId, SharedDeviceInfo};
 use crate::audio::reservation::SinkCard;
 use std::sync::{Arc, Mutex};
 
+/// Человекочитаемая подпись аппаратного устройства «Карта (вариант)»
+/// (§6.6, ADR-24, ТЗ-76, ТЗ-143, AM1.0-B31): `card_name` — имя карты ALSA
+/// (`card_info().get_name()` — тот же текст, что `aplay -l` показывает в
+/// квадратных скобках перед именем PCM), `pcm_name` — имя PCM-потока
+/// воспроизведения (`pcm_info().get_name()`). До этого бага подпись
+/// каталога была голым `pcm_name` («USB Audio» у MOTU M2 и Cayin RU3 —
+/// общее имя ALSA-варианта PCM, не имя карты; «Multichannel»/«Digital» у
+/// Asus Xonar — без карты неотличимо от того же варианта другой карты).
+/// Формат фиксированный — даже когда у карты единственный PCM с именем,
+/// совпадающим с именем карты, или общим именем вроде «PCM»: единообразная
+/// форма важнее краткости, иначе список вперемешку показывает то «Карта»,
+/// то «Карта (вариант)», а дедупликация одинаковых подписей
+/// (`hw_device_pairs_and_selected`, `src/app/ui_manager.rs`) получает
+/// особый случай. Пустое имя карты или PCM (ALSA отказала в имени) —
+/// вырожденный случай: отдаёт то, что есть, без пустых скобок.
+pub fn hw_device_label(card_name: &str, pcm_name: &str) -> String {
+    match (card_name.trim(), pcm_name.trim()) {
+        ("", "") => String::new(),
+        ("", pcm) => pcm.to_string(),
+        (card, "") => card.to_string(),
+        (card, pcm) => format!("{card} ({pcm})"),
+    }
+}
+
 /// Устройство ALSA Exclusive-перечисления на момент обновления каталога
 /// (§2.3, ADR-24, ТЗ-143): стабильный `HwDeviceId`, номера карты и устройства
 /// ALSA на момент перечисления и человекочитаемое имя.
@@ -208,6 +232,42 @@ mod tests {
     use crate::audio::backend::shared::{fake_device, FakeSharedBackend};
     use crate::audio::testing::FakeExclusiveBackend;
     use std::sync::atomic::{AtomicUsize, Ordering};
+
+    #[test]
+    fn hw_device_label_motu_m2() {
+        assert_eq!(hw_device_label("Motu M2", "USB Audio"), "Motu M2 (USB Audio)");
+    }
+
+    #[test]
+    fn hw_device_label_cayin_ru3() {
+        assert_eq!(hw_device_label("Cayin RU3", "USB Audio"), "Cayin RU3 (USB Audio)");
+    }
+
+    #[test]
+    fn hw_device_label_xonar_multichannel_and_digital() {
+        assert_eq!(hw_device_label("Asus Xonar", "Multichannel"), "Asus Xonar (Multichannel)");
+        assert_eq!(hw_device_label("Asus Xonar", "Digital"), "Asus Xonar (Digital)");
+    }
+
+    /// Карта с единственным PCM, чьё имя совпадает с именем карты, — формат
+    /// остаётся «Карта (вариант)» (единообразие важнее краткости, см.
+    /// doc-комментарий `hw_device_label`); дубликаты одинаковой подписи у
+    /// разных карт разрешает `hw_device_pairs_and_selected`
+    /// (`src/app/ui_manager.rs`) добавлением id — не эта функция.
+    #[test]
+    fn hw_device_label_pcm_name_equals_card_name_still_parenthesized() {
+        assert_eq!(hw_device_label("PCH", "PCH"), "PCH (PCH)");
+    }
+
+    #[test]
+    fn hw_device_label_empty_pcm_name_falls_back_to_card_name() {
+        assert_eq!(hw_device_label("Realtek", ""), "Realtek");
+    }
+
+    #[test]
+    fn hw_device_label_empty_card_name_falls_back_to_pcm_name() {
+        assert_eq!(hw_device_label("", "USB Audio"), "USB Audio");
+    }
 
     #[test]
     fn catalog_refresh_bumps_generation_only_on_change() {
